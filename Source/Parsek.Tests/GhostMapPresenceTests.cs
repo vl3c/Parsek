@@ -2695,7 +2695,7 @@ namespace Parsek.Tests
             var rec = BuildRelativeFrameRecording(
                 anchorRecordingId: "anchor-rec",
                 pointDz: 0.5,
-                pointSpeed: 0.2);
+                pointSpeed: 540.0);
 
             int mapCached = -1;
             var source = GhostMapPresence.ResolveMapPresenceGhostSource(
@@ -2756,18 +2756,19 @@ namespace Parsek.Tests
             // Relative-frame points — the threshold is meaningful only for
             // Absolute-frame points where altitude is geographic. Pin the
             // joint behaviour: an Absolute-frame point with the same numeric
-            // altitude/speed would fail ShouldCreateStateVectorOrbit; the
+            // altitude would fail ShouldCreateStateVectorOrbit; the
             // Relative-frame point must still produce StateVector because
-            // the threshold check is bypassed for that branch.
+            // the altitude floor is bypassed for that branch (the speed
+            // floor is not: 540 m/s is a Mun-orbit docking approach).
             var rec = BuildRelativeFrameRecording(
                 anchorRecordingId: "anchor-rec",
                 pointDz: 0.5,
-                pointSpeed: 0.2);
+                pointSpeed: 540.0);
 
             // Sanity: the same numbers as an Absolute-frame state-vector
             // recording would fall under the airless-body create threshold
             // (alt > 1500 && speed > 60).
-            Assert.False(GhostMapPresence.ShouldCreateStateVectorOrbit(0.5, 0.2, 0));
+            Assert.False(GhostMapPresence.ShouldCreateStateVectorOrbit(0.5, 540.0, 0));
 
             int mapCached = -1;
             var source = GhostMapPresence.ResolveMapPresenceGhostSource(
@@ -2784,6 +2785,76 @@ namespace Parsek.Tests
 
             Assert.Equal(GhostMapPresence.TrackingStationGhostSource.StateVector, source);
             Assert.Null(skipReason);
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_RelativeFrame_NearZeroSpeed_SkipsWithStateVectorThreshold()
+        {
+            // RL-1 (2026-11-01 nightly): a loop ghost parked beside its landed anchor
+            // records ~0 m/s. Seeding an orbit from that state vector gives a degenerate
+            // conic with NaN elements, stock removes the ghost's orbit driver and every
+            // later update logs update-state-vector-miss reason=no-orbit-driver at ERROR.
+            // The speed floor is frame-independent, so the Relative branch keeps it.
+            var rec = BuildRelativeFrameRecording(
+                anchorRecordingId: "anchor-rec",
+                pointDz: 0.0,
+                pointSpeed: 0.0);
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                200,
+                false,
+                "test-rel-parked",
+                ref mapCached,
+                out _,
+                out _,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSkipStateVectorThreshold, skipReason);
+            Assert.Contains(logLines,
+                l => l.Contains("[GhostMap]")
+                    && l.Contains("test-rel-parked")
+                    && l.Contains("reason=" + GhostMapPresence.TrackingStationGhostSkipStateVectorThreshold));
+        }
+
+        [Theory]
+        [InlineData(0.0, false)]
+        [InlineData(60.0, false)]
+        [InlineData(60.5, true)]
+        [InlineData(2920.0, true)]
+        public void ShouldCreateStateVectorOrbitForFrame_Relative_IgnoresDzKeepsSpeedFloor(
+            double speed, bool expected)
+        {
+            // dz -0.31 would fail the geographic altitude floor; only the speed decides.
+            Assert.Equal(expected, GhostMapPresence.ShouldCreateStateVectorOrbitForFrame(
+                inRelativeFrame: true, altitude: -0.31, speed: speed, atmosphereDepth: 0));
+        }
+
+        [Fact]
+        public void ShouldCreateStateVectorOrbitForFrame_Absolute_IsTheGeographicThreshold()
+        {
+            Assert.False(GhostMapPresence.ShouldCreateStateVectorOrbitForFrame(
+                inRelativeFrame: false, altitude: -0.31, speed: 2920.0, atmosphereDepth: 0));
+            Assert.True(GhostMapPresence.ShouldCreateStateVectorOrbitForFrame(
+                inRelativeFrame: false, altitude: 80000.0, speed: 2000.0, atmosphereDepth: 70000.0));
+        }
+
+        [Theory]
+        [InlineData(0.0, true)]
+        [InlineData(29.9, true)]
+        [InlineData(30.0, false)]
+        [InlineData(45.0, false)]
+        public void ShouldRemoveStateVectorOrbitForFrame_Relative_KeepsSpeedFloorWithHysteresis(
+            double speed, bool expected)
+        {
+            // Remove below 30, create above 60: a Relative ghost between the two keeps
+            // whatever it has, so a docking approach slowing through 45 m/s does not churn.
+            Assert.Equal(expected, GhostMapPresence.ShouldRemoveStateVectorOrbitForFrame(
+                inRelativeFrame: true, altitude: -0.31, speed: speed, atmosphereDepth: 0));
         }
 
         [Fact]
@@ -2863,7 +2934,7 @@ namespace Parsek.Tests
             var rec = BuildRelativeFrameRecording(
                 anchorRecordingId: "anchor-rec",
                 pointDz: 0.5,
-                pointSpeed: 0.2);
+                pointSpeed: 540.0);
             // Add an unrelated orbit segment far before the Relative section
             // so HasOrbitSegments=true but it doesn't cover currentUT.
             rec.OrbitSegments = new List<OrbitSegment>

@@ -771,6 +771,34 @@ namespace Parsek.Tests
             Assert.False(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1000.0f, false));
         }
 
+        [Fact]
+        public void ShouldRunMapOrbitReseed_ClockJumped_RunsAt1x()
+        {
+            // V18T (2026-11-01 nightly): a TimeJump at 1x left the applied orbit stale until the
+            // 0.5 s timer, and the stale-segment guard blanked the line for 5 frames.
+            Assert.True(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1.0f, false, clockJumped: true));
+            Assert.False(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1.0f, false, clockJumped: false));
+        }
+
+        [Theory]
+        [InlineData(36139.491, 38600.000, 1.0f, true)]   // the V18T TimeJump
+        [InlineData(38600.000, 36139.491, 1.0f, true)]   // a jump back (a load, a rewind)
+        [InlineData(100.00, 100.02, 1.0f, false)]        // an ordinary 1x frame
+        [InlineData(100.00, 100.90, 0.5f, false)]        // a slow frame, still under a second
+        [InlineData(100.00, 5000.0, 1000.0f, false)]     // warp: the head-left scan owns it
+        public void IsMapClockDiscontinuity_DetectsOnly1xJumps(
+            double previousUT, double currentUT, float warpRate, bool expected)
+        {
+            Assert.Equal(expected,
+                ParsekPlaybackPolicy.IsMapClockDiscontinuity(previousUT, currentUT, warpRate));
+        }
+
+        [Fact]
+        public void IsMapClockDiscontinuity_FirstPassNeverJumps()
+        {
+            Assert.False(ParsekPlaybackPolicy.IsMapClockDiscontinuity(double.NaN, 38600.0, 1.0f));
+        }
+
         // -----------------------------------------------------------------
         // Warp-scaled reseed cadence (the 2026-06-12 reseed-lag icon jumps at 344x-1000x): the
         // REAL-time reseed interval shrinks under warp so one tick never spans more than

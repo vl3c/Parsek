@@ -32,6 +32,13 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Revert to Launch no longer records over a committed flight.** After reverting, a vessel that
+  already has a committed recording later on the timeline stays unrecorded instead of resuming
+  that recording from the past, which left it with a doubled track. (REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END)
+- **No broken map orbit for a parked looping ghost.** A looped ghost sitting still beside a landed
+  vessel no longer gets a map orbit stock rejects as invalid. (MAP-ORBIT-FROM-PARKED-RELATIVE-GHOST)
+- **Ghost orbit lines stay lit across a time jump.** After a jump at normal speed the map updates
+  every ghost orbit at once instead of hiding a line for a moment. (MAP-LINE-BLINKS-ACROSS-A-1X-TIME-JUMP)
 - **A strategy you cancel right after starting it stays cancelled.** Deactivating a strategy at
   the same moment it was activated was undone by the next recalculation, which turned it back on.
   The two now keep the order you made them in. (STRATEGY-SAME-UT-DEACTIVATE-UNDONE)
