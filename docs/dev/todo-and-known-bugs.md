@@ -17,6 +17,54 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ISOLATED-BATCH-LEAVES-RECORDING-SIDECARS: an isolated in-game batch leaves the recording files it created on disk after its restore~~ [FILED 2026-11-01 from the overnight regression run (H62-coalescer-isolated `_0802`, H68-autorecord-orbiting `_0807`, H70-autorecord-pad-crew `_0810`: `recordings.count` counts `.prec` files while saveParse reads 0 recordings); owner ruling 2026-11-01 "if unused, delete"; FIXED 2026-11-01, branch `claude/project-thread-axuakt`; LIVE-PROVEN 2026-11-01 on the branch head: H62 / H68 / H70 PASS, each logging `removed batch-created recording sidecars` (deleted=7 / 10 / 10, failed=0); test harness, low]
+
+`InGameTestRunner.RestoreBatchBaselineWithRecovery` swaps `Parsek/` back to the batch-start
+snapshot and reloads the baseline, but a test's pending tree can flush its sidecars after the
+swap, and the restore's Cold load drops the tree from memory only (the save-scoped reset keeps
+files). `ParsekFileCollector` refuses to reap when the save names zero recordings (the guard
+stays), so the files outlived the batch.
+
+**Fix.** `CleanupBatchFlightBaselineSave` (InMemoryAndDisk teardown) first runs
+`RemoveBatchCreatedRecordingSidecars`: top-level files of `Parsek/Recordings` absent from the
+batch-start snapshot, parsed as a recording sidecar, and not named by memory
+(`ParsekFileCollector.BuildMemoryReferences`) are deleted; one Info summary line
+(`Batch baseline: removed batch-created recording sidecars deleted=N ...`). The pure selection is
+`SelectBatchCreatedRecordingSidecars`. Tests: `BatchCreatedSidecarCleanupTests`. The collector
+guard is unchanged.
+
+## ~~STRATEGY-SAME-UT-DEACTIVATE-UNDONE: a strategy deactivated at the same UT it was activated is switched back on by the next recalculation~~ [FILED 2026-11-01 from the overnight regression run (L3-strategy-currency-conversion and L3-strategy-exchanger-floor, run `2026-11-01_0855`, deterministic); FIXED 2026-11-01, branch `claude/project-thread-axuakt`; LIVE-PROVEN 2026-11-01 on the branch head: both L3 lanes PASS, every `PatchStrategies` summary `no change activated=0 deactivated=0`; product, low (both rows at one exact UT)]
+
+`StrategyCommittedRows` (the committed-rows lookup behind the state patch, the `Strategy.Update()`
+prefix and the activation gate) ordered a same-UT pair deactivation first by design, so the state
+after the tie read on. Since the 2026-10-24 patcher change (921c4b05e / 0d4959b68)
+`StrategyStatePatcher.ResolveLedgerActiveAtNow` reads "the latest row at or before now" from it
+instead of the walk's state, so a stock Deactivate made at the same UT as its Activate (L3's cell:
+`Deactivate: strategyId='AppreciationCampaignCfg' ut=0.3`, then `PatchStrategies: activated=1`)
+was undone; on 2026-10-22 the patcher used the walk, which orders the pair by capture sequence.
+
+**Fix.** The rows sort in the walk's order: UT, then `RecalculationEngine.CompareSameUtTie`
+(capture sequence, then the per-writer sequence; an unsequenced row first), and only a pair the tie
+key cannot order falls back to deactivation first (the ambiguous case still leaves the strategy
+on). `CommittedFutureIndex.StrategyRows` passes each entry's tie key, and
+`StrategyReservationPredicates.FirstFutureRow` uses the same order, so the hover and the patch
+agree. Deactivate-then-Activate at one UT stays on. Tests: `StrategyExpiryReplayTests`
+(`Rows_SameUt_*`, `ResolveLedgerActiveAtNow_SameUtActivateThenDeactivate_Off`,
+`FirstFutureRow_SameUt_FollowsCaptureOrder`).
+
+## ~~TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS: a commit-time trim can leave a recording section whose end is before its start~~ [FILED 2026-11-01 from the overnight regression run (B13-mun-landing, run `2026-11-01_0234`, analyzer INV1-UT-MONOTONIC, 2 FAILs; timing-dependent, the last green had the same shape); FIXED 2026-11-01, branch `claude/project-thread-axuakt`; unit-tested; B13 re-flown 2026-11-01 PASS with no INV1 finding, but that flight never reached the drop path (0 `pre-start seed frames` lines), so the fix itself is proven by unit tests only; product, low (an inverted section in a committed recording; playback clamps it)]
+
+A save (`FlightRecorder.CheckpointOpenTrackSectionForSerialization`) closes the open section at
+the save UT and opens a continuation seeded with the previous sample, up to one sampling gap
+earlier (23132.69 seeding a section opened at 23135.27). When the commit-time tail trim (or an
+optimizer split) cut between the save UT and the next sample, `TryTrimTrackSectionPayload` kept
+only that seed and re-derived the section's end from it: endUT 23132.69 before startUT 23135.27.
+
+**Fix.** A section whose kept frames all precede its own start is dropped (the seed is the
+previous section's last sample, so nothing is lost), with a Verbose `[Optimizer] TrimTrackSection:
+dropped a section with only pre-start seed frames left` line. A seam frame stamped at the start
+still keeps a zero-length section. Tests: `TrackSectionTrimSeedTests`.
+
 ## ~~EXIT-TO-MAIN-MENU-ASKS: leaving flight for the main menu still opens the merge dialog under auto-merge~~ [FILED 2026-11-01 from the merge-dialog analysis (thread "Remove merge dialogs when leaving flight", doc https://claude.ai/artifact/XJtw36F8Xm8xnn7LMyvSaj), owner rulings 2026-11-01 ("leave flight - commit, yes; but it depends on the situation"; the Re-Fly exit dialog stays, "that one has to be a manual decision"); main-menu commit FIXED 2026-11-01 (PR #2358); no-save rule FIXED 2026-11-01 (owner pick "Follow the save"), branch `claude/project-thread-1ma84a`; xUnit, lane owed; product, low (one dialog click)]
 
 **Symptom.** Every exit from flight commits silently under auto-merge except two: the main menu

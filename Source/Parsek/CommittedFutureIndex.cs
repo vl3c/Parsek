@@ -560,19 +560,23 @@ namespace Parsek
             {
                 StrategyCommittedRows rows;
                 if (strategyRows.TryGetValue(strategyId, out rows)) return rows;
-                rows = new StrategyCommittedRows(
-                    UTsOf(EntriesOf(CommittedFutureKind.StrategyActivate, strategyId)),
-                    UTsOf(EntriesOf(CommittedFutureKind.StrategyDeactivate, strategyId)));
+                var all = new List<StrategyCommittedRows.Row>();
+                AddStrategyRows(all, EntriesOf(CommittedFutureKind.StrategyActivate, strategyId), true);
+                AddStrategyRows(all, EntriesOf(CommittedFutureKind.StrategyDeactivate, strategyId), false);
+                rows = new StrategyCommittedRows(all);
                 strategyRows[strategyId] = rows;
                 return rows;
             }
         }
 
-        private static List<double> UTsOf(List<CommittedFutureEntry> entries)
+        /// <summary>Appends one kind's entries with the walk's same-UT tie key, so a
+        /// Deactivate captured after its Activate at one UT reads after it.</summary>
+        private static void AddStrategyRows(
+            List<StrategyCommittedRows.Row> into, List<CommittedFutureEntry> entries, bool isActivation)
         {
-            var result = new List<double>(entries.Count);
-            for (int i = 0; i < entries.Count; i++) result.Add(entries[i].UT);
-            return result;
+            for (int i = 0; i < entries.Count; i++)
+                into.Add(new StrategyCommittedRows.Row(
+                    entries[i].UT, isActivation, entries[i].CaptureSequence, entries[i].Sequence));
         }
 
         /// <summary>Every committed row of this kind still ahead of

@@ -84,10 +84,13 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: ContractCompleted '[^']+' \\(funds=[0-9.]+, rep=[0-9.]+, sci=[0-9.]+, completed by no flight, filed untagged\\)",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] clock cause scope: ground station submit value=[0-9.]+ scopeSeen=True claimingRecorderSeen=False completed=True state=Completed eventFound=True eventTag='' ledgerRow=True rowTag='' scopeAfter=False",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] clock cause scope: cleanup seamsRestored=True ",
-  # The contract's own science reward fires first in this cell and clears the award's
-  # ScienceChanged capture (first flight 2026-10-25_0945); the award takes the reason
-  # from the open submission and pairs with stock's VesselRecovery event.
-  "\\[Parsek\\]\\[VERBOSE\\]\\[GameStateRecorder\\] OnScienceReceived: deployed-experiment subject 'deployedSeismicSensor@KerbinSrfLanded' had no ScienceChanged capture left to match; reason taken from the open ground-station submission \\('VesselRecovery'\\)",
+  # The contract's own science reward fires first in this cell (first flight
+  # 2026-10-25_0945). Since 5bca5d39a (RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE) that
+  # credit KEEPS the award's ScienceChanged capture rather than clearing it, so the award
+  # pairs with stock's VesselRecovery event through the capture itself (re-pinned from
+  # overnight 2026-11-01_0549, line 10940; the old open-submission fallback line no longer
+  # fires there).
+  "\\[Parsek\\]\\[VERBOSE\\]\\[GameStateRecorder\\] ScienceChanged \\+[0-9.]+ \\(ContractReward\\) kept the pending subject capture key='VesselRecovery' delta=[0-9.]+ for its OnScienceReceived callback",
   "Science subject captured: deployedSeismicSensor@KerbinSrfLanded amount=[0-9.]+ increment=[0-9.]+ total=[0-9.]+ gainMultiplier=[0-9.]+ reason='VesselRecovery' ut=[0-9.]+ tag='' deployed=True directLedger=True",
 ]
 forbidden = [

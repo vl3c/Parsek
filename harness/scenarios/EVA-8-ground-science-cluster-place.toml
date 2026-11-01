@@ -154,8 +154,11 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # The fixture's nine, plus the kerbal (the rewindable root), plus five placed members:
-# Central Station, RTG, seismometer (picked up), Go-ob, seismometer (re-placed).
-count = { min = 15, max = 15 }
+# Central Station, RTG, seismometer (picked up), Go-ob, seismometer (re-placed), plus,
+# since e8700c0e0 (cargo moved between a recorded EVA kerbal and a foreign vessel), the
+# Kerbal X the takes come out of, which joins the tree as a foreign-transfer member
+# (overnight 2026-11-01_0640: `Foreign inventory transfer: vessel joined the tree`, 16).
+count = { min = 16, max = 16 }
 
 [expectations.logContracts]
 required = [
@@ -200,7 +203,9 @@ required = [
   "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*FinalizeTreeRecordings: rec='\\1' vessel='[^'\\r\\n]*' points=[0-9]+ orbitSegs=0 terminal=Landed [^\\r\\n]*leaf=True",
   "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*FinalizeTreeRecordings: rec='\\1' vessel='[^'\\r\\n]*' points=[0-9]+ orbitSegs=0 terminal=Landed [^\\r\\n]*leaf=True",
   "evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*FinalizeTreeRecordings: rec='\\1' vessel='[^'\\r\\n]*' points=[0-9]+ orbitSegs=0 terminal=Landed [^\\r\\n]*leaf=True",
-  "MISSIONMARK label=eva8-commit-count-15(?:\\s|$)",
+  # The lander joins the tree on the first take (e8700c0e0; `_0640` line 12039).
+  "Foreign inventory transfer: vessel joined the tree vesselPid=2708531065 name='Kerbal X' rec=[0-9a-f]{32} parentRec=[0-9a-f]{32} ",
+  "MISSIONMARK label=eva8-commit-count-16(?:\\s|$)",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

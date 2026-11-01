@@ -131,7 +131,7 @@ required = [
 
   # THE FIX LINE (a). Tree A's hold on Jeb (its root, Aboard) is bounded by tree B's root,
   # which recorded the capsule itself; tree and child tied to the Always-tree line.
-  "(?s)Always-tree: created single-node tree id=([0-9a-f]{32}), root=([0-9a-f]{32}), vessel=[^\\r\\n]*?\\(pid=2708531065\\).*?\\[KerbalsModule\\] Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording '28b6e543d67c4d1c9e4763b451c01df5' \\(Aboard\\) endUT=[0-9.]+ tree='\\1' child='\\2' pid=2708531065",
+  "(?s)Always-tree: created single-node tree id=([0-9a-f]{32}), root=([0-9a-f]{32}), vessel=[^\\r\\n]*?\\(pid=2708531065\\).*?\\[KerbalsModule\\] Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording '[0-9a-f]{32}' \\(Aboard\\) endUT=[0-9.]+ tree='\\1' child='\\2' pid=2708531065",
 
   # (b) B's root hands Jeb to his EVA at the split (GUESS: Unknown, no terminal state), and
   # the EVA reads him Recovered.
@@ -142,7 +142,7 @@ required = [
   # releases him. Before the fix his hold stayed INDEFINITE and this line never printed.
   "(?s)MISSIONMARK label=cx5-recover-before .*?\\[KerbalsModule\\] Reservation released: 'Jebediah Kerman' endUT=[0-9.]+ nowUT=[0-9.]+ \\(the clock has reached the Recovered flight's end - the kerbal is free again\\)",
   # The cold reload's walk re-derives the bounded hold from disk (finite).
-  "(?s)MISSIONMARK label=cx5-before-reload .*?\\[KerbalsModule\\] Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording '28b6e543d67c4d1c9e4763b451c01df5' \\(Aboard\\) .*?MISSIONMARK label=cx5-reloaded ",
+  "(?s)MISSIONMARK label=cx5-before-reload .*?\\[KerbalsModule\\] Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording '[0-9a-f]{32}' \\(Aboard\\) .*?MISSIONMARK label=cx5-reloaded ",
   "MISSIONMARK label=cx5-reloaded ",
 ]
 forbidden = [
@@ -169,9 +169,16 @@ forbidden = [
   # Jeb is never read lost.
   "Death hold: 'Jebediah Kerman'",
   "InferCrewEndState: crew='Jebediah Kerman'[^\\r\\n]*-> Dead",
-  # PREMISE: no crew-close row owned by tree A's root. One would mean the recovered vessel
+  # PREMISE: no crew-close row owned by tree A. One would mean the recovered vessel
   # continued tree A and closed the hold by the pre-fix path, so the lane would prove nothing.
+  # Tree A's root may be split by the commit's optimizer (434ea07c9 era: Jeb's rows retag
+  # from 28b6e543... to a fresh second half, then again; overnight 2026-11-01), so the
+  # literal root id alone went blind: the second row forbids a close owned by whichever
+  # tree-A recording the bound line names as holding Jeb's Aboard row.
   "Crew reservation closed by recovery: 'Jebediah Kerman' [^\\r\\n]*recordingId=28b6e543d67c4d1c9e4763b451c01df5",
+  # Anchored on the one-time boot mark and stopped at the FIRST bound line (a tempered
+  # token), so a green run costs one scan however many walks print the bound line.
+  "(?s)MISSIONMARK label=cx5-boot-clean (?:(?!Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording ').)*Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording '([0-9a-f]{32})' \\(Aboard\\).*?Crew reservation closed by recovery: 'Jebediah Kerman' [^\\r\\n]*recordingId=\\1(?![0-9a-f])",
 ]
 
 [runtime]
