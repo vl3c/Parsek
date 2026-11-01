@@ -31,8 +31,8 @@ id = "SLM-1-standalone-loop-map-position"
 # THE FLIGHT. Warp to UT 4355 (run 2, 300 s in), enter map view, run the cell: the ghost
 # exists on the recorded orbit, shift 4000 s.
 #
-# NEVER FLOWN at authoring time (2026-10-31): the batch pin is interim (`total=1` literal,
-# the split regexed) until the first flight.
+# LIVE-PROVEN 2026-11-01_0034 PASS attempt 1 (105 s, DLL e2b15cdb, main d1b76c5b7; angleDeg=0.000 radiusErrM=0, 15.4 deg from the live clock); the batch
+# pin is whole from that flight.
 # FIRST FLIGHTS RED (2026-10-31_2335 / _2337 / _2339): the preset then had ONE point, and
 # the engine loops nothing below two (ShouldLoopPlayback), so the seam read the live UT.
 # Fixture defect, fixed; the cell now asserts the engine loops the recording first.
@@ -75,7 +75,7 @@ count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 required = [
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=StandaloneLoopMap scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=StandaloneLoopMap scene=FLIGHT",
   "\\[TestRunner\\] StandaloneLoopMap \\(FLIGHT\\) PASS: phase=replay cycle=1 .* shift=4000\\.0 mapGhost=yes ",
 ]
 forbidden = [

@@ -91,7 +91,7 @@ never wrote it, so after any save and load the row fell back to the terminal-sta
 and reads it back (absent reads null, the old fallback). Additive key, no schema generation bump.
 Tests: `Parsek.Tests.SaveRoundTrip.RecordingSaveRoundTripTests`, `RecordingTreeSaveRoundTripTests`.
 
-## ~~RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP: a flight looped from the Recordings tab replays in flight and at the Space Center but not on the map or in the Tracking Station~~ [FILED 2026-10-31 from the test gap audit (`roadmap/test-gap-audit-2026-10-31.md` A1, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, lane owed; product, medium (a looped flight's map icon is missing or sits on its final orbit)]
+## ~~RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP: a flight looped from the Recordings tab replays in flight and at the Space Center but not on the map or in the Tracking Station~~ [FILED 2026-10-31 from the test gap audit (`roadmap/test-gap-audit-2026-10-31.md` A1, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296` (PR #2342); LIVE-PROVEN 2026-11-01 by SLM-1 / SLM-2 / SLM-1T; product, medium (a looped flight's map icon is missing or sits on its final orbit)]
 
 Every map consumer (flight map ProtoVessels, the Tracking Station create / refresh / startup
 passes, the map and TS markers, the polyline head, the MapRender chain sampler) resolves its sample
@@ -127,6 +127,10 @@ trajectory point, and `GhostPlaybackEngine.ShouldLoopPlayback` loops nothing bel
 the mesh nor the seam looped it and every read was the live UT. The preset now carries an end point
 on the orbit (`StandaloneLoopMapFixtureTests.TheEngineLoopsIt_TwoPointsOnTheOrbit`, red with the
 point removed), and the in-game cell asserts the engine loops the recording before it checks the map.
+Re-flown on main d1b76c5b7 (automation DLL e2b15cdb), each PASS attempt 1: SLM-1 `2026-11-01_0034` (flight
+map, cycle 1: the map ghost 0.000 deg and 0 m off the recorded orbit at the loop clock's UT, 15.4 deg
+from where the live clock would put it), SLM-2 `2026-11-01_0036` (the pause: no map ghost), SLM-1T
+`2026-11-01_0037` (Tracking Station, cycle 2: 0.000 deg, 0 m, 30.8 deg from the live clock).
 
 ## ~~ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER: on a re-aim route whose last leg lands or docks, cargo is delivered on the raw loop clock while the ghost's descent is re-timed~~ [FILED 2026-10-31 from the test gap audit (A2, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, not flown; product, medium (cargo arrives days away from the rendered touchdown)]
 
