@@ -9051,6 +9051,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - `Recording` is plain data again (knot 584 -> 535, no longer a cut): `GhostVisible` reads
   `Recording.GhostHiddenRule`, installed by `LaunchSiteOnlyGhost` (and the `RecordingStore`
   type initialiser), and `DeepClone` copies the three sidecar hashes inline.
+- `GameAction`'s two real knot calls moved out (pure move, golden codec test pins the bytes):
+  the `cseq` key and parse to the leaf `CaptureSequenceCodec`, the per-load legacy-id and
+  deadline tallies from `Ledger` to the nested `GameAction.LoadTally`. Its remaining knot
+  edges (`CaptureSequence`, `ConversionCause`, `FundsEarningSource`, `ReputationSource`) are
+  scanner false positives: same-named fields, and the enum member `Milestone` read as a type.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
