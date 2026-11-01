@@ -12,6 +12,9 @@ id = "EVA-10-mun-ground-science-cluster"
 # the Mun cluster, Jeb and the lander come back after a rewind with the player elsewhere.
 # Counts move 17 -> 18 and recordings=6 -> 7 (the lander's member). PASS `2026-10-22_1909`
 # attempt 1. The FLIGHT reload notes below describe the old shape.
+# 2026-11-01: since 6a82ae064 the rewind's save keeps the adopted lander (held, drawn by the
+# hold ghost), so it writes `vessels=1`; re-pinned with the keep and hold lines from the
+# overnight run `2026-11-01_0601` (every other row matched there).
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
@@ -267,8 +270,13 @@ required = [
   # the Space Center (ParsekKSC.IsKscStructurallyEligible admits only Kerbin-first
   # recordings): the reload / spawned read-backs and the FLIGHT sibling exemptions follow.
   "MISSIONMARK label=eva10-commit-count-18(?:\\s|$)",
-  # The rewind lands in its own save's world, which the lander (replayed) is not in.
-  "rewind game written to persistent\\.sfs [^\\r\\n]*vessels=0 ",
+  # Since 6a82ae064 the rewind keeps the cross-tree adopted lander in its save as
+  # committed history (strip scope: nothing that replays after the rewind re-produces it)
+  # and holds it for its committed future, so the hold ghost can draw it: one vessel, held
+  # (re-pinned from overnight 2026-11-01_0601, lines 24761 / 24782 / 24961).
+  "Rewind strip scope: keep spawned pid=2708531065 of 'Kerbal X' \\(id=[0-9a-f]{32}\\) as committed history",
+  "rewind game written to persistent\\.sfs [^\\r\\n]*vessels=1 ",
+  "\\[RewindHold\\] Rewind held vessel for its committed future: pid=2708531065 ",
   "launchfromeditor complete scene=FLIGHT ",
   # Right after the rewind no member is spawned yet (the rewind's lead beats every EndUT).
   "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-rewound-count-18-[^\\r\\n]*-\\1-false(?:-|\\s)",

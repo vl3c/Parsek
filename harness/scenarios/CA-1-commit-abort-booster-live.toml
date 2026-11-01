@@ -103,7 +103,10 @@ steps = [
   # The impact lands near UT 50 (separation ~UT 31 on GS-1 / RF-1 flights); the
   # booster, still at 442 m at UT ~110 on RF-1, is down well before UT 400. About 350
   # game-seconds at a 2x cap is about 175 real seconds, inside the 540 s budget.
-  { cmd = "WarpToUT",   args = { ut = "400", maxRate = "2", ladder = "phys" }, expect = "OK", budget = 540 },
+  # Target 401, one second past the commit pin's UT >= 400 bar: WarpToUT may stop short
+  # of its target inside its tolerance (overnight 2026-11-01_0529 committed at 399.9 on
+  # a target of 400 and red only the commit-UT row).
+  { cmd = "WarpToUT",   args = { ut = "401", maxRate = "2", ladder = "phys" }, expect = "OK", budget = 540 },
   { cmd = "StopRecording",                                               expect = "OK" },
   { cmd = "CommitTree",                                                  expect = "OK" },
   { cmd = "FlushAndQuit",                                                expect = "OK" },

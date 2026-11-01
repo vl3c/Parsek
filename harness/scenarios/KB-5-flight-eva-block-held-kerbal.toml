@@ -61,7 +61,11 @@ steps = [
   { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "kb5-rover" }, expect = "OK" },
 
-  # (a) the switch onto the pad craft carrying Jeb
+  # (a) the switch onto the pad craft carrying Jeb. The boot (UT 409.56) lands the rover
+  # still settling on the runway, and stock refuses a switch off a moving vessel
+  # ("Active Vessel is moving (sqrVel = 0.2757...). Cannot save.", overnight
+  # 2026-11-01_0841 and 2026-10-22 attempt 1), so wait a few real seconds first.
+  { cmd = "WarpToUT", args = { ut = "414", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "SimulateStockSwitchClick", args = { pid = "1846203977" }, expect = "OK", budget = 120 },
   { cmd = "CaptureScreenshot", args = { label = "kb5-padcraft" }, expect = "OK" },
   # The IVA portrait hover (report-only).
