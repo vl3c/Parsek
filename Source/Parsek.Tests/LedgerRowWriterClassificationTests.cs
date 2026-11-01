@@ -38,27 +38,27 @@ namespace Parsek.Tests
             {
                 // A recording commit files the rows converted from the stock game-state events
                 // its flight produced: stock paid them during the flight.
-                ["GameActions/LedgerOrchestrator.cs::FileRecordingCommitRows"] = new[] { Stock },
+                ["GameActions/LedgerOrchestrator.Commit.cs::FileRecordingCommitRows"] = new[] { Stock },
                 // KSC spending (part purchase, facility, hire): stock already charged it.
-                ["GameActions/LedgerOrchestrator.cs::TryAddKscSpendingAction"] = new[] { Stock },
+                ["GameActions/LedgerOrchestrator.LiveEvents.cs::TryAddKscSpendingAction"] = new[] { Stock },
                 // A strategy currency exchange stock already made.
-                ["GameActions/LedgerOrchestrator.cs::OnStrategyCurrencyConversion"] = new[] { Stock },
+                ["GameActions/LedgerOrchestrator.LiveEvents.cs::OnStrategyCurrencyConversion"] = new[] { Stock },
                 // Income under a reason no channel converts (cheat menu, a mission, a mod's own
                 // reason): stock already paid it to the live pool.
-                ["GameActions/LedgerOrchestrator.cs::OnLiveOnlyIncome"] = new[] { Stock },
+                ["GameActions/LedgerOrchestrator.LiveEvents.cs::OnLiveOnlyIncome"] = new[] { Stock },
                 // An ordinary Discard, and a discarded restore attempt's tails, keep awards stock
                 // already paid during the discarded flight (review case N1: not authoritative, stock-applied).
-                ["GameActions/LedgerOrchestrator.cs::AppendRehomedDirectActions"] = new[] { Stock },
+                ["GameActions/LedgerOrchestrator.LiveEvents.cs::AppendRehomedDirectActions"] = new[] { Stock },
                 // KSC science (a recovery / transmission credit) stock already credited.
-                ["GameActions/LedgerOrchestrator.cs::TryRecordKscScienceSubject"] = new[] { Stock },
+                ["GameActions/LedgerOrchestrator.LiveEvents.cs::TryRecordKscScienceSubject"] = new[] { Stock },
                 // Recovery crew experience (no pool), filed with the recovery stock made.
-                ["GameActions/LedgerOrchestrator.cs::TryRecordRecoveryKerbalExperience"] = new[] { Stock },
+                ["GameActions/LedgerOrchestrator.Recovery.cs::TryRecordRecoveryKerbalExperience"] = new[] { Stock },
                 // A real vessel's crew recovery and the vessel recovery's funds: stock paid them.
-                ["GameActions/LedgerOrchestrator.cs::OnRealVesselCrewRecovered"] = new[] { Stock },
-                ["GameActions/LedgerOrchestrator.cs::OnRealVesselRecovered"] = new[] { Stock },
+                ["GameActions/LedgerOrchestrator.Recovery.cs::OnRealVesselCrewRecovered"] = new[] { Stock },
+                ["GameActions/LedgerOrchestrator.Recovery.cs::OnRealVesselRecovered"] = new[] { Stock },
                 // A retired Re-Fly provisional's awards: "the walk would patch the career below
                 // what KSP already paid".
-                ["GameActions/LedgerOrchestrator.cs::FileRetiredReFlyProvisionalRows"] = new[] { Stock },
+                ["GameActions/LedgerOrchestrator.Commit.cs::FileRetiredReFlyProvisionalRows"] = new[] { Stock },
                 // The measured stock pool leak: a change stock already made to the pool.
                 ["GameActions/KspStatePatcher.PoolGuards.cs::FileStockPoolAdjustment"] = new[] { Stock },
                 // The rollout charge stock made at launch.

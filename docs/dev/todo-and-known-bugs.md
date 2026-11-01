@@ -9068,6 +9068,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `.Tech` (955), `.Unlocks` (788), `.FundsReputation` (324), `.PoolGuards` (622),
   `.RewindReadback` (252), `.Milestones` (895), `.Contracts` (783), `.ContractParameters`
   (609) and `.ContractRemoval` (790).
+- `LedgerOrchestrator` split into partial-class files (rule S3, pure move by
+  `scripts/refactor/split_ledgerorchestrator.py`; every static field stays in the main file):
+  `LedgerOrchestrator.cs` 600 lines, `.Commit.cs` 1279, `.CommitRows.cs` 974,
+  `.EarningsReconcile.cs` 1188, `.Recalculate.cs` 1511, `.Seeds.cs` 1286, `.Persistence.cs`
+  927, `.LiveEvents.cs` 1514, `.Recovery.cs` 1271, `.Affordability.cs` 781.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

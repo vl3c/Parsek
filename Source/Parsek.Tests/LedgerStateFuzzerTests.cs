@@ -193,7 +193,7 @@ namespace Parsek.Tests
         [Fact]
         public void ModuleRegistration_MirrorsProductionTierOrder()
         {
-            string source = ReadParsekSource("GameActions/LedgerOrchestrator.cs");
+            string source = LedgerOrchestratorSource.ReadAll();
 
             var actual = new List<string>();
             foreach (var rawLine in source.Split('\n'))
@@ -1176,16 +1176,6 @@ namespace Parsek.Tests
                 return parsed;
             }
             return DefaultIterations;
-        }
-
-        private static string ReadParsekSource(string relPath)
-        {
-            string root = Path.GetFullPath(Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(
-                root, "Source", "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
-            Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
         }
     }
 }

@@ -27,6 +27,17 @@ Source/Parsek/ParsekScenario.RevertLedgerSnapshot.cs
 # --- Ledger owner + orchestration internals ---
 Source/Parsek/GameActions/Ledger.cs
 Source/Parsek/GameActions/LedgerOrchestrator.cs
+# The LedgerOrchestrator.<Area>.cs files are the partial-class split of
+# LedgerOrchestrator.cs (members moved verbatim): same trust scope as the main file.
+Source/Parsek/GameActions/LedgerOrchestrator.Affordability.cs
+Source/Parsek/GameActions/LedgerOrchestrator.Commit.cs
+Source/Parsek/GameActions/LedgerOrchestrator.CommitRows.cs
+Source/Parsek/GameActions/LedgerOrchestrator.EarningsReconcile.cs
+Source/Parsek/GameActions/LedgerOrchestrator.LiveEvents.cs
+Source/Parsek/GameActions/LedgerOrchestrator.Persistence.cs
+Source/Parsek/GameActions/LedgerOrchestrator.Recalculate.cs
+Source/Parsek/GameActions/LedgerOrchestrator.Recovery.cs
+Source/Parsek/GameActions/LedgerOrchestrator.Seeds.cs
 Source/Parsek/GameActions/LedgerLoadMigration.cs
 # [ERS-exempt] the capture-order allocator takes the next value above every row the ledger
 # physically holds (tombstoned and superseded rows included), so no number is ever reissued.
