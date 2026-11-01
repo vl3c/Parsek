@@ -9048,6 +9048,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Atlas findings and opportunities re-read (`atlas.toml`, `reviewed = "2026-11-01"`). The
   regenerated page is published at https://claude.ai/artifact/6uSBEKzHEtBHaK5t7bFxjm; the
   link above keeps the 2026-09-22 page. Without graphviz `dot` on PATH the page has no map.
+- `GameAction`'s two real knot calls moved out (pure move, golden codec test pins the bytes):
+  the `cseq` key and parse to the leaf `CaptureSequenceCodec`, the per-load legacy-id and
+  deadline tallies from `Ledger` to the nested `GameAction.LoadTally`. Its remaining knot
+  edges (`CaptureSequence`, `ConversionCause`, `FundsEarningSource`, `ReputationSource`) are
+  scanner false positives: same-named fields, and the enum member `Milestone` read as a type.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

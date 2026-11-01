@@ -95,16 +95,9 @@ namespace Parsek
             unchecked { StateVersion++; }
         }
 
-        // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
-        // one-shot legacy ActionId migration log. Bumped from GameAction.DeserializeFrom
-        // whenever a legacy action without `actionId` gets a deterministic rehydrated id.
-        internal static int LegacyActionIdMigrationCount;
+        // Rewind-to-Staging Phase 1 (design section 9): one-shot latch for the legacy
+        // ActionId migration log. The counter it reports is GameAction.LoadTally's.
         private static bool legacyActionIdMigrationLogEmitted;
-
-        internal static void BumpLegacyActionIdMigrationCounterForTesting()
-        {
-            LegacyActionIdMigrationCount++;
-        }
 
         /// <summary>
         /// Emits the one-shot <c>[Ledger] Assigned deterministic ActionIds to N legacy actions</c>
@@ -113,60 +106,29 @@ namespace Parsek
         internal static void EmitLegacyActionIdMigrationLogOnce()
         {
             if (legacyActionIdMigrationLogEmitted) return;
-            if (LegacyActionIdMigrationCount <= 0) return;
+            if (GameAction.LoadTally.LegacyActionIdMigrationCount <= 0) return;
             ParsekLog.Info("Ledger",
-                $"Assigned deterministic ActionIds to {LegacyActionIdMigrationCount} legacy actions");
+                $"Assigned deterministic ActionIds to {GameAction.LoadTally.LegacyActionIdMigrationCount} legacy actions");
             legacyActionIdMigrationLogEmitted = true;
         }
 
         internal static void ResetLegacyActionIdMigrationForTesting()
         {
-            LegacyActionIdMigrationCount = 0;
+            GameAction.LoadTally.LegacyActionIdMigrationCount = 0;
             legacyActionIdMigrationLogEmitted = false;
         }
 
-        // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: per-load batch counters for the
-        // ContractAccept deadline migration. Bumped from GameAction.DeserializeFrom (via
-        // DeserializeContractAccept) for every ContractAccept row read, and reported as
-        // ONE summary line per LoadFromFile - the batch-counting convention, and the same
-        // shape as the legacy-ActionId migration above. Reset at the top of each load
-        // rather than latched once per process, because a session can load several
-        // careers and each one's migration decision is worth its own line.
-        internal static int ContractDeadlineAbsoluteCount;
-        internal static int ContractDeadlineMigratedCount;
-        internal static int ContractDeadlineAbsentCount;
-        internal static int ContractDeadlineUnparseableCount;
-
-        /// <summary>
-        /// Records one ContractAccept deadline resolution into the per-load tally.
-        /// </summary>
-        internal static void NoteContractDeadlineResolution(
-            GameAction.ContractDeadlineResolution resolution)
-        {
-            switch (resolution)
-            {
-                case GameAction.ContractDeadlineResolution.Absolute:
-                    ContractDeadlineAbsoluteCount++;
-                    break;
-                case GameAction.ContractDeadlineResolution.MigratedFromDuration:
-                    ContractDeadlineMigratedCount++;
-                    break;
-                case GameAction.ContractDeadlineResolution.Unparseable:
-                    ContractDeadlineUnparseableCount++;
-                    break;
-                default:
-                    ContractDeadlineAbsentCount++;
-                    break;
-            }
-        }
+        // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: the per-load ContractAccept deadline
+        // tally lives on GameAction.LoadTally (the GAME_ACTION read feeds it); the ledger
+        // resets it at the top of each load and prints it as ONE summary line per load.
 
         /// <summary>Clears the per-load ContractAccept deadline migration tally.</summary>
         internal static void ResetContractDeadlineMigrationTally()
         {
-            ContractDeadlineAbsoluteCount = 0;
-            ContractDeadlineMigratedCount = 0;
-            ContractDeadlineAbsentCount = 0;
-            ContractDeadlineUnparseableCount = 0;
+            GameAction.LoadTally.ContractDeadlineAbsoluteCount = 0;
+            GameAction.LoadTally.ContractDeadlineMigratedCount = 0;
+            GameAction.LoadTally.ContractDeadlineAbsentCount = 0;
+            GameAction.LoadTally.ContractDeadlineUnparseableCount = 0;
         }
 
         /// <summary>
@@ -178,12 +140,12 @@ namespace Parsek
         {
             string line =
                 $"ContractAccept deadline resolution for '{path}': " +
-                $"absolute={ContractDeadlineAbsoluteCount.ToString(CultureInfo.InvariantCulture)}, " +
-                $"migratedFromDuration={ContractDeadlineMigratedCount.ToString(CultureInfo.InvariantCulture)}, " +
-                $"noDeadline={ContractDeadlineAbsentCount.ToString(CultureInfo.InvariantCulture)}, " +
-                $"unparseable={ContractDeadlineUnparseableCount.ToString(CultureInfo.InvariantCulture)}";
+                $"absolute={GameAction.LoadTally.ContractDeadlineAbsoluteCount.ToString(CultureInfo.InvariantCulture)}, " +
+                $"migratedFromDuration={GameAction.LoadTally.ContractDeadlineMigratedCount.ToString(CultureInfo.InvariantCulture)}, " +
+                $"noDeadline={GameAction.LoadTally.ContractDeadlineAbsentCount.ToString(CultureInfo.InvariantCulture)}, " +
+                $"unparseable={GameAction.LoadTally.ContractDeadlineUnparseableCount.ToString(CultureInfo.InvariantCulture)}";
 
-            if (ContractDeadlineMigratedCount > 0 || ContractDeadlineUnparseableCount > 0)
+            if (GameAction.LoadTally.ContractDeadlineMigratedCount > 0 || GameAction.LoadTally.ContractDeadlineUnparseableCount > 0)
                 ParsekLog.Info("Ledger", line);
             else
                 ParsekLog.Verbose("Ledger", line);
