@@ -12,6 +12,7 @@ namespace Parsek.Tests
     /// itself, a stop that lands in the wrong phase, an id the in-game cell cannot find) reds
     /// here instead of costing a KSP boot.
     /// </summary>
+    [Collection("Sequential")]
     public class StandaloneLoopMapFixtureTests
     {
         // The three lanes' WarpToUT stops (harness/scenarios/SLM-*.toml).
@@ -49,6 +50,41 @@ namespace Parsek.Tests
             Assert.Equal(StandaloneLoopMapFixture.LoopPeriodSeconds, period, 6);
             Assert.False(GhostPlaybackLogic.IsOverlapLoop(period, duration));
             Assert.True(b.GetStartUT() > StandaloneLoopMapFixture.HostSaveUT);
+        }
+
+        [Fact]
+        public void TheEngineLoopsIt_TwoPointsOnTheOrbit()
+        {
+            // GhostPlaybackEngine.ShouldLoopPlayback needs two points: with one, neither the mesh
+            // nor the map seam loops, and the first SLM flights all read the live UT.
+            ConfigNode[] pts = Build().Build().GetNodes("POINT");
+            Assert.True(pts.Length >= 2, "points=" + pts.Length);
+            Assert.Equal(2, pts.Length);
+            var rec = new Recording
+            {
+                RecordingId = StandaloneLoopMapFixture.RecordingId,
+                LoopPlayback = true,
+                LoopIntervalSeconds = StandaloneLoopMapFixture.LoopPeriodSeconds,
+            };
+            RecordingStore.DeserializeTrajectoryFrom(Build().BuildTrajectoryNode(), rec);
+            Assert.Equal(2, rec.Points.Count);
+            Assert.True(GhostPlaybackEngine.ShouldLoopPlayback(rec));
+
+            // Both points sit on the recorded orbit (equator, its altitude, its surface longitude).
+            double alt = StandaloneLoopMapFixture.SemiMajorAxisMeters - SyntheticRecordingTests.KerbinRadiusMeters;
+            foreach (ConfigNode pt in pts)
+            {
+                Assert.Equal(0.0, double.Parse(pt.GetValue("lat"), CultureInfo.InvariantCulture), 9);
+                Assert.Equal(alt, double.Parse(pt.GetValue("alt"), CultureInfo.InvariantCulture), 3);
+            }
+            double t0 = Build().GetStartUT();
+            double lan = SyntheticRecordingTests.GhostCommNetKscLanAt(t0);
+            Assert.Equal(SyntheticRecordingTests.GhostCommNetKscLon,
+                double.Parse(pts[0].GetValue("lon"), CultureInfo.InvariantCulture), 6);
+            Assert.Equal(StandaloneLoopMapFixture.EndSurfaceLongitudeDeg(lan, t0 + StandaloneLoopMapFixture.DurationSeconds),
+                double.Parse(pts[1].GetValue("lon"), CultureInfo.InvariantCulture), 6);
+            Assert.Equal(t0 + StandaloneLoopMapFixture.DurationSeconds,
+                double.Parse(pts[1].GetValue("ut"), CultureInfo.InvariantCulture), 6);
         }
 
         [Fact]

@@ -92,6 +92,9 @@ namespace Parsek.InGameTests
 
             InGameAssert.IsTrue(rec.LoopPlayback,
                 "the preset recording lost its loop flag at load (not loopable?)");
+            InGameAssert.IsTrue(GhostPlaybackEngine.ShouldLoopPlayback(rec),
+                "the flight engine does not loop the preset recording (" + (rec.Points?.Count ?? 0)
+                + " points), so neither the mesh nor the map replays it: a fixture defect, not a map one");
             InGameAssert.IsFalse(units.IsMember(idx),
                 "the preset recording is a Mission loop-unit member, so it no longer tests the standalone clock");
 
