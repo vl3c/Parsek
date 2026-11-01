@@ -9073,6 +9073,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `LedgerOrchestrator.cs` 600 lines, `.Commit.cs` 1279, `.CommitRows.cs` 974,
   `.EarningsReconcile.cs` 1188, `.Recalculate.cs` 1511, `.Seeds.cs` 1286, `.Persistence.cs`
   927, `.LiveEvents.cs` 1514, `.Recovery.cs` 1271, `.Affordability.cs` 781.
+- `GhostPlaybackEngine` (9,327-line main file) split further into partial-class files (rule
+  S3, pure move by `scripts/refactor/split_ghostplaybackengine.py`; every field, event,
+  property, constant and the constructor stay in the main file): `GhostPlaybackEngine.cs`
+  1494 lines, `.InRangeRender.cs` 748, `.LoopUnits.cs` 1357, `.LoopPlayback.cs` 1603,
+  `.Completion.cs` 611, `.SectionPositioning.cs` 700, `.ReentryFx.cs` 481, `.GhostVisuals.cs`
+  635, `.SpawnDestroy.cs` 933, `.Diagnostics.cs` 882.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

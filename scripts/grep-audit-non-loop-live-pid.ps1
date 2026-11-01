@@ -9,6 +9,9 @@ $ErrorActionPreference = "Stop"
 # covers the deleted active-Re-Fly anchor-PID shadow resolver under its
 # original AbsoluteShadow name and under the BodyFixedPrimary vocabulary the
 # rest of the code was renamed to.
+# GhostPlaybackEngine is a partial class: its row is repeated for each
+# GhostPlaybackEngine.<Area>.cs file the main file was split into, so a member
+# moved out of the main file stays under the same gate.
 # The managed fallback in Source/Parsek.Tests/GrepAuditNonLoopLivePidTests.cs
 # must carry byte-identical Path / Pattern / Label rows and match them
 # case-insensitively, as Select-String does here;
@@ -21,6 +24,51 @@ $checks = @(
     },
     @{
         Path = "Source/Parsek/GhostPlaybackEngine.cs"
+        Pattern = "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid"
+        Label = "engine live-anchor appearance diagnostics"
+    },
+    @{
+        Path = "Source/Parsek/GhostPlaybackEngine.Completion.cs"
+        Pattern = "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid"
+        Label = "engine live-anchor appearance diagnostics"
+    },
+    @{
+        Path = "Source/Parsek/GhostPlaybackEngine.Diagnostics.cs"
+        Pattern = "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid"
+        Label = "engine live-anchor appearance diagnostics"
+    },
+    @{
+        Path = "Source/Parsek/GhostPlaybackEngine.GhostVisuals.cs"
+        Pattern = "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid"
+        Label = "engine live-anchor appearance diagnostics"
+    },
+    @{
+        Path = "Source/Parsek/GhostPlaybackEngine.InRangeRender.cs"
+        Pattern = "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid"
+        Label = "engine live-anchor appearance diagnostics"
+    },
+    @{
+        Path = "Source/Parsek/GhostPlaybackEngine.LoopPlayback.cs"
+        Pattern = "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid"
+        Label = "engine live-anchor appearance diagnostics"
+    },
+    @{
+        Path = "Source/Parsek/GhostPlaybackEngine.LoopUnits.cs"
+        Pattern = "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid"
+        Label = "engine live-anchor appearance diagnostics"
+    },
+    @{
+        Path = "Source/Parsek/GhostPlaybackEngine.ReentryFx.cs"
+        Pattern = "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid"
+        Label = "engine live-anchor appearance diagnostics"
+    },
+    @{
+        Path = "Source/Parsek/GhostPlaybackEngine.SectionPositioning.cs"
+        Pattern = "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid"
+        Label = "engine live-anchor appearance diagnostics"
+    },
+    @{
+        Path = "Source/Parsek/GhostPlaybackEngine.SpawnDestroy.cs"
         Pattern = "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid"
         Label = "engine live-anchor appearance diagnostics"
     },

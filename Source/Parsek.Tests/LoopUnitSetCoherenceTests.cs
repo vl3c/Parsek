@@ -38,6 +38,17 @@ namespace Parsek.Tests
             return File.ReadAllText(path);
         }
 
+        // The engine is a partial class over GhostPlaybackEngine.cs and its
+        // GhostPlaybackEngine.<Area>.cs files; the gates read all of them as one text.
+        private static string ReadEngineSource()
+        {
+            string path = Path.Combine(ProjectRoot, "Source", "Parsek", "GhostPlaybackEngine.cs");
+            if (!File.Exists(path))
+                path = Path.Combine(ProjectRoot, "Parsek", "GhostPlaybackEngine.cs");
+            Assert.True(File.Exists(path), $"Source file not found at {path}");
+            return GhostPlaybackEngineSourceFiles.ReadAll(Path.GetDirectoryName(path));
+        }
+
         [Fact]
         public void ParsekFlight_PushesItsCachedSetIntoTheEngine_AndExposesTheSameField()
         {
@@ -53,7 +64,7 @@ namespace Parsek.Tests
         [Fact]
         public void Engine_StoresTheReference_AndNeverBuildsItsOwnSet()
         {
-            string source = ReadSource("Source", "Parsek", "GhostPlaybackEngine.cs");
+            string source = ReadEngineSource();
 
             // SetLoopUnits stores the caller's reference (no copy, no re-derivation)...
             Assert.Contains("currentLoopUnits = units ?? GhostPlaybackLogic.LoopUnitSet.Empty;", source);
@@ -99,7 +110,7 @@ namespace Parsek.Tests
             Assert.Contains("internal static bool ShouldHideNonDescentMemberForDescentHandoff(", spanClock);
             Assert.Contains("bool hideForDescentHandoff = ShouldHideNonDescentMemberForDescentHandoff(", spanClock);
 
-            string engine = ReadSource("Source", "Parsek", "GhostPlaybackEngine.cs");
+            string engine = ReadEngineSource();
             Assert.Contains("GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(", engine);
         }
 
@@ -112,7 +123,7 @@ namespace Parsek.Tests
             // flipping decision off Render, which the clamp gates on - the resolver's order), and (c)
             // actually FORCE the hide. A reorder or a dropped assignment keeps every pure test green, so
             // pin the ordering by source position inside UpdateUnitMemberPlayback.
-            string engine = ReadSource("Source", "Parsek", "GhostPlaybackEngine.cs");
+            string engine = ReadEngineSource();
 
             int descentOverride = engine.IndexOf(
                 "GhostPlaybackLogic.ResolveDescentMemberEngineRender(", StringComparison.Ordinal);
