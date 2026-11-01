@@ -190,6 +190,12 @@ id = "RW-3-save-reload-takeback"
 #     tree, not H.
 #   - recordings 36: something recorded after H (an auto-record setting the reload reset).
 #
+# RE-PIN 2026-11-01: the take-back's `loadedUT=` and the cold load's `maxUT=` moved from the wound-back
+# clock (~185785) to the rewind save's own UT (~185800.4) when dcee3f7 (2026-10-28 16:18Z, the
+# Rewind-to-Launch lead window's rows held as reached, LedgerHeldWindow) landed after this lane's
+# only green flight; the nightly-thread flights 2026-11-01_0114 / _0133 read 185800.38 / 185800.44
+# and missed only those two rows. Both now pin 1858xx. Not re-flown on the new pin.
+#
 # STATUS: LIVE-PROVEN 2026-10-28 on its first flight, `2026-10-28_0916` PASS attempt 1 (DLL b50fbc5d, main e1ea512 plus the revert-cutoff fix). After the Rewind-to-Launch
 # the pool held at 154614.18 (cutoff 185785.2); the cold player load read `Loaded take-back facts
 # from 'GAME_STATE/LEDGER': era=177 breaks=1 badBreaks=0`; crossing the committed rows applied the
@@ -347,7 +353,7 @@ required = [
   "MISSIONMARK label=rw3-future-recovered ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT ",
   "MISSIONMARK label=rw3-future-recovered ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind ",
   "invokerewindtolaunch invoking tree=[0-9a-f]{32} rec=[0-9a-f]{32} startUT=1858[0-9]{2}\\.[0-9] - plain Rewind-to-Launch \\(NOT a Re-Fly\\)",
-  "MISSIONMARK label=rw3-future-recovered ut=[\\s\\S]*?\\[TakeBack\\] Timeline break recorded: kind=PlainRewind loadedUT=1857[0-9]{2}(?:\\.[0-9]+)? captureHighWater=[0-9]+ breaks=1 [\\s\\S]*?MISSIONMARK label=rw3-rewound ut=",
+  "MISSIONMARK label=rw3-future-recovered ut=[\\s\\S]*?\\[TakeBack\\] Timeline break recorded: kind=PlainRewind loadedUT=1858[0-9]{2}(?:\\.[0-9]+)? captureHighWater=[0-9]+ breaks=1 [\\s\\S]*?MISSIONMARK label=rw3-rewound ut=",
 
   # ---- plan row 15: the save, then the player's load of it, a Cold save-file load ----
   "savegame name=rw03-04-reload-source folder=\\S+ saved=true[\\s\\S]*?MISSIONMARK label=rw3-saved ut=",
@@ -361,7 +367,7 @@ required = [
   # persistent.sfs:4643; one break, the rewind's).
   "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rw03-04-reload-source [\\s\\S]*?\\[TakeBack\\] Loaded take-back facts from '[^'\\r\\n]+': era=177 breaks=1 badBreaks=0[\\s\\S]*?MISSIONMARK label=rw3-reloaded ut=",
   # The reload walks at the clock, so the rows still ahead stay ahead.
-  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rw03-04-reload-source [\\s\\S]*?OnKspLoad recalc decision: useCurrentUtCutoff=True maxUT=1857[0-9]{2}(?:\\.[0-9]+)? featureSupportsCutoff=True currentUtReady=True hasFutureActions=True[\\s\\S]*?MISSIONMARK label=rw3-reloaded ut=",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rw03-04-reload-source [\\s\\S]*?OnKspLoad recalc decision: useCurrentUtCutoff=True maxUT=1858[0-9]{2}(?:\\.[0-9]+)? featureSupportsCutoff=True currentUtReady=True hasFutureActions=True[\\s\\S]*?MISSIONMARK label=rw3-reloaded ut=",
 
   # ---- the crossing: the rows reached once, W credited by the walk ----
   "MISSIONMARK label=rw3-before-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=rw3-crossed ut=",

@@ -55,7 +55,10 @@ id = "CN-5-ghost-relay-after-mid-replay-save-load"
 #   - `early=` other than Cold on the load's classification line: the seam's playerLoad path
 #     did not announce a save-file load; the lane proves nothing about the bug then.
 #
-# STATUS: NEVER FLOWN (authored 2026-11-01 with the fix); batch split interim.
+# STATUS: LIVE-PROVEN 2026-11-01. On main's DLL (no fix) `2026-11-01_0103` PARSEK-FAIL, the bug
+# itself: after the load the relays read historical-never-replayed (batch passed=1 failed=1
+# skipped=7). On the fix (PR #2354 at da66eb1) `2026-11-01_0124` PASS attempt 1, 97 s, batch
+# passed=4 failed=0 skipped=5 (CN-1's split, now pinned).
 #
 # FAST-LANE CHECKLIST: (1) reuse: CN-1's host, preset and category, QL lanes' save / player
 # load pair; (2) explicit-UT warp only; (3)-(5) no dwell, burn or coast; (6) retry `once`;
@@ -123,8 +126,8 @@ required = [
   "MISSIONMARK label=cn5-loaded ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet registered nodes \\(FLIGHT\\): checked=2 dark=0",
   "MISSIONMARK label=cn5-loaded ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet registered relay route \\(FLIGHT\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 homes=9 keys=cn-relay-a,cn-relay-b\\s",
   "MISSIONMARK label=cn5-loaded ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet preset rulings \\(FLIGHT\\): relayA=registered control=True multiHop=True relay=2000000000 relayB=registered playbackEnabled=False control=False relay=2000000000 relayC=unregistered loop=True reason=historical-never-replayed",
-  # Interim until the first flight pins the split (CN-1 / CN-4 measured passed=4 skipped=5).
-  "BATCH_COMPLETE v1 total=9 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostCommNet scene=FLIGHT",
+  # Pinned off the first green flight (run 2026-11-01_0124), CN-1's split.
+  "BATCH_COMPLETE v1 total=9 passed=4 failed=0 skipped=5 category=GhostCommNet scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
