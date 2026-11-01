@@ -36,14 +36,20 @@ of ghosts".
 **Fix.** Both latch sets are saved in the PARSEK node as `PLAYBACK_REPLAY_SCOPE` (`inScope` /
 `seenBeforeActivation` ids, sorted; no node when empty). Load policy category
 `PlaybackReplayScope`: a Cold load installs the save's copy after the reset; a Re-Fly start adds
-the RP quicksave's copy (its OnLoad node); a plain rewind adds the rewind save's copy from the
-parsed save in `RecordingStore.ExecuteRewindSaveLoad` (the OnLoad node is persistent.sfs) and
-writes the merged latch into the persistent.sfs it writes; every other load keeps memory's. A
+the RP quicksave's copy (its OnLoad node); a plain rewind adds the rewind save's copy in
+`RecordingStore.PreProcessRewindSave`, before the strip resolvers ask which recordings replay
+after the rewind (and again from the parsed save in `ExecuteRewindSaveLoad` for the
+un-preprocessed path; the OnLoad node is persistent.sfs), and writes the merged latch into the
+persistent.sfs it writes; every other load keeps memory's. A
 save written during plain forward play carries no latch for a recording behind the playhead, so
 BUG-B holds across a load (CN-5's relay C). Tests: `PlaybackScopeSaveLoadTests`,
 `StoreSaveRoundTripTests`, `LoadReconcilePolicyTests`. Lane `CN-5-ghost-relay-after-mid-replay-save-load`
 (quicksave ~978 s into CN-1's relays' window, loaded as the player's load, then CN-1's rulings and
 A's map ghost), never flown at authoring.
+
+Residue (review, not shown reachable): the per-frame `NotePlayhead` callers latch replay scope at
+any clock, only the strict seen-before set and the sweep refuse an unready clock (UT 0 / NaN). A
+frame at UT 0 would latch every recording, and that latch is now saved. No such frame is known.
 
 ## ~~SAVE-ROUND-TRIP-GATE: no test checks that every saved field survives a save and load~~ [DONE 2026-10-31; xUnit only; test gap C3 of roadmap/test-gap-audit-2026-10-31.md]
 

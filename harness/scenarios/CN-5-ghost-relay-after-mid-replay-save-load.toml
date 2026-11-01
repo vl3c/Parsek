@@ -42,6 +42,10 @@ id = "CN-5-ghost-relay-after-mid-replay-save-load"
 # baseline save now carries the latch, so the `No ghost node for key=cn-relay-[ab]` forbidden
 # line is unscoped here (CN-4 keeps its scoped one, written before this fix).
 #
+# ANCHORS. The post-load lines are anchored after the load's own `Replay scope installed` line and
+# before the batch's final-restore marker, so the restore's own reload cannot satisfy them.
+# `seenBeforeActivation=` is regexed: it needs a frame strictly before UT 22.2 at boot.
+#
 # PRE-REGISTERED READINGS:
 #   - On a DLL without the fix: no `Replay scope installed` line, `Registered ghost node:
 #     key=cn-relay-a` missing after `cn5-loaded`, `No ghost node for key=cn-relay-a ...:
@@ -109,12 +113,12 @@ required = [
   # ---- the save carries the latch, the load is Cold and installs it ----
   "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
   "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?Save-scoped session state reset: reason=",
-  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[PlaybackScope\\] Replay scope installed from the save \\(load Cold\\): inScope=2 seenBeforeActivation=2 [^\\n]*node=present[\\s\\S]*?MISSIONMARK label=cn5-loaded ut=",
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[PlaybackScope\\] Replay scope installed from the save \\(load Cold\\): inScope=2 seenBeforeActivation=[0-9]+ [^\\n]*node=present[\\s\\S]*?MISSIONMARK label=cn5-loaded ut=",
 
   # ---- after the load: the ghosts are back ----
-  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[GhostMap\\] Created ghost vessel 'Ghost: CN Relay A' ghostPid=[0-9]+ type=Relay ",
-  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=True multiHop=True antennas=3",
-  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[GhostCommNet\\] Registered ghost node: key=cn-relay-b node=ParsekGhost:cn-relay-b vessel=\"CN Relay B\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[PlaybackScope\\] Replay scope installed from the save \\(load Cold\\)(?:(?!Preparing save-scoped state for isolated FLIGHT batch baseline restore)[\\s\\S])*?\\[GhostMap\\] Created ghost vessel 'Ghost: CN Relay A' ghostPid=[0-9]+ type=Relay ",
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[PlaybackScope\\] Replay scope installed from the save \\(load Cold\\)(?:(?!Preparing save-scoped state for isolated FLIGHT batch baseline restore)[\\s\\S])*?\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=True multiHop=True antennas=3",
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[PlaybackScope\\] Replay scope installed from the save \\(load Cold\\)(?:(?!Preparing save-scoped state for isolated FLIGHT batch baseline restore)[\\s\\S])*?\\[GhostCommNet\\] Registered ghost node: key=cn-relay-b node=ParsekGhost:cn-relay-b vessel=\"CN Relay B\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
   "MISSIONMARK label=cn5-loaded ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet routing probe \\(FLIGHT\\): home=\"[^\"]+\" homePower=40000 hops=2 viaGhost=True negativeControl=cut",
   "MISSIONMARK label=cn5-loaded ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet registered nodes \\(FLIGHT\\): checked=2 dark=0",
   "MISSIONMARK label=cn5-loaded ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet registered relay route \\(FLIGHT\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 homes=9 keys=cn-relay-a,cn-relay-b\\s",

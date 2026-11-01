@@ -184,6 +184,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RewindSavePreProcess_MergesTheSavesLatchBeforeTheStripResolverRuns()
+        {
+            // The rewind save was written while "saved" replayed; memory lost it to a later
+            // cold load. The strip resolver decides what replays after the rewind, so it must
+            // already see the save's latch.
+            var root = new ConfigNode();
+            ConfigNode flightState = root.AddNode("FLIGHTSTATE");
+            flightState.AddValue("UT", "3000");
+            ConfigNode scenario = root.AddNode("SCENARIO");
+            scenario.AddValue("name", "ParsekScenario");
+            scenario.AddNode(PlaybackScopeTracker.NodeName).AddValue(PlaybackScopeTracker.InScopeKey, "saved");
+            string sfs = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "parsek-replay-scope-rewind-" + Guid.NewGuid().ToString("N") + ".sfs");
+            root.Save(sfs);
+            bool inScopeAtResolve = false;
+            try
+            {
+                RecordingStore.PreProcessRewindSave(
+                    sfs, null,
+                    ut => { inScopeAtResolve = PlaybackScopeTracker.IsInReplayScope("saved"); return null; },
+                    RecordingStore.RewindToLaunchLeadTimeSeconds);
+            }
+            finally
+            {
+                try { System.IO.File.Delete(sfs); } catch { }
+            }
+
+            Assert.True(inScopeAtResolve);
+            Assert.Contains(logLines, l => l.Contains("[PlaybackScope]")
+                && l.Contains("Replay scope merged from the save (rewind save pre-process): savedInScope=1"));
+        }
+
+        [Fact]
+        public void UnionFromGameNode_NoParsekScenario_ChangesNothing()
+        {
+            var game = new ConfigNode("GAME");
+            game.AddNode("SCENARIO").AddValue("name", "ResearchAndDevelopment");
+
+            Assert.Equal(0, PlaybackScopeTracker.UnionFromGameNode(game, "rewind save pre-process"));
+            Assert.Equal(0, PlaybackScopeTracker.UnionFromGameNode(null, "rewind save pre-process"));
+            Assert.Equal(0, PlaybackScopeTracker.InReplayScopeCount);
+        }
+
+        [Fact]
         public void Policy_ColdTakesTheSave_EveryOtherLoadKeepsMemory()
         {
             foreach (LoadKind kind in Enum.GetValues(typeof(LoadKind)))

@@ -245,7 +245,24 @@ namespace Parsek
             return 0;
         }
 
-        private static int AddFrom(ConfigNode parsekNode, out int addedSeen)
+        /// <summary>
+        /// <see cref="UnionFromSave"/> over a save file's GAME node (its <c>SCENARIO</c> child
+        /// named <c>ParsekScenario</c>), for a rewind save read as a file before KSP parses it.
+        /// </summary>
+        internal static int UnionFromGameNode(ConfigNode gameNode, string source)
+        {
+            ConfigNode[] scenarios = gameNode != null ? gameNode.GetNodes("SCENARIO") : new ConfigNode[0];
+            for (int i = 0; i < scenarios.Length; i++)
+            {
+                if (string.Equals(scenarios[i].GetValue("name"), nameof(ParsekScenario), StringComparison.Ordinal))
+                    return UnionFromSave(scenarios[i], source);
+            }
+            ParsekLog.Info(Tag, "Replay scope merged from the save (" + (source ?? "unspecified")
+                + "): no Parsek scenario in the save, nothing to merge");
+            return 0;
+        }
+
+                private static int AddFrom(ConfigNode parsekNode, out int addedSeen)
         {
             addedSeen = 0;
             ConfigNode scope = parsekNode?.GetNode(NodeName);

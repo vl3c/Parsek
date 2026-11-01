@@ -6046,7 +6046,7 @@ namespace Parsek
                 PlaybackScopeTracker.SeenBeforeActivationCount));
         }
 
-                /// <summary>
+        /// <summary>
         /// Installs the ledger held-through UT the loaded node carries when the policy cell says
         /// the save owns it, resolved against the loaded save's own clock
         /// (<see cref="LedgerHeldWindow.InstallAfterLoad"/>); a plain rewind clears it here and
