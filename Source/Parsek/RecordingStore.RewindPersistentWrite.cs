@@ -114,6 +114,9 @@ namespace Parsek
                 LedgerHeldWindow.WriteValue(targetParsekNode, LedgerHeldWindow.ResolveAtRewind(
                     RewindContext.RewindAdjustedUT, RewindContext.RewindSaveOwnClockUT,
                     RewindContext.RewindSaveLedgerHeldThroughUT));
+                // Same for the replay-scope latch: memory's, with the rewind save's copy already
+                // added (ExecuteRewindSaveLoad), not the carried node's older one.
+                PlaybackScopeTracker.SaveInto(targetParsekNode);
                 string result = GamePersistence.SaveGame(
                     game, "persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
                 if (string.IsNullOrEmpty(result))

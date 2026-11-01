@@ -17,6 +17,34 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REPLAY-SCOPE-LOST-ON-SAVE-LOAD: a save written while a ghost replays loses that ghost when loaded~~ [FILED 2026-11-01 from lane CN-4's reading (thread "Cover Revert, save switching, CommNet ghosts"), owner ruling 2026-11-01; FIXED 2026-11-01, branch `claude/project-thread-beqac8`; unit-tested, lane CN-5 owed; product, high (every mid-replay ghost gone after a load: no flight / map / Tracking Station ghost, no CommNet relay, no terminal spawn)]
+
+A committed recording replays only while `PlaybackScopeTracker` holds it in replay scope (the
+BUG-B gate that keeps forward play from replaying history); a recording enters scope the first
+time a scene notes the playhead at or before its activation start (+2 s). The latch was memory
+only, `ResetSaveScopedSessionState` cleared it on every Cold load, and every save-file load (F9,
+the pause-menu Load, the main-menu Load) is Cold since load-restores-the-save. So after a rewind
+to UT 1000 and a save at 3000 of a relay replaying 1000-5000, loading that save read the relay as
+historical-never-replayed: `IsHistoricalNeverReplayed` gates the flight ghost (`ParsekFlight`
+skip reason `historical-not-replayed`), the map / Tracking Station ProtoVessel
+(`GhostMapPresence`), the KSC ghost, the CommNet node (CN-4's batch-restore reading), the
+terminal spawn (`RewindHistorySpawnScope`) and the Ghost Chain Rule's stale-vessel test (the
+narrower `WasPlayheadSeenBeforeActivation` set). Owner ruling 2026-11-01: "when loading at any
+time, all current ghosts should be rendered, even if mid-flight; same applies to relay function
+of ghosts".
+
+**Fix.** Both latch sets are saved in the PARSEK node as `PLAYBACK_REPLAY_SCOPE` (`inScope` /
+`seenBeforeActivation` ids, sorted; no node when empty). Load policy category
+`PlaybackReplayScope`: a Cold load installs the save's copy after the reset; a Re-Fly start adds
+the RP quicksave's copy (its OnLoad node); a plain rewind adds the rewind save's copy from the
+parsed save in `RecordingStore.ExecuteRewindSaveLoad` (the OnLoad node is persistent.sfs) and
+writes the merged latch into the persistent.sfs it writes; every other load keeps memory's. A
+save written during plain forward play carries no latch for a recording behind the playhead, so
+BUG-B holds across a load (CN-5's relay C). Tests: `PlaybackScopeSaveLoadTests`,
+`StoreSaveRoundTripTests`, `LoadReconcilePolicyTests`. Lane `CN-5-ghost-relay-after-mid-replay-save-load`
+(quicksave ~978 s into CN-1's relays' window, loaded as the player's load, then CN-1's rulings and
+A's map ghost), never flown at authoring.
+
 ## ~~SAVE-ROUND-TRIP-GATE: no test checks that every saved field survives a save and load~~ [DONE 2026-10-31; xUnit only; test gap C3 of roadmap/test-gap-audit-2026-10-31.md]
 
 `Source/Parsek.Tests/SaveRoundTrip/` now round-trips every persisted surface field by field under a

@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Ghosts keep playing after you load a save made mid-replay.** After a rewind, a save made while
+  a committed flight was replaying as a ghost lost that ghost when loaded: no map icon, no relay
+  for CommNet, no vessel at its end. The save now remembers which flights are replaying, so every
+  current ghost is drawn and relays again after any load. (REPLAY-SCOPE-LOST-ON-SAVE-LOAD)
 - **A rescued kerbal no longer gets a spare stand-in after a reload.** Parsek remembered that a
   rescue had already put the kerbal back on a vessel only until the next scene change or load;
   after that the next update could hire their stand-in again. The rescue is now saved.

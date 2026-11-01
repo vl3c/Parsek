@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -30,6 +32,15 @@ namespace Parsek
     /// Keyed by recordingId (a stable per-recording GUID), so the latch is shared
     /// across the flight, Space Center, and Tracking Station scenes and cannot collide
     /// across saves. Cleared on return to the main menu (game unload).
+    ///
+    /// The latch is part of the save (<see cref="NodeName"/> in the PARSEK node): a save
+    /// written while a recording replays carries it, so a load of that save (a Cold load,
+    /// which resets every save-scoped state first) puts the recording back in replay scope
+    /// and its ghost keeps drawing and relaying from the loaded UT (owner ruling 2026-11-01:
+    /// every current ghost is drawn after any load, even mid-flight; todo
+    /// REPLAY-SCOPE-LOST-ON-SAVE-LOAD). A save written during plain forward play carries no
+    /// latch for a recording already behind the playhead, so BUG-B holds across a load too.
+    /// The load policy is <see cref="LoadStateCategory.PlaybackReplayScope"/>.
     /// </summary>
     internal static class PlaybackScopeTracker
     {
@@ -138,6 +149,126 @@ namespace Parsek
         {
             return !string.IsNullOrEmpty(recordingId)
                 && recordingsInReplayScope.Contains(recordingId);
+        }
+
+        /// <summary>The PARSEK child node that carries the latch in a save.</summary>
+        internal const string NodeName = "PLAYBACK_REPLAY_SCOPE";
+        internal const string InScopeKey = "inScope";
+        internal const string SeenBeforeActivationKey = "seenBeforeActivation";
+        private const string Tag = "PlaybackScope";
+
+        internal static int InReplayScopeCount => recordingsInReplayScope.Count;
+        internal static int SeenBeforeActivationCount => recordingsSeenBeforeActivation.Count;
+
+        /// <summary>
+        /// Writes the latch into the PARSEK node (ids sorted, so a save is deterministic),
+        /// replacing any copy the node already holds. An empty latch writes no node.
+        /// </summary>
+        internal static void SaveInto(ConfigNode parsekNode)
+        {
+            if (parsekNode == null)
+                return;
+            parsekNode.RemoveNodes(NodeName);
+            if (recordingsInReplayScope.Count == 0 && recordingsSeenBeforeActivation.Count == 0)
+                return;
+            ConfigNode scope = parsekNode.AddNode(NodeName);
+            var ids = new List<string>(recordingsInReplayScope);
+            ids.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < ids.Count; i++)
+                scope.AddValue(InScopeKey, ids[i]);
+            ids = new List<string>(recordingsSeenBeforeActivation);
+            ids.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < ids.Count; i++)
+                scope.AddValue(SeenBeforeActivationKey, ids[i]);
+        }
+
+        /// <summary>
+        /// Replaces the latch with the copy <paramref name="parsekNode"/> carries (none when it
+        /// carries no <see cref="NodeName"/> node: a save written during plain forward play, or
+        /// by a build before this node). The Cold-load install.
+        /// </summary>
+        internal static void InstallFromSave(ConfigNode parsekNode, string source)
+        {
+            int droppedInScope = recordingsInReplayScope.Count;
+            int droppedSeen = recordingsSeenBeforeActivation.Count;
+            recordingsInReplayScope.Clear();
+            recordingsSeenBeforeActivation.Clear();
+            int added = AddFrom(parsekNode, out int addedSeen);
+            ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                "Replay scope installed from the save ({0}): inScope={1} seenBeforeActivation={2} "
+                + "replacedInScope={3} replacedSeen={4} node={5}",
+                source ?? "unspecified", added, addedSeen, droppedInScope, droppedSeen,
+                parsekNode?.GetNode(NodeName) != null ? "present" : "absent"));
+        }
+
+        /// <summary>
+        /// Adds the copy <paramref name="parsekNode"/> carries to the latch, keeping what memory
+        /// holds: a rewind or a Re-Fly lands in the world of a save written earlier in the
+        /// timeline, whose replaying recordings replay again from that save's UT. Returns how
+        /// many recordings entered replay scope.
+        /// </summary>
+        internal static int UnionFromSave(ConfigNode parsekNode, string source)
+        {
+            int beforeInScope = recordingsInReplayScope.Count;
+            int beforeSeen = recordingsSeenBeforeActivation.Count;
+            int read = AddFrom(parsekNode, out int readSeen);
+            int newInScope = recordingsInReplayScope.Count - beforeInScope;
+            int newSeen = recordingsSeenBeforeActivation.Count - beforeSeen;
+            ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                "Replay scope merged from the save ({0}): savedInScope={1} savedSeen={2} "
+                + "newInScope={3} newSeen={4} inScope={5} seenBeforeActivation={6}",
+                source ?? "unspecified", read, readSeen, newInScope, newSeen,
+                recordingsInReplayScope.Count, recordingsSeenBeforeActivation.Count));
+            return newInScope;
+        }
+
+        /// <summary>
+        /// <see cref="UnionFromSave"/> over a parsed game's scenario protos (the rewind save
+        /// before the Space Center loads it; its OnLoad node is persistent.sfs).
+        /// </summary>
+        internal static int UnionFromScenarios(IList<ProtoScenarioModule> scenarios, string source)
+        {
+            if (scenarios != null)
+            {
+                for (int i = 0; i < scenarios.Count; i++)
+                {
+                    ProtoScenarioModule proto = scenarios[i];
+                    if (proto != null
+                        && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
+                    {
+                        return UnionFromSave(proto.GetData(), source);
+                    }
+                }
+            }
+            ParsekLog.Info(Tag, "Replay scope merged from the save (" + (source ?? "unspecified")
+                + "): no Parsek scenario in the parsed save, nothing to merge");
+            return 0;
+        }
+
+        private static int AddFrom(ConfigNode parsekNode, out int addedSeen)
+        {
+            addedSeen = 0;
+            ConfigNode scope = parsekNode?.GetNode(NodeName);
+            if (scope == null)
+                return 0;
+            int added = 0;
+            string[] inScope = scope.GetValues(InScopeKey);
+            for (int i = 0; i < inScope.Length; i++)
+            {
+                if (string.IsNullOrEmpty(inScope[i]))
+                    continue;
+                recordingsInReplayScope.Add(inScope[i]);
+                added++;
+            }
+            string[] seen = scope.GetValues(SeenBeforeActivationKey);
+            for (int i = 0; i < seen.Length; i++)
+            {
+                if (string.IsNullOrEmpty(seen[i]))
+                    continue;
+                recordingsSeenBeforeActivation.Add(seen[i]);
+                addedSeen++;
+            }
+            return added;
         }
 
         /// <summary>Clears all scope state. Call on return to the main menu / game unload.</summary>

@@ -5778,6 +5778,11 @@ namespace Parsek
                 RewindContext.SetRewindSaveLedgerHeldThroughUT(
                     LedgerHeldWindow.ReadSavedFromScenarios(game.scenarios));
 
+                // The replay-scope latch the rewind save carries: a recording that replayed when
+                // that save was written replays again from its UT, even after a load since
+                // reset memory's latch (todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD). Memory's is kept.
+                PlaybackScopeTracker.UnionFromScenarios(game.scenarios, messageLabel);
+
                 // The Space Center start reloads persistent.sfs, not CurrentGame: put the rewind
                 // game there so the rewind lands in the rewind save's own world.
                 WriteRewindGameAsPersistent(game, messageLabel);

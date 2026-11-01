@@ -91,6 +91,10 @@ namespace Parsek
         /// loaded world already holds the ledger rows after a Rewind-to-Launch lead window
         /// (todo REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE), saved in the PARSEK node.</summary>
         LedgerHeldWindow,
+        /// <summary><c>PlaybackScopeTracker</c>: the recordings in replay scope (BUG-B) and those
+        /// the playhead was seen before, saved in the PARSEK node (todo
+        /// REPLAY-SCOPE-LOST-ON-SAVE-LOAD).</summary>
+        PlaybackReplayScope,
     }
 
     /// <summary>What a load does with one category today.</summary>
@@ -466,6 +470,7 @@ namespace Parsek
                 case LoadStateCategory.StockPoolReference:
                 case LoadStateCategory.RewindVesselHolds:
                 case LoadStateCategory.LedgerHeldWindow:
+                case LoadStateCategory.PlaybackReplayScope:
                     return true;
                 case LoadStateCategory.UntaggedLedgerRowsAfterCutoff:
                 case LoadStateCategory.PendingScience:
@@ -531,6 +536,7 @@ namespace Parsek
                 case LoadStateCategory.StockPoolReference: return DecideStockPoolReference(kind);
                 case LoadStateCategory.RewindVesselHolds: return DecideRewindVesselHolds(kind);
                 case LoadStateCategory.LedgerHeldWindow: return DecideLedgerHeldWindow(kind);
+                case LoadStateCategory.PlaybackReplayScope: return DecidePlaybackReplayScope(kind);
             }
             throw new ArgumentOutOfRangeException(nameof(category), category, "unknown LoadStateCategory");
         }
@@ -1125,6 +1131,45 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Save, LedgerHeldWindowFromSave);
+            }
+            throw UnknownKind(kind);
+        }
+        private const string PlaybackReplayScopeMemory =
+            "PlaybackScopeTracker is static memory, kept across the load (the latch only grows in a "
+            + "session); the loaded node's PLAYBACK_REPLAY_SCOPE is an earlier copy of the same memory";
+
+        // Todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD (owner ruling 2026-11-01: every current ghost is
+        // drawn and relays after any load). A cold load takes the save's latch, after the reset
+        // cleared memory's; a plain rewind and a Re-Fly start keep memory's and add the copy of
+        // the save they land in (a recording replaying when that save was written replays again
+        // from its UT); every other load keeps memory's.
+        private static LoadReconcileDecision DecidePlaybackReplayScope(LoadKind kind)
+        {
+            switch (kind)
+            {
+                case LoadKind.Cold:
+                    return Today(LoadReconcileAction.Save,
+                        "ParsekScenario.LoadPlaybackReplayScope -> PlaybackScopeTracker.InstallFromSave installs the "
+                        + "loaded node's PLAYBACK_REPLAY_SCOPE after ResetSaveScopedSessionState cleared memory's");
+                case LoadKind.PlainRewind:
+                    return Today(LoadReconcileAction.Memory,
+                        PlaybackReplayScopeMemory + "; RecordingStore.ExecuteRewindSaveLoad adds the rewind save's own "
+                        + "copy (PlaybackScopeTracker.UnionFromScenarios over the parsed save; the OnLoad node is "
+                        + "persistent.sfs carrying the session's node)");
+                case LoadKind.ReFlyStart:
+                    return Today(LoadReconcileAction.Memory,
+                        "PlaybackScopeTracker is static memory, kept across the load; "
+                        + "ParsekScenario.LoadPlaybackReplayScope adds the RP quicksave's own copy (the OnLoad node, "
+                        + "PlaybackScopeTracker.UnionFromSave)");
+                case LoadKind.DiscardReFly:
+                    return Today(LoadReconcileAction.Memory,
+                        PlaybackReplayScopeMemory + " (RevertInterceptor.SpliceLiveParsekScenarioNode carries the "
+                        + "session's node; the Re-Fly start already added the rewind point's copy)");
+                // Consumed in the prologue, before the revert detector: one cell for all three.
+                case LoadKind.StockRevert:
+                case LoadKind.QuickloadFlight:
+                case LoadKind.InSessionOther:
+                    return Today(LoadReconcileAction.Memory, PlaybackReplayScopeMemory);
             }
             throw UnknownKind(kind);
         }
