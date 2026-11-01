@@ -31,8 +31,8 @@ id = "SLM-2-standalone-loop-map-pause"
 # THE FLIGHT. Warp to UT 6555 (run 2's pause, loop phase 2500 s), enter map view, run the
 # cell: no map ghost.
 #
-# NEVER FLOWN at authoring time (2026-10-31): the batch pin is interim (`total=1` literal,
-# the split regexed) until the first flight.
+# LIVE-PROVEN 2026-11-01_0036 PASS attempt 1 (104 s, DLL e2b15cdb, main d1b76c5b7; loopPhase 2500.6 s, mapGhost=no); the batch
+# pin is whole from that flight.
 # FIRST FLIGHTS RED (2026-10-31_2335 / _2337 / _2339): the preset then had ONE point, and
 # the engine loops nothing below two (ShouldLoopPlayback), so the seam read the live UT.
 # Fixture defect, fixed; the cell now asserts the engine loops the recording first.
@@ -75,7 +75,7 @@ count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 required = [
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=StandaloneLoopMap scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=StandaloneLoopMap scene=FLIGHT",
   "\\[TestRunner\\] StandaloneLoopMap \\(FLIGHT\\) PASS: phase=pause cycle=1 .* mapGhost=no",
 ]
 forbidden = [
