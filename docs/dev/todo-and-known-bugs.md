@@ -9073,6 +9073,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `LedgerOrchestrator.cs` 600 lines, `.Commit.cs` 1279, `.CommitRows.cs` 974,
   `.EarningsReconcile.cs` 1188, `.Recalculate.cs` 1511, `.Seeds.cs` 1286, `.Persistence.cs`
   927, `.LiveEvents.cs` 1514, `.Recovery.cs` 1271, `.Affordability.cs` 781.
+- `FlightRecorder.cs` split into partial files (S3, pure move by
+  `scripts/refactor/split_flightrecorder.py`; fields, constants, initialized properties and
+  constructors stay in the main file): `FlightRecorder.cs` 2,270 lines, `.PartModuleStates`
+  1,909, `.PartEvents` 1,866, `.PointCommit` 1,343, `.RelativeAnchors` 1,148,
+  `.StopAndFinalize` 1,082, `.StartRecording` 977, `.EnvironmentAndTrackSections` 808,
+  `.Sampling` 807, `.EngineAndRcs` 626.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

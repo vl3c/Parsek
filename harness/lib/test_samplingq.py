@@ -16,9 +16,10 @@ direction trigger, a missed speed trigger, and a teleport.
 
 Two source-sync guards read OUTSIDE harness/: ``DensityPresetSourceSyncTests`` reads
 ``Source/Parsek/ParsekSettings.cs`` (the four preset getters) and
-``WarpRunTokenSourceSyncTests`` reads ``Source/Parsek/SectionWarpRuns.cs`` and
-``Source/Parsek/FlightRecorder.cs`` (the run kinds and the ``warpRuns=`` token the
-parser anchors on). Both strip comments before matching.
+``WarpRunTokenSourceSyncTests`` reads ``Source/Parsek/SectionWarpRuns.cs`` and the
+FlightRecorder partial-class files ``Source/Parsek/FlightRecorder.cs`` +
+``FlightRecorder.*.cs`` (the run kinds and the ``warpRuns=`` token the parser anchors
+on). Both strip comments before matching.
 """
 
 import math
@@ -319,6 +320,15 @@ def _read(*rel):
         return _strip_cs_comments(fh.read().replace("\r\n", "\n"))
 
 
+def _read_flight_recorder():
+    """FlightRecorder is a partial class: its main file plus every FlightRecorder.*.cs."""
+    src_dir = os.path.join(REPO_ROOT, "Source", "Parsek")
+    partials = sorted(n for n in os.listdir(src_dir)
+                      if n.startswith("FlightRecorder.") and n.endswith(".cs")
+                      and n != "FlightRecorder.cs")
+    return "\n".join(_read("Source", "Parsek", n) for n in ["FlightRecorder.cs"] + partials)
+
+
 class DensityPresetSourceSyncTests(unittest.TestCase):
     """DENSITY_PRESETS must equal the four ParsekSettings preset getters."""
 
@@ -347,7 +357,7 @@ class WarpRunTokenSourceSyncTests(unittest.TestCase):
         for const, kind in (("KindNormal", "1x"), ("KindPhysics", "phys"), ("KindRails", "rails")):
             self.assertRegex(runs_src, r'internal const string %s = "%s";' % (const, re.escape(kind)))
         self.assertIn('.Append(":max=")', runs_src)
-        rec_src = _read("Source", "Parsek", "FlightRecorder.cs")
+        rec_src = _read_flight_recorder()
         self.assertRegex(rec_src, r'\$"warpRuns=\{SectionWarpRuns\.Format\(')
         self.assertIn('ParsekLog.Info("Recorder",\n                $"TrackSection closed: ', rec_src)
         self.assertAlmostEqual(0.02, samplingq.PHYSICS_FRAME_SECONDS)

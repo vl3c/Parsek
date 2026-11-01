@@ -84,7 +84,9 @@ Source/Parsek/ParsekFlight.PlacementJump.cs
 Source/Parsek/ParsekPlaybackPolicy.cs
 Source/Parsek/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs
-Source/Parsek/FlightRecorder.cs
+# FlightRecorder's partial-class split: the one raw read (BootstrapAvgBytesPerPoint, the
+# on-disk .prec size sample, [ERS-exempt] at the call site) lives in this partial.
+Source/Parsek/FlightRecorder.StopAndFinalize.cs
 Source/Parsek/ParsekKSC.cs
 Source/Parsek/ParsekKSC.Playback.cs
 Source/Parsek/ParsekUI.cs

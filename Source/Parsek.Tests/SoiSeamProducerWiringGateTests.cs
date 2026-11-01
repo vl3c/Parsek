@@ -25,7 +25,10 @@ namespace Parsek.Tests
     /// </summary>
     public class SoiSeamProducerWiringGateTests
     {
-        private const string RecorderPath = "FlightRecorder.cs";
+        // FlightRecorder is a partial class: OnVesselSOIChanged lives in the main file and
+        // TransitionTrackSectionAtSoiBoundary in a partial, so the gate reads every
+        // FlightRecorder.cs / FlightRecorder.*.cs file as one source.
+        private const string RecorderPath = "FlightRecorder.cs + FlightRecorder.*.cs";
 
         [Fact]
         public void OnVesselSOIChanged_RoutesTheSeamThroughTheTransitionHelper()
@@ -87,7 +90,7 @@ namespace Parsek.Tests
 
         private static string MethodBody(string signatureFragment)
         {
-            string src = StripComments(ReadParsekSource(RecorderPath));
+            string src = StripComments(ReadRecorderSources());
 
             int sigIdx = src.IndexOf(signatureFragment, StringComparison.Ordinal);
             Assert.True(sigIdx >= 0,
@@ -114,6 +117,29 @@ namespace Parsek.Tests
 
             Assert.True(false, "SOI-seam gate: unbalanced braces after " + signatureFragment);
             return null;
+        }
+
+        private static string ReadRecorderSources()
+        {
+            string main = ReadParsekSource("FlightRecorder.cs");
+            string dir = Path.GetDirectoryName(ResolveParsekSourcePath("FlightRecorder.cs"));
+            string[] partials = Directory.GetFiles(dir, "FlightRecorder.*.cs");
+            Array.Sort(partials, StringComparer.Ordinal);
+            var sb = new System.Text.StringBuilder(main);
+            foreach (string partial in partials)
+                sb.Append('\n').Append(File.ReadAllText(partial));
+            return sb.ToString();
+        }
+
+        private static string ResolveParsekSourcePath(string relPath)
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(
+                root, "Source", "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(path))
+                path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
+            return path;
         }
 
         private static string ReadParsekSource(string relPath)

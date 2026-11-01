@@ -35,8 +35,9 @@ Source/Parsek/FileIOUtils.cs 12
 Source/Parsek/Analyzer/Rules/Inv10CodecRoundtrip.cs 1
 # Career-start snapshot: the root temp written by SaveGame, and its move INTO Parsek/Saves.
 Source/Parsek/CareerStartSnapshot.cs 2
-# Rewind save capture: the root temp written by SaveGame, and its move INTO Parsek/Saves.
-Source/Parsek/FlightRecorder.cs 2
+# Rewind save capture (FlightRecorder.CaptureRewindSave, in the recorder's start-recording
+# partial): the root temp written by SaveGame, and its move INTO Parsek/Saves.
+Source/Parsek/FlightRecorder.StartRecording.cs 2
 # Ledger baselines under Parsek/GameState.
 Source/Parsek/GameStateStore.cs 1
 # Test-batch crash reconcile (snapshot dir, persistent.sfs .bak artifacts) and the
