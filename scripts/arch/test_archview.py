@@ -307,6 +307,50 @@ class TypeReferenceTests(unittest.TestCase):
         self.assertEqual(refs["CallerThing"], {"Decision"})
 
 
+class MemberNameRuleTests(unittest.TestCase):
+    # 2026-11-01: fields, enum members and member accesses that share a type's
+    # name were read as references to the type, holding GameAction in the knot.
+
+    def _refs(self, source, table):
+        return archview.type_references(source, archview.type_declarations(source), table)
+
+    def test_enum_member_named_like_a_class_is_not_a_reference(self):
+        source = "enum SourceKind { None, Milestone, [Obsolete] Contract = 2 }"
+        refs = self._refs(source, {"SourceKind", "Milestone", "Contract"})
+        self.assertEqual(refs["SourceKind"], set())
+
+    def test_member_access_on_a_value_is_not_a_reference(self):
+        source = "class UserThing { void Run() { var n = row.Ledger; var m = Get().Ledger; } }"
+        refs = self._refs(source, {"UserThing", "Ledger"})
+        self.assertEqual(refs["UserThing"], set())
+
+    def test_type_qualified_access_is_still_a_reference(self):
+        source = "class UserThing { void Run() { Ledger.Bump(); var k = Parsek.CaptureSequence.Key; } }"
+        refs = self._refs(source, {"UserThing", "Ledger", "CaptureSequence"})
+        self.assertEqual(refs["UserThing"], {"Ledger", "CaptureSequence"})
+
+    def test_own_field_shadows_the_type_name(self):
+        source = (
+            "class RowThing { public string ConversionCause; public long CaptureSequence = 0;"
+            " void Save() { if (ConversionCause != null) Write(CaptureSequence); } }"
+        )
+        refs = self._refs(source, {"RowThing", "ConversionCause", "CaptureSequence"})
+        self.assertEqual(refs["RowThing"], set())
+
+    def test_parsek_qualified_name_reaches_the_type_despite_a_same_named_field(self):
+        source = (
+            "class RowThing { public long CaptureSequence;"
+            " void Save() { Write(Parsek.CaptureSequence.Key, CaptureSequence); } }"
+        )
+        refs = self._refs(source, {"RowThing", "CaptureSequence"})
+        self.assertEqual(refs["RowThing"], {"CaptureSequence"})
+
+    def test_field_type_is_still_a_reference(self):
+        source = "class RowThing { public SourceKind Source; private Ledger owner; }"
+        refs = self._refs(source, {"RowThing", "SourceKind", "Ledger"})
+        self.assertEqual(refs["RowThing"], {"SourceKind", "Ledger"})
+
+
 class TypeLevelTests(unittest.TestCase):
     def test_chain_levels(self):
         levels = archview.type_levels({"AThing": ["BThing"], "BThing": ["CThing"], "CThing": []})
@@ -3145,12 +3189,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # A snapshot of the current tree, re-derived 2026-11-01. Placing 50 root
         # files the map had skipped took the kernel knot to 584 (the 7-type
         # stock-screen decoration knot merged into it); making Recording plain
-        # data again then cut it to 535. It was [301, 7, 4, 2, 2] on
+        # data again then cut it to 535, and teaching the scanner member names
+        # (a field or enum member spelled like a type is not a reference) took
+        # it to 449, splitting off a 3-type stock-UI grey knot. It was
+        # [301, 7, 4, 2, 2] on
         # 2026-09-25, [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the
         # 2026-09-14 arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [535, 4, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [449, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3255,34 +3302,30 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(len(production), 20)
 
     def test_first_cut_matches_the_documented_tree(self):
-        # Re-derived 2026-11-01, after Recording became plain data again and
-        # GameAction's real Ledger and CaptureSequence calls moved out. The four
-        # references GameAction still drops are scanner false positives (fields
-        # named like types, and the enum member Milestone read as the class),
-        # so it stays the first cut until the scanner learns member names. On
-        # 2026-09-25 GameAction was first (301 -> 273, dropping Ledger) and
-        # RecordingStore second. Same canary contract as the knot sizes above.
+        # Re-derived 2026-11-01, after Recording became plain data again,
+        # GameAction's real Ledger and CaptureSequence calls moved out and the
+        # scanner stopped reading member names as types: GameAction and
+        # Recording are both out of the knot now. On 2026-09-25 GameAction was
+        # first (301 -> 273, dropping Ledger) and RecordingStore second. Same
+        # canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
-        self.assertEqual(first["sink"], "GameAction")
-        self.assertEqual(first["sizeBefore"], 535)
-        self.assertEqual(first["sizeAfter"], 497)
-        self.assertNotIn("Ledger", first["droppedReferences"])
-        self.assertEqual(
-            first["droppedReferences"],
-            ["CaptureSequence", "ConversionCause", "FundsEarningSource", "ReputationSource"],
-        )
-        self.assertEqual(second["sink"], "Route")
-        self.assertEqual(second["sizeAfter"], 475)
+        self.assertEqual(first["sink"], "RecordingStore")
+        self.assertEqual(first["sizeBefore"], 449)
+        self.assertEqual(first["sizeAfter"], 432)
+        self.assertEqual(len(first["droppedReferences"]), 49)
+        self.assertEqual(second["sink"], "ParsekFlight")
+        self.assertEqual(second["sizeAfter"], 414)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
         # a residue of about 320 types (328 of 584 before Recording's re-cut,
-        # 318 of 535 after): the god objects at the end of the sequence hold a
+        # 318 of 535 after, 245 of 449 once the scanner learned member
+        # names): the god objects at the end of the sequence hold a
         # core the cheap cuts cannot reach. The bound is that residue, a
         # ratchet the refactor program tightens toward half the knot; it must
         # never be loosened.
         largest = self.model["knots"][0]
-        self.assertLessEqual(largest["cuts"][-1]["sizeAfter"], 318)
+        self.assertLessEqual(largest["cuts"][-1]["sizeAfter"], 245)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

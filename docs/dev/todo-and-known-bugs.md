@@ -9056,6 +9056,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   deadline tallies from `Ledger` to the nested `GameAction.LoadTally`. Its remaining knot
   edges (`CaptureSequence`, `ConversionCause`, `FundsEarningSource`, `ReputationSource`) are
   scanner false positives: same-named fields, and the enum member `Milestone` read as a type.
+- The scanner now skips member names (ARCH-TOOLING-ROSLYN-AND-CI): the knots are 449, 4 and 3,
+  `GameAction` and `Recording` are outside the big one, and the first greedy cut is
+  `RecordingStore` (449 -> 432, 49 references), then `ParsekFlight` (414); the cut residue is
+  245. The new 3-type knot is the stock-UI grey trio `ButtonEntry` / `GreyLedger` /
+  `StockUiGreyedButton`.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
@@ -9152,6 +9157,12 @@ Update `modules.toml` in the same commits so the placement report stays true.
   runs the script. Nothing in CI or the xUnit suite executes it.
 - Namespaces do not match the module map: 370 of 749 files sit in the flat `namespace Parsek`,
   so no off-the-shelf tool (ArchUnitNET, NsDepCop, NDepend) can express the boundaries either.
+- 2026-11-01 (refactor branch): the scan now skips member names. A field, property, method or
+  enum member spelled like a type (`public long CaptureSequence;`, the enum member `Milestone`)
+  is not read as a reference to that type, unless it is type-qualified (`Ledger.X`,
+  `Parsek.CaptureSequence.Key`). That removed the false positives that held `GameAction` in the
+  knot (535 -> 449). Still missed: object-initializer members of another type (`Held = ...`
+  on `Ghost -> GameActions`), which only the Roslyn extractor below can tell apart.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

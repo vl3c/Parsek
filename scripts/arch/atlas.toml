@@ -25,7 +25,7 @@ vocabulary_note = "Learn these names before reading any file. Each is ranked by 
 knot_note = "Every one of them can reach every other through references."
 knot_consequence = "This is why the module map is one big cycle underneath the layering, and it is the single fact that most constrains refactoring: nothing inside the knot can be tested, extracted or reasoned about in isolation."
 knot_cuts_note = "The knot is not held together by popularity. It is held by a few outgoing references from the hub types. Making a hub a pure sink (removing its own references to other knot members) shrinks the knot by this much:"
-knot_callout = "<strong>How to read it.</strong> The first two rows are afternoon-sized: the recording data type reaches into two helpers (the launch-site ghost hide and the sidecar hash copy), and the game-action type into the ledger and four other types. Each splits a run of types off the knot. The rest of the sequence names god objects - the store, the route orchestrator, the playback logic, the scene controllers - whose cuts drop a long list of references at once, and what is left when the sequence ends is still a cluster of types. Those are design work, not moved edges, and they are where the opportunity list spends its argument."
+knot_callout = "<strong>How to read it.</strong> The cheap rows are gone: the recording data type and the game-action type were re-cut on the 2026-11-01 refactor branch and are outside the knot. The sequence now starts with god objects - the store, the flight controller, the route orchestrator, the playback logic, the scene controllers - whose cuts drop a long list of references at once, and what is left when the sequence ends is still a cluster of types. Those are design work, not moved edges, and they are where the opportunity list spends its argument."
 layering_note = "69 module edges run upward. Most are light. These are the ones that carry weight, with the types that cause them; the pairs at the end reference each other in both directions, which is the module-level signature of the knot."
 reading_note = "If you were new to this codebase, or coming back to it after months, this is the order in which the abstractions build on each other. Each step depends only on the ones before it."
 views_note = "This page is a snapshot with prose. The live views regenerate from source in a few seconds and stay honest as the code moves; they are written under <code>docs/dev/arch/</code> and are not committed."
@@ -251,11 +251,11 @@ reviewed = "2026-11-01"
 
 [[findings.items]]
 title = "The knot nearly doubled in five weeks."
-body = "On 2026-11-01 the largest cycle held 584 types, against 301 on 2026-09-25. Part of the jump is 50 root files the map had been skipping as unplaced (placed in the 2026-11-01 refresh); the rest is about 975 commits of feature work. The greedy cuts no longer halve it: a core of about 320 types survives them. Live size and cut sequence: <em>The knot</em>."
+body = "On 2026-11-01 the largest cycle held 584 types, against 301 on 2026-09-25. Part of the jump is 50 root files the map had been skipping as unplaced (placed in the 2026-11-01 refresh); the rest is about 975 commits of feature work. The greedy cuts no longer halve it: a core survives them (about 320 types before the 2026-11-01 refactor branch, 245 of 449 after it). Live size and cut sequence: <em>The knot</em>."
 
 [[findings.items]]
 title = "Recording had stopped being plain data; it is again."
-body = "PR #1684 made the recording data type a leaf. By 2026-11-01 it called two helpers again (the launch-site ghost hide and the sidecar hash copy), tying 50 types to the knot (584). The 2026-11-01 refactor branch re-cut both (an installed hide rule, an inline hash copy); the knot is 535. The first cut is now the game-action row, whose four remaining references are scanner false positives: fields named like types and an enum member named like a class."
+body = "PR #1684 made the recording data type a leaf. By 2026-11-01 it called two helpers again (the launch-site ghost hide and the sidecar hash copy), tying 50 types to the knot (584). The 2026-11-01 refactor branch re-cut both (an installed hide rule, an inline hash copy), taking the knot to 535, and moved the game-action row's two real knot calls out. Its four remaining references were scanner false positives (fields named like types, an enum member named like a class); once the scanner learned member names the knot is 449, the game-action row and the recording type are both outside it, and a small 3-type stock-UI grey knot split off. The first cut is now the recording store."
 
 [[findings.items]]
 title = "The checker drifted because nothing runs it."
@@ -400,9 +400,9 @@ status = "Done on the refactor branch 2026-11-01: CI runs the suite, and a real-
 [[opportunities]]
 rank = 14
 item = "GameAction as a sink"
-evidence = "On 2026-11-01 its two real knot calls (the ledger's load tallies, the capture-sequence key) moved out on the refactor branch; the four references left are scanner false positives (<em>The knot</em>)."
-size = "scanner fix"
-status = "Code half done 2026-11-01; needs the scanner to skip member names (ARCH-TOOLING-ROSLYN-AND-CI)."
+evidence = "On 2026-11-01 its two real knot calls (the ledger's load tallies, the capture-sequence key) moved out on the refactor branch; the four references left were scanner false positives, and the scanner now skips member names (<em>The knot</em>)."
+size = "done"
+status = "Done on the refactor branch 2026-11-01: the game-action row is outside the knot."
 types = ["GameAction"]
 
 [[opportunities]]

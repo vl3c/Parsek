@@ -671,24 +671,85 @@ def type_declarations(source):
     return declarations
 
 
+# Words that can precede a member name in a declaration-shaped match but are
+# not a member's type (`return Name;`, `new Name {`, `case Name:`...).
+MEMBER_SCAN_NOT_A_TYPE = frozenset([
+    "return", "new", "throw", "case", "goto", "await", "yield", "in", "out", "ref",
+    "is", "as", "else", "using", "namespace", "get", "set", "nameof", "typeof",
+    "sizeof", "default", "static", "const", "readonly", "public", "private",
+    "internal", "protected", "override", "virtual", "abstract", "sealed", "partial",
+    "class", "struct", "enum", "interface", "event", "where",
+])
+# `<type> <Name>` followed by `;`, `=` (not `==`), `{` or `=>`: a field or property.
+MEMBER_DECL_RE = re.compile(r"\b([A-Za-z_][\w<>\[\],.?]*)\s+([A-Z]\w*)\s*(?:;|=(?!=)|\{|=>)")
+# The start of an enum member: after `{` or `,`, past any attribute lists.
+ENUM_MEMBER_RE = re.compile(r"(^|[{,])(\s*(?:\[[^\]]*\]\s*)*)([A-Za-z_]\w*)")
+# What precedes a `.` right before an identifier.
+MEMBER_ACCESS_QUALIFIER_RE = re.compile(r"([A-Za-z_]\w*|\)|\])\s*\.\s*$")
+
+
+def declared_member_names(text):
+    """Field and property names a type body declares (capitalised ones only)."""
+    names = set()
+    for match in MEMBER_DECL_RE.finditer(text):
+        if match.group(1) in MEMBER_SCAN_NOT_A_TYPE:
+            continue
+        names.add(match.group(2))
+    return names
+
+
+def blank_enum_member_names(text):
+    """Blank out enum member names so `Milestone,` in an enum is not read as a type."""
+    return ENUM_MEMBER_RE.sub(
+        lambda m: m.group(1) + m.group(2) + " " * len(m.group(3)), text
+    )
+
+
+def _member_access_qualifier(text, start):
+    """The token before `.Name`, or None when the identifier is not dotted."""
+    match = MEMBER_ACCESS_QUALIFIER_RE.search(text[max(0, start - 40) : start])
+    return match.group(1) if match else None
+
+
 def type_references(source, declarations, type_table):
     """Return {declared type name: set of other in-table names its body references}.
 
     A reference inside a nested type's span belongs to the nested type only:
     the outer type's scan skips the nested declaration's whole range, header
     included. Duplicate names in one call are merged.
+
+    Three member-name rules keep a member that shares a type's name from
+    reading as a reference to that type (the false positives that held
+    GameAction in the knot on 2026-11-01):
+    - an enum body's member names are not references (`Milestone,`);
+    - `x.Name` where `x` is a lowercase name, `)` or `]` is member access on a
+      value, not a type (`Type.Name` and `Namespace.Name` still count);
+    - inside a type that declares a field or property `Name`, a bare `Name`
+      is that member; only `Parsek.Name` reaches the type.
     """
     result = defaultdict(set)
     by_parent = declarations_by_parent(declarations)
     for index, declaration in enumerate(declarations):
         found = result[declaration["name"]]
-        for seg_start, seg_end in own_body_segments(declarations, index, by_parent):
+        segments = own_body_segments(declarations, index, by_parent)
+        is_enum = declaration["kind"] == "enum"
+        members = set()
+        if not is_enum:
+            members = declared_member_names("".join(source[a:b] for a, b in segments))
+        for seg_start, seg_end in segments:
             text = source[seg_start:seg_end]
+            if is_enum:
+                text = blank_enum_member_names(text)
             for match in IDENT_RE.finditer(text):
                 ident = match.group(0)
                 if ident == declaration["name"] or ident not in type_table:
                     continue
                 if _is_plain_call(text, match.start(), match.end()):
+                    continue
+                qualifier = _member_access_qualifier(text, match.start())
+                if qualifier is not None and not re.fullmatch(r"[A-Z]\w*", qualifier):
+                    continue
+                if ident in members and qualifier != "Parsek":
                     continue
                 found.add(ident)
     return result
