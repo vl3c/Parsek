@@ -217,12 +217,33 @@ namespace Parsek.Tests
             return System.IO.File.ReadAllText(path);
         }
 
+        // GhostMapPresence is one partial class split across GhostMapPresence.cs and the
+        // GhostMapPresence.<Area>.cs files. Read the whole class (the main file first, then the
+        // partials in ordinal name order) so each gate still covers every member it did when
+        // the class lived in one file.
+        private static string ReadGhostMapPresenceSource()
+        {
+            string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = System.IO.Path.Combine(root, "Source", "Parsek", "GhostMapPresence.cs");
+            if (!System.IO.File.Exists(path))
+                path = System.IO.Path.Combine(root, "Parsek", "GhostMapPresence.cs"); // alt layout
+            Assert.True(System.IO.File.Exists(path), "Source file not found at " + path);
+            var sb = new System.Text.StringBuilder(System.IO.File.ReadAllText(path));
+            string[] partials = System.IO.Directory.GetFiles(
+                System.IO.Path.GetDirectoryName(path), "GhostMapPresence.*.cs");
+            Array.Sort(partials, StringComparer.Ordinal);
+            foreach (string partial in partials)
+                sb.Append('\n').Append(System.IO.File.ReadAllText(partial));
+            return sb.ToString();
+        }
+
         [Fact]
         public void GhostMapPresence_EmitsGhostCreatedStructuralEvent_SourceGate()
         {
             // The Tier-A GhostCreated lifecycle event is emitted from the GhostMapPresence create funnel.
             // Losing this call site would silence ghost-lifecycle tracing while the matrix tests stay green.
-            string src = ReadProductionSource("GhostMapPresence.cs");
+            string src = ReadGhostMapPresenceSource();
             Assert.Contains("MapRenderTrace.EmitStructural(", src);
             Assert.Contains("\"GhostCreated\"", src);
         }
