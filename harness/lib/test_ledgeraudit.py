@@ -10,6 +10,7 @@ Runs under ``python -m unittest discover -s lib -q``. ASCII only; stdlib only.
 """
 
 import contextlib
+import glob
 import gzip
 import io
 import json
@@ -1457,8 +1458,21 @@ def _strip_cs_comments(text):
 
 
 def _src(rel):
-    with open(os.path.join(REPO_ROOT, *rel.split("/")), "r", encoding="utf-8") as fh:
-        return _strip_cs_comments(fh.read().replace("\r\n", "\n"))
+    """Comment-stripped text of ``rel``; a path with a '*' is a glob over a partial
+    class's files (the main file first, then the rest in name order), joined."""
+    path = os.path.join(REPO_ROOT, *rel.split("/"))
+    if "*" in rel:
+        main_name = os.path.basename(path).replace("*", "")
+        paths = sorted(glob.glob(path), key=lambda p: (os.path.basename(p) != main_name, p))
+        if not paths:
+            raise AssertionError("no source file matches %s" % rel)
+    else:
+        paths = [path]
+    texts = []
+    for p in paths:
+        with open(p, "r", encoding="utf-8") as fh:
+            texts.append(fh.read().replace("\r\n", "\n"))
+    return _strip_cs_comments("\n".join(texts))
 
 
 def _method_body(src, name):
