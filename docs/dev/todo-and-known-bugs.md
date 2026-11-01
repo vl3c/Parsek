@@ -45,6 +45,52 @@ Space Center and Tracking Station no-save exits differ: `SpaceCenterMain.Start` 
 unsaved flight stays committed (code reading, not flown). Recommended: the recording follows the
 save on all three exits (write nothing, drop the flight since the last save).
 
+## ~~REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END: after Revert to Launch the pad craft records over its own committed recording~~ [FILED 2026-11-01 from the overnight regression run (VN-5 `2026-11-01_1322`, PARSEK-FAIL analyzer INV2-NO-DOUBLE-COVER on main 9a1ed8d); FIXED 2026-11-01, branch `claude/project-thread-1ey0b9`; xUnit, VN-5 re-flight owed; product, medium (a committed recording gains a second, overlapping track that plays back twice)]
+
+**Symptom.** VN-5 commits a short pad recording (UT 26.80 to 26.88), then Revert to Launch puts
+the pad craft back at UT 25.64. The reverted craft keeps its pid and launch guid, so the 1 Hz
+committed-spawned restore (`TryRestoreCommittedTreeForSpawnedActiveVessel`) matched it to that
+committed recording and resumed it in place at UT 25.68, writing a section that starts behind the
+recording's own end. The analyzer reads `INV2 overlap recording=9f993cda... a=[25.94,27.26]
+b=[26.80,26.82]`. Any load that puts a vessel back before its committed future (a revert, a load
+of an older save) reaches the same path.
+
+**Fix.** `ParsekFlight.TryFindCommittedTreeForSpawnedVessel` takes the live clock and skips a
+recording whose recorded data (points, track sections, non-predicted orbit segments) runs past it
+by more than 0.01 s (`IsCommittedRecordingAheadOfLiveClock`; a predicted tail does not count). The
+restore wrapper then arms the existing per-vessel restore suppression
+(`committed-recording-ahead-of-clock`), so the 1 Hz retry does not resume the recording the moment
+the clock passes its end; it lifts on a vessel switch or when a recorder starts, as for DiscardTree.
+
+## ~~MAP-ORBIT-FROM-PARKED-RELATIVE-GHOST: a loop ghost parked beside a landed anchor gets a NaN map orbit~~ [FILED 2026-11-01 from the overnight regression run (RL-1 `2026-11-01_1141`, PARSEK-FAIL forbidden `[Parsek][ERROR]` on main 9a1ed8d); FIXED 2026-11-01, branch `claude/project-thread-1ey0b9`; xUnit, RL-1 re-flight owed; product, low (one ERROR line per map update and a stock "NaN Orbit" removal; no visible ghost lost)]
+
+**Symptom.** Since loops replay on the map (RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP, #2342), the
+map samples RL-1's loop-anchored Relative recording inside its loop. Its Relative branch of
+`TryResolveStateVectorMapPointPure` skipped every create threshold, so a point at 0 m/s (a probe
+parked beside the landed runway rover) created a state-vector map ghost; the seed velocity was 0
+(`decline=pair-relative-section`), the conic came out NaN, stock removed the orbit driver ("had a
+NaN Orbit and was removed"), and each later update logged `update-state-vector-miss ...
+reason=no-orbit-driver` at ERROR.
+
+**Fix.** Only the altitude floor is frame-dependent: a Relative section keeps the vessel's own
+recorded velocity. `ShouldCreateStateVectorOrbitForFrame` keeps the speed floor for Relative points
+(create above 60 m/s) and `ShouldRemoveStateVectorOrbitForFrame` removes below 30 m/s, the same
+hysteresis as Absolute points, so a docking approach does not churn and a parked ghost gets no
+map orbit (the same as an Absolute landed ghost).
+
+## ~~MAP-LINE-BLINKS-ACROSS-A-1X-TIME-JUMP: a ghost orbit line goes dark for a few frames after a TimeJump at 1x~~ [FILED 2026-11-01 from the overnight regression run (V18T `2026-11-01_1239`, PARSEK-FAIL anomaly line-blink=1 on main 9a1ed8d); FIXED 2026-11-01, branch `claude/project-thread-1ey0b9`; xUnit, V18T re-flight owed; product, low (a 5-frame flicker of one orbit line after a time jump)]
+
+**Symptom.** V18T's first TimeJump (UT 36139 to 38600, at 1x) moved every loop head in one frame.
+The applied orbit segments still covered the old clock, so `GhostOrbitLinePatch`'s stale-segment
+guard hid `Ghost: Kerbal X`'s line (`stale-segment-awaiting-reseed`, frame 7747) until the 0.5 s
+real-time reseed timer fired (lit again frame 7752). Under warp the head-left-segment scan already
+reseeds at once; at 1x only the timer did.
+
+**Fix.** The flight map lifecycle remembers the clock it last ran at; a jump of more than 1 game
+second in one 1x pass (`ParsekPlaybackPolicy.IsMapClockDiscontinuity`, forward or back) forces the
+reseed in that frame, before the line patch's LateUpdate reads the bounds (Verbose line `Map orbit
+reseed forced by a clock jump`).
+
 ## ~~NOOP-CHECK-COUNTS-PHYSICS-MOTION: a parked rover's wheel jitter counts as a change, so a do-nothing resume is kept~~ [FILED 2026-11-01 from the overnight regression run (EVA-16 `2026-11-01_0616` and `_0623_a2`, INVALID driver-verdict-mismatch on main 9a1ed8d, same code as the 00:25 PASS), owner ruling 2026-11-01 ("the player has to actually move the vehicle for it to count as a change, not just the wheels"); FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit, EVA-16 re-flight owed; product, medium (a do-nothing revisit is merged instead of dropped; with auto-merge off a rewind sat behind a merge dialog)]
 
 **Symptom.** EVA-16 commits Bill's tree with a parked rover in it and then rewinds. The parked

@@ -4519,13 +4519,37 @@ namespace Parsek
             string activeVesselGuid = activeVessel.id != Guid.Empty
                 ? activeVessel.id.ToString("N")
                 : null;
+            double liveUT = SafeCurrentUtForResumeAnchor();
             if (!TryTakeCommittedTreeForSpawnedVesselRestore(
                     activeVesselPid,
                     out RecordingTree committedTree,
                     out string targetRecordingId,
                     out CommittedSpawnedVesselRestoreAction action,
-                    activeVesselGuid))
+                    activeVesselGuid,
+                    liveUT))
+            {
+                // A match refused only because its recording runs past the live clock (a
+                // stock revert or a load put the vessel back before its committed future):
+                // leave the vessel idle for this scene, as a DiscardTree does, so the 1 Hz
+                // retry does not resume it the moment the clock passes the recording's end.
+                if (!double.IsNaN(liveUT)
+                    && TryFindCommittedTreeForSpawnedVessel(
+                        RecordingStore.CommittedTrees,
+                        activeVesselPid,
+                        out _,
+                        out _,
+                        activeVesselGuid))
+                {
+                    BeginCommittedSpawnedRestoreSuppression(
+                        ref committedSpawnedRestoreSuppressedPid,
+                        activeVesselPid,
+                        activeVessel.vesselName,
+                        hasActiveTree: activeTree != null,
+                        hasRecorder: recorder != null,
+                        reason: "committed-recording-ahead-of-clock");
+                }
                 return false;
+            }
 
             activeTree = committedTree;
             EnsureBackgroundRecorderAttached("TryRestoreCommittedTreeForSpawnedActiveVessel");
@@ -16714,7 +16738,8 @@ namespace Parsek
             uint activeVesselPid,
             out RecordingTree tree,
             out string recordingId,
-            string activeVesselGuid = null)
+            string activeVesselGuid = null,
+            double liveUT = double.NaN)
         {
             tree = null;
             recordingId = null;
@@ -16722,6 +16747,7 @@ namespace Parsek
                 return false;
 
             int refusedOtherLaunchStamps = 0;
+            int refusedAheadOfClock = 0;
             for (int t = committedTrees.Count - 1; t >= 0; t--)
             {
                 RecordingTree candidate = committedTrees[t];
@@ -16754,6 +16780,12 @@ namespace Parsek
                     if (!IsCommittedSpawnedRecordingRestorable(candidate, rec))
                         continue;
 
+                    if (IsCommittedRecordingAheadOfLiveClock(rec, liveUT))
+                    {
+                        refusedAheadOfClock++;
+                        continue;
+                    }
+
                     if (bestMatch == null
                         || IsPreferredCommittedSpawnedRestoreCandidate(candidate, rec, bestMatch))
                     {
@@ -16768,6 +16800,7 @@ namespace Parsek
                     LogRefusedOtherLaunchSpawnStamps(
                         "TryFindCommittedTreeForSpawnedVessel", activeVesselPid, activeVesselGuid,
                         refusedOtherLaunchStamps);
+                    LogRefusedAheadOfClockRestores(activeVesselPid, liveUT, refusedAheadOfClock);
                     return true;
                 }
             }
@@ -16775,7 +16808,87 @@ namespace Parsek
             LogRefusedOtherLaunchSpawnStamps(
                 "TryFindCommittedTreeForSpawnedVessel", activeVesselPid, activeVesselGuid,
                 refusedOtherLaunchStamps);
+            LogRefusedAheadOfClockRestores(activeVesselPid, liveUT, refusedAheadOfClock);
             return false;
+        }
+
+        /// <summary>
+        /// Slack for <see cref="IsCommittedRecordingAheadOfLiveClock"/>: a save written in the
+        /// frame that ended the recording reads the same UT up to float noise.
+        /// </summary>
+        internal const double CommittedRestoreAheadOfClockToleranceSeconds = 0.01;
+
+        /// <summary>
+        /// Pure: true when <paramref name="rec"/> already holds recorded data later than
+        /// <paramref name="liveUT"/>, so the live vessel has not yet reached the end of the
+        /// recording it would continue. Resuming there writes samples behind the recording's
+        /// own end and double-covers it (VN-5: Revert to Launch put the pad craft back at
+        /// UT 25.64 and it resumed its committed pad recording, which ran to 26.88, at 25.68).
+        /// Measured on recorded data only (points, track sections, non-predicted orbit
+        /// segments): a predicted tail is extrapolation, not something the vessel did. A NaN
+        /// clock (headless callers) never refuses.
+        /// </summary>
+        internal static bool IsCommittedRecordingAheadOfLiveClock(Recording rec, double liveUT)
+        {
+            if (rec == null || double.IsNaN(liveUT) || double.IsInfinity(liveUT))
+                return false;
+            if (!TryGetLatestRecordedUT(rec, out double latestUT))
+                return false;
+            return latestUT > liveUT + CommittedRestoreAheadOfClockToleranceSeconds;
+        }
+
+        /// <summary>
+        /// Pure: the latest UT a recording holds recorded (not predicted) data for.
+        /// </summary>
+        internal static bool TryGetLatestRecordedUT(Recording rec, out double latestUT)
+        {
+            latestUT = double.NegativeInfinity;
+            bool found = false;
+            if (rec.Points != null && rec.Points.Count > 0)
+            {
+                latestUT = rec.Points[rec.Points.Count - 1].ut;
+                found = true;
+            }
+            if (rec.TrackSections != null)
+            {
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    double end = rec.TrackSections[i].endUT;
+                    if (double.IsNaN(end) || double.IsInfinity(end))
+                        continue;
+                    if (!found || end > latestUT)
+                        latestUT = end;
+                    found = true;
+                }
+            }
+            if (rec.OrbitSegments != null)
+            {
+                for (int i = 0; i < rec.OrbitSegments.Count; i++)
+                {
+                    OrbitSegment seg = rec.OrbitSegments[i];
+                    if (seg.isPredicted || double.IsNaN(seg.endUT) || double.IsInfinity(seg.endUT))
+                        continue;
+                    if (!found || seg.endUT > latestUT)
+                        latestUT = seg.endUT;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        private static void LogRefusedAheadOfClockRestores(uint activeVesselPid, double liveUT, int refused)
+        {
+            if (refused <= 0)
+                return;
+            // Re-reached by the 1 Hz Update retry until the suppression the caller arms
+            // takes over: rate-limited per pid.
+            ParsekLog.VerboseRateLimited("Flight",
+                "committed-restore-ahead-of-clock-" + activeVesselPid.ToString(CultureInfo.InvariantCulture),
+                $"TryFindCommittedTreeForSpawnedVessel: refused {refused.ToString(CultureInfo.InvariantCulture)} " +
+                $"committed recording(s) for pid={activeVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                $"whose recorded data runs past the live clock " +
+                $"ut={liveUT.ToString("F2", CultureInfo.InvariantCulture)} (the vessel is behind its own " +
+                "recorded future; resuming would record over it)");
         }
 
         internal static bool TryTakeCommittedTreeForSpawnedVesselRestore(
@@ -16783,7 +16896,8 @@ namespace Parsek
             out RecordingTree tree,
             out string recordingId,
             out CommittedSpawnedVesselRestoreAction action,
-            string activeVesselGuid = null)
+            string activeVesselGuid = null,
+            double liveUT = double.NaN)
         {
             tree = null;
             recordingId = null;
@@ -16794,7 +16908,8 @@ namespace Parsek
                     activeVesselPid,
                     out RecordingTree committedTree,
                     out string targetRecordingId,
-                    activeVesselGuid))
+                    activeVesselGuid,
+                    liveUT))
             {
                 return false;
             }

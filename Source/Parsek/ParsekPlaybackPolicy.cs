@@ -1395,8 +1395,32 @@ namespace Parsek
         /// this is exactly the old timer-only gate, so non-warp behavior is byte-identical.
         /// </summary>
         internal static bool ShouldRunMapOrbitReseed(
-            bool timerElapsed, float warpRate, bool anyGhostHeadLeftSegment)
-            => timerElapsed || (warpRate > 1.0f && anyGhostHeadLeftSegment);
+            bool timerElapsed, float warpRate, bool anyGhostHeadLeftSegment,
+            bool clockJumped = false)
+            => timerElapsed || clockJumped || (warpRate > 1.0f && anyGhostHeadLeftSegment);
+
+        /// <summary>
+        /// Game seconds one 1x frame may advance the flight map clock before the map counts it a
+        /// jump. A 1x frame advances the clock by about one frame time (well under a second even
+        /// at a few frames per second); a TimeJump or a load moves it by its whole delta.
+        /// </summary>
+        internal const double MapClockJumpGameSeconds = 1.0;
+
+        /// <summary>
+        /// Pure: the flight map clock jumped between two lifecycle passes at 1x (forward or
+        /// back), so every applied ghost orbit may be stale at once. Under time warp the
+        /// head-left-segment scan already reseeds promptly, so only warp &lt;= 1 counts. False on
+        /// the first pass (<paramref name="previousUT"/> NaN).
+        /// </summary>
+        internal static bool IsMapClockDiscontinuity(double previousUT, double currentUT, float warpRate)
+        {
+            if (warpRate > 1.0f)
+                return false;
+            if (double.IsNaN(previousUT) || double.IsNaN(currentUT)
+                || double.IsInfinity(previousUT) || double.IsInfinity(currentUT))
+                return false;
+            return System.Math.Abs(currentUT - previousUT) > MapClockJumpGameSeconds;
+        }
 
         /// <summary>
         /// Cap on how much GAME time may elapse between two map-orbit reseed ticks while

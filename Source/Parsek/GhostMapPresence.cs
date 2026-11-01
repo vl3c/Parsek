@@ -4212,9 +4212,29 @@ namespace Parsek
         internal static bool ShouldRemoveStateVectorOrbitForFrame(
             bool inRelativeFrame, double altitude, double speed, double atmosphereDepth)
         {
+            // The altitude field is frame-dependent, the speed is not: a Relative section keeps
+            // the vessel's own recorded velocity (FlightRecorder only rewrites position and
+            // rotation), so the speed floor still applies there. Remove below 30 m/s, create
+            // above 60 m/s (ShouldCreateStateVectorOrbitForFrame): the gap is the hysteresis
+            // that keeps a docking ghost from churning.
             if (inRelativeFrame)
-                return false;
+                return speed < StateVectorRemoveSpeed;
             return ShouldRemoveStateVectorOrbit(altitude, speed, atmosphereDepth);
+        }
+
+        /// <summary>
+        /// Frame-aware form of <see cref="ShouldCreateStateVectorOrbit"/>. A Relative-frame
+        /// point skips the altitude floor (its altitude is the anchor-local dz) but keeps the
+        /// speed floor: a state vector with near-zero velocity (a ghost parked beside a
+        /// landed anchor) seeds a degenerate conic whose elements come out NaN, and stock
+        /// then removes the ghost's orbit driver ("had a NaN Orbit and was removed").
+        /// </summary>
+        internal static bool ShouldCreateStateVectorOrbitForFrame(
+            bool inRelativeFrame, double altitude, double speed, double atmosphereDepth)
+        {
+            if (inRelativeFrame)
+                return speed > StateVectorCreateSpeed;
+            return ShouldCreateStateVectorOrbit(altitude, speed, atmosphereDepth);
         }
 
         internal static double GetAtmosphereDepth(string bodyName)
@@ -6284,12 +6304,21 @@ namespace Parsek
                     return false;
                 }
 
-                // Threshold check is intentionally skipped: point.altitude is
-                // the anchor-local dz (metres along the anchor's local z), not
-                // geographic altitude. Symmetric to the PR #547 P1 update-path
-                // gate in ParsekPlaybackPolicy.CheckPendingMapVessels (lines
-                // 1042-1056) which skips ShouldRemoveStateVectorOrbit for the
-                // same reason.
+                // The altitude floor is skipped: point.altitude is the
+                // anchor-local dz (metres along the anchor's local z), not
+                // geographic altitude. The speed floor stays: the recorded
+                // velocity is the vessel's own, and a near-zero one seeds a
+                // NaN conic (RL-1: a loop ghost parked beside a landed anchor).
+                // Symmetric to the removal gate both update passes run.
+                if (!ShouldCreateStateVectorOrbitForFrame(
+                        inRelativeFrame: true,
+                        relPt.Value.altitude,
+                        relPt.Value.velocity.magnitude,
+                        atmosphereDepth: 0.0))
+                {
+                    skipReason = TrackingStationGhostSkipStateVectorThreshold;
+                    return false;
+                }
                 point = relPt.Value;
                 return true;
             }
@@ -7329,7 +7358,8 @@ namespace Parsek
                     // tear the ghost down every cycle, then the create path
                     // re-adds it next tick → flicker. Mirror the flight-scene
                     // gate in ParsekPlaybackPolicy.CheckPendingMapVessels and
-                    // skip the threshold for Relative-frame points;
+                    // skip the altitude floor for Relative-frame points (the
+                    // speed floor stays, see ShouldRemoveStateVectorOrbitForFrame);
                     // UpdateGhostOrbitFromStateVectors already dispatches on
                     // referenceFrame and resolves world position via the
                     // anchor for that branch.
@@ -11904,6 +11934,9 @@ namespace Parsek
         /// </summary>
         private const float MapOrbitUpdateIntervalSec = 0.5f;
         private static float nextMapOrbitUpdateTime;
+        // The clock the flight map lifecycle last ran at, for the 1x clock-jump reseed
+        // (ParsekPlaybackPolicy.IsMapClockDiscontinuity). NaN until the first pass.
+        private static double lastFlightMapLifecycleUT = double.NaN;
 
         internal static readonly Dictionary<int, (string body, double sma, double ecc)> flightLastMapOrbitByIndex =
             new Dictionary<int, (string body, double sma, double ecc)>();
@@ -11947,6 +11980,7 @@ namespace Parsek
             flightStateVectorCachedIndices.Clear();
             flightTerminalMapRetentionLoggedIds.Clear();
             nextMapOrbitUpdateTime = 0f;
+            lastFlightMapLifecycleUT = double.NaN;
         }
 
         /// <summary>
@@ -13033,7 +13067,24 @@ namespace Parsek
             bool mapReseedHeadLeftSegment = !mapReseedTimerElapsed
                 && TimeWarp.CurrentRate > 1.0f
                 && GhostMapPresence.AnyGhostHeadLeftAppliedSegment(currentUT);
-            if (!ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(mapReseedTimerElapsed, TimeWarp.CurrentRate, mapReseedHeadLeftSegment))
+            // A clock jump at 1x (a TimeJump, a Real Spawn Control warp): every head moved in one
+            // frame, and the timer would leave the applied orbits stale until it fires, while the
+            // stale-segment guard blanks those lines (V18T: one line dark 5 frames across a jump).
+            // Reseed in this frame, before the line patch's LateUpdate reads the bounds.
+            double previousLifecycleUT = lastFlightMapLifecycleUT;
+            lastFlightMapLifecycleUT = currentUT;
+            bool mapReseedClockJumped = !mapReseedTimerElapsed
+                && ParsekPlaybackPolicy.IsMapClockDiscontinuity(
+                    previousLifecycleUT, currentUT, TimeWarp.CurrentRate);
+            if (mapReseedClockJumped)
+            {
+                ParsekLog.Verbose("Policy", string.Format(CultureInfo.InvariantCulture,
+                    "Map orbit reseed forced by a clock jump: {0:F2} -> {1:F2} (warp={2:F1})",
+                    previousLifecycleUT, currentUT, TimeWarp.CurrentRate));
+            }
+            if (!ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(
+                    mapReseedTimerElapsed, TimeWarp.CurrentRate, mapReseedHeadLeftSegment,
+                    mapReseedClockJumped))
                 return;
             nextMapOrbitUpdateTime = UnityEngine.Time.time + mapReseedIntervalSec;
 
@@ -13710,7 +13761,8 @@ namespace Parsek
                     // re-defers the ghost — but pending-create currently skips
                     // Relative frames, so the ghost disappears through the section
                     // rather than staying attached to the anchor (#547 P1 review).
-                    // Skip the threshold check entirely for Relative-frame points;
+                    // Skip the altitude floor for Relative-frame points (the speed
+                    // floor stays, see ShouldRemoveStateVectorOrbitForFrame);
                     // `UpdateGhostOrbitFromStateVectors` already dispatches on
                     // `referenceFrame` and resolves the world position via
                     // anchor + offset for that branch.
