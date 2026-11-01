@@ -597,7 +597,25 @@ namespace Parsek.Tests
             return File.ReadAllText(path);
         }
 
+        // GhostMapPresence is one partial class split across GhostMapPresence.cs and the
+        // GhostMapPresence.<Area>.cs files. Read the whole class (the main file first, then the
+        // partials in ordinal name order) so each gate still covers every member it did when
+        // the class lived in one file.
         private static string ReadGhostMapPresenceSource()
-            => ReadParsekSource("GhostMapPresence.cs");
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(root, "Source", "Parsek", "GhostMapPresence.cs");
+            if (!File.Exists(path))
+                path = Path.Combine(root, "Parsek", "GhostMapPresence.cs");
+            Assert.True(File.Exists(path), $"Source file not found at {path}");
+            var sb = new System.Text.StringBuilder(File.ReadAllText(path));
+            string[] partials = Directory.GetFiles(
+                Path.GetDirectoryName(path), "GhostMapPresence.*.cs");
+            Array.Sort(partials, StringComparer.Ordinal);
+            foreach (string partial in partials)
+                sb.Append('\n').Append(File.ReadAllText(partial));
+            return sb.ToString();
+        }
     }
 }

@@ -41,6 +41,25 @@ namespace Parsek.Tests
             return File.ReadAllText(path);
         }
 
+        // GhostMapPresence is one partial class split across GhostMapPresence.cs and the
+        // GhostMapPresence.<Area>.cs files. Read the whole class (the main file first, then the
+        // partials in ordinal name order) so each gate still covers every member it did when
+        // the class lived in one file.
+        private static string ReadGhostMapPresenceSource()
+        {
+            string path = Path.Combine(ProjectRoot, "Source", "Parsek", "GhostMapPresence.cs");
+            if (!File.Exists(path))
+                path = Path.Combine(ProjectRoot, "Parsek", "GhostMapPresence.cs");
+            Assert.True(File.Exists(path), $"Source file not found at {path}");
+            var sb = new System.Text.StringBuilder(File.ReadAllText(path));
+            string[] partials = Directory.GetFiles(
+                Path.GetDirectoryName(path), "GhostMapPresence.*.cs");
+            Array.Sort(partials, StringComparer.Ordinal);
+            foreach (string partial in partials)
+                sb.Append('\n').Append(File.ReadAllText(partial));
+            return sb.ToString();
+        }
+
         [Fact]
         public void ParsekFlight_DrivesMapPresence_ThroughScene_NotPolicyDirectly()
         {
@@ -93,7 +112,7 @@ namespace Parsek.Tests
         [Fact]
         public void GhostMapPresence_Declares_UpdateFlightMapGhostLifecycle()
         {
-            string source = ReadSource("Source", "Parsek", "GhostMapPresence.cs");
+            string source = ReadGhostMapPresenceSource();
 
             // The relocated per-frame flight presence body lives here as an internal static method.
             Assert.Contains("internal static void UpdateFlightMapGhostLifecycle(", source);
@@ -125,7 +144,7 @@ namespace Parsek.Tests
         [Fact]
         public void UpdateFlightMapGhostLifecycle_DoesNotGateOnDirectorDrive()
         {
-            string source = ReadSource("Source", "Parsek", "GhostMapPresence.cs");
+            string source = ReadGhostMapPresenceSource();
             // Bound the body region between this method's signature and the next method declaration
             // (PruneTerminalMapRetentionLogKeys is the next member after the relocated body). This
             // avoids brace counting, which the body's string-literal {0}/{idx} placeholders would
@@ -159,7 +178,7 @@ namespace Parsek.Tests
         [Fact]
         public void GhostMapPresence_Declares_GhostCreatedAndDestroyedMapPresence_8d2()
         {
-            string source = ReadSource("Source", "Parsek", "GhostMapPresence.cs");
+            string source = ReadGhostMapPresenceSource();
 
             // Phase 8d.2 relocated the map-presence portions of the policy's two ghost-lifecycle
             // handlers here as internal static methods.
@@ -225,7 +244,7 @@ namespace Parsek.Tests
         [Fact]
         public void UpdateFlightMapGhostLifecycle_DecomposedIntoNamedPasses_8d3()
         {
-            string source = ReadSource("Source", "Parsek", "GhostMapPresence.cs");
+            string source = ReadGhostMapPresenceSource();
 
             // Phase 8d.3 split the ~655-line orchestrator into three named sub-pass methods
             // (behavior-preserving). The three pass methods exist as private static voids...

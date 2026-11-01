@@ -9079,6 +9079,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   1,909, `.PartEvents` 1,866, `.PointCommit` 1,343, `.RelativeAnchors` 1,148,
   `.StopAndFinalize` 1,082, `.StartRecording` 977, `.EnvironmentAndTrackSections` 808,
   `.Sampling` 807, `.EngineAndRcs` 626.
+- `GhostMapPresence.cs` split into partial files by `scripts/refactor/split_ghostmappresence.py`
+  (pure move; every field, const and initializer stays in the main file): main 1,762 lines,
+  `.ProtoVesselLifecycle` 2,106, `.StateVectors` 2,093, `.SourceResolution` 1,961,
+  `.TrackingStationLifecycle` 1,656, `.FlightMapLifecycle` 1,274, `.TargetingAndSelection`
+  1,022, `.OverlapInstances` 975, `.ReFlySuppression` 791, `.OrbitLines` 791.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

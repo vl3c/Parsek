@@ -71,6 +71,15 @@ Source/Parsek/InGameTests/
 # deeper refactor (tracked as TODO(phase 6+): migrate to EffectiveRecordingId
 # walk). Each exemption is documented at the call site.
 Source/Parsek/GhostMapPresence.cs
+# The GhostMapPresence partials below hold members moved verbatim out of
+# GhostMapPresence.cs (a pure file split); same index-keyed exemption as above.
+Source/Parsek/GhostMapPresence.FlightMapLifecycle.cs
+Source/Parsek/GhostMapPresence.OrbitLines.cs
+Source/Parsek/GhostMapPresence.ProtoVesselLifecycle.cs
+Source/Parsek/GhostMapPresence.ReFlySuppression.cs
+Source/Parsek/GhostMapPresence.SourceResolution.cs
+Source/Parsek/GhostMapPresence.StateVectors.cs
+Source/Parsek/GhostMapPresence.TrackingStationLifecycle.cs
 Source/Parsek/WatchModeController.cs
 Source/Parsek/ParsekFlight.cs
 # The blocked chain tip ghost partial reads the committed list by INDEX to pair a
