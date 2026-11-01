@@ -53,6 +53,44 @@ namespace Parsek.TestCommands
         /// not just that one would.</summary>
         internal const string DialogRequiredReason = "dialog-required";
 
+        /// <summary>The optional closed arg that drives stock's Esc-menu "Quit without saving"
+        /// instead of the saving Space Center button: <c>quitWithoutSaving=true</c>. hlib's
+        /// <c>EXIT_QUIT_WITHOUT_SAVING_KEY</c> / <c>_VALUES</c> mirror it.</summary>
+        internal const string QuitWithoutSavingKey = "quitWithoutSaving";
+        internal const string QuitWithoutSavingTrueValue = "true";
+
+        /// <summary>REJECTED reason for any other <c>quitWithoutSaving=</c> value.</summary>
+        internal const string QuitWithoutSavingArgInvalidReason = "exittospacecenter-quitwithoutsaving-arg-invalid";
+
+        /// <summary>
+        /// Pure: parse the optional <c>quitWithoutSaving=</c> arg. Returns null when it is
+        /// absent (the saving exit) or <c>true</c>; otherwise the arg-invalid reason.
+        /// </summary>
+        internal static string ParseQuitWithoutSaving(string raw, out bool quitWithoutSaving)
+        {
+            quitWithoutSaving = false;
+            if (raw == null)
+                return null;
+            if (string.Equals(raw, QuitWithoutSavingTrueValue, System.StringComparison.Ordinal))
+            {
+                quitWithoutSaving = true;
+                return null;
+            }
+            return QuitWithoutSavingArgInvalidReason;
+        }
+
+        /// <summary>
+        /// Pure: the wedge gate for a quit without saving. When the LoadScene prefix follows
+        /// the save on it (<see cref="NoSaveSceneExit.ShouldFollowTheSave"/>) it lets the exit
+        /// through before any dialog route, so the exit proceeds whatever the dialog variants
+        /// say; otherwise (a Re-Fly, a merge journal, a rewind) the saving exit's gate decides.
+        /// </summary>
+        internal static ExitGateDecision DecideQuitWithoutSavingGate(
+            bool prefixFollowsTheSave, ExitGateDecision savingExitGate)
+        {
+            return prefixFollowsTheSave ? ExitGateDecision.Proceed : savingExitGate;
+        }
+
         /// <summary>
         /// Decide whether a driven FLIGHT -> SPACECENTER exit is safe to initiate.
         ///

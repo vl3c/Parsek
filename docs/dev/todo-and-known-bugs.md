@@ -55,11 +55,11 @@ frame-exact `NoSaveSceneExit` note, which makes `FinalizeTreeOnSceneChange` stas
 Limbo (the save-file-load branch), and for the Space Center and Tracking Station arms
 `SaveFileLoadIntent` so the destination's reload is a Cold load that rebuilds Parsek from the save
 (the main menu unloads the game; the next game's load is cold anyway). Tests:
-`NoSaveSceneExitTests`. Lane owed: a quit without saving from a moving vessel, to the Space Center
-and to the main menu, then a load showing the flight gone (needs a seam verb that drives the stock
-no-save button).
+`NoSaveSceneExitTests`. Lane: `QWS-1-quit-without-saving-drops-flight` drives the stock button
+through the new `ExitToSpaceCenter quitWithoutSaving=true` on S0.7's host (count {0,0}, S0.7's
+commit lines forbidden). The main-menu destination has no lane (no seam verb lands there).
 
-## ~~NOOP-CHECK-COUNTS-PHYSICS-MOTION: a parked rover's wheel jitter counts as a change, so a do-nothing resume is kept~~ [FILED 2026-11-01 from the overnight regression run (EVA-16 `2026-11-01_0616` and `_0623_a2`, INVALID driver-verdict-mismatch on main 9a1ed8d, same code as the 00:25 PASS), owner ruling 2026-11-01 ("the player has to actually move the vehicle for it to count as a change, not just the wheels"); FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit, EVA-16 re-flight owed; product, medium (a do-nothing revisit is merged instead of dropped; with auto-merge off a rewind sat behind a merge dialog)]
+## ~~NOOP-CHECK-COUNTS-PHYSICS-MOTION: a parked rover's wheel jitter counts as a change, so a do-nothing resume is kept~~ [FILED 2026-11-01 from the overnight regression run (EVA-16 `2026-11-01_0616` and `_0623_a2`, INVALID driver-verdict-mismatch on main 9a1ed8d, same code as the 00:25 PASS), owner ruling 2026-11-01 ("the player has to actually move the vehicle for it to count as a change, not just the wheels"); FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit; EVA-16 LIVE-PROVEN on main def7f10 `2026-11-01_1540` (PASS attempt 1, the rover resume dropped as a no-op at the rewind's exit, no merge dialog); product, medium (a do-nothing revisit is merged instead of dropped; with auto-merge off a rewind sat behind a merge dialog)]
 
 **Symptom.** EVA-16 commits Bill's tree with a parked rover in it and then rewinds. The parked
 rover's wheel suspension wiggles by a millimetre (0.327 -> 0.328) and the recorder stores each
@@ -95,7 +95,7 @@ With auto-merge on (every player build) the rewind's scene load auto-commits a c
 tree; the dialog is reachable with auto-merge off (harness only) and through the switch-segment
 branch of `HighLogic_LoadScene_Patch` that ignores auto-merge. Analysis of every remaining merge
 dialog is a follow-up in the same thread.
-## ~~REWIND-WAITS-ON-MERGE-DIALOG: a rewind from flight with a live recording can stop on a merge dialog after the rewind save is already written~~ [FILED 2026-11-01 from EVA-16 `2026-11-01_0616` (overnight regression run), owner ruling 2026-11-01 ("rewind should not stop at a merge dialog, we're doing auto merges anyway"); FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit, EVA-16 re-flight owed; product, low in player builds (auto-merge is forced on there; the one player path was a switch-segment session with no live recording), high for auto-merge-off lanes]
+## ~~REWIND-WAITS-ON-MERGE-DIALOG: a rewind from flight with a live recording can stop on a merge dialog after the rewind save is already written~~ [FILED 2026-11-01 from EVA-16 `2026-11-01_0616` (overnight regression run), owner ruling 2026-11-01 ("rewind should not stop at a merge dialog, we're doing auto merges anyway"); FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit; EVA-16 LIVE-PROVEN on main def7f10 `2026-11-01_1540` (PASS attempt 1, the rover resume dropped as a no-op at the rewind's exit, no merge dialog); product, low in player builds (auto-merge is forced on there; the one player path was a switch-segment session with no live recording), high for auto-merge-off lanes]
 
 **Symptom.** `RecordingStore.ExecuteRewindSaveLoad` arms the rewind flags, writes the rewind save
 over persistent.sfs, swaps `HighLogic.CurrentGame`, then calls `HighLogic.LoadScene(SPACECENTER)`.

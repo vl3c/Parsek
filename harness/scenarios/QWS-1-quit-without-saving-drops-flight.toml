@@ -1,0 +1,74 @@
+schema = 1
+id = "QWS-1-quit-without-saving-drops-flight"
+tier = "nightly"
+# Owner pick 2026-11-01 ("Follow the save", todo EXIT-TO-MAIN-MENU-ASKS): stock's Esc-menu
+# "Quit without saving" puts the world back to the last persistent.sfs, and the recording
+# follows it. S0.7's twin: the same host, the same live recording, the same exit to the
+# Space Center, but driven as the stock no-save button (`quitWithoutSaving=true`:
+# onSceneConfirmExit, then LoadScene, no save). Where S0.7 commits one recording, this
+# lane must commit none: the save the Space Center reloads is the one FlightDriver.PostInit
+# wrote at the LoadGame, before StartRecording, so it holds no recording.
+#
+# The chain the log contracts pin, in order: the prefix reads the unsaved confirm-exit and
+# follows the save; the scene-exit finalize stashes the live tree as Limbo instead of
+# committing it; the save-file load intent armed by the prefix makes the Space Center's
+# reload a Cold load; the save-scoped reset drops the stashed tree from memory. Forbidden:
+# any scene-exit commit (S0.7's own commit lines).
+description = "Drive stock's Quit without saving out of a live recording to the Space Center: no merge dialog, no commit, no save write; the Space Center's reload is a Cold load and the flight since the last save is gone from the recordings."
+instanceProfile = "stock-minimal"
+tags = ["scene-exit", "auto-merge", "live-recording", "quit-without-saving", "QWS-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "StartRecording",                                                             expect = "OK" },
+  { cmd = "ExitToSpaceCenter", args = { quitWithoutSaving = "true" },                   expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D1 = ["discard-rollback"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  "exittospacecenter quit-without-saving followsTheSave=true gate=Proceed",
+  "exittospacecenter driving quit-without-saving dest=SPACECENTER",
+  "LoadScene prefix: quit without saving dest=SPACECENTER - following the save",
+  "Quit-without-saving exit armed dest=SPACECENTER",
+  "Save-file load intent armed: nodeUT=NaN scene=FLIGHT \\(quit without saving\\)",
+  "FinalizeTreeOnSceneChange: quit without saving out of flight \\(dest=SPACECENTER\\) - stashing the live tree",
+  "Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "Save-scoped reset dropped the pending tree from memory only",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "CommitTreeSceneExit",
+  "Silent full-fidelity auto-commit \\(scene-exit\\)",
+  "showing pre-transition dialog",
+]
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

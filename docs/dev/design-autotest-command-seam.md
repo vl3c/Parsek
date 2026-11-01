@@ -1021,7 +1021,7 @@ ONLY on its own settled scene; a MAINMENU settle and the budget expiry keep thei
 on all three. The success payload's existing `scene` key now reports the landing scene.
 Budget unchanged (`LoadGameSeconds = 300`).
 
-#### R12/A2 - `ExitToSpaceCenter` (no args)
+#### R12/A2 - `ExitToSpaceCenter` (optional `quitWithoutSaving=true`)
 
 **Contract.** FLIGHT-only (dispatch precondition `RequiresFlight`). Drives the live
 FLIGHT -> SPACECENTER transition through the stock Space Center exit-button path
@@ -1032,6 +1032,17 @@ game loaded -> `OK scene=SPACECENTER`; a MAINMENU settle -> `ERROR
 msg=exit-failed-returned-to-menu`; budget expiry -> `ERROR msg=exit-timeout`. Budget
 `ExitToSpaceCenterSeconds = 120`, sized for a driven scene exit and its settle rather than
 like `LoadGame`, which additionally parses a cold save off disk.
+
+**`quitWithoutSaving=true` (2026-11-01, lane QWS-1).** Drives stock's Esc-menu Quit without
+saving instead (`PauseMenu.drawExitWithoutSaveOptions`): `onSceneConfirmExit`, then
+`HighLogic.LoadScene(SPACECENTER)`, no save. The wedge gate proceeds whenever the LoadScene
+prefix follows the save on that exit (`NoSaveSceneExit.ShouldFollowTheSave`: no rewind, Re-Fly
+or merge journal), since the prefix then shows no dialog; otherwise the saving exit's gate
+decides. Closed arg, one value; any other value is `REJECTED
+msg=exittospacecenter-quitwithoutsaving-arg-invalid` (hlib `VERB_SCOPED_CLOSED_ARGS`,
+`ExitQuitWithoutSavingSourceSyncTests`). Logs `exittospacecenter quit-without-saving
+followsTheSave=<bool> gate=<decision>` and `exittospacecenter driving quit-without-saving
+dest=SPACECENTER`.
 
 **Why a narrow verb and not a generic `LoadScene`.** CL-1 needs the live FLIGHT exit WITH
 its side effects: all four pending-tree auto-commit routes are gated on
