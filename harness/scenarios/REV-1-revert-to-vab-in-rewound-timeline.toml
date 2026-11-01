@@ -66,9 +66,11 @@ id = "REV-1-revert-to-vab-in-rewound-timeline"
 #   - `revert-timeout` with `revertConsumed=false`: the editor's OnLoad never consumed the
 #     revert kind.
 #
-# STATUS: AUTHORED 2026-10-31, NEVER FLOWN. Every literal is from source, not from a flight.
-# Owed off the first flight: the batch split (INTERIM total=3), N in `pruned N`, the tier
-# call (operator: stock-tree is not in the nightly instance set).
+# STATUS: LIVE-PROVEN 2026-10-31 on its first flight (run 2026-10-31_2355, PASS on attempt 1,
+# 173 s): R1 and R2 held live (no scene-exit write over stock's revert state, the revert
+# cleanup released in the editor), the relaunch's rollout row pruned (N=1), and the batch
+# passed whole (passed=3 failed=0 skipped=0, now pinned). Tier stays operator (stock-tree is
+# not in the nightly instance set).
 #
 # FAST-LANE CHECKLIST: (1) reuse: RW-2's H and rewind verbatim; (2) explicit-UT warps only;
 # (3)-(5) no dwell, burn or coast; (6) retry `once`; (7) recordings window 35..35;
@@ -165,6 +167,7 @@ required = [
   "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?Load classified: early=\\w+ refined=StockRevert scene=EDITOR",
   "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?Unstashed pending tree 'Jumping Flea' on revert[\\s\\S]*?MISSIONMARK label=rev1-reverted ut=",
   # R2: the OnFlightReady recovery is released in the editor, not left for the next launch.
+  "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?Revert \\(Prelaunch\\): pruned 1 untagged ledger action\\(s\\) [\\s\\S]*?MISSIONMARK label=rev1-reverted ut=",
   "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?Revert cleanup released: scene=EDITOR [\\s\\S]*?MISSIONMARK label=rev1-reverted ut=",
   "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?Revert budget walk: scene=EDITOR cutoffScene=True clockReady=True[\\s\\S]*?MISSIONMARK label=rev1-reverted ut=",
   "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?reverttolaunch complete target=prelaunch facility=VAB ship='Jumping Flea' elapsed=",
@@ -174,9 +177,8 @@ required = [
   "MISSIONMARK label=rev1-relaunched ut=[\\s\\S]*?savegame name=persistent folder=\\S+ saved=true",
   "ground-truth game mode=CAREER pools=funds,science,reputation",
   "result: hardFailures=0 ",
-  # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells), the split
-  # regexed until the first flight (IngameBatchWiringGroupTests.INTERIM_PIN_IDS).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  # Pinned whole off the first flight (run 2026-10-31_2355).
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

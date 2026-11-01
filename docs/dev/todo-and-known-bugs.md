@@ -159,7 +159,7 @@ cadence (a 120 s / 20-copy loop needs well above 1000x). Candidate fix: above th
 only the newest cycle's instance and re-seed it across cycles instead of recreating it. Not taken
 in the A1 / A2 fix because no lane flies an overlap loop at that warp to prove the change.
 
-## ~~REVERT-EDITOR-SAVE-SWITCH-GAPS: Revert to VAB / SPH could be undone by a scene-exit save or leave a stale cleanup armed, and three statics survived a save switch~~ [FILED AND FIXED 2026-10-31 from the test-gap audit (`test-gap-audit-2026-10-31.md` B4 / B5 / B6 / C9), branch `claude/project-thread-ib5y5e`; unit-tested, lanes authored, not flown; product, medium (R1, R2), low (S1-S3)]
+## ~~REVERT-EDITOR-SAVE-SWITCH-GAPS: Revert to VAB / SPH could be undone by a scene-exit save or leave a stale cleanup armed, and three statics survived a save switch~~ [FILED AND FIXED 2026-10-31 from the test-gap audit (`test-gap-audit-2026-10-31.md` B4 / B5 / B6 / C9), branch `claude/project-thread-ib5y5e`; unit-tested; REV-1 and SWS-1 LIVE-PROVEN 2026-10-31, CN-4 re-fly owed; product, medium (R1, R2), low (S1-S3)]
 
 Code read plus a decompile of `FlightDriver.RevertToPrelaunch` (KSP 1.12.5): stock writes
 `PreLaunchState` to persistent.sfs, fires `OnRevertToPrelaunchFlightState`, then
@@ -193,10 +193,13 @@ Code read plus a decompile of `FlightDriver.RevertToPrelaunch` (KSP 1.12.5): sto
   load rebuilds the manager and eligibility is re-derived each tick); the registration passes
   moved into the pure `GhostCommNetMath.ResolveRegistrations` with cells
   (GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST first bullet).
-- Lanes AUTHORED 2026-10-31, NEVER FLOWN (owed: their first flights):
-  `REV-1-revert-to-vab-in-rewound-timeline` (new `RevertToLaunch target=prelaunch`),
-  `SWS-1-save-switch-through-main-menu` (new `NewGame ... as=<runSave>-<suffix>`) and
-  `CN-4-ghost-commnet-relay-across-rewind`.
+- Lanes: `REV-1-revert-to-vab-in-rewound-timeline` (new `RevertToLaunch target=prelaunch`)
+  LIVE-PROVEN `2026-10-31_2355` (R1 and R2 held live, `pruned 1`), and
+  `SWS-1-save-switch-through-main-menu` (new `NewGame ... as=<runSave>-<suffix>`) LIVE-PROVEN
+  `2026-10-31_2358` (committed 34 / 0 / 34). `CN-4-ghost-commnet-relay-across-rewind` flew
+  `2026-10-31_2359` with every required line matched (the relays re-register after the rewind
+  with CN-1's rulings) and red only on its forbidden `No ghost node` line, which matched after the
+  batch's own final-restore Cold load resets the replay scope by design; scoped, re-fly owed.
 
 ## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; LIVE-PROVEN by RW-20 `2026-10-31_0425`; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
 
