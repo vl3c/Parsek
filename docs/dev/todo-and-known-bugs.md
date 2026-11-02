@@ -9124,6 +9124,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `.Diagnostics` 387, `.ForwardArcs` 265. The main file stays large on purpose: the nested
   `Driver` (2,764 lines, the fenced single draw host of design-map-ts-render-architecture.md
   Appendix A) and the ownership / paint publication stay whole in the file the contract names.
+- Test-gap pass over the 10 split classes (test-only): 52 previously untested `internal`
+  helpers (guards, classifiers, formatters, clamps) now have direct characterization tests in
+  10 new `Source/Parsek.Tests/<Class>CharacterizationTests.cs` files (148 cases, 3 mutation
+  checks red as expected). A name-based scan still finds 85 untested `internal` logic methods
+  in those classes (338 counting `private`), most of them Unity-coupled (particle systems,
+  audio, transforms) or reachable only through private helpers.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
