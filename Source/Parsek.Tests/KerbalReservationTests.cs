@@ -243,6 +243,55 @@ namespace Parsek.Tests
             Assert.False(kerbals.Reservations["Jeb"].IsPermanent);
         }
 
+        [Fact]
+        public void Recalculate_StandInDiesBeforeOwnersCommittedFlight_OwnerStaysAlive()
+        {
+            // R1 (2026-11-01 lane run): a rewind to before Jeb's committed flight seats his
+            // stand-in; the stand-in crashes. Design section 9.11: the stand-in is the one
+            // who died, the owner keeps his committed flight and his slot.
+            CrewReservationManager.SetReplacement("Jeb", "Leia");
+            try
+            {
+                var owners = MakeRecording("Ship A", new[] { "Jeb" }, TerminalState.Recovered, 300);
+                owners.RecordingId = "rec-owner-flight";
+                owners.ExplicitStartUT = 200;
+                var crash = MakeRecording("Ship B", new[] { "Leia" }, TerminalState.Destroyed, 50);
+                crash.RecordingId = "rec-standin-crash";
+                // As PopulateCrewEndStates keys them: the stand-in reverse-mapped to the owner.
+                crash.CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Jeb", KerbalEndState.Dead },
+                };
+
+                RecordingStore.AddRecordingWithTreeForTesting(owners);
+                RecordingStore.AddRecordingWithTreeForTesting(crash);
+
+                var actions = new List<GameAction>();
+                actions.AddRange(LedgerOrchestrator.BuildKerbalAssignmentActions(
+                    crash, crash.RecordingId, 0, 50));
+                actions.AddRange(LedgerOrchestrator.BuildKerbalAssignmentActions(
+                    owners, owners.RecordingId, 200, 300));
+
+                Assert.Equal("Leia", actions[0].KerbalName);
+                Assert.Equal(KerbalEndState.Dead, actions[0].KerbalEndStateField);
+                Assert.Equal("Jeb", actions[1].KerbalName);
+
+                var module = new KerbalsModule();
+                module.PrePass(actions);
+                for (int i = 0; i < actions.Count; i++)
+                    module.ProcessAction(actions[i]);
+                module.PostWalk();
+
+                Assert.False(module.Reservations["Jeb"].IsPermanent);
+                Assert.Equal(300, module.Reservations["Jeb"].ReservedUntilUT);
+                Assert.True(module.Reservations["Leia"].IsPermanent);
+            }
+            finally
+            {
+                CrewReservationManager.ResetReplacementsForTesting();
+            }
+        }
+
         // ── Merge behavior: permanent wins over temporary ──
 
         [Fact]

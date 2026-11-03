@@ -2277,6 +2277,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveCrewRowName_DeadStandIn_NamesTheStandIn()
+        {
+            Assert.Equal("Leia Kerman", LedgerOrchestrator.ResolveCrewRowName(
+                "Jebediah Kerman", "Leia Kerman", KerbalEndState.Dead));
+            Assert.Equal("Jebediah Kerman", LedgerOrchestrator.ResolveCrewRowName(
+                "Jebediah Kerman", "Leia Kerman", KerbalEndState.Aboard));
+            Assert.Equal("Jebediah Kerman", LedgerOrchestrator.ResolveCrewRowName(
+                "Jebediah Kerman", "Leia Kerman", KerbalEndState.Recovered));
+            Assert.Equal("Jebediah Kerman", LedgerOrchestrator.ResolveCrewRowName(
+                "Jebediah Kerman", "Leia Kerman", KerbalEndState.Unknown));
+            Assert.Equal("Jebediah Kerman", LedgerOrchestrator.ResolveCrewRowName(
+                "Jebediah Kerman", "Jebediah Kerman", KerbalEndState.Dead));
+            Assert.Equal("Jebediah Kerman", LedgerOrchestrator.ResolveCrewRowName(
+                "Jebediah Kerman", null, KerbalEndState.Dead));
+        }
+
+        [Fact]
+        public void ExtractCrewFromRecording_DeadStandIn_DeathFiledUnderTheStandIn()
+        {
+            // R1 (2026-11-01 lane run): after a rewind Jeb's seat held his stand-in; the
+            // stand-in crashed. The death is the stand-in's, not the slot owner's.
+            CrewReservationManager.SetReplacement("Jebediah Kerman", "Leia Kerman");
+
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Leia Kerman");
+            part.AddValue("crew", "Bill Kerman");
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-extract-standin-dead",
+                GhostVisualSnapshot = snapshot,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Jebediah Kerman", KerbalEndState.Dead },
+                    { "Bill Kerman", KerbalEndState.Dead },
+                }
+            };
+
+            var result = LedgerOrchestrator.ExtractCrewFromRecording(rec);
+
+            Assert.Equal(2, result.Count);
+            Assert.Equal("Leia Kerman", result[0].Name);
+            Assert.Equal(KerbalEndState.Dead, result[0].EndState);
+            Assert.Equal("Bill Kerman", result[1].Name);
+            Assert.Equal(KerbalEndState.Dead, result[1].EndState);
+            Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]")
+                && l.Contains("stand-in 'Leia Kerman' died in the seat of 'Jebediah Kerman'"));
+
+            CrewReservationManager.ResetReplacementsForTesting();
+        }
+
+        [Fact]
         public void PopulateUnpopulatedCrewEndStates_EvaOnlyRecording_PopulatesCrewEndStates()
         {
             var rec = new Recording

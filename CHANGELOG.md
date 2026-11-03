@@ -33,6 +33,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A stand-in's crash no longer kills the kerbal he stood in for.** After a rewind, a stand-in who
+  dies in a reserved kerbal's seat is now the one marked lost, so the reserved kerbal keeps his
+  committed flights, and a Re-Fly whose stand-in crashes can be merged instead of being refused.
+  (STAND-IN-DEATH-FILED-UNDER-THE-SLOT-OWNER)
+
 - **Revert to Launch no longer records over a committed flight.** After reverting, a vessel that
   already has a committed recording later on the timeline stays unrecorded instead of resuming
   that recording from the past, which left it with a doubled track. (REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END)
