@@ -58,6 +58,9 @@ namespace Parsek
         {
             int storesReset = 0;
 
+            // A quit without saving's stashed flight: capture its recordings before the drop,
+            // so the cold branch deletes its files once the save's lists are loaded.
+            NoSaveSceneExit.CaptureDroppedFlight(RecordingStore.PendingTree, NoSaveSceneExit.CurrentSaveFolder());
             bool pendingTreeDropped = RecordingStore.ResetSaveScopedStateForLoad(out string pendingSummary);
             storesReset++;
             if (pendingTreeDropped)

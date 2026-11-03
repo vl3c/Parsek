@@ -3395,6 +3395,8 @@ namespace Parsek
                     $"FinalizeTreeOnSceneChange: {stashCause} out of flight (dest={scene}) - stashing the "
                     + $"live tree '{activeTree.TreeName}' as pending Limbo instead of committing it; the "
                     + "cold load replaces it from the save");
+                if (NoSaveSceneExit.IsArmedFor(scene))
+                    NoSaveSceneExit.NoteStashedTree(activeTree.Id, NoSaveSceneExit.CurrentSaveFolder());
                 StashActiveTreeAsPendingLimbo(commitUT);
             }
             else if (!SceneExitInterceptor.IsAutoMergeForSceneExitLive(

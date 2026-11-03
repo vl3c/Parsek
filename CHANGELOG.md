@@ -28,7 +28,8 @@ _(unreleased - entries accumulate here per commit)_
 - **Quit without saving drops the flight.** When KSP can't save and you pick Quit without saving
   (to the Space Center, the Tracking Station or the main menu), the recording now goes back to the
   last save along with the world, so the flight since that save is gone from the timeline too. It
-  is a quick way to throw a flight away on purpose. (EXIT-TO-MAIN-MENU-ASKS)
+  is a quick way to throw a flight away on purpose, and the files that flight wrote are deleted
+  when the save reloads. (EXIT-TO-MAIN-MENU-ASKS)
 
 ### Fixed
 
