@@ -146,7 +146,7 @@ previous section's last sample, so nothing is lost), with a Verbose `[Optimizer]
 dropped a section with only pre-start seed frames left` line. A seam frame stamped at the start
 still keeps a zero-length section. Tests: `TrackSectionTrimSeedTests`.
 
-## ~~EXIT-TO-MAIN-MENU-ASKS: leaving flight for the main menu still opens the merge dialog under auto-merge~~ [FILED 2026-11-01 from the merge-dialog analysis (thread "Remove merge dialogs when leaving flight", doc https://claude.ai/artifact/XJtw36F8Xm8xnn7LMyvSaj), owner rulings 2026-11-01 ("leave flight - commit, yes; but it depends on the situation"; the Re-Fly exit dialog stays, "that one has to be a manual decision"); main-menu commit FIXED 2026-11-01 (PR #2358); no-save rule FIXED 2026-11-01 (owner pick "Follow the save"), branch `claude/project-thread-1ma84a`; xUnit, lane owed; product, low (one dialog click)]
+## ~~EXIT-TO-MAIN-MENU-ASKS: leaving flight for the main menu still opens the merge dialog under auto-merge~~ [FILED 2026-11-01 from the merge-dialog analysis (thread "Remove merge dialogs when leaving flight", doc https://claude.ai/artifact/XJtw36F8Xm8xnn7LMyvSaj), owner rulings 2026-11-01 ("leave flight - commit, yes; but it depends on the situation"; the Re-Fly exit dialog stays, "that one has to be a manual decision"); main-menu commit FIXED 2026-11-01 (PR #2358); no-save rule FIXED 2026-11-01 (owner pick "Follow the save"), PR #2360; QWS-1 flown 2026-11-01 on main 2622fd5: product chain correct, red only on its `.prec` file count, so the dropped flight's files are now deleted (owner ruling 2026-11-01 for left-over recording files, "if unused, delete"), branch `claude/project-thread-1ma84a`; xUnit, lane re-flight owed; product, low (one dialog click)]
 
 **Symptom.** Every exit from flight commits silently under auto-merge except two: the main menu
 (`ShouldShowDialogBeforeSceneChange` returned `RegularMerge` for MAINMENU, because the game unloads
@@ -187,6 +187,22 @@ Limbo (the save-file-load branch), and for the Space Center and Tracking Station
 `NoSaveSceneExitTests`. Lane: `QWS-1-quit-without-saving-drops-flight` drives the stock button
 through the new `ExitToSpaceCenter quitWithoutSaving=true` on S0.7's host (count {0,0}, S0.7's
 commit lines forbidden). The main-menu destination has no lane (no seam verb lands there).
+
+**Files of the dropped flight.** QWS-1's first flight (2026-11-01, main 2622fd5) proved the chain
+(no dialog, no commit, the save holds 0 recordings) but went red on `recordings.count`: the
+recorder had already written the flight's sidecars, the cold load's save-scoped reset drops the
+stashed tree from memory only, and `ParsekFileCollector` refuses to touch any file when the save
+names zero recordings (the zero-known guard, kept). Same shape as
+ISOLATED-BATCH-LEAVES-RECORDING-SIDECARS, same owner ruling ("if unused, delete"). Now the
+finalize notes the stashed tree and its save folder (`NoSaveSceneExit.NoteStashedTree`), the
+reset captures that tree's recordings before the drop when it is the same tree in the same save
+folder (`CaptureDroppedFlight`, pure `IsDroppedQuitWithoutSavingTree`; a load of another save
+deletes nothing), and the cold branch, once its lists are final and before the file collection,
+runs the shared `DiscardSidecarReap` on them (`ReapDroppedFlightSidecars`, context
+`quit-without-saving`): ids the loaded save still names are kept, nothing is deleted under a
+rewind, a Re-Fly marker or a merge journal, and the hashed sidecars are retained as `_versions`
+for any other save that names them (a quicksave taken during the flight still loads it). Tests:
+`NoSaveSceneExitTests`. QWS-1 now requires the reap line and keeps count {0,0}.
 
 ## ~~NOOP-CHECK-COUNTS-PHYSICS-MOTION: a parked rover's wheel jitter counts as a change, so a do-nothing resume is kept~~ [FILED 2026-11-01 from the overnight regression run (EVA-16 `2026-11-01_0616` and `_0623_a2`, INVALID driver-verdict-mismatch on main 9a1ed8d, same code as the 00:25 PASS), owner ruling 2026-11-01 ("the player has to actually move the vehicle for it to count as a change, not just the wheels"); FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit; EVA-16 LIVE-PROVEN on main def7f10 `2026-11-01_1540` (PASS attempt 1, the rover resume dropped as a no-op at the rewind's exit, no merge dialog); product, medium (a do-nothing revisit is merged instead of dropped; with auto-merge off a rewind sat behind a merge dialog)]
 

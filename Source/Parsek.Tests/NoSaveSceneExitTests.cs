@@ -18,6 +18,8 @@ namespace Parsek.Tests
         private readonly GameScenes priorScene;
         private int saves;
         private int frame = 100;
+        private readonly List<string> deleted = new List<string>();
+        private readonly List<string> known = new List<string>();
 
         public NoSaveSceneExitTests()
         {
@@ -46,6 +48,9 @@ namespace Parsek.Tests
             SceneExitInterceptor.SaveFileLoadIntentRealtimeForTesting = () => 50.0;
             SceneExitInterceptor.SaveFileLoadIntentFrameForTesting = () => frame;
             NoSaveSceneExit.FrameForTesting = () => frame;
+            DiscardSidecarReap.ResetForTesting();
+            DiscardSidecarReap.DeleteRecordingFilesForTesting = rec => { deleted.Add(rec.RecordingId); return true; };
+            DiscardSidecarReap.KnownRecordingIdsForTesting = () => new HashSet<string>(known);
             ParsekScenario.SetCachedAutoMergeForTesting(true);
             priorScene = HighLogic.LoadedScene;
             HighLogic.LoadedScene = GameScenes.FLIGHT;
@@ -55,6 +60,8 @@ namespace Parsek.Tests
         {
             HighLogic.LoadedScene = priorScene;
             SceneExitInterceptor.ResetTestOverrides();
+            NoSaveSceneExit.ResetForTesting();
+            DiscardSidecarReap.ResetForTesting();
             SaveFileLoadIntent.ResetForTesting();
             RewindContext.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
@@ -258,6 +265,99 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[SceneExit]")
                 && l.Contains("keeps the usual exit handling")
                 && l.Contains("reFlyActive=True"));
+        }
+        // ---- the dropped flight's files (owner ruling "if unused, delete") ----
+
+        [Theory]
+        [InlineData("t1", "career", "t1", "career", true)]
+        [InlineData("t1", "career", "t2", "career", false)]   // another tree was dropped
+        [InlineData("t1", "career", "t1", "other", false)]    // another save was loaded: its folder
+        [InlineData("t1", "career", null, "career", false)]   // nothing pending to drop
+        [InlineData(null, "career", "t1", "career", false)]   // no quit without saving noted
+        [InlineData("t1", null, "t1", null, false)]
+        public void IsDroppedQuitWithoutSavingTree_SameTreeSameSaveOnly(
+            string notedTree, string notedFolder, string droppedTree, string currentFolder, bool expected)
+        {
+            Assert.Equal(expected, NoSaveSceneExit.IsDroppedQuitWithoutSavingTree(
+                notedTree, notedFolder, droppedTree, currentFolder));
+        }
+
+        private static RecordingTree TwoRecordingTree(string treeId)
+        {
+            var tree = FinishedTree(treeId);
+            var child = new Recording { RecordingId = treeId + "_child", TreeId = treeId, VesselName = "Child" };
+            tree.Recordings[child.RecordingId] = child;
+            return tree;
+        }
+
+        [Fact]
+        public void DroppedFlight_DeletesItsFilesAfterTheLoad_KeepsAnythingTheSaveNames()
+        {
+            NoSaveSceneExit.NoteStashedTree("qws", "career");
+            NoSaveSceneExit.CaptureDroppedFlight(TwoRecordingTree("qws"), "career");
+            known.Add("qws_root");   // the loaded save still names this one
+
+            NoSaveSceneExit.ReapDroppedFlightSidecars(rewinding: false, reFlyMarkerActive: false, mergeJournalActive: false);
+
+            Assert.Equal(new[] { "qws_child" }, deleted);
+            Assert.Contains(logLines, l => l.Contains("[DiscardReap]")
+                && l.Contains("context='quit-without-saving'")
+                && l.Contains("reaped=1")
+                && l.Contains("preservedKnown=1"));
+
+            // Consumed: a second call deletes nothing.
+            deleted.Clear();
+            NoSaveSceneExit.ReapDroppedFlightSidecars(false, false, false);
+            Assert.Empty(deleted);
+        }
+
+        [Fact]
+        public void DroppedFlight_LoadOfAnotherSave_DeletesNothing_AndConsumesTheNote()
+        {
+            NoSaveSceneExit.NoteStashedTree("qws", "career");
+            NoSaveSceneExit.CaptureDroppedFlight(TwoRecordingTree("qws"), "sandbox");
+            NoSaveSceneExit.ReapDroppedFlightSidecars(false, false, false);
+            Assert.Empty(deleted);
+
+            // The note is gone: a later drop of the same tree id in the first folder deletes nothing.
+            NoSaveSceneExit.CaptureDroppedFlight(TwoRecordingTree("qws"), "career");
+            NoSaveSceneExit.ReapDroppedFlightSidecars(false, false, false);
+            Assert.Empty(deleted);
+            Assert.Contains(logLines, l => l.Contains("[SceneExit]") && l.Contains("not dropped here"));
+        }
+
+        [Theory]
+        [InlineData(true, false, false, "rewinding")]
+        [InlineData(false, true, false, "refly-marker-active")]
+        [InlineData(false, false, true, "merge-journal-active")]
+        public void DroppedFlight_RewindReFlyOrJournal_DeletesNothing(
+            bool rewinding, bool reFly, bool journal, string reason)
+        {
+            NoSaveSceneExit.NoteStashedTree("qws", "career");
+            NoSaveSceneExit.CaptureDroppedFlight(TwoRecordingTree("qws"), "career");
+
+            NoSaveSceneExit.ReapDroppedFlightSidecars(rewinding, reFly, journal);
+
+            Assert.Empty(deleted);
+            Assert.Contains(logLines, l => l.Contains("[DiscardReap]")
+                && l.Contains("skipped context='quit-without-saving'")
+                && l.Contains("reason=" + reason));
+        }
+
+        [Fact]
+        public void SaveScopedReset_CapturesTheQuitWithoutSavingStashBeforeDroppingIt()
+        {
+            NoSaveSceneExit.SaveFolderForTesting = () => "career";
+            RecordingStore.StashPendingTree(TwoRecordingTree("qws"), PendingTreeState.Limbo);
+            NoSaveSceneExit.NoteStashedTree("qws", NoSaveSceneExit.CurrentSaveFolder());
+
+            ParsekScenario.ResetSaveScopedSessionState("test");
+            Assert.False(RecordingStore.HasPendingTree);
+
+            NoSaveSceneExit.ReapDroppedFlightSidecars(false, false, false);
+            Assert.Equal(2, deleted.Count);
+            Assert.Contains("qws_root", deleted);
+            Assert.Contains("qws_child", deleted);
         }
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Parsek
@@ -34,6 +35,9 @@ namespace Parsek
 
         /// <summary>Test seam for the current frame (Unity's <c>Time.frameCount</c> otherwise).</summary>
         internal static Func<int> FrameForTesting;
+
+        /// <summary>Test seam for the current save folder (<c>HighLogic.SaveFolder</c> otherwise).</summary>
+        internal static Func<string> SaveFolderForTesting;
 
         private static int confirmExitFrame = -1;
         private static bool savedSinceConfirmExit;
@@ -128,14 +132,128 @@ namespace Parsek
             savedSinceConfirmExit = false;
         }
 
+        // The live tree a quit without saving stashed as Limbo, and the save folder it left.
+        private static string stashedTreeId;
+        private static string stashedSaveFolder;
+        // Its recordings, captured when the cold load's save-scoped reset drops it, reaped once
+        // that load's committed lists are final.
+        private static List<Recording> droppedRecordings;
+        private static string droppedTreeId;
+        private static string droppedTreeName;
+
+        /// <summary>
+        /// Notes the live tree the scene-exit finalize stashes as Limbo for a quit without
+        /// saving, so the cold load that drops it can delete the files that flight wrote (owner
+        /// ruling 2026-11-01 for left-over recording files: "if unused, delete").
+        /// </summary>
+        internal static void NoteStashedTree(string treeId, string saveFolder)
+        {
+            stashedTreeId = treeId;
+            stashedSaveFolder = saveFolder;
+            ParsekLog.Info(LogTag,
+                $"Quit-without-saving stash noted tree={treeId ?? "<null>"} save='{saveFolder ?? "<null>"}' "
+                + "- its recording files are deleted once the reload drops it");
+        }
+
+        /// <summary>
+        /// Pure: the pending tree a cold load drops is the one a quit without saving stashed,
+        /// in the same save folder. A load of another save never deletes files: they live in
+        /// the folder the flight left.
+        /// </summary>
+        internal static bool IsDroppedQuitWithoutSavingTree(
+            string notedTreeId, string notedSaveFolder, string droppedTreeId, string currentSaveFolder)
+        {
+            return !string.IsNullOrEmpty(notedTreeId)
+                && string.Equals(notedTreeId, droppedTreeId, StringComparison.Ordinal)
+                && !string.IsNullOrEmpty(notedSaveFolder)
+                && string.Equals(notedSaveFolder, currentSaveFolder, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Called by the cold load's save-scoped reset BEFORE it drops the pending tree:
+        /// captures the tree's recordings when it is the quit-without-saving stash of this save
+        /// folder. Consumes the note either way.
+        /// </summary>
+        internal static void CaptureDroppedFlight(RecordingTree pendingTree, string currentSaveFolder)
+        {
+            string notedTree = stashedTreeId;
+            string notedFolder = stashedSaveFolder;
+            stashedTreeId = null;
+            stashedSaveFolder = null;
+            droppedRecordings = null;
+            droppedTreeId = null;
+            droppedTreeName = null;
+            if (string.IsNullOrEmpty(notedTree))
+                return;
+
+            if (!IsDroppedQuitWithoutSavingTree(notedTree, notedFolder, pendingTree?.Id, currentSaveFolder))
+            {
+                ParsekLog.Info(LogTag,
+                    $"Quit-without-saving stash not dropped here: noted tree={notedTree} save='{notedFolder ?? "<null>"}' "
+                    + $"dropped={pendingTree?.Id ?? "<none>"} save='{currentSaveFolder ?? "<null>"}' - files left to the collector");
+                return;
+            }
+
+            droppedRecordings = DiscardSidecarReap.CaptureTreeRecordings(pendingTree);
+            droppedTreeId = pendingTree.Id;
+            droppedTreeName = pendingTree.TreeName;
+            ParsekLog.Info(LogTag,
+                $"Quit-without-saving flight dropped by the reload: tree={droppedTreeId} "
+                + $"recordings={droppedRecordings.Count} - files deleted once the save's lists are loaded");
+        }
+
+        /// <summary>
+        /// Called by the cold load once its committed lists are final, before the file
+        /// collection: deletes the files of the dropped quit-without-saving flight that nothing
+        /// the save loaded still names (<see cref="DiscardSidecarReap"/>'s known-ids guard; the
+        /// hashed sidecars stay retained as versions for any other save that names them).
+        /// No-op when nothing was captured.
+        /// </summary>
+        internal static void ReapDroppedFlightSidecars(bool rewinding, bool reFlyMarkerActive, bool mergeJournalActive)
+        {
+            List<Recording> captured = droppedRecordings;
+            string treeId = droppedTreeId;
+            string treeName = droppedTreeName;
+            droppedRecordings = null;
+            droppedTreeId = null;
+            droppedTreeName = null;
+            if (captured == null)
+                return;
+
+            string skip = rewinding
+                ? "rewinding"
+                : DiscardSidecarReap.SkipReason(reFlyMarkerActive, mergeJournalActive, restoringActiveTree: false);
+            try
+            {
+                DiscardSidecarReap.ReapDiscardedTreeSidecars(
+                    captured, skip, "quit-without-saving", treeId, treeName);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(LogTag,
+                    $"Quit-without-saving file delete threw {ex.GetType().Name}: {ex.Message} - files left to the collector");
+            }
+        }
+
         internal static void ResetForTesting()
         {
+            stashedTreeId = null;
+            stashedSaveFolder = null;
+            droppedRecordings = null;
+            droppedTreeId = null;
+            droppedTreeName = null;
             FrameForTesting = null;
+            SaveFolderForTesting = null;
             armed = false;
             armedFrame = -1;
             armedDestination = GameScenes.LOADING;
             confirmExitFrame = -1;
             savedSinceConfirmExit = false;
+        }
+
+        internal static string CurrentSaveFolder()
+        {
+            return SaveFolderForTesting != null ? SaveFolderForTesting() : HighLogic.SaveFolder;
         }
 
         private static int CurrentFrame()

@@ -5323,8 +5323,15 @@ namespace Parsek
                 loadPhase = "rewind-point-reap";
                 RewindPointReaper.ReapOrphanedRPs();
 
-                // Memory's lists are final: collect files no save and no memory names
-                // (design-load-restores-the-save.md 4.5).
+                // Memory's lists are final: delete the files of a quit-without-saving flight
+                // this load dropped (NoSaveSceneExit), then collect files no save and no memory
+                // names (design-load-restores-the-save.md 4.5).
+                loadPhase = "quit-without-saving-reap";
+                NoSaveSceneExit.ReapDroppedFlightSidecars(
+                    RewindContext.IsRewinding,
+                    ActiveReFlySessionMarker != null,
+                    ActiveMergeJournal != null);
+
                 loadPhase = "file-collection";
                 ParsekFileCollector.RunAtLoad(earlyLoadKind, coldBranch: true, scenario: this);
 
