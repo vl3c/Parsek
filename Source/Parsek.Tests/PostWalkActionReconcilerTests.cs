@@ -704,7 +704,6 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(FundsEarningSource.LegacyMigration)]
         [InlineData(FundsEarningSource.Recovery)]
         [InlineData(FundsEarningSource.ContractComplete)]
         [InlineData(FundsEarningSource.ContractAdvance)]

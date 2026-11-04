@@ -645,26 +645,6 @@ namespace Parsek.Tests.Logistics
             Assert.False(resaved.HasValue("pendingRecoveryCreditDispatchUT"));
         }
 
-        // catches: an old save's WaitingForFunds route loading as an unknown status
-        // (a WARN) or staying held. The retired status reads as Active with one Info.
-        [Fact]
-        public void LegacyWaitingForFundsStatus_ReadsAsActive()
-        {
-            var node = new ConfigNode("ROUTE");
-            BuildLeanKscRoute("legacy-funds-wait-route").SerializeInto(node);
-            node.SetValue("status", RouteCodec.LegacyWaitingForFundsStatus);
-
-            Route loaded = Route.DeserializeFrom(node);
-
-            Assert.NotNull(loaded);
-            Assert.Equal(RouteStatus.Active, loaded.Status);
-            Assert.Contains(logLines, l =>
-                l.Contains("[INFO]") && l.Contains("[Route]")
-                && l.Contains("legacy status='WaitingForFunds'")
-                && l.Contains("legacy-funds-wait-route"));
-            Assert.DoesNotContain(logLines, l => l.Contains("[WARN]") && l.Contains("unknown status"));
-        }
-
         // catches: an old save's FundsShort hold failing to load. The hold kind stays
         // a defined member so a held route and its RouteHeld rows read back unchanged.
         [Fact]

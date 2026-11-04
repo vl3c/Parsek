@@ -510,46 +510,6 @@ namespace Parsek.Tests
 
         // ---------------------------------------------------------------- 7. active / pending
 
-        // catches: the inert recording ids counting as "committed recordings exist" in
-        // LedgerOrchestrator.OnKspLoad, so a save whose only trees are inert and whose
-        // ledger is empty runs the old-save migration (an interpretation of the inert trees).
-        [Fact]
-        public void SaveOfOnlyInertTrees_DoesNotRunTheOldSaveMigration()
-        {
-            GameStateRecorder.ResetForTesting();
-            GameStateStore.ResetForTesting();
-            LedgerOrchestrator.ResetForTesting();
-            KspStatePatcher.SuppressUnityCallsForTesting = true;
-            try
-            {
-                Load(Scenario(BuildTreeNode(TreeA, OlderGeneration, OlderGeneration, RecA1, RecA2)));
-                var accept = new GameStateEvent
-                {
-                    ut = 500.0,
-                    eventType = GameStateEventType.ContractAccepted,
-                    key = "contract-inert",
-                    detail = "title=Inert Contract;deadline=NaN;type=PartTest;funds=5000;failFunds=1000;failRep=1"
-                };
-                GameStateStore.AddEvent(ref accept);
-                LedgerOrchestrator.SetMigrateOldSaveEventsRanThisLoadForTesting(false);
-
-                HashSet<string> valid = ParsekScenario.BuildValidRecordingIdsForKspLoad();
-                Assert.Contains(RecA1, valid);
-                LedgerOrchestrator.OnKspLoad(valid, 1000.0);
-
-                Assert.False(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
-                Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]")
-                    && l.Contains("old-save migration scope excludes 2 recording id(s) of inert trees"));
-            }
-            finally
-            {
-                LedgerOrchestrator.ResetForTesting();
-                GameStateStore.ResetForTesting();
-                GameStateRecorder.ResetForTesting();
-                KspStatePatcher.ResetForTesting();
-            }
-        }
-
         // catches: RouteStore's load-time candidate sweeps reading only the committed trees,
         // so a dismissed or already-prompted supply-run candidate naming an inert tree is
         // dropped and the matching build re-offers it.

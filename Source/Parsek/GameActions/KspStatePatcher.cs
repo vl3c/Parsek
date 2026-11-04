@@ -285,12 +285,8 @@ namespace Parsek
             // The three pending adjusters (a stock KSC science credit, tech-unlock debit or
             // strategy exchange that hit the live pool while its ledger row is still catching
             // up) are something stock applied: the stock pool reference steps their change,
-            // and the write target takes them as before. The strategy adjuster and the
-            // pending-adjusted running balance must resolve the IDENTICAL pending amount
-            // (STRATEGY-PREFIX-HOLDBACK-PERMANENT), so the basis is computed ONCE.
-            double preStrategyRunning = ComputePreStrategyPendingAdjustedRunningScience(science);
-            double runningScience = ComputePendingAdjustedRunningScience(
-                preStrategyRunning, currentScience);
+            // and the write target takes them as before.
+            double runningScience = ComputePendingAdjustedRunningScience(science);
             double pendingAdjustNow = runningScience - science.GetRunningScience();
 
             StockPoolMeasurement measurement = MeasureStockPool(
@@ -309,7 +305,7 @@ namespace Parsek
             targetScience = AdjustSciencePatchTargetForPendingRecentScienceEarning(
                 targetScience, currentScience);
             targetScience = AdjustSciencePatchTargetForPendingStrategyScienceDebit(
-                targetScience, currentScience, preStrategyRunning);
+                targetScience, currentScience);
             if (measurement.GapAdopted)
                 targetScience = currentScience;
 
@@ -1706,22 +1702,14 @@ namespace Parsek
         /// this the patch would refund the traded-away science on every recalc in between
         /// (and the drawdown guard would clamp + toast the player each time).
         /// </summary>
-        /// <param name="preStrategyRunning">The running balance with the two sibling pending
-        /// adjusters folded in and this one not yet applied (see
-        /// <see cref="ComputePreStrategyPendingAdjustedRunningScience"/>). Feeds
-        /// <c>LedgerOrchestrator.ResolveEffectiveUnmatchableStrategyScienceBaseline</c>'s
-        /// overhang test, so the target adjuster and the guard discriminator resolve the
-        /// same pending amount on a pre-capture-fix save.</param>
         internal static double AdjustSciencePatchTargetForPendingStrategyScienceDebit(
             double targetScience,
-            float currentScience,
-            double preStrategyRunning)
+            float currentScience)
         {
             if (targetScience <= (double)currentScience)
                 return targetScience;
 
-            double pendingDebit = LedgerOrchestrator.GetPendingUncommittedStrategyScienceDebit(
-                preStrategyRunning, currentScience);
+            double pendingDebit = LedgerOrchestrator.GetPendingUncommittedStrategyScienceDebit();
             if (pendingDebit <= 0.0)
                 return targetScience;
 
@@ -1749,42 +1737,26 @@ namespace Parsek
         /// value: comparing the recalc target against anything but the same realized
         /// running quantity would diverge by a transient ledger-catch-up credit / debit.
         /// </summary>
-        /// <param name="currentLiveScience">The live science pool. Load-bearing since
-        /// STRATEGY-PREFIX-HOLDBACK-PERMANENT: the strategy pending amount is resolved
-        /// against how far the reconstruction already sits above live, so the discriminator
-        /// cannot be computed without it. <see cref="PatchScience"/> passes the same
-        /// <c>ResearchAndDevelopment.Instance.Science</c> it clamps against; the rewind
-        /// read-back guard passes the same value so its byte-identity contract holds.</param>
-        internal static double ComputePendingAdjustedRunningScience(
-            ScienceModule science, double currentLiveScience)
+        internal static double ComputePendingAdjustedRunningScience(ScienceModule science)
         {
             return ComputePendingAdjustedRunningScience(
-                ComputePreStrategyPendingAdjustedRunningScience(science), currentLiveScience);
+                ComputePreStrategyPendingAdjustedRunningScience(science));
         }
 
         /// <summary>
-        /// The same fold over an ALREADY-COMPUTED basis. <see cref="PatchScience"/> uses this
-        /// overload so the basis it hands the target adjuster and the basis behind its
-        /// drawdown-guard discriminator are literally the same local, rather than two
-        /// evaluations that merely agree today: the two sibling helpers folded into the basis
-        /// are recent-UT-WINDOW queries, exactly the class of thing that can start returning
-        /// a different number when re-derived a few statements later.
+        /// The strategy fold over an ALREADY-COMPUTED pre-strategy basis
+        /// (<see cref="ComputePreStrategyPendingAdjustedRunningScience"/>).
         /// </summary>
-        internal static double ComputePendingAdjustedRunningScience(
-            double preStrategyRunning, double currentLiveScience)
+        internal static double ComputePendingAdjustedRunningScience(double preStrategyRunning)
         {
             return preStrategyRunning
-                - LedgerOrchestrator.GetPendingUncommittedStrategyScienceDebit(
-                    preStrategyRunning, currentLiveScience);
+                - LedgerOrchestrator.GetPendingUncommittedStrategyScienceDebit();
         }
 
         /// <summary>
+        /// The running science balance with the two SIBLING pending adjusters folded in and        /// <summary>
         /// The running science balance with the two SIBLING pending adjusters folded in and
-        /// the strategy one not yet applied. This is the basis the strategy pending amount
-        /// is resolved against (its overhang-vs-live test) and the value it is then
-        /// subtracted from, so both consumers - the patch-target adjuster and the guard
-        /// discriminator - must derive their pending amount from THIS number or they will
-        /// disagree on a pre-capture-fix save.
+        /// the strategy one not yet applied.
         /// </summary>
         internal static double ComputePreStrategyPendingAdjustedRunningScience(ScienceModule science)
         {
@@ -6773,33 +6745,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The live science pool for the rewind read-back guard's discriminator, so it
-        /// stays byte-identical to <see cref="PatchScience"/>'s (which resolves the strategy
-        /// pending amount against live since STRATEGY-PREFIX-HOLDBACK-PERMANENT).
-        ///
-        /// <para><c>[MethodImpl(NoInlining)]</c> and reached ONLY when the caller already
-        /// has a non-null <see cref="ScienceModule"/>: mono runs a failing type initializer
-        /// at JIT of the CALLING method, so the <c>ResearchAndDevelopment</c> read is fenced
-        /// in its own core rather than left to poison
-        /// <see cref="RunRewindReadbackGuard"/>, which the headless suite drives with a null
-        /// science module. Same pattern as <c>RecordingStore.ReadUnityApplicationIsPlayingCore</c>.</para>
-        ///
-        /// <para>With no live pool there is no science pool to reconcile against and
-        /// <see cref="PatchScience"/> early-returns without writing a discriminator at all,
-        /// so there is nothing to be byte-identical WITH. The fallback returns the
-        /// pre-strategy running balance, i.e. zero overhang and therefore maximum
-        /// withholding - stated here rather than left implicit, because it is a choice
-        /// between two arbitrary readings of an absent pool, not a derived value.</para>
-        /// </summary>
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private static double ReadLiveSciencePoolForReadback(ScienceModule science)
-        {
-            if (ResearchAndDevelopment.Instance != null)
-                return ResearchAndDevelopment.Instance.Science;
-            return ComputePreStrategyPendingAdjustedRunningScience(science);
-        }
-
-        /// <summary>
         /// Runs the rewind read-back guard over the three economy modules at the rewind
         /// apply boundary. For each resource it computes the SAME realized running value the
         /// matching <c>Patch*</c> writes (funds <c>GetRunningBalance()</c>, science the
@@ -6832,8 +6777,7 @@ namespace Parsek
                 RewindReadbackGuard.Before.Science,
                 RewindReadbackGuard.Loaded.Science,
                 science != null
-                    ? (double?)ComputePendingAdjustedRunningScience(
-                        science, ReadLiveSciencePoolForReadback(science))
+                    ? (double?)ComputePendingAdjustedRunningScience(science)
                     : null,
                 RewindReadbackScienceTolerance,
                 authoritativeReduction);

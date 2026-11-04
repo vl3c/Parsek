@@ -308,7 +308,6 @@ namespace Parsek.Tests
                 eventType = GameStateEventType.MilestoneAchieved,
                 key = "RecordsDistance",
                 detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0),
-                epoch = 5
             };
 
             GameStateRecorder.ResetForTesting();
@@ -977,30 +976,12 @@ namespace Parsek.Tests
         }
 
         // #454 regression: Emit/AddEvent take `ref GameStateEvent` so field stamps
-        // (recordingId, plus any pre-set legacy fields) propagate to the caller's local. If either signature
+        // (recordingId) propagate to the caller's local. If either signature
         // ever drifts back to pass-by-value, these tests fail at compile time on the
         // `ref` keyword AND at runtime on the identity asserts — a belt-and-
         // braces guard against reintroducing the #443 silent-miss bug class.
         [Fact]
-        public void AddEvent_Ref_PreservesExplicitLegacyEpochOnCallerAndStore()
-        {
-            var evt = new GameStateEvent
-            {
-                ut = 100,
-                eventType = GameStateEventType.TechResearched,
-                key = "bug454-epoch",
-                epoch = 11,
-            };
-
-            GameStateStore.AddEvent(ref evt);
-
-            Assert.Equal(11u, evt.epoch);
-            var stored = GameStateStore.Events.Last(e => e.key == "bug454-epoch");
-            Assert.Equal(evt.epoch, stored.epoch);
-        }
-
-        [Fact]
-        public void Emit_Ref_PropagatesRecordingIdToCaller_AndPreservesLegacyEpoch()
+        public void Emit_Ref_PropagatesRecordingIdToCaller()
         {
             var savedResolver = GameStateRecorder.TagResolverForTesting;
             var savedScene = HighLogic.LoadedScene;
@@ -1014,18 +995,13 @@ namespace Parsek.Tests
                     ut = 200,
                     eventType = GameStateEventType.TechResearched,
                     key = "bug454-tag",
-                    epoch = 13,
                 };
                 Assert.True(string.IsNullOrEmpty(evt.recordingId));
-                Assert.Equal(13u, evt.epoch);
-
                 GameStateRecorder.Emit(ref evt, "test-454");
 
                 Assert.Equal("rec-bug454", evt.recordingId);
-                Assert.Equal(13u, evt.epoch);
                 var stored = GameStateStore.Events.Last(e => e.key == "bug454-tag");
                 Assert.Equal(evt.recordingId, stored.recordingId);
-                Assert.Equal(evt.epoch, stored.epoch);
             }
             finally
             {

@@ -104,100 +104,6 @@ namespace Parsek
             unchecked { StateVersion++; }
         }
 
-        // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
-        // one-shot legacy ActionId migration log. Bumped from GameAction.DeserializeFrom
-        // whenever a legacy action without `actionId` gets a deterministic rehydrated id.
-        internal static int LegacyActionIdMigrationCount;
-        private static bool legacyActionIdMigrationLogEmitted;
-
-        internal static void BumpLegacyActionIdMigrationCounterForTesting()
-        {
-            LegacyActionIdMigrationCount++;
-        }
-
-        /// <summary>
-        /// Emits the one-shot <c>[Ledger] Assigned deterministic ActionIds to N legacy actions</c>
-        /// Info log. Idempotent across repeated calls within a session.
-        /// </summary>
-        internal static void EmitLegacyActionIdMigrationLogOnce()
-        {
-            if (legacyActionIdMigrationLogEmitted) return;
-            if (LegacyActionIdMigrationCount <= 0) return;
-            ParsekLog.Info("Ledger",
-                $"Assigned deterministic ActionIds to {LegacyActionIdMigrationCount} legacy actions");
-            legacyActionIdMigrationLogEmitted = true;
-        }
-
-        internal static void ResetLegacyActionIdMigrationForTesting()
-        {
-            LegacyActionIdMigrationCount = 0;
-            legacyActionIdMigrationLogEmitted = false;
-        }
-
-        // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: per-load batch counters for the
-        // ContractAccept deadline migration. Bumped from GameAction.DeserializeFrom (via
-        // DeserializeContractAccept) for every ContractAccept row read, and reported as
-        // ONE summary line per LoadFromFile - the batch-counting convention, and the same
-        // shape as the legacy-ActionId migration above. Reset at the top of each load
-        // rather than latched once per process, because a session can load several
-        // careers and each one's migration decision is worth its own line.
-        internal static int ContractDeadlineAbsoluteCount;
-        internal static int ContractDeadlineMigratedCount;
-        internal static int ContractDeadlineAbsentCount;
-        internal static int ContractDeadlineUnparseableCount;
-
-        /// <summary>
-        /// Records one ContractAccept deadline resolution into the per-load tally.
-        /// </summary>
-        internal static void NoteContractDeadlineResolution(
-            GameAction.ContractDeadlineResolution resolution)
-        {
-            switch (resolution)
-            {
-                case GameAction.ContractDeadlineResolution.Absolute:
-                    ContractDeadlineAbsoluteCount++;
-                    break;
-                case GameAction.ContractDeadlineResolution.MigratedFromDuration:
-                    ContractDeadlineMigratedCount++;
-                    break;
-                case GameAction.ContractDeadlineResolution.Unparseable:
-                    ContractDeadlineUnparseableCount++;
-                    break;
-                default:
-                    ContractDeadlineAbsentCount++;
-                    break;
-            }
-        }
-
-        /// <summary>Clears the per-load ContractAccept deadline migration tally.</summary>
-        internal static void ResetContractDeadlineMigrationTally()
-        {
-            ContractDeadlineAbsoluteCount = 0;
-            ContractDeadlineMigratedCount = 0;
-            ContractDeadlineAbsentCount = 0;
-            ContractDeadlineUnparseableCount = 0;
-        }
-
-        /// <summary>
-        /// Emits the single batch summary for the ContractAccept deadline migration.
-        /// Info when anything was migrated or rejected (a state change on disk the next
-        /// save makes permanent), Verbose otherwise.
-        /// </summary>
-        internal static void EmitContractDeadlineMigrationSummary(string path)
-        {
-            string line =
-                $"ContractAccept deadline resolution for '{path}': " +
-                $"absolute={ContractDeadlineAbsoluteCount.ToString(CultureInfo.InvariantCulture)}, " +
-                $"migratedFromDuration={ContractDeadlineMigratedCount.ToString(CultureInfo.InvariantCulture)}, " +
-                $"noDeadline={ContractDeadlineAbsentCount.ToString(CultureInfo.InvariantCulture)}, " +
-                $"unparseable={ContractDeadlineUnparseableCount.ToString(CultureInfo.InvariantCulture)}";
-
-            if (ContractDeadlineMigratedCount > 0 || ContractDeadlineUnparseableCount > 0)
-                ParsekLog.Info("Ledger", line);
-            else
-                ParsekLog.Verbose("Ledger", line);
-        }
-
         /// <summary>
         /// Appends a single action to the in-memory ledger, stamping who wrote it
         /// (<see cref="LedgerRowWriter"/>): the drawdown guard's stock reference steps only
@@ -529,14 +435,12 @@ namespace Parsek
         /// <paramref name="newRecordingId"/>. Called by the recording optimizer's merge
         /// pass for EVERY absorbed recording (not only an absorbed tree root): the
         /// absorbed recording leaves the committed list, so any row still tagged with its
-        /// id (a synthetic <c>LegacyMigration</c> <see cref="GameActionType.FundsEarning"/>/<see cref="GameActionType.ScienceEarning"/>/<see cref="GameActionType.ReputationEarning"/>/<see cref="GameActionType.ScienceSpending"/>/<see cref="GameActionType.ReputationPenalty"/>
-        /// row, a KerbalAssignment an optimizer split moved onto the later segment, a
+        /// id (a KerbalAssignment an optimizer split moved onto the later segment, a
         /// science or funds row earned in that segment) would be orphaned on the next
         /// <see cref="Reconcile"/> after the absorbed recording is removed from the
         /// valid-recording set, and its ActionId lost.
         ///
-        /// <para>Remaps every matching action regardless of type or source, not just
-        /// LegacyMigration synthetics — any action tagged with the old id has, by
+        /// <para>Remaps every matching action regardless of type or source: any action tagged with the old id has, by
         /// definition, a claim on the same career effect as the absorbed recording;
         /// rewriting the tag to the successor is the correct behaviour for all of
         /// them. Returns the number of actions remapped. Null/empty inputs are a
@@ -1013,20 +917,21 @@ namespace Parsek
             ConfigNode[] actionNodes = loaded.GetNodes(ActionNodeName);
             int parseErrors = 0;
             int unreadableRows = 0;
-            var droppedRouteRows = new LedgerLoadMigration.LegacyRouteRowTally();
-            ResetContractDeadlineMigrationTally();
+            int reservedTypeRows = 0;
 
             for (int i = 0; i < actionNodes.Length; i++)
             {
                 try
                 {
-                    // Supply-route rows left the ledger (todo LOGISTICS-WITHOUT-MONEY): an old
-                    // save's route rows are dropped here, before deserialization and before any
-                    // recalculation can read them. No migration: route events live in the
-                    // route event log, which an old save does not have.
-                    if (LedgerLoadMigration.IsLegacyRouteNode(actionNodes[i], droppedRouteRows))
-                        continue;
                     string unreadableReason = GameAction.ClassifyUnreadableActionNode(actionNodes[i], out _);
+                    if (unreadableReason == GameAction.ReservedTypeReason)
+                    {
+                        // A reserved supply-route id: no build writes one, so the row is kept
+                        // verbatim like any unreadable row; one summary line counts them.
+                        reservedTypeRows++;
+                        newUnreadable.Add(actionNodes[i].CreateCopy());
+                        continue;
+                    }
                     if (unreadableReason != null)
                     {
                         unreadableRows++;
@@ -1058,13 +963,11 @@ namespace Parsek
             ParsekLog.Verbose("Ledger",
                 $"Loaded ledger from '{sourceLabel}': version={version}, actions={actions.Count}, " +
                 $"parseErrors={parseErrors} unreadableRows={unreadableRows} keptVerbatim={unreadableActionNodes.Count}");
-            if (droppedRouteRows.Total > 0)
+            if (reservedTypeRows > 0)
             {
                 ParsekLog.Info("Ledger",
-                    $"Dropped {droppedRouteRows.Total.ToString(CultureInfo.InvariantCulture)} " +
-                    $"legacy supply-route rows at load from '{sourceLabel}' " +
-                    $"({droppedRouteRows.FormatByType()}); route events live in the route event log, " +
-                    "not the ledger");
+                    $"Kept {reservedTypeRows.ToString(CultureInfo.InvariantCulture)} row(s) of reserved " +
+                    $"supply-route types verbatim from '{sourceLabel}'; not recalculated, written back on save");
             }
             if (seedMalformed > 0)
             {
@@ -1078,14 +981,6 @@ namespace Parsek
                 ParsekLog.Verbose("Ledger",
                     $"Loaded pre-ledger progress seed: {progressSeed.FormatSummary()}");
             }
-            // Rewind-to-Staging Phase 1 (design section 9): emit the one-shot
-            // legacy ActionId migration log if any actions were rehydrated on load.
-            EmitLegacyActionIdMigrationLogOnce();
-            // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: one batch summary per load
-            // naming how many ContractAccept rows carried an absolute deadline, how
-            // many were migrated from the legacy duration key, and how many carried
-            // none.
-            EmitContractDeadlineMigrationSummary(sourceLabel);
             return true;
         }
 
@@ -1583,8 +1478,6 @@ namespace Parsek
             unreadableActionNodes = new List<ConfigNode>();
             progressSeed = PreLedgerProgressSeed.NotCaptured;
             BumpStateVersion();
-            ResetLegacyActionIdMigrationForTesting();
-            ResetContractDeadlineMigrationTally();
             CaptureSequence.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
             CareerSettingsLock.ResetForTesting();

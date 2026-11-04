@@ -180,7 +180,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     GameStateRecorder.CreatePartUpgradePurchasedEvent(Wheel, 4000f, false, 320, 10000.0),

@@ -364,7 +364,7 @@ namespace Parsek
         private static LedgerEventIdentityEntry Reserved(GameActionType type)
         {
             return Enforced(type, null, "none (reserved supply-route type)", LedgerIdentityRule.NoLedgerRow,
-                "LedgerLoadMigration.IsLegacyRouteNode (dropped at ledger load)");
+                "GameAction.ClassifyUnreadableActionNode (kept verbatim as unreadable at ledger load)");
         }
 
         private static LedgerEventIdentityEntry Seed(GameActionType type)
@@ -426,7 +426,7 @@ namespace Parsek
                 Enforced(GameActionType.FundsEarning, FundsEarningSource.Other.ToString(),
                     "reason + event UT", LedgerIdentityRule.LiveOnly, F + " via " + LiveOnlyBy),
                 Enforced(GameActionType.FundsEarning, FundsEarningSource.LegacyMigration.ToString(),
-                    "none (synthetic tag of an older save)", LedgerIdentityRule.AsRecorded,
+                    "none (reserved source, no build writes it)", LedgerIdentityRule.AsRecorded,
                     F + " (default earning branch)"),
                 Enforced(GameActionType.FundsEarning, FundsEarningSource.Strategy.ToString(),
                     "its cause row for a converter leg; strategy + activation for an exchanger output (it names no cause)",

@@ -65,7 +65,7 @@ namespace Parsek.Tests
             };
 
         private static Milestone Store(params GameStateEvent[] events)
-            => new Milestone { Committed = true, Epoch = 0, Events = new List<GameStateEvent>(events) };
+            => new Milestone { Committed = true, Events = new List<GameStateEvent>(events) };
 
         // The todo's shape: the copy of Kerbin/Science stays tagged to a visible recording
         // while its ledger row is tombstoned; FirstLaunch's row is kept, so its copy is

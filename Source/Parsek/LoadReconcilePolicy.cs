@@ -820,7 +820,7 @@ namespace Parsek
                     return Today(LoadReconcileAction.Save,
                         "RouteStore.LoadRoutesFrom on the cold path replaces the routes, the route event log "
                         + "(ROUTE_EVENT_LOG) and the retired route cargo with the save's own PARSEK node's, then "
-                        + "RevalidateSources; legacy route rows in the save's ledger are dropped at ledger load");
+                        + "RevalidateSources; rows of the reserved route types in the save's ledger are kept verbatim as unreadable");
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.ReconcileAtCutoff,
                         "ParsekScenario.HandleRewindOnLoad -> RouteLoadReconcile.ReconcileAtGoBackRewind: "

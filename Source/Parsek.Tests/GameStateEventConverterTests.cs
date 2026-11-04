@@ -97,7 +97,7 @@ namespace Parsek.Tests
             Assert.Equal("rec3", action.RecordingId);
         }
 
-        // ---------- #451: charged cost is authoritative; entryCost is fallback-only ----------
+        // ---------- #451: charged cost is authoritative; entryCost is diagnostic only ----------
 
         [Fact]
         public void ConvertEvent_PartPurchased_UsesCostToken_WhenEntryCostAlsoPresent()
@@ -113,19 +113,6 @@ namespace Parsek.Tests
             Assert.Equal(GameActionType.FundsSpending, action.Type);
             Assert.Equal(0f, action.FundsSpent);
             Assert.Equal(FundsSpendingSource.Other, action.FundsSpendingSource);
-        }
-
-        [Fact]
-        public void ConvertEvent_PartPurchased_EntryCostOnly_FallsBackWhenCostMissing()
-        {
-            // Defensive fallback for malformed/future detail that omitted `cost=`.
-            var evt = MakeEvent(GameStateEventType.PartPurchased, 2300.0,
-                key: "liquidEngine", detail: "entryCost=1200");
-            var action = GameStateEventConverter.ConvertEvent(evt, "rec451-3");
-
-            Assert.NotNull(action);
-            Assert.Equal(GameActionType.FundsSpending, action.Type);
-            Assert.Equal(1200f, action.FundsSpent);
         }
 
         // ================================================================
@@ -238,7 +225,7 @@ namespace Parsek.Tests
         public void ConvertEvent_ContractAccepted_ReturnsContractAccept()
         {
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
-                key: "guid-1234", detail: "Explore the Mun");
+                key: "guid-1234", detail: "title=Explore the Mun");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
 
             Assert.NotNull(action);
@@ -1275,36 +1262,9 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // ContractAccepted — structured format (new)
+        // ContractAccepted detail
         // ================================================================
 
-        /// <summary>
-        /// CONTRACT-DEADLINE-CAPTURED-AS-DURATION: the LEGACY <c>deadline=</c> key is a
-        /// DURATION, so the converter must add the accept UT (which is the event's own
-        /// <c>ut</c>) to reach the absolute deadline stock stores as <c>dateDeadline</c>.
-        /// </summary>
-        [Fact]
-        public void ConvertContractAccepted_LegacyDeadlineKey_MigratesDurationToAbsoluteUT()
-        {
-            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
-                key: "guid-1234",
-                detail: "title=Orbit the Mun;deadline=50000;type=ExploreBody;failFunds=12000;failRep=5");
-            var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
-
-            Assert.NotNull(action);
-            Assert.Equal(GameActionType.ContractAccept, action.Type);
-            Assert.Equal("guid-1234", action.ContractId);
-            Assert.Equal("Orbit the Mun", action.ContractTitle);
-            Assert.Equal("ExploreBody", action.ContractType);
-            Assert.Equal(58000.0, action.DeadlineUT, 6);
-            Assert.Equal(12000f, action.FundsPenalty);
-            Assert.Equal(5f, action.RepPenalty);
-        }
-
-        /// <summary>
-        /// The current capture writes <c>deadlineAbsUT=</c>, already absolute — it must
-        /// be used verbatim, never re-based onto the accept UT.
-        /// </summary>
         [Fact]
         public void ConvertContractAccepted_AbsoluteDeadlineKey_UsedVerbatim()
         {
@@ -1315,41 +1275,6 @@ namespace Parsek.Tests
 
             Assert.NotNull(action);
             Assert.Equal(58000.0, action.DeadlineUT, 6);
-        }
-
-        /// <summary>
-        /// Absolute-key precedence: when both keys are present the absolute one wins and
-        /// the legacy duration is ignored outright (no double-add).
-        /// </summary>
-        [Fact]
-        public void ConvertContractAccepted_AbsoluteKeyWinsOverLegacyDurationKey()
-        {
-            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
-                key: "guid-1234",
-                detail: "title=Orbit the Mun;deadline=50000;deadlineAbsUT=58000;failFunds=0;failRep=0");
-            var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
-
-            Assert.NotNull(action);
-            Assert.Equal(58000.0, action.DeadlineUT, 6);
-        }
-
-        /// <summary>
-        /// A legacy duration that is zero/negative meant "no deadline" under the old
-        /// capture's own convention — migrating it would manufacture a deadline that
-        /// expires at (or before) the accept.
-        /// </summary>
-        [Theory]
-        [InlineData("0")]
-        [InlineData("-1")]
-        public void ConvertContractAccepted_LegacyNonPositiveDuration_StaysNoDeadline(string raw)
-        {
-            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
-                key: "guid-1234",
-                detail: "title=Orbit the Mun;deadline=" + raw + ";failFunds=0;failRep=0");
-            var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
-
-            Assert.NotNull(action);
-            Assert.True(double.IsNaN(action.DeadlineUT));
         }
 
         /// <summary>
@@ -1370,23 +1295,6 @@ namespace Parsek.Tests
             Assert.NotEqual(0.0, action.DeadlineUT);
         }
 
-        /// <summary>
-        /// The unparseable case must NOT silently fall through to the legacy key either:
-        /// the record said "my deadline is absolute", and a broken absolute value is a
-        /// broken absolute value rather than a licence to re-base something else.
-        /// </summary>
-        [Fact]
-        public void ConvertContractAccepted_UnparseableAbsoluteKey_DoesNotFallBackToLegacyKey()
-        {
-            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
-                key: "guid-1234",
-                detail: "title=Orbit the Mun;deadline=50000;deadlineAbsUT=oops;failFunds=0;failRep=0");
-            var action = GameStateEventConverter.ConvertEvent(evt, "rec9");
-
-            Assert.NotNull(action);
-            Assert.True(double.IsNaN(action.DeadlineUT));
-        }
-
         [Fact]
         public void ConvertContractAccepted_NewFormat_DeadlineNaN()
         {
@@ -1403,49 +1311,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ConvertContractAccepted_OldFormat_TreatsDetailAsTitle()
-        {
-            // Legacy format: plain title, no semicolons
-            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
-                key: "guid-9999", detail: "Explore the Mun");
-            var action = GameStateEventConverter.ConvertEvent(evt, "rec11");
-
-            Assert.NotNull(action);
-            Assert.Equal(GameActionType.ContractAccept, action.Type);
-            Assert.Equal("guid-9999", action.ContractId);
-            Assert.Equal("Explore the Mun", action.ContractTitle);
-            Assert.True(double.IsNaN(action.DeadlineUT));
-            Assert.Equal(0f, action.FundsPenalty);
-            Assert.Equal(0f, action.RepPenalty);
-        }
-
-        [Fact]
-        public void ConvertContractAccepted_NewFormat_LogsStructuredParsing()
+        public void ConvertContractAccepted_LogsTheParse()
         {
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-1234",
-                detail: "title=Test;deadline=50000;type=PartTest;failFunds=1000;failRep=2");
+                detail: "title=Test;deadlineAbsUT=58000;type=PartTest;failFunds=1000;failRep=2");
             GameStateEventConverter.ConvertEvent(evt, "rec");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[GameStateEventConverter]") &&
-                l.Contains("structured format") &&
+                l.Contains("ConvertContractAccepted:") &&
                 l.Contains("guid-1234") &&
                 l.Contains("type='PartTest'") &&
                 l.Contains("typeSource=detail"));
-        }
-
-        [Fact]
-        public void ConvertContractAccepted_OldFormat_LogsLegacy()
-        {
-            var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
-                key: "guid-old", detail: "Some Old Title");
-            GameStateEventConverter.ConvertEvent(evt, "rec");
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[GameStateEventConverter]") &&
-                l.Contains("legacy format") &&
-                l.Contains("guid-old"));
         }
 
         [Fact]
@@ -1457,7 +1335,7 @@ namespace Parsek.Tests
             // accept.
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-adv",
-                detail: "title=Suborbital Flight;deadline=50000;funds=8450.5;failFunds=4000;failRep=3");
+                detail: "title=Suborbital Flight;deadlineAbsUT=58000;funds=8450.5;failFunds=4000;failRep=3");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec-adv");
 
             Assert.NotNull(action);
@@ -1471,11 +1349,11 @@ namespace Parsek.Tests
         [Fact]
         public void ConvertContractAccepted_V2FormatWithoutFundsKey_DefaultsAdvanceToZero()
         {
-            // Backward compat: old detail strings did not have funds=. Must still parse
-            // the rest of the fields and leave AdvanceFunds at 0 (not throw, not NaN).
+            // A detail with no funds= key (sparse default) still parses the rest of the
+            // fields and leaves AdvanceFunds at 0 (not throw, not NaN).
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-v2",
-                detail: "title=Old Format;deadline=NaN;failFunds=1000;failRep=1");
+                detail: "title=Old Format;deadlineAbsUT=NaN;failFunds=1000;failRep=1");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec-v2");
 
             Assert.NotNull(action);
@@ -1490,7 +1368,7 @@ namespace Parsek.Tests
             // Some contracts (tutorials, strategies) have zero advance — must round-trip cleanly.
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-zero",
-                detail: "title=Free;deadline=NaN;funds=0;failFunds=0;failRep=0");
+                detail: "title=Free;deadlineAbsUT=NaN;funds=0;failFunds=0;failRep=0");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec");
 
             Assert.NotNull(action);
@@ -1506,7 +1384,7 @@ namespace Parsek.Tests
 
             var evt = MakeEvent(GameStateEventType.ContractAccepted, 8000.0,
                 key: "guid-snap",
-                detail: "title=Test Part;deadline=NaN;funds=0;failFunds=3000;failRep=1");
+                detail: "title=Test Part;deadlineAbsUT=NaN;funds=0;failFunds=3000;failRep=1");
             var action = GameStateEventConverter.ConvertEvent(evt, "rec-snap");
 
             Assert.NotNull(action);
@@ -1704,12 +1582,6 @@ namespace Parsek.Tests
         public void ParsePartPurchaseChargedCost_UsesCostWhenPositive()
         {
             Assert.Equal(1200f, GameStateEventConverter.ParsePartPurchaseChargedCost("cost=1200;entryCost=1200"));
-        }
-
-        [Fact]
-        public void ParsePartPurchaseChargedCost_FallsBackToEntryCost_WhenCostAbsent()
-        {
-            Assert.Equal(600f, GameStateEventConverter.ParsePartPurchaseChargedCost("entryCost=600"));
         }
 
         [Fact]
