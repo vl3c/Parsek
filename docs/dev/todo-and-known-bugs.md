@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~LOOP-REPLAY-REPLANTS-REMOVED-FLAG: a looping replay plants a recorded flag again after the player removes it~~ [FILED 2026-11-04 from the replay-theory audit (finding R5, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, confirmed by code read on main b2182df); FIXED 2026-11-04, branch `claude/project-thread-2p1zb5`; owner ruling 2026-11-04 "plant once and record pick-ups"; product, low (an unremovable flag per looped flag plant)]
+## ~~LOOP-REPLAY-REPLANTS-REMOVED-FLAG: a looping replay plants a recorded flag again after the player removes it~~ [FILED 2026-11-04 from the replay-theory audit (finding R5, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, confirmed by code read on main b2182df); FIXED 2026-11-04, branch `claude/project-thread-2p1zb5`; LIVE-PROVEN FLG-1 `2026-11-04_1743`; owner ruling 2026-11-04 "plant once and record pick-ups"; product, low (an unremovable flag per looped flag plant)]
 
 **Symptom.** A recording that planted a flag replays it as a real flag vessel when replay reaches the
 plant UT (`GhostPlaybackLogic.ApplyFlagEvents`). The only dedup is "a flag already stands within 1 m"
@@ -56,12 +56,10 @@ own `Die()` on a flag (replayed pick-up, failed spawn cleanup, claimed-vessel re
 (review finding: a late walk otherwise tombstoned the spot at the walk's UT and blocked a re-plant there). Tests:
 the pick-up half of `RemovedReplayFlagsTests` (details round trip under de-DE, replay once at its UT,
 moved flag after a rewind ends in one place, catch-up walk never plants, live pick-up is a no-op).
-Not done: the live capture path (Harmony patch, `onVesselWillDestroy` ordering) is proven only by
-the decompile, not by a flight. Lane authored, never flown: `FLG-1-pickup-rewind` (EVA-1's act on
-`gloops-airshow` with the new `PickUpFlag` seam verb, stock `FlagSite.PickUp`, between the plant and
-the board; commit, Rewind-to-Launch, 1x Space Center time to UT 150 for the replayed plant and
-take-down). Its 1x target is a guess (the pick-up UT is unknown before a flight): re-pin it and the
-4..6 recordings window from the first flight.
+LIVE-PROVEN by `FLG-1-pickup-rewind` (`2026-11-04_1743` PASS attempt 1): EVA-1's act with the
+new `PickUpFlag` seam verb (stock `FlagSite.PickUp`) between the plant and the board, commit,
+Rewind-to-Launch, 1x Space Center time to UT 50; the capture, the replayed plant and the replayed
+take-down (`took down 1 standing flag(s)`) all logged, and nothing planted again.
 
 ## ~~REPLAY-AUDIT-T2-TOP-UP: a reward setting changed across a rewind could lower a once-only reward, and changed career settings re-judged the past~~ [FILED 2026-11-04 from the replay-theory audit (question T2, owner ruling 2026-11-04 11:19Z) and the career settings audit (`analysis/career-settings-audit-2026-11-04.md` in the project files, sections 3.1 to 3.6); FIXED 2026-11-04, branch `claude/project-thread-dxut6r`; xUnit only, no lane (no fixture or lane changes a difficulty value mid-career or across a rewind); product, medium]
 
