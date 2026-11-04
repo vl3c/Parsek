@@ -112,6 +112,12 @@ namespace Parsek.Tests.SaveRoundTrip
                 .Fill("contractNode", () => ContractNode("snap"));
             yield return new FieldSpec(typeof(GameStateBaseline))
                 .Fill("activeContracts", () => new List<ConfigNode> { ContractNode("a"), ContractNode("b") });
+            yield return new FieldSpec(typeof(Milestone))
+                .Fill("UnreadableEventNodes", () => new List<ConfigNode>
+                {
+                    StoreSaveRoundTripTests.UnreadableEventNode("m1"),
+                    StoreSaveRoundTripTests.UnreadableEventNode("m2"),
+                });
             yield return new FieldSpec(typeof(MergeJournal))
                 .NotPersisted("transient thread inside CompleteFromPostDurable; documented as never persisted",
                     "RecoveredSubtreeIds")

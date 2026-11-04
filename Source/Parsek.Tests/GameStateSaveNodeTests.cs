@@ -284,7 +284,8 @@ namespace Parsek.Tests
             ParsekScenario.LoadGameStateFromNodeOrFiles(scenario);
 
             Assert.Single(GameStateStore.Events);
-            Assert.Contains(logLines, l => l.Contains("Unsupported game state events version=2 (expected 1)"));
+            Assert.Contains(logLines, l => l.Contains("[WARN][GameStateStore]")
+                && l.Contains("Game state events version='2' is Newer (current=1)"));
         }
 
         // catches: the node load leaving the once-per-folder guard open, so a later file read

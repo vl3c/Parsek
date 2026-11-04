@@ -202,6 +202,7 @@ namespace Parsek.Tests.SaveRoundTrip
                 Spec = () => new FieldSpec(typeof(GameStateStore))
                     .Derived("once-per-folder load guard; the load itself sets it", "initialLoadDone", "lastSaveFolder")
                     .Derived("test-only logging switch", "SuppressLogging")
+                    .Fill("unreadableEventNodes", () => new List<ConfigNode> { UnreadableEventNode("a"), UnreadableEventNode("b") })
                     .Compare("baselines", CompareBaselines),
                 NestedSpecs = ScenarioRecordSaveRoundTripTests.Specs,
             },
@@ -223,7 +224,12 @@ namespace Parsek.Tests.SaveRoundTrip
                     MilestoneStore.RestoreMutableState(n);
                 },
                 Spec = () => new FieldSpec(typeof(MilestoneStore))
-                    .Derived("once-per-folder load guard; the load itself sets it", "initialLoadDone", "lastSaveFolder"),
+                    .Derived("once-per-folder load guard; the load itself sets it", "initialLoadDone", "lastSaveFolder")
+                    .Derived("held only when a newer build wrote the node (SaveFormatHoldTests); a filled hold "
+                        + "would replace the milestones this round-trip writes",
+                        "heldNewerMilestonesNode", "heldNewerMutableStateNodes")
+                    .Fill("heldNewerMilestonesNode", () => null)
+                    .Fill("heldNewerMutableStateNodes", () => null),
                 NestedSpecs = ScenarioRecordSaveRoundTripTests.Specs,
             },
             new StoreCase
@@ -240,6 +246,16 @@ namespace Parsek.Tests.SaveRoundTrip
                     .Fill("storedGhostAudioVolume", () => (float?)0.75f),
             },
         };
+
+        /// <summary>A game-state event of a type id no build defines: kept verbatim by the store.</summary>
+        internal static ConfigNode UnreadableEventNode(string tag)
+        {
+            var n = new ConfigNode("GAME_STATE_EVENT");
+            n.AddValue("ut", "12.5");
+            n.AddValue("type", "9999");
+            n.AddValue("futureKey", "future-" + tag);
+            return n;
+        }
 
         /// <summary>The load sorts baselines by UT; compare by saved form in that order.</summary>
         private static string CompareBaselines(object written, object read)

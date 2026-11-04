@@ -884,10 +884,30 @@ namespace Parsek
         {
             missions.Clear();
             ConfigNode[] mNodes = node.GetNodes("MISSION");
+            int newerSelection = 0;
+            int unknownKeys = 0;
+            string newestSelection = null;
             for (int i = 0; i < mNodes.Length; i++)
-                missions.Add(Mission.Load(mNodes[i]));
+            {
+                string generation = mNodes[i].GetValue("selectionSchemaGeneration");
+                if (SaveFormat.MissionSelection.Classify(SaveFormat.ParseStored(generation)) == SaveFormatClass.Newer)
+                {
+                    newerSelection++;
+                    newestSelection = generation;
+                }
+                Mission m = Mission.Load(mNodes[i]);
+                unknownKeys += m.UnknownValues.Count + m.UnknownNodes.Count;
+                missions.Add(m);
+            }
+            if (newerSelection > 0)
+                ParsekLog.Warn("Mission",
+                    $"{newerSelection.ToString(CultureInfo.InvariantCulture)} mission(s) carry a newer " +
+                    $"selectionSchemaGeneration (e.g. {newestSelection}, current=" +
+                    $"{Mission.CurrentSelectionSchemaGeneration.ToString(CultureInfo.InvariantCulture)}); " +
+                    "loaded best effort, unknown keys written back verbatim");
             if (!SuppressLogging)
-                ParsekLog.Info("Mission", $"Loaded {missions.Count} mission(s)");
+                ParsekLog.Info("Mission",
+                    $"Loaded {missions.Count} mission(s); unknownKeysKeptVerbatim={unknownKeys.ToString(CultureInfo.InvariantCulture)}");
         }
     }
 }

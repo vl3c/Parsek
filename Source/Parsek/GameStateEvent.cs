@@ -120,6 +120,21 @@ namespace Parsek
                 node.AddValue(CaptureSequence.Key, captureSequence.ToString(CultureInfo.InvariantCulture));
         }
 
+        /// <summary>
+        /// True when this build cannot read <paramref name="node"/>'s event type: the <c>type</c>
+        /// value is missing, unparseable, or an id this enum does not define (a newer build's
+        /// type). Such a node is kept verbatim by its store and written back on save; it is never
+        /// deserialized, so no converter, ledger, reconcile or UI path sees it. Pure.
+        /// </summary>
+        internal static bool IsUnreadableTypeNode(ConfigNode node)
+        {
+            string typeStr = node?.GetValue("type");
+            if (typeStr == null)
+                return true;
+            return !int.TryParse(typeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int typeInt)
+                || !Enum.IsDefined(typeof(GameStateEventType), typeInt);
+        }
+
         public static GameStateEvent DeserializeFrom(ConfigNode node)
         {
             var e = new GameStateEvent();

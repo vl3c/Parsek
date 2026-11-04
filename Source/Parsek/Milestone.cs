@@ -11,6 +11,13 @@ namespace Parsek
         public double EndUT;
         public string RecordingId;
         public List<GameStateEvent> Events = new List<GameStateEvent>();
+        /// <summary>
+        /// GAME_STATE_EVENT children whose type this build cannot read
+        /// (<see cref="GameStateEvent.IsUnreadableTypeNode"/>), kept verbatim and written back after
+        /// <see cref="Events"/>. They are not in <see cref="Events"/>, so no consumer sees them, and
+        /// <see cref="LastReplayedEventIndex"/> counts readable events only.
+        /// </summary>
+        public List<ConfigNode> UnreadableEventNodes = new List<ConfigNode>();
         public bool Committed;
         public int LastReplayedEventIndex;
 
@@ -29,6 +36,8 @@ namespace Parsek
                 ConfigNode eventNode = node.AddNode("GAME_STATE_EVENT");
                 Events[i].SerializeInto(eventNode);
             }
+            for (int i = 0; i < UnreadableEventNodes.Count; i++)
+                node.AddNode(UnreadableEventNodes[i].CreateCopy());
         }
 
         public static Milestone DeserializeFrom(ConfigNode node)
@@ -60,7 +69,12 @@ namespace Parsek
             if (eventNodes != null)
             {
                 for (int i = 0; i < eventNodes.Length; i++)
-                    m.Events.Add(GameStateEvent.DeserializeFrom(eventNodes[i]));
+                {
+                    if (GameStateEvent.IsUnreadableTypeNode(eventNodes[i]))
+                        m.UnreadableEventNodes.Add(eventNodes[i].CreateCopy());
+                    else
+                        m.Events.Add(GameStateEvent.DeserializeFrom(eventNodes[i]));
+                }
             }
 
             return m;

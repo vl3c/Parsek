@@ -13,8 +13,17 @@ namespace Parsek
         private static Dictionary<string, float> committedScienceSubjects = new Dictionary<string, float>();
         private static Dictionary<string, float> originalScienceValues = new Dictionary<string, float>();
 
+        // GAME_STATE_EVENT nodes whose type this build cannot read (GameStateEvent.IsUnreadableTypeNode,
+        // a newer build's event type), kept as verbatim copies and appended after the readable events
+        // on every save. Never deserialized, so no converter, ledger, reconcile or UI path sees them.
+        // Replaced by every event load; cleared with the events.
+        private static List<ConfigNode> unreadableEventNodes = new List<ConfigNode>();
+
         /// <summary>The <c>PARSEK_GAME_STATE</c> <c>version</c> this build writes (1.0 baseline: 1).</summary>
         internal const int CurrentEventsVersion = 1;
+
+        /// <summary>How many event nodes the last load kept verbatim because this build cannot read their type.</summary>
+        internal static int UnreadableEventCount => unreadableEventNodes.Count;
 
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
@@ -1213,6 +1222,9 @@ namespace Parsek
                 e.SerializeInto(eventNode);
                 build.SavedEvents++;
             }
+            // Events this build could not read go back out untouched, after the readable ones.
+            for (int i = 0; i < unreadableEventNodes.Count; i++)
+                rootNode.AddNode(unreadableEventNodes[i].CreateCopy());
 
             foreach (var snap in contractSnapshots)
             {
@@ -1367,6 +1379,7 @@ namespace Parsek
             int prevEvents = events.Count;
             int prevSnapshots = contractSnapshots.Count;
             events.Clear();
+            unreadableEventNodes = new List<ConfigNode>();
             contractSnapshots.Clear();
             committedScienceSubjects.Clear();
             originalScienceValues.Clear();
@@ -1377,24 +1390,32 @@ namespace Parsek
 
         private static void ParseEventsNode(ConfigNode rootNode, string sourceLabel)
         {
-            int version = 1;
+            // Events are self-describing rows: an unreadable row is kept verbatim below, so a
+            // version this build does not know still loads every row it can read.
             string versionStr = rootNode.GetValue("version");
-            if (!string.IsNullOrEmpty(versionStr) && !int.TryParse(versionStr, out version))
+            SaveFormatClass versionClass = SaveFormat.GameStateStoreFormat.Classify(SaveFormat.ParseStored(versionStr));
+            if (versionClass != SaveFormatClass.Current)
             {
-                ParsekLog.Warn("GameStateStore", $"Invalid game state events version '{versionStr}'");
-                version = 1;
-            }
-            if (version != 1)
-            {
-                ParsekLog.Warn("GameStateStore", $"Unsupported game state events version={version} (expected 1)");
+                ParsekLog.Warn("GameStateStore",
+                    $"Game state events version='{versionStr ?? "(missing)"}' is {versionClass} " +
+                    $"(current={CurrentEventsVersion.ToString(CultureInfo.InvariantCulture)}); loading every readable event");
             }
 
             // ConfigNode.Load returns the file contents directly
             ConfigNode[] eventNodes = rootNode.GetNodes("GAME_STATE_EVENT");
+            int unreadable = 0;
             if (eventNodes != null)
             {
                 foreach (var en in eventNodes)
+                {
+                    if (GameStateEvent.IsUnreadableTypeNode(en))
+                    {
+                        unreadable++;
+                        unreadableEventNodes.Add(en.CreateCopy());
+                        continue;
+                    }
                     events.Add(GameStateEvent.DeserializeFrom(en));
+                }
             }
 
             ConfigNode[] snapNodes = rootNode.GetNodes("CONTRACT_SNAPSHOT");
@@ -1408,7 +1429,8 @@ namespace Parsek
 
             ParsekLog.Info("GameStateStore",
                 $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
-                $"{committedScienceSubjects.Count} science subjects from {sourceLabel}");
+                $"{committedScienceSubjects.Count} science subjects from {sourceLabel}; " +
+                $"unreadableTypesKeptVerbatim={unreadable.ToString(CultureInfo.InvariantCulture)}");
 
             // Log event type distribution for diagnostics
             if (events.Count > 0)
@@ -1442,10 +1464,19 @@ namespace Parsek
             if (attemptNode == null)
                 return 0;
             int restored = 0;
+            int unreadable = 0;
             HashSet<string> droppedContractAcceptGuids = null;
             ConfigNode[] eventNodes = attemptNode.GetNodes("GAME_STATE_EVENT");
             for (int i = 0; i < eventNodes.Length; i++)
             {
+                // An attempt event is memory-only state of an uncommitted flight; one this build
+                // cannot read is not restored (counted in the summary below).
+                if (GameStateEvent.IsUnreadableTypeNode(eventNodes[i]))
+                {
+                    unreadable++;
+                    droppedEvents++;
+                    continue;
+                }
                 GameStateEvent e = GameStateEvent.DeserializeFrom(eventNodes[i]);
                 if (keepEvent != null && !keepEvent(e))
                 {
@@ -1471,6 +1502,10 @@ namespace Parsek
                     continue;
                 contractSnapshots.Add(snap);
             }
+            if (unreadable > 0)
+                ParsekLog.Info("GameStateStore",
+                    $"RestoreAttemptEventsToMemory: skipped {unreadable.ToString(CultureInfo.InvariantCulture)} " +
+                    "attempt event(s) of a type this build cannot read");
             return restored;
         }
 
@@ -1644,6 +1679,7 @@ namespace Parsek
         {
             int dropped = events.Count;
             events.Clear();
+            unreadableEventNodes = new List<ConfigNode>();
             contractSnapshots.Clear();
             baselines.Clear();
             committedScienceSubjects.Clear();

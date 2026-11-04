@@ -64,8 +64,24 @@ namespace Parsek
 
         // The interval-key schema generation written with every mission ("selectionSchemaGeneration"):
         // dock/board sub-intervals key as "<parentKey>@dockM" and are selected independently.
-        // Format 1 writes it as a constant; nothing reads it back.
+        // A newer value is warned once per load (MissionStore.Load) and read best effort: a
+        // mission is presentation state over its tree.
         internal const int CurrentSelectionSchemaGeneration = 1;
+
+        // Values and child nodes of the MISSION node this build does not know (a newer build's
+        // keys), written back verbatim after the known keys so an older build's save loses none.
+        public readonly List<KeyValuePair<string, string>> UnknownValues = new List<KeyValuePair<string, string>>();
+        public readonly List<ConfigNode> UnknownNodes = new List<ConfigNode>();
+
+        // A selectionSchemaGeneration above CurrentSelectionSchemaGeneration as loaded, written back
+        // instead of the current one so the newer build still reads its own keys under its rules.
+        public int? NewerSelectionSchemaGeneration;
+
+        internal static readonly HashSet<string> KnownKeys = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "id", "treeId", "name", "loopPlayback", "loopIntervalSeconds", "loopTimeUnit", "loopAnchorUT",
+            "collapsed", "selectionSchemaGeneration", "excludedHead", "excludedInterval", "foreignDockLink",
+        };
 
         public Mission() { }
 
@@ -109,7 +125,7 @@ namespace Parsek
                 LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("collapsed", Collapsed);
             node.AddValue("selectionSchemaGeneration",
-                CurrentSelectionSchemaGeneration.ToString(CultureInfo.InvariantCulture));
+                (NewerSelectionSchemaGeneration ?? CurrentSelectionSchemaGeneration).ToString(CultureInfo.InvariantCulture));
             foreach (string h in ExcludedThroughLineHeadIds)
                 node.AddValue("excludedHead", h ?? "");
             foreach (string k in ExcludedIntervalKeys)
@@ -127,6 +143,10 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(links[i]))
                         node.AddValue("foreignDockLink", links[i]);
             }
+            for (int i = 0; i < UnknownValues.Count; i++)
+                node.AddValue(UnknownValues[i].Key, UnknownValues[i].Value);
+            for (int i = 0; i < UnknownNodes.Count; i++)
+                node.AddNode(UnknownNodes[i].CreateCopy());
         }
 
         public static Mission Load(ConfigNode node)
@@ -168,6 +188,17 @@ namespace Parsek
             for (int i = 0; i < foreignLinks.Length; i++)
                 if (!string.IsNullOrEmpty(foreignLinks[i]))
                     m.IncludedForeignDockLinkIds.Add(foreignLinks[i]);
+            int? selectionGeneration = SaveFormat.ParseStored(node.GetValue("selectionSchemaGeneration"));
+            if (SaveFormat.MissionSelection.Classify(selectionGeneration) == SaveFormatClass.Newer)
+                m.NewerSelectionSchemaGeneration = selectionGeneration;
+            for (int i = 0; i < node.values.Count; i++)
+            {
+                ConfigNode.Value v = node.values[i];
+                if (!KnownKeys.Contains(v.name))
+                    m.UnknownValues.Add(new KeyValuePair<string, string>(v.name, v.value));
+            }
+            for (int i = 0; i < node.nodes.Count; i++)
+                m.UnknownNodes.Add(node.nodes[i].CreateCopy());
             return m;
         }
     }
