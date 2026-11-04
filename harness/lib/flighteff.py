@@ -1188,6 +1188,7 @@ MISSION_MACHINES = {
     "m3_loop_arrival_dwell": "m3_decide", "r1_rewind_loop": "r1_decide",
     "rf12s_refly_orbit_insert": "rfo_decide", "science_bench_recover": "sbr_decide",
     "record_climb_rewind": "rcr_decide",
+    "soi1_mun_exit_burn": "soi1_decide",
     "v1_map_dwell": "v1_map_dwell_decide",
 }
 

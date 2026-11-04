@@ -17,6 +17,59 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
+
+**Symptom.** `FlightRecorder.OnVesselSOIChanged` returned at once unless the vessel was on rails,
+so a burn through a sphere-of-influence boundary, or a 1x / physics-warp coast across one, made no
+section boundary. One Absolute section then held both bodies' samples: the optimizer's body rule
+(#251) reads a section's body from its first frame and could not split there, the section was
+labelled with the first body, the crossing pair lerped in world space between two body frames
+(each sample still resolves on its own body, so this only shows on a time-shifted replay), the
+finalization cache was not refreshed, and the atmosphere / approach-altitude state stayed seeded for
+the old body (a Kerbin -> Mun crossing left `currentAltitudeThreshold` at 0, so the Mun approach
+boundary never fired for that flight).
+
+**Fix.** Off rails, `OnVesselSOIChanged` arms a forced sample (`ArmPhysicsSoiSample`, Info
+`SOI changed off rails <from> -> <to> ...`). `OnPhysicsFrame` runs `SplitSectionIfPhysicsBodyChanged`
+on every sample before the Relative rewrite and the commit: when the sample's body differs from the
+open section's last frame (`DecidePhysicsBodyChange`, pure), it commits the same position expressed
+on the old body as the old section's closing frame (Absolute only), closes the section at the sample
+UT and opens the next one in the same frame (Relative keeps its anchor), then reseeds the atmosphere
+and altitude state and sets the SOI flag like the on-rails path. The flat list carries the
+equal-UT seam, so no interpolation pair spans the two bodies. Detecting at the sample rather than in
+the SOI callback keeps the split right when the callback fires inside a physics step. Because the
+flat list now opens the optimizer's second half with the first half's closing sample,
+`RecordingOptimizer.SplitAtSection` takes the second half's start body / biome from its first
+section's own first frame (`ResolveSecondHalfStartPoint`; a Relative section's body-fixed shadow),
+not from the flat list. Tests:
+`PhysicsSoiSectionSplitTests` (truth table, bookkeeping, the optimizer reads a burn as
+`BodyChange` and a coast as `SuppressedExoCoastBodyChange`, source wiring).
+
+**Residue (open, low).** The background recorder's LOADED (physics) vessels have the same gap:
+`BackgroundRecorder.OnBackgroundVesselSOIChanged` handles only on-rails states. It needs a second
+vessel inside physics range of the active one crossing the boundary with it (formation flight
+through an SOI edge), so it is left for a separate change.
+
+## ~~FLAT-POINTS-READ-RELATIVE-OFFSETS: a flat-points playback fallback reads Relative metre offsets as lat/lon/alt~~ [FILED 2026-11-04 from the replay-theory audit (finding R4), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit only; product, medium (a ghost placed deep inside the planet for the frames of a section gap next to a Relative section)]
+
+**Symptom.** The flat `Points` list is the concatenation of the section frames, so inside a
+Relative section it holds anchor-local metre offsets. Every flight-scene flat-points reader
+(`InterpolateAndPositionEntryCore`'s fallback, the loop fallback, the background chain ghost, the
+manual preview and `TryResolvePointWorldPosition`'s world resolve) fed its bracketing points straight
+to `GetWorldSurfacePosition`, so a playback UT in a section gap whose neighbour sample sat in a
+Relative section put the ghost inside the planet. The sidecar writer substitutes the body-fixed
+frames and the reader heals the flat list, so only recordings still in memory from the current
+session were exposed (the audit's independent review narrowed it so).
+
+**Fix.** `FlatPointFrameDispatch` (pure) identifies a flat point as a Relative offset when a
+Relative section spanning its UT holds a byte-equal frame (equality, not the UT, decides at a
+boundary shared with an Absolute neighbour), and returns the section's body-fixed shadow at the same
+UT. The two flat-points sinks in `ParsekFlight` take the sections (`flatPointSections`) and substitute
+the shadow, or hide the ghost when the offset has no shadow (Info, rate-limited). Map / Tracking
+Station / KSC flat readers were not part of the finding and are unchanged. Tests:
+`FlatPointFrameDispatchTests` (classification, gap read, refusal, and a source gate that every
+flat-points call site passes its sections).
+
 ## ~~LOOP-REPLAY-REPLANTS-REMOVED-FLAG: a looping replay plants a recorded flag again after the player removes it~~ [FILED 2026-11-04 from the replay-theory audit (finding R5, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, confirmed by code read on main b2182df); FIXED 2026-11-04, branch `claude/project-thread-2p1zb5`; LIVE-PROVEN FLG-1 `2026-11-04_1743`; owner ruling 2026-11-04 "plant once and record pick-ups"; product, low (an unremovable flag per looped flag plant)]
 
 **Symptom.** A recording that planted a flag replays it as a real flag vessel when replay reaches the
