@@ -17,6 +17,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander leans after the boarding and the Mun ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; OPEN until a CS-7 re-flight; test harness (mission flight variance), low; no Parsek defect]
+
+From the run's KSP.log and mission rows: no Parsek line spawns, packs or moves the lander in
+the window (the only spawn lines are the periodic `Spawn suppressed`, as in the green run). Both
+attempts landed about 12 s later than the green `2026-10-31_0654_a2`; right after the EvaBoard
+the lander read angV 0.322 and hspd 1.0 and settled about 0.2 m lower, leaning. MechJeb's
+ascent then pushed it sideways along the ground (hspd 7 -> 44 m/s at alt 0.9, still LANDED)
+until the solar panel, chute and heat shield broke off and the vessel was lost. What gave the
+kick at the board (stock's board teleport or the legs) is not in the logs.
+
+Guard: `mlr_decide`'s EVA-SETTLE counts a frame only when the lander is at rest (angV and hspd
+under B5's park / settled-touchdown bounds), the telemetry row carries the new `pitch=` read,
+and a settled lander leaning more than `munAscentMaxTiltDeg` (default 30) off vertical flakes
+`mun-lander-tipped` instead of engaging the ascent. That turns a doomed ascent into a named,
+fast INVALID; it does not make the lane pass. If the re-flight tips again, the `pitch=` rows show
+whether it tipped at the touchdown, the EVA, the flag or the board, which decides the next step.
+
 ## ~~RECORDINGS-COUNT-BARE-INT-CRASHES-VERIFIER: a spec pinning `[expectations.recordings] count = N` as a bare number made its lane INVALID~~ [FILED 2026-11-04 from the full lane run (RW-7 and RW-10..RW-22, 14 lanes INVALID); FIXED 2026-11-04, branch `claude/project-thread-rp1ciy`; harness unit cells; the 14 lanes' re-flight owed; test harness, medium (14 lanes could never pass)]
 
 The fourteen rewind-campaign specs wrote the recording-count window as a bare int (`count = 3`)

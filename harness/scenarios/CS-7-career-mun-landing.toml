@@ -58,6 +58,17 @@ id = "CS-7-career-mun-landing"
 # below their attach points against the leg's ~0.8 m stroke); then they stand as
 # outriggers round it. The landing site's sun angle and the powered Mun phases' draw.
 #
+# THE 2026-11-04 REDS (full lane run, `2026-11-04_0447_CS-7` and `_a2`, both INVALID
+# vessel-lost in MUN-ASCENT; todo CS7-LANDER-TIPS-AT-BOARD): no Parsek line touches the
+# lander. Both landed about 12 s later than the green `2026-10-31_0654_a2`, the boarding
+# left the lander rocking (angV 0.322, hspd 1.0) and it settled about 0.2 m lower,
+# leaning; MechJeb's engage then pushed it along the ground (hspd 7 -> 44 m/s at alt 0.9,
+# LANDED) until it broke up. Since then EVA-SETTLE counts a frame only with angV under
+# parkMaxAngularVelocityRadPerSec and hspd under landedMaxHorizontalSpeedMps, the
+# telemetry row carries `pitch=` (Flight.Pitch, +90 upright), and a settled lander
+# leaning more than munAscentMaxTiltDeg (default 30) off vertical flakes
+# `mun-lander-tipped` at once instead of engaging. Re-flight owed.
+#
 # THE ROUTE, mission `b13_mun_landing_return` (mlib.mlr_decide): B5's machine VERBATIM
 # with captureEnabled and landingEnabled (B11's capture, a 60 s park, B13's untargeted
 # MechJeb landing, a 30 s settled dwell), with CS-4's career launch gate. NEW SINCE THE
