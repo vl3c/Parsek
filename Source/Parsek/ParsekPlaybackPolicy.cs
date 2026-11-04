@@ -564,7 +564,7 @@ namespace Parsek
 
                 if (spawnedNow || pendingFlagReplay)
                 {
-                    var (eligibleFlags, spawnedFlags, alreadyPresentFlags, failedFlags) =
+                    var (eligibleFlags, spawnedFlags, alreadyPresentFlags, failedFlags, removedFlags) =
                     GhostPlaybackLogic.SpawnFlagVesselsUpToUT(rec, currentUT);
 
                     if (rec.FlagEvents != null && rec.FlagEvents.Count > 0)
@@ -572,7 +572,7 @@ namespace Parsek
                         ParsekLog.Verbose("Policy",
                             $"Deferred flag flush: #{i} \"{rec.VesselName}\" " +
                             $"spawned {spawnedFlags}/{eligibleFlags} flag(s) " +
-                            $"alreadyPresent={alreadyPresentFlags} failed={failedFlags} " +
+                            $"alreadyPresent={alreadyPresentFlags} removedByPlayer={removedFlags} failed={failedFlags} " +
                             $"up to UT {currentUT.ToString("R", CultureInfo.InvariantCulture)}");
                     }
 

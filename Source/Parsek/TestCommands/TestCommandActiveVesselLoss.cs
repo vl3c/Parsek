@@ -37,6 +37,7 @@ namespace Parsek.TestCommands
             {
                 "EvaGroundScience",
                 "PlantFlag",
+                "PickUpFlag",
             };
 
         /// <summary>Read-only view of the watched verb set (for coverage tests).</summary>
