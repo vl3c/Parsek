@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using ClickThroughFix;
 using UnityEngine;
 
 namespace Parsek
@@ -231,10 +230,11 @@ namespace Parsek
             {
                 groupPopupRect = PickerWindowLayout.PlaceOnOpen(
                     groupPopupPosition, parentWindowRect,
-                    GroupPopupDefaultW, GroupPopupDefaultH, Screen.width, Screen.height);
+                    GroupPopupDefaultW, GroupPopupDefaultH,
+                    ParsekUiScale.ScaledScreenWidth, ParsekUiScale.ScaledScreenHeight);
                 ParsekLog.Verbose("UI", PickerWindowLayout.FormatPlacementLog(
                     "Group picker", groupPopupPosition, groupPopupRect,
-                    Screen.width, Screen.height));
+                    ParsekUiScale.ScaledScreenWidth, ParsekUiScale.ScaledScreenHeight));
             }
 
             ParsekUI.HandleResizeDrag(ref groupPopupRect, ref isResizingGroupPopup,
@@ -249,7 +249,7 @@ namespace Parsek
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
             try
             {
-                groupPopupRect = ClickThruBlocker.GUILayoutWindow(
+                groupPopupRect = ParsekUiScale.Window(
                     "ParsekGroupPopup".GetHashCode(),
                     groupPopupRect,
                     (id) => DrawGroupPopupContents(treeModel, isGroupPopup),

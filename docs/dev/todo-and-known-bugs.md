@@ -6976,7 +6976,7 @@ read as a background vessel), the cleanup sites that null the field when the lat
 removed. The switch-segment subtree walk now finds branches by parent id (fixed above); the rest
 are unaudited for impact. Fix direction: the same parent-id lookup where a walk needs every child.
 
-## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override; 2026-10-03 (branch `settings-risks`): S4 struck and live-proven by ZF-1, reward multipliers with money changing hands live-proven by HC-2, the quickload-off Re-Fly closed by evidence under S7; still open: S10 (UI_SCALE)]
+## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override; 2026-10-03 (branch `settings-risks`): S4 struck and live-proven by ZF-1, reward multipliers with money changing hands live-proven by HC-2, the quickload-off Re-Fly closed by evidence under S7; S10 (UI_SCALE) fixed 2026-11-04, lane UIS-1 not yet flown]
 
 Audit of every player-facing stock KSP 1.12.5 setting (new-game modes and presets, the 103
 `GameParameters` fields, the 306 `settings.cfg` keys, the Alt+F12 cheats) against what
@@ -7253,8 +7253,21 @@ Owner rulings (2026-09-26):
 
 Supervisor defaults (not overridden):
 
-- S10 (Q5). Parsek IMGUI windows ignore `GameSettings.UI_SCALE`; scale them to match. Separate
-  UI work, not in the fix PR.
+- ~~S10 (Q5). Parsek IMGUI windows ignore `GameSettings.UI_SCALE`; scale them to match. Separate
+  UI work, not in the fix PR.~~ FIXED 2026-11-04, branch `claude/project-thread-0l64yy` (owner
+  ruling 2026-11-04: scale the whole Parsek layer, no Parsek setting; map markers and ghost labels
+  stay unscaled). Fix: `UI/ParsekUiScale.cs`. Each draw host (Flight, KSC, the global test runner,
+  the watch-mode readout, the currency hover) opens a `BeginHost` scope that sets `GUI.matrix` to
+  the live `UI_SCALE` (inert at 1). Every window draws through `ParsekUiScale.Window`: at 1 it is
+  ClickThroughBlocker; otherwise `GUILayout.Window` plus a Parsek-owned `ALLBUTCAMERAS` lock
+  hit-tested in scaled units, because ClickThroughBlocker compares the raw mouse with the scaled
+  rect. Screen clamps read `ScaledScreenWidth/Height`, and popup anchors use
+  `GuiPointToScaledRoot`. A window is pulled on screen on its first draw after a scale change.
+  Gates: `ParsekUiScaleTests` (pure rules plus source gates for the one window entry point, the
+  host scopes and the anchor conversion), the in-game `UiScale` category, and lane
+  `UIS-1-ui-scale` at `UI_SCALE = 1.5` (harness `kspSettings` gained `UI_SCALE`). Status: NOT YET
+  FLOWN. Known limit: the GUI census instruments (`GuiTreeRecorder`, `UiPointer`) still assume
+  100%, which every census profile pins.
 - ~~S11 (Q6). Alt+F12 cheat currency (`TransactionReasons.Cheating`) stays unledgered and
   clamp-held until the next rewind; log it once per event.~~ FIXED 2026-09-26, branch
   `kss-ledger`: each captured `Cheating` funds / science / reputation change writes one Info line

@@ -712,7 +712,7 @@ namespace Parsek
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
             try
             {
-                windowRect = ClickThruBlocker.GUILayoutWindow(
+                windowRect = ParsekUiScale.Window(
                     WindowIdKey.GetHashCode(),
                     windowRect,
                     DrawWindow,
@@ -2203,10 +2203,11 @@ namespace Parsek
             {
                 linkPickerRect = PickerWindowLayout.PlaceOnOpen(
                     linkPickerPosition, windowRect,
-                    LinkPickerDefaultW, LinkPickerDefaultH, Screen.width, Screen.height);
+                    LinkPickerDefaultW, LinkPickerDefaultH,
+                    ParsekUiScale.ScaledScreenWidth, ParsekUiScale.ScaledScreenHeight);
                 ParsekLog.Verbose("UI", PickerWindowLayout.FormatPlacementLog(
                     "Logistics link picker", linkPickerPosition, linkPickerRect,
-                    Screen.width, Screen.height));
+                    ParsekUiScale.ScaledScreenWidth, ParsekUiScale.ScaledScreenHeight));
             }
 
             ParsekUI.HandleResizeDrag(ref linkPickerRect, ref linkPickerResizing,
@@ -2218,7 +2219,7 @@ namespace Parsek
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
             try
             {
-                linkPickerRect = ClickThruBlocker.GUILayoutWindow(
+                linkPickerRect = ParsekUiScale.Window(
                     "ParsekLogiLinkPicker".GetHashCode(),
                     linkPickerRect,
                     DrawLinkPickerContents,
@@ -2626,7 +2627,7 @@ namespace Parsek
                         if (GUILayout.Button(new GUIContent("Link round-trip...",
                                 "Pair this route with another so they alternate: each runs only after its partner completes a run (a single reused transport flying out and back)."),
                                 detailSlotButtonStyle, GUILayout.Width(w)))
-                            OpenLinkPicker(route, GUIUtility.GUIToScreenPoint(Event.current.mousePosition));
+                            OpenLinkPicker(route, ParsekUiScale.GuiPointToScaledRoot(Event.current.mousePosition));
                     }
                     else if (GUILayout.Button(new GUIContent("Unlink",
                                  "Break this route's round-trip pairing; both routes return to running on their own schedule."),

@@ -9094,12 +9094,18 @@ def render_screen_restore_marker(original: Dict[str, str]) -> str:
 #   MAX_VESSELS_BUDGET - int >= -1 (stock: -1 = no limit; the dropdown offers
 #                        0, 25, 50 ...; settings.cfg takes any int).
 #   DECLUTTER_KSC      - bool, written as KSP writes one (`True` / `False`).
+#   UI_SCALE           - number in [0.5, 3.0] (stock's UI Scale slider; Parsek's
+#                        IMGUI windows follow it, todo S10). Written as the shortest
+#                        decimal (`1.5`, `2`).
 # Unlike the screen override, a gameplay delta the shell cannot apply makes the
 # run INVALID(staging): a lane measuring a budget it did not get would read a
 # green that proves nothing.
 # ---------------------------------------------------------------------------
 
-KSP_GAMEPLAY_SETTING_KEYS: Tuple[str, ...] = ("MAX_VESSELS_BUDGET", "DECLUTTER_KSC")
+KSP_GAMEPLAY_SETTING_KEYS: Tuple[str, ...] = ("MAX_VESSELS_BUDGET", "DECLUTTER_KSC", "UI_SCALE")
+
+KSP_UI_SCALE_MIN = 0.5
+KSP_UI_SCALE_MAX = 3.0
 
 KSP_GAMEPLAY_RESTORE_MARKER = provlib.KSP_GAMEPLAY_RESTORE_MARKER
 
@@ -9114,7 +9120,20 @@ def _canonical_ksp_gameplay_value(key: str, value: Any) -> Optional[str]:
         if not isinstance(value, bool):
             return None
         return "True" if value else "False"
+    if key == "UI_SCALE":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        if value != value or value < KSP_UI_SCALE_MIN or value > KSP_UI_SCALE_MAX:
+            return None
+        return ("%.3f" % float(value)).rstrip("0").rstrip(".")
     return None
+
+
+_KSP_GAMEPLAY_VALUE_HINTS = {
+    "MAX_VESSELS_BUDGET": "int >= -1",
+    "DECLUTTER_KSC": "bool",
+    "UI_SCALE": "number in [%g, %g]" % (KSP_UI_SCALE_MIN, KSP_UI_SCALE_MAX),
+}
 
 
 def validate_ksp_gameplay_settings(runtime: Dict) -> List[str]:
@@ -9137,7 +9156,7 @@ def validate_ksp_gameplay_settings(runtime: Dict) -> List[str]:
         if _canonical_ksp_gameplay_value(key, table[key]) is None:
             errors.append("runtime.%s.%s: %r is not a valid value (%s)"
                           % (KSP_SETTINGS_SPEC_KEY, key, table[key],
-                             "int >= -1" if key == "MAX_VESSELS_BUDGET" else "bool"))
+                             _KSP_GAMEPLAY_VALUE_HINTS.get(key, "?")))
     return errors
 
 

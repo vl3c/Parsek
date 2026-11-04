@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Parsek windows follow KSP's UI Scale.** Every Parsek window, popup and tooltip now grows or
+  shrinks with the UI Scale slider in KSP's settings, like the stock interface, and a window left
+  near the screen edge is pulled back on screen when the scale changes. Map markers and ghost name
+  labels keep their size. (KSP-SETTINGS-AUDIT-2026-09-26 S10)
 - **The user guide says what a rewind cannot undo in other mods.** A new section, Other Mods and
   Rewinds, explains that a mod's own saved data goes back to the rewind point while your committed
   flights stay, that a load another mod starts may keep Parsek's timeline, and that contract packs

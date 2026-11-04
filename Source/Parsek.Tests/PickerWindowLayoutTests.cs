@@ -382,9 +382,10 @@ namespace Parsek.Tests
             string logistics = Prepared("UI", "LogisticsWindowUI.cs");
             Assert.Contains("PickerWindowLayout.NoClickPoint",
                 MethodBody(logistics, "OpenLinkPickerForTesting"));
-            // The production Link round-trip click converts its GUI-space click to screen
-            // space, as the Recordings G buttons do, so the picker opens next to the button.
-            Assert.Contains("OpenLinkPicker(route, GUIUtility.GUIToScreenPoint(Event.current.mousePosition))",
+            // The production Link round-trip click converts its GUI-space click to the
+            // host's scaled-root space, as the Recordings G buttons do, so the picker opens
+            // next to the button at any UI scale (ParsekUiScale).
+            Assert.Contains("OpenLinkPicker(route, ParsekUiScale.GuiPointToScaledRoot(Event.current.mousePosition))",
                 logistics);
         }
 
