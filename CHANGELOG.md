@@ -33,6 +33,13 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A rewind never lowers a once-only reward.** If a science result, world-first or record step
+  was paid at a higher reward setting on the committed timeline and you earn it again earlier at
+  a lower one, the committed flight now still pays the difference, so your total stays at the
+  higher amount. Such a flight counts as a gain and is no longer offered for Re-Fly. (REPLAY-AUDIT-T2-TOP-UP)
+- **Changing career settings no longer rewrites your past.** Switching "allow negative funds"
+  now affects only what happens after the switch, and a kerbal whose death was recorded with
+  respawn on still comes back if you turn respawn off later, at the time stock set. (REPLAY-AUDIT-T2-TOP-UP)
 - **Save data Parsek cannot read is no longer guessed at.** A ledger entry it cannot read is kept
   as written instead of being saved back as a science entry, a recording with an unreadable state
   is rejected instead of loading as final, and a recording file a crash left half-moved is still

@@ -17,6 +17,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REPLAY-AUDIT-T2-TOP-UP: a reward setting changed across a rewind could lower a once-only reward, and changed career settings re-judged the past~~ [FILED 2026-11-04 from the replay-theory audit (question T2, owner ruling 2026-11-04 11:19Z) and the career settings audit (`analysis/career-settings-audit-2026-11-04.md` in the project files, sections 3.1 to 3.6); FIXED 2026-11-04, branch `claude/project-thread-dxut6r`; xUnit only, no lane (no fixture or lane changes a difficulty value mid-career or across a rewind); product, medium]
+
+**Symptom.** A load restores the save's own difficulty settings, so a rewind can price one
+once-only reward under two reward multipliers. The walk paid the earliest row and zeroed the
+later one, so a committed flight paid at 150% lost the difference when the same reward was
+earned earlier at 100% (science: the subject cap walked raw units; world-firsts and record steps:
+first wins). Separately, `AllowNegativeCurrency` was read live and applied to every past loss, so
+flipping it re-judged the whole history (free money by toggling), and stock killed a Missing
+kerbal whose recorded death was stamped respawn-on when respawn was turned off before his timer
+ran out, while the stamp's timer came from the slider at commit, not from the death.
+
+**Fix.** Owner ruling (V): the earliest still wins the timing, and each later payment pays its own
+value minus what earlier payments paid, never below 0. Science: `ScienceModule.TopUpFloor` over
+`OwnTimelinePool` (the row plus earlier-captured, earlier-UT rows stock still remembered), pool-unit
+take-back. World-firsts: `MilestonesModule.TryTopUpOneShot` through the partial-credit channel,
+the rest stock repaid after forgetting the first row taken back. Record steps:
+`RecordThresholdBook` tops up named re-crossings and second first payments, never taken back.
+Only a save with a timeline break tops up. `CareerSettingsLog` judges each loss under the
+allow-negative value in force at its capture (LEDGER keys `allowNegativeFrom`). The respawn stamp
+reads stock's `UTaR` for a Missing dead kerbal (`TryResolveRespawnStampFromRoster`), and
+`CrewRespawnTimerPatch` respawns a recorded respawn-on death when the setting is now off. Tests:
+`RewindTopUpScienceTests`, `RewindTopUpMilestoneTests`, `CareerSettingsLogTests`,
+`CrewRespawnSettingsTests`. Open: audit Q1 (should a Parsek rewind keep the current sliders).
+
 ## ~~REPLAY-AUDIT-CODEC-HYGIENE: six reader / invariant gaps from the replay-theory audit (R8 to R13)~~ [FILED 2026-11-04 from the replay-theory audit (doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, findings R8-R13, main b2182df); FIXED 2026-11-04, branch `claude/project-thread-dxut6r`; xUnit only, no lane (every case needs a hand-edited, newer-build or crash-damaged save); product, low]
 
 **Symptom.** Each reader defaulted what it could not read instead of rejecting or passing it on.
