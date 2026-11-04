@@ -212,24 +212,7 @@ namespace Parsek
         public bool PlaybackEnabled = true;
         // The player's toggle plus the derived launch-site-only hide (LaunchSiteOnlyGhost):
         // what every ghost host reads. Same visual-only contract as PlaybackEnabled.
-        internal bool GhostVisible => PlaybackEnabled && !IsHiddenByGhostRule();
-
-        /// <summary>
-        /// The derived ghost-hide rule <see cref="GhostVisible"/> consults, installed by its
-        /// owner (<c>LaunchSiteOnlyGhost.EnsureGhostHiddenRuleInstalled</c>, run by that
-        /// type's static constructor and by the committed store's type initialiser) so this
-        /// data type does not reference the module that computes it. The rule can only
-        /// answer true for a recording in a committed tree, and the store is initialised
-        /// before any tree is committed, so it is always installed when it matters. Null
-        /// reads as "not hidden".
-        /// </summary>
-        internal static Func<Recording, bool> GhostHiddenRule;
-
-        private bool IsHiddenByGhostRule()
-        {
-            Func<Recording, bool> rule = GhostHiddenRule;
-            return rule != null && rule(this);
-        }
+        internal bool GhostVisible => PlaybackEnabled && !LaunchSiteOnlyGhost.IsHidden(this);
         public bool Hidden;                  // true = hidden from recordings list (unless Show Hidden is on)
 
         // EVA child recording linkage
@@ -1130,9 +1113,7 @@ namespace Parsek
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;
             clone.SidecarEpochAdvancePending = source.SidecarEpochAdvancePending;
-            clone.PrecHash = source.PrecHash;
-            clone.VesselSnapshotHash = source.VesselSnapshotHash;
-            clone.GhostSnapshotHash = source.GhostSnapshotHash;
+            SidecarVersions.CopyHashes(clone, source);
             clone.SidecarVersionsResolved = source.SidecarVersionsResolved;
             clone.SidecarLoadFailed = source.SidecarLoadFailed;
             clone.SidecarLoadFailureReason = source.SidecarLoadFailureReason;

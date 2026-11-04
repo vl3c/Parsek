@@ -1324,7 +1324,7 @@ namespace Parsek
             if (Sequence != 0)
                 node.AddValue("seq", Sequence.ToString(IC));
             if (CaptureSequence != 0)
-                node.AddValue(CaptureSequenceCodec.Key, CaptureSequence.ToString(IC));
+                node.AddValue(Parsek.CaptureSequence.Key, CaptureSequence.ToString(IC));
             if (!double.IsNaN(CapturedUT) && !double.IsInfinity(CapturedUT))
                 node.AddValue(CapturedUTKey, CapturedUT.ToString("R", IC));
 
@@ -1499,7 +1499,7 @@ namespace Parsek
             string seqStr = node.GetValue("seq");
             if (seqStr != null)
                 int.TryParse(seqStr, NumberStyles.Integer, IC, out a.Sequence);
-            a.CaptureSequence = CaptureSequenceCodec.Parse(node.GetValue(CaptureSequenceCodec.Key));
+            a.CaptureSequence = Parsek.CaptureSequence.Parse(node.GetValue(Parsek.CaptureSequence.Key));
             string capturedUtStr = node.GetValue(CapturedUTKey);
             double capturedUt;
             if (capturedUtStr != null && double.TryParse(capturedUtStr, NS, IC, out capturedUt)
@@ -1517,7 +1517,7 @@ namespace Parsek
             else
             {
                 a.ActionId = ComputeLegacyActionId(a.UT, a.Type, a.RecordingId, a.Sequence);
-                LoadTally.BumpLegacyActionIdMigrationCounterForTesting();
+                Ledger.BumpLegacyActionIdMigrationCounterForTesting();
             }
 
             // See SerializeInto: read in the common header, same key, same node.
@@ -1903,58 +1903,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The per-load tallies a GAME_ACTION read feeds. <see cref="Ledger"/> resets them at
-        /// the top of a load and prints them as its one-line summaries after it.
-        /// </summary>
-        internal static class LoadTally
-        {
-            // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
-            // one-shot legacy ActionId migration log. Bumped from GameAction.DeserializeFrom
-            // whenever a legacy action without `actionId` gets a deterministic rehydrated id.
-            internal static int LegacyActionIdMigrationCount;
-
-            internal static void BumpLegacyActionIdMigrationCounterForTesting()
-            {
-                LegacyActionIdMigrationCount++;
-            }
-
-            // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: per-load batch counters for the
-            // ContractAccept deadline migration. Bumped from GameAction.DeserializeFrom (via
-            // DeserializeContractAccept) for every ContractAccept row read, and reported as
-            // ONE summary line per LoadFromFile - the batch-counting convention, and the same
-            // shape as the legacy-ActionId migration above. Reset at the top of each load
-            // rather than latched once per process, because a session can load several
-            // careers and each one's migration decision is worth its own line.
-            internal static int ContractDeadlineAbsoluteCount;
-            internal static int ContractDeadlineMigratedCount;
-            internal static int ContractDeadlineAbsentCount;
-            internal static int ContractDeadlineUnparseableCount;
-
-            /// <summary>
-            /// Records one ContractAccept deadline resolution into the per-load tally.
-            /// </summary>
-            internal static void NoteContractDeadlineResolution(
-                ContractDeadlineResolution resolution)
-            {
-                switch (resolution)
-                {
-                    case ContractDeadlineResolution.Absolute:
-                        ContractDeadlineAbsoluteCount++;
-                        break;
-                    case ContractDeadlineResolution.MigratedFromDuration:
-                        ContractDeadlineMigratedCount++;
-                        break;
-                    case ContractDeadlineResolution.Unparseable:
-                        ContractDeadlineUnparseableCount++;
-                        break;
-                    default:
-                        ContractDeadlineAbsentCount++;
-                        break;
-                }
-            }
-        }
-
-        /// <summary>
         /// Pure: resolves a ContractAccept node's deadline to an ABSOLUTE UT.
         ///
         /// <para>The absolute key wins outright when present. Otherwise the legacy
@@ -2013,7 +1961,7 @@ namespace Parsek
             // CONTRACT-DEADLINE-CAPTURED-AS-DURATION on-disk migration. `a.UT` is
             // already parsed by DeserializeFrom before this type-specific branch runs.
             var resolution = ResolveContractDeadlineUT(n, a.UT, out a.DeadlineUT);
-            LoadTally.NoteContractDeadlineResolution(resolution);
+            Ledger.NoteContractDeadlineResolution(resolution);
 
             TryParseFloat(n, "fundsPenalty", out a.FundsPenalty);
             TryParseFloat(n, "repPenalty", out a.RepPenalty);

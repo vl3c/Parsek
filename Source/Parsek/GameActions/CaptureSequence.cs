@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 // [ERS-exempt] reads every row Ledger.Actions physically holds: a capture number must stay
 // above rows the effective ledger hides too, or a later row could reuse one.
@@ -21,11 +22,11 @@ namespace Parsek
     /// </summary>
     internal static class CaptureSequence
     {
-        internal const string Key = CaptureSequenceCodec.Key;
+        internal const string Key = "cseq";
 
         /// <summary>A row known to have no capture number (converted from an event an older
         /// build captured): never stamped, so it gets no floor and is ahead of nothing.</summary>
-        internal const long Unsequenced = CaptureSequenceCodec.Unsequenced;
+        internal const long Unsequenced = -1;
 
         private static long highWater;
 
@@ -127,7 +128,14 @@ namespace Parsek
 
         /// <summary>Parses a saved value: a positive number, <see cref="Unsequenced"/> for any
         /// negative one, 0 ("none yet") when absent or unreadable.</summary>
-        internal static long Parse(string value) => CaptureSequenceCodec.Parse(value);
+        internal static long Parse(string value)
+        {
+            long parsed;
+            if (string.IsNullOrEmpty(value)
+                || !long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed))
+                return 0;
+            return parsed < 0 ? Unsequenced : parsed;
+        }
 
         internal static void ResetForTesting()
         {

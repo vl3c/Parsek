@@ -669,6 +669,7 @@ namespace Parsek
                 point.longitude = pose.Longitude;
                 point.altitude = pose.Altitude;
             }
+            TryCanonicalizeActiveReFlyRecordingPoint(ref point, "physics-sample");
             TrajectoryPoint absolutePoint = point;
 
             bool relativeApplied = ApplyRelativeOffset(ref point, v);

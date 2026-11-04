@@ -55,6 +55,11 @@ namespace Parsek
             bool hasInitialTrajectoryPoint = TryConsumePendingInitialTrajectoryPoint(vesselPid, out initialTrajectoryPoint);
             if (hasInitialTrajectoryPoint && initialTrajectoryPoint.ut > ut)
                 initialTrajectoryPoint.ut = ut;
+            if (hasInitialTrajectoryPoint)
+                TryCanonicalizeBackgroundReFlyRecordingPoint(
+                    recordingId,
+                    ref initialTrajectoryPoint,
+                    "on-rails-initial");
             if (hasInitialTrajectoryPoint && hasTreeRecording)
             {
                 // #419: only log "seeded" if the flat-append was accepted. A rejection
@@ -139,10 +144,11 @@ namespace Parsek
                     v,
                     hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut,
                     "Kerbin");
-                LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
+                TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
                     recordingId,
                     v,
                     hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut,
+                    ref state.currentOrbitSegment,
                     "on-rails-orbit");
                 state.hasOpenOrbitSegment = true;
 
@@ -216,6 +222,11 @@ namespace Parsek
             bool hasInitialTrajectoryPoint = TryConsumePendingInitialTrajectoryPoint(vesselPid, out initialTrajectoryPoint);
             if (hasInitialTrajectoryPoint && initialTrajectoryPoint.ut > ut)
                 initialTrajectoryPoint.ut = ut;
+            if (hasInitialTrajectoryPoint)
+                TryCanonicalizeBackgroundReFlyRecordingPoint(
+                    recordingId,
+                    ref initialTrajectoryPoint,
+                    "loaded-initial");
             SegmentEnvironment overrideEnv;
             SegmentEnvironment initialEnv;
             if (TryConsumePendingInitialEnvironmentOverride(vesselPid, out overrideEnv))

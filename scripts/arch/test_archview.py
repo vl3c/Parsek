@@ -3207,20 +3207,20 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(len(largest["modules"]), 10)
 
     def test_knot_sizes_match_the_documented_tree(self):
-        # A snapshot of the current tree, re-derived 2026-11-01. Placing 50 root
-        # files the map had skipped took the kernel knot to 584 (the 7-type
-        # stock-screen decoration knot merged into it); making Recording plain
-        # data again then cut it to 535, and teaching the scanner member names
-        # (a field or enum member spelled like a type is not a reference) took
-        # it to 454, splitting off a 3-type stock-UI grey knot. It was
-        # [301, 7, 4, 2, 2] on
-        # 2026-09-25, [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the
-        # 2026-09-14 arch PRs shrank the kernel.
-        # The 2026-11-04 merge of main took it to 456: main's new
-        # ParkedSplitSaveOverlay and its NoSaveSceneExit changes joined the kernel.
+        # A snapshot of the current tree, re-derived 2026-11-04 on the release
+        # branch, whose production code is main's. Placing 50 root files the map
+        # had skipped took the kernel knot to 584 on 2026-11-01 (the 7-type
+        # stock-screen decoration knot merged into it); teaching the scanner
+        # member names (a field or enum member spelled like a type is not a
+        # reference) split off a 3-type stock-UI grey knot, and main's code is
+        # 542 with that scanner. Recording and GameAction are inside it: their
+        # re-cuts (454 there, 456 after the 2026-11-04 merge of main) live on the
+        # refactor branch claude/project-thread-bkwmrr only. It was
+        # [301, 7, 4, 2, 2] on 2026-09-25, [286, 4, 2, 2] on 2026-09-22 and
+        # [391, 4, 2] before the 2026-09-14 arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [456, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [542, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3326,36 +3326,33 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(len(production), 20)
 
     def test_first_cut_matches_the_documented_tree(self):
-        # Re-derived 2026-11-01, after Recording became plain data again,
-        # GameAction's real Ledger and CaptureSequence calls moved out and the
-        # scanner stopped reading member names as types: GameAction and
-        # Recording are both out of the knot now. On 2026-09-25 GameAction was
-        # first (301 -> 273, dropping Ledger) and RecordingStore second. Same
-        # canary contract as the knot sizes above (re-derived again at the
-        # 2026-11-04 merge of main, two types larger).
+        # Re-derived 2026-11-04 on the release branch (main's production code):
+        # Recording's two helper calls (LaunchSiteOnlyGhost, SidecarVersions)
+        # are the first cut and GameAction's real Ledger and CaptureSequence
+        # calls the second. The refactor branch claude/project-thread-bkwmrr
+        # moves both out, and there the first cut is Route. On 2026-09-25
+        # GameAction was first (301 -> 273, dropping Ledger) and RecordingStore
+        # second. Same canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
-        self.assertEqual(first["sink"], "Route")
-        self.assertEqual(first["sizeBefore"], 456)
-        self.assertEqual(first["sizeAfter"], 438)
-        self.assertEqual(
-            first["droppedReferences"],
-            ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
-        )
-        self.assertEqual(second["sink"], "RecordingStore")
-        self.assertEqual(second["sizeAfter"], 421)
+        self.assertEqual(first["sink"], "Recording")
+        self.assertEqual(first["sizeBefore"], 542)
+        self.assertEqual(first["sizeAfter"], 494)
+        self.assertEqual(first["droppedReferences"], ["LaunchSiteOnlyGhost", "SidecarVersions"])
+        self.assertEqual(second["sink"], "GameAction")
+        self.assertEqual(second["sizeAfter"], 455)
+        self.assertEqual(second["droppedReferences"], ["CaptureSequence", "Ledger"])
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
-        # a residue of about 320 types (328 of 584 before Recording's re-cut,
-        # 318 of 535 after, 273 of 454 once the scanner learned member
-        # names): the god objects at the end of the sequence hold a
-        # core the cheap cuts cannot reach. The bound is that residue, a
+        # a residue of about 300 types (328 of 584 before the scanner learned
+        # member names; 301 of 542 on main's production code with it, the value
+        # pinned here; 277 of 456 on the refactor branch, where Recording and
+        # GameAction are cut): the god objects at the end of the sequence hold
+        # a core the cheap cuts cannot reach. The bound is that residue, a
         # ratchet the refactor program tightens toward half the knot; refactor
-        # work must never loosen it. The one raise, 273 -> 277 at the
-        # 2026-11-04 merge of main, is main's own code joining the residue
-        # (ParkedSplitSaveOverlay, NoSaveSceneExit), not a refactor regression.
+        # work must never loosen it.
         largest = self.model["knots"][0]
-        self.assertLessEqual(largest["cuts"][-1]["sizeAfter"], 277)
+        self.assertLessEqual(largest["cuts"][-1]["sizeAfter"], 301)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

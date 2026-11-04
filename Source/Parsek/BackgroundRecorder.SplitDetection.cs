@@ -465,6 +465,10 @@ namespace Parsek
                 if (parentBoundaryPoint.HasValue)
                 {
                     TrajectoryPoint boundary = parentBoundaryPoint.Value;
+                    TryCanonicalizeBackgroundReFlyRecordingPoint(
+                        parentRec.RecordingId,
+                        ref boundary,
+                        "parent-branch-boundary");
                     if (HasStructuralEventPointAtUT(parentRec, boundary.ut))
                     {
                         ParsekLog.Verbose("BgRecorder",

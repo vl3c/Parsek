@@ -223,21 +223,22 @@ attribute itself.
 A **knot** is a strongly connected component of the type graph with more than
 one member: a group of types that reach one another in a cycle, directly or
 through other members. Longest-path levelling condenses a cycle to one level,
-so the kernel's 456-type knot collapses into level 10 and only the types above
-it (levels 11 to 13 here, mostly patches and entry points) rise above. A knot
+so the kernel's 542-type knot collapses into level 7 and only the types above
+it (levels 8 to 11 here, mostly patches and entry points) rise above. A knot
 is why that level is flat: the levelling cannot order types that depend on each
 other.
 
 `types.json` records this per type: `knot` is the 1-based index of the type's
 component in largest-first order, or null outside a knot, and `sublevel` is
 the type's level inside its knot after the cut edges are removed (again null
-outside). On the current tree the knots are one of 456, then of 4 and 3
-(re-derived 2026-11-01: placing 50 root files the map had skipped took the
-kernel to 584 and merged the 7-type stock-screen decoration knot into it;
-making `Recording` plain data again cut it to 535; teaching the scanner that a
-field, property or enum member spelled like a type is not a reference to it
-took it to 454 and split off a 3-type stock-UI grey knot; the 2026-11-04 merge
-of main added `ParkedSplitSaveOverlay` and `NoSaveSceneExit`, 456).
+outside). On the current tree the knots are one of 542, then of 4 and 3
+(re-derived 2026-11-04 on main's production code: placing 50 root files the map
+had skipped took the kernel to 584 on 2026-11-01 and merged the 7-type
+stock-screen decoration knot into it; teaching the scanner that a field,
+property or enum member spelled like a type is not a reference to it split off
+a 3-type stock-UI grey knot. Making `Recording` plain data again and moving
+`GameAction`'s two real knot calls out take it to 456; those re-cuts live on
+the refactor branch claude/project-thread-bkwmrr only).
 It was 301, 7, 4, 2 and 2 on 2026-09-25; 286, 4, 2 and 2 on 2026-09-22; and
 391, 4 and 2 before the 2026-09-14 pass made `ParsekLog` and `Recording` leaves.
 
@@ -246,13 +247,14 @@ their size and module breakdown, then for the largest knot it shows the hubs
 (the members other members reference most, with their in-knot references) and a
 **greedy cut sequence**: each step picks, among the highest-fan-in members, the
 sink whose outgoing references, when removed, break the knot the most, and
-reports the references that were dropped. `584 -> cut Recording -> 534` (the
-2026-11-01 reading before the re-cut) meant removing `Recording`'s two
-references inside the knot (`LaunchSiteOnlyGhost`, `SidecarVersions`) split off
-50 members. Some cuts are cheap inversions like that one - one or two
-references between hubs holding a whole region together, and those are the
-references a refactor should look at first - while the rest touch many small
-references at once (the `RecordingStore` cut, second on the current tree, drops 48), and the named
+reports the references that were dropped. `542 -> cut Recording -> 494`
+means removing `Recording`'s two references inside the knot
+(`LaunchSiteOnlyGhost`, `SidecarVersions`) splits off 48 members, and the
+second row, `GameAction` (`CaptureSequence`, `Ledger`), 39 more. Some cuts are
+cheap inversions like those - one or two references between hubs holding a
+whole region together, and those are the references a refactor should look at
+first - while the rest touch many small references at once (the `RecordingStore`
+cut, fourth on the current tree, drops 47), and the named
 sink there often needs a new abstraction (an interface, a data boundary) rather
 than moved edges. The table is a research list, not a verdict - the tool never says a
 reference is wrong, only that it holds a cycle together. Nothing in this phase

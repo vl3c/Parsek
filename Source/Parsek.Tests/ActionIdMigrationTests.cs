@@ -83,7 +83,7 @@ namespace Parsek.Tests
 
             var restored = GameAction.DeserializeFrom(node);
             Assert.Equal("act_explicit", restored.ActionId);
-            Assert.Equal(0, GameAction.LoadTally.LegacyActionIdMigrationCount);
+            Assert.Equal(0, Ledger.LegacyActionIdMigrationCount);
         }
 
         [Fact]
@@ -94,12 +94,12 @@ namespace Parsek.Tests
             var first = GameAction.DeserializeFrom(node);
             Assert.StartsWith("act_legacy_", first.ActionId);
             Assert.Equal(11 + 16, first.ActionId.Length);
-            Assert.Equal(1, GameAction.LoadTally.LegacyActionIdMigrationCount);
+            Assert.Equal(1, Ledger.LegacyActionIdMigrationCount);
 
             // Same inputs -> same id (idempotent)
             var second = GameAction.DeserializeFrom(node);
             Assert.Equal(first.ActionId, second.ActionId);
-            Assert.Equal(2, GameAction.LoadTally.LegacyActionIdMigrationCount);
+            Assert.Equal(2, Ledger.LegacyActionIdMigrationCount);
         }
 
         [Fact]
@@ -124,7 +124,7 @@ namespace Parsek.Tests
                 LegacyActionNode(100.0, GameActionType.ReputationPenalty, null, 0));
             GameAction.DeserializeFrom(
                 LegacyActionNode(200.0, GameActionType.ReputationPenalty, null, 0));
-            Assert.Equal(2, GameAction.LoadTally.LegacyActionIdMigrationCount);
+            Assert.Equal(2, Ledger.LegacyActionIdMigrationCount);
 
             logLines.Clear();
             Ledger.EmitLegacyActionIdMigrationLogOnce();

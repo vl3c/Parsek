@@ -667,6 +667,10 @@ namespace Parsek
             }
 
             TrajectoryPoint absolutePoint = CreateAbsoluteTrajectoryPointFromVessel(vessel, ut);
+            TryCanonicalizeBackgroundReFlyRecordingPoint(
+                state.recordingId,
+                ref absolutePoint,
+                "relative-boundary");
             TrajectoryPoint relativePoint = absolutePoint;
             if (!ApplyBackgroundRelativeOffsetForAnchorPose(
                     state,
@@ -1071,6 +1075,10 @@ namespace Parsek
             string reason)
         {
             TrajectoryPoint boundaryPoint = CreateAbsoluteTrajectoryPointFromVessel(vessel, ut);
+            TryCanonicalizeBackgroundReFlyRecordingPoint(
+                state.recordingId,
+                ref boundaryPoint,
+                "relative-exit");
             string oldAnchorRecordingId = state.currentAnchorRecordingId;
             uint oldDiagnosticPid = state.currentAnchorCandidate.DiagnosticPid;
             ClearBackgroundCurrentAnchor(state);

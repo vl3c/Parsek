@@ -61,14 +61,6 @@ namespace Parsek
         public const int CurrentRecordingFormatVersion = RecordingSchema.CurrentRecordingFormatVersion;
         public const int CurrentRecordingSchemaGeneration = RecordingSchema.CurrentRecordingSchemaGeneration;
 
-        // Recording.GhostVisible consults a rule its owner installs; the rule reads only the
-        // committed trees, so installing it when this store initialises guarantees it is in
-        // place before any committed recording can be read.
-        private static readonly bool ghostHiddenRuleInstalled =
-            LaunchSiteOnlyGhost.EnsureGhostHiddenRuleInstalled();
-
-        internal static bool GhostHiddenRuleInstalledForTesting => ghostHiddenRuleInstalled;
-
         /// <summary>
         /// Amount of pre-launch setup time rewind-to-launch restores before the launch UT.
         /// </summary>

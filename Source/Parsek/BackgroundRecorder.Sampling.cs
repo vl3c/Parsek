@@ -410,16 +410,30 @@ namespace Parsek
             return pt;
         }
 
-        private static void LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
+        private static bool TryCanonicalizeBackgroundReFlyRecordingPoint(
+            string recordingId,
+            ref TrajectoryPoint point,
+            string context)
+        {
+            return FlightRecorder.TryCanonicalizeReFlyRecordingPoint(
+                recordingId,
+                ref point,
+                "BgRecorder",
+                context);
+        }
+
+        private static bool TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
             string recordingId,
             Vessel vessel,
             double startUT,
+            ref OrbitSegment segment,
             string context)
         {
-            FlightRecorder.LogReFlyOrbitSegmentVelocityNonFinite(
+            return FlightRecorder.TryCanonicalizeReFlyRecordingOrbitSegment(
                 recordingId,
                 vessel,
                 startUT,
+                ref segment,
                 "BgRecorder",
                 context);
         }
@@ -432,6 +446,10 @@ namespace Parsek
             TrajectoryPoint boundaryPoint,
             double ut)
         {
+            TryCanonicalizeBackgroundReFlyRecordingPoint(
+                loadedState.recordingId,
+                ref boundaryPoint,
+                "loaded-to-rails-boundary");
             SegmentEnvironment previousEnv = loadedState.trackSectionActive
                 ? loadedState.currentTrackSection.environment
                 : loadedState.environmentHysteresis != null
@@ -489,6 +507,10 @@ namespace Parsek
             if (v == null) return;
 
             TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(v, ut);
+            TryCanonicalizeBackgroundReFlyRecordingPoint(
+                treeRec?.RecordingId,
+                ref point,
+                "boundary-sample");
             AppendBoundaryPointToRecording(treeRec, point, v.persistentId);
         }
 

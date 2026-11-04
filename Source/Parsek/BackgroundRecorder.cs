@@ -508,6 +508,10 @@ namespace Parsek
                 ut,
                 currentVelocity,
                 preferRootPartSurfacePose: preferRootPartSurfacePose);
+            TryCanonicalizeBackgroundReFlyRecordingPoint(
+                state.recordingId,
+                ref point,
+                "physics-sample");
             TrajectoryPoint absolutePoint = point;
             bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, bgVessel, ut);
             LogFirstDebrisOrdinarySampleDiagnostics(
@@ -1096,10 +1100,11 @@ namespace Parsek
                 if (v.orbit != null)
                 {
                     state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
-                    LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
+                    TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
                         recordingId,
                         v,
                         ut,
+                        ref state.currentOrbitSegment,
                         "soi-change");
                     state.hasOpenOrbitSegment = true;
                 }
@@ -1392,10 +1397,11 @@ namespace Parsek
 
                 // Open a fresh orbit segment with current orbital elements
                 state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
-                LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
+                TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
                     state.recordingId,
                     v,
                     ut,
+                    ref state.currentOrbitSegment,
                     "checkpoint");
                 state.hasOpenOrbitSegment = true;
                 checkpointed++;

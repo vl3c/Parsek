@@ -25,7 +25,7 @@ vocabulary_note = "Learn these names before reading any file. Each is ranked by 
 knot_note = "Every one of them can reach every other through references."
 knot_consequence = "This is why the module map is one big cycle underneath the layering, and it is the single fact that most constrains refactoring: nothing inside the knot can be tested, extracted or reasoned about in isolation."
 knot_cuts_note = "The knot is not held together by popularity. It is held by a few outgoing references from the hub types. Making a hub a pure sink (removing its own references to other knot members) shrinks the knot by this much:"
-knot_callout = "<strong>How to read it.</strong> The cheap rows are gone: the recording data type and the game-action type were re-cut on the 2026-11-01 refactor branch and are outside the knot. The sequence now starts with the supply route type and the god objects - the store, the flight controller, the route orchestrator, the playback logic, the scene controllers - whose cuts drop a long list of references at once, and what is left when the sequence ends is still a cluster of types. Those are design work, not moved edges, and they are where the opportunity list spends its argument."
+knot_callout = "<strong>How to read it.</strong> The first two rows are afternoon-sized: the recording data type calls two helpers (the launch-site ghost hide, the sidecar hash copy) and the game-action row reaches into the ledger and the capture-sequence key. Two references each, and each splits a run of types off the knot; the refactor branch claude/project-thread-bkwmrr cuts both. The rest of the sequence names the supply route type and the god objects - the store, the flight controller, the route orchestrator, the playback logic, the scene controllers - whose cuts drop a long list of references at once, and what is left when the sequence ends is still a cluster of types. Those are design work, not moved edges, and they are where the opportunity list spends its argument."
 layering_note = "69 module edges run upward. Most are light. These are the ones that carry weight, with the types that cause them; the pairs at the end reference each other in both directions, which is the module-level signature of the knot."
 reading_note = "If you were new to this codebase, or coming back to it after months, this is the order in which the abstractions build on each other. Each step depends only on the ones before it."
 views_note = "This page is a snapshot with prose. The live views regenerate from source in a few seconds and stay honest as the code moves; they are written under <code>docs/dev/arch/</code> and are not committed."
@@ -254,11 +254,11 @@ reviewed = "2026-11-01"
 
 [[findings.items]]
 title = "The knot nearly doubled in five weeks."
-body = "On 2026-11-01 the largest cycle held 584 types, against 301 on 2026-09-25. Part of the jump is 50 root files the map had been skipping as unplaced (placed in the 2026-11-01 refresh); the rest is about 975 commits of feature work. The greedy cuts no longer halve it: a core survives them (about 320 types before the 2026-11-01 refactor branch, 273 of 454 after it). Live size and cut sequence: <em>The knot</em>."
+body = "On 2026-11-01 the largest cycle held 584 types, against 301 on 2026-09-25. Part of the jump is 50 root files the map had been skipping as unplaced (placed in the 2026-11-01 refresh); the rest is about 975 commits of feature work. The greedy cuts no longer halve it: a core survives them (301 of 542 on main's code with the member-name scanner; 277 of 456 on the refactor branch claude/project-thread-bkwmrr, which also cuts the recording and game-action types). Live size and cut sequence: <em>The knot</em>."
 
 [[findings.items]]
-title = "Recording had stopped being plain data; it is again."
-body = "PR #1684 made the recording data type a leaf. By 2026-11-01 it called two helpers again (the launch-site ghost hide and the sidecar hash copy), tying 50 types to the knot (584). The 2026-11-01 refactor branch re-cut both (an installed hide rule, an inline hash copy), taking the knot to 535, and moved the game-action row's two real knot calls out. Its four remaining references were scanner false positives (fields named like types, an enum member named like a class); once the scanner learned member names the knot is 454, the game-action row and the recording type are both outside it, and a small 3-type stock-UI grey knot split off. The first cut is now the supply route type, then the recording store."
+title = "Recording had stopped being plain data."
+body = "PR #1684 made the recording data type a leaf. By 2026-11-01 it called two helpers again (the launch-site ghost hide and the sidecar hash copy), tying 50 types to the knot (584). The scanner now skips member names (fields named like types, an enum member named like a class), which split off a small 3-type stock-UI grey knot; on main's code the knot is 542 and its first two cuts are the recording type and the game-action row. The refactor branch claude/project-thread-bkwmrr re-cuts both (an installed hide rule, an inline hash copy; the game-action row's two real knot calls moved out), taking the knot to 456 with the supply route type as the first cut; that code is not on main."
 
 [[findings.items]]
 title = "The checker drifted because nothing runs it."
@@ -323,7 +323,7 @@ rank = 3
 item = "Recording as plain data"
 evidence = "Two references held 54 more on 2026-09-14; a top hotspot. On 2026-11-01 two new references (launch-site ghost hide, sidecar hash copy) hold 50 types again: the first row of the cut sequence."
 size = "afternoon"
-status = "Done in PR #1684, regressed by 2026-11-01, re-cut on the refactor branch 2026-11-01."
+status = "Done in PR #1684, regressed by 2026-11-01, re-cut on the refactor branch claude/project-thread-bkwmrr 2026-11-01 (not on main)."
 types = ["Recording"]
 
 [[opportunities]]
@@ -398,14 +398,14 @@ rank = 13
 item = "Make the architecture checker a gate"
 evidence = "On 2026-11-01 the placement contract and six real-tree canaries were red on main and nobody saw it (<em>Main findings</em>)."
 size = "small"
-status = "Done on the refactor branch 2026-11-01: CI runs the suite, and a real-tree cell fails on an unplaced file."
+status = "Done 2026-11-01: CI runs the suite, and a real-tree cell fails on an unplaced file."
 
 [[opportunities]]
 rank = 14
 item = "GameAction as a sink"
 evidence = "On 2026-11-01 its two real knot calls (the ledger's load tallies, the capture-sequence key) moved out on the refactor branch; the four references left were scanner false positives, and the scanner now skips member names (<em>The knot</em>)."
-size = "done"
-status = "Done on the refactor branch 2026-11-01: the game-action row is outside the knot."
+size = "afternoon"
+status = "Done on the refactor branch claude/project-thread-bkwmrr 2026-11-01 (not on main): there the game-action row is outside the knot."
 types = ["GameAction"]
 
 [[opportunities]]
