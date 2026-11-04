@@ -121,8 +121,10 @@ An older build opening a save from a newer one keeps what it cannot read and wri
    constant naming the shape change.
 2. Write the upgrade step `N -> N + 1` and register it for that format in `SaveFormat.cs`. Unit-test
    it on a node of shape N.
-3. Add the golden folder `Source/Parsek.Tests/Fixtures/FormatGolden/v<N+1>/` with the generator
-   named in that tree's README, and its `formats.txt` and `checksums.txt`.
+3. Add the next golden folder `Source/Parsek.Tests/Fixtures/FormatGolden/v<K>/` (K = the next
+   free folder number, not the format's number) with the generator named in that tree's README.
+   The folder carries its own `formats.txt`; the generator appends the new files' hashes to the
+   shared `FormatGolden/checksums.txt` and leaves every existing line alone.
 4. Keep every older `v*` folder unchanged: each must still load and upgrade to current.
 5. Update the section 1 table's code column if a constant moved, and the CHANGELOG.
 
