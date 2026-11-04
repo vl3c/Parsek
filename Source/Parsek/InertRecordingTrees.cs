@@ -24,9 +24,12 @@ namespace Parsek
     /// wrote it.</para>
     ///
     /// <para>Scope: COMMITTED trees only. A rejected active (isActive) or pending (isPending) node is
-    /// an uncommitted flight and stays dropped. Partial rejection inside a current-generation tree
-    /// keeps the per-recording prune (<c>RecordingTree.PruneRejectedRecordingReferences</c>). A tree
-    /// that passes the gate but whose sidecars fail to hydrate is not inert.</para>
+    /// an uncommitted flight and stays dropped (a partly rejected one keeps the per-recording prune,
+    /// <c>RecordingTree.PruneRejectedRecordingReferences</c>). A committed current-generation tree
+    /// with only SOME recordings of another generation is set aside whole, like a fully rejected one
+    /// (audit T6): loading its readable members would prune the rejected ones and rewrite its branch
+    /// points, and the next save would then drop them for good. A tree that passes the gate but whose
+    /// sidecars fail to hydrate is not inert.</para>
     ///
     /// <para>Lifetime: the same as the committed trees. <c>ParsekScenario.LoadRecordingTrees</c>
     /// replaces the holder (it is where the committed trees are cleared and reloaded); the cold-load
@@ -81,6 +84,9 @@ namespace Parsek
         /// current one; reason <c>tree-generation-older|newer|missing</c>), and a tree whose
         /// recordings the per-recording gate rejected so that nothing loaded (every recording, or
         /// the root and with it the whole tree; reason <c>recordings-&lt;first reason&gt;</c>).
+        /// The per-recording gate is the schema stamps plus
+        /// <see cref="RecordingTreeRecordCodec.ClassifyUnreadableRecordingNode"/> (no id, an
+        /// unknown merge state).
         /// <paramref name="loaded"/> is what <see cref="RecordingTree.Load"/> returned for the node;
         /// when null, only the node is read and "nothing loaded" means every RECORDING child failed
         /// the gate. A tree with no recordings at all, or with at least one loaded recording, is
@@ -103,9 +109,47 @@ namespace Parsek
                 return "tree-" + (treeReason ?? "generation-mismatch");
             }
 
+            int recordingCount = CountRejectedRecordings(treeNode, out int rejected, out string firstReason);
+            if (rejected == 0)
+                return null;
+
+            bool nothingLoaded = loaded != null
+                ? loaded.Recordings == null || loaded.Recordings.Count == 0
+                : rejected == recordingCount;
+            return nothingLoaded ? "recordings-" + firstReason : null;
+        }
+
+        /// <summary>
+        /// Pure: why a COMMITTED tree node must be kept inert, or null when it loads normally. Every
+        /// reason <see cref="ClassifySchemaRejection"/> gives, plus a tree that loaded but had at
+        /// least one recording rejected by the per-recording gate (reason
+        /// <c>some-recordings-&lt;first reason&gt;</c>, audit T6): its rejected members pass through
+        /// with the rest of the node instead of being pruned and lost on the next save.
+        /// </summary>
+        internal static string ClassifyCommittedTreeSchemaRejection(ConfigNode treeNode, RecordingTree loaded)
+        {
+            string whole = ClassifySchemaRejection(treeNode, loaded);
+            if (whole != null)
+                return whole;
+            if (treeNode == null)
+                return null;
+            CountRejectedRecordings(treeNode, out int rejected, out string firstReason);
+            return rejected > 0 ? "some-recordings-" + firstReason : null;
+        }
+
+        /// <summary>
+        /// Counts the RECORDING children of <paramref name="treeNode"/> the per-recording gate
+        /// rejects: the schema stamps (format version and generation, read as
+        /// <c>RecordingTree.Load</c> reads them), then
+        /// <see cref="RecordingTreeRecordCodec.ClassifyUnreadableRecordingNode"/>.
+        /// Returns the number of RECORDING children.
+        /// </summary>
+        private static int CountRejectedRecordings(ConfigNode treeNode, out int rejected, out string firstReason)
+        {
+            var ic = CultureInfo.InvariantCulture;
             ConfigNode[] recNodes = treeNode.GetNodes("RECORDING");
-            int rejected = 0;
-            string firstReason = null;
+            rejected = 0;
+            firstReason = null;
             for (int i = 0; i < recNodes.Length; i++)
             {
                 int format;
@@ -116,20 +160,19 @@ namespace Parsek
                 if (!int.TryParse(recNodes[i].GetValue("recordingSchemaGeneration"), NumberStyles.Integer, ic,
                         out generation))
                     generation = 0;
-                if (!RecordingStore.IsRecordingSchemaCompatible(format, generation, out string reason))
+                string reason;
+                if (!RecordingStore.IsRecordingSchemaCompatible(format, generation, out reason))
+                    reason = reason ?? "schema-mismatch";
+                else
+                    reason = RecordingTreeRecordCodec.ClassifyUnreadableRecordingNode(recNodes[i]);
+                if (reason != null)
                 {
                     rejected++;
                     if (firstReason == null)
                         firstReason = reason;
                 }
             }
-            if (rejected == 0)
-                return null;
-
-            bool nothingLoaded = loaded != null
-                ? loaded.Recordings == null || loaded.Recordings.Count == 0
-                : rejected == recNodes.Length;
-            return nothingLoaded ? "recordings-" + firstReason : null;
+            return recNodes.Length;
         }
 
         // ---------------------------------------------------------------- load
@@ -184,7 +227,9 @@ namespace Parsek
                     generations.Add(generation);
             }
             // For a tree whose recordings were rejected, the recordings' generations are the news.
-            if (entry.Reason.StartsWith("recordings-", StringComparison.Ordinal) && generations.Count > 0)
+            if ((entry.Reason.StartsWith("recordings-", StringComparison.Ordinal)
+                    || entry.Reason.StartsWith("some-recordings-", StringComparison.Ordinal))
+                && generations.Count > 0)
                 entry.Generation = string.Join("/", generations.ToArray());
 
             entries.Add(entry);

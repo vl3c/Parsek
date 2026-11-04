@@ -261,6 +261,9 @@ class ManifestEntry:
     ``subject_cap`` (``subjectCap``, OPTIONAL) is a science earning's subject cap:
     the kept entries of one subject earn in timeline order only what the cap leaves
     (3.15 "cap headroom, earliest first"), so a later copy earns the remainder.
+    The model has one constant reward multiplier, under which the walk's top-up
+    (owner ruling 2026-11-04: a later row pays its own timeline's value minus what
+    was already paid) never binds; a manifest mixing multipliers is out of scope.
     A once-shadowed or capped-down entry is the replay's TAKE-BACK: stock may have
     paid it live, and the next update writes the pool from the replay, so its effect
     never reaches EXPECTED and is never modelled as an adjustment (3.15 step 5); the

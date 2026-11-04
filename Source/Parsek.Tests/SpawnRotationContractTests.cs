@@ -580,6 +580,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PrepareSpawnNodeAtPosition_CommaDecimalCulture_WritesInvariantCoordinates()
+        {
+            ConfigNode node = new VesselSnapshotBuilder().AsLanded(0.0, 0.0, 0.0).Build();
+            CultureInfo before = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+                VesselSpawner.PrepareSpawnNodeAtPosition(
+                    node, "Kerbin", BodyRotation,
+                    lat: -0.0972, lon: -74.5577, alt: 72.25,
+                    speed: 0.0, orbitalSpeed: 2246.0, overWater: false,
+                    terminalState: TerminalState.Landed,
+                    surfaceRelativeRotation: null);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = before;
+            }
+
+            Assert.Equal("-0.0972", node.GetValue("lat"));
+            Assert.Equal("-74.5577", node.GetValue("lon"));
+            Assert.Equal("72.25", node.GetValue("alt"));
+        }
+
+        [Fact]
         public void OverrideSnapshotPosition_WritesRawSurfaceRelativeRotAndLogsSource()
         {
             ConfigNode node = new VesselSnapshotBuilder().AsLanded(0.0, 0.0, 0.0).Build();

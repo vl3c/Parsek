@@ -40,6 +40,31 @@ _(unreleased - entries accumulate here per commit)_
 - **A ghost no longer dives into the planet in a recording gap next to a close-formation leg.**
   Playback that fills a gap from the raw sample list now reads a formation-flying stretch through
   its own planet-relative copy, or hides the ghost for that moment. (FLAT-POINTS-READ-RELATIVE-OFFSETS)
+- **A rewind never lowers a once-only reward.** If a science result, world-first or record step
+  was paid at a higher reward setting on the committed timeline and you earn it again earlier at
+  a lower one, the committed flight now still pays the difference, so your total stays at the
+  higher amount. Such a flight counts as a gain and is no longer offered for Re-Fly. (REPLAY-AUDIT-T2-TOP-UP)
+- **Changing career settings no longer rewrites your past.** "Allow negative funds / science"
+  is now fixed when the career starts and greyed out afterwards. Rewinds and Re-Fly keep your
+  current difficulty settings instead of the ones saved back then. A kerbal whose death was
+  recorded with respawn on still comes back if you turn respawn off later. (REPLAY-AUDIT-T2-TOP-UP)
+- **A failed save step can no longer write ghost vessels into the save.** Ghost map vessels are
+  now removed from every save even when an earlier part of Parsek's save fails, so a later load
+  can never turn a ghost into a real ship. (SAVE-GHOST-STRIP-SKIPPED-ON-FAULT)
+- **A quicksave at the moment of staging keeps the flight's last seconds.** An F5 in the same
+  frame as an EVA, undock or decouple used to save the recording without its newest points; the
+  save now keeps them. (SAVE-DURING-DEFERRED-SPLIT-DROPS-TAIL)
+- **A mission with recordings from another Parsek version is kept whole.** When only some of a
+  mission's recordings come from a different Parsek version, the whole mission is set aside
+  untouched instead of losing those recordings on the next save. (SCHEMA-PARTIAL-TREE-DROPS-MEMBERS)
+- **Save data Parsek cannot read is no longer guessed at.** A ledger entry it cannot read is kept
+  as written instead of being saved back as a science entry, a recording with an unreadable state
+  is rejected instead of loading as final, and a recording file a crash left half-moved is still
+  found on the next load. (REPLAY-AUDIT-CODEC-HYGIENE)
+- **A Re-Fly merge cut off by a crash now finishes.** If the game crashed or a merge failed just
+  as it started, the next load used to drop only the re-flown vessel and keep its EVA kerbals and
+  dropped payloads (and what they earned) beside the old flight. The next load now completes the
+  merge you clicked, so the timeline holds one consistent flight. (MERGE-BEGIN-ROLLBACK-LEAKS-ATTEMPT)
 - **Revert to Launch no longer records over a committed flight.** After reverting, a vessel that
   already has a committed recording later on the timeline stays unrecorded instead of resuming
   that recording from the past, which left it with a doubled track. (REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END)

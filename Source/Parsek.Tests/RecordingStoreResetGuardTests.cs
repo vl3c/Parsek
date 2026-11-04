@@ -890,5 +890,95 @@ namespace Parsek.Tests
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("PostRestoreLive", RecordingStore.CommittedRecordings[0].VesselName);
         }
+        [Fact]
+        public void SnapshotRestore_RaisesRemovalNotifications_ForEveryShiftedSlot()
+        {
+            // The in-game runner restores in FLIGHT with ghosts alive; index-keyed live state
+            // mirrors the committed list by position, so a restore that rewrites the list
+            // must raise the removal seam for every slot it drops (audit R12).
+            var a = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "LiveA");
+            var b = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "LiveB");
+            RecordingStore.AddRecordingWithTreeForTesting(a);
+            RecordingStore.AddRecordingWithTreeForTesting(b);
+            var snapshot = RecordingStoreTestSnapshot.Capture();
+
+            var synth1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(2), "Synth1");
+            var synth2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(2), "Synth2");
+            RecordingStore.AddRecordingWithTreeForTesting(synth1);
+            RecordingStore.AddRecordingWithTreeForTesting(synth2);
+
+            var removing = new List<KeyValuePair<int, string>>();
+            var removed = new List<int>();
+            Action<int, Recording> onRemoving = (i, r) => removing.Add(new KeyValuePair<int, string>(i, r.VesselName));
+            Action<int, Recording, Recording> onRemoved = (i, r, into) => removed.Add(i);
+            RecordingStore.CommittedRecordingRemoving += onRemoving;
+            RecordingStore.CommittedRecordingRemoved += onRemoved;
+            try
+            {
+                snapshot.Restore();
+            }
+            finally
+            {
+                RecordingStore.CommittedRecordingRemoving -= onRemoving;
+                RecordingStore.CommittedRecordingRemoved -= onRemoved;
+            }
+
+            // Only the test's own tail leaves, top-down; the live prefix is untouched.
+            Assert.Equal(2, removing.Count);
+            Assert.Equal(3, removing[0].Key);
+            Assert.Equal("Synth2", removing[0].Value);
+            Assert.Equal(2, removing[1].Key);
+            Assert.Equal("Synth1", removing[1].Value);
+            Assert.Equal(new[] { 3, 2 }, removed.ToArray());
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+            Assert.Same(a, RecordingStore.CommittedRecordings[0]);
+            Assert.Same(b, RecordingStore.CommittedRecordings[1]);
+        }
+
+        [Fact]
+        public void SnapshotRestore_TestRemovedALiveRecording_NotifiesFromTheFirstDifferingSlot()
+        {
+            var a = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "LiveA");
+            var b = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "LiveB");
+            var c = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "LiveC");
+            RecordingStore.AddRecordingWithTreeForTesting(a);
+            RecordingStore.AddRecordingWithTreeForTesting(b);
+            RecordingStore.AddRecordingWithTreeForTesting(c);
+            var snapshot = RecordingStoreTestSnapshot.Capture();
+            RecordingStore.RemoveCommittedById(b.RecordingId);
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+
+            var removingIdx = new List<int>();
+            Action<int, Recording> onRemoving = (i, r) => removingIdx.Add(i);
+            RecordingStore.CommittedRecordingRemoving += onRemoving;
+            try
+            {
+                snapshot.Restore();
+            }
+            finally
+            {
+                RecordingStore.CommittedRecordingRemoving -= onRemoving;
+            }
+
+            // Slot 1 now holds C where the snapshot holds B: C leaves with a notification,
+            // then B and C are appended back in snapshot order.
+            Assert.Equal(new[] { 1 }, removingIdx.ToArray());
+            Assert.Same(a, RecordingStore.CommittedRecordings[0]);
+            Assert.Same(b, RecordingStore.CommittedRecordings[1]);
+            Assert.Same(c, RecordingStore.CommittedRecordings[2]);
+        }
+
+        [Fact]
+        public void CommonCommittedPrefixLength_ComparesReferencesNotIds()
+        {
+            var a = new Recording { RecordingId = "a" };
+            var b = new Recording { RecordingId = "b" };
+            var bClone = new Recording { RecordingId = "b" };
+            Assert.Equal(0, RecordingStore.CommonCommittedPrefixLength(null, new List<Recording> { a }));
+            Assert.Equal(1, RecordingStore.CommonCommittedPrefixLength(
+                new List<Recording> { a, bClone }, new List<Recording> { a, b }));
+            Assert.Equal(2, RecordingStore.CommonCommittedPrefixLength(
+                new List<Recording> { a, b }, new List<Recording> { a, b, bClone }));
+        }
     }
 }

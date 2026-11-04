@@ -54,6 +54,7 @@ namespace Parsek
             (new[] { "VesselRenameAccept", "PartVesselNamingAccept" }, "vessel names"),
             (new[] { "ResourceScan" }, "resource scan recording"),
             (new[] { "CanAffordLaunchTest", "EditorLaunchButton", "VesselSpawnDialogLaunch", "LaunchSiteFlyout" }, "launch cost reservations"),
+            (new[] { "AllowNegativeCurrencyLock" }, "career settings lock"),
         };
 
         /// <summary>
