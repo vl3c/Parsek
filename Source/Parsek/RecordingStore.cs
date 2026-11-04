@@ -4123,18 +4123,7 @@ namespace Parsek
         /// <see cref="CommittedRecordingRemoved"/> after the removal; in FLIGHT those carry the
         /// ghost teardown and the index reindex. Crew unreservation stays with the caller.
         /// </summary>
-        /// <param name="pruneFromCommittedTrees">
-        /// When true (the single-row default: the merge-journal rollback via
-        /// <see cref="DeleteRecordingFull"/>), also prune the
-        /// removed row from the committed tree that owns it, so
-        /// <c>SaveTreeRecordings</c> does not re-materialize its sidecars on the next OnSave
-        /// and resurrect it (DELETE-LEAVES-TREE-MEMBERSHIP). The bulk session sweep
-        /// <see cref="RemoveSessionProvisionalRecordings"/> passes false because it runs its
-        /// OWN fallback-aware <see cref="PruneTaggedRecordingsFromCommittedTrees"/> over the
-        /// whole matched set AFTER the loop - pruning per-item here with a null fallback
-        /// would reset that tree's root / active ids to null before the fallback could apply.
-        /// </param>
-        internal static void RemoveRecordingAt(int index, bool pruneFromCommittedTrees = true)
+        internal static void RemoveRecordingAt(int index)
         {
             if (index < 0 || index >= committedRecordings.Count)
             {
@@ -4170,9 +4159,8 @@ namespace Parsek
             // (measured on S0.11's first flight: 8 committed recordings saved, 9 in the
             // tree node, the deleted id's five sidecars re-created at FlushAndQuit). The
             // helper also scrubs the branch-point endpoint refs and any stale root /
-            // active id, the same repair the Re-Fly session removal runs. Skipped for the
-            // bulk session sweep, which runs its own fallback-aware prune afterwards.
-            if (pruneFromCommittedTrees && !string.IsNullOrEmpty(rec.RecordingId))
+            // active id.
+            if (!string.IsNullOrEmpty(rec.RecordingId))
             {
                 int prunedFromTrees = PruneTaggedRecordingsFromCommittedTrees(
                     new HashSet<string>(StringComparer.Ordinal) { rec.RecordingId }, null);
@@ -4183,100 +4171,6 @@ namespace Parsek
             DeleteRecordingFiles(rec);
             RemoveCommittedAtWithNotifications(index);
             Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
-        }
-
-        /// <summary>
-        /// Removes every committed recording tagged with the given Re-Fly session,
-        /// including optimizer-created split tails that inherited the session tag
-        /// via <see cref="RunOptimizationSplitPass"/>. Removes in descending-index
-        /// order so the chain-degrade pass in <see cref="RemoveRecordingAt"/>
-        /// only sees siblings that are also about to be deleted; the chain id on
-        /// the remaining ones is nulled out as a transient effect, then those
-        /// entries are themselves removed in the next iteration.
-        ///
-        /// <para>Match policy: when <paramref name="sessionId"/> is provided
-        /// (the production case), match on <see cref="Recording.CreatingSessionId"/>
-        /// only. <see cref="Recording.ProvisionalForRpId"/> survives a successful
-        /// merge as durable metadata on the committed Re-Fly recording, so
-        /// matching on it after a different session's failed merge would
-        /// incorrectly delete a prior durable attempt that shares the same
-        /// rewind point. The RP fallback fires only when the caller has no
-        /// session id at all (legacy / pre-tagging save sweep).</para>
-        ///
-        /// <para>After flat-list removal, each <see cref="committedTrees"/> entry
-        /// gets the matched ids stripped from its <c>Recordings</c> dictionary,
-        /// stale <c>ActiveRecordingId</c> / <c>RootRecordingId</c> are reset to
-        /// <paramref name="fallbackActiveRecordingId"/> when present (or nulled),
-        /// branch-point endpoint lists are scrubbed and empty BPs are dropped,
-        /// and the tree's background map is rebuilt — otherwise
-        /// <c>SaveTreeRecordings</c> would still serialise the orphan into
-        /// <c>RECORDING_TREE</c>, defeating the rollback.</para>
-        /// </summary>
-        internal static int RemoveSessionProvisionalRecordings(
-            string sessionId, string rewindPointId,
-            string fallbackActiveRecordingId = null)
-        {
-            if (string.IsNullOrEmpty(sessionId) && string.IsNullOrEmpty(rewindPointId))
-                return 0;
-
-            bool useSessionMatch = !string.IsNullOrEmpty(sessionId);
-            var matches = new List<int>();
-            var matchedIds = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                var rec = committedRecordings[i];
-                if (rec == null) continue;
-                bool match;
-                if (useSessionMatch)
-                {
-                    match = string.Equals(
-                        rec.CreatingSessionId, sessionId, StringComparison.Ordinal);
-                }
-                else
-                {
-                    match = !string.IsNullOrEmpty(rewindPointId)
-                        && string.Equals(
-                            rec.ProvisionalForRpId, rewindPointId, StringComparison.Ordinal);
-                }
-                if (match)
-                {
-                    matches.Add(i);
-                    if (!string.IsNullOrEmpty(rec.RecordingId))
-                        matchedIds.Add(rec.RecordingId);
-                }
-            }
-
-            if (matches.Count == 0)
-                return 0;
-
-            for (int m = matches.Count - 1; m >= 0; m--)
-            {
-                int idx = matches[m];
-                if (idx < 0 || idx >= committedRecordings.Count) continue;
-                var rec = committedRecordings[idx];
-                if (rec == null) continue;
-                ParsekLog.Verbose("RecordingStore",
-                    $"RemoveSessionProvisionalRecordings: removing rec='{rec.VesselName ?? "<no-name>"}' " +
-                    $"id={rec.RecordingId ?? "<no-id>"} chainId={rec.ChainId ?? "<none>"} " +
-                    $"matchedBy={(useSessionMatch ? "session" : "rp")}");
-                CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                // pruneFromCommittedTrees:false - the fallback-aware prune over the whole
-                // matched set runs once after the loop (a per-item null-fallback prune here
-                // would reset the tree's root / active ids to null before the fallback).
-                RemoveRecordingAt(idx, pruneFromCommittedTrees: false);
-            }
-
-            int prunedFromTrees = PruneTaggedRecordingsFromCommittedTrees(
-                matchedIds, fallbackActiveRecordingId);
-            if (prunedFromTrees > 0)
-            {
-                ParsekLog.Info("RecordingStore",
-                    $"RemoveSessionProvisionalRecordings: pruned {prunedFromTrees} stale " +
-                    $"entry/entries from committed-tree dictionaries " +
-                    $"(sess={sessionId ?? "<none>"} rp={rewindPointId ?? "<none>"})");
-            }
-
-            return matches.Count;
         }
 
         /// <summary>
@@ -4463,28 +4357,6 @@ namespace Parsek
                 }
             }
             return scrubbed;
-        }
-
-        /// <summary>
-        /// INTERNAL ROLLBACK ONLY: removes a recording from the committed list, cleans up its
-        /// sidecar files and unreserves its crew. Its one caller is the merge-journal
-        /// rollback's legacy by-id sweep of a session-provisional Re-Fly recording
-        /// (<c>MergeJournalOrchestrator.RemoveCommittedRecordingById</c>). No player path
-        /// reaches it: recordings are never player-deletable (a deletion breaks the timeline
-        /// and the ledger). Ghost teardown and index shifts ride on the store's
-        /// Removing / Removed notifications.
-        /// </summary>
-        internal static void DeleteRecordingFull(int index)
-        {
-            if (index < 0 || index >= committedRecordings.Count)
-            {
-                ParsekLog.Warn("RecordingStore", $"DeleteRecordingFull: invalid index={index} (count={committedRecordings.Count})");
-                return;
-            }
-            var rec = committedRecordings[index];
-            ParsekLog.Info("RecordingStore", $"DeleteRecordingFull: deleting '{rec.VesselName}' at index {index}");
-            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-            RemoveRecordingAt(index);
         }
 
         /// <summary>

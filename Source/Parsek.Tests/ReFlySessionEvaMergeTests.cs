@@ -317,6 +317,7 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------
 
         [Theory]
+        [InlineData("Begin")]
         [InlineData("TreeMerge")]
         [InlineData("Split")]
         [InlineData("Supersede")]

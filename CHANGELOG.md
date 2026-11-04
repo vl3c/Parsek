@@ -37,6 +37,11 @@ _(unreleased - entries accumulate here per commit)_
   as written instead of being saved back as a science entry, a recording with an unreadable state
   is rejected instead of loading as final, and a recording file a crash left half-moved is still
   found on the next load. (REPLAY-AUDIT-CODEC-HYGIENE)
+- **A Re-Fly merge cut off by a crash now finishes.** If the game crashed or a merge failed just
+  as it started, the next load used to drop only the re-flown vessel and keep its EVA kerbals and
+  dropped payloads (and what they earned) beside the old flight. The next load now completes the
+  merge you clicked, so the timeline holds one consistent flight. (MERGE-BEGIN-ROLLBACK-LEAKS-ATTEMPT)
+
 - **Revert to Launch no longer records over a committed flight.** After reverting, a vessel that
   already has a committed recording later on the timeline stays unrecorded instead of resuming
   that recording from the past, which left it with a doubled track. (REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END)

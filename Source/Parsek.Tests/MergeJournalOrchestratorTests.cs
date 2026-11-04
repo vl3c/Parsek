@@ -253,16 +253,14 @@ namespace Parsek.Tests
             Assert.DoesNotContain(scenario.RewindPoints,
                 r => r.RewindPointId == "rp_persistent");
 
-            // Begin + TreeMerge (Bug fix-refly-abandon-and-fork-persist §Bug2b)
+            // Begin (taken after the fork migration, so it also covers TreeMerge)
             // + Split (post-Begin durable barrier from
             // fix-supersede-identity-scope plan §5) + all 3 stable durable
             // barriers fired in order. The fixture's origin doesn't span the
             // rewind UT so the splitter returns Skipped=true, but the Split
             // DurableSave barrier still fires (the journal advances to
-            // Phase.Split regardless of split work). TreeMerge is gated on
-            // marker.InPlaceContinuation but the DurableSave still fires
-            // (the journal advances to TreeMerge regardless of migrate work).
-            Assert.Equal(new[] { "begin", "treemerge", "split", "durable1", "durable2", "durable3" },
+            // Phase.Split regardless of split work).
+            Assert.Equal(new[] { "begin", "split", "durable1", "durable2", "durable3" },
                 durableSaveCheckpoints.ToArray());
 
             // §10.8 journal log contract.
@@ -408,11 +406,11 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // Roll-back path (crash at or before Finalize)
+        // Crash at Begin: drives forward (todo MERGE-BEGIN-ROLLBACK-LEAKS-ATTEMPT)
         // ================================================================
 
         [Fact]
-        public void CrashAtBegin_Finisher_RollsBack_SessionRestored()
+        public void CrashAtBegin_Finisher_DrivesForward_MergeCompleted()
         {
             var (scenario, provisional) = MakeStandardFixture();
             var faultMarker = scenario.ActiveReFlySessionMarker;
@@ -427,37 +425,99 @@ namespace Parsek.Tests
             Assert.Equal(MergeJournal.Phases.Begin, scenario.ActiveMergeJournal.Phase);
             Assert.Empty(scenario.RecordingSupersedes);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(new[] { "begin" }, durableSaveCheckpoints);
 
-            // Finisher drives rollback.
             bool ran = MergeJournalOrchestrator.RunFinisher();
             Assert.True(ran);
 
+            // The merge the player clicked completes: the re-flown recording stays
+            // committed, flipped out of NotCommitted, and supersedes the origin.
             Assert.Null(scenario.ActiveMergeJournal);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            // Session-provisional removed from the committed list.
-            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+            Assert.Contains(RecordingStore.CommittedRecordings,
                 r => r != null && r.RecordingId == "rec_provisional");
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_provisional");
 
             Assert.Contains(logLines, l =>
-                l.Contains("[MergeJournal]") && l.Contains("Rolled back from phase=Begin"));
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=Begin"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Rolled back from phase="));
         }
 
         [Fact]
-        public void CrashAtBegin_Finisher_RemovesAllSessionTaggedFragments()
+        public void CrashAtBegin_Finisher_KeepsAttemptChildrenConsistentWithTheMerge()
         {
-            // Reproduces the post-failure orphan: optimizer split during
-            // FinalizeTreeRecordings creates a new chain-tail Recording that
-            // inherits CreatingSessionId via RunOptimizationSplitPass; when
-            // AppendRelations then trips and the journal rolls back, both the
-            // head and the optimizer-created tail must go away — otherwise the
-            // tail survives degraded-to-standalone in the recordings table.
+            // The R1 leak: the attempt's tree commits (CommitPendingTree + ledger
+            // notify) BEFORE RunMerge writes the Begin journal, so the Begin save
+            // holds the attempt's own EVA kerbal recording and its ledger row. Only
+            // the re-flown recording carries the session stamp. The old Begin
+            // rollback removed that one recording and restored the origin, leaving
+            // the EVA recording and its science row committed beside a timeline in
+            // which the flight that produced them never happened. Driving forward
+            // keeps the whole attempt and supersedes the origin, so the EVA child
+            // belongs to the effective timeline.
+            var (scenario, provisional) = MakeStandardFixture();
+            var marker = scenario.ActiveReFlySessionMarker;
+            provisional.CreatingSessionId = marker.SessionId;
+            marker.PreSessionBranchPointIds = new List<string> { "bp_c" };
+
+            var tree = RecordingStore.CommittedTrees.Find(t => t.Id == "tree_1");
+            var evaBp = Bp("bp_attempt_eva", BranchPointType.EVA,
+                parents: new List<string> { "rec_provisional" },
+                children: new List<string> { "rec_attempt_eva" });
+            tree.BranchPoints.Add(evaBp);
+            provisional.ChildBranchPointId = "bp_attempt_eva";
+            tree.AddOrReplaceRecording(provisional);
+            var eva = Rec("rec_attempt_eva", "tree_1",
+                parentBranchPointId: "bp_attempt_eva", terminal: TerminalState.Landed);
+            eva.Points.Add(new TrajectoryPoint { ut = 5.0 });
+            tree.AddOrReplaceRecording(eva);
+            RecordingStore.AddRecordingWithTreeForTesting(eva, "tree_1");
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_attempt_eva_science",
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_attempt_eva",
+                UT = 6.0,
+            });
+
+            var ex = TryRunWithFault(MergeJournalOrchestrator.Phase.Begin,
+                marker, provisional);
+            Assert.NotNull(ex);
+
+            MergeJournalOrchestrator.RunFinisher();
+
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+
+            // The attempt is whole: fork, its EVA child, and the child's row.
+            Assert.Contains(RecordingStore.CommittedRecordings,
+                r => r != null && r.RecordingId == "rec_provisional");
+            Assert.Contains(RecordingStore.CommittedRecordings,
+                r => r != null && r.RecordingId == "rec_attempt_eva");
+            Assert.Contains(Ledger.Actions, a => a.ActionId == "act_attempt_eva_science");
+
+            // And the origin it replaced is superseded, so the effective timeline is
+            // the attempt's (no origin + attempt-child mix).
+            Assert.Equal("rec_provisional",
+                EffectiveState.EffectiveRecordingId("rec_origin", scenario.RecordingSupersedes));
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_attempt_eva");
+        }
+
+        [Fact]
+        public void CrashAtBegin_Finisher_KeepsOptimizerSplitTailOfTheFork()
+        {
+            // The optimizer split during the commit hands the session stamp to the
+            // fork's chain tail. The old rollback deleted both halves; driving
+            // forward keeps both as the committed attempt.
             var (scenario, provisional) = MakeStandardFixture();
             var marker = scenario.ActiveReFlySessionMarker;
             provisional.CreatingSessionId = marker.SessionId;
             provisional.ChainId = "chain_session";
             provisional.ChainIndex = 0;
 
-            // Faux optimizer-created split tail tagged with the same session id.
             var splitTail = new Recording
             {
                 RecordingId = "rec_split_tail",
@@ -477,14 +537,35 @@ namespace Parsek.Tests
 
             MergeJournalOrchestrator.RunFinisher();
 
-            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Contains(RecordingStore.CommittedRecordings,
                 r => r != null && r.RecordingId == "rec_provisional");
-            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+            Assert.Contains(RecordingStore.CommittedRecordings,
                 r => r != null && r.RecordingId == "rec_split_tail");
+            Assert.DoesNotContain(logLines, l => l.Contains("session-provisional recording(s)"));
+        }
+
+        [Fact]
+        public void UnknownPhase_Finisher_DrivesForward_NeverRemovesTheFork()
+        {
+            var (scenario, provisional) = MakeStandardFixture();
+            TryRunWithFault(MergeJournalOrchestrator.Phase.Begin,
+                scenario.ActiveReFlySessionMarker, provisional);
+            scenario.ActiveMergeJournal.Phase = "SomeFuturePhase";
+
+            bool ran = MergeJournalOrchestrator.RunFinisher();
+
+            Assert.True(ran);
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(RecordingStore.CommittedRecordings,
+                r => r != null && r.RecordingId == "rec_provisional");
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
-                l.Contains("[MergeJournal]")
-                && l.Contains("removed 2 session-provisional recording(s)")
-                && l.Contains("sess_merge_1"));
+                l.Contains("[MergeJournal]") && l.Contains("unknown phase=SomeFuturePhase")
+                && l.Contains("driving forward"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=SomeFuturePhase"));
         }
 
         [Fact]
@@ -580,10 +661,9 @@ namespace Parsek.Tests
             Assert.Equal(MergeJournal.Phases.Durable1Done,
                 scenario.ActiveMergeJournal.Phase);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
-            // "treemerge" (Bug fix-refly-abandon-and-fork-persist §Bug2b) +
-            // "split" (fix-supersede-identity-scope plan §5) inserted
-            // between "begin" and "durable1" as post-Begin-durable barriers.
-            Assert.Equal(new[] { "begin", "treemerge", "split", "durable1" },
+            // "split" (fix-supersede-identity-scope plan §5) sits between
+            // "begin" and "durable1" as a post-Begin-durable barrier.
+            Assert.Equal(new[] { "begin", "split", "durable1" },
                 durableSaveCheckpoints);
 
             MergeJournalOrchestrator.RunFinisher();
@@ -623,8 +703,8 @@ namespace Parsek.Tests
             Assert.Equal(MergeJournal.Phases.TreeMerge,
                 scenario.ActiveMergeJournal.Phase);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
-            // Pre-finisher: only begin + treemerge fired.
-            Assert.Equal(new[] { "begin", "treemerge" }, durableSaveCheckpoints);
+            // Pre-finisher: only begin fired (it already holds the migrated fork).
+            Assert.Equal(new[] { "begin" }, durableSaveCheckpoints);
 
             MergeJournalOrchestrator.RunFinisher();
 
@@ -757,9 +837,9 @@ namespace Parsek.Tests
                 scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.True(ok);
-            // 6 save calls: begin + treemerge (Bug fix-refly-abandon-and-fork-
-            // persist §Bug2b) + split + durable1 + durable2 + durable3.
-            Assert.Equal(6, saveCalls.Count);
+            // 5 save calls: begin (after the fork migration) + split + durable1
+            // + durable2 + durable3.
+            Assert.Equal(5, saveCalls.Count);
             Assert.All(saveCalls, call =>
             {
                 Assert.Equal("persistent", call.saveName);
@@ -769,7 +849,6 @@ namespace Parsek.Tests
                 new[]
                 {
                     MergeJournal.Phases.Begin,
-                    MergeJournal.Phases.TreeMerge,
                     MergeJournal.Phases.Split,
                     MergeJournal.Phases.Durable1Done,
                     MergeJournal.Phases.Durable2Done,
