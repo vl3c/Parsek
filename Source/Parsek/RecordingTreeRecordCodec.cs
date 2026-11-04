@@ -243,13 +243,6 @@ namespace Parsek
                     }
                 }
             }
-
-            // Issue #734: PRE_REFLY_ORIGINAL is no longer written. The in-place
-            // Re-Fly attempt now forks into a separate provisional Recording so
-            // the origin is never mutated, removing the need for a Discard
-            // rollback snapshot. Older saves containing the node are read by the
-            // load path and silently dropped (the fields are gone), which is
-            // safe because the new fork model does not need the rollback.
         }
 
         #region SaveRecordingResourceAndState Block Helpers
