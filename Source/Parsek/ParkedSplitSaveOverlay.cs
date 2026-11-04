@@ -109,14 +109,36 @@ namespace Parsek
                 throw new ArgumentNullException(nameof(target));
 
             var overlay = new ParkedSplitSaveOverlay(target);
+            try
+            {
+                overlay.ApplyCore(parkedPoints, parkedOrbitSegments, parkedPartEvents,
+                    parkedFlagEvents, parkedTrackSections, terminalEvents);
+            }
+            catch
+            {
+                // A half-applied overlay would otherwise stay in memory and the deferred split
+                // would append the same data a second time.
+                overlay.Restore();
+                throw;
+            }
+            return overlay;
+        }
 
+        private void ApplyCore(
+            IList<TrajectoryPoint> parkedPoints,
+            IList<OrbitSegment> parkedOrbitSegments,
+            IList<PartEvent> parkedPartEvents,
+            IList<FlagEvent> parkedFlagEvents,
+            IList<TrackSection> parkedTrackSections,
+            List<PartEvent> terminalEvents)
+        {
             var parkedEvents = parkedPartEvents != null
                 ? new List<PartEvent>(parkedPartEvents)
                 : new List<PartEvent>();
             int beforeTerminalStrip = parkedEvents.Count;
             if (terminalEvents != null && terminalEvents.Count > 0)
                 FlightRecorder.RemoveTerminalsFromList(parkedEvents, terminalEvents);
-            overlay.SkippedTerminalEvents = beforeTerminalStrip - parkedEvents.Count;
+            SkippedTerminalEvents = beforeTerminalStrip - parkedEvents.Count;
 
             if (parkedPoints != null)
                 target.Points.AddRange(parkedPoints);
@@ -135,10 +157,9 @@ namespace Parsek
             target.FlagEvents.Clear();
             target.FlagEvents.AddRange(sortedFlagEvents);
 
-            overlay.AddedPoints = parkedPoints != null ? parkedPoints.Count : 0;
-            overlay.AddedPartEvents = parkedEvents.Count;
+            AddedPoints = parkedPoints != null ? parkedPoints.Count : 0;
+            AddedPartEvents = parkedEvents.Count;
             target.FilesDirty = true;
-            return overlay;
         }
 
         /// <summary>
