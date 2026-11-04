@@ -49,7 +49,7 @@ namespace Parsek.InGameTests
                 }
                 InGameAssert.IsFalse(probe.Faulted, "probe threw while drawing: " + probe.FaultMessage);
 
-                Rect r = probe.DrawnRect;
+                Rect r = probe.ResolvedRect;
                 ParsekLog.Info(LogTag, string.Format(CultureInfo.InvariantCulture,
                     "UiScale_InGame: geometry rect=({0:0.#},{1:0.#},{2:0.#},{3:0.#}) callbackMatrixM00={4:0.###}"
                     + " screenOrigin=({5:0.#},{6:0.#}) scaledRootOrigin=({7:0.#},{8:0.#})"
@@ -121,7 +121,7 @@ namespace Parsek.InGameTests
                 }
                 InGameAssert.IsFalse(probe.Faulted, "probe threw while drawing: " + probe.FaultMessage);
 
-                Rect r = probe.DrawnRect;
+                Rect r = probe.ResolvedRect;
                 // Inside the DRAWN window (physical = rect * scale), near its bottom-right
                 // corner, which is past the unscaled rect's right edge.
                 int insideX = Mathf.RoundToInt(r.xMax * ProbeScale - 20f);
@@ -167,6 +167,20 @@ namespace Parsek.InGameTests
                 }
                 InGameAssert.IsTrue(heldInside,
                     "pointer over the scaled window (outside its unscaled rect) but the Parsek scaled-window lock is not held; clicks there would fall through to the game");
+
+                // No flapping: the probe hands a zero-height rect every frame, as the main
+                // window does, so a lock hit test on the Layout pass would release and
+                // re-take the lock every frame.
+                int transitionsHeld = ParsekUiScale.LockTransitionCount;
+                for (int i = 0; i < 20; i++)
+                    yield return null;
+                int flaps = ParsekUiScale.LockTransitionCount - transitionsHeld;
+                ParsekLog.Info(LogTag, "UiScale_InGame: lock transitions over 20 hovered frames="
+                    + flaps.ToString(CultureInfo.InvariantCulture));
+                InGameAssert.AreEqual(0, flaps,
+                    "the scaled-window lock flapped while the pointer rested on a content-sized window");
+                InGameAssert.IsTrue(ParsekUiScale.IsScaledLockHeld(UiScaleProbe.WindowId),
+                    "the scaled-window lock was lost while the pointer rested on the window");
 
                 var off = DisabledHoverEchoImguiTest.CursorPlacement.TryPlaceAtClientPoint(outsideX, outsideY);
                 InGameAssert.IsTrue(off.Placed, "could not move the pointer off the window: " + off.Describe());
@@ -234,6 +248,8 @@ namespace Parsek.InGameTests
             internal bool Faulted;
             internal string FaultMessage;
             internal Rect DrawnRect = new Rect(200f, 100f, 300f, 200f);
+            // The last Repaint's resolved rect; DrawnRect itself is height-zeroed per draw.
+            internal Rect ResolvedRect;
             internal float CallbackMatrixM00;
             internal Vector2 CallbackScreenOrigin;
             internal Vector2 CallbackScaledRootOrigin;
@@ -247,12 +263,16 @@ namespace Parsek.InGameTests
                 {
                     using (ParsekUiScale.BeginHost("UiScaleProbe", ProbeScale))
                     {
+                        // Content-sized like the main window: the height is zeroed before
+                        // every draw, so the Layout pass returns a zero-height rect.
+                        DrawnRect.height = 0f;
                         Rect drawn = ParsekUiScale.Window(WindowId, DrawnRect, DrawProbe,
                             "Parsek UI scale probe", GUI.skin.window,
-                            GUILayout.Width(300f), GUILayout.Height(200f));
+                            GUILayout.Width(300f));
                         if (Event.current.type == EventType.Repaint)
                         {
                             DrawnRect = drawn;
+                            ResolvedRect = drawn;
                             RootMouse = Event.current.mousePosition;
                             InputMouse = Input.mousePosition;
                             RootMouseInsideRect = drawn.Contains(RootMouse);
@@ -269,6 +289,7 @@ namespace Parsek.InGameTests
             private void DrawProbe(int id)
             {
                 GUILayout.Label("Parsek UI scale probe");
+                GUILayout.Space(170f);
                 if (Event.current.type == EventType.Repaint)
                 {
                     CallbackMatrixM00 = GUI.matrix.m00;

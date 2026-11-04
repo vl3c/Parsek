@@ -133,6 +133,17 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData(true, true, true)]
+        [InlineData(true, false, false)]
+        [InlineData(false, false, false)]
+        public void TheLockHitTestRunsOnRepaintOnly(bool hasEvent, bool repaint, bool expected)
+        {
+            // A Layout pass returns the handed rect, zero-height for a content-sized
+            // window, so testing the lock there would flap it every frame.
+            Assert.Equal(expected, ParsekUiScale.ShouldEvaluateLock(hasEvent, repaint));
+        }
+
+        [Theory]
         [InlineData(100, 100, false)]
         [InlineData(99, 100, false)]
         [InlineData(98, 100, true)]

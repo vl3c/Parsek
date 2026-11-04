@@ -12,6 +12,8 @@ Parsek lets you record missions, commit them to the timeline, and rewind to an e
 
 The Parsek window is available from the toolbar button in Flight, Map, and KSC views. The Tracking Station has no Parsek window and no toolbar button: every recording, mission, loop and watch control lives in the Parsek window in Flight or at the Space Center. Recording is triggered automatically on launch/EVA; there is no start/stop hotkey.
 
+Parsek's windows, popups and tooltips follow the **UI Scale** slider in KSP's settings, like the stock interface. Map markers and ghost name labels keep their size.
+
 ## Install and First Load
 
 Parsek must sit in `GameData/Parsek`. If it is installed wrong, a message on screen once the main menu settles says so and how to fix it: when Parsek loads from the wrong place (inside a second `GameData` folder, inside the zip's own folder, loose in `GameData`, or a leftover copy in another folder), and when some of its game patches fail to load (usually another mod or a different KSP version), naming the features that may not work. Each notice shows once per game start and never on a correct install; details are in `KSP.log`.

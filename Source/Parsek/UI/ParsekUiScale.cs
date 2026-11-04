@@ -149,6 +149,17 @@ namespace Parsek
             return lastDrawFrame < currentFrame - 1;
         }
 
+        /// <summary>The lock hit test runs on Repaint only, when the returned rect is the
+        /// resolved one; any other event (Layout above all) is skipped.</summary>
+        internal static bool ShouldEvaluateLock(bool hasEvent, bool isRepaint)
+        {
+            return hasEvent && isRepaint;
+        }
+
+        /// <summary>Set / pointer-left release transitions taken by the scaled path, for the
+        /// in-game no-flap check.</summary>
+        internal static int LockTransitionCount { get; private set; }
+
         internal static string ScaledLockId(int windowId)
         {
             return ScaledLockPrefix + windowId.ToString(CultureInfo.InvariantCulture);
@@ -323,7 +334,11 @@ namespace Parsek
             state.LastDrawFrame = Time.frameCount;
             state.Title = title;
             Event e = Event.current;
-            if (e == null) return;
+            // Repaint only: a Layout pass returns the rect it was handed, and a
+            // content-sized window (the main window zeroes its height before every draw)
+            // hands a zero-height rect, so a Layout hit test would release the lock and the
+            // next Repaint would set it again, every frame.
+            if (!ShouldEvaluateLock(e != null, e != null && e.type == EventType.Repaint)) return;
             bool over = drawn.Contains(e.mousePosition);
             bool rightHeld = Input.GetMouseButton(1);
             switch (DecideLock(state.Held, over, rightHeld))
@@ -331,12 +346,14 @@ namespace Parsek
                 case LockAction.Set:
                     InputLockManager.SetControlLock(ControlTypes.ALLBUTCAMERAS, ScaledLockId(id));
                     state.Held = true;
+                    LockTransitionCount++;
                     ParsekLog.Verbose(Tag, string.Format(CultureInfo.InvariantCulture,
                         "Scaled window lock set: '{0}' id={1} scale={2:0.###}", title, id, ActiveScale));
                     break;
                 case LockAction.Release:
                     InputLockManager.RemoveControlLock(ScaledLockId(id));
                     state.Held = false;
+                    LockTransitionCount++;
                     ParsekLog.Verbose(Tag, string.Format(CultureInfo.InvariantCulture,
                         "Scaled window lock released: '{0}' id={1} reason=pointer-left", title, id));
                     break;
@@ -406,6 +423,7 @@ namespace Parsek
             lastLoggedScaleByHost.Clear();
             scaledLocks.Clear();
             lastDrawScaleByWindow.Clear();
+            LockTransitionCount = 0;
         }
     }
 }
