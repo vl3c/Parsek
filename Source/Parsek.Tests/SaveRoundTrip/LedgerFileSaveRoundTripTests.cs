@@ -65,7 +65,30 @@ namespace Parsek.Tests.SaveRoundTrip
                 "ContractDeadlineAbsoluteCount", "ContractDeadlineMigratedCount",
                 "ContractDeadlineAbsentCount", "ContractDeadlineUnparseableCount")
             .Fill("actions", () => Rows())
-            .Compare("actions", CompareRows);
+            .Compare("actions", CompareRows)
+            .Fill("unreadableActionNodes", () => UnreadableRows())
+            .Compare("unreadableActionNodes", CompareNodes);
+
+        /// <summary>A row a newer build wrote (an id this build does not define), kept verbatim.</summary>
+        private static List<ConfigNode> UnreadableRows()
+        {
+            var node = new ConfigNode("GAME_ACTION");
+            node.AddValue("ut", "30.5");
+            node.AddValue("type", "9999");
+            node.AddValue("futureKey", "kept as written");
+            node.AddNode("FUTURE_CHILD").AddValue("x", "1");
+            return new List<ConfigNode> { node };
+        }
+
+        private static string CompareNodes(object written, object read)
+        {
+            var a = ((System.Collections.IEnumerable)written).Cast<ConfigNode>().Select(n => n.ToString()).ToList();
+            var b = ((System.Collections.IEnumerable)read).Cast<ConfigNode>().Select(n => n.ToString()).ToList();
+            if (a.Count != b.Count) return "wrote " + a.Count + " unreadable rows, read " + b.Count;
+            for (int i = 0; i < a.Count; i++)
+                if (a[i] != b[i]) return "unreadable row " + i + " differs after load";
+            return null;
+        }
 
         [Fact]
         public void LedgerNode_RoundTripsEveryStaticField()

@@ -4842,9 +4842,29 @@ namespace Parsek
             bool snapshotSavedPendingTreeDuringActiveRestoreSerializedForSave,
             Dictionary<string, string> snapshotAutoAssignedGroups)
         {
-            committedRecordings.Clear();
+            // The in-game runner restores in FLIGHT with ghosts alive, and index-keyed live
+            // state mirrors this list by position, so the restore goes through the
+            // committed-list notification seam: keep the longest prefix that already holds
+            // the snapshot's own references, remove everything after it top-down with
+            // notifications, then append the snapshot's tail (an append shifts no index).
+            int keep = CommonCommittedPrefixLength(committedRecordings, snapshotRecordings);
+            int removed = committedRecordings.Count - keep;
+            for (int i = committedRecordings.Count - 1; i >= keep; i--)
+                RemoveCommittedAtWithNotifications(i);
+            int appended = 0;
             if (snapshotRecordings != null)
-                committedRecordings.AddRange(snapshotRecordings);
+            {
+                for (int i = keep; i < snapshotRecordings.Count; i++)
+                {
+                    committedRecordings.Add(snapshotRecordings[i]);
+                    appended++;
+                }
+            }
+            if (removed > 0 || appended > 0)
+                ParsekLog.Verbose("RecordingStore",
+                    $"RestoreFromSnapshotForTesting: kept={keep.ToString(CultureInfo.InvariantCulture)} " +
+                    $"removed={removed.ToString(CultureInfo.InvariantCulture)} (with notifications) " +
+                    $"appended={appended.ToString(CultureInfo.InvariantCulture)}");
             committedTrees.Clear();
             if (snapshotTrees != null)
                 committedTrees.AddRange(snapshotTrees);
@@ -4856,6 +4876,22 @@ namespace Parsek
                 snapshotSavedPendingTreeDuringActiveRestoreSerializedForSave;
             RecordingGroupStore.RestoreAutoAssignedStandaloneGroupsForTesting(snapshotAutoAssignedGroups);
             BumpStateVersion();
+        }
+
+        /// <summary>
+        /// Pure: how many leading slots of <paramref name="live"/> already hold the very
+        /// reference <paramref name="snapshot"/> holds at the same index.
+        /// </summary>
+        internal static int CommonCommittedPrefixLength(
+            IReadOnlyList<Recording> live, IReadOnlyList<Recording> snapshot)
+        {
+            if (live == null || snapshot == null)
+                return 0;
+            int n = Math.Min(live.Count, snapshot.Count);
+            int i = 0;
+            while (i < n && ReferenceEquals(live[i], snapshot[i]))
+                i++;
+            return i;
         }
 
         /// <summary>
