@@ -1159,9 +1159,7 @@ namespace Parsek
         /// <para>Exact, not approximate, for the population it exists for: clipping a
         /// segment goes through <see cref="TryTrimOrbitSegmentToRange"/>, which moves
         /// startUT/endUT and copies every element verbatim - so a re-clip and its parent
-        /// differ in exactly the two fields this comparison drops. Consumed by
-        /// <see cref="CheckpointDoubleCoverRetire"/> to prove a retired checkpoint section
-        /// loses no orbital payload.</para>
+        /// differ in exactly the two fields this comparison drops.</para>
         /// </summary>
         internal static bool OrbitSegmentConicNearlyEqualsIgnoringSpan(
             OrbitSegment a, OrbitSegment b)

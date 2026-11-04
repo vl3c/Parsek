@@ -1885,14 +1885,9 @@ namespace Parsek
                             ApplyParachuteDeployedEvent(state, ghost, evt.partPersistentId));
                         break;
                     case PartEventType.EngineIgnited:
-                        // Use at least a minimum emission on ignition (#165) — older
-                        // recordings may contain seed events with throttle=0 from before
-                        // the recording-side fix. The 0.01 floor ensures plume visibility
-                        // for backward compatibility. New recordings skip zero-throttle
-                        // engine seeds entirely (PartStateSeeder.EmitEngineSeedEvents).
-                        RecordEngineEvent(
-                            tally, state, evt, System.Math.Max(evt.value, 0.01f),
-                            ref audioPowerTouched);
+                        // Producers never emit a zero-throttle ignition (#165,
+                        // PartStateSeeder.ShouldSkipZeroThrottleEngineSeed).
+                        RecordEngineEvent(tally, state, evt, evt.value, ref audioPowerTouched);
                         break;
                     case PartEventType.EngineShutdown:
                         RecordEngineEvent(tally, state, evt, 0f, ref audioPowerTouched);
@@ -5348,40 +5343,6 @@ namespace Parsek
             ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
             if (!state.roboticInfos.TryGetValue(key, out RoboticGhostInfo info) || info == null)
                 return GhostPartEventOutcome.NoInfoForPart;
-
-            // Old recordings still carry RoboticMotion* events for wheel MOTOR modules, whose value
-            // was an unsigned percent-of-max-torque. Ignore them entirely rather than using them as
-            // a fallback: the ground-speed derivation works for every recording, old ones included,
-            // because it reads the trajectory (which every recording has) instead of the event
-            // stream. Consuming the stale value would resurrect the exact bug this replaced — zero
-            // while coasting, unsigned when driving. The events stay harmless on disk; the schema
-            // generation already gates real incompatibilities, so there is nothing to migrate.
-            //
-            // The event family itself is NOT retired: RoboticMotionStarted / RoboticPositionSample /
-            // RoboticMotionStopped are still the live signal for hinges, pistons, rotation servos,
-            // rotors and wheel SUSPENSION.
-            //
-            // S3 adds the same contract for ModuleWheelSteering: LEGACY recordings carry
-            // RoboticMotion* events whose value came from a steering INPUT field
-            // (steeringInput / currentSteering, unsigned on several stock rovers), not from a
-            // caliper ANGLE. Replaying it as an angle was the same class of mistake the wheel-motor
-            // scalar was, so the derived heading rate replaces it outright rather than falling back
-            // to it — the derivation reads the trajectory, which every recording has. The producer
-            // is gone as well (FlightRecorder.IsDerivedWheelVisualModuleName gates the emission for
-            // both wheel families), so only pre-existing recordings can reach this branch: it is
-            // the tolerance for them, not a live path.
-            if (info.visualMode == RoboticVisualMode.WheelGroundSpeed
-                || info.visualMode == RoboticVisualMode.WheelSteeringHeading)
-            {
-                ParsekLog.VerboseRateLimited("Flight",
-                    $"wheel-motor-event-ignored-{evt.partPersistentId}-{evt.moduleIndex}",
-                    $"Ignoring legacy wheel robotic event {evt.eventType} pid={evt.partPersistentId} " +
-                    $"midx={evt.moduleIndex} mode={info.visualMode} " +
-                    $"value={evt.value.ToString("F3", CultureInfo.InvariantCulture)}; " +
-                    $"the visual is derived from ghost ground motion",
-                    60.0);
-                return GhostPartEventOutcome.LegacyEventIgnored;
-            }
 
             info.currentValue = evt.value;
 
