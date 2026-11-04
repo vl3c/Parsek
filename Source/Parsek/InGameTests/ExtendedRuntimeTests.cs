@@ -105,6 +105,10 @@ namespace Parsek.InGameTests
         {
             var flight = ParsekFlight.Instance;
             if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+            // Above the ghost-hide warp the map may collapse an overlap loop to one vessel
+            // (GhostMapPresence.ShouldCollapseOverlapToSingleInstance), so N-vs-N does not apply.
+            if (TimeWarp.CurrentRate > WarpThresholds.GhostHide)
+                InGameAssert.Skip("Warp above the ghost-hide threshold (map overlap collapse may apply)");
 
             int cap = GhostPlayback.MaxOverlapGhostsPerRecording;
             var ghostGOs = flight.Engine.GetGhostGameObjects();
@@ -210,6 +214,10 @@ namespace Parsek.InGameTests
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0)
                 InGameAssert.Skip("No committed recordings");
+            // Above the ghost-hide warp the map may collapse an overlap loop to one vessel
+            // (GhostMapPresence.ShouldCollapseOverlapToSingleInstance), so the N-cycle count does not apply.
+            if (TimeWarp.CurrentRate > WarpThresholds.GhostHide)
+                InGameAssert.Skip("Warp above the ghost-hide threshold (map overlap collapse may apply)");
 
             // Rebuild the TS span-clock loop-unit set exactly as ParsekTrackingStation.DriveMissionLoopUnits
             // does, so a Mission-tab loop (source b) is recognized identically to the live scene.

@@ -597,17 +597,46 @@ multi-stop, the window-basis transition, the cadence rebase) takes its loop UT f
 uniform countdown (`TryComputeSecondsToNextDockCrossing`) now refuses a descent unit, as it already
 refuses loiter cuts and schedules. Tests: `RouteDescentDeliveryClockTests`.
 
-## OVERLAP-MAP-GHOSTS-CHURN-AT-HIGH-WARP: overlap map icons are destroyed and recreated every frame when the cadence is shorter than one frame's game time [FILED 2026-10-31 from the test gap audit (A3), code read; OPEN; product, low (icon strobing and vessel-list churn only at very high warp)]
+## ~~OVERLAP-MAP-GHOSTS-CHURN-AT-HIGH-WARP: overlap map icons are destroyed and recreated every frame when the cadence is shorter than one frame's game time~~ [FILED 2026-10-31 from the test gap audit (A3), code read; FIXED 2026-11-04, branch `fix-overlap-map-churn`; unit-tested, NO LANE; product, low (icon strobing and vessel-list churn only at very high warp)]
 
-`GhostMapPresence.EnsureOverlapInstances` (run every frame from `RunOverlapPerInstanceSweep`) has
+~~`GhostMapPresence.EnsureOverlapInstances` (run every frame from `RunOverlapPerInstanceSweep`) has
 no warp gate. When one frame's game time exceeds the launch cadence, the active cycle window moves
 past every live instance each frame, so up to `MaxSpawnsPerFrame` map ProtoVessels are created and
-the same number destroyed per frame, and the Tracking Station list refreshes after each mutation.
-The flight engine culls overlap clones above 50x (`WarpThresholds.GhostHide`). Bounded by the
-per-frame spawn cap and the 20-copy cap, cosmetic, and only reached when a frame spans more than one
-cadence (a 120 s / 20-copy loop needs well above 1000x). Candidate fix: above the hide threshold keep
-only the newest cycle's instance and re-seed it across cycles instead of recreating it. Not taken
-in the A1 / A2 fix because no lane flies an overlap loop at that warp to prove the change.
+the same number destroyed per frame, and the Tracking Station list refreshes after each mutation.~~
+Confirmed by code read: once a sweep spans at least one launch cycle, `DecideOverlapInstanceChanges`
+creates and destroys vessels on EVERY sweep (pinned by
+`OrdinaryDecision_SweepSpanningACycle_CreatesAndDestroysEverySweep`; when the sweep also spans the
+whole recording, every live instance expires each sweep). The sweep runs per frame in the flight map
+and per 0.25 s lifecycle tick in the Tracking Station; both scenes go through the same sweep.
+
+Fix: `GhostMapPresence.OverlapHighWarp.cs`. The sweep measures the game time since its previous
+call (`ResolveOverlapSweepGameSeconds`; zero on the first sweep, after a reset, and on a clock that
+did not advance) and reads the warp rate. `ShouldCollapseOverlapToSingleInstance` engages only when
+the warp is above `WarpThresholds.GhostHide` (50x) AND the sweep spans at least one cycle
+(`cycleDuration`), so below 50x, or above it while the N icons are not churning, the map is
+unchanged. While engaged, `DecideCollapsedOverlapInstanceChanges` keeps ONE map vessel per overlap
+recording: the newest instance whose cycle is still live (it rides its own cycle), destroying the
+others once on entry; when that cycle expires the same vessel is re-pointed at the newest cycle
+(`TryRepointOverlapInstance`: same source resolution as the create, `ApplyOrbitToVessel` re-seeds
+orbit, loop shift and bounds, the store is re-keyed, the pid is kept, so the stock vessel list does
+not change). Limits: only a segment / endpoint-tail instance is re-pointed; a terminal-orbit or
+state-vector instance (or a new head with such a source) falls back to destroy + create of the one
+vessel, and a newest head with no map-visible orbit drops it (a create would be skipped too), so a
+recording whose early trajectory alternates between no orbit and an orbit can still mutate at most
+once per sweep. Logging: one shared-key `Overlap high-warp collapse:` summary per sweep
+(VerboseRateLimited) plus the per-recording re-point and lifecycle lines. The two in-game overlap
+count tests (`OverlapMapInstanceCountMatchesFlight`, `OverlapMapInstanceCountMatchesScheduleTS`)
+skip above 50x, where the N-vs-N count no longer applies. Tests: `OverlapHighWarpCollapseTests`
+(gate, sweep delta, collapse decision, a sweep-by-sweep churn comparison against the ordinary
+decision, sweep stamping, summary formatting).
+
+Lane: none. No committed fixture loops a recording with OrbitSegments: the only injected loop
+(`overlap-cap`, OC-1) is a 120 s atmospheric climb with no map-visible source, so its overlap
+instances are never created and it cannot witness map churn. A lane needs a new injected preset (a
+looped recording whose first cadence seconds include an OrbitSegment, period under its span), a
+`WarpToUT` at `maxRate` 1000 or more in FLIGHT or the Tracking Station with `verboseLogging` on,
+and log witnesses on `Overlap high-warp collapse:` / `Re-pointed overlap per-instance map vessel`
+with a bounded `Created overlap per-instance map vessel` count.
 
 ## ~~REVERT-EDITOR-SAVE-SWITCH-GAPS: Revert to VAB / SPH could be undone by a scene-exit save or leave a stale cleanup armed, and three statics survived a save switch~~ [FILED AND FIXED 2026-10-31 from the test-gap audit (`test-gap-audit-2026-10-31.md` B4 / B5 / B6 / C9), branch `claude/project-thread-ib5y5e`; unit-tested; REV-1, SWS-1 and CN-4 LIVE-PROVEN; product, medium (R1, R2), low (S1-S3)]
 
