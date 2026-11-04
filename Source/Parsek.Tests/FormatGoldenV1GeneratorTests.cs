@@ -98,6 +98,7 @@ namespace Parsek.Tests
             MissionStore.ResetForTesting();
             VesselNameStore.ResetForTesting();
             GroupHierarchyStore.ResetForTesting();
+            RemovedReplayFlags.ResetForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
             RewindVesselHold.ResetForTesting();
             LedgerHeldWindow.ResetForTesting();
@@ -202,6 +203,7 @@ namespace Parsek.Tests
             InvokeStatic("SaveLedgerHeldWindow", node);
             RewindVesselHold.SaveInto(node);
             PlaybackScopeTracker.SaveInto(node);
+            RemovedReplayFlags.SaveInto(node);
             ParsekScenario.WriteSaveStamp(node);
             SaveFormat.StampScenarioNode(node);
             return node;
@@ -812,6 +814,7 @@ namespace Parsek.Tests
             {
                 "RewindVesselHold", "LedgerHeldWindow", "PlaybackScopeTracker",
                 "StockShadowTakeBack", "CareerSettingsLock", "StockPoolReference",
+                "RemovedReplayFlags",
             };
             int seed = 65000;
             foreach (string name in wanted)

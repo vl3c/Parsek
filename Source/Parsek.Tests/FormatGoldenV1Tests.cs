@@ -129,6 +129,7 @@ namespace Parsek.Tests
             LedgerHeldWindow.InstallAfterLoad(saveUT, LedgerHeldWindow.ReadSaved(node), "golden load");
             RewindVesselHold.Replace(RewindVesselHold.LoadFrom(node), "golden load");
             PlaybackScopeTracker.InstallFromSave(node, "golden load");
+            RemovedReplayFlags.Replace(RemovedReplayFlags.LoadFrom(node), "golden load");
 
             ParsekScenario.LoadGameStateFromNodeOrFiles(node);
 
@@ -292,6 +293,7 @@ namespace Parsek.Tests
 
             Assert.NotEmpty(RewindVesselHold.Holds);
             Assert.True(PlaybackScopeTracker.InReplayScopeCount > 0);
+            Assert.NotEmpty(RemovedReplayFlags.Tombstones);
             Assert.True(LedgerHeldWindow.IsSet);
         }
 
@@ -463,6 +465,7 @@ namespace Parsek.Tests
             LedgerHeldWindow.SaveInto(small);
             RewindVesselHold.SaveInto(small);
             PlaybackScopeTracker.SaveInto(small);
+            RemovedReplayFlags.SaveInto(small);
             sb.Append(small.ToString());
             return sb.ToString();
         }

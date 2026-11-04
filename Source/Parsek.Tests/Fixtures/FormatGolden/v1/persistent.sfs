@@ -2315,7 +2315,7 @@ GAME
 		gameStateEventCount = 6
 		routeStateFloorUT = 450.25
 		ledgerHeldThroughUT = 66001.25
-		saveStamp = ce7519b2c3cf4c7e9ecc6e02b4a1befe
+		saveStamp = c392d9d7b52843d693ae142bdfc124ef
 		parsekSaveFormat = 1
 		parsekWrittenBy = 0.10.7.0
 		RECORDING_TREE
@@ -2504,7 +2504,7 @@ GAME
 		}
 		MISSION
 		{
-			id = a3ee2057d83044dfb389f4db9fc218ce
+			id = b3756815c9a54391ae223078d202c011
 			treeId = a10e0000000000000000000000000001
 			name = Golden Mun Mission
 			loopPlayback = False
@@ -2516,7 +2516,7 @@ GAME
 		}
 		MISSION
 		{
-			id = 9864cfba9fe449808cca4066674bd33c
+			id = 09b04fb83b974d3eb2e32d982db1f615
 			treeId = a10e0000000000000000000000000001
 			name = Golden Mun Mission (no debris)
 			loopPlayback = False
@@ -2529,7 +2529,7 @@ GAME
 		}
 		MISSION
 		{
-			id = c4ba79b5fe7c4f36bfd5fb9333db100d
+			id = 63bb057439f14e348272ef0adf8841f6
 			treeId = b20f0000000000000000000000000002
 			name = Golden Rover
 			loopPlayback = True
@@ -2622,7 +2622,7 @@ GAME
 		}
 		MILESTONE_STATE
 		{
-			id = a5d71869946c46d0901d810a05a2bfc7
+			id = ce97d181be9e4262a6a721619676e945
 			lastReplayedIdx = 5
 		}
 		GAME_STATE
@@ -2890,7 +2890,7 @@ GAME
 				version = 1
 				MILESTONE
 				{
-					id = a5d71869946c46d0901d810a05a2bfc7
+					id = ce97d181be9e4262a6a721619676e945
 					startUT = 0
 					endUT = 1200
 					recordingId = 
@@ -5821,7 +5821,7 @@ GAME
 				}
 				VESSEL
 				{
-					pid = 1f7864d25817438e9d1b517386b5b360
+					pid = 2db790378f0948249f222aa752d39190
 					name = Held Ship
 				}
 			}
@@ -5840,7 +5840,7 @@ GAME
 				}
 				VESSEL
 				{
-					pid = 951ccfd848fd45dc8e3ca3e54da3fe30
+					pid = 571587c1919a4f58a311b79cacb441ab
 					name = Held Ship
 				}
 			}
@@ -5851,6 +5851,31 @@ GAME
 			inScope = v67003_recordingsInReplayScope1
 			seenBeforeActivation = v67005_recordingsSeenBeforeActivation0
 			seenBeforeActivation = v67006_recordingsSeenBeforeActivation1
+		}
+		REMOVED_REPLAY_FLAGS
+		{
+			FLAG
+			{
+				body = v71003_BodyName
+				radius = 71004.25
+				lat = 71005.25
+				lon = 71006.25
+				alt = 71007.25
+				removedUT = 71008.25
+				name = v71009_FlagName
+				source = v71010_Source
+			}
+			FLAG
+			{
+				body = v71012_BodyName
+				radius = 71013.25
+				lat = 71014.25
+				lon = 71015.25
+				alt = 71016.25
+				removedUT = 71017.25
+				name = v71018_FlagName
+				source = v71019_Source
+			}
 		}
 	}
 }
