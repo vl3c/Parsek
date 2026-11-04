@@ -986,6 +986,8 @@ Detected per-frame by `FlightRecorder.CheckAltitudeBoundary()`. Only active when
 
 Detected by `FlightRecorder.OnSoiChange()` when a vessel transitions between celestial bodies' spheres of influence. The current segment is committed immediately (no hysteresis — SOI changes are discrete events). Phase tag is derived from the **departing** body's environment at time of exit.
 
+Inside a recording, an SOI change always closes the open track section: on rails at the orbit-segment rollover, and in physics (a burn or a 1x / physics-warp coast through the boundary) at the first sample on the new body, after a closing sample at the same UT expressed on the old body (`FlightRecorder.PhysicsSoi.cs`). The background recorder does the same for its loaded (physics) vessels, a vessel flying in formation with the active one through the edge (`BackgroundRecorder.PhysicsSoi.cs`, sharing the pure `DecidePhysicsBodyChange` and closing-sample rule); its on-rails vessels only roll their orbit segment over.
+
 #### D. EVA Exit (Vessel → EVA)
 
 When a Kerbal goes EVA, the recording tree branches at an EVA branch point: the Kerbal becomes the active child recording and the vessel keeps recording as a background child of the same tree.

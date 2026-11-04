@@ -543,7 +543,7 @@ Handling: each ORBITAL_CHECKPOINT segment is analytically clean — Kepler propa
 
 EXO_PROPULSIVE burn straddling Kerbin/Mun SOI.
 
-Handling: SOI checkpoint is a hard discontinuity. Pre-SOI samples are smoothed and anchored within Kerbin's inertial frame. Post-SOI samples are smoothed and anchored within Mun's inertial frame. The SOI checkpoint provides the anchor for both sides. The recorder makes that discontinuity a section boundary: an SOI change in physics closes the open section at the first sample on the new body, after a closing sample at the same UT expressed on the old body, so each section holds one body and no interpolation pair spans the crossing (RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT).
+Handling: SOI checkpoint is a hard discontinuity. Pre-SOI samples are smoothed and anchored within Kerbin's inertial frame. Post-SOI samples are smoothed and anchored within Mun's inertial frame. The SOI checkpoint provides the anchor for both sides. The recorder makes that discontinuity a section boundary: an SOI change in physics closes the open section at the first sample on the new body, after a closing sample at the same UT expressed on the old body, so each section holds one body and no interpolation pair spans the crossing (RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT). The background recorder's loaded (physics) vessels split the same way, through the same decision and closing-sample rule, so a vessel flying in formation with the active one through the boundary also gets one section per body; on-rails background vessels keep their orbit-segment rollover.
 
 ### 15.7 Brief Out-of-Bubble Excursion
 

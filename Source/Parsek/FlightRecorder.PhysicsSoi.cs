@@ -86,12 +86,68 @@ namespace Parsek
             physicsSoiSamplePending = false;
         }
 
-        private string CurrentSectionLastFrameBody()
+        /// <summary>
+        /// The body of an open section's last frame, or null when it has none. A Relative
+        /// frame keeps the sample's body name (only its position and rotation are rewritten).
+        /// </summary>
+        internal static string LastFrameBody(bool sectionActive, in TrackSection section)
         {
-            if (!trackSectionActive || currentTrackSection.frames == null
-                || currentTrackSection.frames.Count == 0)
+            if (!sectionActive || section.frames == null || section.frames.Count == 0)
                 return null;
-            return currentTrackSection.frames[currentTrackSection.frames.Count - 1].bodyName;
+            return section.frames[section.frames.Count - 1].bodyName;
+        }
+
+        /// <summary>
+        /// <see cref="DecidePhysicsBodyChange"/> read off an open section. Shared by the
+        /// active recorder and the background recorder's loaded (physics) vessels.
+        /// </summary>
+        internal static PhysicsBodyChangeDecision DecidePhysicsBodyChangeForSection(
+            bool onRails,
+            bool sectionActive,
+            in TrackSection section,
+            string sampleBody,
+            out string sectionBody)
+        {
+            sectionBody = LastFrameBody(sectionActive, section);
+            return DecidePhysicsBodyChange(
+                onRails,
+                sectionActive,
+                sectionActive ? section.referenceFrame : ReferenceFrame.Absolute,
+                sectionActive && section.frames != null ? section.frames.Count : 0,
+                sectionBody,
+                sampleBody);
+        }
+
+        /// <summary>
+        /// Pure: whether <paramref name="closingPoint"/> may close the old section. Only an
+        /// Absolute section takes one (a Relative frame is an anchor-local offset, not a body
+        /// position), and it must be on the section's body at the split UT, or it would put a
+        /// second body in the old section or fail to close the seam.
+        /// </summary>
+        internal static bool IsCommittableSoiClosingPoint(
+            TrajectoryPoint? closingPoint,
+            ReferenceFrame sectionFrame,
+            string sectionBody,
+            double splitUT)
+        {
+            return closingPoint.HasValue
+                && sectionFrame == ReferenceFrame.Absolute
+                && string.Equals(closingPoint.Value.bodyName, sectionBody, StringComparison.Ordinal)
+                && Math.Abs(closingPoint.Value.ut - splitUT) <= 1e-9;
+        }
+
+        /// <summary>The split line both recorders log (the background one adds pid / rec).</summary>
+        internal static string FormatPhysicsSoiSplitTransition(
+            ReferenceFrame frame,
+            double ut,
+            TrackSectionSource source,
+            string fromBody,
+            string toBody,
+            bool closingSampleCommitted)
+        {
+            return $"Reference frame transition: {frame} -> {frame} at SOI boundary " +
+                $"UT={ut.ToString("F2", CultureInfo.InvariantCulture)} onRails=0 source={source} " +
+                $"from={fromBody} to={toBody} closingSample={(closingSampleCommitted ? 1 : 0)}";
         }
 
         /// <summary>
@@ -107,15 +163,12 @@ namespace Parsek
             TrajectoryPoint sample,
             TrajectoryPoint? closingPoint)
         {
-            string sectionBody = CurrentSectionLastFrameBody();
-            PhysicsBodyChangeDecision decision = DecidePhysicsBodyChange(
-                isOnRails,
-                trackSectionActive,
-                trackSectionActive ? currentTrackSection.referenceFrame : ReferenceFrame.Absolute,
-                trackSectionActive && currentTrackSection.frames != null ? currentTrackSection.frames.Count : 0,
-                sectionBody,
-                sample.bodyName);
-            if (decision != PhysicsBodyChangeDecision.Split)
+            if (DecidePhysicsBodyChangeForSection(
+                    isOnRails,
+                    trackSectionActive,
+                    currentTrackSection,
+                    sample.bodyName,
+                    out string sectionBody) != PhysicsBodyChangeDecision.Split)
                 return false;
 
             double ut = sample.ut;
@@ -128,10 +181,7 @@ namespace Parsek
             string anchorRecordingId = currentTrackSection.anchorRecordingId;
 
             bool closed = false;
-            if (closingPoint.HasValue
-                && frame == ReferenceFrame.Absolute
-                && string.Equals(closingPoint.Value.bodyName, sectionBody, StringComparison.Ordinal)
-                && Math.Abs(closingPoint.Value.ut - ut) <= 1e-9)
+            if (IsCommittableSoiClosingPoint(closingPoint, frame, sectionBody, ut))
             {
                 int countBefore = Recording.Count;
                 TrajectoryPoint lastBefore = countBefore > 0 ? Recording[countBefore - 1] : default(TrajectoryPoint);
@@ -144,9 +194,7 @@ namespace Parsek
             }
 
             ParsekLog.Info("Recorder",
-                $"Reference frame transition: {frame} -> {frame} at SOI boundary " +
-                $"UT={ut.ToString("F2", CultureInfo.InvariantCulture)} onRails=0 source={source} " +
-                $"from={sectionBody} to={sample.bodyName} closingSample={(closed ? 1 : 0)}");
+                FormatPhysicsSoiSplitTransition(frame, ut, source, sectionBody, sample.bodyName, closed));
 
             CloseCurrentTrackSection(ut);
             StartNewTrackSection(env, frame, ut, source);
@@ -171,14 +219,12 @@ namespace Parsek
         /// </summary>
         private void SplitSectionIfPhysicsBodyChanged(Vessel v, TrajectoryPoint sample)
         {
-            string sectionBody = CurrentSectionLastFrameBody();
-            if (DecidePhysicsBodyChange(
+            if (DecidePhysicsBodyChangeForSection(
                     isOnRails,
                     trackSectionActive,
-                    trackSectionActive ? currentTrackSection.referenceFrame : ReferenceFrame.Absolute,
-                    trackSectionActive && currentTrackSection.frames != null ? currentTrackSection.frames.Count : 0,
-                    sectionBody,
-                    sample.bodyName) != PhysicsBodyChangeDecision.Split)
+                    currentTrackSection,
+                    sample.bodyName,
+                    out string sectionBody) != PhysicsBodyChangeDecision.Split)
             {
                 return;
             }
@@ -200,10 +246,11 @@ namespace Parsek
 
         /// <summary>
         /// The sample's world position re-expressed as lat/lon/alt on <paramref name="bodyName"/>
-        /// (the body the open section is on). Null when either body cannot be found.
+        /// (the body the open section is on). Null when either body cannot be found. Also
+        /// builds the background recorder's closing sample for a loaded vessel.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static TrajectoryPoint? TryBuildSamePositionOnBody(TrajectoryPoint sample, string bodyName)
+        internal static TrajectoryPoint? TryBuildSamePositionOnBody(TrajectoryPoint sample, string bodyName)
         {
             if (string.IsNullOrEmpty(bodyName) || FlightGlobals.Bodies == null)
                 return null;
