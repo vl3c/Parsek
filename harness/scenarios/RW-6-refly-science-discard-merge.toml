@@ -655,7 +655,7 @@ forbidden = [
   "\\A(?:(?!MISSIONMARK label=rw6-refly2-armed )[\\s\\S])*?End reason=merged ",
   "\\A(?:[\\s\\S]*?End reason=merged ){2}",
   # Only the merge's one crew-row tombstone (pinned above), and only once.
-  "Tombstoned (?!0 |1 \\(Contract=0, Milestone=0, Facility=0, Strategy=0, ScienceSpending=0, Science=0, Funds=0, Reputation=0, Kerbal=1, Other=0\\); )[0-9]+ career actions",
+  "Tombstoned (?!0 career actions |1 career actions \\(Contract=0, Milestone=0, Facility=0, Strategy=0, ScienceSpending=0, Science=0, Funds=0, Reputation=0, Kerbal=1, Other=0\\); )[0-9]+ career actions",
   "\\A(?:[\\s\\S]*?Tombstoned [1-9][0-9]* career actions ){2}",
   "Merge dominance check sess=\\S+ result=refuse",
   "AppendRelations outcome=refused-unflown-provisional",
