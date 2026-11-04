@@ -659,6 +659,35 @@ part with a member of its own, and after a rewind both come back. A member picke
 construction mode ends `Disassembled` through the existing pocket seam (its vessel is a
 `DroppedPart`, the last part goes into the kerbal's hand).
 
+### 4.13 Flag Plants
+
+A flag a kerbal plants (`GameEvents.afterFlagPlanted`, after the stock site-name dialog) is captured
+as a `FlagEvent` on the recording that owns the planter (the foreground recorder's vessel, else a
+background tree member whose crew holds the planter): UT, site name, planter, plaque text (Parsek
+stamps the planting date on it), flag image, surface position and surface-relative rotation. Only
+the plant is recorded; a later rename, topple or removal of the flag is not part of any recording.
+
+**A replayed flag is a real flag, planted once.** A ghost exists only while its recording plays, but
+a flag stays, so replay plants a real flag vessel when it reaches the event's UT
+(`GhostPlaybackLogic.ApplyFlagEvents` / `SpawnFlagVesselsUpToUT`), whatever the ghost's zone or build
+state (#249, #414). The world dedup (a flag already standing within 1 m) keeps a walk from planting a
+second copy. That dedup reads the world, so on its own every later walk over the event (each loop
+cycle, overlap ghost and chain-loop unit cycle, each fresh playback state after a scene change, each
+deferred flush) planted the flag again once the player had removed it (replay-theory audit R5, todo
+LOOP-REPLAY-REPLANTS-REMOVED-FLAG), against section 12.7's "subsequent loops are purely visual".
+
+So every removal of a flag vessel leaves a tombstone (`RemovedReplayFlags`: body, position, removal
+UT): a kerbal's pick-up or a crash in flight (`onVesselWillDestroy`), a recovery or termination
+(`onVesselRecovered` / `onVesselTerminated`); never a ghost map vessel and never a rewind's own strip.
+A flag event on the same body within 3 m whose plant UT is not after the removal is never planted
+again; a flag planted at that spot after the removal is a new flag and plants. Position, not
+recording identity, is the key: chain splits, Re-Fly HEAD / TIP splits and the optimizer clone an
+event onto several recordings, and the live flight's own flag is the world object the event
+describes. The tombstones are saved in the PARSEK node (`REMOVED_REPLAY_FLAGS`). A cold load takes
+the save's copy; every other load keeps memory's and drops the removals after the loaded world's UT
+(`LoadStateCategory.RemovedReplayFlags`, the live-only income drop's UT), so a rewind to before the
+removal brings the flag back when replay reaches its moment.
+
 ---
 
 ## 5. Multi-Vessel Recording Sessions

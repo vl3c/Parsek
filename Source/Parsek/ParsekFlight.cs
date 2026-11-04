@@ -3521,6 +3521,12 @@ namespace Parsek
         {
             if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
 
+            // A flag picked up by a kerbal, recovered or destroyed here is never planted again
+            // by a replay (todo LOOP-REPLAY-REPLANTS-REMOVED-FLAG). Before the restore guard:
+            // the removal is world state, not tree bookkeeping.
+            if (v != null && v.vesselType == VesselType.Flag)
+                ParsekScenario.NoteFlagVesselRemoved(v, "destroyed-in-flight");
+
             // #267: skip tree-related processing if restore coroutine is mid-yield
             if (restoringActiveTree)
             {

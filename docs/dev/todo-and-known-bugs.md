@@ -17,6 +17,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~LOOP-REPLAY-REPLANTS-REMOVED-FLAG: a looping replay plants a recorded flag again after the player removes it~~ [FILED 2026-11-04 from the replay-theory audit (finding R5, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, confirmed by code read on main b2182df); FIXED 2026-11-04, branch `claude/project-thread-2p1zb5`; xUnit only, not flown; owner ruling pending (recommended "it stays removed", built); product, low (an unremovable flag per looped flag plant)]
+
+**Symptom.** A recording that planted a flag replays it as a real flag vessel when replay reaches the
+plant UT (`GhostPlaybackLogic.ApplyFlagEvents`). The only dedup is "a flag already stands within 1 m"
+(`FlagExistsAtPosition`), which reads the world. So after the player picks the flag up on EVA,
+recovers it or terminates it, every later walk over the event plants it again: each loop cycle
+(`ResetForLoopCycle` rewinds `flagEventIndex`), each KSC overlap ghost, each chain-loop unit and
+loop-synced debris cycle (fresh state through `RenderInRangeGhost` at the loop UT), each fresh playback
+state after a scene change while the ghost is in range, and each deferred flush. Against flight
+recorder design 12.7 ("all subsequent loops are purely visual").
+
+**Fix.** `RemovedReplayFlags` keeps a tombstone per removed flag vessel (body, position, removal UT),
+written from `ParsekFlight.OnVesselWillDestroy` (EVA pick-up, crash) and `ParsekScenario`'s
+`OnVesselRecovered` / `OnVesselTerminated`, never for a ghost map vessel or during a rewind strip.
+`TrySpawnFlagVessel` checks it before the world scan: a flag event on the same body within 3 m planted
+no later than the removal is skipped (`removed by the player`, counted apart from failures so the
+deferred flush does not retry). Saved as `REMOVED_REPLAY_FLAGS`; new `LoadStateCategory.RemovedReplayFlags`
+(cold: the save's copy; every other load: memory's, minus removals after the loaded world's UT, at the
+live-only income drop sites). Design: flight recorder design 4.13. Tests: `RemovedReplayFlagsTests`
+(loop cycle, fresh state, deferred flush counts, other flags still plant, matching tolerance, time
+travel, culture-safe round trip, policy cells). Not done: no harness lane removes a replayed flag yet;
+a flag renamed in the Tracking Station before removal still matches by position (intended).
+
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 
 Closed since the audit (each with its own entry or PR): A1 RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP

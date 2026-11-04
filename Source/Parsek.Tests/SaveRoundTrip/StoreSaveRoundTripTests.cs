@@ -25,6 +25,7 @@ namespace Parsek.Tests.SaveRoundTrip
     [SaveRoundTripCovers(typeof(ReFlyInvokeHold))]
     [SaveRoundTripCovers(typeof(LedgerHeldWindow))]
     [SaveRoundTripCovers(typeof(PlaybackScopeTracker))]
+    [SaveRoundTripCovers(typeof(RemovedReplayFlags))]
     [SaveRoundTripCovers(typeof(StockShadowTakeBack))]
     [SaveRoundTripCovers(typeof(StockPoolReference))]
     [SaveRoundTripCovers(typeof(GameStateStore))]
@@ -53,6 +54,7 @@ namespace Parsek.Tests.SaveRoundTrip
             RewindVesselHold.ResetForTesting();
             LedgerHeldWindow.ResetForTesting();
             PlaybackScopeTracker.ResetForTesting();
+            RemovedReplayFlags.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
             StockPoolReference.ResetForTesting();
             GameStateStore.ResetForTesting();
@@ -156,6 +158,14 @@ namespace Parsek.Tests.SaveRoundTrip
                 Save = PlaybackScopeTracker.SaveInto, Reset = PlaybackScopeTracker.ResetForTesting,
                 Load = n => PlaybackScopeTracker.InstallFromSave(n, "round-trip test"),
                 Spec = () => new FieldSpec(typeof(PlaybackScopeTracker)),
+            },
+            new StoreCase
+            {
+                Name = "RemovedReplayFlags", Store = typeof(RemovedReplayFlags),
+                Save = n => RemovedReplayFlags.SaveInto(n), Reset = RemovedReplayFlags.ResetForTesting,
+                Load = n => RemovedReplayFlags.Replace(RemovedReplayFlags.LoadFrom(n), "round-trip test"),
+                Spec = () => new FieldSpec(typeof(RemovedReplayFlags)),
+                NestedSpecs = () => new[] { new FieldSpec(typeof(RemovedReplayFlags.Tombstone)) },
             },
             new StoreCase
             {

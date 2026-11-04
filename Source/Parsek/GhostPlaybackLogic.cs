@@ -114,6 +114,7 @@ namespace Parsek
         {
             flagExistsOverrideForTesting = null;
             spawnFlagOverrideForTesting = null;
+            RemovedReplayFlags.ResetForTesting();
         }
 
         #endregion
@@ -2941,17 +2942,19 @@ namespace Parsek
         /// Returns how many flag events were eligible at the requested UT, and how many
         /// actually spawned new flag vessels after dedup, were already present, or failed.
         /// </summary>
-        internal static (int eligibleCount, int spawnedCount, int alreadyPresentCount, int failedCount)
+        internal static (int eligibleCount, int spawnedCount, int alreadyPresentCount, int failedCount,
+            int removedByPlayerCount)
             SpawnFlagVesselsUpToUT(
             IPlaybackTrajectory rec, double currentUT)
         {
             if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0)
-                return (0, 0, 0, 0);
+                return (0, 0, 0, 0, 0);
 
             int eligibleCount = 0;
             int spawnedCount = 0;
             int alreadyPresentCount = 0;
             int failedCount = 0;
+            int removedByPlayerCount = 0;
             for (int i = 0; i < rec.FlagEvents.Count; i++)
             {
                 var evt = rec.FlagEvents[i];
@@ -2967,24 +2970,46 @@ namespace Parsek
                     case FlagReplayOutcome.AlreadyPresent:
                         alreadyPresentCount++;
                         break;
+                    case FlagReplayOutcome.RemovedByPlayer:
+                        removedByPlayerCount++;
+                        break;
                     default:
                         failedCount++;
                         break;
                 }
             }
 
-            return (eligibleCount, spawnedCount, alreadyPresentCount, failedCount);
+            return (eligibleCount, spawnedCount, alreadyPresentCount, failedCount, removedByPlayerCount);
         }
 
         private enum FlagReplayOutcome
         {
             Spawned,
             AlreadyPresent,
+            /// <summary>The player removed this flag after it was planted (<see cref="RemovedReplayFlags"/>).</summary>
+            RemovedByPlayer,
             Failed
         }
 
         private static FlagReplayOutcome TrySpawnFlagVessel(FlagEvent evt)
         {
+            // A flag is planted once, at its moment; once the player removed it, no later walk
+            // over the event (a loop cycle, an overlap ghost, a fresh playback state after a
+            // scene change, a deferred flush) plants it again. Checked before the world scan:
+            // it is pure and the common blocked case then costs no vessel walk.
+            int blocking = RemovedReplayFlags.FindBlocking(evt);
+            if (blocking >= 0)
+            {
+                ParsekLog.VerboseRateLimited(RemovedReplayFlags.Tag,
+                    "replant-skipped-" + (evt.bodyName ?? "") + "-" + (evt.flagSiteName ?? ""),
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Flag replay skipped: '{0}' on {1} (event ut={2}) was removed by the player at ut={3}",
+                        evt.flagSiteName ?? "", evt.bodyName ?? "?",
+                        evt.ut.ToString("R", CultureInfo.InvariantCulture),
+                        RemovedReplayFlags.Tombstones[blocking].RemovedUT.ToString("R", CultureInfo.InvariantCulture)));
+                return FlagReplayOutcome.RemovedByPlayer;
+            }
+
             if (FlagExistsAtPosition(evt))
                 return FlagReplayOutcome.AlreadyPresent;
 
