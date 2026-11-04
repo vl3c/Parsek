@@ -404,7 +404,7 @@ SegmentEvents record significant state changes that do NOT create DAG branches. 
 SegmentEvent
   type:      CONTROLLER_CHANGE | CONTROLLER_DISABLED | CONTROLLER_ENABLED |
              CREW_LOST | CREW_TRANSFER | PART_DESTROYED | PART_REMOVED | PART_ADDED |
-             TIME_JUMP
+             TIME_JUMP | FLAG_PICKED_UP
   ut:        universal time
   details:   type-specific data
 ```
@@ -420,6 +420,7 @@ Types:
 - **PART_REMOVED** — Part removed via construction without splitting the vessel. Also a stored part taken out of a foreign vessel's inventory (Section 4.12).
 - **PART_ADDED** — Part added via construction without creating a new vessel. Ghost starts rendering this part mesh after this UT. Also a stored part put into a foreign vessel's inventory (Section 4.12).
 - **TIME_JUMP** — Discontinuity from a relative-state time jump (see Section 14.5). Stores pre-jump and post-jump state vectors (position, velocity, UT) so playback can handle the gap as a visual cut.
+- **FLAG_PICKED_UP** — The recording's kerbal took a standing flag down on EVA (stock `FlagSite.PickUp`). Stores the flag's body, surface position and name, so replay takes that flag down at this UT (Section 4.13).
 
 ### 4.9 Merge Events
 
@@ -664,8 +665,10 @@ construction mode ends `Disassembled` through the existing pocket seam (its vess
 A flag a kerbal plants (`GameEvents.afterFlagPlanted`, after the stock site-name dialog) is captured
 as a `FlagEvent` on the recording that owns the planter (the foreground recorder's vessel, else a
 background tree member whose crew holds the planter): UT, site name, planter, plaque text (Parsek
-stamps the planting date on it), flag image, surface position and surface-relative rotation. Only
-the plant is recorded; a later rename, topple or removal of the flag is not part of any recording.
+stamps the planting date on it), flag image, surface position and surface-relative rotation. Stock
+sets the name and plaque only in the planting dialog, so the event carries them whole. A later rename
+or plaque edit is cosmetic and not recorded (owner ruling 2026-11-04). A kerbal's pick-up of a
+standing flag IS recorded (below).
 
 **A replayed flag is a real flag, planted once.** A ghost exists only while its recording plays, but
 a flag stays, so replay plants a real flag vessel when it reaches the event's UT
@@ -687,6 +690,18 @@ describes. The tombstones are saved in the PARSEK node (`REMOVED_REPLAY_FLAGS`).
 the save's copy; every other load keeps memory's and drops the removals after the loaded world's UT
 (`LoadStateCategory.RemovedReplayFlags`, the live-only income drop's UT), so a rewind to before the
 removal brings the flag back when replay reaches its moment.
+
+**A pick-up on a recorded flight replays (owner ruling 2026-11-04).** A Harmony prefix on stock
+`FlagSite.PickUp` notes the flag and the active EVA kerbal for the duration of the call; the flag's
+`onVesselWillDestroy` inside it then appends a `FLAG_PICKED_UP` segment event (body, position, name;
+`FlagPickUp`) to the recording of that kerbal, foreground or background tree member, besides the
+tombstone. When replay reaches the event (`GhostPlaybackLogic.ApplyFlagPickUps`, run before the
+plants of the same walk so a catch-up walk never plants a flag it would take down), it writes the
+same tombstone at the pick-up UT and takes down a standing flag at that spot. A walk that finds the
+tombstone already written (the live pick-up itself, an earlier walk, a loop cycle) does nothing. So
+after a rewind to before a pick-up and a re-plant elsewhere, the flag stands at its first spot until
+the pick-up's moment and at the new spot from the re-plant's moment: one flag, in one place. A
+Tracking Station or Space Center removal is not part of any flight: a rewind before it undoes it.
 
 ---
 

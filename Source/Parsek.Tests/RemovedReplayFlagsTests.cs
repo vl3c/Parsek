@@ -34,14 +34,34 @@ namespace Parsek.Tests
             {
                 spawned.Add(evt.flagSiteName);
                 standing.Add(evt.flagSiteName);
+                plantedAt[evt.flagSiteName] = evt;
                 return true;
             });
+            GhostPlaybackLogic.SetBodyRadiusOverrideForTesting(body => body == "Kerbin" ? KerbinRadius : double.NaN);
+            // A replayed pick-up takes down every standing flag within the tolerance.
+            GhostPlaybackLogic.SetRemoveStandingFlagOverrideForTesting(t =>
+            {
+                int n = 0;
+                foreach (string name in new List<string>(standing))
+                {
+                    if (!plantedAt.TryGetValue(name, out FlagEvent at)) continue;
+                    double d = RemovedReplayFlags.SurfaceDistanceMeters(t.Latitude, t.Longitude, t.Altitude,
+                        at.latitude, at.longitude, at.altitude, t.BodyRadius);
+                    if (d <= RemovedReplayFlags.MatchToleranceMeters) { standing.Remove(name); takenDown.Add(name); n++; }
+                }
+                return n;
+            });
+            FlagPickUp.ResetForTesting();
         }
+
+        private readonly Dictionary<string, FlagEvent> plantedAt = new Dictionary<string, FlagEvent>();
+        private readonly List<string> takenDown = new List<string>();
 
         public void Dispose()
         {
             GhostPlaybackLogic.ResetForTesting();
             RemovedReplayFlags.ResetForTesting();
+            FlagPickUp.ResetForTesting();
             ParsekLog.ResetTestOverrides();
         }
 
@@ -328,6 +348,145 @@ namespace Parsek.Tests
             bad.AddValue("lat", "nope");
             Assert.Empty(RemovedReplayFlags.LoadFrom(node));
             Assert.Contains(logLines, l => l.Contains("skipped 1 unreadable entry"));
+        }
+
+        // ---- Recorded pick-ups (owner ruling 2026-11-04) ----
+
+        private static Recording WithPickUp(string id, double ut, FlagEvent at, params FlagEvent[] plants)
+        {
+            var rec = new Recording { RecordingId = id, VesselName = "Jebediah Kerman", FlagEvents = new List<FlagEvent>(plants) };
+            rec.SegmentEvents.Add(FlagPickUp.BuildEvent(ut, at.bodyName, at.latitude, at.longitude, at.altitude, at.flagSiteName));
+            return rec;
+        }
+
+        [Fact]
+        public void PickUpDetails_RoundTrip_WithSeparatorsInTheName_UnderACommaCulture()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                string d = FlagPickUp.FormatDetails("Mun", -1.25, 33.5, 1234.75, "Base;one=two");
+                Assert.DoesNotContain(",", d.Replace("name=Base;one=two", ""));
+                Assert.True(FlagPickUp.TryParseDetails(d, out string body, out double lat, out double lon, out double alt, out string name));
+                Assert.Equal("Mun", body);
+                Assert.Equal(-1.25, lat);
+                Assert.Equal(33.5, lon);
+                Assert.Equal(1234.75, alt);
+                Assert.Equal("Base;one=two", name);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("body=Kerbin;lat=1;lon=2")]
+        [InlineData("body=;lat=1;lon=2;alt=3;name=x")]
+        [InlineData("body=Kerbin;lat=NaN;lon=2;alt=3;name=x")]
+        public void PickUpDetails_MissingOrBadField_DoesNotParse(string details)
+        {
+            Assert.False(FlagPickUp.TryParseDetails(details, out _, out _, out _, out _, out _));
+        }
+
+        [Fact]
+        public void IsPendingPickUp_OnlyTheMarkedFlag()
+        {
+            Assert.False(FlagPickUp.IsPendingPickUp(42));
+            FlagPickUp.PendingFlagPid = 42; FlagPickUp.PendingPickerPid = 7;
+            Assert.True(FlagPickUp.IsPendingPickUp(42));
+            Assert.False(FlagPickUp.IsPendingPickUp(43));
+            Assert.False(FlagPickUp.IsPendingPickUp(0));
+        }
+
+        [Fact]
+        public void PickUpReplay_AtItsUT_TakesTheFlagDownOnce()
+        {
+            FlagEvent f = Flag("Mun Base", 100.0);
+            Recording planter = LoopRecording(f);
+            Recording picker = WithPickUp("rec-picker", 200.0, f);
+
+            GhostPlaybackLogic.ApplyFlagEvents(new GhostPlaybackState(), planter, 150.0);
+            GhostPlaybackLogic.ApplyFlagEvents(new GhostPlaybackState(), picker, 190.0);
+            Assert.Contains("Mun Base", standing);
+
+            Assert.Equal(1, GhostPlaybackLogic.ApplyFlagPickUps(picker, 200.0));
+            Assert.DoesNotContain("Mun Base", standing);
+            Assert.Equal(new[] { "Mun Base" }, takenDown);
+            Assert.Contains(logLines, l => l.Contains("Flag pick-up replayed: 'Mun Base' on Kerbin")
+                && l.Contains("rec=rec-picker") && l.Contains("took down 1"));
+
+            // Later walks (a loop cycle of either recording) change nothing.
+            Assert.Equal(0, GhostPlaybackLogic.ApplyFlagPickUps(picker, 200.0));
+            GhostPlaybackLogic.ApplyFlagEvents(new GhostPlaybackState(), planter, 150.0);
+            Assert.Single(spawned);
+            Assert.Single(takenDown);
+        }
+
+        [Fact]
+        public void MovedFlag_ReplaysAfterARewind_EndsInOnePlace()
+        {
+            // Flight 1 plants at P1; flight 2's kerbal picks it up and plants it at P2.
+            FlagEvent p1 = Flag("Moved", 100.0, lat: 1.0);
+            FlagEvent p2 = Flag("Moved again", 210.0, lat: 2.0);
+            Recording flight1 = LoopRecording(p1);
+            Recording flight2 = WithPickUp("rec-flight2", 200.0, p1, p2);
+
+            // After the rewind the replays cross each moment in order.
+            GhostPlaybackLogic.ApplyFlagEvents(new GhostPlaybackState(), flight1, 150.0);
+            GhostPlaybackLogic.ApplyFlagEvents(new GhostPlaybackState(), flight2, 205.0);
+            GhostPlaybackLogic.ApplyFlagEvents(new GhostPlaybackState(), flight2, 220.0);
+            // Flight 1 loops again.
+            var loop = new GhostPlaybackState();
+            GhostPlaybackLogic.ApplyFlagEvents(loop, flight1, 150.0);
+            GhostPlaybackLogic.ResetForLoopCycle(loop, 1);
+            GhostPlaybackLogic.ApplyFlagEvents(loop, flight1, 150.0);
+
+            Assert.Equal(new[] { "Moved again" }, standing);
+            Assert.Equal(new[] { "Moved", "Moved again" }, spawned);
+        }
+
+        [Fact]
+        public void CatchUpWalkPastPlantAndPickUp_NeverPlantsTheFlag()
+        {
+            // One recording plants and picks up its own flag; a walk that starts past both
+            // (a scene entered after them) plants nothing.
+            FlagEvent f = Flag("Short stay", 100.0);
+            Recording rec = WithPickUp("rec-one", 110.0, f, f);
+            GhostPlaybackLogic.ApplyFlagEvents(new GhostPlaybackState(), rec, 300.0);
+            Assert.Empty(spawned);
+            Assert.Empty(takenDown);
+        }
+
+        [Fact]
+        public void LivePickUpAlreadyRecorded_ReplayIsANoOp()
+        {
+            FlagEvent f = Flag("Live", 100.0);
+            Recording picker = WithPickUp("rec-live", 200.0, f);
+            RemoveFromWorld(f, 200.0); // the live capture's own tombstone, same UT
+            Assert.Equal(0, GhostPlaybackLogic.ApplyFlagPickUps(picker, 250.0));
+            Assert.Equal(1, RemovedReplayFlags.Count);
+        }
+
+        [Fact]
+        public void PickUpReplay_BeforeItsUT_DoesNothing_AndUnknownBodyIsSkipped()
+        {
+            FlagEvent f = Flag("x", 100.0);
+            Recording picker = WithPickUp("rec-early", 200.0, f);
+            Assert.Equal(0, GhostPlaybackLogic.ApplyFlagPickUps(picker, 199.0));
+            FlagEvent onEve = f; onEve.bodyName = "Eve";
+            Recording elsewhere = WithPickUp("rec-eve", 200.0, onEve);
+            Assert.Equal(0, GhostPlaybackLogic.ApplyFlagPickUps(elsewhere, 300.0));
+            Assert.Equal(0, RemovedReplayFlags.Count);
+        }
+
+        [Fact]
+        public void FlagPickedUp_IsNotAGhostingTrigger()
+        {
+            Assert.False(GhostingTriggerClassifier.IsGhostingSegmentEvent(SegmentEventType.FlagPickedUp));
         }
 
         // ---- Load policy ----

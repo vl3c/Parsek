@@ -115,6 +115,8 @@ namespace Parsek
             flagExistsOverrideForTesting = null;
             spawnFlagOverrideForTesting = null;
             RemovedReplayFlags.ResetForTesting();
+            bodyRadiusOverrideForTesting = null;
+            removeStandingFlagOverrideForTesting = null;
         }
 
         #endregion
@@ -2912,7 +2914,14 @@ namespace Parsek
         /// </summary>
         internal static void ApplyFlagEvents(GhostPlaybackState state, IPlaybackTrajectory rec, double currentUT)
         {
-            if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0) return;
+            if (rec == null) return;
+
+            // Recorded pick-ups first: a flag taken down by the time of this walk is never
+            // planted by it (its tombstone blocks the plant below), so a catch-up walk past
+            // both does not plant a flag only to take it down again.
+            ApplyFlagPickUps(rec, currentUT);
+
+            if (rec.FlagEvents == null || rec.FlagEvents.Count == 0) return;
 
             if (state != null)
             {
@@ -2947,7 +2956,10 @@ namespace Parsek
             SpawnFlagVesselsUpToUT(
             IPlaybackTrajectory rec, double currentUT)
         {
-            if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0)
+            if (rec == null)
+                return (0, 0, 0, 0, 0);
+            ApplyFlagPickUps(rec, currentUT);
+            if (rec.FlagEvents == null || rec.FlagEvents.Count == 0)
                 return (0, 0, 0, 0, 0);
 
             int eligibleCount = 0;
@@ -2980,6 +2992,140 @@ namespace Parsek
             }
 
             return (eligibleCount, spawnedCount, alreadyPresentCount, failedCount, removedByPlayerCount);
+        }
+
+        private static Func<string, double> bodyRadiusOverrideForTesting;
+        private static Func<RemovedReplayFlags.Tombstone, int> removeStandingFlagOverrideForTesting;
+
+        internal static void SetBodyRadiusOverrideForTesting(Func<string, double> lookup)
+        {
+            bodyRadiusOverrideForTesting = lookup;
+        }
+
+        internal static void SetRemoveStandingFlagOverrideForTesting(Func<RemovedReplayFlags.Tombstone, int> remover)
+        {
+            removeStandingFlagOverrideForTesting = remover;
+        }
+
+        /// <summary>
+        /// Replays the recorded flag pick-ups (<see cref="SegmentEventType.FlagPickedUp"/>) whose
+        /// UT has been reached: each leaves a tombstone at its own UT (so no plant of that flag
+        /// runs again) and takes down a flag standing there. A pick-up already in the tombstones
+        /// (applied before, or the live pick-up itself) does nothing, so loop cycles and repeated
+        /// walks are free of side effects. Returns how many were applied by this call.
+        /// </summary>
+        internal static int ApplyFlagPickUps(IPlaybackTrajectory rec, double currentUT)
+        {
+            List<SegmentEvent> segs = (rec as Recording)?.SegmentEvents;
+            if (segs == null || segs.Count == 0)
+                return 0;
+
+            int applied = 0;
+            for (int i = 0; i < segs.Count; i++)
+            {
+                SegmentEvent se = segs[i];
+                if (se.type != SegmentEventType.FlagPickedUp || se.ut > currentUT)
+                    continue;
+                if (!FlagPickUp.TryParseDetails(se.details, out string body, out double lat, out double lon,
+                        out double alt, out string name))
+                {
+                    ParsekLog.VerboseRateLimited(RemovedReplayFlags.Tag, "pickup-unreadable-" + i,
+                        $"Flag pick-up not replayed: unreadable details '{se.details ?? "(null)"}'");
+                    continue;
+                }
+                double radius = ResolveBodyRadius(body);
+                if (double.IsNaN(radius) || radius <= 0.0)
+                {
+                    ParsekLog.VerboseRateLimited(RemovedReplayFlags.Tag, "pickup-no-body-" + body,
+                        $"Flag pick-up not replayed: body '{body}' not found");
+                    continue;
+                }
+
+                var t = new RemovedReplayFlags.Tombstone
+                {
+                    BodyName = body,
+                    BodyRadius = radius,
+                    Latitude = lat,
+                    Longitude = lon,
+                    Altitude = alt,
+                    RemovedUT = se.ut,
+                    FlagName = name,
+                    Source = "replayed-pickup",
+                };
+                if (RemovedReplayFlags.IsAlreadyRecorded(t))
+                    continue;
+
+                RemovedReplayFlags.RecordRemoval(t);
+                int removed = removeStandingFlagOverrideForTesting != null
+                    ? removeStandingFlagOverrideForTesting(t)
+                    : RemoveStandingFlagsLive(t);
+                applied++;
+                ParsekLog.Info(RemovedReplayFlags.Tag, string.Format(CultureInfo.InvariantCulture,
+                    "Flag pick-up replayed: '{0}' on {1} ut={2} rec={3} took down {4} standing flag(s)",
+                    name ?? "", body, se.ut.ToString("R", CultureInfo.InvariantCulture),
+                    rec.RecordingId ?? "(none)", removed));
+            }
+            return applied;
+        }
+
+        private static double ResolveBodyRadius(string bodyName)
+        {
+            if (bodyRadiusOverrideForTesting != null)
+                return bodyRadiusOverrideForTesting(bodyName);
+            return ResolveBodyRadiusLive(bodyName);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ResolveBodyRadiusLive(string bodyName)
+        {
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            return body != null ? body.Radius : double.NaN;
+        }
+
+        /// <summary>
+        /// Takes down every real flag vessel standing where <paramref name="t"/> says (same body,
+        /// within <see cref="RemovedReplayFlags.MatchToleranceMeters"/>), loaded or not, and drops
+        /// its flight-state entry so the next save does not carry it. Ghost map vessels are skipped.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RemoveStandingFlagsLive(RemovedReplayFlags.Tombstone t)
+        {
+            if (FlightGlobals.Vessels == null)
+                return 0;
+            var targets = new List<Vessel>();
+            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            {
+                Vessel v = FlightGlobals.Vessels[i];
+                if (v == null || v.vesselType != VesselType.Flag) continue;
+                if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
+                if (v.mainBody == null || v.mainBody.name != t.BodyName) continue;
+                double d = RemovedReplayFlags.SurfaceDistanceMeters(
+                    t.Latitude, t.Longitude, t.Altitude, v.latitude, v.longitude, v.altitude, t.BodyRadius);
+                if (d <= RemovedReplayFlags.MatchToleranceMeters)
+                    targets.Add(v);
+            }
+
+            int removed = 0;
+            for (int i = 0; i < targets.Count; i++)
+            {
+                Vessel v = targets[i];
+                uint pid = v.persistentId;
+                Guid id = v.id;
+                ProtoVessel proto = v.protoVessel;
+                try
+                {
+                    v.Die();
+                    var protos = HighLogic.CurrentGame?.flightState?.protoVessels;
+                    LiveClaimedVesselRemovalTarget.RemoveFlightStateEntries(protos, proto, pid, id);
+                    removed++;
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(RemovedReplayFlags.Tag,
+                        $"Flag pick-up replay: taking down '{v.vesselName}' pid={pid} threw {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            return removed;
         }
 
         private enum FlagReplayOutcome

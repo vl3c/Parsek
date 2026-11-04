@@ -3525,7 +3525,12 @@ namespace Parsek
             // by a replay (todo LOOP-REPLAY-REPLANTS-REMOVED-FLAG). Before the restore guard:
             // the removal is world state, not tree bookkeeping.
             if (v != null && v.vesselType == VesselType.Flag)
-                ParsekScenario.NoteFlagVesselRemoved(v, "destroyed-in-flight");
+            {
+                bool pickUp = FlagPickUp.IsPendingPickUp(v.persistentId);
+                if (pickUp)
+                    TryCaptureFlagPickUp(v, FlagPickUp.PendingPickerPid);
+                ParsekScenario.NoteFlagVesselRemoved(v, pickUp ? "picked-up" : "destroyed-in-flight");
+            }
 
             // #267: skip tree-related processing if restore coroutine is mid-yield
             if (restoringActiveTree)
@@ -13086,6 +13091,62 @@ namespace Parsek
                 $"Flag planted by '{placedBy}' but no foreground or background recording owns " +
                 $"the planting vessel - skipping (recorderPid={(recorder != null ? recorder.RecordingVesselId : 0)}, " +
                 $"hasTree={activeTree != null})");
+        }
+
+        /// <summary>
+        /// A kerbal took a flag down (<see cref="FlagPickUp"/>): record it on the recording that
+        /// owns the picking kerbal, the foreground recorder's vessel or a background tree member,
+        /// so a replay takes the flag down at the same moment.
+        /// </summary>
+        void TryCaptureFlagPickUp(Vessel flag, uint pickerPid)
+        {
+            if (flag == null || pickerPid == 0u)
+                return;
+            CelestialBody body = flag.mainBody;
+            double ut = Planetarium.GetUniversalTime();
+            SegmentEvent evt = FlagPickUp.BuildEvent(
+                ut, body != null ? body.name : null, flag.latitude, flag.longitude, flag.altitude, flag.vesselName);
+
+            if (recorder != null && recorder.IsRecording && recorder.RecordingVesselId == pickerPid)
+            {
+                recorder.SegmentEvents.Add(evt);
+                ParsekLog.Info("Flight",
+                    $"Flag pick-up captured (foreground recorder pid={pickerPid}): '{flag.vesselName}' on " +
+                    $"{(body != null ? body.name : "?")} ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
+                return;
+            }
+
+            if (activeTree != null
+                && activeTree.BackgroundMap.TryGetValue(pickerPid, out string bgRecId)
+                && activeTree.Recordings.TryGetValue(bgRecId, out Recording bgRec)
+                && bgRec != null)
+            {
+                AppendSegmentEventToTreeRecording(bgRec, evt);
+                ParsekLog.Info("Flight",
+                    $"Flag pick-up captured (background tree member pid={pickerPid} rec={bgRecId}): " +
+                    $"'{flag.vesselName}' ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
+                return;
+            }
+
+            ParsekLog.Verbose("Flight",
+                $"Flag '{flag.vesselName}' picked up by pid={pickerPid} but no foreground or background " +
+                $"recording owns the kerbal - not recorded (recorderPid={(recorder != null ? recorder.RecordingVesselId : 0)}, " +
+                $"hasTree={activeTree != null})");
+        }
+
+        /// <summary>
+        /// Appends a segment event to a tree recording in stable UT order and marks its sidecar
+        /// dirty, the segment-event twin of <see cref="AppendFlagEventToTreeRecording"/>.
+        /// </summary>
+        internal static void AppendSegmentEventToTreeRecording(Recording rec, SegmentEvent evt)
+        {
+            if (rec == null)
+                return;
+            rec.SegmentEvents.Add(evt);
+            var sorted = FlightRecorder.StableSortByUT(rec.SegmentEvents, e => e.ut);
+            rec.SegmentEvents.Clear();
+            rec.SegmentEvents.AddRange(sorted);
+            rec.MarkFilesDirty();
         }
 
         /// <summary>

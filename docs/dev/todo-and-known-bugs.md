@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~LOOP-REPLAY-REPLANTS-REMOVED-FLAG: a looping replay plants a recorded flag again after the player removes it~~ [FILED 2026-11-04 from the replay-theory audit (finding R5, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, confirmed by code read on main b2182df); FIXED 2026-11-04, branch `claude/project-thread-2p1zb5`; xUnit only, not flown; owner ruling pending (recommended "it stays removed", built); product, low (an unremovable flag per looped flag plant)]
+## ~~LOOP-REPLAY-REPLANTS-REMOVED-FLAG: a looping replay plants a recorded flag again after the player removes it~~ [FILED 2026-11-04 from the replay-theory audit (finding R5, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, confirmed by code read on main b2182df); FIXED 2026-11-04, branch `claude/project-thread-2p1zb5`; owner ruling 2026-11-04 "plant once and record pick-ups"; product, low (an unremovable flag per looped flag plant)]
 
 **Symptom.** A recording that planted a flag replays it as a real flag vessel when replay reaches the
 plant UT (`GhostPlaybackLogic.ApplyFlagEvents`). The only dedup is "a flag already stands within 1 m"
@@ -37,8 +37,23 @@ deferred flush does not retry). Saved as `REMOVED_REPLAY_FLAGS`; new `LoadStateC
 (cold: the save's copy; every other load: memory's, minus removals after the loaded world's UT, at the
 live-only income drop sites). Design: flight recorder design 4.13. Tests: `RemovedReplayFlagsTests`
 (loop cycle, fresh state, deferred flush counts, other flags still plant, matching tolerance, time
-travel, culture-safe round trip, policy cells). Not done: no harness lane removes a replayed flag yet;
-a flag renamed in the Tracking Station before removal still matches by position (intended).
+travel, culture-safe round trip, policy cells).
+
+**Owner ruling 2026-11-04 ("plant once and record pick-ups").** A replay plants a recorded flag once,
+at its moment; loops never plant again; a removal sticks until a load from before it. A kerbal's pick-up
+on a recorded flight is recorded and replayed, so a moved flag ends up in one place after a rewind.
+Tracking Station / Space Center removals are not part of a flight and a rewind before them undoes them.
+Renames and plaque edits stay unrecorded (cosmetic; stock sets both only in the planting dialog,
+decompiled `FlagSite` has no rename event). Built: `SegmentEventType.FlagPickedUp = 9` (additive, no
+generation bump), captured by `Patches/FlagPickUpCapturePatch.cs` (prefix + finalizer on
+`FlagSite.PickUp`) and `ParsekFlight.TryCaptureFlagPickUp` from the flag's `onVesselWillDestroy`
+inside the call, onto the picker's recording (foreground or background tree member); replayed by
+`GhostPlaybackLogic.ApplyFlagPickUps` before the plants of each walk (writes the tombstone at the
+pick-up UT, takes down a standing flag at that spot, no-op when the tombstone already exists). Tests:
+the pick-up half of `RemovedReplayFlagsTests` (details round trip under de-DE, replay once at its UT,
+moved flag after a rewind ends in one place, catch-up walk never plants, live pick-up is a no-op).
+Not done: the live capture path (Harmony patch, `onVesselWillDestroy` ordering) is proven only by
+the decompile, not by a flight.
 
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 

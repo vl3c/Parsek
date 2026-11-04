@@ -154,6 +154,34 @@ namespace Parsek
                 return false;
             }
 
+            int existing = FindDuplicate(t);
+            if (existing >= 0)
+            {
+                ParsekLog.Verbose(Tag, string.Format(ic,
+                    "Flag removal already recorded: '{0}' on {1} ut={2} source={3} (first source={4})",
+                    t.FlagName ?? "", t.BodyName, t.RemovedUT.ToString("R", ic), t.Source ?? "?",
+                    tombstones[existing].Source ?? "?"));
+                return false;
+            }
+
+            tombstones.Add(t);
+            ParsekLog.Info(Tag, string.Format(ic,
+                "Flag removed by the player: '{0}' on {1} at ({2:F5},{3:F5},{4:F1}) ut={5} source={6}; "
+                + "replays will not plant it again (tombstones={7})",
+                t.FlagName ?? "", t.BodyName, t.Latitude, t.Longitude, t.Altitude,
+                t.RemovedUT.ToString("R", ic), t.Source ?? "?", tombstones.Count));
+            return true;
+        }
+
+        /// <summary>Pure over the set: is this removal already recorded (same body and spot, within
+        /// <see cref="DuplicateWindowSeconds"/>)? Writes no log, so a per-frame caller may ask.</summary>
+        internal static bool IsAlreadyRecorded(Tombstone t)
+        {
+            return FindDuplicate(t) >= 0;
+        }
+
+        private static int FindDuplicate(Tombstone t)
+        {
             for (int i = 0; i < tombstones.Count; i++)
             {
                 Tombstone e = tombstones[i];
@@ -164,21 +192,9 @@ namespace Parsek
                 double d = SurfaceDistanceMeters(
                     e.Latitude, e.Longitude, e.Altitude, t.Latitude, t.Longitude, t.Altitude, e.BodyRadius);
                 if (d <= MatchToleranceMeters)
-                {
-                    ParsekLog.Verbose(Tag, string.Format(ic,
-                        "Flag removal already recorded: '{0}' on {1} ut={2} source={3} (first source={4})",
-                        t.FlagName ?? "", t.BodyName, t.RemovedUT.ToString("R", ic), t.Source ?? "?", e.Source ?? "?"));
-                    return false;
-                }
+                    return i;
             }
-
-            tombstones.Add(t);
-            ParsekLog.Info(Tag, string.Format(ic,
-                "Flag removed by the player: '{0}' on {1} at ({2:F5},{3:F5},{4:F1}) ut={5} source={6}; "
-                + "replays will not plant it again (tombstones={7})",
-                t.FlagName ?? "", t.BodyName, t.Latitude, t.Longitude, t.Altitude,
-                t.RemovedUT.ToString("R", ic), t.Source ?? "?", tombstones.Count));
-            return true;
+            return -1;
         }
 
         /// <summary>

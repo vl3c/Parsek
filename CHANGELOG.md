@@ -33,9 +33,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
-- **A flag you remove stays removed.** A looping replay, or a scene change while a replay runs, no
-  longer plants a recorded flag again after you pick it up, recover it or terminate it. Rewinding
-  to before you removed it brings it back. (LOOP-REPLAY-REPLANTS-REMOVED-FLAG)
+- **A replayed flag is planted once, and a flag you remove stays removed.** Loops no longer plant
+  a recorded flag again after you pick it up, recover it or terminate it. A kerbal's flag pick-up
+  is now recorded, so after a rewind the replay takes the flag down at that moment and a flag you
+  moved ends up in one place. (LOOP-REPLAY-REPLANTS-REMOVED-FLAG)
 - **Revert to Launch no longer records over a committed flight.** After reverting, a vessel that
   already has a committed recording later on the timeline stays unrecorded instead of resuming
   that recording from the past, which left it with a doubled track. (REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END)
