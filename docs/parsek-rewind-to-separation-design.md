@@ -80,7 +80,7 @@ Rewind to Separation is layered on top of, not inside, the existing subsystems:
 
 - **Flight recorder:** the recording DAG, segment boundary rule, controller identity, ghost chains, background recording, terminal kinds. Rewind to Separation does not change any of these. It adds new persistent state — Rewind Points, supersede relations, tombstones, a session marker, a journal — stored alongside the existing recording tree in `ParsekScenario`.
 - **Recording finalization:** Rewind-to-Separation assumes each sibling recording has a trustworthy terminal state and endpoint. The finalization reliability contract in `parsek-recording-finalization-design.md` is the upstream dependency that prevents Unfinished Flights from depending on stale last-sample inference when KSP unloads, deletes, or destroys a vessel before scene exit.
-- **Timeline / ledger:** the immutable `ActionId`, the recalculation engine, the resource modules. The feature adds `GameAction.ActionId` as a hard precondition (legacy migration generates a deterministic hash on first load) and introduces `LedgerTombstone` as an append-only retirement filter, but the recalculation walk itself is unchanged — `LedgerOrchestrator.Recalculate*` now feeds from `EffectiveState.ComputeELS()` (the tombstone-filtered view) instead of raw `Ledger.Actions`.
+- **Timeline / ledger:** the immutable `ActionId`, the recalculation engine, the resource modules. The feature adds `GameAction.ActionId` as a hard precondition (written with every row) and introduces `LedgerTombstone` as an append-only retirement filter, but the recalculation walk itself is unchanged — `LedgerOrchestrator.Recalculate*` now feeds from `EffectiveState.ComputeELS()` (the tombstone-filtered view) instead of raw `Ledger.Actions`.
 - **Game actions & resources:** contracts, milestones, facilities, strategies, tech, science, funds, kerbals. Merge tombstones now cover reviewed recording-scoped career actions, while seeds, null-scoped KSC/system rows, rollout costs, and unknown future types remain preserved. The post-tombstone recalc/patch path owns live KSP reconciliation for removed consequences; see §2 and §10.
 
 ---
@@ -566,7 +566,7 @@ public enum MergeState
 }
 ```
 
-Tri-state replacement of the legacy binary `committed` flag. Legacy saves migrate on load: `committed = True` → `Immutable`; `committed = False` → `NotCommitted`; absent field → `Immutable` (the pre-feature invariant — every recording reachable from a committed tree was already sealed). Serialized as `mergeState = <value>` on the RECORDING node.
+Tri-state replacement of the legacy binary `committed` flag, which is no longer read. An absent `mergeState` reads as `Immutable` (the pre-feature invariant — every recording reachable from a committed tree was already sealed). Serialized as `mergeState = <value>` on the RECORDING node.
 
 - `NotCommitted`: recording is still being produced (recorder live, or re-fly provisional with `SupersedeTargetId` set).
 - `CommittedProvisional`: session merge has stamped the recording but the rewind slot remains available (BG-recorded children under an RP; re-fly that ended in a crash and is still re-rewindable).
@@ -1799,7 +1799,7 @@ Booster non-focus, terminal Landed → not UF (Landed always returns false from 
 Booster is focus, terminal Landed → not UF → Immutable. Upper stage non-focus, terminal Orbiting → UF → CP. RP stays alive while upper-stage slot is unsealed.
 
 ### 7.52 Stranded EVA kerbal (alive)
-EVA kerbal terminal Landed (or Splashed for water) on a body, `EvaCrewName` non-null. Not UF (`evaNotSeparation`, 2026-09-27 ruling, §1.5): no EVA Rewind Point is authored, and a legacy one is reaped on load. The player uses F9 or Discard. **Shipped (test)**: `UnfinishedFlightsMembershipTests.EvaKerbalUnderRp_NeverMember`.
+EVA kerbal terminal Landed (or Splashed for water) on a body, `EvaCrewName` non-null. Not UF (`evaNotSeparation`, 2026-09-27 ruling, §1.5): no EVA Rewind Point is authored, and a legacy one loads best effort without surfacing (section 7.68). The player uses F9 or Discard. **Shipped (test)**: `UnfinishedFlightsMembershipTests.EvaKerbalUnderRp_NeverMember`.
 
 ### 7.53 EVA kerbal reboards
 Board BP fires. Not UF: an EVA kerbal never qualifies (`evaNotSeparation`, section 1.5), so the old leaf-gate reasoning (the Board BP is downstream of the matching RP's BranchPoint) is no longer the operative reject. The VESSEL he re-boarded is another matter: when it is the separated vessel of a staging / undock slot, that slot walks through the EVA and the re-board to the vessel's real tip (section 1.6). A Board into a different vessel blocks the slot (`evaCrewJoinedForeignVessel`). **Shipped (test)**: `ReFlyThroughEvaTests`.
@@ -1930,7 +1930,7 @@ A save made before the change has a crashed booster in Unfinished Flights whose 
 - **TreeDiscardPurge.** New v0.9.1 fields are removed alongside their parent objects; no purge-side changes.
 - **ERS / ELS routing rules.** No new raw-read sites; the v0.9.1 classifier reads through `EffectiveState.ComputeERS()` like every other consumer.
 - **EVA kerbal-death retry behavior.** Retired 2026-09-27 (§1.5): EVA crash / stranded rows no longer qualify. Tombstone eligibility itself is unchanged: kerbal-death rows in a superseded vessel subtree are still retired alongside the other reviewed recording-scoped career consequences.
-- **Legacy saves.** `GameAction.ActionId` is auto-generated via deterministic hash on first post-upgrade load; `MergeState` migrated from the binary legacy flag; new ConfigNode sections (`REWIND_POINTS`, `RECORDING_SUPERSEDES`, `LEDGER_TOMBSTONES`, `REFLY_SESSION_MARKER`, `MERGE_JOURNAL`) are optional and absent on pre-v0.9.0 saves. v0.9.1 fields (`ChildSlot.Sealed` / `Stashed`, `RewindPoint.FocusSlotIndex`, `ReFlySessionMarker.SupersedeTargetId` / `PreSessionBranchPointIds`) are absent on pre-v0.9.1 saves; defaults match v0.9.0 behaviour.
+- **Legacy saves.** Pre-1.0 saves load best effort (section 9): a ledger row with no `actionId` keeps the fresh id its constructor assigns, and an absent `mergeState` reads as `Immutable`; new ConfigNode sections (`REWIND_POINTS`, `RECORDING_SUPERSEDES`, `LEDGER_TOMBSTONES`, `REFLY_SESSION_MARKER`, `MERGE_JOURNAL`) are optional and absent on pre-v0.9.0 saves. v0.9.1 fields (`ChildSlot.Sealed` / `Stashed`, `RewindPoint.FocusSlotIndex`, `ReFlySessionMarker.SupersedeTargetId` / `PreSessionBranchPointIds`) are absent on pre-v0.9.1 saves; defaults match v0.9.0 behaviour.
 - **Standalone ghost playback mod (Gloops).** The feature touches only Parsek-internal code; nothing the engine depends on moves.
 - **Existing chain semantics outside a re-fly session.** BranchPoints, chain tips, ghost extension, trajectory walkback, etc. are read-only consumers of the new ERS view; the session-suppressed subtree only takes effect while a marker is live.
 
@@ -1938,10 +1938,12 @@ A save made before the change has a crashed booster in Unfinished Flights whose 
 
 ## 9. Backward Compatibility
 
+From the 1.0 save format (owner ruling 2026-11-04) the rewind, supersede, tombstone, marker and journal nodes are versioned by the save-wide `parsekSaveFormat` stamp: a shape change bumps it and ships an upgrade step, and saves from before 1.0 load best effort with no repair pass (policy `docs/dev/design-save-format-policy.md`). The subsections below record the pre-1.0 releases' behavior.
+
 ### 9.1 Pre-v0.9.0 saves on v0.9.0+
 
 - Load cleanly. All five new ConfigNode sections are absent → treated as empty lists / null singletons (`REWIND_POINTS`, `RECORDING_SUPERSEDES`, `LEDGER_TOMBSTONES` → `List<T>()`; `REFLY_SESSION_MARKER`, `MERGE_JOURNAL` → `null`).
-- `Recording.MergeState` legacy migration: binary `committed = True` → `Immutable`; `committed = False` → `NotCommitted`; absent → `Immutable` (pre-feature invariant: any recording reachable from a committed tree was already sealed). One-shot `[LegacyMigration] Info` log line on first post-upgrade load.
+- `Recording.MergeState` is read from its `mergeState` key; an absent key reads as `Immutable` (any recording reachable from a committed tree was already sealed). The pre-v0.9.0 binary `committed` flag is no longer read.
 - `Recording.SupersedeTargetId` — never set on pre-v0.9.0 saves. Non-empty values on `Immutable` / `CommittedProvisional` recordings (should only happen on a corrupt or hand-edited save) log Warn and are treated as cleared (`LoadTimeSweep.ClearStraySupersedeTargets`, `LoadTimeSweep.cs:326`).
 - `BranchPoint.RewindPointId` — absent on pre-v0.9.0 saves. No `IsUnfinishedFlight` predicate matches on pre-feature BG-crashed siblings because the predicate requires a non-null parent `RewindPointId`. The player's existing crashed siblings are NOT retroactively made Unfinished Flights.
 - Pre-v0.9.0 recordings have no cargo/crew manifest changes; Rewind to Separation does not read or write those fields.
@@ -2320,7 +2322,7 @@ Multi-controllable classifier decisions. Used by `SegmentBoundaryLogic`.
 
 The Rewind-scoped test classes in `Source/Parsek.Tests/`:
 
-- `ActionIdMigrationTests` — deterministic `ActionId` generation from legacy action fields; idempotence.
+- `ActionIdMigrationTests` — `ActionId` assignment and round trip.
 - `AtomicMarkerWriteTests` — `RewindInvoker.AtomicMarkerWrite` including the `Phase1And2_NoOnSaveBetween` atomicity guard.
 - `BackgroundSplitRpTests` — BG-split RP capture with cached PID payload.
 - `BranchPointRewindPointIdRoundTripTests` — BranchPoint.RewindPointId serialization.
@@ -2331,7 +2333,7 @@ The Rewind-scoped test classes in `Source/Parsek.Tests/`:
 - `EffectiveStateTests` — ERS/ELS computation, mixed-parent halt, IsVisible, IsUnfinishedFlight, EffectiveRecordingId.
 - `GrepAuditTests` — CI gate: verifies the `scripts/grep-audit-ers-els.ps1` allowlist matches the current source.
 - `LedgerTombstoneRoundTripTests` — tombstone serialization.
-- `LegacyMigrationTests` — MergeState migration; `ActionIdMigrationTests` — ActionId assignment and round trip.
+- `ActionIdMigrationTests` — ActionId assignment and round trip.
 - `LoadTimeSweepTests` — marker validation, spare/discard sets, orphan logs, stray field, nested cleanup, summary.
 - `MergeCrashRecoveryMatrixTests` — per-window state-invariant assertions for the 5-point crash matrix.
 - `MergeJournalOrchestratorTests` — happy path + rollback + completion + idempotence + null-guard.
@@ -2443,7 +2445,7 @@ The pre-impl spec's v0.5 sign-off condition was "crash recovery matrix covers ev
 - Legacy save with already-reaped split RPs has empty UF group for those splits (no retroactive surfacing). **Fails if:** the upgrade tries to resurrect deleted RPs.
 - Legacy save with live RPs whose Landed siblings are Immutable: row count unchanged from v0.9.0. **Fails if:** Landed terminals start qualifying.
 - Legacy save with live RPs whose Orbiting non-focus siblings are Immutable: `ApplyRewindProvisionalMergeStates` does NOT re-promote. **Fails if:** the `noFocusSignal` short-circuit doesn't fire on legacy RPs.
-- Legacy save with a live EVA RP whose kerbal Landed: the RP is reaped on load and no row surfaces on either side. **Fails if:** an EVA kerbal or the vessel side of an EVA RP surfaces in UF, OR a separation RP is reaped by the EVA sweep.
+- Legacy save with a live EVA RP whose kerbal Landed: no row surfaces on either side (the load-time EVA reap is deleted, section 7.68). **Fails if:** an EVA kerbal or the vessel side of an EVA RP surfaces in UF.
 - Post-upgrade fresh deploy: spawn a multi-controllable split, leave probes orbiting, commit. Verify the new RP has `FocusSlotIndex >= 0`, the probes promote to CP, and the row appears in UF. **Fails if:** the motivating case stops working for new RPs.
 
 ### 13.6 Log-assertion tests (v0.9.1)

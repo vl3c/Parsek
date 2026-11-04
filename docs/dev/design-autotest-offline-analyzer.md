@@ -794,9 +794,10 @@ Each: scenario -> expected behavior -> v1 or deferred.
 - The RELATIVE / parent-anchored / schema-generation contracts are not
   reinterpreted. The analyzer asserts them as-is; a rule that would require
   changing a contract is a design bug, caught by the `CitedContract` review gate.
-- No migration or back-compat path is added for pre-generation-4 recordings
-  (pre-1.0 no-migration policy). Old-generation data is REPORTED (STALE-FIXTURE
-  for fixtures, FAIL for real saves via INV5), never silently upgraded.
+- No migration or back-compat path is added for pre-generation-4 (pre-1.0)
+  recordings (save-format policy `docs/dev/design-save-format-policy.md`).
+  Old-generation data is REPORTED (STALE-FIXTURE for fixtures, FAIL for real
+  saves via INV5), never silently upgraded.
 
 ## Backward Compatibility
 
