@@ -39,8 +39,7 @@ namespace Parsek.InGameTests
     /// and logged, never silent.</para>
     ///
     /// <para><b>Path coverage</b> - every extension <see cref="RecordingPaths"/> exposes
-    /// a builder for, plus the legacy <c>.pcrf</c> suffix in case some intermediate
-    /// version writes one (defensive - the current pipeline never writes <c>.pcrf</c>):
+    /// a builder for:
     /// <list type="bullet">
     ///   <item><description><c>.prec</c> - binary trajectory sidecar.</description></item>
     ///   <item><description><c>.prec.txt</c> - readable trajectory mirror.</description></item>
@@ -49,10 +48,8 @@ namespace Parsek.InGameTests
     ///   <item><description><c>_vessel.craft.txt</c> - readable vessel mirror.</description></item>
     ///   <item><description><c>_ghost.craft</c> - ghost-only snapshot.</description></item>
     ///   <item><description><c>_ghost.craft.txt</c> - readable ghost mirror.</description></item>
-    ///   <item><description><c>.pcrf</c> - legacy ghost-geometry sidecar (defensive).</description></item>
     /// </list>
-    /// The list mirrors <c>RecordingStore.RecordingFileSuffixes</c> +
-    /// <c>RecordingStore.LegacyRecordingFileSuffixes</c>; if a new sidecar suffix is
+    /// The list mirrors <c>RecordingStore.RecordingFileSuffixes</c>; if a new sidecar suffix is
     /// added to the recording pipeline, <c>RecordingPaths</c> grows a new builder and
     /// this list must grow alongside it.</para>
     /// </summary>
@@ -167,8 +164,7 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Every sidecar suffix the recording pipeline writes (mirroring
-        /// <c>RecordingStore.RecordingFileSuffixes</c>) plus the legacy <c>.pcrf</c>
-        /// suffix. Any new suffix added to the production write/delete paths must be
+        /// <c>RecordingStore.RecordingFileSuffixes</c>). Any new suffix added to the production write/delete paths must be
         /// added here too. See <see cref="RecordingPaths"/> for the canonical builders.
         /// </summary>
         private static readonly string[] SidecarSuffixes =
@@ -180,7 +176,6 @@ namespace Parsek.InGameTests
             "_vessel.craft.txt",
             "_ghost.craft",
             "_ghost.craft.txt",
-            ".pcrf",
         };
 
         /// <summary>

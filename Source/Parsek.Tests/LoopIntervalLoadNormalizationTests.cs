@@ -269,8 +269,8 @@ namespace Parsek.Tests
                 loopIntervalSeconds: 0.0, loopPlayback: true);
             string precPath = WriteSidecar(original);
 
-            // Unsupported-version vessel sidecar: the probe opens the file, reads the magic
-            // "PRKS" + version 99, and reports it as unsupported — LoadRecordingFiles then
+            // Unsupported vessel sidecar: the probe opens the file, finds no current
+            // magic, and reports it as unsupported (magic-mismatch) — LoadRecordingFiles then
             // hits the snapshot-failure early return with FailureReason=snapshot-vessel-unsupported.
             string vesselPath = Path.Combine(tempDir, original.RecordingId + "_vessel.craft");
             WriteUnsupportedSnapshotSidecar(vesselPath);

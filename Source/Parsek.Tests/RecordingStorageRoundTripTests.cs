@@ -220,7 +220,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TextTrajectorySidecar_IsUnsupportedAfterReset()
+        public void TextTrajectorySidecar_IsRejectedAsMagicMismatch()
         {
             string path = Path.Combine(tempDir, "text-predicted-orbit.prec");
             var node = new ConfigNode("PARSEK_RECORDING");
@@ -231,9 +231,9 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
-            Assert.Equal(TrajectorySidecarEncoding.TextConfigNode, probe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.UnknownBinary, probe.Encoding);
             Assert.False(probe.Supported);
-            Assert.Equal("text-sidecar-unsupported", probe.FailureReason);
+            Assert.Equal("magic-mismatch", probe.FailureReason);
         }
 
         [Fact]
@@ -841,7 +841,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SnapshotSidecar_LegacyTextFormat_IsUnsupported()
+        public void SnapshotSidecar_TextFile_IsRejectedAsMagicMismatch()
         {
             ConfigNode expected = BuildSnapshot("Legacy Snapshot", pid: 1001);
             string path = Path.Combine(tempDir, "legacy_vessel.craft");
@@ -849,9 +849,9 @@ namespace Parsek.Tests
 
             SnapshotSidecarProbe probe;
             Assert.True(RecordingStore.TryProbeSnapshotSidecar(path, out probe));
-            Assert.Equal(SnapshotSidecarEncoding.TextConfigNode, probe.Encoding);
+            Assert.Equal(SnapshotSidecarEncoding.UnknownBinary, probe.Encoding);
             Assert.False(probe.Supported);
-            Assert.Equal("text-snapshot-unsupported", probe.FailureReason);
+            Assert.Equal("magic-mismatch", probe.FailureReason);
 
             ConfigNode loaded;
             Assert.False(RecordingStore.LoadSnapshotSidecarForTesting(path, out loaded));
@@ -900,7 +900,7 @@ namespace Parsek.Tests
             SnapshotSidecarProbe legacyProbe;
             Assert.True(RecordingStore.TryProbeSnapshotSidecar(legacyPath, out legacyProbe));
             Assert.False(legacyProbe.Supported);
-            Assert.Equal("text-snapshot-unsupported", legacyProbe.FailureReason);
+            Assert.Equal("magic-mismatch", legacyProbe.FailureReason);
             Assert.False(RecordingStore.LoadSnapshotSidecarForTesting(legacyPath, out loadedLegacy));
             Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(compressedPath, out loadedCompressed));
             Assert.Null(loadedLegacy);

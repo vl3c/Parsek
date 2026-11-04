@@ -7,7 +7,7 @@ namespace Parsek
 {
     internal enum SnapshotSidecarEncoding
     {
-        TextConfigNode = 0,
+        None = 0,
         DeflateV1 = 1,
         UnknownBinary = 2
     }
@@ -25,14 +25,12 @@ namespace Parsek
         public int UncompressedLength;
         public int CompressedLength;
         public uint Checksum;
-        public ConfigNode LegacyNode;
         public string FailureReason;
     }
 
     internal static class SnapshotSidecarCodec
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PSN0");
-        private static readonly byte[] PreResetMagic = Encoding.ASCII.GetBytes("PRKS");
         private static readonly uint[] Crc32Table = BuildCrc32Table();
         private const int CurrentFormatVersion = 0;
         private const byte CodecDeflate = 1;
@@ -50,11 +48,6 @@ namespace Parsek
         internal static bool HasBinaryMagic(string path)
         {
             return HasMagic(path, Magic);
-        }
-
-        private static bool HasPreResetBinaryMagic(string path)
-        {
-            return HasMagic(path, PreResetMagic);
         }
 
         private static bool HasMagic(string path, byte[] magic)
@@ -111,37 +104,18 @@ namespace Parsek
                 }
             }
 
-            if (HasPreResetBinaryMagic(path))
-            {
-                probe = new SnapshotSidecarProbe
-                {
-                    Success = true,
-                    Supported = false,
-                    Encoding = SnapshotSidecarEncoding.UnknownBinary,
-                    FormatVersion = -1,
-                    SchemaGeneration = 0,
-                    Codec = 0,
-                    MagicTag = Encoding.ASCII.GetString(PreResetMagic),
-                    FailureReason = "magic-mismatch"
-                };
-                return true;
-            }
-
+            // Not a current-format snapshot sidecar (text, an older binary layout, or
+            // garbage): rejected as unsupported with the one reason magic-mismatch.
             probe = new SnapshotSidecarProbe
             {
                 Success = true,
                 Supported = false,
-                Encoding = SnapshotSidecarEncoding.TextConfigNode,
+                Encoding = SnapshotSidecarEncoding.UnknownBinary,
                 FormatVersion = -1,
                 SchemaGeneration = 0,
                 Codec = 0,
-                MagicTag = "<text>",
-                NodeName = null,
-                UncompressedLength = 0,
-                CompressedLength = 0,
-                Checksum = 0,
-                LegacyNode = null,
-                FailureReason = "text-snapshot-unsupported"
+                MagicTag = null,
+                FailureReason = "magic-mismatch"
             };
             return true;
         }
@@ -240,8 +214,6 @@ namespace Parsek
         {
             if (probe.Encoding == SnapshotSidecarEncoding.DeflateV1)
                 return CurrentEncodingLabel;
-            if (probe.Encoding == SnapshotSidecarEncoding.TextConfigNode)
-                return "TextConfigNode";
             return "UnknownBinary";
         }
 
@@ -354,7 +326,6 @@ namespace Parsek
                 UncompressedLength = uncompressedLength,
                 CompressedLength = compressedLength,
                 Checksum = checksum,
-                LegacyNode = null,
                 FailureReason = supported
                     ? null
                     : BuildUnsupportedReason(formatVersion, schemaGeneration, codec)

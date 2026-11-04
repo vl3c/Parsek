@@ -69,10 +69,10 @@ namespace Parsek.Tests.Analyzer
         [Fact]
         public void LoadFault_And_FixtureStamp_Constructors_AssignAllFields()
         {
-            var lf = new LoadFault("a/b.prec", "trajectory", "text-sidecar-unsupported", "rec-9");
+            var lf = new LoadFault("a/b.prec", "trajectory", "magic-mismatch", "rec-9");
             Assert.Equal("a/b.prec", lf.FilePath);
             Assert.Equal("trajectory", lf.FileKind);
-            Assert.Equal("text-sidecar-unsupported", lf.Reason);
+            Assert.Equal("magic-mismatch", lf.Reason);
             Assert.Equal("rec-9", lf.RecordingId);
 
             var stamp = new FixtureStamp(4, "synthetic");

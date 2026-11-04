@@ -290,8 +290,7 @@ namespace Parsek.Tests
             var parent = new ConfigNode("TEST");
             RecordingStore.SerializeTrackSections(
                 parent,
-                new List<TrackSection> { original },
-                RecordingStore.CurrentRecordingFormatVersion);
+                new List<TrackSection> { original });
 
             ConfigNode tsNode = parent.GetNode("TRACK_SECTION");
             Assert.Equal("anchor-rec-1", tsNode.GetValue("anchorRecordingId"));

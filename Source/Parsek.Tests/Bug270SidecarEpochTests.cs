@@ -102,17 +102,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSkipStaleSidecar_ZeroSfsEpoch_SkipsValidation()
+        public void ShouldSkipStaleSidecar_ZeroSfsEpoch_WithNonZeroPrecEpoch_DetectsMismatch()
         {
             var rec = new Recording
             {
-                RecordingId = "test-old-save",
+                RecordingId = "test-no-epoch",
                 SidecarEpoch = 0
             };
 
             bool skipped = RecordingStore.ShouldSkipStaleSidecar(rec, 5);
 
-            Assert.False(skipped);
+            Assert.True(skipped);
         }
 
         [Fact]

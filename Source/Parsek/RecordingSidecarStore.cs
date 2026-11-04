@@ -160,14 +160,9 @@ namespace Parsek
         /// recording's expected epoch (loaded from .sfs). When true, the caller
         /// should skip trajectory deserialization — the .prec is from a different
         /// save point and its data would be inconsistent with the .sfs metadata.
-        /// Backward compat: if the .sfs epoch is 0 (old save without epoch),
-        /// validation is skipped and the sidecar is always accepted.
         /// </summary>
         internal static bool ShouldSkipStaleSidecar(Recording rec, int fileEpoch)
         {
-            if (rec.SidecarEpoch <= 0)
-                return false;  // old save without epoch — skip validation
-
             if (fileEpoch == rec.SidecarEpoch)
                 return false;  // epochs match — sidecar is valid
 
@@ -1114,7 +1109,7 @@ namespace Parsek
                 return false;
             }
 
-            // Header probe accepts a .craft / .pcrf with valid magic+version
+            // Header probe accepts a .craft with valid magic+version
             // but a corrupt compressed payload or bad CRC32. Use TryLoad
             // (which decompresses and verifies CRC32 — see
             // SnapshotSidecarCodec.TryLoad) so a payload-corrupt snapshot

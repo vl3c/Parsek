@@ -138,13 +138,6 @@ namespace Parsek
         };
 
         /// <summary>
-        /// Suffixes for recording files written by previous Parsek versions but no longer
-        /// used. ParsekFileCollector deletes any of these unconditionally — they are by
-        /// definition stale (the format that wrote them no longer exists).
-        /// </summary>
-        private static readonly string[] LegacyRecordingFileSuffixes = { ".pcrf" };
-
-        /// <summary>
         /// Extracts the recording ID from a sidecar filename by stripping known suffixes.
         /// Returns null if the filename doesn't match any known suffix.
         /// </summary>
@@ -159,25 +152,6 @@ namespace Parsek
                     return fileName.Substring(0, fileName.Length - RecordingFileSuffixes[i].Length);
             }
             return null;
-        }
-
-        /// <summary>
-        /// True if <paramref name="fileName"/> matches a legacy sidecar suffix that no
-        /// longer corresponds to live Parsek code. Pure helper for orphan-cleanup
-        /// (#260 follow-up — old saves can have .pcrf files left over from the dead
-        /// ghost-geometry scaffolding; they have no current consumer and should be
-        /// removed unconditionally rather than left as "unrecognized" forever).
-        /// </summary>
-        internal static bool IsLegacySidecarFile(string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName))
-                return false;
-            for (int i = 0; i < LegacyRecordingFileSuffixes.Length; i++)
-            {
-                if (fileName.EndsWith(LegacyRecordingFileSuffixes[i], StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-            return false;
         }
 
         internal static bool IsTransientSidecarArtifactFile(string fileName)
@@ -352,8 +326,8 @@ namespace Parsek
         /// <summary>
         /// Returns the set of distinct recording IDs whose sidecar files (.prec,
         /// _vessel.craft, _ghost.craft, .pann, plus the .txt readable variants) exist
-        /// in the recordings directory. Excludes legacy / transient artifacts (.pcrf,
-        /// .tmp / .stage / .bak suffixes) — only IDs corresponding to "live" sidecar
+        /// in the recordings directory. Excludes transient artifacts
+        /// (.tmp / .stage / .bak suffixes) — only IDs corresponding to "live" sidecar
         /// files are returned. Used by both <see cref="ParsekFileCollector"/>'s safety
         /// guard and <c>ParsekScenario.OnSave</c>'s stranded-sidecar warn.
         /// </summary>
@@ -375,7 +349,7 @@ namespace Parsek
             for (int i = 0; i < files.Length; i++)
             {
                 string fileName = Path.GetFileName(files[i]);
-                if (IsTransientSidecarArtifactFile(fileName) || IsLegacySidecarFile(fileName))
+                if (IsTransientSidecarArtifactFile(fileName))
                     continue;
                 string id = ExtractRecordingIdFromFileName(fileName);
                 if (!string.IsNullOrEmpty(id))

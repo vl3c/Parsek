@@ -715,14 +715,12 @@ Each: scenario -> expected behavior -> v1 or deferred.
    returns a probe with `Supported=false` or the read throws; the loader records
    a `LoadFault{ FileKind="trajectory", Reason=<probe reason> }` and a
    `INV5-SCHEMA-GATE` FAIL. The analyzer does not crash. v1.
-2. **Text-format `.prec` (pre-v0-reset corpus)**. Scenario: a 9/14-style legacy
-   text sidecar. Expected: `TryProbeTrajectorySidecar` returns
-   `Supported=false, FailureReason="text-sidecar-unsupported"`; loader records a
-   LoadFault; INV5 FAIL with that reason. Matches the production hard reject at
+2. **Text-format `.prec`**. Expected: `TryProbeTrajectorySidecar` returns
+   `Supported=false, FailureReason="magic-mismatch"`; loader records a
+   LoadFault; INV5 FAIL with that reason. Matches the production reject at
    `RecordingStore.DeserializeTrajectorySidecar`. v1.
-3. **Pre-reset binary magic**. Scenario: a sidecar with the old binary magic
-   tag. Expected: `HasPreResetBinaryMagic` path yields a probe with the
-   pre-reset failure reason; LoadFault + INV5 FAIL. v1.
+3. **Any other non-`PSK0` magic**. Expected: the same `magic-mismatch` probe;
+   LoadFault + INV5 FAIL. v1.
 4. **Recording metadata generation != sidecar generation**. Scenario: tree node
    says gen 4, `.prec` probe says gen 3. Expected: INV5 FAIL reason
    `generation-mismatch` (the loader mirrors the production check at
@@ -1031,7 +1029,7 @@ and known-good builder output exposes wrong rules). Body resolution uses
   exception escapes `Analyzer.Run`. Fails if a corrupt sidecar crashes the tool
   (ties into F-series fault scenarios; a crash instead of a finding is itself a
   bug).
-- **Text / pre-reset sidecar**: LoadFault with the exact production reason
+- **Non-`PSK0` sidecar**: LoadFault with the exact production reason
   string, no crash. Fails if the analyzer diverges from the production reject
   path.
 - **Corrupt `.sfs` (unbalanced braces)**: single `sfs` LoadFault + empty model,

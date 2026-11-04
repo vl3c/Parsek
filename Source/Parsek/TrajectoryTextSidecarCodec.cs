@@ -126,9 +126,7 @@ namespace Parsek
         private static void SerializeOrbitSegment(
             ConfigNode parent,
             OrbitSegment seg,
-            CultureInfo ic,
-            int recordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-            bool writeLegacyPredictedFlag = false)
+            CultureInfo ic)
         {
             ConfigNode segNode = parent.AddNode("ORBIT_SEGMENT");
             segNode.AddValue("startUT", seg.startUT.ToString("R", ic));
@@ -191,29 +189,6 @@ namespace Parsek
             }
 
             return seg;
-        }
-
-        internal static int GetTrajectoryFormatVersion(ConfigNode sourceNode)
-        {
-            if (sourceNode == null)
-                return 0;
-
-            string versionStr = sourceNode.GetValue("version");
-            if (string.IsNullOrEmpty(versionStr))
-                return 0;
-
-            int version;
-            if (!int.TryParse(versionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out version))
-            {
-                if (!RecordingStore.SuppressLogging)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"DeserializeTrajectoryFrom: invalid trajectory version '{versionStr}', treating as v0");
-                }
-                return 0;
-            }
-
-            return version;
         }
 
         private const string SectionAuthoritativeHeaderKey = "sectionAuthoritative";
@@ -425,7 +400,9 @@ namespace Parsek
                 && HasTrackSectionPayloadMatchingFlatTrajectory(rec, allowRelativeSections: true);
         }
 
-        private static bool ShouldReadSectionAuthoritativeTrajectory(ConfigNode sourceNode, int formatVersion)
+        // SerializeTrajectoryInto always writes the header; a node without it reads the
+        // flat path.
+        private static bool ShouldReadSectionAuthoritativeTrajectory(ConfigNode sourceNode)
         {
             if (sourceNode == null
                 || sourceNode.GetNodes("TRACK_SECTION").Length == 0)
@@ -433,16 +410,8 @@ namespace Parsek
                 return false;
             }
 
-            string explicitHeader = sourceNode.GetValue(SectionAuthoritativeHeaderKey);
-            bool useSectionAuthoritative;
-            if (!string.IsNullOrEmpty(explicitHeader)
-                && bool.TryParse(explicitHeader, out useSectionAuthoritative))
-            {
-                return useSectionAuthoritative;
-            }
-
-            return sourceNode.GetNodes("POINT").Length == 0
-                && sourceNode.GetNodes("ORBIT_SEGMENT").Length == 0;
+            return bool.TryParse(sourceNode.GetValue(SectionAuthoritativeHeaderKey), out bool useSectionAuthoritative)
+                && useSectionAuthoritative;
         }
 
         internal static int RebuildPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
@@ -1367,12 +1336,7 @@ namespace Parsek
                     SerializePoint(targetNode, flatFallbackPoints[i], ic);
 
                 for (int s = 0; s < rec.OrbitSegments.Count; s++)
-                    SerializeOrbitSegment(
-                        targetNode,
-                        rec.OrbitSegments[s],
-                        ic,
-                        rec.RecordingFormatVersion,
-                        writeLegacyPredictedFlag: true);
+                    SerializeOrbitSegment(targetNode, rec.OrbitSegments[s], ic);
             }
             else
             {
@@ -1420,7 +1384,7 @@ namespace Parsek
 
             // Serialize track sections (new recording system)
             if (rec.TrackSections != null && rec.TrackSections.Count > 0)
-                SerializeTrackSections(targetNode, rec.TrackSections, rec.RecordingFormatVersion);
+                SerializeTrackSections(targetNode, rec.TrackSections);
 
             if (!useSectionAuthoritative)
             {
@@ -1437,8 +1401,7 @@ namespace Parsek
 
         internal static void DeserializeTrajectoryFrom(ConfigNode sourceNode, Recording rec)
         {
-            int formatVersion = GetTrajectoryFormatVersion(sourceNode);
-            bool useSectionAuthoritative = ShouldReadSectionAuthoritativeTrajectory(sourceNode, formatVersion);
+            bool useSectionAuthoritative = ShouldReadSectionAuthoritativeTrajectory(sourceNode);
 
             if (useSectionAuthoritative)
             {
@@ -1451,7 +1414,7 @@ namespace Parsek
                 if (!RecordingStore.SuppressLogging)
                 {
                     ParsekLog.Verbose("RecordingStore",
-                        $"DeserializeTrajectoryFrom: recording={rec.RecordingId} version={formatVersion} " +
+                        $"DeserializeTrajectoryFrom: recording={rec.RecordingId} " +
                         $"using section-authoritative path sections={rec.TrackSections.Count} rebuiltPoints={rec.Points.Count} " +
                         $"dedupedPointCopies={dedupedPointCopies} rebuiltOrbitSegments={rec.OrbitSegments.Count} " +
                         $"dedupedOrbitCopies={dedupedOrbitCopies}");
@@ -1462,24 +1425,8 @@ namespace Parsek
                 DeserializePoints(sourceNode, rec);
                 DeserializeOrbitSegments(sourceNode, rec);
                 DeserializeTrackSections(sourceNode, rec.TrackSections);
-                if (rec.TrackSections.Count > 0)
-                {
-                    // reconcileEmptySections: false — READ path: the empty-shell
-                    // reconcile never mutates a committed recording's sections at load.
-                    // Candidate clipping still applies (it only constrains what promotion
-                    // ADDS), and the pre-existing checkpoint-vs-physical clip of existing
-                    // sections also still runs here (legacy heal seam, predates the gate).
-                    // The overall contract is normalize-on-rewrite: when a sanctioned
-                    // flow (re-fly merge, tail finalizer, this dirty-marking legacy seam,
-                    // ...) marks the recording dirty, the next save rewrites the sidecar
-                    // through the write-path Ensure, which reconciles under the current
-                    // producer contract. Files no flow dirties stay byte-identical.
-                    RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
-                        rec,
-                        markDirty: true,
-                        context: "TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom",
-                        reconcileEmptySections: false);
-                }
+                // No checkpoint-section promotion on READ: SerializeTrajectoryInto runs the
+                // write-path Ensure before it writes, so a current node is already normalized.
 
                 bool healedMalformedFlatFallback = false;
                 if (rec.TrackSections.Count > 0)
@@ -1493,7 +1440,7 @@ namespace Parsek
                     if (healedMalformedFlatFallback && !RecordingStore.SuppressLogging)
                     {
                         ParsekLog.Verbose("RecordingStore",
-                            $"DeserializeTrajectoryFrom: recording={rec.RecordingId} version={formatVersion} " +
+                            $"DeserializeTrajectoryFrom: recording={rec.RecordingId} " +
                             $"healed malformed flat fallback using track-section prefix " +
                             $"points={rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
                             $"trackSections={rec.TrackSections.Count}");
@@ -1505,7 +1452,7 @@ namespace Parsek
                     if (!RecordingStore.SuppressLogging)
                     {
                         ParsekLog.Verbose("RecordingStore",
-                            $"DeserializeTrajectoryFrom: recording={rec.RecordingId} version={formatVersion} " +
+                            $"DeserializeTrajectoryFrom: recording={rec.RecordingId} " +
                             $"used flat fallback path points={rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
                             $"trackSections={rec.TrackSections.Count}");
                     }
@@ -1725,8 +1672,7 @@ namespace Parsek
         /// </summary>
         internal static void SerializeTrackSections(
             ConfigNode parent,
-            List<TrackSection> tracks,
-            int recordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion)
+            List<TrackSection> tracks)
         {
             if (tracks == null || tracks.Count == 0)
             {
@@ -1771,11 +1717,8 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(track.anchorRecordingId))
                     tsNode.AddValue("anchorRecordingId", track.anchorRecordingId);
 
-                // Live anchor PID symmetric with the binary codec's TrackSection.anchorVesselId
-                // write/read. The field is flagged for removal in
-                // docs/dev/plans/recording-rendering-v0-reset-checklist.md (§"TrackSection.anchorVesselId
-                // removal") but until then the text and binary paths must keep round-trip parity
-                // so format-roundtrip tests pass on either codec.
+                // Loop-relative live anchor pid (TrackSection.anchorVesselId); the text and binary
+                // codecs keep round-trip parity for it.
                 if (track.anchorVesselId != 0)
                     tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
 
@@ -1822,12 +1765,7 @@ namespace Parsek
                     if (checkpoints != null)
                     {
                         for (int s = 0; s < checkpoints.Count; s++)
-                            SerializeOrbitSegment(
-                                tsNode,
-                                checkpoints[s],
-                                ic,
-                                recordingFormatVersion,
-                                writeLegacyPredictedFlag: false);
+                            SerializeOrbitSegment(tsNode, checkpoints[s], ic);
                     }
                 }
 
