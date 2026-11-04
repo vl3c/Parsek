@@ -23832,7 +23832,29 @@ class DebrisPopulationGateTests(unittest.TestCase):
         "BackgroundRecorder.TrackSections.cs",
     )
 
+    # The older siblings: partials of the class that the reader deliberately skips.
+    BG_RECORDER_OTHER_PARTIALS = (
+        "BackgroundRecorder.PartEventPolling.cs",
+        "BackgroundRecorder.State.cs",
+        "BackgroundRecorder.Testing.cs",
+        "BackgroundRecorder.TimeJump.cs",
+    )
+
     def _bg_recorder_source(self):
+        # Every BackgroundRecorder.*.cs on disk must be named in one of the two
+        # lists, so a new partial file reds here instead of being skipped silently.
+        on_disk = {n for n in os.listdir(PARSEK_SOURCE_DIR)
+                   if n.startswith("BackgroundRecorder.") and n.endswith(".cs")
+                   and n != "BackgroundRecorder.cs"}
+        declared = (set(self.BG_RECORDER_SPLIT_FILES) - {"BackgroundRecorder.cs"}) \
+            | set(self.BG_RECORDER_OTHER_PARTIALS)
+        undeclared = sorted(on_disk - declared)
+        missing = sorted(declared - on_disk)
+        if undeclared or missing:
+            self.fail("BackgroundRecorder.*.cs files differ from the declared lists: "
+                      "undeclared %s (add each to BG_RECORDER_SPLIT_FILES if this gate "
+                      "must read it, or to BG_RECORDER_OTHER_PARTIALS if it must not); "
+                      "declared but missing %s" % (undeclared, missing))
         return "\n".join(self._source(n) for n in self.BG_RECORDER_SPLIT_FILES)
 
     def test_each_gated_spec_requires_the_debris_token(self):

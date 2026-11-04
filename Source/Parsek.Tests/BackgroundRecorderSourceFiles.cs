@@ -14,7 +14,8 @@ namespace Parsek.Tests
     /// one text: the main file first, then the area files in ordinal file-name order, each file
     /// whole, so a member's body is never split across the join. The older siblings
     /// (PartEventPolling, State, Testing, TimeJump) were never part of that file and are NOT read,
-    /// so a gate's scope stays what it was.
+    /// so a gate's scope stays what it was. Every <c>BackgroundRecorder.*.cs</c> on disk must be
+    /// named in one of the two lists, or <see cref="Paths"/> throws naming the new file.
     /// </summary>
     internal static class BackgroundRecorderSourceFiles
     {
@@ -30,19 +31,26 @@ namespace Parsek.Tests
             "BackgroundRecorder.TrackSections.cs",
         };
 
+        /// <summary>
+        /// The older sibling partials, never part of the split file and not read. Listed so a
+        /// NEW <c>BackgroundRecorder.*.cs</c> fails <see cref="Paths"/> until it is declared.
+        /// </summary>
+        internal static readonly string[] OtherPartialFileNames =
+        {
+            "BackgroundRecorder.PartEventPolling.cs",
+            "BackgroundRecorder.State.cs",
+            "BackgroundRecorder.Testing.cs",
+            "BackgroundRecorder.TimeJump.cs",
+        };
+
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)
         {
-            var names = new[] { "BackgroundRecorder.cs" }
-                .Concat(SplitFileNames.OrderBy(n => n, StringComparer.Ordinal));
-            var paths = new List<string>();
-            foreach (string name in names)
-            {
-                string path = Path.Combine(parsekSourceDir, name);
-                if (!File.Exists(path))
-                    throw new FileNotFoundException(name + " not found", path);
-                paths.Add(path);
-            }
-            return paths;
+            return PartialClassSourceFiles.Paths(
+                parsekSourceDir,
+                "BackgroundRecorder.cs",
+                SplitFileNames,
+                OtherPartialFileNames,
+                nameof(BackgroundRecorderSourceFiles));
         }
 
         internal static string ReadAll(string parsekSourceDir)

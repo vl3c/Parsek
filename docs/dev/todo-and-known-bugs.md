@@ -9140,6 +9140,16 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - `BackgroundRecorder.ShouldRunBackgroundStateDriftCheck`: the time-went-backwards branch's
   `nextLastCheckUT = double.MinValue` was a dead store (the fall-through always overwrites it
   with `currentUT`); removed, behavior identical.
+- Source-gate tightening (test-only): `ReFlyAnchorBypassWiringTests`'s background
+  no-bypass gate now scans `UpdateBackgroundAnchorDetection` from its declaration in
+  `BackgroundRecorder.RelativeAnchors.cs` (it scanned from the call site in
+  `BackgroundRecorder.cs`, so a bypass call planted in the method stayed green). The three
+  readers that name a split class's files (`BackgroundRecorderSourceFiles`,
+  `GhostTrajectoryPolylineRendererSourceFiles`, `RecordingsTableUISourceFiles`, through the new
+  `PartialClassSourceFiles`) and hlib's `_bg_recorder_source` now list `<Class>.*.cs` on disk
+  and fail naming any partial file their lists do not declare; the other readers
+  (`GhostPlaybackEngine`, `KspStatePatcher`, `LedgerOrchestrator`, `GhostMapPresence`,
+  `FlightRecorder`, ledgeraudit `_src_paths`) already read the whole glob.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

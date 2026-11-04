@@ -35,20 +35,22 @@ namespace Parsek.Tests
             Anchoring, Builder, Diagnostics, ForwardArcs, LegDraw, SeamBridges,
         };
 
+        /// <summary>
+        /// Partial files of the class that the whole-class readers deliberately skip: none.
+        /// Every other file on disk must be in <see cref="SplitFileNames"/>, or
+        /// <see cref="Paths"/> throws naming it.
+        /// </summary>
+        internal static readonly string[] OtherPartialFileNames = Array.Empty<string>();
+
         /// <summary>The main file then the area files (ordinal), all under <paramref name="displayDir"/>.</summary>
         internal static IReadOnlyList<string> Paths(string displayDir)
         {
-            var names = new[] { MainFileName }
-                .Concat(SplitFileNames.OrderBy(n => n, StringComparer.Ordinal));
-            var paths = new List<string>();
-            foreach (string name in names)
-            {
-                string path = Path.Combine(displayDir, name);
-                if (!File.Exists(path))
-                    throw new FileNotFoundException(name + " not found", path);
-                paths.Add(path);
-            }
-            return paths;
+            return PartialClassSourceFiles.Paths(
+                displayDir,
+                MainFileName,
+                SplitFileNames,
+                OtherPartialFileNames,
+                nameof(GhostTrajectoryPolylineRendererSourceFiles));
         }
 
         /// <summary>The whole class as one text (see the type summary for the order).</summary>
