@@ -4366,6 +4366,10 @@ namespace Parsek
             // walk; this walk re-requests one if (and only if) it patches KSP state.
             StrategyStatePatcher.CancelPendingPatch("new-recalc");
 
+            // A load can restore an older allow-negative-currency value (a rewind loads the
+            // save's own settings): rows captured from here on are judged under it.
+            CareerSettingsLog.NoteLive(StockCurrencyClamp.ReadAllowNegativeCurrency(), "recalculation");
+
             // Seed initial balances for career mode (per-resource, idempotent).
             // Baselines can represent legitimate zero science/rep values; once such
             // a seed exists it must not be upgraded later from future live state.
@@ -6209,6 +6213,7 @@ namespace Parsek
             }
             RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
             SeedKscSequenceCounterFromLoadedLedger(Ledger.Actions);
+            CareerSettingsLog.NoteLive(StockCurrencyClamp.ReadAllowNegativeCurrency(), "ledger-load");
             ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from {source}");
         }
 

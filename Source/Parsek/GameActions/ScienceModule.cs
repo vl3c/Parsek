@@ -102,7 +102,9 @@ namespace Parsek
         /// </summary>
         private bool hasInitialSeed;
 
-        /// <summary>Stock's <c>AllowNegativeCurrency</c>, read once per walk in <see cref="Reset"/>.</summary>
+        /// <summary>Stock's live <c>AllowNegativeCurrency</c>, read once per walk in <see cref="Reset"/>;
+        /// each row is judged under the setting it was captured under
+        /// (<see cref="CareerSettingsLog.AllowNegativeFor"/>), this value only while the log is empty.</summary>
         private bool allowNegativeCurrency;
 
         /// <summary>The part of the walk's non-cost losses below 0 stock forgives (see FundsModule).</summary>
@@ -306,7 +308,7 @@ namespace Parsek
                 return 0.0;
             double shadowBefore = shadowStart.Before(action.CaptureSequence, before + shadowDivergence);
             double shadowEffect = StockShadowTakeBack.ShadowCurrencyEffect(
-                shadowBefore, effect, takeBack, allowNegativeCurrency);
+                shadowBefore, effect, takeBack, CareerSettingsLog.AllowNegativeFor(action, allowNegativeCurrency));
             double delta = shadowEffect - effect;
             if (delta == 0.0)
                 return 0.0;
@@ -345,7 +347,7 @@ namespace Parsek
             double forgiven = StockCurrencyClamp.ForgivenBelowZero(
                 before, runningScience,
                 IsScienceCostRow(action.Type) || action.Type == GameActionType.StockPoolAdjustment,
-                allowNegativeCurrency);
+                CareerSettingsLog.AllowNegativeFor(action, allowNegativeCurrency));
             if (forgiven <= 0.0)
                 return;
 
