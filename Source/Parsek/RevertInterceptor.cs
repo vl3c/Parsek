@@ -745,6 +745,9 @@ namespace Parsek
                 ParsekLog.Info(RewindSaveTag,
                     $"DiscardReFly: loading temp tempPath='{tempPath}' loadName='{tempLoadName}' " +
                     $"saveFolder='{HighLogic.SaveFolder ?? "<none>"}'");
+                // Parsek's time travel keeps the current difficulty settings (owner ruling Q1);
+                // the rewind-point game is written to persistent.sfs from CurrentGame next.
+                ConfigNode liveParameters = DifficultySettingsCarry.CaptureLive("DiscardReFly");
                 Game game = GamePersistence.LoadGame(
                     tempLoadName, HighLogic.SaveFolder, true, false);
                 if (game == null)
@@ -755,6 +758,7 @@ namespace Parsek
                     return false;
                 }
 
+                DifficultySettingsCarry.ApplyTo(game, liveParameters, "DiscardReFly");
                 HighLogic.CurrentGame = game;
                 TryDeleteTemp(tempPath);
                 return true;

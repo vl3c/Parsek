@@ -80,9 +80,8 @@ namespace Parsek
         /// <summary>
         /// Stock's <c>AdvancedParams.AllowNegativeCurrency</c>, read once per walk in
         /// <see cref="Reset"/>. Off: a loss that is not a cost row stops at 0, as
-        /// <c>Funding.AddFunds</c> stops it. Each row is judged under the setting it was
-        /// captured under (<see cref="CareerSettingsLog.AllowNegativeFor"/>); this live value
-        /// applies only while that log is empty.
+        /// <c>Funding.AddFunds</c> stops it. The value is locked at career start
+        /// (<see cref="CareerSettingsLock"/>), so every row is judged under the same one.
         /// </summary>
         private bool allowNegativeCurrency;
 
@@ -303,7 +302,7 @@ namespace Parsek
                 return 0.0;
             double shadowBefore = shadowStart.Before(action.CaptureSequence, before + shadowDivergence);
             double shadowEffect = StockShadowTakeBack.ShadowCurrencyEffect(
-                shadowBefore, effect, takeBack, CareerSettingsLog.AllowNegativeFor(action, allowNegativeCurrency));
+                shadowBefore, effect, takeBack, allowNegativeCurrency);
             double delta = shadowEffect - effect;
             if (delta == 0.0)
                 return 0.0;
@@ -412,7 +411,7 @@ namespace Parsek
             double forgiven = StockCurrencyClamp.ForgivenBelowZero(
                 before, runningBalance,
                 IsFundsCostRow(action.Type) || action.Type == GameActionType.StockPoolAdjustment,
-                CareerSettingsLog.AllowNegativeFor(action, allowNegativeCurrency));
+                allowNegativeCurrency);
             if (forgiven <= 0.0)
                 return;
 

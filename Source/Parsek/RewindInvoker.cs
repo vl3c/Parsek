@@ -1029,6 +1029,8 @@ namespace Parsek
                 ParsekLog.Info(InvokeTag,
                     $"Loading quicksave: tempPath='{tempPath}' loadName='{tempLoadName}' " +
                     $"saveFolder='{HighLogic.SaveFolder}'");
+                // Parsek's time travel keeps the current difficulty settings (owner ruling Q1).
+                ConfigNode liveParameters = DifficultySettingsCarry.CaptureLive("Re-Fly");
                 Game game = GamePersistence.LoadGame(
                     tempLoadName, HighLogic.SaveFolder, true, false);
                 if (game == null)
@@ -1066,6 +1068,7 @@ namespace Parsek
                 // flightState, and transitions to FLIGHT with the saved
                 // active vessel focused. The deferred post-load Strip then
                 // switches focus to the slot's target vessel.
+                DifficultySettingsCarry.ApplyTo(game, liveParameters, "Re-Fly");
                 int activeIdx = game.flightState != null ? game.flightState.activeVesselIdx : 0;
                 if (activeIdx < 0)
                     activeIdx = 0;

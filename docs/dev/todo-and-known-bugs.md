@@ -35,12 +35,19 @@ take-back. World-firsts: `MilestonesModule.TryTopUpOneShot` through the partial-
 the rest stock repaid after forgetting the first row taken back. Record steps:
 `RecordThresholdBook` tops up named re-crossings and second first payments, never taken back.
 Science and world-first top-ups need a timeline break; a record step's needs its own rewind
-evidence (a re-crossing or a second first payment). `CareerSettingsLog` judges each loss under the
-allow-negative value in force at its capture (LEDGER keys `allowNegativeFrom`). The respawn stamp
-reads stock's `UTaR` for a Missing dead kerbal (`TryResolveRespawnStampFromRoster`), and
-`CrewRespawnTimerPatch` respawns a recorded respawn-on death when the setting is now off. Tests:
-`RewindTopUpScienceTests`, `RewindTopUpMilestoneTests`, `CareerSettingsLogTests`,
-`CrewRespawnSettingsTests`. Open: audit Q1 (should a Parsek rewind keep the current sliders).
+evidence (a re-crossing or a second first payment). Allow negative currency (owner ruling
+2026-11-04, "Lock it at career start"): `CareerSettingsLock` keeps the value the career had at its
+first ledger load (LEDGER key `allowNegativeLocked`), every walk and pool write reads it, a load or
+dialog close whose live value differs is set back, and `AllowNegativeCurrencyLockPatch` greys the
+stock switch in the mid-career difficulty dialog with the reason appended to its stock tooltip
+(the per-capture log of the first commit is gone). Audit Q1 (owner ruling 2026-11-04, "Parsek
+rewinds keep them"): `DifficultySettingsCarry` installs the live `PARAMETERS` on the game loaded
+by Rewind to Launch, Warp to game start, Re-Fly and Discard Re-fly; F9, the Load menu and a stock
+revert restore the save as stock does. The respawn stamp reads stock's `UTaR` for a Missing dead
+kerbal (`TryResolveRespawnStampFromRoster`), and `CrewRespawnTimerPatch` respawns a recorded
+respawn-on death when the setting is now off. Tests: `RewindTopUpScienceTests`,
+`RewindTopUpMilestoneTests`, `CareerSettingsLockTests`, `DifficultySettingsCarryTests`,
+`CrewRespawnSettingsTests`.
 
 ## ~~SAVE-GHOST-STRIP-SKIPPED-ON-FAULT: a save phase that throws skips the ghost map ProtoVessel strip~~ [FILED 2026-11-04 from the replay-theory audit (finding R2, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5); FIXED 2026-11-04, branch `claude/project-thread-v6lbwf`; xUnit; product, high impact if hit, rare]
 
