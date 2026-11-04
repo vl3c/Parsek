@@ -12226,7 +12226,7 @@ namespace Parsek
             if (!wasWarpActive && isWarpNow)
             {
                 warpStartUT = Planetarium.GetUniversalTime();
-                if (LedgerOrchestrator.IsInitialized)
+                if (LedgerOrchestrator.IsInitialized && !Ledger.IsHeldFromNewerVersion)
                 {
                     // Same suppression PatchAll wraps it in: the patch's SetLevel /
                     // Demolish / Repair fire the stock facility and building events, which
@@ -12237,6 +12237,11 @@ namespace Parsek
                         "Warp start at UT="
                         + warpStartUT.ToString("R", CultureInfo.InvariantCulture)
                         + " — patched facility visuals");
+                }
+                else if (Ledger.IsHeldFromNewerVersion)
+                {
+                    ParsekLog.Verbose("WarpFacilities",
+                        "Warp start: facility patch skipped (ledger held from a newer Parsek version)");
                 }
             }
 

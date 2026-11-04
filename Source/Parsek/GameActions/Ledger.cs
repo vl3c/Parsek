@@ -48,6 +48,20 @@ namespace Parsek
         /// <summary>How many rows the last load kept verbatim because this build cannot read them.</summary>
         internal static int UnreadableActionCount => unreadableActionNodes.Count;
 
+        // A LEDGER node this build cannot read as a whole (a version a newer build wrote, or an
+        // Upgradable one whose steps failed), held as a verbatim copy. While it is held the
+        // in-memory ledger is empty, every save writes the held node back unchanged (the save's
+        // GAME_STATE node and ledger.pgld alike), and LedgerOrchestrator does not patch KSP state
+        // from the empty walk. Replaced by every load; ClearForFailedLoad and ResetForTesting drop it.
+        private static ConfigNode heldUnreadableLedgerNode;
+
+        /// <summary>
+        /// True while the loaded ledger is held verbatim because this build cannot read its version
+        /// (see <see cref="heldUnreadableLedgerNode"/>). The recalculation reads it to skip every KSP
+        /// state patch for the session, so stock funds, science and reputation keep the save's values.
+        /// </summary>
+        internal static bool IsHeldFromNewerVersion => heldUnreadableLedgerNode != null;
+
         /// <summary>Read-only view of all actions in the ledger.</summary>
         internal static IReadOnlyList<GameAction> Actions => actions;
 
@@ -725,6 +739,21 @@ namespace Parsek
         /// </summary>
         internal static ConfigNode BuildSaveNode()
         {
+            if (heldUnreadableLedgerNode != null)
+            {
+                int sessionRows = 0;
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    if (actions[i] != null && !RecalculationEngine.IsSeedType(actions[i].Type))
+                        sessionRows++;
+                }
+                if (sessionRows > 0)
+                    ParsekLog.WarnRateLimited("Ledger", "held-ledger-drops-session-rows",
+                        $"Ledger is held from a newer Parsek version; {sessionRows.ToString(CultureInfo.InvariantCulture)} " +
+                        "row(s) made this session are not saved (the held ledger is written back unchanged)");
+                return heldUnreadableLedgerNode.CreateCopy();
+            }
+
             var root = new ConfigNode(RootNodeName);
             root.AddValue(VersionKey, CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture));
             root.AddValue(SchemaGenerationKey,
@@ -800,6 +829,7 @@ namespace Parsek
         {
             actions.Clear();
             unreadableActionNodes = new List<ConfigNode>();
+            heldUnreadableLedgerNode = null;
             progressSeed = PreLedgerProgressSeed.NotCaptured;
             StockShadowTakeBack.LoadFrom(null, "failed-load");
             CareerSettingsLock.LoadFrom(null, "failed-load");
@@ -854,8 +884,9 @@ namespace Parsek
 
         /// <summary>
         /// Replaces the in-memory ledger with a save's <c>GAME_STATE/LEDGER</c> node, with the
-        /// same version and recording-schema-generation gates as <see cref="LoadFromFile"/>
-        /// (a mismatch starts with an empty ledger). Returns true on success.
+        /// same version gate as <see cref="LoadFromFile"/>: a pre-1.0 version starts with an
+        /// empty ledger, a newer one is held verbatim (<see cref="IsHeldFromNewerVersion"/>).
+        /// Returns true when the rows loaded.
         /// </summary>
         internal static bool LoadFromNode(ConfigNode ledgerNode)
         {
@@ -882,24 +913,42 @@ namespace Parsek
         {
             string versionStr = loaded.GetValue(VersionKey);
             string schemaGenerationStr = loaded.GetValue(SchemaGenerationKey);
-            int version = 0;
             int schemaGeneration = 0;
-            bool versionOk = versionStr != null
-                && int.TryParse(versionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out version)
-                && version == CurrentLedgerVersion;
             bool generationCurrent = schemaGenerationStr != null
                 && int.TryParse(schemaGenerationStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out schemaGeneration)
                 && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration;
 
-            if (!versionOk)
+            int? storedVersion = SaveFormat.ParseStored(versionStr);
+            SaveFormatClass versionClass = SaveFormat.Ledger.Classify(storedVersion);
+            string currentLabel = SaveFormat.Ledger.Current.ToString(CultureInfo.InvariantCulture);
+            switch (versionClass)
             {
-                ParsekLog.Warn("Ledger",
-                    $"{sourceDescription} has unsupported schema: " +
-                    $"version='{versionStr ?? "(missing)"}' expected={CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture)}; " +
-                    "starting with empty ledger");
-                ClearForFailedLoad();
-                return false;
+                case SaveFormatClass.Missing:
+                case SaveFormatClass.PreBaseline:
+                    // Pre-1.0 ledger: best effort is a fresh ledger.
+                    ParsekLog.Info("Ledger",
+                        $"{sourceDescription} has a pre-1.0 version='{versionStr ?? "(missing)"}' " +
+                        $"(current={currentLabel}); starting with empty ledger");
+                    ClearForFailedLoad();
+                    return false;
+                case SaveFormatClass.Newer:
+                    HoldUnreadableLedger(loaded,
+                        $"{sourceDescription} was written by a newer Parsek: version={versionStr} > current={currentLabel}");
+                    return false;
+                case SaveFormatClass.Upgradable:
+                    // The steps rewrite a copy; a failed upgrade holds the node as loaded.
+                    ConfigNode upgraded = loaded.CreateCopy();
+                    if (!SaveFormat.TryUpgradeNode(SaveFormat.Ledger, storedVersion.Value, upgraded, sourceLabel,
+                            out string upgradeFailure))
+                    {
+                        HoldUnreadableLedger(loaded,
+                            $"{sourceDescription} version={versionStr} could not be upgraded to {currentLabel} ({upgradeFailure})");
+                        return false;
+                    }
+                    loaded = upgraded;
+                    break;
             }
+            int version = SaveFormat.Ledger.Current;
 
             // The ledger's format is its version. A row carries no recording schema, so a ledger
             // stamped with another recording schema generation loads (owner ruling 2026-10-21,
@@ -982,6 +1031,20 @@ namespace Parsek
                     $"Loaded pre-ledger progress seed: {progressSeed.FormatSummary()}");
             }
             return true;
+        }
+
+        /// <summary>
+        /// Holds a ledger node this build cannot read: the in-memory ledger is emptied and the node
+        /// (as loaded, a fresh copy) is what every later save writes back. One Warn.
+        /// </summary>
+        private static void HoldUnreadableLedger(ConfigNode loaded, string why)
+        {
+            ClearForFailedLoad();
+            heldUnreadableLedgerNode = loaded.CreateCopy();
+            ParsekLog.Warn("Ledger",
+                $"{why}; held verbatim ({loaded.GetNodes(ActionNodeName).Length.ToString(CultureInfo.InvariantCulture)} row(s)), " +
+                "nothing loaded from it, written back unchanged on save; KSP funds, science and reputation " +
+                "are not patched from the ledger this session");
         }
 
         // ================================================================
@@ -1476,6 +1539,7 @@ namespace Parsek
         {
             actions = new List<GameAction>();
             unreadableActionNodes = new List<ConfigNode>();
+            heldUnreadableLedgerNode = null;
             progressSeed = PreLedgerProgressSeed.NotCaptured;
             BumpStateVersion();
             CaptureSequence.ResetForTesting();

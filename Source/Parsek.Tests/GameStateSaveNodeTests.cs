@@ -210,10 +210,11 @@ namespace Parsek.Tests
 
         // ---- gates ----
 
-        // catches: the node path skipping the ledger version gate the ledger file reader applies.
+        // catches: the node path skipping the ledger version gate the ledger file reader applies
+        // (a newer version is held verbatim, not loaded and not dropped).
         [Theory]
         [InlineData("version", "99")]
-        public void LedgerNode_SchemaGates_StartEmpty(string key, string value)
+        public void LedgerNode_NewerVersion_IsHeldNotLoaded(string key, string value)
         {
             Ledger.AddAction(new GameAction { UT = 10.0, Type = GameActionType.FundsSpending, Sequence = 1 });
             RecordingPaths.SaveRootOverrideForTesting = NewTempRoot();
@@ -230,9 +231,10 @@ namespace Parsek.Tests
             ParsekScenario.LoadGameStateFromNodeOrFiles(scenario);
 
             Assert.Empty(Ledger.Actions);
+            Assert.True(Ledger.IsHeldFromNewerVersion);
             Assert.Contains(logLines, l => l.Contains("[WARN][Ledger]")
-                && l.Contains("Ledger node in the save's GAME_STATE has unsupported schema")
-                && l.Contains("starting with empty ledger"));
+                && l.Contains("Ledger node in the save's GAME_STATE was written by a newer Parsek: version=99")
+                && l.Contains("held verbatim"));
         }
 
         // catches: the node path rejecting a ledger whose only difference is the recording

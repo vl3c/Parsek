@@ -319,7 +319,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoadFromFile_PreResetLedgerVersion_IsRejected()
+        public void LoadFromFile_NewerLedgerVersion_IsHeldVerbatim()
         {
             Ledger.AddAction(new GameAction
             {
@@ -349,10 +349,15 @@ namespace Parsek.Tests
             Assert.False(Ledger.LoadFromFile(LedgerPath));
 
             Assert.Empty(Ledger.Actions);
+            Assert.True(Ledger.IsHeldFromNewerVersion);
             Assert.Contains(logLines, l =>
                 l.Contains("[Ledger]") &&
-                l.Contains("unsupported schema") &&
-                l.Contains("version='1'"));
+                l.Contains("written by a newer Parsek") &&
+                l.Contains("version=1"));
+
+            // The next save writes the held ledger back, never an empty one.
+            Assert.True(Ledger.SaveToFile(LedgerPath));
+            Assert.Equal(2, ConfigNode.Load(LedgerPath).GetNodes("GAME_ACTION").Length);
         }
 
         // ================================================================
@@ -1454,11 +1459,12 @@ namespace Parsek.Tests
 
             bool ok = Ledger.LoadFromFile(LedgerPath);
 
-            // ConfigNode.Load returns null for garbage — our code handles this
+            // Garbage parses to a node with no version: read as a pre-1.0 ledger, started empty.
             Assert.False(ok);
             Assert.Equal(0, Ledger.Actions.Count);
+            Assert.False(Ledger.IsHeldFromNewerVersion);
             Assert.Contains(logLines, l =>
-                l.Contains("[Ledger]") && l.Contains("WARN"));
+                l.Contains("[Ledger]") && l.Contains("starting with empty ledger"));
         }
 
         [Fact]
@@ -1475,7 +1481,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoadFromFile_BadVersion_LogsWarning()
+        public void LoadFromFile_NewerVersion_IsHeldWithAWarning()
         {
             var root = new ConfigNode("LEDGER");
             root.AddValue("version", "1");
@@ -1486,8 +1492,9 @@ namespace Parsek.Tests
 
             Assert.False(ok);
             Assert.Equal(0, Ledger.Actions.Count);
+            Assert.True(Ledger.IsHeldFromNewerVersion);
             Assert.Contains(logLines, l =>
-                l.Contains("[Ledger]") && l.Contains("unsupported schema"));
+                l.Contains("[WARN][Ledger]") && l.Contains("written by a newer Parsek: version=1 > current=0"));
         }
 
         // Fails if: the load gate rejects a ledger whose only difference is the recording

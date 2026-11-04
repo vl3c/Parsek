@@ -63,7 +63,10 @@ namespace Parsek.Tests.SaveRoundTrip
             .Fill("actions", () => Rows())
             .Compare("actions", CompareRows)
             .Fill("unreadableActionNodes", () => UnreadableRows())
-            .Compare("unreadableActionNodes", CompareNodes);
+            .Compare("unreadableActionNodes", CompareNodes)
+            .Derived("held only when a newer build wrote the ledger (SaveFormatHoldTests); a filled hold "
+                + "would replace the rows this round-trip writes", "heldUnreadableLedgerNode")
+            .Fill("heldUnreadableLedgerNode", () => null);
 
         /// <summary>A row a newer build wrote (an id this build does not define), kept verbatim.</summary>
         private static List<ConfigNode> UnreadableRows()
