@@ -23,9 +23,11 @@ namespace Parsek
     /// <para>
     /// Crash-recovery contract (updated by Task A5):
     /// <list type="bullet">
-    ///   <item><description><see cref="MergeJournal.Phases.Begin"/> — pre-Durable1, rolls back.
-    ///   The "begin" durable write never happened from <see cref="RunFinisher"/>'s
-    ///   point of view, so the on-disk pre-merge snapshot is still authoritative.</description></item>
+    ///   <item><description><see cref="MergeJournal.Phases.Begin"/> and
+    ///   <see cref="MergeJournal.Phases.TreeMerge"/> - drive forward. The attempt's tree
+    ///   committed before the journal was written and the fork migration runs before the
+    ///   Begin save, so the Begin save already holds the whole committed attempt; nothing
+    ///   on disk is a pre-merge snapshot to roll back to.</description></item>
     ///   <item><description><see cref="MergeJournal.Phases.Split"/> through
     ///   <see cref="MergeJournal.Phases.Finalize"/> — drive-forward via idempotent
     ///   re-run inside <see cref="CompleteFromPostDurable"/>. Every step is
@@ -55,9 +57,10 @@ namespace Parsek
     /// scenario state-version bumps via
     /// <see cref="ParsekScenario.BumpSupersedeStateVersion"/> +
     /// <see cref="ParsekScenario.BumpTombstoneStateVersion"/>;
-    /// four persistent saves at the stable barriers (pluggable via
+    /// five persistent saves at the stable barriers (pluggable via
     /// <see cref="DurableSaveForTesting"/> / <see cref="SaveGameForTesting"/>):
-    /// Begin, Durable1Done, Durable2Done, and the final cleared state.
+    /// Begin (after the fork migration), Split, Durable1Done, Durable2Done, and the
+    /// final cleared state.
     /// </para>
     ///
     /// <para>
@@ -207,8 +210,15 @@ namespace Parsek
             if (scenario.LedgerTombstones == null)
                 scenario.LedgerTombstones = new List<LedgerTombstone>();
 
-            // Step 1: write the journal + Durable Save #1 barrier (phase=Begin).
-            // Design §6.6 step 1 / §10.8.
+            // Step 1: the journal (phase=Begin), the fork migration, then the Begin
+            // durable save (design section 6.6 step 1 / 10.8). The tree already
+            // committed before RunMerge was called (MergeDialog.MergeCommit runs
+            // CommitPendingTree, the optimizer and the ledger notify first), so the
+            // Begin save holds the committed attempt: its fork, its EVA and payload
+            // recordings and their ledger rows. A Begin journal on disk therefore
+            // never means "nothing happened yet"; the finisher completes the merge
+            // forward from it, like every later phase (design section 6.6 failure
+            // recovery matrix, todo MERGE-BEGIN-ROLLBACK-LEAKS-ATTEMPT).
             var journal = new MergeJournal
             {
                 JournalId = "mj_" + Guid.NewGuid().ToString("N"),
@@ -222,24 +232,25 @@ namespace Parsek
             scenario.ActiveMergeJournal = journal;
             ParsekLog.Info(Tag,
                 $"sess={sessionId} phase={MergeJournal.Phases.Begin} lossSwapVariant={lossSwapVariant}");
-            DurableSave("begin", persistSynchronously: true);
-            MaybeInject(Phase.Begin);
 
-            // Step 1.4: Bug fix-refly-abandon-and-fork-persist §Bug2b —
+            // Step 1.4: Bug fix-refly-abandon-and-fork-persist §Bug2b -
             // migrate the in-place-continuation fork from the active tree
-            // into the committed tree BEFORE the splitter mutates the
-            // committed tree's contents. Without this, the fork's
-            // RECORDING node lives only in the active tree (which is
-            // about to be discarded), the splitter's TIP supersede row
-            // names the fork id, but OnSave writes only the committed
-            // tree's RECORDING_TREE — the fork disappears.
+            // into the committed tree BEFORE the Begin save and before the
+            // splitter mutates the committed tree's contents. Without this, the
+            // fork's RECORDING node lives only in the active tree (which is
+            // about to be discarded), the splitter's TIP supersede row names the
+            // fork id, but OnSave writes only the committed tree's
+            // RECORDING_TREE - the fork disappears. Running it before the Begin
+            // save puts the fork on disk with the journal, so a finisher
+            // resuming from Begin never needs the (gone) active tree.
             //
             // Gated on marker.InPlaceContinuation: non-in-place sessions
             // own their fork in a separate (new) tree and don't need
             // migration into marker.TreeId's committed tree.
             MigrateActiveReFlyForkIntoCommittedTree(marker, provisional);
+            DurableSave("begin", persistSynchronously: true);
+            MaybeInject(Phase.Begin);
             AdvancePhase(scenario, MergeJournal.Phases.TreeMerge);
-            DurableSave("treemerge", persistSynchronously: true);
             MaybeInject(Phase.TreeMerge);
 
             // Step 1.5: split the origin recording at the rewind UT if it spans
@@ -340,8 +351,8 @@ namespace Parsek
         ///
         /// <para>
         /// Returns <c>false</c> if no journal is present (no work). Returns
-        /// <c>true</c> when either the rollback path or the completion path
-        /// drove the journal to cleared. Idempotent: re-entry after completion
+        /// <c>true</c> when the completion path drove the journal to cleared
+        /// (every phase completes forward). Idempotent: re-entry after completion
         /// observes no journal and returns false.
         /// </para>
         /// </summary>
@@ -375,114 +386,42 @@ namespace Parsek
                 return true;
             }
 
-            if (phase == MergeJournal.Phases.Begin)
+            // Every phase drives forward, Begin and an unknown phase string included.
+            // A journal exists only after the attempt's tree committed (MergeCommit
+            // commits it before RunMerge writes the journal), so no phase on disk is
+            // a pre-merge snapshot: undoing just the re-flown recording would leave
+            // the attempt's EVA kerbals, payloads and their ledger rows committed
+            // beside the restored origin (todo MERGE-BEGIN-ROLLBACK-LEAKS-ATTEMPT).
+            // Every step is idempotent and safe on a cleared marker, so an unknown
+            // phase (a newer build's string) re-runs the whole tail from TreeMerge.
+            bool knownPhase = phase == MergeJournal.Phases.Begin
+                || MergeJournal.IsKnownPostBeginPhase(phase);
+            if (!knownPhase)
             {
-                // Pre-Split rollback: clear marker, drop session-provisional
-                // recordings, remove any session-provisional RPs.
-                // SplitOriginAtRewindUT never ran durably so no split state
-                // to undo on disk.
-                RollBack(scenario, journal, sessionId, phase);
+                ParsekLog.Warn(Tag,
+                    $"Finisher: unknown phase={phase} sess={sessionId} - " +
+                    "driving forward from TreeMerge (every step is idempotent)");
+                journal.Phase = MergeJournal.Phases.Begin;
+            }
+
+            try
+            {
+                CompleteFromPostDurable(scenario, journal, sessionId, phase);
                 return true;
             }
-
-            if (MergeJournal.IsKnownPostBeginPhase(phase))
+            catch (Exception ex)
             {
-                try
-                {
-                    CompleteFromPostDurable(scenario, journal, sessionId, phase);
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    // Drive-forward failure: surface a loud diagnostic with
-                    // manual-recovery hints and re-throw. ParsekScenario.OnLoad's
-                    // outer catch handles logging to Unity and degraded-load
-                    // continuation.
-                    ParsekLog.Warn(Tag,
-                        $"RunFinisher drive-forward FAILED at phase={phase}: {ex.GetType().Name}: {ex.Message}. " +
-                        $"Save is mid-merge and may be inconsistent. Manual recovery: copy save, " +
-                        $"clear scenario.ActiveMergeJournal and scenario.ActiveReFlySessionMarker, " +
-                        $"reload. sess={sessionId}");
-                    throw;
-                }
+                // Drive-forward failure: surface a loud diagnostic with
+                // manual-recovery hints and re-throw. ParsekScenario.OnLoad's
+                // outer catch handles logging to Unity and degraded-load
+                // continuation.
+                ParsekLog.Warn(Tag,
+                    $"RunFinisher drive-forward FAILED at phase={phase}: {ex.GetType().Name}: {ex.Message}. " +
+                    $"Save is mid-merge and may be inconsistent. Manual recovery: copy save, " +
+                    $"clear scenario.ActiveMergeJournal and scenario.ActiveReFlySessionMarker, " +
+                    $"reload. sess={sessionId}");
+                throw;
             }
-
-            // Unknown phase string: treat as pre-durable roll-back (safer than
-            // blowing up the finisher; design §6.9 step 2 mandates idempotence).
-            ParsekLog.Warn(Tag,
-                $"Finisher: unknown phase={phase} sess={sessionId} — treating as rollback");
-            RollBack(scenario, journal, sessionId, phase);
-            return true;
-        }
-
-        // ------------------------------------------------------------------
-        // Rollback path (crash at or before Finalize).
-        // ------------------------------------------------------------------
-
-        private static void RollBack(
-            ParsekScenario scenario, MergeJournal journal, string sessionId, string fromPhase)
-        {
-            // The in-memory supersede/tombstone/flip never reached Durable
-            // Save #1, so disk still holds the pre-merge snapshot. Any residual
-            // in-memory state (loaded by OnLoad from a save pre-crash) matches
-            // disk — removal of a session-provisional recording is idempotent
-            // when the recording is already absent.
-            //
-            // Sweep every recording tagged with this session, not just the
-            // ActiveReFlyRecordingId. RecordingStore.RunOptimizationSplitPass
-            // copies CreatingSessionId / ProvisionalForRpId onto the second
-            // half when it splits a session-tagged recording. If we only
-            // removed the named id we'd leave the optimizer-created tail
-            // orphaned in the committed list.
-            string rewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
-            // Prefer the supersede chain tip (the recording that was active
-            // before this session began) over the slot's original origin.
-            // For a slot already Re-flown once (CommittedProvisional, slot
-            // stays open), the supersede chain has extended past origin to
-            // a prior Re-Fly's recording; resetting tree.ActiveRecordingId
-            // to origin after rollback would undo the prior session's
-            // commit. Origin is the legacy fallback for slots that have
-            // never been Re-flown (priorTip == origin).
-            string fallback =
-                scenario.ActiveReFlySessionMarker?.SupersedeTargetId
-                ?? scenario.ActiveReFlySessionMarker?.OriginChildRecordingId;
-            int removedProvisional = RecordingStore.RemoveSessionProvisionalRecordings(
-                sessionId, rewindPointId, fallback);
-            string provisionalId =
-                scenario.ActiveReFlySessionMarker?.ActiveReFlyRecordingId;
-            if (removedProvisional > 0)
-            {
-                ParsekLog.Info(Tag,
-                    $"Rollback: removed {removedProvisional.ToString(CultureInfo.InvariantCulture)} " +
-                    $"session-provisional recording(s) sess={sessionId} " +
-                    $"rp={rewindPointId ?? "<none>"} provisional={provisionalId ?? "<none>"}");
-            }
-            else if (!string.IsNullOrEmpty(provisionalId))
-            {
-                // Legacy fallback: pre-feature recordings without CreatingSessionId
-                // tagging fall back to the by-id sweep so existing saves still roll
-                // back cleanly.
-                int legacyRemoved = RemoveCommittedRecordingById(provisionalId);
-                if (legacyRemoved > 0)
-                    removedProvisional = legacyRemoved;
-            }
-
-            bool hadMarker = scenario.ActiveReFlySessionMarker != null;
-            scenario.ClearActiveReFlySessionMarker("marker-cleared");
-            scenario.ActiveMergeJournal = null;
-            scenario.BumpSupersedeStateVersion();
-            ReFlyRevertButtonGate.Apply("MergeJournal:rollback");
-            // #688 follow-up: drop the captured pre-Re-Fly anchor trajectory
-            // snapshot — rollback aborts the session without committing, so
-            // the snapshot has no consumer left.
-            SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
-
-            DurableSave("rollback", persistSynchronously: false);
-
-            ParsekLog.Info(Tag,
-                $"Rolled back from phase={fromPhase}: session restored sess={sessionId} " +
-                $"markerCleared={hadMarker} provisionalRemoved={removedProvisional}");
-            ParsekLog.Verbose(Tag, $"sess={sessionId} cleared");
         }
 
         // ------------------------------------------------------------------
@@ -509,6 +448,14 @@ namespace Parsek
             // (the entry value), so a resume entering at Split drives all the
             // way through to Complete.
             // ------------------------------------------------------------------
+
+            if (journal.Phase == MergeJournal.Phases.Begin)
+            {
+                // The Begin save already holds the committed attempt and the
+                // migrated fork (RunMerge migrates before it saves), so Begin
+                // resumes exactly like TreeMerge.
+                AdvancePhase(scenario, MergeJournal.Phases.TreeMerge);
+            }
 
             if (journal.Phase == MergeJournal.Phases.TreeMerge)
             {
@@ -843,24 +790,6 @@ namespace Parsek
                 $"fromNormalOrigin={promotedFromNormalOrigin.ToString(CultureInfo.InvariantCulture)})");
         }
 
-        private static int RemoveCommittedRecordingById(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return 0;
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return 0;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null) continue;
-                if (!string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal)) continue;
-                RecordingStore.DeleteRecordingFull(i);
-                ParsekLog.Info(Tag,
-                    $"Rollback: removed session-provisional recording id={recordingId}");
-                return 1;
-            }
-            return 0;
-        }
-
         private static void MaybeInject(Phase current)
         {
             if (FaultInjectionPoint.HasValue && FaultInjectionPoint.Value == current)
@@ -1068,7 +997,7 @@ namespace Parsek
                     return r;
             }
             ParsekLog.Warn(Tag,
-                $"ResolveProvisional: no committed recording with id={id} (marker may name a recording removed by a prior rollback)");
+                $"ResolveProvisional: no committed recording with id={id} (marker may name a recording a sweep removed)");
             return null;
         }
 
