@@ -2109,8 +2109,7 @@ namespace Parsek.Tests
             var evt = StrategyInputScienceDebit(8599.87, RawRunning, LiveScience, "rec-flight");
             GameStateStore.AddEvent(ref evt);
 
-            double discriminator = KspStatePatcher.ComputePendingAdjustedRunningScience(
-                RawRunning, LiveScience);
+            double discriminator = KspStatePatcher.ComputePendingAdjustedRunningScience(RawRunning);
             Assert.Equal(LiveScience, discriminator, 4);
 
             var adjusted = KspStatePatcher.ResolveSciencePoolPatch(
@@ -2134,10 +2133,9 @@ namespace Parsek.Tests
 
             // Ledger target still carries the un-debited 750; live is 650. The running
             // basis is 750 too - the reconstruction has not ingested the debit either -
-            // which is the live-race shape this adjuster exists for (and, on a save whose
-            // exchange can still commit, the load-time unmatchable baseline is 0 anyway).
+            // which is the live-race shape this adjuster exists for.
             double adjusted = KspStatePatcher.AdjustSciencePatchTargetForPendingStrategyScienceDebit(
-                targetScience: 750.0, currentScience: 650f, preStrategyRunning: 750.0);
+                targetScience: 750.0, currentScience: 650f);
 
             Assert.Equal(650.0, adjusted, 4);
             Assert.Contains(logLines, l =>
