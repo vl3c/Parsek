@@ -7,12 +7,12 @@ namespace Parsek
     /// <summary>
     /// A committed recording the loaded save names but that does not load keeps its ledger
     /// rows (owner ruling O3, 2026-10-21; game-actions design sections 3.13 and 4.3). The
-    /// load drops such a recording (a sidecar that fails to hydrate, a partial schema reject,
-    /// a tree that loads empty) and the next save no longer names it, so its rows lose their
+    /// load drops such a recording (a sidecar that fails to hydrate, a tree that loads empty)
+    /// and the next save no longer names it, so its rows lose their
     /// recording for good: the cold ledger load keeps them as career rows with the tag cleared
     /// (<see cref="LedgerOrchestrator.KeepRowsOfRecordingsThatFailedToLoad"/>), the same shape
-    /// a non-rewind discard leaves. A whole tree the schema gate rejects stays inert instead
-    /// (GC-3) and keeps its tagged rows; a never-committed Re-Fly provisional is left to the
+    /// a non-rewind discard leaves. A tree the schema gate rejects, wholly or in part, stays
+    /// inert instead (GC-3, T6) and keeps its tagged rows; a never-committed Re-Fly provisional is left to the
     /// load sweep.
     /// </summary>
     public partial class ParsekScenario

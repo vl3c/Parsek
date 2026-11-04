@@ -1440,7 +1440,15 @@ namespace Parsek
             // save round-trips any Parsek node it carries unchanged.
             if (ParsekGameModeGate.CheckInert("ParsekScenario.OnSave"))
             {
-                WriteInertGameModeNode(node);
+                try
+                {
+                    WriteInertGameModeNode(node);
+                }
+                finally
+                {
+                    StripGhostMapVesselsFailClosed(
+                        HighLogic.CurrentGame?.flightState, "OnSave(inert)", "inert-node", phasesCompleted: true);
+                }
                 return;
             }
 
@@ -1448,6 +1456,7 @@ namespace Parsek
             int recordingCount = 0;
             int dirtyCount = 0;
             string savePhase = "entry";
+            bool phasesCompleted = false;
             try
             {
                 RecorderStateLog.RecState("OnSave:pre", CaptureScenarioRecorderState());
@@ -1539,15 +1548,6 @@ namespace Parsek
                 savePhase = "playback-replay-scope";
                 PlaybackScopeTracker.SaveInto(node);
 
-                // Strip ghost map ProtoVessels — they are transient and reconstructed on load
-                savePhase = "ghost-map-strip";
-                if (GhostMapPresence.ghostMapVesselPids.Count > 0)
-                {
-                    var flightState = HighLogic.CurrentGame?.flightState;
-                    if (flightState != null)
-                        GhostMapPresence.StripFromSave(flightState);
-                }
-
                 // A fresh stamp per save: an in-session load that reads another one read a
                 // save no stock load announced (the canary, design 4.1).
                 savePhase = "save-stamp";
@@ -1555,6 +1555,7 @@ namespace Parsek
 
                 lastOnSaveScene = HighLogic.LoadedScene;
                 RecorderStateLog.RecState("OnSave:post", CaptureScenarioRecorderState());
+                phasesCompleted = true;
             }
             catch (Exception ex)
             {
@@ -1563,9 +1564,56 @@ namespace Parsek
             }
             finally
             {
+                // Fail closed: ghost map ProtoVessels are stripped whether or not a phase threw.
+                StripGhostMapVesselsFailClosed(
+                    HighLogic.CurrentGame?.flightState, "OnSave", savePhase, phasesCompleted);
                 if (sw.IsRunning)
                     sw.Stop();
                 WriteSaveTiming(sw, recordingCount, dirtyCount);
+            }
+        }
+
+        /// <summary>
+        /// Removes every ghost map ProtoVessel from <paramref name="flightState"/> before stock writes
+        /// it (audit R2). Called from <see cref="OnSave"/>'s <c>finally</c>, so it runs whether or not
+        /// a save phase threw: stock builds the flight state from every live vessel (ghosts included)
+        /// BEFORE it runs the scenario saves, and nothing on the load side can tell a serialized ghost
+        /// from a player craft, so a skipped strip would leave ghosts in a flight state a later write
+        /// could persist as real vessels.
+        /// <para>A phase that threw still propagates (the strip never masks it): when
+        /// <paramref name="phasesCompleted"/> is false a failing strip is logged and swallowed. When
+        /// the phases completed, a failing strip rethrows so the save aborts rather than writing
+        /// ghosts. Returns the number of ProtoVessels removed.</para>
+        /// </summary>
+        internal static int StripGhostMapVesselsFailClosed(
+            FlightState flightState,
+            string context,
+            string savePhase,
+            bool phasesCompleted)
+        {
+            if (flightState == null || GhostMapPresence.ghostMapVesselPids.Count == 0)
+                return 0;
+            try
+            {
+                int stripped = GhostMapPresence.StripFromSave(flightState);
+                if (!phasesCompleted)
+                {
+                    ParsekLog.Warn("Scenario",
+                        $"{context}: phase '{savePhase ?? "<none>"}' threw; stripped " +
+                        $"{stripped.ToString(CultureInfo.InvariantCulture)} ghost ProtoVessel(s) anyway " +
+                        "(fail-closed ghost strip)");
+                }
+                return stripped;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Scenario",
+                    $"{context}: ghost ProtoVessel strip failed after phase '{savePhase ?? "<none>"}' " +
+                    $"(phasesCompleted={phasesCompleted}): {ex.GetType().Name}: {ex.Message}" +
+                    (phasesCompleted ? " - aborting the save so no ghost is written" : ""));
+                if (phasesCompleted)
+                    throw;
+                return 0;
             }
         }
 
@@ -2700,6 +2748,23 @@ namespace Parsek
                         $"SaveActiveTreeIfAny: flush failed ({ex.Message}) — active tree will be written with stale recorder data");
                 }
             }
+            else if (flight.ParkedSplitRecorderForSerialization != null)
+            {
+                // A deferred split parked the recorder (audit R6): its unflushed data goes into this
+                // write only, so the deferred split still finds the tree it expects.
+                ParkedSplitSaveOverlay overlay = null;
+                try
+                {
+                    overlay = flight.BeginParkedSplitSaveOverlay();
+                    WriteActiveTreeNode(
+                        node, activeTree, flight.ParkedSplitRecorderForSerialization, rewindSourceParked: true);
+                }
+                finally
+                {
+                    overlay?.Restore();
+                }
+                return;
+            }
             else
             {
                 ParsekLog.Verbose("Scenario",
@@ -2708,6 +2773,22 @@ namespace Parsek
                     $"serializing tree without flush");
             }
 
+            WriteActiveTreeNode(node, activeTree, recorder, rewindSourceParked: false);
+        }
+
+        /// <summary>
+        /// The write half of <see cref="SaveActiveTreeIfAny"/>: sidecars (both-or-neither) and the
+        /// <c>isActive</c> RECORDING_TREE node. <paramref name="rewindSource"/> is the recorder whose
+        /// rewind save the node and the root carry: the live recorder, the recorder a deferred split
+        /// parked (<paramref name="rewindSourceParked"/>; its stop moved the rewind save into its
+        /// stop capture), or null in outsider state.
+        /// </summary>
+        private static void WriteActiveTreeNode(
+            ConfigNode node,
+            RecordingTree activeTree,
+            FlightRecorder rewindSource,
+            bool rewindSourceParked)
+        {
             // Persist bulk data for active-tree recordings (same pattern as committed trees).
             int restoredFromCommittedTree = RestoreHydrationFailedRecordingsFromCommittedTree(
                 activeTree,
@@ -2798,7 +2879,7 @@ namespace Parsek
             // serializing so an F5/F9 tree keeps its rewind affordance after merge.
             ParsekFlight.CopyRewindSaveToRoot(
                 activeTree,
-                recorder,
+                rewindSource,
                 logTag: "SaveActiveTreeIfAny");
 
             ConfigNode treeNode = node.AddNode("RECORDING_TREE");
@@ -2807,11 +2888,15 @@ namespace Parsek
 
             // Persist recorder state needed to resume after quickload.
             //
-            // In outsider state (#266), recorder is null — there's no live rewind save
+            // In outsider state (#266), there's no recorder and no live rewind save
             // filename to persist. The tree's root recording still has rewindSave from
             // the original launch (copied into rootRec.RewindSaveFileName at stash time).
-            if (recorder != null && !string.IsNullOrEmpty(recorder.RewindSaveFileName))
-                treeNode.AddValue("resumeRewindSave", recorder.RewindSaveFileName);
+            // A parked split recorder moved its rewind save into its stop capture.
+            string resumeRewindSave = rewindSource?.RewindSaveFileName;
+            if (string.IsNullOrEmpty(resumeRewindSave) && rewindSourceParked)
+                resumeRewindSave = rewindSource.CaptureAtStop?.RewindSaveFileName;
+            if (!string.IsNullOrEmpty(resumeRewindSave))
+                treeNode.AddValue("resumeRewindSave", resumeRewindSave);
 
             ParsekLog.Info("Scenario",
                 $"OnSave: wrote ACTIVE tree '{activeTree.TreeName}' ({activeRecCount} recording(s), " +
@@ -6346,20 +6431,21 @@ namespace Parsek
 
                     CollectNamedCommittedRecordingIds(treeNode, namedCommittedRecordingIds);
                     var tree = RecordingTree.Load(treeNode);
+                    // GC-3: a committed tree the schema gate rejected, wholly or in part (T6), is
+                    // kept inert and written back verbatim by SaveTreeRecordings (a pass-through,
+                    // not a migration); anything else that loaded empty is skipped as before.
+                    string inertReason = InertRecordingTrees.ClassifyCommittedTreeSchemaRejection(treeNode, tree);
+                    if (inertReason != null)
+                    {
+                        InertRecordingTrees.SetAside(treeNode, inertReason);
+                        ParsekLog.Warn("Scenario",
+                            $"LoadRecordingTrees: tree '{tree.TreeName}' id={tree.Id} was rejected by " +
+                            $"the schema gate (reason={inertReason}); kept inert, not loaded " +
+                            $"(loadedRecordings={(tree.Recordings != null ? tree.Recordings.Count : 0).ToString(CultureInfo.InvariantCulture)})");
+                        continue;
+                    }
                     if (tree.Recordings == null || tree.Recordings.Count == 0)
                     {
-                        // GC-3: a committed tree the schema gate rejected is kept inert and
-                        // written back verbatim by SaveTreeRecordings (a pass-through, not a
-                        // migration); anything else that loaded empty is skipped as before.
-                        string inertReason = InertRecordingTrees.ClassifySchemaRejection(treeNode, tree);
-                        if (inertReason != null)
-                        {
-                            InertRecordingTrees.SetAside(treeNode, inertReason);
-                            ParsekLog.Warn("Scenario",
-                                $"LoadRecordingTrees: tree '{tree.TreeName}' id={tree.Id} was rejected by " +
-                                $"the schema gate (reason={inertReason}); kept inert, not loaded");
-                            continue;
-                        }
                         ParsekLog.Warn("Scenario",
                             $"LoadRecordingTrees: skipped tree '{tree.TreeName}' id={tree.Id} " +
                             "because it holds no recording");
