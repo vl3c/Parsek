@@ -17,7 +17,8 @@ namespace Parsek.Tests
     public class SplitFocusSwitchResumeTests : IDisposable
     {
         private const string FlightPath = "ParsekFlight.cs";
-        private const string RecorderPath = "FlightRecorder.cs";
+        // ResumeAfterFalseAlarm lives in the recorder's stop / finalize partial.
+        private const string RecorderPath = "FlightRecorder.StopAndFinalize.cs";
 
         private readonly List<string> logLines = new List<string>();
 

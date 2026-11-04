@@ -83,7 +83,9 @@ RATE_WINDOW_SECONDS = 60.0
 
 # ---------------------------------------------------------------------------
 # The C# literals the checks key on: (check id, repo-relative C# file, literal).
-# The literal must occur in the comment-stripped file (SourceSyncTests).
+# The literal must occur in the comment-stripped file (SourceSyncTests). A path
+# with a '*' is a glob over a partial class's files (SRC_ORCHESTRATOR): the
+# literal must occur in their concatenation.
 # ---------------------------------------------------------------------------
 
 SRC_LEDGER_TRACE = "Source/Parsek/LedgerTrace.cs"
@@ -92,9 +94,11 @@ SRC_SCIENCE = "Source/Parsek/GameActions/ScienceModule.cs"
 SRC_FUNDS = "Source/Parsek/GameActions/FundsModule.cs"
 SRC_REPUTATION = "Source/Parsek/GameActions/ReputationModule.cs"
 SRC_TAKE_BACK = "Source/Parsek/GameActions/StockShadowTakeBack.cs"
+# A partial class: the SourceSyncTests read this main file together with its
+# KspStatePatcher.<Family>.cs files.
 SRC_PATCHER = "Source/Parsek/GameActions/KspStatePatcher.cs"
 SRC_LEDGER = "Source/Parsek/GameActions/Ledger.cs"
-SRC_ORCHESTRATOR = "Source/Parsek/GameActions/LedgerOrchestrator.cs"
+SRC_ORCHESTRATOR = "Source/Parsek/GameActions/LedgerOrchestrator*.cs"
 SRC_LOAD_POLICY = "Source/Parsek/LoadReconcilePolicy.cs"
 SRC_SCENARIO = "Source/Parsek/ParsekScenario.cs"
 SRC_TERMINAL_ORBIT = "Source/Parsek/ParsekFlight.TerminalOrbit.cs"

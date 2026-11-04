@@ -143,6 +143,101 @@ placement = "R0"
 name = "Harness"
 prefix = "^LedgerGroundTruth[.]cs$|^LedgerGroundTruthDiff[.]cs$|^CareerSaveParser[.]cs$|^TestBatchMarker[.]cs$|^CareerStartSnapshot[.]cs$"
 placement = "R0"
+# --- R0 operator placements (2026-11-01 refresh) ---------------------------
+# Root files added since 2026-09-25 that no family rule matched (the checker
+# reported 50 unplaced and skipped them). Placed by hand from what each file
+# does, with the --place evidence (docs/dev/arch/core-placement.md) as a tiebreak.
+
+# Re-Fly / supersede bookkeeping
+[[module]]
+name = "Rewind"
+prefix = "^DiscardReFlyLoadIntent[.]cs$|^InertRecordingTrees[.]cs$|^SlotVesselWalk[.]cs$|^SplitParentLinks[.]cs$"
+placement = "R0"
+
+# load and scene lifecycle driven by ParsekScenario
+[[module]]
+name = "Controllers"
+prefix = "^LoadReconcilePolicy[.]cs$|^SaveFileLoadIntent[.]cs$|^InSessionStagedStateHandoff[.]cs$|^NoSaveSceneExit[.]cs$|^StartupNotices[.]cs$"
+placement = "R0"
+
+# spawn, claim, time-jump and in-flight commit policy the scene controllers run
+[[module]]
+name = "Controllers"
+prefix = "^ClaimedVesselHoldGhost[.]cs$|^ClaimedVesselRemoval[.]cs$|^CoexistingTreeSiblingSpawn[.]cs$|^ConstructionGhostShape[.]cs$|^ConverterJumpPolicy[.]cs$|^GroundPartPlacement[.]cs$|^InFlightCommitOptimization[.]cs$|^InFlightRecoveryRequest[.]cs$|^PostPhysicsPose[.]cs$|^ResumedSpawnPartCoverage[.]cs$|^SpawnWarpOutcome[.]cs$|^SpawnedHarvesterRestore[.]cs$|^TimeJumpManager[.]Placement[.]cs$|^TimeJumpPlacement[.]cs$|^LaunchSiteExclusionZones[.]cs$|^ForeignInventoryTransfer[.]cs$"
+placement = "R0"
+
+# ghost-side launch-site policy
+[[module]]
+name = "Ghost"
+prefix = "^LaunchSiteOnlyGhost[.]cs$"
+placement = "R0"
+
+# gates and observers the Harmony patches read
+[[module]]
+name = "Patches"
+prefix = "^ClaimedVesselDisposalGate[.]cs$|^ParsekGameModeGate[.]cs$|^PostFlightDialogLog[.]cs$|^StandInSeatCount[.]cs$"
+placement = "R0"
+
+# ledger capture scopes
+[[module]]
+name = "GameActions"
+prefix = "^CurrencyScenarioReadiness[.]cs$|^FacilityUpgradeCapture[.]cs$|^RecoveryDispatchScope[.]cs$|^RecoveryPayoutScope[.]cs$"
+placement = "R0"
+
+# recording files, sidecars and recorder classification
+[[module]]
+name = "Recording"
+prefix = "^GravityHackDetector[.]cs$|^SidecarVersions[.]cs$|^SectionWarpRuns[.]cs$|^SaveReferenceScanner[.]cs$|^ParsekFileCollector[.]cs$|^DockingPortSeparation[.]cs$"
+placement = "R0"
+
+# pure tail-velocity math
+[[module]]
+name = "Trajectory"
+prefix = "^RecordedTailVelocityResolver[.]cs$"
+placement = "R0"
+
+# window presentation
+[[module]]
+name = "UI"
+prefix = "^CareerSlotSummary[.]cs$"
+placement = "R0"
+
+# --- R0 operator placements (2026-11-04 merge of main) ---------------------
+# Root files main added after the 2026-11-01 refresh that no family rule matched.
+
+# flag replay: the recorded flag pick-up event (a SegmentEvent payload) and the removed-flag
+# tombstones the replay reads so it never replants a flag the player took away
+[[module]]
+name = "Ghost"
+prefix = "^FlagPickUp[.]cs$|^RemovedReplayFlags[.]cs$"
+placement = "R0"
+
+# the save-time view of a recorder parked by a deferred split (its buffers, the parent recording)
+[[module]]
+name = "Recording"
+prefix = "^ParkedSplitSaveOverlay[.]cs$"
+placement = "R0"
+
+# vessel and mission names (docs/dev/design-vessel-and-mission-names.md); MissionVesselNaming unions on VesselIdentity
+[[module]]
+name = "Missions"
+prefix = "^VesselIdentity[.]cs$|^VesselNameStore[.]cs$|^VesselNameStore[.]Links[.]cs$|^VesselNameStore[.]RevertUndo[.]cs$|^VesselNameLiveSync[.]cs$|^VesselNameSpawn[.]cs$|^VesselRenameWriter[.]cs$|^DisplayNames[.]cs$"
+placement = "R0"
+
+# the save-format version registry (SaveFormat.cs): every on-disk format number, its 1.0
+# baseline and the load-side classification; most readers are the recording sidecar codecs
+[[module]]
+name = "Recording"
+prefix = "^SaveFormat[.]cs$"
+placement = "R0"
+
+# pure classifier over the flat Recording.Points list: which entries are Relative-section
+# metre offsets, and the body-fixed shadow a flat-points playback fallback reads instead
+[[module]]
+name = "Trajectory"
+prefix = "^FlatPointFrameDispatch[.]cs$"
+placement = "R0"
+
 [[module]]
 name = "Missions"
 prefix = "^Mission"

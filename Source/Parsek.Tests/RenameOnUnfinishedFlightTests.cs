@@ -148,8 +148,10 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
+            // RecordingsTableUI is a partial class: the hide branch lives in DrawRecordingRow,
+            // read from the file that holds it.
             string uiSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+                System.IO.Path.Combine(srcRoot, "UI", RecordingsTableUISourceFiles.TableRows));
 
             // Comments blanked before the needle checks (StripCSharpComments is
             // length-preserving, so indexes taken from the raw text address the same
@@ -158,7 +160,7 @@ namespace Parsek.Tests
             // and a comment mentioning the depth check would trip the negative.
             string preparedUiSrc = SourceScanText.StripCSharpComments(uiSrc);
             int hideAnchor = uiSrc.IndexOf("// Hide checkbox", StringComparison.Ordinal);
-            Assert.True(hideAnchor >= 0, "Hide checkbox anchor should exist in RecordingsTableUI.cs");
+            Assert.True(hideAnchor >= 0, "Hide checkbox anchor should exist in RecordingsTableUI.TableRows.cs");
             int endAnchor = preparedUiSrc.IndexOf("GUILayout.EndHorizontal();", hideAnchor + 1, StringComparison.Ordinal);
             Assert.True(endAnchor > hideAnchor, "Expected closing EndHorizontal after Hide checkbox block");
             // Capture enough of the branch to include both if-branches.
@@ -213,8 +215,10 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
+            // RecordingsTableUI is a partial class: the group hide-all block lives in
+            // DrawGroupTree, read from the file that holds it.
             string uiSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+                System.IO.Path.Combine(srcRoot, "UI", RecordingsTableUISourceFiles.GroupTree));
 
             List<string> missing = FindMissingGroupHideAllRoutingTokens(uiSrc);
 
@@ -262,7 +266,7 @@ namespace Parsek.Tests
             int anchor = prepared.IndexOf(
                 "bool newAllHidden = GUILayout.Toggle(", StringComparison.Ordinal);
             Assert.True(anchor >= 0,
-                "the group hide-all toggle assignment should exist in RecordingsTableUI.cs");
+                "the group hide-all toggle assignment should exist in RecordingsTableUI.GroupTree.cs");
             int blockEnd = prepared.IndexOf("hide-all={newAllHidden}", anchor, StringComparison.Ordinal);
             Assert.True(blockEnd > anchor, "Expected the group hide-all log line after the anchor");
             string groupHideBlock = prepared.Substring(anchor, blockEnd - anchor);

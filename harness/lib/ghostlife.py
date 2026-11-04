@@ -30,7 +30,7 @@ this row costs no second read of a multi-hundred-megabyte file.
 
 THE PRODUCER, transcribed from source rather than from a pasted log line
 (``Source/Parsek/GhostRenderTrace.cs`` ``BuildPrefix`` +
-``Source/Parsek/GhostPlaybackEngine.cs`` ``EmitMeshLifecycleTrace``)::
+``Source/Parsek/GhostPlaybackEngine.Diagnostics.cs`` ``EmitMeshLifecycleTrace``)::
 
     [Parsek][INFO][GhostRenderTrace] phase=MeshSpawned rec=<8> recId=<id>
         ghostIndex=<int> frame=<int> currentUT=<F3> playbackUT=<F3>

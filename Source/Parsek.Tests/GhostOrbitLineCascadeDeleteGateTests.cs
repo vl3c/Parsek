@@ -54,7 +54,7 @@ namespace Parsek.Tests
         [InlineData("GhostMapPresence.cs")]
         public void DeletedCascadeSymbols_StayDeleted(string relPath)
         {
-            string src = StripComments(ReadParsekSource(relPath));
+            string src = StripComments(ReadParsekSourceWithPartials(relPath));
             foreach (string token in ForbiddenCascadeSymbols)
             {
                 Assert.False(
@@ -107,6 +107,26 @@ namespace Parsek.Tests
                 path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
             return File.ReadAllText(path);
+        }
+
+        // The file plus its partial-class siblings (<name>.<Area>.cs in the same folder, in
+        // ordinal name order): GhostMapPresence is split across GhostMapPresence.cs and
+        // GhostMapPresence.<Area>.cs, and the gate covers the whole class.
+        private static string ReadParsekSourceWithPartials(string relPath)
+        {
+            var sb = new StringBuilder(ReadParsekSource(relPath));
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(
+                root, "Source", "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(path))
+                path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
+            string[] partials = Directory.GetFiles(
+                Path.GetDirectoryName(path), Path.GetFileNameWithoutExtension(path) + ".*.cs");
+            Array.Sort(partials, StringComparer.Ordinal);
+            foreach (string partial in partials)
+                sb.Append('\n').Append(File.ReadAllText(partial));
+            return sb.ToString();
         }
 
         // Strip line comments so the in-code tombstone notes (which name the deleted symbols on

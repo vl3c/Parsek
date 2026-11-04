@@ -278,7 +278,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnPhysicsFrame_ChecksTheBodyBeforeCommittingTheSample()
         {
-            string body = MethodBody("FlightRecorder.cs", "public void OnPhysicsFrame(Vessel v)");
+            string body = MethodBody("FlightRecorder.Sampling.cs", "public void OnPhysicsFrame(Vessel v)");
             int split = body.IndexOf("SplitSectionIfPhysicsBodyChanged(v, point)", StringComparison.Ordinal);
             int relative = body.IndexOf("ApplyRelativeOffset(ref point, v)", StringComparison.Ordinal);
             int commit = body.IndexOf("CommitRecordedPoint(point, v", StringComparison.Ordinal);

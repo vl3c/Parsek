@@ -1080,12 +1080,12 @@ namespace Parsek.Tests
             // Capture-loss risk is zero only while Ledger.AddAction precedes the dispatch
             // decision. A refactor that moved the rows behind the defer would put every
             // captured conversion at the mercy of a coroutine that may never resume.
-            // Both scans start at the door's OWN body. LedgerOrchestrator.cs holds a second,
-            // unrelated "Ledger.AddAction(action, ...)" in OnKscSpending that sits EARLIER in the
-            // file, so a file-wide IndexOf was satisfied by that call instead and the very
+            // Both scans start at the door's OWN body. The LedgerOrchestrator sources hold a
+            // second, unrelated "Ledger.AddAction(action, ...)" in OnKscSpending that sits EARLIER
+            // in the text, so a source-wide IndexOf was satisfied by that call instead and the very
             // refactor this cell names - moving the door's write behind the defer - left it
             // green.
-            string src = ReadParsekSource("GameActions/LedgerOrchestrator.cs");
+            string src = LedgerOrchestratorSource.ReadAll();
             int doorIdx = src.IndexOf(
                 "internal static void OnStrategyCurrencyConversion", StringComparison.Ordinal);
             Assert.True(doorIdx > 0, "OnStrategyCurrencyConversion not found in LedgerOrchestrator");

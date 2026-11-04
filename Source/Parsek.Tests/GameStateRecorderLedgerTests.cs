@@ -2004,22 +2004,17 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Brace-matched, comment-stripped body of one method in
-        /// <c>LedgerOrchestrator.cs</c>, in the wiring-gate style
+        /// the LedgerOrchestrator partial-class files, in the wiring-gate style
         /// (mirrors <c>SoiSeamProducerWiringGateTests.MethodBody</c>). Signature fragments
         /// must be UNAMBIGUOUS - an ambiguous one fails loudly rather than pinning the
         /// wrong body.
         /// </summary>
         private static string LedgerOrchestratorMethodBody(string signatureFragment)
         {
-            string path = System.IO.Path.Combine(
-                SyntheticRecordingTests.ResolveProjectRoot(),
-                "Source", "Parsek", "GameActions", "LedgerOrchestrator.cs");
-            Assert.True(System.IO.File.Exists(path), "source not found at " + path);
-
             // Strip line comments (which includes /// doc-comments) so the many
             // <see cref="PickRecoveryRecordingId"/> mentions cannot satisfy a body scan.
             var stripped = new System.Text.StringBuilder();
-            foreach (string line in System.IO.File.ReadAllText(path).Split('\n'))
+            foreach (string line in LedgerOrchestratorSource.ReadAll().Split('\n'))
             {
                 int c = line.IndexOf("//", StringComparison.Ordinal);
                 stripped.Append(c >= 0 ? line.Substring(0, c) : line).Append('\n');

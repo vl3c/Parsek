@@ -197,9 +197,9 @@ namespace Parsek.Tests
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(root, "Source", "Parsek", "GameActions", "KspStatePatcher.cs");
-            Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
+            string dir = Path.Combine(root, "Source", "Parsek", "GameActions");
+            Assert.True(File.Exists(Path.Combine(dir, "KspStatePatcher.cs")), "Source file not found under " + dir);
+            return KspStatePatcherSourceFiles.ReadAll(dir);
         }
 
         private static string StripComments(string source)

@@ -7804,6 +7804,9 @@ as drawn until the next of those.
 - The greedy cut sequence now starts with `GameAction` (its one in-knot reference, `Ledger`,
   splits off 28 types), then `RecordingStore`.
 
+**2026-11-01:** the 7-type knot no longer exists on its own: once the 50 unplaced root files
+were placed, it merged into the kernel knot (584). The fix direction below is unchanged.
+
 **Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
 explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
 `LedgerOrchestrator` references the index cache and the strategy state patcher back (cache
@@ -9498,6 +9501,159 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Landed so far (2026-09-14): #1682 tooling, #1683 ParsekLog leaf, #1684 Recording data-only,
   #1685 Missions -> Logistics boundary, #1686 VesselSpawner step 1. Cycle 391 -> 282.
 
+**Refreshed 2026-11-01** (main 2622fd5e6, full history; `archview.py --check --place`, `count-code.py`):
+- The checker had drifted with nothing to notice it: 50 production root files were unplaced
+  (skipped from every figure) and six real-tree cells in `scripts/arch/test_archview.py` were
+  red on main. The 50 now have `R0` rules in `scripts/arch/modules.toml` (one fix:
+  `GravityHackDetector.cs` holds a `FlightRecorder` partial, so it is Recording) and the
+  canaries are re-pinned.
+- The kernel knot is 584 types (301 on 2026-09-25); the stock-UI 7-type knot merged into it.
+  The greedy cuts leave 328 (no longer half). The first cut is `Recording` again: the data
+  type calls `LaunchSiteOnlyGhost.IsHidden` and `SidecarVersions.CopyHashes`, which ties 50
+  types to the knot (a regression of #1684). Second is `GameAction` (five references).
+- 109 production files at or above 1,000 lines, 16 at or above 5,000 (83 / 14 on 2026-09-22).
+  Largest types: `ParsekFlight` 35,099 lines over 14 files, `GhostMapPresence` 15,314,
+  `FlightRecorder` 14,935, `GhostPlaybackLogic` 14,653, `ParsekScenario` 12,959,
+  `LedgerOrchestrator` 11,222 (one file), `RecordingStore` 10,142.
+- Top file pairs: `FlightRecorder.cs` / `ParsekFlight.cs` and `ParsekScenario.cs` /
+  `RecordingStore.cs`, 160 commits each.
+- Boundaries: `Missions -> Logistics` was a name collision (a nested `VesselIdentity` struct in
+  `RouteEndpointTransfer.cs`), not a crossing. `Ghost -> GameActions` is crossed by one real
+  call (`GhostPlaybackLogic` -> `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`).
+- Atlas findings and opportunities re-read (`atlas.toml`, `reviewed = "2026-11-01"`). The
+  regenerated page is published at https://claude.ai/artifact/6uSBEKzHEtBHaK5t7bFxjm; the
+  link above keeps the 2026-09-22 page. Without graphviz `dot` on PATH the page has no map.
+- On the refactor branch claude/project-thread-bkwmrr only (not on main, they change
+  compiled code): `Recording` is plain data again (knot 584 -> 535; `GhostVisible` reads an
+  installed `Recording.GhostHiddenRule`, `DeepClone` copies the sidecar hashes inline), and
+  `GameAction`'s two real knot calls moved out (the `cseq` key and parse to a leaf
+  `CaptureSequenceCodec`, the per-load tallies from `Ledger` to a nested
+  `GameAction.LoadTally`). The golden `GAME_ACTION` codec test that pins the bytes
+  (`SaveRoundTrip/GameActionCodecGoldenTests.cs`) tests main's codec and is on main too.
+- The scanner now skips member names (ARCH-TOOLING-ROSLYN-AND-CI). The member rule leaves
+  object-initializer lines and a property named like its own type (`Treatment Treatment
+  { get; }`) as references (review fix). The new 3-type knot is the stock-UI grey trio
+  `ButtonEntry` / `GreyLedger` / `StockUiGreyedButton`. On main's production code the knots
+  are 542, 4 and 3, and the first greedy cuts are `Recording` (542 -> 494: `LaunchSiteOnlyGhost`,
+  `SidecarVersions`) and `GameAction` (455: `CaptureSequence`, `Ledger`); the cut residue is
+  301. On the refactor branch, with both re-cut, the knots were 454, 4 and 3, the first cuts
+  `Route` then `RecordingStore`, the residue 273. `GameAction`'s remaining knot edges there
+  (`CaptureSequence`, `ConversionCause`, `FundsEarningSource`, `ReputationSource`) were
+  scanner false positives: same-named fields, and the enum member `Milestone` read as a type.
+- `KspStatePatcher` (6,939 lines, one file) is now a partial class over 11 files (S3, pure
+  move by `scripts/refactor/split_kspstatepatcher.py`, which checks the line multiset): the
+  main `KspStatePatcher.cs` (330: `PatchAll`, `PatchPools`, the resets and EVERY static field,
+  since partial-file field initializers run in an undefined order) plus `.Science` (721),
+  `.Tech` (955), `.Unlocks` (788), `.FundsReputation` (324), `.PoolGuards` (622),
+  `.RewindReadback` (252), `.Milestones` (895), `.Contracts` (783), `.ContractParameters`
+  (609) and `.ContractRemoval` (790).
+- `LedgerOrchestrator` split into partial-class files (rule S3, pure move by
+  `scripts/refactor/split_ledgerorchestrator.py`; every static field stays in the main file):
+  `LedgerOrchestrator.cs` 600 lines, `.Commit.cs` 1279, `.CommitRows.cs` 974,
+  `.EarningsReconcile.cs` 1188, `.Recalculate.cs` 1511, `.Seeds.cs` 1286, `.Persistence.cs`
+  927, `.LiveEvents.cs` 1514, `.Recovery.cs` 1271, `.Affordability.cs` 781.
+- `FlightRecorder.cs` split into partial files (S3, pure move by
+  `scripts/refactor/split_flightrecorder.py`; fields, constants, initialized properties and
+  constructors stay in the main file): `FlightRecorder.cs` 2,270 lines, `.PartModuleStates`
+  1,909, `.PartEvents` 1,866, `.PointCommit` 1,343, `.RelativeAnchors` 1,148,
+  `.StopAndFinalize` 1,082, `.StartRecording` 977, `.EnvironmentAndTrackSections` 808,
+  `.Sampling` 807, `.EngineAndRcs` 626.
+- `GhostMapPresence.cs` split into partial files by `scripts/refactor/split_ghostmappresence.py`
+  (pure move; every field, const and initializer stays in the main file): main 1,762 lines,
+  `.ProtoVesselLifecycle` 2,106, `.StateVectors` 2,093, `.SourceResolution` 1,961,
+  `.TrackingStationLifecycle` 1,656, `.FlightMapLifecycle` 1,274, `.TargetingAndSelection`
+  1,022, `.OverlapInstances` 975, `.ReFlySuppression` 791, `.OrbitLines` 791.
+- `GhostPlaybackLogic.cs` (9,489 lines) is split further (S3, pure move by
+  `scripts/refactor/split_ghostplaybacklogic.py`, same line-multiset check; region pairs move
+  whole): the main file (907: every field, the resets, the external-vessel ghost policy and
+  the zone / soft-cap fidelity / auto loop range policy) plus `.GhostInfo` (698),
+  `.Visibility` (679), `.PartEvents` (1,404), `.EngineRcsFx` (1,036), `.Audio` (926),
+  `.Robotics` (641), `.SynthesizedMotion` (1,243), `.HeatDeployablesLights` (977) and
+  `.SpawnDecision` (1,077), beside the existing `.SpanClock` / `.StandaloneLoopClock` /
+  `.WarpLoopPolicy` / `.WatchMode`.
+- `GhostPlaybackEngine` (9,327-line main file) split further into partial-class files (rule
+  S3, pure move by `scripts/refactor/split_ghostplaybackengine.py`; every field, event,
+  property, constant and the constructor stay in the main file): `GhostPlaybackEngine.cs`
+  1494 lines, `.InRangeRender.cs` 748, `.LoopUnits.cs` 1357, `.LoopPlayback.cs` 1603,
+  `.Completion.cs` 611, `.SectionPositioning.cs` 700, `.ReentryFx.cs` 481, `.GhostVisuals.cs`
+  635, `.SpawnDestroy.cs` 933, `.Diagnostics.cs` 882.
+- `BackgroundRecorder.cs` (8,231 lines) split further into partial-class files (S3, pure move
+  by `scripts/refactor/split_backgroundrecorder.py`; every field, constant, property and the
+  constructor stay in the main file): `BackgroundRecorder.cs` 1,507 lines, `.MemberReconcile`
+  516, `.GameEventHandlers` 310, `.SplitDetection` 1,388, `.Finalization` 885,
+  `.StateInitialization` 862, `.Sampling` 809, `.RelativeAnchors` 1,118, `.TrackSections` 932,
+  beside the existing `.PartEventPolling` / `.State` / `.Testing` / `.TimeJump`.
+- `GhostVisualBuilder.cs` (7,754 lines) split further into partial-class files (S3, pure move
+  by `scripts/refactor/split_ghostvisualbuilder.py`; every field, constant and property stays
+  in the main file): `GhostVisualBuilder.cs` 1,841 lines, `.FxSetup` 763, `.AnimationSampling`
+  842, `.HeatAndReentryFx` 984, `.AudioFx` 209, `.RcsFx` 357, `.Fairings` 272,
+  `.SynthesizedMotion` 793, `.PartInfoBuilders` 1,058, `.TransientFx` 742, beside the existing
+  `.Parsing` / `.SnapshotBaseline` / `.Variants`.
+- `UI/RecordingsTableUI.cs` (6,965 lines, an instance class) is now a partial class over 10
+  files (S3, pure move by `scripts/refactor/split_recordingstableui.py`; every field, event,
+  property, constant and the constructor stay in the main file): `RecordingsTableUI.cs` 1,231
+  lines, `.TableRows` 1,125, `.GroupTree` 900, `.RewindColumns` 765, `.UnfinishedFlights` 625,
+  `.Window` 592, `.LoopPeriod` 572, `.SortAndStatus` 533, `.GroupAggregates` 498,
+  `.WatchButton` 250.
+- `Display/GhostTrajectoryPolylineRenderer.cs` (6,938 lines) is now a partial class over 7
+  files (S3, pure move by `scripts/refactor/split_ghosttrajectorypolylinerenderer.py`; every
+  field, constant and property stays in the main file): `GhostTrajectoryPolylineRenderer.cs`
+  4,166 lines, `.Builder` 621, `.Anchoring` 575, `.LegDraw` 531, `.SeamBridges` 459,
+  `.Diagnostics` 387, `.ForwardArcs` 265. The main file stays large on purpose: the nested
+  `Driver` (2,764 lines, the fenced single draw host of design-map-ts-render-architecture.md
+  Appendix A) and the ownership / paint publication stay whole in the file the contract names.
+- Test-gap pass over the 10 split classes (test-only): 52 previously untested `internal`
+  helpers (guards, classifiers, formatters, clamps) now have direct characterization tests in
+  10 new `Source/Parsek.Tests/<Class>CharacterizationTests.cs` files (148 cases, 3 mutation
+  checks red as expected). A name-based scan still finds 85 untested `internal` logic methods
+  in those classes (338 counting `private`), most of them Unity-coupled (particle systems,
+  audio, transforms) or reachable only through private helpers.
+- On the refactor branch claude/project-thread-bkwmrr only (not on main, it changes
+  compiled code): the dead Re-Fly frame-offset chain is removed (no behavior or log-text
+  change). Its offset resolver always refuses (`display-alignment-removed`), so
+  `TryCanonicalizeReFlyRecordingPoint` / `TryCanonicalizeReFlyRecordingOrbitSegment` never change a point or a segment and every
+  caller ignored the result. The 15 point call sites go; the 8 orbit-segment call sites keep
+  the one line the old path could write (`... skipped: ... reason=orbital-velocity-non-finite`)
+  through `FlightRecorder.LogReFlyOrbitSegmentVelocityNonFinite`. The two characterization
+  cases of the removed `TryApplyReFlyRecordingFrameOffsetToWorld` go with it there (on main
+  all 148 stay).
+- On the refactor branch only: `BackgroundRecorder.ShouldRunBackgroundStateDriftCheck`'s
+  time-went-backwards branch `nextLastCheckUT = double.MinValue` is a dead store (the
+  fall-through always overwrites it with `currentUT`); removed there, behavior identical.
+- Source-gate tightening (test-only): `ReFlyAnchorBypassWiringTests`'s background
+  no-bypass gate now scans `UpdateBackgroundAnchorDetection` from its declaration in
+  `BackgroundRecorder.RelativeAnchors.cs` (it scanned from the call site in
+  `BackgroundRecorder.cs`, so a bypass call planted in the method stayed green). The three
+  readers that name a split class's files (`BackgroundRecorderSourceFiles`,
+  `GhostTrajectoryPolylineRendererSourceFiles`, `RecordingsTableUISourceFiles`, through the new
+  `PartialClassSourceFiles`) and hlib's `_bg_recorder_source` now list `<Class>.*.cs` on disk
+  and fail naming any partial file their lists do not declare; the other readers
+  (`GhostPlaybackEngine`, `KspStatePatcher`, `LedgerOrchestrator`, `GhostMapPresence`,
+  `FlightRecorder`, ledgeraudit `_src_paths`) already read the whole glob.
+- Merge of main a73abc1af (2026-11-04): main edited four split classes, so each was re-split
+  from main's single file by its script (line multiset checked by the script and again
+  independently). New members placed: `ReadLiveAllowNegativeCurrency` -> `.PoolGuards`;
+  `ResolveCrewRowName` -> `.CommitRows`, `SlotOwnerOrSelf` / `CrewSlotOwnerName` ->
+  `.Persistence`; the flag pick-up members (`ApplyFlagPickUps`, `RemoveStandingFlagsLive`,
+  `ResolveBodyRadius`, `ResolveBodyRadiusLive` and two testing setters) ->
+  `GhostPlaybackLogic.PartEvents`. Main's new `GhostMapPresence.OverlapHighWarp.cs` stays as
+  main wrote it (now a declared sibling in `split_ghostmappresence.py`). Line counts after:
+  `KspStatePatcher.PoolGuards` 632, `LedgerOrchestrator.CommitRows` 1,013 and `.Persistence` 977,
+  `GhostMapPresence.cs` 1,764, `.ProtoVesselLifecycle` 2,107 and `.OverlapInstances` 1,002,
+  `GhostPlaybackLogic.cs` 913 and `.PartEvents` 1,573. Arch map: main's three new root files got
+  R0 rules (`FlagPickUp` / `RemovedReplayFlags` -> Ghost, `ParkedSplitSaveOverlay` -> Recording);
+  on the refactor branch the knots became 456, 4 and 3 (`ParkedSplitSaveOverlay` and
+  `NoSaveSceneExit` joined the kernel), the first cuts `Route` (456 -> 438) and `RecordingStore`
+  (421), and the cut residue rose 273 -> 277, all main's own code. `CareerSettingsLock.Action`
+  is a new scanner false positive (every `System.Action` reads as it) and has a glossary line
+  saying so.
+- Release branch `refactor-release-splits` (2026-11-04): everything above except the
+  compiled-code changes marked refactor-branch-only, so its `Parsek.dll` is method for method
+  identical to main's (ikdasm compare). It keeps the partial-file splits (re-split from main's
+  single files by the scripts), the test-only changes and the architecture tooling; there the
+  knots are 542, 4 and 3 and the cut-residue ratchet is 306 (301 before main's save-format
+  freeze #2380 removed `GameAction`'s `Ledger` call; the first two cuts now leave 496 and 456).
+
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
 split rules; the later break-up pass of large files and classes into smaller ones works
@@ -9526,7 +9682,7 @@ name set is false, and a null or empty set is false with a live transform. Addin
 category a committed harness spec pins moves that spec's `BATCH_COMPLETE total=` tally
 (`CommittedBatchTallySourceSyncTests`), so pick the category with that in mind.
 
-## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
+## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines (30,126 on 2026-11-01; the type is 35,099 over 14 files) and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
 - Touched in 1,125 of the 5,127 commits since 2025-03-01 (22 percent of every commit to
@@ -9548,7 +9704,9 @@ make the types it touches easier to reason about.
 
 **What is true.**
 - 6,970 lines plus partials, fan-in 91 files, touched in 408 commits (third most churned file);
-  co-changes with `ParsekScenario.cs` 131 times and `ParsekFlight.cs` 128.
+  co-changes with `ParsekScenario.cs` 131 times and `ParsekFlight.cs` 128. On 2026-11-01:
+  10,142 lines over 13 files, fan-in 101, 497 commits, 42 reassignable statics; co-changes
+  with `ParsekScenario.cs` 160 times and `ParsekFlight.cs` 150.
 - Inside the knot it references 37 other members: stores, codecs, the scenario, the flight
   controller, the ledger orchestrator, the crew manager. It is the third greedy cut and the
   first that names a design problem rather than a stray reference.
@@ -9570,7 +9728,9 @@ calls directly. One service per PR; the co-change with `ParsekScenario.cs` is th
   the incomplete-ballistic scene-exit finalizer, so the one module the docs call pure math is
   not.
 - `MissionRouteStructureList.cs` references `Logistics.Route` and `RouteStop`: the one declared
-  boundary (`[forbidden]` in `scripts/arch/modules.toml`) the checker finds crossed.
+  boundary (`[forbidden]` in `scripts/arch/modules.toml`) the checker finds crossed. (Closed
+  in #1685. On 2026-11-01 the crossed boundary is `Ghost -> GameActions`: one call,
+  `GhostPlaybackLogic` -> `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`.)
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
@@ -9589,13 +9749,23 @@ Update `modules.toml` in the same commits so the placement report stays true.
   runs the script. Nothing in CI or the xUnit suite executes it.
 - Namespaces do not match the module map: 370 of 749 files sit in the flat `namespace Parsek`,
   so no off-the-shelf tool (ArchUnitNET, NsDepCop, NDepend) can express the boundaries either.
+- 2026-11-01 (refactor branch): the scan now skips member names. A field, property, method or
+  enum member spelled like a type (`public long CaptureSequence;`, the enum member `Milestone`)
+  is not read as a reference to that type, unless it is type-qualified (`Ledger.X`,
+  `Parsek.CaptureSequence.Key`). On the refactor branch, where `GameAction`'s two real knot
+  calls are moved out, that removed the false positives that still held it in the knot
+  (535 -> 454); on main's code its real calls keep it in (knot 542). Still missed: object-initializer members of another type (`Held = ...`
+  on `Ghost -> GameActions`), which only the Roslyn extractor below can tell apart.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
    `edges.json` / `types.json` shape, so every view and every number stays comparable.
 2. An xUnit test that fails on the placement contract only (unplaced root file, missing atlas
    summary) while dependency findings stay report-only; add the regeneration command to the
-   per-commit docs checklist in `.claude/CLAUDE.md`.
+   per-commit docs checklist in `.claude/CLAUDE.md`. **DONE 2026-11-01 (refactor branch) in a
+   different shape:** CI's `tests` job now runs `scripts/arch`'s own suite, whose real-tree
+   cells include the new `test_every_production_file_is_placed` (placement contract), the
+   atlas-summary cells and the knot canaries; `.claude/CLAUDE.md`'s CI paragraph names it.
 3. Then the mechanical namespace rename to match `modules.toml`, and arm the three forbidden
    edges as failing tests.
 

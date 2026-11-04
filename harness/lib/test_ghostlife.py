@@ -738,6 +738,17 @@ class EmitterSourceGuardTests(unittest.TestCase):
             return fh.read()
 
     @staticmethod
+    def _read_engine():
+        """GhostPlaybackEngine is one partial class over GhostPlaybackEngine.cs and
+        its GhostPlaybackEngine.<Area>.cs files: read them as one text, the main
+        file first, then the rest in ordinal file-name order, each file whole."""
+        parts = sorted(n for n in os.listdir(PARSEK_SOURCE_DIR)
+                       if n.startswith("GhostPlaybackEngine.") and n.endswith(".cs")
+                       and n != "GhostPlaybackEngine.cs")
+        return "\n".join(EmitterSourceGuardTests._read(n)
+                         for n in ["GhostPlaybackEngine.cs"] + parts)
+
+    @staticmethod
     def _strip_comments(text):
         """Drop `//`-to-end-of-line from every line. See the class docstring for
         the accepted limitation."""
@@ -810,7 +821,7 @@ class EmitterSourceGuardTests(unittest.TestCase):
                           "every lifecycle line as malformed" % name)
 
     def test_the_tail_puts_vessel_before_reason(self):
-        src = self._read("GhostPlaybackEngine.cs")
+        src = self._read_engine()
         body = self._method_body(src, "private static bool EmitMeshLifecycleTrace(")
         v, r = body.find("vessel="), body.find(" reason=")
         self.assertGreaterEqual(v, 0, "EmitMeshLifecycleTrace no longer emits vessel=")
@@ -822,10 +833,10 @@ class EmitterSourceGuardTests(unittest.TestCase):
     def test_both_phase_tokens_are_live_call_sites(self):
         # The two phases are string ARGUMENTS at the call sites, not constants in
         # the emitter, so they are pinned where they are passed. Comments
-        # stripped first - GhostPlaybackEngine.cs discusses both tokens in prose
+        # stripped first - GhostPlaybackEngine.Diagnostics.cs discusses both tokens in prose
         # right above the emitter, which is exactly the trap this class exists
         # to avoid.
-        src = self._strip_comments(self._read("GhostPlaybackEngine.cs"))
+        src = self._strip_comments(self._read_engine())
         for phase in ghostlife.LIFECYCLE_PHASES:
             with self.subTest(phase=phase):
                 self.assertIn('EmitMeshLifecycleTrace("%s"' % phase, src,
@@ -834,7 +845,7 @@ class EmitterSourceGuardTests(unittest.TestCase):
                               % (phase,))
 
     def test_the_spawn_reason_token_is_the_one_the_call_site_passes(self):
-        src = self._strip_comments(self._read("GhostPlaybackEngine.cs"))
+        src = self._strip_comments(self._read_engine())
         self.assertIn('"%s"' % ghostlife.SPAWN_REASON, src)
 
     def test_the_subsystem_tag_matches_the_emitters_subsystem(self):
@@ -1047,7 +1058,7 @@ class GhostlifeV2EmitterSourceGuardTests(unittest.TestCase):
     _CALL_MODE_RE = re.compile(r'"([\w-]+)"\)')
 
     def _engine(self):
-        return EmitterSourceGuardTests._read("GhostPlaybackEngine.cs")
+        return EmitterSourceGuardTests._read_engine()
 
     def test_the_loop_cycle_tail_is_cycle_prev_mode_then_vessel_last(self):
         body = EmitterSourceGuardTests._method_body(

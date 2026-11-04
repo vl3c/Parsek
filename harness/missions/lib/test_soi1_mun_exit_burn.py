@@ -464,7 +464,11 @@ class DriftTests(unittest.TestCase):
                         "Reference frame transition: ", " at SOI boundary ",
                         " onRails=0 source=", " closingSample="):
             self.assertIn(literal, physics, literal)
-        recorder = self._read(RECORDER_CS)
+        # FlightRecorder is a partial class: the main file plus every FlightRecorder.*.cs.
+        src_dir = os.path.dirname(RECORDER_CS)
+        partials = sorted(n for n in os.listdir(src_dir)
+                          if n.startswith("FlightRecorder.") and n.endswith(".cs"))
+        recorder = "\n".join(self._read(os.path.join(src_dir, n)) for n in partials)
         self.assertIn("onRails={(onRails ? 1 : 0)} source={source}", recorder)
 
 

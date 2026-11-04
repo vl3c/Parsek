@@ -27,6 +27,17 @@ Source/Parsek/ParsekScenario.RevertLedgerSnapshot.cs
 # --- Ledger owner + orchestration internals ---
 Source/Parsek/GameActions/Ledger.cs
 Source/Parsek/GameActions/LedgerOrchestrator.cs
+# The LedgerOrchestrator.<Area>.cs files are the partial-class split of
+# LedgerOrchestrator.cs (members moved verbatim): same trust scope as the main file.
+Source/Parsek/GameActions/LedgerOrchestrator.Affordability.cs
+Source/Parsek/GameActions/LedgerOrchestrator.Commit.cs
+Source/Parsek/GameActions/LedgerOrchestrator.CommitRows.cs
+Source/Parsek/GameActions/LedgerOrchestrator.EarningsReconcile.cs
+Source/Parsek/GameActions/LedgerOrchestrator.LiveEvents.cs
+Source/Parsek/GameActions/LedgerOrchestrator.Persistence.cs
+Source/Parsek/GameActions/LedgerOrchestrator.Recalculate.cs
+Source/Parsek/GameActions/LedgerOrchestrator.Recovery.cs
+Source/Parsek/GameActions/LedgerOrchestrator.Seeds.cs
 # [ERS-exempt] the capture-order allocator takes the next value above every row the ledger
 # physically holds (tombstoned and superseded rows included), so no number is ever reissued.
 Source/Parsek/GameActions/CaptureSequence.cs
@@ -59,6 +70,15 @@ Source/Parsek/InGameTests/
 # deeper refactor (tracked as TODO(phase 6+): migrate to EffectiveRecordingId
 # walk). Each exemption is documented at the call site.
 Source/Parsek/GhostMapPresence.cs
+# The GhostMapPresence partials below hold members moved verbatim out of
+# GhostMapPresence.cs (a pure file split); same index-keyed exemption as above.
+Source/Parsek/GhostMapPresence.FlightMapLifecycle.cs
+Source/Parsek/GhostMapPresence.OrbitLines.cs
+Source/Parsek/GhostMapPresence.ProtoVesselLifecycle.cs
+Source/Parsek/GhostMapPresence.ReFlySuppression.cs
+Source/Parsek/GhostMapPresence.SourceResolution.cs
+Source/Parsek/GhostMapPresence.StateVectors.cs
+Source/Parsek/GhostMapPresence.TrackingStationLifecycle.cs
 Source/Parsek/WatchModeController.cs
 Source/Parsek/ParsekFlight.cs
 # The blocked chain tip ghost partial reads the committed list by INDEX to pair a
@@ -72,11 +92,19 @@ Source/Parsek/ParsekFlight.PlacementJump.cs
 Source/Parsek/ParsekPlaybackPolicy.cs
 Source/Parsek/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs
-Source/Parsek/FlightRecorder.cs
+# FlightRecorder's partial-class split: the one raw read (BootstrapAvgBytesPerPoint, the
+# on-disk .prec size sample, [ERS-exempt] at the call site) lives in this partial.
+Source/Parsek/FlightRecorder.StopAndFinalize.cs
 Source/Parsek/ParsekKSC.cs
 Source/Parsek/ParsekKSC.Playback.cs
 Source/Parsek/ParsekUI.cs
 Source/Parsek/UI/RecordingsTableUI.cs
+# RecordingsTableUI's partial-class split (scripts/refactor/split_recordingstableui.py):
+# the raw reads RecordingsTableUI.cs held now also sit in these three partials, same
+# rationale as the main file (the window draw, the loop-period commit, the rewind-retirement check).
+Source/Parsek/UI/RecordingsTableUI.LoopPeriod.cs
+Source/Parsek/UI/RecordingsTableUI.RewindColumns.cs
+Source/Parsek/UI/RecordingsTableUI.Window.cs
 Source/Parsek/UI/GroupPickerUI.cs
 
 # TimelineWindowUI builds a `committedIndexById` lookup off the raw

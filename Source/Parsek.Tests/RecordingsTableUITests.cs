@@ -674,8 +674,9 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            string uiSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+            // RecordingsTableUI is a partial class: this whole-file scan reads every file
+            // of the class (RecordingsTableUISourceFiles).
+            string uiSrc = RecordingsTableUISourceFiles.ReadAll(System.IO.Path.Combine(srcRoot, "UI"));
 
             // Per-row guard: the watchKey local must be routed through
             // UpdateWatchButtonTransitionCache, which guards null/empty keys
@@ -706,19 +707,24 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            string uiSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+            // RecordingsTableUI is a partial class: each anchored span is read from the file
+            // that holds its method, the whole-file needles from every file of the class.
+            string uiSrc = RecordingsTableUISourceFiles.ReadAll(System.IO.Path.Combine(srcRoot, "UI"));
+            string rowsSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", RecordingsTableUISourceFiles.TableRows));
+            string rewindSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", RecordingsTableUISourceFiles.RewindColumns));
 
-            int rowStart = uiSrc.IndexOf("DrawLegacyRewindForwardCell(rec, ri, now, flight);", StringComparison.Ordinal);
-            int rowEnd = uiSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
-            string rowBlock = uiSrc.Substring(rowStart, rowEnd - rowStart);
+            int rowStart = rowsSrc.IndexOf("DrawLegacyRewindForwardCell(rec, ri, now, flight);", StringComparison.Ordinal);
+            int rowEnd = rowsSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
+            string rowBlock = rowsSrc.Substring(rowStart, rowEnd - rowStart);
 
             Assert.Contains("DrawLegacyRewindForwardCell(rec, ri, now, flight);", rowBlock);
             Assert.Contains("DrawReFlyColumnCell(rec, ri, now);", rowBlock);
 
-            int resolverStart = uiSrc.IndexOf("internal static ReFlyColumnAction ResolveReFlyColumnAction", StringComparison.Ordinal);
-            int resolverEnd = uiSrc.IndexOf("/// <summary>", resolverStart, StringComparison.Ordinal);
-            string resolverBlock = uiSrc.Substring(resolverStart, resolverEnd - resolverStart);
+            int resolverStart = rewindSrc.IndexOf("internal static ReFlyColumnAction ResolveReFlyColumnAction", StringComparison.Ordinal);
+            int resolverEnd = rewindSrc.IndexOf("/// <summary>", resolverStart, StringComparison.Ordinal);
+            string resolverBlock = rewindSrc.Substring(resolverStart, resolverEnd - resolverStart);
 
             int rpRoute = resolverBlock.IndexOf("ResolveUnfinishedFlightRewindRoute(", StringComparison.Ordinal);
             int stashRoute = resolverBlock.IndexOf("TryResolveStashableUnfinishedFlightRewindPoint(", StringComparison.Ordinal);
@@ -740,20 +746,26 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            string uiSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+            // RecordingsTableUI is a partial class: each anchored span is read from the file
+            // that holds its method.
+            string rowsSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", RecordingsTableUISourceFiles.TableRows));
+            string rewindSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", RecordingsTableUISourceFiles.RewindColumns));
+            string groupSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", RecordingsTableUISourceFiles.GroupTree));
 
-            int rowStart = uiSrc.IndexOf("DrawLegacyRewindForwardCell(rec, ri, now, flight);", StringComparison.Ordinal);
-            int rowEnd = uiSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
-            string rowBlock = uiSrc.Substring(rowStart, rowEnd - rowStart);
+            int rowStart = rowsSrc.IndexOf("DrawLegacyRewindForwardCell(rec, ri, now, flight);", StringComparison.Ordinal);
+            int rowEnd = rowsSrc.IndexOf("// Hide checkbox", rowStart, StringComparison.Ordinal);
+            string rowBlock = rowsSrc.Substring(rowStart, rowEnd - rowStart);
 
             Assert.Contains("DrawLegacyRewindForwardCell(rec, ri, now, flight);", rowBlock);
             Assert.Contains("DrawReFlyColumnCell(rec, ri, now);", rowBlock);
 
             // internal (not private): the Missions tab reuses these cells for its vessel rows.
-            int helperStart = uiSrc.IndexOf("internal void DrawLegacyRewindForwardCell", StringComparison.Ordinal);
-            int helperEnd = uiSrc.IndexOf("internal void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
-            string helperBlock = uiSrc.Substring(helperStart, helperEnd - helperStart);
+            int helperStart = rewindSrc.IndexOf("internal void DrawLegacyRewindForwardCell", StringComparison.Ordinal);
+            int helperEnd = rewindSrc.IndexOf("internal void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
+            string helperBlock = rewindSrc.Substring(helperStart, helperEnd - helperStart);
 
             Assert.Contains("RecordingStore.CanFastForward(", helperBlock);
             Assert.Contains("RecordingStore.CanRewind(", helperBlock);
@@ -766,9 +778,9 @@ namespace Parsek.Tests
             Assert.DoesNotContain("sameBody", helperBlock);
             Assert.DoesNotContain("inRange", helperBlock);
 
-            int groupStart = uiSrc.IndexOf("// Rewind / Forward button. Forward still targets", StringComparison.Ordinal);
-            int groupEnd = uiSrc.IndexOf("// Hide group checkbox", groupStart, StringComparison.Ordinal);
-            string groupBlock = uiSrc.Substring(groupStart, groupEnd - groupStart);
+            int groupStart = groupSrc.IndexOf("// Rewind / Forward button. Forward still targets", StringComparison.Ordinal);
+            int groupEnd = groupSrc.IndexOf("// Hide group checkbox", groupStart, StringComparison.Ordinal);
+            string groupBlock = groupSrc.Substring(groupStart, groupEnd - groupStart);
 
             Assert.Contains("RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording)", groupBlock);
             Assert.Contains("FindGroupLegacyRewindRecordingIndex(descendants, committed, now)", groupBlock);
@@ -779,9 +791,9 @@ namespace Parsek.Tests
             Assert.DoesNotContain("sameBody", groupBlock);
             Assert.DoesNotContain("inRange", groupBlock);
 
-            int blockStart = uiSrc.IndexOf("// Rewind / Forward button for chain and grouped recording blocks.", StringComparison.Ordinal);
-            int blockEnd = uiSrc.IndexOf("GUILayout.Label(\"\", bodyCellLabel, GUILayout.Width(ColW_ReFly));", blockStart, StringComparison.Ordinal);
-            string blockTemporal = uiSrc.Substring(blockStart, blockEnd - blockStart);
+            int blockStart = rowsSrc.IndexOf("// Rewind / Forward button for chain and grouped recording blocks.", StringComparison.Ordinal);
+            int blockEnd = rowsSrc.IndexOf("GUILayout.Label(\"\", bodyCellLabel, GUILayout.Width(ColW_ReFly));", blockStart, StringComparison.Ordinal);
+            string blockTemporal = rowsSrc.Substring(blockStart, blockEnd - blockStart);
 
             Assert.Contains("FindAggregateForwardRecordingIndex(members, committed, now)", blockTemporal);
             Assert.Contains("RecordingStore.CanFastForward(forwardRec, out ffReason, isRecording: isRecording)", blockTemporal);
@@ -870,8 +882,9 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            string uiSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+            // RecordingsTableUI is a partial class: this whole-file scan reads every file
+            // of the class (RecordingsTableUISourceFiles).
+            string uiSrc = RecordingsTableUISourceFiles.ReadAll(System.IO.Path.Combine(srcRoot, "UI"));
 
             // Per-row site still uses (flight, ri).
             Assert.Contains("BuildWatchObservabilitySuffix(flight, ri)", uiSrc);
@@ -897,19 +910,23 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            string uiSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+            // RecordingsTableUI is a partial class: each anchored span is read from the file
+            // that holds its method.
+            string rowsSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", RecordingsTableUISourceFiles.TableRows));
+            string groupSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", RecordingsTableUISourceFiles.GroupTree));
 
-            int rowWatchStart = uiSrc.IndexOf("// Watch button (flight only)", StringComparison.Ordinal);
-            int rowWatchEnd = uiSrc.IndexOf("// Rewind / Forward button", rowWatchStart, StringComparison.Ordinal);
-            string rowWatchBlock = uiSrc.Substring(rowWatchStart, rowWatchEnd - rowWatchStart);
+            int rowWatchStart = rowsSrc.IndexOf("// Watch button (flight only)", StringComparison.Ordinal);
+            int rowWatchEnd = rowsSrc.IndexOf("// Rewind / Forward button", rowWatchStart, StringComparison.Ordinal);
+            string rowWatchBlock = rowsSrc.Substring(rowWatchStart, rowWatchEnd - rowWatchStart);
 
             Assert.DoesNotContain("ResolveEffectiveWatchTargetIndex", rowWatchBlock);
             Assert.Contains("flight.WatchedRecordingIndex == ri", rowWatchBlock);
 
-            int groupWatchStart = uiSrc.IndexOf("// Watch button (flight only) — Bug #382", StringComparison.Ordinal);
-            int groupWatchEnd = uiSrc.IndexOf("// Rewind / Forward button. Forward still targets", groupWatchStart, StringComparison.Ordinal);
-            string groupWatchBlock = uiSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
+            int groupWatchStart = groupSrc.IndexOf("// Watch button (flight only) — Bug #382", StringComparison.Ordinal);
+            int groupWatchEnd = groupSrc.IndexOf("// Rewind / Forward button. Forward still targets", groupWatchStart, StringComparison.Ordinal);
+            string groupWatchBlock = groupSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
 
             Assert.Contains("GhostPlaybackLogic.AdvanceGroupWatchCursor", groupWatchBlock);
             Assert.Contains("groupWatchCursorByGroupName", groupWatchBlock);

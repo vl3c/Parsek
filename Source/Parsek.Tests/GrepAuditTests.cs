@@ -88,11 +88,11 @@ namespace Parsek.Tests
             Assert.Contains(unlisted, v => v.StartsWith("Source/Parsek/MissionStore.cs:2:", StringComparison.Ordinal));
 
             var pinned = new Dictionary<string, string[]>(files, StringComparer.OrdinalIgnoreCase);
-            var recorder = new List<string>(pinned["Source/Parsek/FlightRecorder.cs"]);
+            var recorder = new List<string>(pinned["Source/Parsek/FlightRecorder.StartRecording.cs"]);
             recorder.Add("System.IO.File.Delete(RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildRewindSaveRelativePath(name)));");
-            pinned["Source/Parsek/FlightRecorder.cs"] = recorder.ToArray();
+            pinned["Source/Parsek/FlightRecorder.StartRecording.cs"] = recorder.ToArray();
             var moved = ParsekFileDeleteViolations(allowlist, pinned);
-            Assert.Contains(moved, v => v.Contains("Source/Parsek/FlightRecorder.cs: pinned 2"));
+            Assert.Contains(moved, v => v.Contains("Source/Parsek/FlightRecorder.StartRecording.cs: pinned 2"));
         }
 
         [Fact]

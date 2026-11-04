@@ -10,6 +10,7 @@ Runs under ``python -m unittest discover -s lib -q``. ASCII only; stdlib only.
 """
 
 import contextlib
+import glob
 import gzip
 import io
 import json
@@ -1456,9 +1457,35 @@ def _strip_cs_comments(text):
     return re.sub(r"//[^\n]*", "", text)
 
 
+def _src_paths(rel):
+    """The file(s) a source anchor names. ``SRC_PATCHER`` is a partial class split over
+    ``KspStatePatcher.cs`` and one ``KspStatePatcher.<Family>.cs`` per stock state family,
+    read as one text: the main file first, then the family files in name order, each whole."""
+    path = os.path.join(REPO_ROOT, *rel.split("/"))
+    if "*" in rel:
+        # A glob over a partial class's files (SRC_ORCHESTRATOR): the main file first,
+        # then the rest in name order.
+        main_name = os.path.basename(path).replace("*", "")
+        paths = sorted(glob.glob(path), key=lambda p: (os.path.basename(p) != main_name, p))
+        if not paths:
+            raise AssertionError("no source file matches %s" % rel)
+        return paths
+    if rel != la.SRC_PATCHER:
+        return [path]
+    stem = os.path.splitext(path)[0]
+    family = sorted(n for n in os.listdir(os.path.dirname(path))
+                    if n.startswith(os.path.basename(stem) + ".") and n.endswith(".cs")
+                    and n != os.path.basename(path))
+    return [path] + [os.path.join(os.path.dirname(path), n) for n in family]
+
+
 def _src(rel):
-    with open(os.path.join(REPO_ROOT, *rel.split("/")), "r", encoding="utf-8") as fh:
-        return _strip_cs_comments(fh.read().replace("\r\n", "\n"))
+    """Comment-stripped text of ``rel``, every file ``_src_paths`` names joined."""
+    texts = []
+    for path in _src_paths(rel):
+        with open(path, "r", encoding="utf-8") as fh:
+            texts.append(fh.read().replace("\r\n", "\n"))
+    return _strip_cs_comments("\n".join(texts))
 
 
 def _method_body(src, name):

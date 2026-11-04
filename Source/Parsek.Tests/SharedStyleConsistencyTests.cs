@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -80,12 +81,14 @@ namespace Parsek.Tests
             // Fails if a window builds a countdown of its own ("T-" glued to a number, or the
             // removed SelectiveSpawnUI / MissionsWindowUI copies) instead of
             // ParsekTimeFormat.FormatCountdown.
+            // RecordingsTableUI is a partial class: its RecordingsTableUI.<Area>.cs files are
+            // scanned alongside the main file.
             string[] files =
             {
                 "MissionsWindowUI.cs", "LogisticsRoutePresentation.cs", "RecordingsTableUI.cs",
                 "SpawnControlUI.cs", "SpawnControlPresentation.cs", "TimelineWindowUI.cs",
             };
-            foreach (string f in files)
+            foreach (string f in files.Concat(RecordingsTableUISourceFiles.SplitFileNames))
             {
                 string code = StripComments(ReadSource("UI", f));
                 Assert.DoesNotContain("SelectiveSpawnUI.FormatCountdown", code);
@@ -126,7 +129,7 @@ namespace Parsek.Tests
             Assert.Contains("GUILayout.Label(time,showCountdownTime?timelineCountdownStyle:style,", timeline);
             string logistics = Dense(StripComments(ReadSource("UI", "LogisticsWindowUI.cs")));
             Assert.Contains("nextAmberStyle.normal.textColor=ParsekUI.CountdownTextColor;", logistics);
-            string recordings = Dense(StripComments(ReadSource("UI", "RecordingsTableUI.cs")));
+            string recordings = Dense(StripComments(ReadRecordingsTableClass()));
             Assert.Contains("statusStyleFuture.normal.textColor=ParsekUI.CountdownTextColor;", recordings);
         }
 
@@ -173,7 +176,7 @@ namespace Parsek.Tests
             Assert.Contains("GUILayout.Label(\"Nomissionsrecordedyet.\",parentUI.GetEmptyStateStyle());",
                 Dense(ReadSource("UI", "MissionsWindowUI.cs")));
             Assert.Contains("GUILayout.Label(\"Norecordingsyet.\",parentUI.GetEmptyStateStyle());",
-                Dense(ReadSource("UI", "RecordingsTableUI.cs")));
+                Dense(ReadRecordingsTableClass()));
             Assert.Contains("GUILayout.Label(\"Nonearbycrafttospawn.\",parentUI.GetEmptyStateStyle());",
                 Dense(ReadSource("UI", "SpawnControlUI.cs")));
             Assert.Contains("GUILayout.Label(\"Notimelineentries.\",parentUI.GetEmptyStateStyle());",
@@ -269,6 +272,10 @@ namespace Parsek.Tests
             Assert.True(File.Exists(path), "source not found: " + path);
             return File.ReadAllText(path).Replace("\r\n", "\n");
         }
+
+        // RecordingsTableUI is a partial class: a whole-file gate reads every file of it.
+        private static string ReadRecordingsTableClass() =>
+            RecordingsTableUISourceFiles.ReadAll(SourceDir("UI")).Replace("\r\n", "\n");
 
         private static string Dense(string s) => Regex.Replace(s, @"\s+", string.Empty);
 
