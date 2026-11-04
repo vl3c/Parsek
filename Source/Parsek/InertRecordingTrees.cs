@@ -84,6 +84,9 @@ namespace Parsek
         /// current one; reason <c>tree-generation-older|newer|missing</c>), and a tree whose
         /// recordings the per-recording gate rejected so that nothing loaded (every recording, or
         /// the root and with it the whole tree; reason <c>recordings-&lt;first reason&gt;</c>).
+        /// The per-recording gate is the schema stamps plus
+        /// <see cref="RecordingTreeRecordCodec.ClassifyUnreadableRecordingNode"/> (no id, an
+        /// unknown merge state).
         /// <paramref name="loaded"/> is what <see cref="RecordingTree.Load"/> returned for the node;
         /// when null, only the node is read and "nothing loaded" means every RECORDING child failed
         /// the gate. A tree with no recordings at all, or with at least one loaded recording, is
@@ -135,8 +138,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Counts the RECORDING children of <paramref name="treeNode"/> the per-recording schema gate
-        /// rejects (format version and generation read as <c>RecordingTree.Load</c> reads them).
+        /// Counts the RECORDING children of <paramref name="treeNode"/> the per-recording gate
+        /// rejects: the schema stamps (format version and generation, read as
+        /// <c>RecordingTree.Load</c> reads them), then
+        /// <see cref="RecordingTreeRecordCodec.ClassifyUnreadableRecordingNode"/>.
         /// Returns the number of RECORDING children.
         /// </summary>
         private static int CountRejectedRecordings(ConfigNode treeNode, out int rejected, out string firstReason)
@@ -155,7 +160,12 @@ namespace Parsek
                 if (!int.TryParse(recNodes[i].GetValue("recordingSchemaGeneration"), NumberStyles.Integer, ic,
                         out generation))
                     generation = 0;
-                if (!RecordingStore.IsRecordingSchemaCompatible(format, generation, out string reason))
+                string reason;
+                if (!RecordingStore.IsRecordingSchemaCompatible(format, generation, out reason))
+                    reason = reason ?? "schema-mismatch";
+                else
+                    reason = RecordingTreeRecordCodec.ClassifyUnreadableRecordingNode(recNodes[i]);
+                if (reason != null)
                 {
                     rejected++;
                     if (firstReason == null)

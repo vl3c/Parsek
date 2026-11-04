@@ -16,6 +16,11 @@ namespace Parsek.Analyzer.Rules
     //   2. Cycles (FAIL). The parent-edge graph and the supersede (Old->New)
     //      graph must be acyclic; the walk terminates via a per-walk visited set
     //      so a corrupt A.parent=B / B.parent=A pair cannot loop forever.
+    //   2c. Ambiguous supersede (FAIL). Both supersede walkers take the FIRST row
+    //      whose OldRecordingId matches, so two rows for one old id are a fork the
+    //      list order silently resolves. A duplicate is reported only when its
+    //      walk ends at a different tip than the first row's (a redundant A->C
+    //      beside A->B, B->C is harmless).
     //   3. Chain contiguity (FAIL / INFO). ChainIndex runs are contiguous PER
     //      (ChainId, ChainBranch). A missing index is FAIL unless the chain
     //      carries a supersede boundary (a HEAD/TIP re-fly split), in which case
@@ -51,6 +56,7 @@ namespace Parsek.Analyzer.Rules
             CheckDanglingLinks(model, idSet, findings);
             CheckParentCycles(model, idSet, byId, findings);
             CheckSupersedeCycles(model, findings);
+            CheckAmbiguousSupersedes(model, findings);
             CheckChainContiguity(model, findings);
 
             return findings;
@@ -237,6 +243,59 @@ namespace Parsek.Analyzer.Rules
                     cur = next[cur];
                 }
             }
+        }
+
+        // --- Family 2c: one effective supersede target per old recording id ---
+
+        private static void CheckAmbiguousSupersedes(AnalyzerModel model, List<Finding> findings)
+        {
+            if (model.SupersedeRelations == null || model.SupersedeRelations.Count < 2)
+                return;
+
+            // First-match map, exactly what EffectiveRecordingId / EffectiveTipRecordingId read.
+            var next = new Dictionary<string, string>(System.StringComparer.Ordinal);
+            foreach (RecordingSupersedeRelation rel in model.SupersedeRelations)
+            {
+                if (rel == null || string.IsNullOrEmpty(rel.OldRecordingId) || string.IsNullOrEmpty(rel.NewRecordingId))
+                    continue;
+                if (!next.ContainsKey(rel.OldRecordingId))
+                    next[rel.OldRecordingId] = rel.NewRecordingId;
+            }
+
+            var reported = new HashSet<string>(System.StringComparer.Ordinal);
+            foreach (RecordingSupersedeRelation rel in model.SupersedeRelations)
+            {
+                if (rel == null || string.IsNullOrEmpty(rel.OldRecordingId) || string.IsNullOrEmpty(rel.NewRecordingId))
+                    continue;
+                string first = next[rel.OldRecordingId];
+                if (string.Equals(first, rel.NewRecordingId, System.StringComparison.Ordinal))
+                    continue;
+                if (reported.Contains(rel.OldRecordingId))
+                    continue;
+                string firstTip = WalkSupersedeTip(first, next);
+                string otherTip = WalkSupersedeTip(rel.NewRecordingId, next);
+                if (string.Equals(firstTip, otherTip, System.StringComparison.Ordinal))
+                    continue;
+                reported.Add(rel.OldRecordingId);
+                findings.Add(new Finding(
+                    RuleIdConst,
+                    VerdictLevel.Fail,
+                    rel.OldRecordingId,
+                    -1,
+                    Inv("INV7 badlink recording={0} field=SupersedeRelation target={1} kind=ambiguous-supersede firstTip={2} otherTip={3}",
+                        rel.OldRecordingId, rel.NewRecordingId, firstTip, otherTip),
+                    "EffectiveState.EffectiveRecordingId"));
+            }
+        }
+
+        /// <summary>Walks the first-match supersede map to its terminus; cycle-safe.</summary>
+        private static string WalkSupersedeTip(string start, Dictionary<string, string> next)
+        {
+            var visited = new HashSet<string>(System.StringComparer.Ordinal);
+            string cur = start;
+            while (cur != null && visited.Add(cur) && next.TryGetValue(cur, out string n))
+                cur = n;
+            return cur;
         }
 
         // --- Family 3: chain contiguity per (ChainId, ChainBranch) ---

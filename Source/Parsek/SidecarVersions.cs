@@ -248,6 +248,9 @@ namespace Parsek
         /// <summary>A version-sourced sidecar that was moved into the head position.</summary>
         public bool Promoted;
 
+        /// <summary>The version was read from an unfiled <c>.incoming.</c> backup, not a filed version.</summary>
+        public bool FromIncoming;
+
         /// <summary>The path to read: the head for NoHash / Head / a promoted version, the version path for an unpromoted one, null when unresolved.</summary>
         public string ReadPath
         {
@@ -417,8 +420,62 @@ namespace Parsek
                     $"kind={SidecarVersions.Label(kind)} hash={namedHash} path='{versionPath}' - not read");
             }
 
+            // A replaced head whose filing failed (a locked file, a crash between the swap and
+            // the rename) still sits under _versions as '<id><suffix>.incoming.<guid>'; the
+            // collector files it only at the end of this same load. Read it when its bytes
+            // carry the named hash, so the save's version is not missing for a session.
+            string incomingPath = FindIncomingWithHash(headPath, recordingId, kind, namedHash);
+            if (incomingPath != null)
+            {
+                result.Source = SidecarResolveSource.Version;
+                result.VersionPath = incomingPath;
+                result.FromIncoming = true;
+                return result;
+            }
+
             result.Source = SidecarResolveSource.Unresolved;
             return result;
+        }
+
+        /// <summary>
+        /// The unfiled <c>.incoming.</c> backup of this head whose bytes hash to
+        /// <paramref name="namedHash"/>, or null. Only files that parse as this recording's
+        /// and this kind's incoming name are hashed.
+        /// </summary>
+        internal static string FindIncomingWithHash(
+            string headPath, string recordingId, SidecarKind kind, string namedHash)
+        {
+            string dir = SidecarVersions.VersionsDirectoryForHead(headPath);
+            if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(recordingId)
+                || string.IsNullOrEmpty(namedHash) || !Directory.Exists(dir))
+                return null;
+
+            string[] candidates;
+            try
+            {
+                candidates = Directory.GetFiles(
+                    dir, recordingId + SidecarVersions.Suffix(kind) + SidecarVersions.IncomingMarker + "*");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Sidecar incoming scan failed: rec={recordingId} kind={SidecarVersions.Label(kind)} " +
+                    $"dir='{dir}' ex={ex.GetType().Name}:{ex.Message}");
+                return null;
+            }
+
+            Array.Sort(candidates, StringComparer.Ordinal);
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                string name = Path.GetFileName(candidates[i]);
+                if (!SidecarVersions.TryParseIncomingFileName(name, out string parsedId, out SidecarKind parsedKind)
+                    || !string.Equals(parsedId, recordingId, StringComparison.Ordinal)
+                    || parsedKind != kind)
+                    continue;
+                if (HashEquals(candidates[i], namedHash))
+                    return candidates[i];
+            }
+            return null;
         }
 
         private static bool HashEquals(string path, string expected)
@@ -456,7 +513,7 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 $"Sidecar version resolved: rec={rec?.RecordingId ?? "<null>"} " +
                 $"kind={SidecarVersions.Label(resolution.Kind)} hash={resolution.NamedHash} " +
-                $"source={(resolution.Source == SidecarResolveSource.Version ? "version" : "head")} " +
+                $"source={(resolution.Source == SidecarResolveSource.Version ? (resolution.FromIncoming ? "incoming" : "version") : "head")} " +
                 $"promoted={(promoted ? "True" : "False")}");
         }
 

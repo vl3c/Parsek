@@ -42,6 +42,10 @@ _(unreleased - entries accumulate here per commit)_
 - **A mission with recordings from another Parsek version is kept whole.** When only some of a
   mission's recordings come from a different Parsek version, the whole mission is set aside
   untouched instead of losing those recordings on the next save. (SCHEMA-PARTIAL-TREE-DROPS-MEMBERS)
+- **Save data Parsek cannot read is no longer guessed at.** A ledger entry it cannot read is kept
+  as written instead of being saved back as a science entry, a recording with an unreadable state
+  is rejected instead of loading as final, and a recording file a crash left half-moved is still
+  found on the next load. (REPLAY-AUDIT-CODEC-HYGIENE)
 - **A Re-Fly merge cut off by a crash now finishes.** If the game crashed or a merge failed just
   as it started, the next load used to drop only the re-flown vessel and keep its EVA kerbals and
   dropped payloads (and what they earned) beside the old flight. The next load now completes the
