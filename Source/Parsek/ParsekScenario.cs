@@ -6144,7 +6144,7 @@ namespace Parsek
         /// allow-negative-currency value is noted for the rows captured from now on
         /// (<see cref="CareerSettingsLog"/>).
         /// </summary>
-        private static void OnDifficultySettingsDismissed(DifficultyOptionsMenu menu, bool applied)
+        private void OnDifficultySettingsDismissed(DifficultyOptionsMenu menu, bool applied)
         {
             ParsekLog.Verbose("CareerSettings", $"Difficulty dialog closed: applied={applied}");
             if (!applied)
