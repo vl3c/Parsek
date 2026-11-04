@@ -1,0 +1,87 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = a10e0000000000000000000000000012
+sidecarEpoch = 1
+sectionAuthoritative = True
+PART_EVENT
+{
+	ut = 165
+	pid = 3100003
+	type = 9
+	part = solarPanels4
+	value = 0
+	midx = 0
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 160
+	endUT = 170
+	sampleRate = 10
+	minAlt = 71000
+	maxAlt = 76000
+	POINT
+	{
+		ut = 160
+		lat = -0.086
+		lon = -74.538
+		alt = 71000
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 1900
+		velZ = 0
+		funds = 25800
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+	POINT
+	{
+		ut = 170
+		lat = -0.07
+		lon = -74
+		alt = 76000
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 2250
+		velZ = 0
+		funds = 25800
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 2
+	startUT = 170
+	endUT = 400
+	sampleRate = 0.1
+	src = 2
+	minAlt = 0
+	maxAlt = 0
+	ORBIT_SEGMENT
+	{
+		startUT = 170
+		endUT = 400
+		inc = 28.5
+		ecc = 0.003
+		sma = 705000
+		lan = 92
+		argPe = 47
+		mna = 0.18
+		epoch = 170
+		body = Kerbin
+		isPredicted = False
+	}
+}

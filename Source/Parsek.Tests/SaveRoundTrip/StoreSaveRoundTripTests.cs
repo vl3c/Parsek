@@ -88,7 +88,7 @@ namespace Parsek.Tests.SaveRoundTrip
             public override string ToString() => Name;
         }
 
-        private static readonly StoreCase[] Stores =
+        internal static readonly StoreCase[] Stores =
         {
             new StoreCase
             {

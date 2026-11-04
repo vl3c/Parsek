@@ -1,0 +1,5856 @@
+GAME
+{
+	version = 1.12.5
+	Title = fresh-career (CAREER)
+	Description = Parsek autotest fixture (synthetic, file-constructed).
+	linkURL = 
+	linkCaption = 
+	Mode = CAREER
+	Status = 1
+	Seed = 1833199993
+	ROCSeed = 1416383496
+	scene = 5
+	editor = None
+	flag = Squad/Flags/default
+	launchID = 36
+	defaultVABLaunchSite = LaunchPad
+	defaultSPHLaunchSite = Runway
+	modded = True
+	envInfo = - Environment Info - Win32NT 7FFFFFFFFFFFFFFF  Args: KSP_x64.exe  -
+	versionFull = 1.12.5.3190 (WindowsPlayer x64)
+	versionCreated = 1.12.5.3190 (WindowsPlayer x64)
+	persistentTimestamp = 2026-06-12T22:09:56.1981610Z
+	RemovedROCs
+	{
+	}
+	CometNames
+	{
+	}
+	PARAMETERS
+	{
+		preset = Custom
+		FLIGHT
+		{
+			CanQuickSave = True
+			CanQuickLoad = True
+			CanAutoSave = True
+			CanUseMap = True
+			CanSwitchVesselsNear = True
+			CanSwitchVesselsFar = True
+			CanTimeWarpHigh = True
+			CanTimeWarpLow = True
+			CanEVA = True
+			CanIVA = True
+			CanBoard = True
+			CanRestart = True
+			CanLeaveToEditor = True
+			CanLeaveToTrackingStation = True
+			CanLeaveToSpaceCenter = True
+			CanLeaveToMainMenu = True
+		}
+		EDITOR
+		{
+			CanSave = True
+			CanLoad = True
+			CanStartNew = True
+			CanLaunch = True
+			CanLeaveToSpaceCenter = True
+			CanLeaveToMainMenu = False
+			startUpMode = 0
+			craftFileToLoad = 
+		}
+		TRACKINGSTATION
+		{
+			CanFlyVessel = True
+			CanAbortVessel = True
+			CanLeaveToSpaceCenter = True
+			CanLeaveToMainMenu = False
+		}
+		SPACECENTER
+		{
+			CanGoInVAB = True
+			CanGoInSPH = True
+			CanGoInTrackingStation = True
+			CanLaunchAtPad = True
+			CanLaunchAtRunway = True
+			CanGoToAdmin = True
+			CanGoToAstronautC = True
+			CanGoToMissionControl = True
+			CanGoToRnD = True
+			CanSelectFlag = True
+			CanLeaveToMainMenu = True
+		}
+		DIFFICULTY
+		{
+			AutoHireCrews = False
+			MissingCrewsRespawn = False
+			RespawnTimer = 7200
+			BypassEntryPurchaseAfterResearch = True
+			AllowStockVessels = False
+			IndestructibleFacilities = False
+			ResourceAbundance = 0.5
+			ReentryHeatScale = 1
+			EnableCommNet = True
+			AllowOtherLaunchSites = False
+			persistKerbalInventories = False
+		}
+		CAREER
+		{
+			TechTreeUrl = GameData/ModuleManager.TechTree
+			StartingFunds = 10000
+			StartingScience = 0
+			StartingReputation = 0
+			FundsGainMultiplier = 1
+			RepGainMultiplier = 1
+			ScienceGainMultiplier = 1
+			FundsLossMultiplier = 1
+			RepLossMultiplier = 1
+			RepLossDeclined = 3
+		}
+		CommNetParams
+		{
+			requireSignalForControl = False
+			plasmaBlackout = False
+			rangeModifier = 0.65
+			DSNModifier = 1
+			occlusionMultiplierVac = 1
+			occlusionMultiplierAtm = 1
+			enableGroundStations = True
+		}
+		CTB
+		{
+			showPopup = False
+			focusFollowsclick = True
+			global = True
+			cleanupDelay = 0.5
+		}
+		AdvancedParams
+		{
+			EnableKerbalExperience = True
+			ImmediateLevelUp = False
+			AllowNegativeCurrency = True
+			PressurePartLimits = False
+			GPartLimits = False
+			GKerbalLimits = False
+			KerbalGToleranceMult = 1
+			ResourceTransferObeyCrossfeed = True
+			ActionGroupsAlways = False
+			BuildingImpactDamageMult = 0.2
+			PartUpgradesInSandbox = False
+			PartUpgradesInCareer = True
+			PartUpgradesInMission = False
+			EnableFullSASInSandbox = False
+			EnableFullSASInMissions = False
+		}
+		MissionParamsGeneral
+		{
+			enableFunding = True
+			startingFunds = 10000
+			spacer = 
+			enableKerbalLevels = True
+			kerbalLevelPilot = 1
+			kerbalLevelScientist = 1
+			kerbalLevelEngineer = 1
+			spacer2 = 
+			preventVesselRecovery = True
+		}
+		MissionParamsExtras
+		{
+			facilityOpenAC = True
+			astronautHiresAreFree = False
+			spacer = 
+			facilityOpenEditor = False
+			launchSitesOpen = True
+			spacer2 = 
+			cheatsEnabled = False
+		}
+		MissionParamsFacilities
+		{
+			facilityLevelAdmin = 1
+			facilityLevelAC = 1
+			facilityLevelLaunchpad = 1
+			facilityLevelMC = 1
+			facilityLevelRD = 1
+			facilityLevelRunway = 1
+			facilityLevelSPH = 1
+			facilityLevelTS = 1
+			facilityLevelVAB = 1
+		}
+		TC
+		{
+			showStockTooltips = True
+			hoverTimeout = 0.5
+			allowAllToolbarButtonsHidden = False
+			debugMode = False
+			oldDebugMode = False
+		}
+	}
+	SCENARIO
+	{
+		name = ROCScenario
+		scene = 7
+	}
+	SCENARIO
+	{
+		name = AlarmClockScenario
+		scene = 5, 6, 7, 8
+		UIUpdatePeriod = 0.10000000000000001
+		warpChangeTimeSafteyMultiplier = 1.20000005
+		warpChangeIndicatorDuration = 3
+		ALARMS
+		{
+		}
+		SETTINGS
+		{
+			defaultRawTime = 300
+			defaultManeuverMargin = 60
+			soundName = Classic
+			soundRepeats = 3
+		}
+	}
+	SCENARIO
+	{
+		name = PartUpgradeManager
+		scene = 6, 5, 7
+		UPGRADES
+		{
+			Unlocks
+			{
+			}
+			Enableds
+			{
+			}
+		}
+	}
+	SCENARIO
+	{
+		name = ResourceScenario
+		scene = 7, 8, 5, 6, 21
+		RESOURCE_SETTINGS
+		{
+			GameSeed = 654374744
+			ROCMissionSeed = 654374744
+			MaxDeltaTime = 21600
+		}
+	}
+	SCENARIO
+	{
+		name = Funding
+		scene = 7, 8, 5, 6
+		funds = 500000
+	}
+	SCENARIO
+	{
+		name = ProgressTracking
+		scene = 6, 7, 8, 5
+		Progress
+		{
+		}
+	}
+	SCENARIO
+	{
+		name = ResearchAndDevelopment
+		scene = 7, 8, 5, 6
+		sci = 100
+		Tech
+		{
+			id = start
+			state = Available
+			cost = 0
+			part = GooExperiment
+			part = basicFin
+			part = evaChute
+			part = evaJetpack
+			part = mk1pod.v2
+			part = parachuteSingle
+			part = solidBooster.sm.v2
+			part = probeCoreSphere.v2
+			part = batteryPack
+			part = sensorThermometer
+			part = SurfAntenna
+		}
+	}
+	SCENARIO
+	{
+		name = VesselRecovery
+		scene = 5, 7, 8, 6
+	}
+	SCENARIO
+	{
+		name = Reputation
+		scene = 7, 8, 5, 6
+		rep = 0
+	}
+	SCENARIO
+	{
+		name = KerbalInventoryScenario
+		scene = 7, 8, 5, 21, 6
+	}
+	SCENARIO
+	{
+		name = ScenarioAchievements
+		scene = 7, 8, 5, 6
+	}
+	SCENARIO
+	{
+		name = ScenarioCustomWaypoints
+		scene = 7, 8, 21
+	}
+	SCENARIO
+	{
+		name = ScenarioDestructibles
+		scene = 5, 7, 6, 8
+		SpaceCenter/Administration/Facility/mainBuilding
+		{
+			intact = True
+		}
+		SpaceCenter/AstronautComplex/Facility/building
+		{
+			intact = True
+		}
+		SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank
+		{
+			intact = True
+		}
+		SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_launchPad
+		{
+			intact = True
+		}
+		SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_sphereTank
+		{
+			intact = True
+		}
+		SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_waterTower
+		{
+			intact = True
+		}
+		SpaceCenter/LaunchPad/Facility/LaunchPadMedium/KSCFlagPoleLaunchPad
+		{
+			intact = True
+		}
+		SpaceCenter/MissionControl/Facility/building
+		{
+			intact = True
+		}
+		SpaceCenter/ResearchAndDevelopment/Facility/ksp_pad_cylTank
+		{
+			intact = True
+		}
+		SpaceCenter/ResearchAndDevelopment/Facility/SmallLab
+		{
+			intact = True
+		}
+		SpaceCenter/ResearchAndDevelopment/Facility/CentralBuilding
+		{
+			intact = True
+		}
+		SpaceCenter/ResearchAndDevelopment/Facility/MainBuilding
+		{
+			intact = True
+		}
+		SpaceCenter/ResearchAndDevelopment/Facility/CornerLab
+		{
+			intact = True
+		}
+		SpaceCenter/ResearchAndDevelopment/Facility/WindTunnel
+		{
+			intact = True
+		}
+		SpaceCenter/ResearchAndDevelopment/Facility/Observatory
+		{
+			intact = True
+		}
+		SpaceCenter/ResearchAndDevelopment/Facility/SideLab
+		{
+			intact = True
+		}
+		SpaceCenter/Runway/Facility/model_runway_new_v43/runway_light_SE
+		{
+			intact = True
+		}
+		SpaceCenter/Runway/Facility/model_runway_new_v43/runway_light_NE
+		{
+			intact = True
+		}
+		SpaceCenter/Runway/Facility/model_runway_new_v43/runway_light_NW
+		{
+			intact = True
+		}
+		SpaceCenter/Runway/Facility/model_runway_new_v43/runway_light_SW
+		{
+			intact = True
+		}
+		SpaceCenter/Runway/Facility/End09
+		{
+			intact = True
+		}
+		SpaceCenter/Runway/Facility/End27
+		{
+			intact = True
+		}
+		SpaceCenter/Runway/Facility/Section1
+		{
+			intact = True
+		}
+		SpaceCenter/Runway/Facility/Section2
+		{
+			intact = True
+		}
+		SpaceCenter/Runway/Facility/Section3
+		{
+			intact = True
+		}
+		SpaceCenter/Runway/Facility/Section4
+		{
+			intact = True
+		}
+		SpaceCenter/SpaceplaneHangar/Facility/Tank
+		{
+			intact = True
+		}
+		SpaceCenter/SpaceplaneHangar/Facility/ksp_pad_cylTank
+		{
+			intact = True
+		}
+		SpaceCenter/SpaceplaneHangar/Facility/ksp_pad_waterTower
+		{
+			intact = True
+		}
+		SpaceCenter/SpaceplaneHangar/Facility/mainBuilding
+		{
+			intact = True
+		}
+		SpaceCenter/TrackingStation/Facility/dish_array/dish_south
+		{
+			intact = True
+		}
+		SpaceCenter/TrackingStation/Facility/dish_array/dish_north
+		{
+			intact = True
+		}
+		SpaceCenter/TrackingStation/Facility/dish_array/dish_east
+		{
+			intact = True
+		}
+		SpaceCenter/TrackingStation/Facility/MainBuilding
+		{
+			intact = True
+		}
+		SpaceCenter/VehicleAssemblyBuilding/Facility/ksp_pad_cylTank
+		{
+			intact = True
+		}
+		SpaceCenter/VehicleAssemblyBuilding/Facility/Tank
+		{
+			intact = True
+		}
+		SpaceCenter/VehicleAssemblyBuilding/Facility/mainBuilding
+		{
+			intact = True
+		}
+		SpaceCenter/VehicleAssemblyBuilding/Facility/PodMemorial
+		{
+			intact = True
+		}
+		SpaceCenter/FlagPole/Facility
+		{
+			intact = True
+		}
+		SpaceCenter/VehicleAssemblyBuilding/Facility/VAB2
+		{
+			intact = True
+		}
+		SpaceCenter/TrackingStation/Facility/building
+		{
+			intact = True
+		}
+		SpaceCenter/TrackingStation/Facility/OuterDish
+		{
+			intact = True
+		}
+		SpaceCenter/SpaceplaneHangar/Facility/Building
+		{
+			intact = True
+		}
+		SpaceCenter/ResearchAndDevelopment/Facility/mainBuilding
+		{
+			intact = True
+		}
+		SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone
+		{
+			intact = True
+		}
+		SpaceCenter/MissionControl/Facility/mainBuilding
+		{
+			intact = True
+		}
+		SpaceCenter/LaunchPad/Facility/Flag
+		{
+			intact = True
+		}
+		SpaceCenter/AstronautComplex/Facility/mainBuilding
+		{
+			intact = True
+		}
+		SpaceCenter/Administration/Facility/Building
+		{
+			intact = True
+		}
+	}
+	SCENARIO
+	{
+		name = ScenarioUpgradeableFacilities
+		scene = 5, 6, 7, 8
+		SpaceCenter/LaunchPad
+		{
+			lvl = 0
+		}
+		SpaceCenter/Runway
+		{
+			lvl = 0
+		}
+		SpaceCenter/VehicleAssemblyBuilding
+		{
+			lvl = 0
+		}
+		SpaceCenter/SpaceplaneHangar
+		{
+			lvl = 0
+		}
+		SpaceCenter/TrackingStation
+		{
+			lvl = 0
+		}
+		SpaceCenter/AstronautComplex
+		{
+			lvl = 0
+		}
+		SpaceCenter/MissionControl
+		{
+			lvl = 0
+		}
+		SpaceCenter/ResearchAndDevelopment
+		{
+			lvl = 0
+		}
+		SpaceCenter/Administration
+		{
+			lvl = 0
+		}
+		SpaceCenter/FlagPole
+		{
+			lvl = 0
+		}
+	}
+	SCENARIO
+	{
+		name = StrategySystem
+		scene = 7, 8, 5, 6
+		STRATEGIES
+		{
+		}
+	}
+	SCENARIO
+	{
+		name = ScenarioContractEvents
+		scene = 7, 8, 5
+		id = -940452598
+	}
+	SCENARIO
+	{
+		name = ContractSystem
+		scene = 7, 8, 5, 6
+		update = 17083.211782227678
+		version = 1.12.5
+		WEIGHTS
+		{
+			ROCScienceRetrievalContract = 30
+			ROCScienceArmContract = 30
+			DeployedScienceContract = 30
+			CometDetectionContract = 30
+			VesselRepairContract = 30
+			RoverConstructionContract = 30
+			OrbitalConstructionContract = 30
+			RecoverAsset = 30
+			PlantFlag = 30
+			PartTest = 30
+			GrandTour = 30
+			CollectScience = 30
+			TourismContract = 30
+			SurveyContract = 30
+			StationContract = 30
+			SatelliteContract = 30
+			ISRUContract = 30
+			ExplorationContract = 30
+			CometSampleContract = 30
+			BaseContract = 30
+			ARMContract = 30
+			Eeloo = 30
+			Dres = 30
+			Pol = 30
+			Gilly = 30
+			Tylo = 30
+			Bop = 30
+			Vall = 30
+			Laythe = 30
+			Jool = 30
+			Ike = 30
+			Duna = 30
+			Eve = 30
+			Moho = 30
+			Minmus = 30
+			Mun = 30
+			Kerbin = 30
+			Sun = 30
+		}
+		CONTRACTS
+		{
+		}
+	}
+	SCENARIO
+	{
+		name = SentinelScenario
+		scene = 7, 8, 5
+		NextSpawnTime = 25946.364074581918
+	}
+	SCENARIO
+	{
+		name = CommNetScenario
+		scene = 7, 8, 5, 6
+	}
+	SCENARIO
+	{
+		name = DeployedScience
+		scene = 7, 8, 5, 6
+		ScienceTimeDelay = 60
+		DataSendFailedTimeDelay = 600
+		SCIENCECLUSTERS
+		{
+		}
+		DIMINISHINGRETURNS
+		{
+			ENTRY
+			{
+				ExpCount = 1
+				Rate = 1
+			}
+			ENTRY
+			{
+				ExpCount = 2
+				Rate = 0.200000003
+			}
+			ENTRY
+			{
+				ExpCount = 3
+				Rate = 0.349999994
+			}
+			ENTRY
+			{
+				ExpCount = 4
+				Rate = 0.449999988
+			}
+			ENTRY
+			{
+				ExpCount = 5
+				Rate = 0.5
+			}
+		}
+		SEISMICENERGY
+		{
+			MinimumEnergyRequired = 3000
+			SeismicScienceProcessingDelay = 3
+			ENTRY
+			{
+				BodyName = Moho
+				Energy = 2.02E+09
+			}
+			ENTRY
+			{
+				BodyName = Eve
+				Energy = 9.78000036E+10
+			}
+			ENTRY
+			{
+				BodyName = Gilly
+				Energy = 1000000
+			}
+			ENTRY
+			{
+				BodyName = Kerbin
+				Energy = 4.1840001E+10
+			}
+			ENTRY
+			{
+				BodyName = Mun
+				Energy = 782000000
+			}
+			ENTRY
+			{
+				BodyName = Minmus
+				Energy = 21200000
+			}
+			ENTRY
+			{
+				BodyName = Duna
+				Energy = 3.62E+09
+			}
+			ENTRY
+			{
+				BodyName = Ike
+				Energy = 223000000
+			}
+			ENTRY
+			{
+				BodyName = Dres
+				Energy = 258000000
+			}
+			ENTRY
+			{
+				BodyName = Laythe
+				Energy = 2.3600001E+10
+			}
+			ENTRY
+			{
+				BodyName = Vall
+				Energy = 2.48999987E+09
+			}
+			ENTRY
+			{
+				BodyName = Tylo
+				Energy = 3.38999992E+10
+			}
+			ENTRY
+			{
+				BodyName = Bop
+				Energy = 29900000
+			}
+			ENTRY
+			{
+				BodyName = Pol
+				Energy = 8660000
+			}
+			ENTRY
+			{
+				BodyName = Eeloo
+				Energy = 894000000
+			}
+		}
+	}
+	SCENARIO
+	{
+		name = DiscoverableObjects
+		scene = 7, 8, 5
+	}
+	FLIGHTSTATE
+	{
+		version = 1.12.5
+		UT = 0
+		activeVessel = -1
+		mapViewFiltering = -1026
+		commNetUIModeTracking = Network
+		commNetUIModeFlight = Path
+	}
+	LoaderInfo
+	{
+		ModuleManager v4.2.3.0 = True
+		ClickThroughBlocker v2.1.10.21 = False
+		0Harmony v2.2.1.0 = True
+		HarmonyInstallChecker v2.2.1.0 = True
+		ToolbarControl v0.1.9.11 = False
+		AutoAGL v1.0.0.0 = False
+		B9PartSwitch v2.20.0.0 / vv2.20.0 = False
+		BetterBurnTime v1.0.0.0 = False
+		BetterTimeWarpCont v2.3.13.0 / v2.3.13 = False
+		Chatterer v0.9.99.2788 = False
+		DistantObject v0.0.0.0 = True
+		KSPe.Light.DOE v2.4.2.9 = False
+		Atmosphere v2.2.1.0 = False
+		CelestialShadows v2.2.1.0 = False
+		CityLights v2.2.1.0 = False
+		EVEManager v2.2.1.0 = False
+		PartFX v2.2.1.0 = False
+		PQSManager v2.2.1.0 = False
+		ShaderLoader v2.2.1.0 = False
+		Terrain v2.2.1.0 = False
+		TextureConfig v2.2.1.0 = False
+		Utils v2.2.1.0 = False
+		_BuildManager v2.2.1.0 = False
+		ForScience v1.6.0.0 / v1.6.0 = False
+		IndicatorLights v1.0.0.0 = False
+		Kopernicus.Parser v1.0.0.0 = False
+		ModularFlightIntegrator v1.0.0.0 / v1.2.10.0 = True
+		Kopernicus v1.0.0.0 / v1.12.197.0 = False
+		Grass v0.0.0.0 = False
+		ParallaxQualityLibrary v1.0.0.0 = False
+		ParallaxOptimized v1.0.0.0 = False
+		PersistentRotationUpgraded v1.9.1.9 = False
+		PlanetShine v0.2.6.6 = False
+		ReentryParticleEffectRenewed v1.8.1.0 = False
+		Restock v0.1.0.0 = False
+		RocketSoundEnhancement.Unity v1.0.0.0 = False
+		RocketSoundEnhancement v0.9.8.18123 / v0.9.8 = False
+		SafeChute v2.1.19.0 / v2.1.19 = False
+		scatterer v0.859.0.0 = False
+		Shabby v0.3.0.0 / v0.3.0 = False
+		SmokeScreen v2.8.14.0 = False
+		KSP_Log v1.2.0.0 / v1.2.0 = False
+		ButtonManager v1.0.1.1 = False
+		KSP_ColorPicker v1.1.0.5 = False
+		KSP_PartHighlighter v1.1.0.10 = False
+		SpaceTuxUtility v1.0.1.3 = False
+		VesselModuleSave v1.0.1.2 = False
+		SystemHeat v0.1.0.0 = False
+		TooManyOrbits v1.1.6.6 = False
+		BetterTracking v1.0.7.0 / v7.0 = False
+		BetterTracking.Unity v1.0.7.0 = False
+		Trajectories v2.4.5.3 = False
+		TUFX v1.0.7.1 = False
+		Waterfall v0.0.0.0 = False
+		WaypointManager v2.8.3.5 / v2.8.1 = False
+		000_ClickThroughBlocker = True
+		000_Harmony = True
+		001_ToolbarControl = True
+		AutoAGL = False
+		B9PartSwitch = True
+		BetterBurnTime = False
+		BetterTimeWarp = False
+		Chatterer = False
+		CommunityDeltaVMaps = True
+		CommunityResourcePack = False
+		DistantObject = True
+		EnvironmentalVisualEnhancements = False
+		ForScience = False
+		IndicatorLights = False
+		Kopernicus = True
+		ModularFlightIntegrator = True
+		Parallax = False
+		Parallax_StockTextures = False
+		PersistentRotation = False
+		PlanetShine = False
+		ReentryParticleEffectRenewed = False
+		ReStock = True
+		ReStockPlus = True
+		RocketSoundEnhancement = False
+		RocketSoundEnhancementDefault = False
+		SafeChute = False
+		Scatterer = False
+		ScattererAtmosphereCache = False
+		Shabby = False
+		SHED = False
+		SmokeScreen = False
+		SpaceTuxLibrary = False
+		StockVolumetricClouds = False
+		SystemHeat = False
+		SystemHeatConverters = False
+		SystemHeatFissionEngines = False
+		SystemHeatFissionReactors = False
+		SystemHeatHarvesters = False
+		TooManyOrbits = False
+		TrackingStationEvolved = False
+		Trajectories = False
+		TUFX = False
+		UtilityWeight = False
+		Waterfall = True
+		WaterfallRestock = True
+		WaypointManager = False
+		ModuleManager.4.2.3.dll = True
+		ModuleManager.ConfigCache = True
+		ModuleManager.ConfigSHA = True
+		ModuleManager.Physics = True
+		ModuleManager.TechTree = True
+		TUFX-Blackrack.cfg = False
+		Parsek v0.1.0.0 = False
+		Parsek = True
+		ClickThroughBlocker v2.1.10.22 = True
+		ToolbarControl v0.1.9.14 = True
+		Parsek v0.2.0.0 = False
+		HideEmptyTechTreeNodes v1.0.0.0 = True
+		Kopernicus.Parser v1.0.0.0 / v1.0.0.0+9a7a10ac9205dc25195bd032e7544e8da69155d9 = False
+		SharpDX v4.2.0.0 / v4.2.0+8e5df9f17b1d328c595a9df5851dbb2537b55621 / v4.2.0 = True
+		SharpDX.DXGI v4.2.0.0 / v4.2.0+8e5df9f17b1d328c595a9df5851dbb2537b55621 / v4.2.0 = True
+		SharpDX.Direct3D11 v4.2.0.0 / v4.2.0+8e5df9f17b1d328c595a9df5851dbb2537b55621 / v4.2.0 = True
+		KSPTextureLoader v1.0.26.0 / v1.0.26+8db179cd065ad62a43e7ecabf883a2cb5efc5836 = False
+		Kopernicus v1.0.239.0 / v1.0.239+9a7a10ac9205dc25195bd032e7544e8da69155d9 / v1.12.239.0 = False
+		Parsek v0.4.0.0 = False
+		CommunityTechTree = True
+		HideEmptyTechTreeNodes = True
+		KSPTextureLoader = True
+		ProbesBeforeCrew = True
+		Parsek v0.8.0.0 = False
+		Parsek v0.10.0.0 = False
+		B9PartSwitch v2.21.0.4 = True
+		Kopernicus.Parser v1.0.0.0 / v1.0.0.0+c6aba7e1a4a2b5235ccb9350e6af094c021d0fc4 = True
+		KSPTextureLoader v1.0.35.0 / v1.0.35+8cd1ceadab334317d8c3f03d85ea12791a176b4b = True
+		Kopernicus v1.0.246.0 / v1.0.246+c6aba7e1a4a2b5235ccb9350e6af094c021d0fc4 / v1.12.246.0 = True
+		0_MultipleModuleInPartAPI v1.0.0.0 / v1.0.0+7969fdc50bf4e350193abe5ba2e89533b12ca02f = True
+		KSPCommunityFixes v1.41.0.0 / v1.41.1+7969fdc50bf4e350193abe5ba2e89533b12ca02f / v1.41.1.0 = True
+		Parsek v0.10.1.0 = True
+		Waterfall v0.11.0.0 / v0.11.0+6be4f897ad86577c6ce2c17e6da0848b14d5250a = True
+		KSPCommunityFixes = True
+		StockWaterfallEffects = True
+		Restock v1.0.0.0 / v1.0.0+7f266364f4d5f763ed815d920b99e1b449d29ef2 = True
+		KSPe.Light.DOE v2.5.5.2 = True
+		RestockWaterfallExpansion = True
+	}
+	ROSTER
+	{
+		KERBAL
+		{
+			name = Jebediah Kerman
+			gender = Male
+			type = Crew
+			trait = Pilot
+			brave = 0.5
+			dumb = 0.5
+			badS = True
+			veteran = True
+			tour = False
+			state = Available
+			inactive = False
+			inactiveTimeEnd = 0
+			gExperienced = 0
+			outDueToG = False
+			ToD = 0
+			idx = -1
+			extraXP = 0
+			hasHelmetOn = True
+			hasNeckRingOn = True
+			hasVisorDown = False
+			lightR = 1
+			lightG = 0.5176
+			lightB = 0
+			completedFirstEVA = True
+			suit = Default
+			hero = True
+			EVACHUTE
+			{
+				name = ModuleEvaChute
+				isEnabled = True
+				chuteYawRateAtMaxSpeed = 1
+				chuteMaxSpeedForYawRate = 50
+				chuteYawRateAtMinSpeed = 1
+				chuteMinSpeedForYawRate = 1
+				chuteRollRate = 1
+				chutePitchRate = 1
+				chuteDefaultForwardPitch = 9
+				semiDeployedChuteForwardPitch = 25
+				chutePitchRateDivisorWhenTurning = 1
+				chuteRollRateDivisorWhenPitching = 1
+				chuteYawRateDivisorWhenPitching = 1
+				persistentState = STOWED
+				animTime = 0
+				minAirPressureToOpen = 0.0399999991
+				deployAltitude = 1000
+				spreadAngle = 7
+				automateSafeDeploy = 0
+				stagingEnabled = False
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+					DeployAction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+					CutAction
+					{
+						actionGroup = None
+						wasActiveBeforePartWasAdjusted = False
+					}
+				}
+				UPGRADESAPPLIED
+				{
+				}
+			}
+			INVENTORY
+			{
+				name = ModuleInventoryPart
+				isEnabled = True
+				stagingEnabled = True
+				inventory = evaChute,evaJetpack
+				EVENTS
+				{
+				}
+				ACTIONS
+				{
+				}
+				STOREDPARTS
+				{
+					STOREDPART
+					{
+						slotIndex = 0
+						partName = evaChute
+						quantity = 1
+						stackCapacity = 1
+						variantName = 
+						PART
+						{
+							name = evaChute
+							cid = 4294804548
+							uid = 0
+							mid = 0
+							persistentId = 1745237533
+							launchID = 0
+							parent = 0
+							position = 0,0,0
+							rotation = 0,0,0,0
+							mirror = 1,1,1
+							symMethod = Radial
+							istg = 0
+							resPri = 0
+							dstg = 0
+							sqor = -1
+							sepI = 0
+							sidx = -1
+							attm = 0
+							sameVesselCollision = False
+							srfN = None, -1
+							mass = 0.00400000019
+							shielded = False
+							temp = -1
+							tempExt = 0
+							tempExtUnexp = 0
+							staticPressureAtm = 0
+							expt = 0.5
+							state = 0
+							PreFailState = 0
+							attached = True
+							autostrutMode = Off
+							rigidAttachment = False
+							flag = 
+							rTrf = evaChute
+							modCost = 0
+							modMass = 0
+							moduleVariantName = 
+							moduleCargoStackableQuantity = 1
+							EVENTS
+							{
+							}
+							ACTIONS
+							{
+								ToggleSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								SetSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								RemoveSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								AutostrutOff
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								AutostrutRoot
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								AutostrutHeaviest
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								AutostrutGrandparent
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								ResourcesEnableFlow
+								{
+									actionGroup = None
+									active = False
+									wasActiveBeforePartWasAdjusted = False
+								}
+								ResourcesDisableFlow
+								{
+									actionGroup = None
+									active = False
+									wasActiveBeforePartWasAdjusted = False
+								}
+							}
+							PARTDATA
+							{
+							}
+							MODULE
+							{
+								name = ModuleCargoPart
+								isEnabled = True
+								packedVolume = 10
+								beingAttached = False
+								beingSettled = False
+								reinitResourcesOnStoreInVessel = False
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+						}
+					}
+					STOREDPART
+					{
+						slotIndex = 1
+						partName = evaJetpack
+						quantity = 1
+						stackCapacity = 1
+						variantName = 
+						PART
+						{
+							name = evaJetpack
+							cid = 4294804610
+							uid = 0
+							mid = 0
+							persistentId = 2138154800
+							launchID = 0
+							parent = 0
+							position = 0,0,0
+							rotation = 0,0,0,0
+							mirror = 1,1,1
+							symMethod = Radial
+							istg = 0
+							resPri = 2
+							dstg = 0
+							sqor = -1
+							sepI = 0
+							sidx = -1
+							attm = 0
+							sameVesselCollision = False
+							srfN = None, -1
+							mass = 0.0199999996
+							shielded = False
+							temp = -1
+							tempExt = 0
+							tempExtUnexp = 0
+							staticPressureAtm = 0
+							expt = 0.5
+							state = 0
+							PreFailState = 0
+							attached = True
+							autostrutMode = Off
+							rigidAttachment = False
+							flag = 
+							rTrf = evaJetpack
+							modCost = 0
+							modMass = 0
+							moduleVariantName = 
+							moduleCargoStackableQuantity = 1
+							EVENTS
+							{
+							}
+							ACTIONS
+							{
+								ToggleSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								SetSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								RemoveSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								AutostrutOff
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								AutostrutRoot
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								AutostrutHeaviest
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								AutostrutGrandparent
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								ResourcesEnableFlow
+								{
+									actionGroup = None
+									active = False
+									wasActiveBeforePartWasAdjusted = False
+								}
+								ResourcesDisableFlow
+								{
+									actionGroup = None
+									active = False
+									wasActiveBeforePartWasAdjusted = False
+								}
+							}
+							PARTDATA
+							{
+							}
+							MODULE
+							{
+								name = ModuleCargoPart
+								isEnabled = True
+								packedVolume = 17
+								beingAttached = False
+								beingSettled = False
+								reinitResourcesOnStoreInVessel = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							RESOURCE
+							{
+								name = EVA Propellant
+								amount = 5
+								maxAmount = 5
+								flowState = True
+								isTweakable = False
+								hideFlow = False
+								isVisible = True
+								flowMode = Both
+							}
+						}
+					}
+				}
+				UPGRADESAPPLIED
+				{
+				}
+			}
+			CAREER_LOG
+			{
+				flight = 1
+				0 = ExitVessel,Kerbin
+				0 = Land,Kerbin
+				0 = Flight,Kerbin
+				0 = Recover
+			}
+			FLIGHT_LOG
+			{
+				flight = 1
+			}
+		}
+		KERBAL
+		{
+			name = Bill Kerman
+			gender = Male
+			type = Crew
+			trait = Engineer
+			brave = 0.5
+			dumb = 0.800000012
+			badS = False
+			veteran = True
+			tour = False
+			state = Available
+			inactive = False
+			inactiveTimeEnd = 0
+			gExperienced = 0
+			outDueToG = False
+			ToD = 0
+			idx = -1
+			extraXP = 0
+			hasHelmetOn = False
+			hasNeckRingOn = False
+			hasVisorDown = False
+			lightR = 1
+			lightG = 0.5176
+			lightB = 0
+			completedFirstEVA = False
+			suit = Default
+			hero = True
+			INVENTORY
+			{
+				inventory = evaChute,evaJetpack
+				STOREDPARTS
+				{
+					STOREDPART
+					{
+						slotIndex = 0
+						partName = evaChute
+						quantity = 1
+						stackCapacity = 1
+						variantName = 
+						PART
+						{
+							name = evaChute
+							cid = 4294776602
+							uid = 0
+							mid = 0
+							persistentId = 0
+							launchID = 0
+							parent = 0
+							position = 0,0,0
+							rotation = 0,0,0,0
+							mirror = 1,1,1
+							symMethod = Radial
+							istg = 0
+							resPri = 0
+							dstg = 0
+							sqor = -1
+							sepI = 0
+							sidx = -1
+							attm = 0
+							sameVesselCollision = False
+							srfN = None, -1
+							mass = 0.00400000019
+							shielded = False
+							temp = -1
+							tempExt = 0
+							tempExtUnexp = 0
+							staticPressureAtm = 0
+							expt = 0.5
+							state = 0
+							PreFailState = 0
+							attached = True
+							autostrutMode = Off
+							rigidAttachment = False
+							flag = 
+							rTrf = evaChute
+							modCost = 0
+							modMass = 0
+							moduleVariantName = 
+							moduleCargoStackableQuantity = 1
+							EVENTS
+							{
+							}
+							ACTIONS
+							{
+								ToggleSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								SetSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								RemoveSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+							}
+							PARTDATA
+							{
+							}
+							MODULE
+							{
+								name = ModuleCargoPart
+								isEnabled = True
+								beingAttached = False
+								beingSettled = False
+								reinitResourcesOnStoreInVessel = False
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							MODULE
+							{
+								name = ShipEffectsCollisions
+								isEnabled = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+						}
+					}
+					STOREDPART
+					{
+						slotIndex = 1
+						partName = evaJetpack
+						quantity = 1
+						stackCapacity = 1
+						variantName = 
+						PART
+						{
+							name = evaJetpack
+							cid = 4294776702
+							uid = 0
+							mid = 0
+							persistentId = 0
+							launchID = 0
+							parent = 0
+							position = 0,0,0
+							rotation = 0,0,0,0
+							mirror = 1,1,1
+							symMethod = Radial
+							istg = 0
+							resPri = 2
+							dstg = 0
+							sqor = -1
+							sepI = 0
+							sidx = -1
+							attm = 0
+							sameVesselCollision = False
+							srfN = None, -1
+							mass = 0.0199999996
+							shielded = False
+							temp = -1
+							tempExt = 0
+							tempExtUnexp = 0
+							staticPressureAtm = 0
+							expt = 0.5
+							state = 0
+							PreFailState = 0
+							attached = True
+							autostrutMode = Off
+							rigidAttachment = False
+							flag = 
+							rTrf = evaJetpack
+							modCost = 0
+							modMass = 0
+							moduleVariantName = 
+							moduleCargoStackableQuantity = 1
+							EVENTS
+							{
+							}
+							ACTIONS
+							{
+								ToggleSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								SetSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								RemoveSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+							}
+							PARTDATA
+							{
+							}
+							MODULE
+							{
+								name = ModuleCargoPart
+								isEnabled = True
+								beingAttached = False
+								beingSettled = False
+								reinitResourcesOnStoreInVessel = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							MODULE
+							{
+								name = ShipEffectsCollisions
+								isEnabled = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							RESOURCE
+							{
+								name = EVA Propellant
+								amount = 5
+								maxAmount = 5
+								flowState = True
+								isTweakable = False
+								hideFlow = False
+								isVisible = True
+								flowMode = Both
+							}
+						}
+					}
+				}
+			}
+			CAREER_LOG
+			{
+				flight = 0
+			}
+			FLIGHT_LOG
+			{
+				flight = 0
+			}
+		}
+		KERBAL
+		{
+			name = Bob Kerman
+			gender = Male
+			type = Crew
+			trait = Scientist
+			brave = 0.300000012
+			dumb = 0.100000001
+			badS = False
+			veteran = True
+			tour = False
+			state = Available
+			inactive = False
+			inactiveTimeEnd = 0
+			gExperienced = 0
+			outDueToG = False
+			ToD = 0
+			idx = -1
+			extraXP = 0
+			hasHelmetOn = False
+			hasNeckRingOn = False
+			hasVisorDown = False
+			lightR = 1
+			lightG = 0.5176
+			lightB = 0
+			completedFirstEVA = False
+			suit = Default
+			hero = True
+			INVENTORY
+			{
+				inventory = evaChute,evaJetpack
+				STOREDPARTS
+				{
+					STOREDPART
+					{
+						slotIndex = 0
+						partName = evaChute
+						quantity = 1
+						stackCapacity = 1
+						variantName = 
+						PART
+						{
+							name = evaChute
+							cid = 4294776602
+							uid = 0
+							mid = 0
+							persistentId = 0
+							launchID = 0
+							parent = 0
+							position = 0,0,0
+							rotation = 0,0,0,0
+							mirror = 1,1,1
+							symMethod = Radial
+							istg = 0
+							resPri = 0
+							dstg = 0
+							sqor = -1
+							sepI = 0
+							sidx = -1
+							attm = 0
+							sameVesselCollision = False
+							srfN = None, -1
+							mass = 0.00400000019
+							shielded = False
+							temp = -1
+							tempExt = 0
+							tempExtUnexp = 0
+							staticPressureAtm = 0
+							expt = 0.5
+							state = 0
+							PreFailState = 0
+							attached = True
+							autostrutMode = Off
+							rigidAttachment = False
+							flag = 
+							rTrf = evaChute
+							modCost = 0
+							modMass = 0
+							moduleVariantName = 
+							moduleCargoStackableQuantity = 1
+							EVENTS
+							{
+							}
+							ACTIONS
+							{
+								ToggleSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								SetSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								RemoveSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+							}
+							PARTDATA
+							{
+							}
+							MODULE
+							{
+								name = ModuleCargoPart
+								isEnabled = True
+								beingAttached = False
+								beingSettled = False
+								reinitResourcesOnStoreInVessel = False
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							MODULE
+							{
+								name = ShipEffectsCollisions
+								isEnabled = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+						}
+					}
+					STOREDPART
+					{
+						slotIndex = 1
+						partName = evaJetpack
+						quantity = 1
+						stackCapacity = 1
+						variantName = 
+						PART
+						{
+							name = evaJetpack
+							cid = 4294776702
+							uid = 0
+							mid = 0
+							persistentId = 0
+							launchID = 0
+							parent = 0
+							position = 0,0,0
+							rotation = 0,0,0,0
+							mirror = 1,1,1
+							symMethod = Radial
+							istg = 0
+							resPri = 2
+							dstg = 0
+							sqor = -1
+							sepI = 0
+							sidx = -1
+							attm = 0
+							sameVesselCollision = False
+							srfN = None, -1
+							mass = 0.0199999996
+							shielded = False
+							temp = -1
+							tempExt = 0
+							tempExtUnexp = 0
+							staticPressureAtm = 0
+							expt = 0.5
+							state = 0
+							PreFailState = 0
+							attached = True
+							autostrutMode = Off
+							rigidAttachment = False
+							flag = 
+							rTrf = evaJetpack
+							modCost = 0
+							modMass = 0
+							moduleVariantName = 
+							moduleCargoStackableQuantity = 1
+							EVENTS
+							{
+							}
+							ACTIONS
+							{
+								ToggleSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								SetSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								RemoveSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+							}
+							PARTDATA
+							{
+							}
+							MODULE
+							{
+								name = ModuleCargoPart
+								isEnabled = True
+								beingAttached = False
+								beingSettled = False
+								reinitResourcesOnStoreInVessel = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							MODULE
+							{
+								name = ShipEffectsCollisions
+								isEnabled = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							RESOURCE
+							{
+								name = EVA Propellant
+								amount = 5
+								maxAmount = 5
+								flowState = True
+								isTweakable = False
+								hideFlow = False
+								isVisible = True
+								flowMode = Both
+							}
+						}
+					}
+				}
+			}
+			CAREER_LOG
+			{
+				flight = 0
+			}
+			FLIGHT_LOG
+			{
+				flight = 0
+			}
+		}
+		KERBAL
+		{
+			name = Valentina Kerman
+			gender = Female
+			type = Crew
+			trait = Pilot
+			brave = 0.550000012
+			dumb = 0.400000006
+			badS = True
+			veteran = True
+			tour = False
+			state = Available
+			inactive = False
+			inactiveTimeEnd = 0
+			gExperienced = 0
+			outDueToG = False
+			ToD = 0
+			idx = -1
+			extraXP = 0
+			hasHelmetOn = False
+			hasNeckRingOn = False
+			hasVisorDown = False
+			lightR = 1
+			lightG = 0.5176
+			lightB = 0
+			completedFirstEVA = False
+			suit = Default
+			hero = True
+			INVENTORY
+			{
+				inventory = evaChute,evaJetpack
+				STOREDPARTS
+				{
+					STOREDPART
+					{
+						slotIndex = 0
+						partName = evaChute
+						quantity = 1
+						stackCapacity = 1
+						variantName = 
+						PART
+						{
+							name = evaChute
+							cid = 4294884662
+							uid = 0
+							mid = 0
+							persistentId = 0
+							launchID = 0
+							parent = 0
+							position = 0,0,0
+							rotation = 0,0,0,0
+							mirror = 1,1,1
+							symMethod = Radial
+							istg = 0
+							resPri = 0
+							dstg = 0
+							sqor = -1
+							sepI = 0
+							sidx = -1
+							attm = 0
+							sameVesselCollision = False
+							srfN = None, -1
+							mass = 0.00400000019
+							shielded = False
+							temp = -1
+							tempExt = 0
+							tempExtUnexp = 0
+							staticPressureAtm = 0
+							expt = 0.5
+							state = 0
+							PreFailState = 0
+							attached = True
+							autostrutMode = Off
+							rigidAttachment = False
+							flag = 
+							rTrf = evaChute
+							modCost = 0
+							modMass = 0
+							moduleVariantName = 
+							moduleCargoStackableQuantity = 1
+							EVENTS
+							{
+							}
+							ACTIONS
+							{
+								ToggleSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								SetSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								RemoveSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+							}
+							PARTDATA
+							{
+							}
+							MODULE
+							{
+								name = ModuleCargoPart
+								isEnabled = True
+								beingAttached = False
+								beingSettled = False
+								reinitResourcesOnStoreInVessel = False
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+						}
+					}
+					STOREDPART
+					{
+						slotIndex = 1
+						partName = evaJetpack
+						quantity = 1
+						stackCapacity = 1
+						variantName = 
+						PART
+						{
+							name = evaJetpack
+							cid = 4294884724
+							uid = 0
+							mid = 0
+							persistentId = 0
+							launchID = 0
+							parent = 0
+							position = 0,0,0
+							rotation = 0,0,0,0
+							mirror = 1,1,1
+							symMethod = Radial
+							istg = 0
+							resPri = 2
+							dstg = 0
+							sqor = -1
+							sepI = 0
+							sidx = -1
+							attm = 0
+							sameVesselCollision = False
+							srfN = None, -1
+							mass = 0.0199999996
+							shielded = False
+							temp = -1
+							tempExt = 0
+							tempExtUnexp = 0
+							staticPressureAtm = 0
+							expt = 0.5
+							state = 0
+							PreFailState = 0
+							attached = True
+							autostrutMode = Off
+							rigidAttachment = False
+							flag = 
+							rTrf = evaJetpack
+							modCost = 0
+							modMass = 0
+							moduleVariantName = 
+							moduleCargoStackableQuantity = 1
+							EVENTS
+							{
+							}
+							ACTIONS
+							{
+								ToggleSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								SetSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								RemoveSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+							}
+							PARTDATA
+							{
+							}
+							MODULE
+							{
+								name = ModuleCargoPart
+								isEnabled = True
+								beingAttached = False
+								beingSettled = False
+								reinitResourcesOnStoreInVessel = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							RESOURCE
+							{
+								name = EVA Propellant
+								amount = 5
+								maxAmount = 5
+								flowState = True
+								isTweakable = False
+								hideFlow = False
+								isVisible = True
+								flowMode = Both
+							}
+						}
+					}
+				}
+			}
+			CAREER_LOG
+			{
+				flight = 0
+			}
+			FLIGHT_LOG
+			{
+				flight = 0
+				0 = Flight,Kerbin
+				0 = Land,Kerbin
+			}
+		}
+		KERBAL
+		{
+			name = Verhat Kerman
+			gender = Female
+			type = Applicant
+			trait = Engineer
+			brave = 0.0300757755
+			dumb = 0.9535653
+			badS = True
+			veteran = False
+			tour = False
+			state = Available
+			inactive = False
+			inactiveTimeEnd = 0
+			gExperienced = 0
+			outDueToG = False
+			ToD = 128319.39794311524
+			idx = -1
+			extraXP = 0
+			hasHelmetOn = False
+			hasNeckRingOn = False
+			hasVisorDown = False
+			lightR = 1
+			lightG = 0.5176
+			lightB = 0
+			completedFirstEVA = False
+			suit = Default
+			hero = False
+			INVENTORY
+			{
+				inventory = evaChute,evaJetpack
+				STOREDPARTS
+				{
+					STOREDPART
+					{
+						slotIndex = 0
+						partName = evaChute
+						quantity = 1
+						stackCapacity = 1
+						variantName = 
+						PART
+						{
+							name = evaChute
+							cid = 4294776602
+							uid = 0
+							mid = 0
+							persistentId = 0
+							launchID = 0
+							parent = 0
+							position = 0,0,0
+							rotation = 0,0,0,0
+							mirror = 1,1,1
+							symMethod = Radial
+							istg = 0
+							resPri = 0
+							dstg = 0
+							sqor = -1
+							sepI = 0
+							sidx = -1
+							attm = 0
+							sameVesselCollision = False
+							srfN = None, -1
+							mass = 0.00400000019
+							shielded = False
+							temp = -1
+							tempExt = 0
+							tempExtUnexp = 0
+							staticPressureAtm = 0
+							expt = 0.5
+							state = 0
+							PreFailState = 0
+							attached = True
+							autostrutMode = Off
+							rigidAttachment = False
+							flag = 
+							rTrf = evaChute
+							modCost = 0
+							modMass = 0
+							moduleVariantName = 
+							moduleCargoStackableQuantity = 1
+							EVENTS
+							{
+							}
+							ACTIONS
+							{
+								ToggleSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								SetSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								RemoveSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+							}
+							PARTDATA
+							{
+							}
+							MODULE
+							{
+								name = ModuleCargoPart
+								isEnabled = True
+								beingAttached = False
+								beingSettled = False
+								reinitResourcesOnStoreInVessel = False
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							MODULE
+							{
+								name = ShipEffectsCollisions
+								isEnabled = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+						}
+					}
+					STOREDPART
+					{
+						slotIndex = 1
+						partName = evaJetpack
+						quantity = 1
+						stackCapacity = 1
+						variantName = 
+						PART
+						{
+							name = evaJetpack
+							cid = 4294776702
+							uid = 0
+							mid = 0
+							persistentId = 0
+							launchID = 0
+							parent = 0
+							position = 0,0,0
+							rotation = 0,0,0,0
+							mirror = 1,1,1
+							symMethod = Radial
+							istg = 0
+							resPri = 2
+							dstg = 0
+							sqor = -1
+							sepI = 0
+							sidx = -1
+							attm = 0
+							sameVesselCollision = False
+							srfN = None, -1
+							mass = 0.0199999996
+							shielded = False
+							temp = -1
+							tempExt = 0
+							tempExtUnexp = 0
+							staticPressureAtm = 0
+							expt = 0.5
+							state = 0
+							PreFailState = 0
+							attached = True
+							autostrutMode = Off
+							rigidAttachment = False
+							flag = 
+							rTrf = evaJetpack
+							modCost = 0
+							modMass = 0
+							moduleVariantName = 
+							moduleCargoStackableQuantity = 1
+							EVENTS
+							{
+							}
+							ACTIONS
+							{
+								ToggleSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								SetSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+								RemoveSameVesselInteraction
+								{
+									actionGroup = None
+									wasActiveBeforePartWasAdjusted = False
+								}
+							}
+							PARTDATA
+							{
+							}
+							MODULE
+							{
+								name = ModuleCargoPart
+								isEnabled = True
+								beingAttached = False
+								beingSettled = False
+								reinitResourcesOnStoreInVessel = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							MODULE
+							{
+								name = ShipEffectsCollisions
+								isEnabled = True
+								stagingEnabled = True
+								EVENTS
+								{
+								}
+								ACTIONS
+								{
+								}
+								UPGRADESAPPLIED
+								{
+								}
+							}
+							RESOURCE
+							{
+								name = EVA Propellant
+								amount = 5
+								maxAmount = 5
+								flowState = True
+								isTweakable = False
+								hideFlow = False
+								isVisible = True
+								flowMode = Both
+							}
+						}
+					}
+				}
+			}
+			CAREER_LOG
+			{
+				flight = 0
+			}
+			FLIGHT_LOG
+			{
+				flight = 0
+			}
+		}
+	}
+	MESSAGESYSTEM
+	{
+		flash = False
+		MESSAGE
+		{
+			title = World First Milestones
+			message = The recent accomplishments of our space program have attracted contributions from numerous organizations!~n~nWe have performed an EVA test at home.~n<color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1> 1,920 </color>~n~n We have recovered our first crew from a mission.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  960 </color>~n~n We have broken a speed record of 25m/s.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  5,760 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n~n We have launched our first vessel.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  960 </color>~n~n We have broken a speed record of 80m/s.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  5,760 </color><color=#6dcff6><sprite="CurrencySpriteAsset" name="Science" tint=1> 1 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n~n We have broken an altitude record of 500m.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  5,760 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n~n We have entered orbit.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  7,200 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n~n We have entered orbit.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  7,200 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n~n We have recovered our first crew from a mission.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  480 </color>~n~n We have entered orbit.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  7,200 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n~n We have entered orbit.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  7,200 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n~n We have entered orbit.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  7,200 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n~n We have entered orbit.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  7,200 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n~n We have entered orbit.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  7,200 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n~n We have entered orbit.~n <color=#b4d455><sprite="CurrencySpriteAsset" name="Funds" tint=1>  7,200 </color><color=#e0d503><sprite="CurrencySpriteAsset" name="Reputation" tint=1> 1 </color>~n
+			color = 3
+			icon = 6
+			read = False
+		}
+	}
+	SCENARIO
+	{
+		name = ParsekScenario
+		scene = 7, 5, 8, 6
+		gameStateEventCount = 6
+		routeStateFloorUT = 450.25
+		ledgerHeldThroughUT = 66001.25
+		saveStamp = ce7519b2c3cf4c7e9ecc6e02b4a1befe
+		parsekSaveFormat = 1
+		parsekWrittenBy = 0.10.7.0
+		RECORDING_TREE
+		{
+			id = a10e0000000000000000000000000001
+			treeName = Golden Lander
+			rootRecordingId = a10e0000000000000000000000000011
+			treeFormatVersion = 0
+			recordingSchemaGeneration = 4
+			autoGeneratedRootGroupName = Golden Lander
+			autoGeneratedDebrisGroupName = Golden Lander / Debris
+			RECORDING
+			{
+				recordingId = a10e0000000000000000000000000011
+				vesselName = Golden Lander
+				treeId = a10e0000000000000000000000000001
+				treeOrder = 0
+				vesselPersistentId = 3100000
+				recordedVesselGuid = dfa6e6abe518dea6d1e9a6e13ee8a6e0
+				explicitStartUT = 100
+				explicitEndUT = 160
+				childBranchPointId = a10e00000000000000000000000000b1
+				recordingFormatVersion = 1
+				recordingSchemaGeneration = 4
+				ghostSnapshotMode = Separate
+				sidecarEpoch = 1
+				precHash = 1353922073a27ec1
+				vesselHash = d005885b3ca3b105
+				ghostHash = 13b6ca5b90ab0dde
+				loopPlayback = False
+				loopIntervalSeconds = 0
+				startSituation = Prelaunch
+				launchSiteName = LaunchPad
+				lastResIdx = -1
+				pointCount = 4
+				recordingGroup = Golden Lander
+			}
+			RECORDING
+			{
+				recordingId = a10e0000000000000000000000000012
+				vesselName = Golden Lander
+				treeId = a10e0000000000000000000000000001
+				treeOrder = 1
+				vesselPersistentId = 3100000
+				recordedVesselGuid = dfa6e6abe518dea6d1e9a6e13ee8a6e0
+				explicitStartUT = 160
+				explicitEndUT = 170
+				terminalState = 0
+				parentBranchPointId = a10e00000000000000000000000000b1
+				tOrbInc = 28.5
+				tOrbEcc = 0.003
+				tOrbSma = 705000
+				tOrbLan = 92
+				tOrbArgPe = 47
+				tOrbMna = 0.18
+				tOrbEpoch = 170
+				tOrbBody = Kerbin
+				recordingFormatVersion = 1
+				recordingSchemaGeneration = 4
+				ghostSnapshotMode = AliasVessel
+				sidecarEpoch = 1
+				precHash = 23e44e62fc5405d3
+				vesselHash = b9cd13aec1620e49
+				loopPlayback = False
+				loopIntervalSeconds = 0
+				parentRecordingId = a10e0000000000000000000000000011
+				lastResIdx = -1
+				pointCount = 2
+				recordingGroup = Golden Lander
+				CREW_END_STATES
+				{
+					ENTRY
+					{
+						name = Jebediah Kerman
+						state = 0
+					}
+				}
+			}
+			RECORDING
+			{
+				recordingId = a10e0000000000000000000000000013
+				vesselName = Golden Lander Debris
+				treeId = a10e0000000000000000000000000001
+				treeOrder = 2
+				vesselPersistentId = 1273743488
+				recordedVesselGuid = 1b08726570d21a083f6f0819ac6d0818
+				explicitStartUT = 160
+				explicitEndUT = 170
+				terminalState = 4
+				parentBranchPointId = a10e00000000000000000000000000b1
+				recordingFormatVersion = 1
+				recordingSchemaGeneration = 4
+				sidecarEpoch = 1
+				precHash = 54e804a6600d1ab3
+				loopPlayback = False
+				loopIntervalSeconds = 0
+				parentRecordingId = a10e0000000000000000000000000011
+				lastResIdx = -1
+				pointCount = 2
+				recordingGroup = Golden Lander / Debris
+				isDebris = True
+				parentAnchorRecordingId = a10e0000000000000000000000000011
+			}
+			RECORDING
+			{
+				recordingId = a10e0000000000000000000000000014
+				vesselName = Golden Lander
+				treeId = a10e0000000000000000000000000001
+				treeOrder = 3
+				vesselPersistentId = 3100000
+				recordedVesselGuid = dfa6e6abe518dea6d1e9a6e13ee8a6e0
+				explicitStartUT = 160
+				explicitEndUT = 175
+				terminalState = 0
+				parentBranchPointId = a10e00000000000000000000000000b1
+				tOrbInc = 28.6
+				tOrbEcc = 0.002
+				tOrbSma = 710000
+				tOrbLan = 92
+				tOrbArgPe = 47
+				tOrbMna = 0.18
+				tOrbEpoch = 175
+				tOrbBody = Kerbin
+				recordingFormatVersion = 1
+				recordingSchemaGeneration = 4
+				ghostSnapshotMode = AliasVessel
+				sidecarEpoch = 1
+				precHash = 454d4384105b5fc6
+				vesselHash = 11e52f45a0ef9f0c
+				loopPlayback = False
+				loopIntervalSeconds = 0
+				parentRecordingId = a10e0000000000000000000000000011
+				lastResIdx = -1
+				pointCount = 2
+				recordingGroup = Golden Lander
+				mergeState = CommittedProvisional
+			}
+			BRANCH_POINT
+			{
+				id = a10e00000000000000000000000000b1
+				ut = 160
+				type = 4
+				parentId = a10e0000000000000000000000000011
+				childId = a10e0000000000000000000000000012
+				childId = a10e0000000000000000000000000013
+				childId = a10e0000000000000000000000000014
+				splitCause = DECOUPLE
+				decouplerPartId = 3100001
+				rewindPointId = rp_c30a0000000000000000000000000031
+			}
+		}
+		RECORDING_TREE
+		{
+			id = b20f0000000000000000000000000002
+			treeName = Golden Rover
+			rootRecordingId = b20f0000000000000000000000000021
+			treeFormatVersion = 0
+			recordingSchemaGeneration = 4
+			autoGeneratedRootGroupName = Golden Rover
+			RECORDING
+			{
+				recordingId = b20f0000000000000000000000000021
+				vesselName = Golden Rover Mk2
+				treeId = b20f0000000000000000000000000002
+				treeOrder = 0
+				vesselPersistentId = 3200000
+				recordedVesselGuid = 64cd286b26d863cd912bcd66fe29cd65
+				explicitStartUT = 500
+				explicitEndUT = 560
+				terminalState = 1
+				terrainHeightAtEnd = 68.5
+				recordingFormatVersion = 1
+				recordingSchemaGeneration = 4
+				ghostSnapshotMode = AliasVessel
+				sidecarEpoch = 1
+				precHash = 88837e3345bfa438
+				vesselHash = d448c0e9d9c02eff
+				loopPlayback = True
+				loopIntervalSeconds = 600
+				startSituation = Prelaunch
+				launchSiteName = LaunchPad
+				lastResIdx = -1
+				pointCount = 3
+				recordingGroup = Golden Rover
+			}
+		}
+		MISSION
+		{
+			id = a3ee2057d83044dfb389f4db9fc218ce
+			treeId = a10e0000000000000000000000000001
+			name = Golden Mun Mission
+			loopPlayback = False
+			loopIntervalSeconds = 10
+			loopTimeUnit = Sec
+			loopAnchorUT = NaN
+			collapsed = False
+			selectionSchemaGeneration = 1
+		}
+		MISSION
+		{
+			id = 9864cfba9fe449808cca4066674bd33c
+			treeId = a10e0000000000000000000000000001
+			name = Golden Mun Mission (no debris)
+			loopPlayback = False
+			loopIntervalSeconds = 10
+			loopTimeUnit = Sec
+			loopAnchorUT = NaN
+			collapsed = False
+			selectionSchemaGeneration = 1
+			excludedInterval = a10e0000000000000000000000000013@160
+		}
+		MISSION
+		{
+			id = c4ba79b5fe7c4f36bfd5fb9333db100d
+			treeId = b20f0000000000000000000000000002
+			name = Golden Rover
+			loopPlayback = True
+			loopIntervalSeconds = 600
+			loopTimeUnit = Sec
+			loopAnchorUT = 500
+			collapsed = False
+			selectionSchemaGeneration = 1
+		}
+		VESSEL_NAMES
+		{
+			nextSeq = 2
+			DECISION
+			{
+				seq = 1
+				guid = 64cd286b26d863cd912bcd66fe29cd65
+				name = Golden Rover Mk2
+				prior = Golden Rover
+				covered = b20f0000000000000000000000000021
+				source = ParsekRename
+				ut = 0
+				CAPTURED
+				{
+					leg = b20f0000000000000000000000000021
+					name = Golden Rover
+				}
+			}
+			LINK
+			{
+				guid = e60c0000000000000000000000000061
+				to = 64cd286b26d863cd912bcd66fe29cd65
+				kind = Spawn
+			}
+			DOCK_ABSORB
+			{
+				rootUid = 7100
+				guid = 42d86aa46c3743d8ca6dd8445d6fd845
+			}
+		}
+		KERBAL_SLOTS
+		{
+			SLOT
+			{
+				owner = Jebediah Kerman
+				trait = Pilot
+				CHAIN_ENTRY
+				{
+					name = Jedlong Kerman
+				}
+			}
+			SLOT
+			{
+				owner = Bill Kerman
+				trait = Engineer
+				permanentlyGone = True
+			}
+		}
+		RESCUE_PLACED_KERBALS
+		{
+			ENTRY
+			{
+				name = Bob Kerman
+				vesselPid = 3300000
+			}
+		}
+		CREW_REPLACEMENTS
+		{
+			ENTRY
+			{
+				original = Jebediah Kerman
+				replacement = Jedlong Kerman
+			}
+		}
+		GROUP_HIERARCHY
+		{
+			ENTRY
+			{
+				child = Golden Lander / Debris
+				parent = Golden Lander
+			}
+			ENTRY
+			{
+				child = Golden Rover
+				parent = Golden Lander
+			}
+		}
+		HIDDEN_GROUPS
+		{
+			group = Golden Lander / Debris
+		}
+		MILESTONE_STATE
+		{
+			id = a5d71869946c46d0901d810a05a2bfc7
+			lastReplayedIdx = 5
+		}
+		GAME_STATE
+		{
+			LEDGER
+			{
+				version = 0
+				recordingSchemaGeneration = 4
+				takeBackFromCseq = 168001
+				timelineBreak = 168004 68005.25 v68006_Kind
+				timelineBreak = 168008 68009.25 v68010_Kind
+				allowNegativeLocked = 1
+				GAME_ACTION
+				{
+					ut = 0
+					type = 20
+					actionId = act_f80e0000000000200000000000000000
+					cseq = 7
+					initialFunds = 25000
+				}
+				GAME_ACTION
+				{
+					ut = 0
+					type = 21
+					actionId = act_f80e0000000000210000000000000000
+					cseq = 8
+					initialScience = 5
+				}
+				GAME_ACTION
+				{
+					ut = 0
+					type = 22
+					actionId = act_f80e0000000000220000000000000000
+					cseq = 9
+					initialReputation = 0
+				}
+				GAME_ACTION
+				{
+					ut = 50
+					type = 5
+					actionId = act_f80e0000050000050000000000000000
+					cseq = 10
+					contractId = d40b0000-0000-0000-0000-000000000041
+					contractType = AchieveOrbit
+					contractTitle = Golden Orbit
+					advanceFunds = 1000
+					deadlineAbsUT = 99999
+				}
+				GAME_ACTION
+				{
+					ut = 60
+					type = 1
+					actionId = act_f80e0000060000010000000000000000
+					cseq = 11
+					nodeId = basicRocketry
+					cost = 5
+				}
+				GAME_ACTION
+				{
+					ut = 70
+					type = 15
+					actionId = act_f80e0000070000150000000000000000
+					cseq = 12
+					facilityId = SpaceCenter/LaunchPad
+					toLevel = 2
+					facilityCost = 2000
+				}
+				GAME_ACTION
+				{
+					ut = 80
+					type = 12
+					actionId = act_f80e0000080000120000000000000000
+					cseq = 13
+					kerbalName = Bill Kerman
+					hireCost = 1500
+				}
+				GAME_ACTION
+				{
+					ut = 99
+					type = 3
+					actionId = act_f80e0000099000030000000000000000
+					recordingId = a10e0000000000000000000000000011
+					cseq = 14
+					fundsSpent = 8000
+					fundsSpendingSource = 0
+					dedupKey = VesselBuild:a10e0000000000000000000000000011
+				}
+				GAME_ACTION
+				{
+					ut = 100
+					type = 11
+					actionId = act_f80e0000100000110000000000000000
+					recordingId = a10e0000000000000000000000000011
+					cseq = 15
+					kerbalName = Jebediah Kerman
+					kerbalRole = Pilot
+					startUT = 100
+					endUT = 400
+					endState = 0
+					xpGained = 0
+				}
+				GAME_ACTION
+				{
+					ut = 130
+					type = 0
+					actionId = act_f80e0000130000000000000000000000
+					recordingId = a10e0000000000000000000000000011
+					cseq = 16
+					subjectId = mysteryGoo@KerbinFlyingLow
+					experimentId = mysteryGoo
+					body = Kerbin
+					situation = FlyingLow
+					scienceAwarded = 3
+					method = 0
+					transmitScalar = 1
+					subjectMaxValue = 13
+				}
+				GAME_ACTION
+				{
+					ut = 165
+					type = 4
+					actionId = act_f80e0000165000040000000000000000
+					recordingId = a10e0000000000000000000000000011
+					cseq = 17
+					milestoneId = FirstLaunch
+					milestoneFundsAwarded = 800
+					milestoneRepAwarded = 1
+					milestoneSciAwarded = 0
+				}
+				GAME_ACTION
+				{
+					ut = 330
+					type = 10
+					actionId = act_c30a0000000000000000000000000034
+					recordingId = a10e0000000000000000000000000012
+					cseq = 18
+					nominalPenalty = 2
+					repPenaltySource = 2
+				}
+				GAME_ACTION
+				{
+					ut = 400
+					type = 6
+					actionId = act_f80e0000400000060000000000000000
+					recordingId = a10e0000000000000000000000000012
+					cseq = 19
+					contractId = d40b0000-0000-0000-0000-000000000041
+					fundsReward = 6000
+					repReward = 5
+					scienceReward = 2
+				}
+				GAME_ACTION
+				{
+					ut = 560
+					type = 2
+					actionId = act_f80e0000560000020000000000000000
+					recordingId = b20f0000000000000000000000000021
+					cseq = 20
+					fundsAwarded = 3000
+					fundsSource = 2
+					dedupKey = VesselRecovery:b20f0000000000000000000000000021
+				}
+				GAME_ACTION
+				{
+					ut = 600
+					type = 9
+					actionId = act_f80e0000600000090000000000000000
+					recordingId = b20f0000000000000000000000000021
+					cseq = 21
+					nominalRep = 3
+					repSource = 2
+				}
+				PROGRESS_SEED
+				{
+					captured = True
+					node = Kerbin/Landing
+					RECORD
+					{
+						id = RecordsAltitude
+						paidCount = 2
+					}
+				}
+			}
+			PARSEK_GAME_STATE
+			{
+				version = 1
+				GAME_STATE_EVENT
+				{
+					ut = 50
+					type = 1
+					key = d40b0000-0000-0000-0000-000000000041
+					detail = title=Golden Orbit;deadline=99999
+					cseq = 1
+				}
+				GAME_STATE_EVENT
+				{
+					ut = 60
+					type = 6
+					key = basicRocketry
+					detail = cost=5
+					valBefore = 5
+					cseq = 2
+				}
+				GAME_STATE_EVENT
+				{
+					ut = 70
+					type = 11
+					key = SpaceCenter/LaunchPad
+					detail = level=1
+					valAfter = 0.5
+					cseq = 3
+				}
+				GAME_STATE_EVENT
+				{
+					ut = 80
+					type = 8
+					key = Bill Kerman
+					detail = trait=Engineer
+					cseq = 4
+				}
+				GAME_STATE_EVENT
+				{
+					ut = 165
+					type = 18
+					key = FirstLaunch
+					detail = funds=800;rep=1;sci=0
+					recordingId = a10e0000000000000000000000000011
+					cseq = 5
+				}
+				GAME_STATE_EVENT
+				{
+					ut = 400
+					type = 2
+					key = d40b0000-0000-0000-0000-000000000041
+					detail = funds=6000;rep=5;sci=2
+					recordingId = a10e0000000000000000000000000012
+					cseq = 6
+				}
+				CONTRACT_SNAPSHOT
+				{
+					guid = d40b0000-0000-0000-0000-000000000041
+					ut = 50
+					CONTRACT
+					{
+						guid = d40b0000-0000-0000-0000-000000000041
+						type = AchieveOrbit
+						state = Active
+						funds_reward = 6000
+					}
+				}
+				SCIENCE_SUBJECTS
+				{
+					ORIGINALS
+					{
+						SUBJECT
+						{
+							id = crewReport@KerbinSrfLandedLaunchPad
+							science = 5
+						}
+					}
+				}
+			}
+			PARSEK_MILESTONES
+			{
+				version = 1
+				MILESTONE
+				{
+					id = a5d71869946c46d0901d810a05a2bfc7
+					startUT = 0
+					endUT = 1200
+					recordingId = 
+					committed = True
+					lastReplayedIdx = 5
+					GAME_STATE_EVENT
+					{
+						ut = 50
+						type = 1
+						key = d40b0000-0000-0000-0000-000000000041
+						detail = title=Golden Orbit;deadline=99999
+						cseq = 1
+					}
+					GAME_STATE_EVENT
+					{
+						ut = 60
+						type = 6
+						key = basicRocketry
+						detail = cost=5
+						valBefore = 5
+						cseq = 2
+					}
+					GAME_STATE_EVENT
+					{
+						ut = 70
+						type = 11
+						key = SpaceCenter/LaunchPad
+						detail = level=1
+						valAfter = 0.5
+						cseq = 3
+					}
+					GAME_STATE_EVENT
+					{
+						ut = 80
+						type = 8
+						key = Bill Kerman
+						detail = trait=Engineer
+						cseq = 4
+					}
+					GAME_STATE_EVENT
+					{
+						ut = 165
+						type = 18
+						key = FirstLaunch
+						detail = funds=800;rep=1;sci=0
+						recordingId = a10e0000000000000000000000000011
+						cseq = 5
+					}
+					GAME_STATE_EVENT
+					{
+						ut = 400
+						type = 2
+						key = d40b0000-0000-0000-0000-000000000041
+						detail = funds=6000;rep=5;sci=2
+						recordingId = a10e0000000000000000000000000012
+						cseq = 6
+					}
+				}
+			}
+			BASELINES
+			{
+				PARSEK_BASELINE
+				{
+					ut = 9
+					funds = 25000
+					science = 5
+					reputation = 0
+					scienceKnown = True
+					reputationKnown = True
+					TECH_IDS
+					{
+						id = start
+					}
+					FACILITY_LEVELS
+					{
+						SpaceCenter/LaunchPad = 0
+						SpaceCenter/VehicleAssemblyBuilding = 0
+					}
+					BUILDING_INTACT
+					{
+						SpaceCenter/LaunchPad/Facility = True
+					}
+					ACTIVE_CONTRACTS
+					{
+						CONTRACT
+						{
+							guid = d40b0000-0000-0000-0000-000000000041
+							state = Active
+						}
+					}
+					CREW_ROSTER
+					{
+						CREW
+						{
+							name = Jebediah Kerman
+							status = Available
+							trait = Pilot
+						}
+						CREW
+						{
+							name = Bill Kerman
+							status = Available
+							trait = Engineer
+						}
+					}
+				}
+			}
+			PENDING_SCIENCE
+			{
+				SUBJECT
+				{
+					subjectId = mysteryGoo@KerbinFlyingLow
+					science = 3
+					subjectMaxValue = 13
+					captureUT = 130
+					reasonKey = ScienceTransmission
+					recordingId = a10e0000000000000000000000000011
+					scienceGainMultiplier = 1
+				}
+			}
+		}
+		REWIND_POINTS
+		{
+			POINT
+			{
+				rewindPointId = rp_c30a0000000000000000000000000031
+				branchPointId = a10e00000000000000000000000000b1
+				ut = 160
+				quicksaveFilename = rp_c30a0000000000000000000000000031.sfs
+				sessionProvisional = False
+				createdRealTime = 2026-11-04T09:59:00.0000000Z
+				focusSlotIndex = 0
+				CHILD_SLOT
+				{
+					slotIndex = 0
+					originChildRecordingId = a10e0000000000000000000000000012
+					controllable = True
+				}
+				CHILD_SLOT
+				{
+					slotIndex = 1
+					originChildRecordingId = a10e0000000000000000000000000013
+					controllable = False
+					disabled = True
+					disabledReason = uncontrollable debris
+				}
+				PID_SLOT_MAP
+				{
+					pid = 3100000
+					slot = 0
+				}
+				PID_SLOT_MAP
+				{
+					pid = 3100050
+					slot = 1
+				}
+				ROOT_PART_PID_MAP
+				{
+					pid = 3100010
+					slot = 0
+				}
+				ROOT_PART_PID_MAP
+				{
+					pid = 3100060
+					slot = 1
+				}
+			}
+		}
+		RECORDING_SUPERSEDES
+		{
+			ENTRY
+			{
+				relationId = rsr_c30a0000000000000000000000000032
+				oldRecordingId = a10e0000000000000000000000000012
+				newRecordingId = a10e0000000000000000000000000014
+				ut = 160
+				createdRealTime = 2026-11-04T10:00:00.0000000Z
+			}
+		}
+		LEDGER_TOMBSTONES
+		{
+			ENTRY
+			{
+				tombstoneId = tomb_c30a0000000000000000000000000033
+				actionId = act_c30a0000000000000000000000000034
+				retiringRecordingId = a10e0000000000000000000000000014
+				ut = 330
+				createdRealTime = 2026-11-04T10:00:01.0000000Z
+			}
+		}
+		REFLY_SESSION_MARKER
+		{
+			sessionId = sess_e70d0000000000000000000000000071
+			treeId = a10e0000000000000000000000000001
+			activeReFlyRecordingId = a10e0000000000000000000000000014
+			originChildRecordingId = a10e0000000000000000000000000012
+			supersedeTargetId = a10e0000000000000000000000000012
+			rewindPointId = rp_c30a0000000000000000000000000031
+			selectedRootPartPersistentId = 62007
+			invokedUT = 160
+			rewindPointUT = 61009.25
+			invokedRealTime = v61010_InvokedRealTime
+			inPlaceContinuation = true
+			preSessionBranchPointIdsPresent = true
+			preSessionBranchPointId = v61013_PreSessionBranchPointIds0
+			preSessionBranchPointId = v61014_PreSessionBranchPointIds1
+			INVOKE_HOLD
+			{
+				pid = 62017
+				launchGuid = v61018_LaunchGuid
+				recordingId = v61019_RecordingId
+				firstClaimUT = 61020.25
+				evidence = v61021_Evidence
+				flyingRecordingId = v61023_FlyingRecordingIds0
+				flyingRecordingId = v61024_FlyingRecordingIds1
+			}
+			INVOKE_HOLD
+			{
+				pid = 62026
+				launchGuid = v61027_LaunchGuid
+				recordingId = v61028_RecordingId
+				firstClaimUT = 61029.25
+				evidence = v61030_Evidence
+				flyingRecordingId = v61032_FlyingRecordingIds0
+				flyingRecordingId = v61033_FlyingRecordingIds1
+			}
+		}
+		MERGE_JOURNAL
+		{
+			journalId = mj_e70d0000000000000000000000000072
+			sessionId = sess_e70d0000000000000000000000000071
+			treeId = a10e0000000000000000000000000001
+			phase = Supersede
+			startedUT = 61038.25
+			startedRealTime = v61039_StartedRealTime
+			lossSwapVariant = B
+		}
+		STOCK_ACTION_INTENT_MARKER
+		{
+			intentId = 0000ee74-1234-5678-0102-030405060708
+			action = MapSwitchTo
+			targetVesselPersistentId = 62046
+			sourceScene = Flight
+			capturedRealtime = 61048.5
+			capturedUT = 61049.25
+			processSessionId = 0000ee7a-1234-5678-0102-030405060708
+		}
+		SWITCH_SEGMENT_SESSION
+		{
+			sessionId = 0000ee7b-1234-5678-0102-030405060708
+			treeId = v61052_TreeId
+			parentRecordingId = v61053_ParentRecordingId
+			activeSegmentRecordingId = v61054_ActiveSegmentRecordingId
+			sourceVesselPersistentId = 62055
+			focusedVesselPersistentId = 62056
+			switchUT = 61057.25
+			entryReason = ResumedSpawnedVessel
+			intentId = 0000ee83-1234-5678-0102-030405060708
+			committedTreeId = v61063_CommittedTreeId
+			preSessionBranchPointIdsPresent = true
+			preSessionBranchPointId = v61061_PreSessionBranchPointIds0
+			preSessionBranchPointId = v61062_PreSessionBranchPointIds1
+		}
+		ROUTE_EVENT_LOG
+		{
+			EVENT
+			{
+				type = RouteDispatched
+				ut = 64631.25
+				seq = 65632
+				routeId = v64633_RouteId
+				routeCycleId = v64634_RouteCycleId
+				routeStopIndex = 65635
+				resource = v64637_key0|64638.25
+				resource = v64639_key1|64640.25
+				requestedResource = v64642_key0|64643.25
+				requestedResource = v64644_key1|64645.25
+				routeOriginVesselPid = 65708
+				routeSendOnce = True
+				routeEndpointReason = v64710_RouteEndpointReason
+				routeHoldKind = EndpointLost
+				routeHoldShortfall = 64712.25
+				ROUTE_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 7720b1a374166aa7f6f7dc60fe39cfdb49cda9b5f0bedd4c77929ecb32c2872a
+						partName = v64664_PartName
+						variantName = v64665_VariantName
+						quantity = 65666
+						slotsTaken = 65667
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64669_key0
+								amount = 64671.25
+								maxAmount = 64672.25
+							}
+							RESOURCE
+							{
+								name = v64673_key1
+								amount = 64675.25
+								maxAmount = 64676.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart32
+						}
+					}
+					ITEM
+					{
+						identityHash = a6c9860854f03fb2c41fa850fa85dc989b966f12d4a1c88aaeb896b58b1eead7
+						partName = v64649_PartName
+						variantName = v64650_VariantName
+						quantity = 65651
+						slotsTaken = 65652
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64654_key0
+								amount = 64656.25
+								maxAmount = 64657.25
+							}
+							RESOURCE
+							{
+								name = v64658_key1
+								amount = 64660.25
+								maxAmount = 64661.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart31
+						}
+					}
+				}
+				ROUTE_REQUESTED_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = c122fd8c07029bea651566fb43611f688c9ec9e6198bbcec1e4bbb9aff536e1d
+						partName = v64680_PartName
+						variantName = v64681_VariantName
+						quantity = 65682
+						slotsTaken = 65683
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64685_key0
+								amount = 64687.25
+								maxAmount = 64688.25
+							}
+							RESOURCE
+							{
+								name = v64689_key1
+								amount = 64691.25
+								maxAmount = 64692.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart33
+						}
+					}
+					ITEM
+					{
+						identityHash = d1904d428d96ef64bcf8cf60a2111df71227bd1bd3a02eedadeee0ad52bab335
+						partName = v64695_PartName
+						variantName = v64696_VariantName
+						quantity = 65697
+						slotsTaken = 65698
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64700_key0
+								amount = 64702.25
+								maxAmount = 64703.25
+							}
+							RESOURCE
+							{
+								name = v64704_key1
+								amount = 64706.25
+								maxAmount = 64707.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart34
+						}
+					}
+				}
+			}
+			EVENT
+			{
+				type = RouteCargoDebited
+				ut = 64714.25
+				seq = 65715
+				routeId = v64716_RouteId
+				routeCycleId = v64717_RouteCycleId
+				routeStopIndex = 65718
+				resource = v64720_key0|64721.25
+				resource = v64722_key1|64723.25
+				requestedResource = v64725_key0|64726.25
+				requestedResource = v64727_key1|64728.25
+				routeOriginVesselPid = 65791
+				routeSendOnce = True
+				routeEndpointReason = v64793_RouteEndpointReason
+				routeHoldKind = SourcesStale
+				routeHoldShortfall = 64795.25
+				ROUTE_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 375b318b42d7b3eebcc805810a6cedfbb36b1c79a76e708fbeb7981f68fe2d09
+						partName = v64747_PartName
+						variantName = v64748_VariantName
+						quantity = 65749
+						slotsTaken = 65750
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64752_key0
+								amount = 64754.25
+								maxAmount = 64755.25
+							}
+							RESOURCE
+							{
+								name = v64756_key1
+								amount = 64758.25
+								maxAmount = 64759.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart36
+						}
+					}
+					ITEM
+					{
+						identityHash = 6f3484ab245301edde1832c6ad7f73fb8fd3fbaf51180e1edd4360b5293219ff
+						partName = v64732_PartName
+						variantName = v64733_VariantName
+						quantity = 65734
+						slotsTaken = 65735
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64737_key0
+								amount = 64739.25
+								maxAmount = 64740.25
+							}
+							RESOURCE
+							{
+								name = v64741_key1
+								amount = 64743.25
+								maxAmount = 64744.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart35
+						}
+					}
+				}
+				ROUTE_REQUESTED_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 07c14633078cd2402d5eb24b36b4cd927b15a661dc5770d5bd0b367f8659445f
+						partName = v64778_PartName
+						variantName = v64779_VariantName
+						quantity = 65780
+						slotsTaken = 65781
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64783_key0
+								amount = 64785.25
+								maxAmount = 64786.25
+							}
+							RESOURCE
+							{
+								name = v64787_key1
+								amount = 64789.25
+								maxAmount = 64790.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart38
+						}
+					}
+					ITEM
+					{
+						identityHash = 620db588cd0f790e627e2b11e24a490e2b606d7fb012a5ad3a136ecdbd7d2507
+						partName = v64763_PartName
+						variantName = v64764_VariantName
+						quantity = 65765
+						slotsTaken = 65766
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64768_key0
+								amount = 64770.25
+								maxAmount = 64771.25
+							}
+							RESOURCE
+							{
+								name = v64772_key1
+								amount = 64774.25
+								maxAmount = 64775.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart37
+						}
+					}
+				}
+			}
+			EVENT
+			{
+				type = RouteCargoDelivered
+				ut = 64797.25
+				seq = 65798
+				routeId = v64799_RouteId
+				routeCycleId = v64800_RouteCycleId
+				routeStopIndex = 65801
+				resource = v64803_key0|64804.25
+				resource = v64805_key1|64806.25
+				requestedResource = v64808_key0|64809.25
+				requestedResource = v64810_key1|64811.25
+				routeOriginVesselPid = 65874
+				routeSendOnce = True
+				routeEndpointReason = v64876_RouteEndpointReason
+				routeHoldKind = WaitingForPartner
+				routeHoldShortfall = 64878.25
+				ROUTE_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 6720cd7f352bdf653faf4f925f15c83597839b608f1197cb90b53161b61802a4
+						partName = v64830_PartName
+						variantName = v64831_VariantName
+						quantity = 65832
+						slotsTaken = 65833
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64835_key0
+								amount = 64837.25
+								maxAmount = 64838.25
+							}
+							RESOURCE
+							{
+								name = v64839_key1
+								amount = 64841.25
+								maxAmount = 64842.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart40
+						}
+					}
+					ITEM
+					{
+						identityHash = 8bf21fcc00ef225c3b25fcfb22bddbe9f04ccccc2ab5bb6b27b6cc84080159f5
+						partName = v64815_PartName
+						variantName = v64816_VariantName
+						quantity = 65817
+						slotsTaken = 65818
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64820_key0
+								amount = 64822.25
+								maxAmount = 64823.25
+							}
+							RESOURCE
+							{
+								name = v64824_key1
+								amount = 64826.25
+								maxAmount = 64827.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart39
+						}
+					}
+				}
+				ROUTE_REQUESTED_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = b7fdabfbe5d78a1941af74fa818e9ed11b116132b998fc421db404054de133a8
+						partName = v64861_PartName
+						variantName = v64862_VariantName
+						quantity = 65863
+						slotsTaken = 65864
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64866_key0
+								amount = 64868.25
+								maxAmount = 64869.25
+							}
+							RESOURCE
+							{
+								name = v64870_key1
+								amount = 64872.25
+								maxAmount = 64873.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart42
+						}
+					}
+					ITEM
+					{
+						identityHash = f44045e0f74b89db621411f1a03721b142d6915e38a8b41a6262fa17f078ca2a
+						partName = v64846_PartName
+						variantName = v64847_VariantName
+						quantity = 65848
+						slotsTaken = 65849
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64851_key0
+								amount = 64853.25
+								maxAmount = 64854.25
+							}
+							RESOURCE
+							{
+								name = v64855_key1
+								amount = 64857.25
+								maxAmount = 64858.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart41
+						}
+					}
+				}
+			}
+			EVENT
+			{
+				type = RoutePaused
+				ut = 64880.25
+				seq = 65881
+				routeId = v64882_RouteId
+				routeCycleId = v64883_RouteCycleId
+				routeStopIndex = 65884
+				resource = v64886_key0|64887.25
+				resource = v64888_key1|64889.25
+				requestedResource = v64891_key0|64892.25
+				requestedResource = v64893_key1|64894.25
+				routeOriginVesselPid = 65957
+				routeSendOnce = True
+				routeEndpointReason = v64959_RouteEndpointReason
+				routeHoldKind = DestinationFull
+				routeHoldShortfall = 64961.25
+				ROUTE_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 7709127d8c89d6a2a40cc8a8491d8b67f711d89a550f85d4be02e6ca84b44ee2
+						partName = v64913_PartName
+						variantName = v64914_VariantName
+						quantity = 65915
+						slotsTaken = 65916
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64918_key0
+								amount = 64920.25
+								maxAmount = 64921.25
+							}
+							RESOURCE
+							{
+								name = v64922_key1
+								amount = 64924.25
+								maxAmount = 64925.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart44
+						}
+					}
+					ITEM
+					{
+						identityHash = 77df5c54ea4447aa340cb9475c1d35b41c1ed69f60ffbc6aa56e9a719f3e9ca5
+						partName = v64898_PartName
+						variantName = v64899_VariantName
+						quantity = 65900
+						slotsTaken = 65901
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64903_key0
+								amount = 64905.25
+								maxAmount = 64906.25
+							}
+							RESOURCE
+							{
+								name = v64907_key1
+								amount = 64909.25
+								maxAmount = 64910.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart43
+						}
+					}
+				}
+				ROUTE_REQUESTED_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = c403a3a8dc199cb59723c373bc811949b7a4533d64ad5665e7470c99db3d3455
+						partName = v64944_PartName
+						variantName = v64945_VariantName
+						quantity = 65946
+						slotsTaken = 65947
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64949_key0
+								amount = 64951.25
+								maxAmount = 64952.25
+							}
+							RESOURCE
+							{
+								name = v64953_key1
+								amount = 64955.25
+								maxAmount = 64956.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart46
+						}
+					}
+					ITEM
+					{
+						identityHash = e4d6ccbb47e26d4f92459c266f68a0e09c4277b2a060275ad285b5415cfa466a
+						partName = v64929_PartName
+						variantName = v64930_VariantName
+						quantity = 65931
+						slotsTaken = 65932
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64934_key0
+								amount = 64936.25
+								maxAmount = 64937.25
+							}
+							RESOURCE
+							{
+								name = v64938_key1
+								amount = 64940.25
+								maxAmount = 64941.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart45
+						}
+					}
+				}
+			}
+			EVENT
+			{
+				type = RouteEndpointLost
+				ut = 64963.25
+				seq = 65964
+				routeId = v64965_RouteId
+				routeCycleId = v64966_RouteCycleId
+				routeStopIndex = 65967
+				resource = v64969_key0|64970.25
+				resource = v64971_key1|64972.25
+				requestedResource = v64974_key0|64975.25
+				requestedResource = v64976_key1|64977.25
+				routeOriginVesselPid = 66040
+				routeSendOnce = True
+				routeEndpointReason = v65042_RouteEndpointReason
+				routeHoldKind = FundsShort
+				routeHoldShortfall = 65044.25
+				ROUTE_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 9dfe92cb034448cfb836325c8b310474bb1cadd836e9d3b59179aa5db8ba125e
+						partName = v64996_PartName
+						variantName = v64997_VariantName
+						quantity = 65998
+						slotsTaken = 65999
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65001_key0
+								amount = 65003.25
+								maxAmount = 65004.25
+							}
+							RESOURCE
+							{
+								name = v65005_key1
+								amount = 65007.25
+								maxAmount = 65008.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart48
+						}
+					}
+					ITEM
+					{
+						identityHash = a534eda24cc1f6b7fdc3392649608f0d433fc1a8adc0132a65a35845822a85be
+						partName = v64981_PartName
+						variantName = v64982_VariantName
+						quantity = 65983
+						slotsTaken = 65984
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64986_key0
+								amount = 64988.25
+								maxAmount = 64989.25
+							}
+							RESOURCE
+							{
+								name = v64990_key1
+								amount = 64992.25
+								maxAmount = 64993.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart47
+						}
+					}
+				}
+				ROUTE_REQUESTED_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 9bd75da7d817a1f32eb03782e03887fd7345aa8131697a50612941aca5f14168
+						partName = v65027_PartName
+						variantName = v65028_VariantName
+						quantity = 66029
+						slotsTaken = 66030
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65032_key0
+								amount = 65034.25
+								maxAmount = 65035.25
+							}
+							RESOURCE
+							{
+								name = v65036_key1
+								amount = 65038.25
+								maxAmount = 65039.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart50
+						}
+					}
+					ITEM
+					{
+						identityHash = ebabbe83389dc8fd0eef9b6ba57c54094680e8af44dd9bfdbf18adfd6197f07e
+						partName = v65012_PartName
+						variantName = v65013_VariantName
+						quantity = 66014
+						slotsTaken = 66015
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65017_key0
+								amount = 65019.25
+								maxAmount = 65020.25
+							}
+							RESOURCE
+							{
+								name = v65021_key1
+								amount = 65023.25
+								maxAmount = 65024.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart49
+						}
+					}
+				}
+			}
+			EVENT
+			{
+				type = RouteCargoPickedUp
+				ut = 65046.25
+				seq = 66047
+				routeId = v65048_RouteId
+				routeCycleId = v65049_RouteCycleId
+				routeStopIndex = 66050
+				resource = v65052_key0|65053.25
+				resource = v65054_key1|65055.25
+				requestedResource = v65057_key0|65058.25
+				requestedResource = v65059_key1|65060.25
+				routeOriginVesselPid = 66123
+				routeSendOnce = True
+				routeEndpointReason = v65125_RouteEndpointReason
+				routeHoldKind = OriginLacksCargo
+				routeHoldShortfall = 65127.25
+				ROUTE_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 3b72a09ac3199bc8d395efb561a060c8f53db350ccb45800902e50856d32562e
+						partName = v65064_PartName
+						variantName = v65065_VariantName
+						quantity = 66066
+						slotsTaken = 66067
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65069_key0
+								amount = 65071.25
+								maxAmount = 65072.25
+							}
+							RESOURCE
+							{
+								name = v65073_key1
+								amount = 65075.25
+								maxAmount = 65076.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart51
+						}
+					}
+					ITEM
+					{
+						identityHash = 579740a23b5417e4e0db04c5550d1791f64251414d7d9e995674515ce330861c
+						partName = v65079_PartName
+						variantName = v65080_VariantName
+						quantity = 66081
+						slotsTaken = 66082
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65084_key0
+								amount = 65086.25
+								maxAmount = 65087.25
+							}
+							RESOURCE
+							{
+								name = v65088_key1
+								amount = 65090.25
+								maxAmount = 65091.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart52
+						}
+					}
+				}
+				ROUTE_REQUESTED_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 47099b2753a7ac4571bba7b26832e767b4a6ce1124bd142b11c9c4e2f73fb620
+						partName = v65095_PartName
+						variantName = v65096_VariantName
+						quantity = 66097
+						slotsTaken = 66098
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65100_key0
+								amount = 65102.25
+								maxAmount = 65103.25
+							}
+							RESOURCE
+							{
+								name = v65104_key1
+								amount = 65106.25
+								maxAmount = 65107.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart53
+						}
+					}
+					ITEM
+					{
+						identityHash = f46a5afabaf534720d6d19cdf85c74425182b40369cebb63ced729b67e17ceb7
+						partName = v65110_PartName
+						variantName = v65111_VariantName
+						quantity = 66112
+						slotsTaken = 66113
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65115_key0
+								amount = 65117.25
+								maxAmount = 65118.25
+							}
+							RESOURCE
+							{
+								name = v65119_key1
+								amount = 65121.25
+								maxAmount = 65122.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart54
+						}
+					}
+				}
+			}
+			EVENT
+			{
+				type = RouteResumed
+				ut = 65129.25
+				seq = 66130
+				routeId = v65131_RouteId
+				routeCycleId = v65132_RouteCycleId
+				routeStopIndex = 66133
+				resource = v65135_key0|65136.25
+				resource = v65137_key1|65138.25
+				requestedResource = v65140_key0|65141.25
+				requestedResource = v65142_key1|65143.25
+				routeOriginVesselPid = 66206
+				routeSendOnce = True
+				routeEndpointReason = v65208_RouteEndpointReason
+				routeHoldKind = EndpointLost
+				routeHoldShortfall = 65210.25
+				ROUTE_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 89284ab4240e3a769584e8e4c446e41ae245619c01a93c7f256695595e20144e
+						partName = v65147_PartName
+						variantName = v65148_VariantName
+						quantity = 66149
+						slotsTaken = 66150
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65152_key0
+								amount = 65154.25
+								maxAmount = 65155.25
+							}
+							RESOURCE
+							{
+								name = v65156_key1
+								amount = 65158.25
+								maxAmount = 65159.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart55
+						}
+					}
+					ITEM
+					{
+						identityHash = f48ed0224a7d74258e4a5e9d47123c07802d33d818b34be102bbb6f1651fe31f
+						partName = v65162_PartName
+						variantName = v65163_VariantName
+						quantity = 66164
+						slotsTaken = 66165
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65167_key0
+								amount = 65169.25
+								maxAmount = 65170.25
+							}
+							RESOURCE
+							{
+								name = v65171_key1
+								amount = 65173.25
+								maxAmount = 65174.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart56
+						}
+					}
+				}
+				ROUTE_REQUESTED_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 46d5633d00e3a71f90f66b25e2f515c9e131196e50d36e932e2a7894b6d178e7
+						partName = v65193_PartName
+						variantName = v65194_VariantName
+						quantity = 66195
+						slotsTaken = 66196
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65198_key0
+								amount = 65200.25
+								maxAmount = 65201.25
+							}
+							RESOURCE
+							{
+								name = v65202_key1
+								amount = 65204.25
+								maxAmount = 65205.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart58
+						}
+					}
+					ITEM
+					{
+						identityHash = 49743b083db34ea50b94ca83aedb0d1802881f8ad75a70e5c37cfb5586a959b5
+						partName = v65178_PartName
+						variantName = v65179_VariantName
+						quantity = 66180
+						slotsTaken = 66181
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65183_key0
+								amount = 65185.25
+								maxAmount = 65186.25
+							}
+							RESOURCE
+							{
+								name = v65187_key1
+								amount = 65189.25
+								maxAmount = 65190.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart57
+						}
+					}
+				}
+			}
+			EVENT
+			{
+				type = RouteHeld
+				ut = 65212.25
+				seq = 66213
+				routeId = v65214_RouteId
+				routeCycleId = v65215_RouteCycleId
+				routeStopIndex = 66216
+				resource = v65218_key0|65219.25
+				resource = v65220_key1|65221.25
+				requestedResource = v65223_key0|65224.25
+				requestedResource = v65225_key1|65226.25
+				routeOriginVesselPid = 66289
+				routeSendOnce = True
+				routeEndpointReason = v65291_RouteEndpointReason
+				routeHoldKind = SourcesStale
+				routeHoldShortfall = 65293.25
+				ROUTE_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 6890544fb51a1010c6ebbb28cb315e6f9985f18b250006ec2841377ae6f787fd
+						partName = v65245_PartName
+						variantName = v65246_VariantName
+						quantity = 66247
+						slotsTaken = 66248
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65250_key0
+								amount = 65252.25
+								maxAmount = 65253.25
+							}
+							RESOURCE
+							{
+								name = v65254_key1
+								amount = 65256.25
+								maxAmount = 65257.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart60
+						}
+					}
+					ITEM
+					{
+						identityHash = e8dd95e1e67722cbc6b428bd93bdd71ba05504ebe2ddfe0f986b371aef46929c
+						partName = v65230_PartName
+						variantName = v65231_VariantName
+						quantity = 66232
+						slotsTaken = 66233
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65235_key0
+								amount = 65237.25
+								maxAmount = 65238.25
+							}
+							RESOURCE
+							{
+								name = v65239_key1
+								amount = 65241.25
+								maxAmount = 65242.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart59
+						}
+					}
+				}
+				ROUTE_REQUESTED_INVENTORY_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 1400cf7a37768ae9753b0046dc4a3e884bce52f4c7441ec0d5ed93339529de75
+						partName = v65276_PartName
+						variantName = v65277_VariantName
+						quantity = 66278
+						slotsTaken = 66279
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65281_key0
+								amount = 65283.25
+								maxAmount = 65284.25
+							}
+							RESOURCE
+							{
+								name = v65285_key1
+								amount = 65287.25
+								maxAmount = 65288.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart62
+						}
+					}
+					ITEM
+					{
+						identityHash = a233152969250d1c33ac9ef46e818b2b029fd680935b021ac36366d35e860086
+						partName = v65261_PartName
+						variantName = v65262_VariantName
+						quantity = 66263
+						slotsTaken = 66264
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v65266_key0
+								amount = 65268.25
+								maxAmount = 65269.25
+							}
+							RESOURCE
+							{
+								name = v65270_key1
+								amount = 65272.25
+								maxAmount = 65273.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart61
+						}
+					}
+				}
+			}
+		}
+		RETIRED_ROUTE_CARGO
+		{
+			ROW
+			{
+				type = RouteCargoDelivered
+				ut = 64001.25
+				cutoffUT = 64002.25
+				routeId = v64003_RouteId
+				cycleId = v64004_CycleId
+				stopIndex = 65005
+				endpointPid = 65006
+				endpointGuid = v64007_EndpointGuid
+				endpointRootUid = 65008
+				actualPid = 65009
+				TIP
+				{
+					tree = v64017_TreeId
+					rec = v64018_RecordingId
+					chain = v64019_ChainId
+					captureUT = 64020.25
+					fingerprint = v64021_Fingerprint
+				}
+				TIP
+				{
+					tree = v64023_TreeId
+					rec = v64024_RecordingId
+					chain = v64025_ChainId
+					captureUT = 64026.25
+					fingerprint = v64027_Fingerprint
+				}
+				RESOURCE
+				{
+					name = v64011_key0
+					amount = 64012.25
+				}
+				RESOURCE
+				{
+					name = v64013_key1
+					amount = 64014.25
+				}
+			}
+			ROW
+			{
+				type = RouteCargoDelivered
+				ut = 64039.25
+				cutoffUT = 64040.25
+				routeId = v64041_RouteId
+				cycleId = v64042_CycleId
+				stopIndex = 65043
+				endpointPid = 65044
+				endpointGuid = v64045_EndpointGuid
+				endpointRootUid = 65046
+				actualPid = 65047
+				TIP
+				{
+					tree = v64055_TreeId
+					rec = v64056_RecordingId
+					chain = v64057_ChainId
+					captureUT = 64058.25
+					fingerprint = v64059_Fingerprint
+				}
+				TIP
+				{
+					tree = v64061_TreeId
+					rec = v64062_RecordingId
+					chain = v64063_ChainId
+					captureUT = 64064.25
+					fingerprint = v64065_Fingerprint
+				}
+				RESOURCE
+				{
+					name = v64049_key0
+					amount = 64050.25
+				}
+				RESOURCE
+				{
+					name = v64051_key1
+					amount = 64052.25
+				}
+			}
+			WATERMARK
+			{
+				tree = v64029_TreeId
+				rec = v64030_RecordingId
+				chain = v64031_ChainId
+				captureUT = 64032.25
+				fingerprint = v64033_Fingerprint
+				lowestCutoffUT = 64034.25
+			}
+			WATERMARK
+			{
+				tree = v64067_TreeId
+				rec = v64068_RecordingId
+				chain = v64069_ChainId
+				captureUT = 64070.25
+				fingerprint = v64071_Fingerprint
+				lowestCutoffUT = 64072.25
+			}
+			CAPTURE
+			{
+				tree = v64035_TreeId
+				rec = v64036_RecordingId
+				fingerprint = v64037_Fingerprint
+				captureUT = 64038.25
+			}
+			CAPTURE
+			{
+				tree = v64073_TreeId
+				rec = v64074_RecordingId
+				fingerprint = v64075_Fingerprint
+				captureUT = 64076.25
+			}
+		}
+		ROUTES
+		{
+			ROUTE
+			{
+				id = v63001_Id
+				name = Golden Fuel Run
+				isKscOrigin = True
+				isHarvestOrigin = True
+				transitDuration = 63255.25
+				dispatchInterval = 63256.25
+				cadenceMultiplier = 64257
+				dispatchWindowEpochUT = 63259.25
+				dispatchWindowPeriod = 63260.25
+				nextDispatchUT = 63261.25
+				currentCycleStartUT = 63263.25
+				nextEligibilityCheckUT = 63265.25
+				pendingDeliveryUT = 63268.25
+				currentSegmentIndex = 64266
+				pendingStopIndex = 64269
+				linkedRouteId = v63270_LinkedRouteId
+				lastConsumedPartnerCycle = 64271
+				status = InTransit
+				preMissingStatus = WaitingForResources
+				pauseAfterCurrentCycle = True
+				sendOnceArmed = True
+				createdUT = 63272.25
+				completedCycles = 64277
+				skippedCycles = 64278
+				dispatchPriority = 64258
+				lastHoldKind = FundsShort
+				lastHoldDetail = v63280_LastHoldDetail
+				lastHoldShortfall = 63281.25
+				lastHoldUT = 63282.25
+				lastPartialDeliverySummary = v63283_LastPartialDeliverySummary
+				lastPartialDeliveryUT = 63284.25
+				lastPartialDeliveryCycleId = v63285_LastPartialDeliveryCycleId
+				backingMissionTreeId = v63286_BackingMissionTreeId
+				dockMemberRecordingId = v63524_DockMemberRecordingId
+				recordedDockUT = 63522.25
+				recordedOriginUndockUT = 63523.25
+				loopAnchorUT = 63525.25
+				lastObservedLoopCycleIndex = 163526
+				windowAnchorCycleIndex = 163527
+				reaimWindowBasisEngaged = True
+				HARVEST_CAP
+				{
+					resource = v63212_Resource
+					recorded = 63213.25
+					cap = 63214.25
+				}
+				HARVEST_CAP
+				{
+					resource = v63216_Resource
+					recorded = 63217.25
+					cap = 63218.25
+				}
+				EXCLUDED_INTERVALS
+				{
+					excludedInterval = v63288_ExcludedIntervalKeys0
+					excludedInterval = v63289_ExcludedIntervalKeys1
+				}
+				CREATION_TREE_RECORDINGS
+				{
+					id = v63291_CreationTreeRecordingIds0
+					id = v63292_CreationTreeRecordingIds1
+				}
+				RECORDING_IDS
+				{
+					id = v63003_RecordingIds0
+					id = v63004_RecordingIds1
+				}
+				SOURCE_REFS
+				{
+					SOURCE
+					{
+						recordingId = v63008_RecordingId
+						treeId = v63009_TreeId
+						treeOrder = 64010
+						recordingFormatVersion = 64011
+						recordingSchemaGeneration = 64012
+						sidecarEpoch = 64013
+						startUT = 63014.25
+						endUT = 63015.25
+						routeProofHash = v63016_RouteProofHash
+					}
+					SOURCE
+					{
+						recordingId = v63018_RecordingId
+						treeId = v63019_TreeId
+						treeOrder = 64020
+						recordingFormatVersion = 64021
+						recordingSchemaGeneration = 64022
+						sidecarEpoch = 64023
+						startUT = 63024.25
+						endUT = 63025.25
+						routeProofHash = v63026_RouteProofHash
+					}
+				}
+				ORIGIN
+				{
+					vesselPersistentId = 64028
+					rootPartUId = 64029
+					launchGuid = 00000001432107650908070605040302
+					bodyName = v63030_BodyName
+					latitude = 63031.25
+					longitude = 63032.25
+					altitude = 63033.25
+					isSurface = True
+				}
+				STOP
+				{
+					connectionKind = Grapple
+					segmentIndexBefore = 64118
+					deliveryOffsetSeconds = 63119.25
+					recordedDockUT = 63120.25
+					lastFiredCycleIndex = 163121
+					ENDPOINT
+					{
+						vesselPersistentId = 64038
+						rootPartUId = 64039
+						launchGuid = 00000002432107650908070605040302
+						bodyName = v63040_BodyName
+						latitude = 63041.25
+						longitude = 63042.25
+						altitude = 63043.25
+						isSurface = True
+					}
+					DELIVERY_MANIFEST
+					{
+						v63047_key0 = 63048.25
+						v63049_key1 = 63050.25
+					}
+					INVENTORY_DELIVERY_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = cfcaed2db93dbfd21e67120588010d0b1c6ac302e2070c76d126ffe0341f4ff8
+							partName = v63054_PartName
+							variantName = v63055_VariantName
+							quantity = 64056
+							slotsTaken = 64057
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63059_key0
+									amount = 63061.25
+									maxAmount = 63062.25
+								}
+								RESOURCE
+								{
+									name = v63063_key1
+									amount = 63065.25
+									maxAmount = 63066.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart1
+							}
+						}
+						ITEM
+						{
+							identityHash = d75236a1b351d8bf625f581a3cb561a7b633c7ba3e4e1f8dc93db00434ced899
+							partName = v63069_PartName
+							variantName = v63070_VariantName
+							quantity = 64071
+							slotsTaken = 64072
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63074_key0
+									amount = 63076.25
+									maxAmount = 63077.25
+								}
+								RESOURCE
+								{
+									name = v63078_key1
+									amount = 63080.25
+									maxAmount = 63081.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart2
+							}
+						}
+					}
+					PICKUP_MANIFEST
+					{
+						v63083_key0 = 63084.25
+						v63085_key1 = 63086.25
+					}
+					INVENTORY_PICKUP_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 154ca065046535078e97b83bf8852b83c59f2b81ea6849271c6b862d38a5f6b9
+							partName = v63105_PartName
+							variantName = v63106_VariantName
+							quantity = 64107
+							slotsTaken = 64108
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63110_key0
+									amount = 63112.25
+									maxAmount = 63113.25
+								}
+								RESOURCE
+								{
+									name = v63114_key1
+									amount = 63116.25
+									maxAmount = 63117.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart4
+							}
+						}
+						ITEM
+						{
+							identityHash = 2283d6d8cc15be4b1a415ef8276e4130867ad7c63289a221f5af209e0ef79973
+							partName = v63090_PartName
+							variantName = v63091_VariantName
+							quantity = 64092
+							slotsTaken = 64093
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63095_key0
+									amount = 63097.25
+									maxAmount = 63098.25
+								}
+								RESOURCE
+								{
+									name = v63099_key1
+									amount = 63101.25
+									maxAmount = 63102.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart3
+							}
+						}
+					}
+				}
+				STOP
+				{
+					connectionKind = Unknown
+					segmentIndexBefore = 64204
+					deliveryOffsetSeconds = 63205.25
+					recordedDockUT = 63206.25
+					lastFiredCycleIndex = 163207
+					ENDPOINT
+					{
+						vesselPersistentId = 64124
+						rootPartUId = 64125
+						launchGuid = 00000003432107650908070605040302
+						bodyName = v63126_BodyName
+						latitude = 63127.25
+						longitude = 63128.25
+						altitude = 63129.25
+						isSurface = True
+					}
+					DELIVERY_MANIFEST
+					{
+						v63133_key0 = 63134.25
+						v63135_key1 = 63136.25
+					}
+					INVENTORY_DELIVERY_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 3b47c843fb569868a29a2d813e370cce343280d0a41ee49ece205aaaa4d3e5d1
+							partName = v63140_PartName
+							variantName = v63141_VariantName
+							quantity = 64142
+							slotsTaken = 64143
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63145_key0
+									amount = 63147.25
+									maxAmount = 63148.25
+								}
+								RESOURCE
+								{
+									name = v63149_key1
+									amount = 63151.25
+									maxAmount = 63152.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart5
+							}
+						}
+						ITEM
+						{
+							identityHash = 627468b531c0e40ed5668de99b4d18c4d731de01e667ecd5707cfb52fe2c013c
+							partName = v63155_PartName
+							variantName = v63156_VariantName
+							quantity = 64157
+							slotsTaken = 64158
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63160_key0
+									amount = 63162.25
+									maxAmount = 63163.25
+								}
+								RESOURCE
+								{
+									name = v63164_key1
+									amount = 63166.25
+									maxAmount = 63167.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart6
+							}
+						}
+					}
+					PICKUP_MANIFEST
+					{
+						v63169_key0 = 63170.25
+						v63171_key1 = 63172.25
+					}
+					INVENTORY_PICKUP_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 4e8bcb8c7727c2a363f722b4e18277113964d79f16ff8d588feedd9c9c21d37f
+							partName = v63191_PartName
+							variantName = v63192_VariantName
+							quantity = 64193
+							slotsTaken = 64194
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63196_key0
+									amount = 63198.25
+									maxAmount = 63199.25
+								}
+								RESOURCE
+								{
+									name = v63200_key1
+									amount = 63202.25
+									maxAmount = 63203.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart8
+							}
+						}
+						ITEM
+						{
+							identityHash = 920280dbff59647ddfd07477ca04e0316db55518c36a86d9bcab69a72162cd1e
+							partName = v63176_PartName
+							variantName = v63177_VariantName
+							quantity = 64178
+							slotsTaken = 64179
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63181_key0
+									amount = 63183.25
+									maxAmount = 63184.25
+								}
+								RESOURCE
+								{
+									name = v63185_key1
+									amount = 63187.25
+									maxAmount = 63188.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart7
+							}
+						}
+					}
+				}
+				COST_MANIFEST
+				{
+					v63220_key0 = 63221.25
+					v63222_key1 = 63223.25
+				}
+				INVENTORY_COST_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 3af099e15b5c66877fb357b9d9e5f566c648c1b9919f88b439abba405fb999e8
+						partName = v63227_PartName
+						variantName = v63228_VariantName
+						quantity = 64229
+						slotsTaken = 64230
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v63232_key0
+								amount = 63234.25
+								maxAmount = 63235.25
+							}
+							RESOURCE
+							{
+								name = v63236_key1
+								amount = 63238.25
+								maxAmount = 63239.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart9
+						}
+					}
+					ITEM
+					{
+						identityHash = 86c94b07eb3da150f57459f898ad0cd0a5dbb5056de169c75961c514e2af4f7e
+						partName = v63242_PartName
+						variantName = v63243_VariantName
+						quantity = 64244
+						slotsTaken = 64245
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v63247_key0
+								amount = 63249.25
+								maxAmount = 63250.25
+							}
+							RESOURCE
+							{
+								name = v63251_key1
+								amount = 63253.25
+								maxAmount = 63254.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart10
+						}
+					}
+				}
+				ADOPTED_ENDPOINT_PARTS
+				{
+					ENDPOINT_PARTS
+					{
+						rootPartUId = 64531
+						vesselPersistentId = 64532
+						launchGuid = 00000004432107650908070605040302
+						adoptedUT = 63533.25
+						uid = 64535
+						uid = 64536
+					}
+					ENDPOINT_PARTS
+					{
+						rootPartUId = 64538
+						vesselPersistentId = 64539
+						launchGuid = 00000005432107650908070605040302
+						adoptedUT = 63540.25
+						uid = 64542
+						uid = 64543
+					}
+				}
+			}
+			ROUTE
+			{
+				id = v63544_Id
+				name = Golden Ore Run
+				isKscOrigin = True
+				isHarvestOrigin = True
+				transitDuration = 63798.25
+				dispatchInterval = 63799.25
+				cadenceMultiplier = 64800
+				dispatchWindowEpochUT = 63802.25
+				dispatchWindowPeriod = 63803.25
+				nextDispatchUT = 63804.25
+				currentCycleStartUT = 63806.25
+				nextEligibilityCheckUT = 63808.25
+				pendingDeliveryUT = 63811.25
+				currentSegmentIndex = 64809
+				pendingStopIndex = 64812
+				linkedRouteId = v63813_LinkedRouteId
+				lastConsumedPartnerCycle = 64814
+				status = MissingSourceRecording
+				preMissingStatus = SourceChanged
+				pauseAfterCurrentCycle = True
+				sendOnceArmed = True
+				createdUT = 63815.25
+				completedCycles = 64820
+				skippedCycles = 64821
+				dispatchPriority = 64801
+				lastHoldKind = SourcesStale
+				lastHoldDetail = v63823_LastHoldDetail
+				lastHoldShortfall = 63824.25
+				lastHoldUT = 63825.25
+				lastPartialDeliverySummary = v63826_LastPartialDeliverySummary
+				lastPartialDeliveryUT = 63827.25
+				lastPartialDeliveryCycleId = v63828_LastPartialDeliveryCycleId
+				backingMissionTreeId = v63829_BackingMissionTreeId
+				dockMemberRecordingId = v64067_DockMemberRecordingId
+				recordedDockUT = 64065.25
+				recordedOriginUndockUT = 64066.25
+				loopAnchorUT = 64068.25
+				lastObservedLoopCycleIndex = 164069
+				windowAnchorCycleIndex = 164070
+				reaimWindowBasisEngaged = True
+				HARVEST_CAP
+				{
+					resource = v63755_Resource
+					recorded = 63756.25
+					cap = 63757.25
+				}
+				HARVEST_CAP
+				{
+					resource = v63759_Resource
+					recorded = 63760.25
+					cap = 63761.25
+				}
+				EXCLUDED_INTERVALS
+				{
+					excludedInterval = v63831_ExcludedIntervalKeys0
+					excludedInterval = v63832_ExcludedIntervalKeys1
+				}
+				CREATION_TREE_RECORDINGS
+				{
+					id = v63834_CreationTreeRecordingIds0
+					id = v63835_CreationTreeRecordingIds1
+				}
+				RECORDING_IDS
+				{
+					id = v63546_RecordingIds0
+					id = v63547_RecordingIds1
+				}
+				SOURCE_REFS
+				{
+					SOURCE
+					{
+						recordingId = v63551_RecordingId
+						treeId = v63552_TreeId
+						treeOrder = 64553
+						recordingFormatVersion = 64554
+						recordingSchemaGeneration = 64555
+						sidecarEpoch = 64556
+						startUT = 63557.25
+						endUT = 63558.25
+						routeProofHash = v63559_RouteProofHash
+					}
+					SOURCE
+					{
+						recordingId = v63561_RecordingId
+						treeId = v63562_TreeId
+						treeOrder = 64563
+						recordingFormatVersion = 64564
+						recordingSchemaGeneration = 64565
+						sidecarEpoch = 64566
+						startUT = 63567.25
+						endUT = 63568.25
+						routeProofHash = v63569_RouteProofHash
+					}
+				}
+				ORIGIN
+				{
+					vesselPersistentId = 64571
+					rootPartUId = 64572
+					launchGuid = 00000006432107650908070605040302
+					bodyName = v63573_BodyName
+					latitude = 63574.25
+					longitude = 63575.25
+					altitude = 63576.25
+					isSurface = True
+				}
+				STOP
+				{
+					connectionKind = DockingPort
+					segmentIndexBefore = 64661
+					deliveryOffsetSeconds = 63662.25
+					recordedDockUT = 63663.25
+					lastFiredCycleIndex = 163664
+					ENDPOINT
+					{
+						vesselPersistentId = 64581
+						rootPartUId = 64582
+						launchGuid = 00000007432107650908070605040302
+						bodyName = v63583_BodyName
+						latitude = 63584.25
+						longitude = 63585.25
+						altitude = 63586.25
+						isSurface = True
+					}
+					DELIVERY_MANIFEST
+					{
+						v63590_key0 = 63591.25
+						v63592_key1 = 63593.25
+					}
+					INVENTORY_DELIVERY_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 01f8913258bd47feaa8a79f8ed7dd4e5bc4fe1f99926846be5335c176941aca5
+							partName = v63612_PartName
+							variantName = v63613_VariantName
+							quantity = 64614
+							slotsTaken = 64615
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63617_key0
+									amount = 63619.25
+									maxAmount = 63620.25
+								}
+								RESOURCE
+								{
+									name = v63621_key1
+									amount = 63623.25
+									maxAmount = 63624.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart12
+							}
+						}
+						ITEM
+						{
+							identityHash = 1167f8c6627e5d62a882ea45ef53449e1fcb3e71fe593b6f8ae3c4d4baa045ea
+							partName = v63597_PartName
+							variantName = v63598_VariantName
+							quantity = 64599
+							slotsTaken = 64600
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63602_key0
+									amount = 63604.25
+									maxAmount = 63605.25
+								}
+								RESOURCE
+								{
+									name = v63606_key1
+									amount = 63608.25
+									maxAmount = 63609.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart11
+							}
+						}
+					}
+					PICKUP_MANIFEST
+					{
+						v63626_key0 = 63627.25
+						v63628_key1 = 63629.25
+					}
+					INVENTORY_PICKUP_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 2272aaa010dbafa1da78a7a8d836d2eb533b52554ffe74052501a9b24d18abb0
+							partName = v63648_PartName
+							variantName = v63649_VariantName
+							quantity = 64650
+							slotsTaken = 64651
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63653_key0
+									amount = 63655.25
+									maxAmount = 63656.25
+								}
+								RESOURCE
+								{
+									name = v63657_key1
+									amount = 63659.25
+									maxAmount = 63660.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart14
+							}
+						}
+						ITEM
+						{
+							identityHash = baed74f601dd688623e17dffa299abcc230294813c15efbf41337b3a107ec194
+							partName = v63633_PartName
+							variantName = v63634_VariantName
+							quantity = 64635
+							slotsTaken = 64636
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63638_key0
+									amount = 63640.25
+									maxAmount = 63641.25
+								}
+								RESOURCE
+								{
+									name = v63642_key1
+									amount = 63644.25
+									maxAmount = 63645.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart13
+							}
+						}
+					}
+				}
+				STOP
+				{
+					connectionKind = StockCrossfeed
+					segmentIndexBefore = 64747
+					deliveryOffsetSeconds = 63748.25
+					recordedDockUT = 63749.25
+					lastFiredCycleIndex = 163750
+					ENDPOINT
+					{
+						vesselPersistentId = 64667
+						rootPartUId = 64668
+						launchGuid = 00000008432107650908070605040302
+						bodyName = v63669_BodyName
+						latitude = 63670.25
+						longitude = 63671.25
+						altitude = 63672.25
+						isSurface = True
+					}
+					DELIVERY_MANIFEST
+					{
+						v63676_key0 = 63677.25
+						v63678_key1 = 63679.25
+					}
+					INVENTORY_DELIVERY_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 9731e5cfb1144df4922e595fc82b7d76bf08309c5196df4ec9aa806264b720b4
+							partName = v63683_PartName
+							variantName = v63684_VariantName
+							quantity = 64685
+							slotsTaken = 64686
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63688_key0
+									amount = 63690.25
+									maxAmount = 63691.25
+								}
+								RESOURCE
+								{
+									name = v63692_key1
+									amount = 63694.25
+									maxAmount = 63695.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart15
+							}
+						}
+						ITEM
+						{
+							identityHash = f62ef39b9f00d832d60ff2eed72d3572efb0dd2ea9657cc2f3205e83578249c5
+							partName = v63698_PartName
+							variantName = v63699_VariantName
+							quantity = 64700
+							slotsTaken = 64701
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63703_key0
+									amount = 63705.25
+									maxAmount = 63706.25
+								}
+								RESOURCE
+								{
+									name = v63707_key1
+									amount = 63709.25
+									maxAmount = 63710.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart16
+							}
+						}
+					}
+					PICKUP_MANIFEST
+					{
+						v63712_key0 = 63713.25
+						v63714_key1 = 63715.25
+					}
+					INVENTORY_PICKUP_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 36411c990b0f46d479cf91e917964b9d924fe87abea3b305643321f318078053
+							partName = v63719_PartName
+							variantName = v63720_VariantName
+							quantity = 64721
+							slotsTaken = 64722
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63724_key0
+									amount = 63726.25
+									maxAmount = 63727.25
+								}
+								RESOURCE
+								{
+									name = v63728_key1
+									amount = 63730.25
+									maxAmount = 63731.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart17
+							}
+						}
+						ITEM
+						{
+							identityHash = f9909e4265b6e15842053d20918cb96622dc088b90a240cf7a230c3a4f866a6c
+							partName = v63734_PartName
+							variantName = v63735_VariantName
+							quantity = 64736
+							slotsTaken = 64737
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v63739_key0
+									amount = 63741.25
+									maxAmount = 63742.25
+								}
+								RESOURCE
+								{
+									name = v63743_key1
+									amount = 63745.25
+									maxAmount = 63746.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart18
+							}
+						}
+					}
+				}
+				COST_MANIFEST
+				{
+					v63763_key0 = 63764.25
+					v63765_key1 = 63766.25
+				}
+				INVENTORY_COST_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 4ab2bcacbcafd1fca4ca791a378c0fb219202e16dab29a752f11bede5b084db8
+						partName = v63785_PartName
+						variantName = v63786_VariantName
+						quantity = 64787
+						slotsTaken = 64788
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v63790_key0
+								amount = 63792.25
+								maxAmount = 63793.25
+							}
+							RESOURCE
+							{
+								name = v63794_key1
+								amount = 63796.25
+								maxAmount = 63797.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart20
+						}
+					}
+					ITEM
+					{
+						identityHash = e5f90a10d87786d7987a620f648e93d87d35486ccf4d7441a8aebd8be0af3c3d
+						partName = v63770_PartName
+						variantName = v63771_VariantName
+						quantity = 64772
+						slotsTaken = 64773
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v63775_key0
+								amount = 63777.25
+								maxAmount = 63778.25
+							}
+							RESOURCE
+							{
+								name = v63779_key1
+								amount = 63781.25
+								maxAmount = 63782.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart19
+						}
+					}
+				}
+				ADOPTED_ENDPOINT_PARTS
+				{
+					ENDPOINT_PARTS
+					{
+						rootPartUId = 65074
+						vesselPersistentId = 65075
+						launchGuid = 00000009432107650908070605040302
+						adoptedUT = 64076.25
+						uid = 65078
+						uid = 65079
+					}
+					ENDPOINT_PARTS
+					{
+						rootPartUId = 65081
+						vesselPersistentId = 65082
+						launchGuid = 0000000a432107650908070605040302
+						adoptedUT = 64083.25
+						uid = 65085
+						uid = 65086
+					}
+				}
+			}
+		}
+		DORMANT_ROUTES
+		{
+			ROUTE
+			{
+				id = v64087_Id
+				name = Golden Dormant Run
+				isKscOrigin = True
+				isHarvestOrigin = True
+				transitDuration = 64341.25
+				dispatchInterval = 64342.25
+				cadenceMultiplier = 65343
+				dispatchWindowEpochUT = 64345.25
+				dispatchWindowPeriod = 64346.25
+				nextDispatchUT = 64347.25
+				currentCycleStartUT = 64349.25
+				nextEligibilityCheckUT = 64351.25
+				pendingDeliveryUT = 64354.25
+				currentSegmentIndex = 65352
+				pendingStopIndex = 65355
+				linkedRouteId = v64356_LinkedRouteId
+				lastConsumedPartnerCycle = 65357
+				status = WaitingForResources
+				preMissingStatus = DestinationFull
+				pauseAfterCurrentCycle = True
+				sendOnceArmed = True
+				createdUT = 64358.25
+				completedCycles = 65363
+				skippedCycles = 65364
+				dispatchPriority = 65344
+				lastHoldKind = FundsShort
+				lastHoldDetail = v64366_LastHoldDetail
+				lastHoldShortfall = 64367.25
+				lastHoldUT = 64368.25
+				lastPartialDeliverySummary = v64369_LastPartialDeliverySummary
+				lastPartialDeliveryUT = 64370.25
+				lastPartialDeliveryCycleId = v64371_LastPartialDeliveryCycleId
+				backingMissionTreeId = v64372_BackingMissionTreeId
+				dockMemberRecordingId = v64610_DockMemberRecordingId
+				recordedDockUT = 64608.25
+				recordedOriginUndockUT = 64609.25
+				loopAnchorUT = 64611.25
+				lastObservedLoopCycleIndex = 164612
+				windowAnchorCycleIndex = 164613
+				reaimWindowBasisEngaged = True
+				HARVEST_CAP
+				{
+					resource = v64298_Resource
+					recorded = 64299.25
+					cap = 64300.25
+				}
+				HARVEST_CAP
+				{
+					resource = v64302_Resource
+					recorded = 64303.25
+					cap = 64304.25
+				}
+				EXCLUDED_INTERVALS
+				{
+					excludedInterval = v64374_ExcludedIntervalKeys0
+					excludedInterval = v64375_ExcludedIntervalKeys1
+				}
+				CREATION_TREE_RECORDINGS
+				{
+					id = v64377_CreationTreeRecordingIds0
+					id = v64378_CreationTreeRecordingIds1
+				}
+				RECORDING_IDS
+				{
+					id = v64089_RecordingIds0
+					id = v64090_RecordingIds1
+				}
+				SOURCE_REFS
+				{
+					SOURCE
+					{
+						recordingId = v64094_RecordingId
+						treeId = v64095_TreeId
+						treeOrder = 65096
+						recordingFormatVersion = 65097
+						recordingSchemaGeneration = 65098
+						sidecarEpoch = 65099
+						startUT = 64100.25
+						endUT = 64101.25
+						routeProofHash = v64102_RouteProofHash
+					}
+					SOURCE
+					{
+						recordingId = v64104_RecordingId
+						treeId = v64105_TreeId
+						treeOrder = 65106
+						recordingFormatVersion = 65107
+						recordingSchemaGeneration = 65108
+						sidecarEpoch = 65109
+						startUT = 64110.25
+						endUT = 64111.25
+						routeProofHash = v64112_RouteProofHash
+					}
+				}
+				ORIGIN
+				{
+					vesselPersistentId = 65114
+					rootPartUId = 65115
+					launchGuid = 0000000b432107650908070605040302
+					bodyName = v64116_BodyName
+					latitude = 64117.25
+					longitude = 64118.25
+					altitude = 64119.25
+					isSurface = True
+				}
+				STOP
+				{
+					connectionKind = Unknown
+					segmentIndexBefore = 65204
+					deliveryOffsetSeconds = 64205.25
+					recordedDockUT = 64206.25
+					lastFiredCycleIndex = 164207
+					ENDPOINT
+					{
+						vesselPersistentId = 65124
+						rootPartUId = 65125
+						launchGuid = 0000000c432107650908070605040302
+						bodyName = v64126_BodyName
+						latitude = 64127.25
+						longitude = 64128.25
+						altitude = 64129.25
+						isSurface = True
+					}
+					DELIVERY_MANIFEST
+					{
+						v64133_key0 = 64134.25
+						v64135_key1 = 64136.25
+					}
+					INVENTORY_DELIVERY_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 232e26dd12487d1c38d95a3c9cc81a9de275b76d62bec7264b99a75a4c7d8944
+							partName = v64155_PartName
+							variantName = v64156_VariantName
+							quantity = 65157
+							slotsTaken = 65158
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v64160_key0
+									amount = 64162.25
+									maxAmount = 64163.25
+								}
+								RESOURCE
+								{
+									name = v64164_key1
+									amount = 64166.25
+									maxAmount = 64167.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart22
+							}
+						}
+						ITEM
+						{
+							identityHash = 50464257915bc17fe8d81a28cf43747708159ef4c6dc8f1d1278ab89e6c7364a
+							partName = v64140_PartName
+							variantName = v64141_VariantName
+							quantity = 65142
+							slotsTaken = 65143
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v64145_key0
+									amount = 64147.25
+									maxAmount = 64148.25
+								}
+								RESOURCE
+								{
+									name = v64149_key1
+									amount = 64151.25
+									maxAmount = 64152.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart21
+							}
+						}
+					}
+					PICKUP_MANIFEST
+					{
+						v64169_key0 = 64170.25
+						v64171_key1 = 64172.25
+					}
+					INVENTORY_PICKUP_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 25d4afe64f82005a9e84d24c62bcb54b82a6a41b26fecc425ec461f8f04c4792
+							partName = v64191_PartName
+							variantName = v64192_VariantName
+							quantity = 65193
+							slotsTaken = 65194
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v64196_key0
+									amount = 64198.25
+									maxAmount = 64199.25
+								}
+								RESOURCE
+								{
+									name = v64200_key1
+									amount = 64202.25
+									maxAmount = 64203.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart24
+							}
+						}
+						ITEM
+						{
+							identityHash = ab5cc4474b4abf675336448237a52a5efaaea67a690f8d163e18917e3f4f4103
+							partName = v64176_PartName
+							variantName = v64177_VariantName
+							quantity = 65178
+							slotsTaken = 65179
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v64181_key0
+									amount = 64183.25
+									maxAmount = 64184.25
+								}
+								RESOURCE
+								{
+									name = v64185_key1
+									amount = 64187.25
+									maxAmount = 64188.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart23
+							}
+						}
+					}
+				}
+				STOP
+				{
+					connectionKind = Grapple
+					segmentIndexBefore = 65290
+					deliveryOffsetSeconds = 64291.25
+					recordedDockUT = 64292.25
+					lastFiredCycleIndex = 164293
+					ENDPOINT
+					{
+						vesselPersistentId = 65210
+						rootPartUId = 65211
+						launchGuid = 0000000d432107650908070605040302
+						bodyName = v64212_BodyName
+						latitude = 64213.25
+						longitude = 64214.25
+						altitude = 64215.25
+						isSurface = True
+					}
+					DELIVERY_MANIFEST
+					{
+						v64219_key0 = 64220.25
+						v64221_key1 = 64222.25
+					}
+					INVENTORY_DELIVERY_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 7985913aaa0d86eb4598af491c2dd3e3e547a5cd94bebe808aa0db8426ee6572
+							partName = v64226_PartName
+							variantName = v64227_VariantName
+							quantity = 65228
+							slotsTaken = 65229
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v64231_key0
+									amount = 64233.25
+									maxAmount = 64234.25
+								}
+								RESOURCE
+								{
+									name = v64235_key1
+									amount = 64237.25
+									maxAmount = 64238.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart25
+							}
+						}
+						ITEM
+						{
+							identityHash = 8abfc0c402df5f161696c58b6aece1bc826d3f0b0ecc6738229e7f448274255f
+							partName = v64241_PartName
+							variantName = v64242_VariantName
+							quantity = 65243
+							slotsTaken = 65244
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v64246_key0
+									amount = 64248.25
+									maxAmount = 64249.25
+								}
+								RESOURCE
+								{
+									name = v64250_key1
+									amount = 64252.25
+									maxAmount = 64253.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart26
+							}
+						}
+					}
+					PICKUP_MANIFEST
+					{
+						v64255_key0 = 64256.25
+						v64257_key1 = 64258.25
+					}
+					INVENTORY_PICKUP_MANIFEST
+					{
+						ITEM
+						{
+							identityHash = 3fe96a9777b63d6d031042cbcd58a81e0ecfed09cd4051e21963fcf4aadc8f79
+							partName = v64277_PartName
+							variantName = v64278_VariantName
+							quantity = 65279
+							slotsTaken = 65280
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v64282_key0
+									amount = 64284.25
+									maxAmount = 64285.25
+								}
+								RESOURCE
+								{
+									name = v64286_key1
+									amount = 64288.25
+									maxAmount = 64289.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart28
+							}
+						}
+						ITEM
+						{
+							identityHash = e627974a10388499d59676a23ad4c2ed21922f7498297ad128d214a47a4ac2f8
+							partName = v64262_PartName
+							variantName = v64263_VariantName
+							quantity = 65264
+							slotsTaken = 65265
+							STORED_RESOURCES
+							{
+								RESOURCE
+								{
+									name = v64267_key0
+									amount = 64269.25
+									maxAmount = 64270.25
+								}
+								RESOURCE
+								{
+									name = v64271_key1
+									amount = 64273.25
+									maxAmount = 64274.25
+								}
+							}
+							STOREDPART
+							{
+								partName = fillPart27
+							}
+						}
+					}
+				}
+				COST_MANIFEST
+				{
+					v64306_key0 = 64307.25
+					v64308_key1 = 64309.25
+				}
+				INVENTORY_COST_MANIFEST
+				{
+					ITEM
+					{
+						identityHash = 692824d4fa07c42d304de1e655f0fe3785e1bed518a8c2e4f98af9643e65f932
+						partName = v64313_PartName
+						variantName = v64314_VariantName
+						quantity = 65315
+						slotsTaken = 65316
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64318_key0
+								amount = 64320.25
+								maxAmount = 64321.25
+							}
+							RESOURCE
+							{
+								name = v64322_key1
+								amount = 64324.25
+								maxAmount = 64325.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart29
+						}
+					}
+					ITEM
+					{
+						identityHash = 74ee80b2ddba8e8af7b389f5aa13d6054a37e08395422c443e58006c55d61596
+						partName = v64328_PartName
+						variantName = v64329_VariantName
+						quantity = 65330
+						slotsTaken = 65331
+						STORED_RESOURCES
+						{
+							RESOURCE
+							{
+								name = v64333_key0
+								amount = 64335.25
+								maxAmount = 64336.25
+							}
+							RESOURCE
+							{
+								name = v64337_key1
+								amount = 64339.25
+								maxAmount = 64340.25
+							}
+						}
+						STOREDPART
+						{
+							partName = fillPart30
+						}
+					}
+				}
+				ADOPTED_ENDPOINT_PARTS
+				{
+					ENDPOINT_PARTS
+					{
+						rootPartUId = 65617
+						vesselPersistentId = 65618
+						launchGuid = 0000000e432107650908070605040302
+						adoptedUT = 64619.25
+						uid = 65621
+						uid = 65622
+					}
+					ENDPOINT_PARTS
+					{
+						rootPartUId = 65624
+						vesselPersistentId = 65625
+						launchGuid = 0000000f432107650908070605040302
+						adoptedUT = 64626.25
+						uid = 65628
+						uid = 65629
+					}
+				}
+			}
+		}
+		DISMISSED_ROUTE_CANDIDATES
+		{
+			treeId = a10e0000000000000000000000000001
+		}
+		PROMPTED_ROUTE_CANDIDATES
+		{
+			treeId = b20f0000000000000000000000000002
+		}
+		STOCK_POOL_REFERENCE
+		{
+			SCIENCE
+			{
+				lastWritten = 70004.25
+				pendingAdjust = 70005.25
+				lastPatchUT = 70006.25
+				row = v70008_key0 70010.25 70011.25
+				row = v70012_key1 70014.25 70015.25
+				takenBack = v70017_key0 70018.25
+				takenBack = v70019_key1 70020.25
+			}
+			SCIENCE
+			{
+				lastWritten = 70024.25
+				pendingAdjust = 70025.25
+				lastPatchUT = 70026.25
+				row = v70028_key0 70030.25 70031.25
+				row = v70032_key1 70034.25 70035.25
+				takenBack = v70037_key0 70038.25
+				takenBack = v70039_key1 70040.25
+			}
+			SCIENCE
+			{
+				lastWritten = 70044.25
+				pendingAdjust = 70045.25
+				lastPatchUT = 70046.25
+				row = v70048_key0 70050.25 70051.25
+				row = v70052_key1 70054.25 70055.25
+				takenBack = v70057_key0 70058.25
+				takenBack = v70059_key1 70060.25
+			}
+		}
+		REWIND_VESSEL_HOLDS
+		{
+			HOLD
+			{
+				vesselName = v65012_VesselName
+				INVOKE_HOLD
+				{
+					pid = 66004
+					launchGuid = v65005_LaunchGuid
+					recordingId = v65006_RecordingId
+					firstClaimUT = 65007.25
+					evidence = v65008_Evidence
+					flyingRecordingId = v65010_FlyingRecordingIds0
+					flyingRecordingId = v65011_FlyingRecordingIds1
+				}
+				VESSEL
+				{
+					pid = 1f7864d25817438e9d1b517386b5b360
+					name = Held Ship
+				}
+			}
+			HOLD
+			{
+				vesselName = v65023_VesselName
+				INVOKE_HOLD
+				{
+					pid = 66015
+					launchGuid = v65016_LaunchGuid
+					recordingId = v65017_RecordingId
+					firstClaimUT = 65018.25
+					evidence = v65019_Evidence
+					flyingRecordingId = v65021_FlyingRecordingIds0
+					flyingRecordingId = v65022_FlyingRecordingIds1
+				}
+				VESSEL
+				{
+					pid = 951ccfd848fd45dc8e3ca3e54da3fe30
+					name = Held Ship
+				}
+			}
+		}
+		PLAYBACK_REPLAY_SCOPE
+		{
+			inScope = v67002_recordingsInReplayScope0
+			inScope = v67003_recordingsInReplayScope1
+			seenBeforeActivation = v67005_recordingsSeenBeforeActivation0
+			seenBeforeActivation = v67006_recordingsSeenBeforeActivation1
+		}
+	}
+}
