@@ -5302,9 +5302,9 @@ namespace Parsek
 
                 // Phase 10 of Rewind-to-Staging (design §6.9 step 2): if a
                 // staged-commit merge crashed mid-way, the scenario's
-                // MergeJournal persisted across the load. The finisher either
-                // rolls back (pre-Durable1 crash) or drives the remaining
-                // steps to completion (post-Durable1 crash). Runs AFTER Phase 6
+                // MergeJournal persisted across the load. The finisher drives
+                // the remaining steps to completion from whatever phase the
+                // journal reached (no phase rolls back). Runs AFTER Phase 6
                 // so any re-fly invocation that was interrupted can still
                 // rehydrate its context before the journal finisher decides
                 // what to do with the session marker.

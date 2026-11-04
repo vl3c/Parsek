@@ -63,6 +63,37 @@ the board; commit, Rewind-to-Launch, 1x Space Center time to UT 150 for the repl
 take-down). Its 1x target is a guess (the pick-up UT is unknown before a flight): re-pin it and the
 4..6 recordings window from the first flight.
 
+## ~~MERGE-BEGIN-ROLLBACK-LEAKS-ATTEMPT: a Re-Fly merge interrupted at its first checkpoint undoes only the re-flown recording~~ [FILED 2026-11-04 from the replay-theory audit (finding R1, thread "Audit design against replay theory"); FIXED 2026-11-04, branch `claude/project-thread-0i7hyx`; xUnit; no lane (the window needs an injected fault, see below); product, high when hit (a paradox: the attempt's EVA kerbals, payloads and their ledger rows stay committed beside the restored origin), rare (a crash or exception between the Begin save and the Split save)]
+
+**Symptom.** `MergeDialog.MergeCommit` commits the attempt's tree (`CommitPendingTree`, the
+optimizer pass, `LedgerOrchestrator.NotifyLedgerTreeCommitted`) and only then calls
+`MergeJournalOrchestrator.RunMerge`, whose first durable save writes the journal at `Begin`. So a
+`Begin` journal on disk always sits beside the committed attempt. The finisher rolled `Begin` back
+anyway (`RollBack` -> `RecordingStore.RemoveSessionProvisionalRecordings`), removing the recordings
+stamped with the session id (the fork and its optimizer split tail) and clearing the marker. The
+attempt's other recordings carry no session stamp (`CreateBreakupChildRecording` and the EVA path
+never copy it), so its EVA kerbals, decoupled payloads and debris, and every ledger row filed on
+them, stayed committed beside the origin the rollback restored. The design's recovery matrix said
+the Begin save held "only the journal node", which stopped being true when the tree commit moved
+ahead of the journal. The same leak applied to an unknown phase string, which also rolled back.
+
+**Fix.** No phase rolls back. `RunFinisher` resumes `Begin` as `TreeMerge` through
+`CompleteFromPostDurable`, so the merge the player clicked (and the click-time dominance check
+passed) completes, as every later phase already did. `RunMerge` now migrates the in-place fork
+into the committed tree BEFORE the Begin save, so that save holds everything a resume needs (the
+separate `treemerge` save is gone: five durable saves per merge, not six). An unknown phase string
+re-runs the whole idempotent tail from `TreeMerge` with a Warn. `RollBack`,
+`RemoveCommittedRecordingById`, `RecordingStore.RemoveSessionProvisionalRecordings`,
+`RecordingStore.DeleteRecordingFull` and `MergeJournal.IsPreDurablePhase` lost their only callers
+and are deleted. Tests: `MergeJournalOrchestratorTests.CrashAtBegin_*` (an EVA child and its science
+row stay with the completed merge; the origin is superseded), `UnknownPhase_Finisher_*`, and the
+`Begin` row of `ReFlySessionEvaMergeTests.CrashMidMerge_FinisherDrivesForward_SameRowsNoDuplicates`;
+all five red on the old code.
+
+**Lane.** Not built: the window is a few in-memory steps between two synchronous saves, reachable
+live only through `MergeJournalOrchestrator.FaultInjectionPoint`, and the in-game
+`MergeInterruptionRecoveryTest` already drives the same finisher path from `Durable1Done`.
+
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 
 Closed since the audit (each with its own entry or PR): A1 RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP
