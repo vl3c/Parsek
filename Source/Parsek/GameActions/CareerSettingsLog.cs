@@ -67,9 +67,12 @@ namespace Parsek
 
         /// <summary>
         /// Pure: records <paramref name="live"/> from capture <paramref name="fromCaptureSequence"/>
-        /// on when it differs from the last entry. A change at the same capture number replaces
-        /// that entry (no row was captured in between), and drops it when the value is back to
-        /// the one before. Returns true when the list changed.
+        /// on when it differs from the last entry. A change at the same capture number as a
+        /// later entry replaces that entry (no row was captured in between), and drops it when
+        /// the value is back to the one before. The first entry is never replaced: it also
+        /// governs every row below it, so a change with no capture since it is appended at the
+        /// same number (the later entry wins from that number on). Returns true when the list
+        /// changed.
         /// </summary>
         internal static bool Note(List<Entry> entries, bool live, long fromCaptureSequence)
         {
@@ -85,8 +88,13 @@ namespace Parsek
                 return false;
             if (last.FromCaptureSequence >= fromCaptureSequence)
             {
+                if (entries.Count == 1)
+                {
+                    entries.Add(new Entry { FromCaptureSequence = last.FromCaptureSequence, Value = live });
+                    return true;
+                }
                 entries.RemoveAt(entries.Count - 1);
-                if (entries.Count == 0 || entries[entries.Count - 1].Value != live)
+                if (entries[entries.Count - 1].Value != live)
                     entries.Add(new Entry { FromCaptureSequence = last.FromCaptureSequence, Value = live });
                 return true;
             }

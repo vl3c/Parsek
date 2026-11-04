@@ -21,6 +21,10 @@ namespace Parsek.Patches
     {
         internal const string Tag = "CrewRespawn";
 
+        /// <summary>How far a recorded respawn may sit before stock's UTaR and still be the
+        /// same Missing spell (rounding between the stamp and the roster).</summary>
+        internal const double SpellToleranceSeconds = 1.0;
+
         internal enum Decision
         {
             Stock = 0,
@@ -45,8 +49,11 @@ namespace Parsek.Patches
         /// Pure. <see cref="Decision.Stock"/> unless the kerbal is Missing with stock's timer
         /// run out (<paramref name="ut"/> at or past <paramref name="utar"/>), the respawn
         /// setting is now off, and <paramref name="reservation"/> is a recorded death stamped
-        /// with respawn on (not permanent, a respawn instant): then respawn once the clock
-        /// reaches that instant, keep Missing before it.
+        /// with respawn on (not permanent, a respawn instant) whose respawn is THIS Missing spell's:
+        /// at or after stock's <paramref name="utar"/> (within <see cref="SpellToleranceSeconds"/>;
+        /// the stamp reads stock's own UTaR). An earlier respawn belongs to an older death the
+        /// kerbal already came back from, and the current spell (a death not committed yet) is
+        /// stock's. Then respawn once the clock reaches that instant, keep Missing before it.
         /// </summary>
         internal static Decision Decide(
             bool missing, double ut, double utar, bool respawnSettingOn,
@@ -55,7 +62,7 @@ namespace Parsek.Patches
             if (!missing || respawnSettingOn || ut < utar)
                 return Decision.Stock;
             double respawnUT = KerbalsModule.LossRespawnUT(reservation);
-            if (double.IsNaN(respawnUT))
+            if (double.IsNaN(respawnUT) || respawnUT < utar - SpellToleranceSeconds)
                 return Decision.Stock;
             return ut >= respawnUT ? Decision.RespawnNow : Decision.KeepMissing;
         }

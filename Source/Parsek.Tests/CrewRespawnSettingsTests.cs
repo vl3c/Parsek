@@ -130,6 +130,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Decide_AnOlderDeathAlreadyRespawned_DoesNotRescueTheCurrentSpell()
+        {
+            // Jeb died in committed flight A and came back at 1600; he died again at 5000 in a
+            // flight not committed yet (UTaR 5600). That spell is stock's to decide.
+            Assert.Equal(CrewRespawnTimerPatch.Decision.Stock,
+                CrewRespawnTimerPatch.Decide(true, 5600.0, 5600.0, false, RespawnOnDeath(1600.0)));
+        }
+
+        [Fact]
         public void Decide_EveryOtherCase_IsStock()
         {
             var r = RespawnOnDeath(17200.0);

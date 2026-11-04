@@ -89,6 +89,12 @@ namespace Parsek.Tests
             Assert.True(CareerSettingsLog.Note(entries, false, 10));
             Assert.Single(entries);
             Assert.False(entries[0].Value);
+            // A change at the first entry's own number never replaces it (it governs the past).
+            Assert.True(CareerSettingsLog.Note(entries, true, 1));
+            Assert.Equal(2, entries.Count);
+            Assert.False(entries[0].Value);
+            Assert.False(CareerSettingsLog.ValueAt(entries, 0, true));
+            Assert.True(CareerSettingsLog.ValueAt(entries, 1, false));
         }
 
         [Fact]
@@ -108,6 +114,28 @@ namespace Parsek.Tests
             Assert.Equal(3000.0, funds.GetForgivenBelowZero(), 6);
             Assert.Contains(logLines, l => l.Contains("[CareerSettings]")
                 && l.Contains("Allow negative currency is on from capture"));
+        }
+
+        [Fact]
+        public void FirstToggleWithNoCaptureSinceTheLoad_KeepsThePastsSetting()
+        {
+            // The load notes "off" from the next capture; the player turns it on before any
+            // row is captured. Rows captured before the load keep "off".
+            live = false;
+            var fail = Fail("f", 2000, 1, 8000f);
+            Ledger.AddAction(fail);
+            CareerSettingsLog.NoteLive(live, "ledger-load");
+            live = true;
+            CareerSettingsLog.NoteLive(live, "difficulty-dialog");
+
+            Assert.Equal(2, CareerSettingsLog.AllowNegativeEntries.Count);
+            FundsModule funds = Walk(Seed(5000), fail, Earn("e", 9000, 3, 40000f));
+            Assert.Equal(3000.0, funds.GetForgivenBelowZero(), 6);
+
+            // Back off before any capture: the "on" entry never governed a row and goes.
+            live = false;
+            CareerSettingsLog.NoteLive(live, "difficulty-dialog");
+            Assert.Single(CareerSettingsLog.AllowNegativeEntries);
         }
 
         [Fact]

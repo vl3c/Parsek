@@ -34,7 +34,8 @@ value minus what earlier payments paid, never below 0. Science: `ScienceModule.T
 take-back. World-firsts: `MilestonesModule.TryTopUpOneShot` through the partial-credit channel,
 the rest stock repaid after forgetting the first row taken back. Record steps:
 `RecordThresholdBook` tops up named re-crossings and second first payments, never taken back.
-Only a save with a timeline break tops up. `CareerSettingsLog` judges each loss under the
+Science and world-first top-ups need a timeline break; a record step's needs its own rewind
+evidence (a re-crossing or a second first payment). `CareerSettingsLog` judges each loss under the
 allow-negative value in force at its capture (LEDGER keys `allowNegativeFrom`). The respawn stamp
 reads stock's `UTaR` for a Missing dead kerbal (`TryResolveRespawnStampFromRoster`), and
 `CrewRespawnTimerPatch` respawns a recorded respawn-on death when the setting is now off. Tests:
