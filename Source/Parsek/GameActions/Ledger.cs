@@ -911,6 +911,9 @@ namespace Parsek
 
         private static bool LoadFromNodeCore(ConfigNode loaded, string sourceDescription, string sourceLabel)
         {
+            // A hold belongs to the load that set it: every load decides afresh, so a readable
+            // ledger loaded after a held one (another save, same process) is never shadowed by it.
+            heldUnreadableLedgerNode = null;
             string versionStr = loaded.GetValue(VersionKey);
             string schemaGenerationStr = loaded.GetValue(SchemaGenerationKey);
             int schemaGeneration = 0;

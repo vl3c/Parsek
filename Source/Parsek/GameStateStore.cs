@@ -1396,9 +1396,15 @@ namespace Parsek
             SaveFormatClass versionClass = SaveFormat.GameStateStoreFormat.Classify(SaveFormat.ParseStored(versionStr));
             if (versionClass != SaveFormatClass.Current)
             {
-                ParsekLog.Warn("GameStateStore",
+                // Only a newer store is worth a WRN: a missing or older stamp is a pre-1.0 or
+                // hand-built node, loaded best effort like every other pre-baseline store.
+                string versionMessage =
                     $"Game state events version='{versionStr ?? "(missing)"}' is {versionClass} " +
-                    $"(current={CurrentEventsVersion.ToString(CultureInfo.InvariantCulture)}); loading every readable event");
+                    $"(current={CurrentEventsVersion.ToString(CultureInfo.InvariantCulture)}); loading every readable event";
+                if (versionClass == SaveFormatClass.Newer)
+                    ParsekLog.Warn("GameStateStore", versionMessage);
+                else
+                    ParsekLog.Info("GameStateStore", versionMessage);
             }
 
             // ConfigNode.Load returns the file contents directly

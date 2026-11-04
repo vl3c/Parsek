@@ -81,6 +81,7 @@ namespace Parsek.Tests
         [Fact]
         public void Ledger_NewerVersion_IsHeld_AndReEmittedByteIdentical()
         {
+            ConfigNode readable = LedgerNodeWithVersion("0");
             ConfigNode original = LedgerNodeWithVersion("1");
             original.AddValue("futureLedgerKey", "kept as written");
             original.AddNode("FUTURE_CHILD").AddValue("x", "1");
@@ -104,10 +105,13 @@ namespace Parsek.Tests
             Assert.Equal(2, reread.GetNodes("GAME_ACTION").Length);
             Assert.Equal("kept as written", reread.GetValue("futureLedgerKey"));
 
-            // The next load of a readable ledger releases the hold.
-            Assert.True(Ledger.LoadFromNode(LedgerNodeWithVersion("0")));
+            // The next load of a readable ledger (built before the hold, so no reset ran in
+            // between) releases the hold, and the next save writes that ledger, not the held one.
+            Assert.True(Ledger.LoadFromNode(readable));
             Assert.False(Ledger.IsHeldFromNewerVersion);
             Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Equal("0", Ledger.BuildSaveNode().GetValue("version"));
+            Assert.Null(Ledger.BuildSaveNode().GetValue("futureLedgerKey"));
         }
 
         [Fact]
