@@ -82,8 +82,8 @@ namespace Parsek
                 if (v == null || v.orbit == null)
                     return BackgroundRecaptureOutcome.NoVessel;
                 state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
-                TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
-                    state.recordingId, v, ut, ref state.currentOrbitSegment, "time-jump");
+                LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
+                    state.recordingId, v, ut, "time-jump");
                 return BackgroundRecaptureOutcome.ReplacedSameUT;
             }
 
@@ -92,8 +92,8 @@ namespace Parsek
                 return BackgroundRecaptureOutcome.NoVessel;
 
             state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
-            TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
-                state.recordingId, v, ut, ref state.currentOrbitSegment, "time-jump");
+            LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
+                state.recordingId, v, ut, "time-jump");
             state.hasOpenOrbitSegment = true;
             return BackgroundRecaptureOutcome.Recaptured;
         }

@@ -10,80 +10,14 @@ namespace Parsek
 {
     public partial class FlightRecorder
     {
-        internal static bool TryCanonicalizeReFlyRecordingPoint(
-            string recordingId,
-            ref TrajectoryPoint point,
-            string subsystem,
-            string context)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return false;
-
-            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
-            if (body == null)
-                return false;
-
-            Vector3d rawWorld;
-            try
-            {
-                rawWorld = body.GetWorldSurfacePosition(
-                    point.latitude,
-                    point.longitude,
-                    point.altitude);
-            }
-            catch
-            {
-                return false;
-            }
-
-            if (!TryApplyReFlyRecordingFrameOffsetToWorld(
-                    recordingId,
-                    point.ut,
-                    rawWorld,
-                    out Vector3d canonicalWorld,
-                    out Vector3d appliedOffset,
-                    out string reason))
-            {
-                return false;
-            }
-
-            double latitude;
-            double longitude;
-            double altitude;
-            try
-            {
-                latitude = body.GetLatitude(canonicalWorld);
-                longitude = body.GetLongitude(canonicalWorld);
-                altitude = body.GetAltitude(canonicalWorld);
-            }
-            catch
-            {
-                return false;
-            }
-
-            if (!IsFinite(latitude) || !IsFinite(longitude) || !IsFinite(altitude))
-                return false;
-
-            point.latitude = latitude;
-            point.longitude = longitude;
-            point.altitude = altitude;
-            LogReFlyRecordingFrameCanonicalized(
-                subsystem,
-                recordingId,
-                context,
-                point.ut,
-                appliedOffset,
-                rawWorld,
-                canonicalWorld,
-                reason);
-            return true;
-        }
-
-        internal static bool TryCanonicalizeReFlyRecordingOrbitSegment(
+        // A Re-Fly recording's points and orbit segments are recorded raw: no recording-frame
+        // offset applies to them. This keeps the one line the recorder writes when a Re-Fly
+        // recording's orbit has a non-finite orbital velocity at startUT; its wording is fixed
+        // by the no-log-text-change rule, so it still names the canonicalization step.
+        internal static void LogReFlyOrbitSegmentVelocityNonFinite(
             string recordingId,
             Vessel vessel,
             double startUT,
-            ref OrbitSegment segment,
             string subsystem,
             string context)
         {
@@ -92,7 +26,7 @@ namespace Parsek
                 || vessel.orbit == null
                 || vessel.mainBody == null)
             {
-                return false;
+                return;
             }
 
             Vector3d rawWorld;
@@ -104,11 +38,11 @@ namespace Parsek
             }
             catch
             {
-                return false;
+                return;
             }
 
             if (!IsFiniteVector3d(rawWorld))
-                return false;
+                return;
             if (!IsFiniteVector3d(velocity))
             {
                 ParsekLog.Verbose(
@@ -118,127 +52,7 @@ namespace Parsek
                         recordingId ?? "(null)",
                         context ?? "(null)",
                         startUT));
-                return false;
             }
-
-            if (!TryApplyReFlyRecordingFrameOffsetToWorld(
-                    recordingId,
-                    startUT,
-                    rawWorld,
-                    out Vector3d canonicalWorld,
-                    out Vector3d appliedOffset,
-                    out string reason))
-            {
-                return false;
-            }
-
-            Orbit canonicalOrbit;
-            try
-            {
-                canonicalOrbit = new Orbit();
-                OrbitReseed.FromWorldPosAndZupVelocity(
-                    canonicalOrbit,
-                    vessel.mainBody,
-                    canonicalWorld,
-                    velocity,
-                    startUT);
-            }
-            catch
-            {
-                return false;
-            }
-
-            OrbitSegment canonicalSegment = segment;
-            canonicalSegment.inclination = canonicalOrbit.inclination;
-            canonicalSegment.eccentricity = canonicalOrbit.eccentricity;
-            canonicalSegment.semiMajorAxis = canonicalOrbit.semiMajorAxis;
-            canonicalSegment.longitudeOfAscendingNode = canonicalOrbit.LAN;
-            canonicalSegment.argumentOfPeriapsis = canonicalOrbit.argumentOfPeriapsis;
-            canonicalSegment.meanAnomalyAtEpoch = canonicalOrbit.meanAnomalyAtEpoch;
-            canonicalSegment.epoch = canonicalOrbit.epoch;
-            canonicalSegment.bodyName = vessel.mainBody.name;
-
-            if (!IsFinite(canonicalSegment.inclination)
-                || !IsFinite(canonicalSegment.eccentricity)
-                || !IsFinite(canonicalSegment.semiMajorAxis)
-                || !IsFinite(canonicalSegment.longitudeOfAscendingNode)
-                || !IsFinite(canonicalSegment.argumentOfPeriapsis)
-                || !IsFinite(canonicalSegment.meanAnomalyAtEpoch)
-                || !IsFinite(canonicalSegment.epoch))
-            {
-                return false;
-            }
-
-            segment = canonicalSegment;
-            LogReFlyRecordingFrameCanonicalized(
-                subsystem,
-                recordingId,
-                context,
-                startUT,
-                appliedOffset,
-                rawWorld,
-                canonicalWorld,
-                reason);
-            return true;
-        }
-
-        internal static bool TryApplyReFlyRecordingFrameOffsetToWorld(
-            string recordingId,
-            double currentUT,
-            Vector3d rawWorld,
-            out Vector3d canonicalWorld,
-            out Vector3d appliedOffset,
-            out string reason)
-        {
-            canonicalWorld = rawWorld;
-            appliedOffset = Vector3d.zero;
-            reason = null;
-
-            if (string.IsNullOrEmpty(recordingId))
-            {
-                reason = "recording-id-missing";
-                return false;
-            }
-            if (!IsFiniteVector3d(rawWorld))
-            {
-                reason = "raw-world-non-finite";
-                return false;
-            }
-            if (!TryResolveReFlyRecordingFrameOffsetForRecording(
-                    recordingId,
-                    currentUT,
-                    out appliedOffset,
-                    out reason))
-            {
-                return false;
-            }
-            if (!IsFiniteVector3d(appliedOffset))
-            {
-                reason = "offset-non-finite";
-                return false;
-            }
-
-            canonicalWorld = rawWorld - appliedOffset;
-            if (!IsFiniteVector3d(canonicalWorld))
-            {
-                reason = "canonical-world-non-finite";
-                return false;
-            }
-
-            return true;
-        }
-
-        private static bool TryResolveReFlyRecordingFrameOffsetForRecording(
-            string recordingId,
-            double currentUT,
-            out Vector3d offset,
-            out string reason)
-        {
-            offset = Vector3d.zero;
-            reason = null;
-
-            reason = "display-alignment-removed";
-            return false;
         }
 
         internal static bool TryResolveAbsolutePointWorldForRelativeOffset(
@@ -305,41 +119,6 @@ namespace Parsek
             {
                 return fallbackVessel?.transform != null;
             }
-        }
-
-        private static void LogReFlyRecordingFrameCanonicalized(
-            string subsystem,
-            string recordingId,
-            string context,
-            double ut,
-            Vector3d appliedOffset,
-            Vector3d rawWorld,
-            Vector3d canonicalWorld,
-            string reason)
-        {
-            var ic = CultureInfo.InvariantCulture;
-            string logSubsystem = string.IsNullOrEmpty(subsystem) ? "Recorder" : subsystem;
-            ParsekLog.VerboseRateLimited(
-                logSubsystem,
-                "refly-recording-frame-canonicalized|"
-                    + (recordingId ?? "<no-rec>") + "|"
-                    + (context ?? "<none>"),
-                "Re-Fly recording frame canonicalized: rec="
-                    + (recordingId ?? "<none>")
-                    + " context=" + (context ?? "<none>")
-                    + " ut=" + ut.ToString("F3", ic)
-                    + " offsetMeters=" + appliedOffset.magnitude.ToString("F2", ic)
-                    + " offset=(" + appliedOffset.x.ToString("F2", ic)
-                    + "," + appliedOffset.y.ToString("F2", ic)
-                    + "," + appliedOffset.z.ToString("F2", ic) + ")"
-                    + " raw=(" + rawWorld.x.ToString("F2", ic)
-                    + "," + rawWorld.y.ToString("F2", ic)
-                    + "," + rawWorld.z.ToString("F2", ic) + ")"
-                    + " canonical=(" + canonicalWorld.x.ToString("F2", ic)
-                    + "," + canonicalWorld.y.ToString("F2", ic)
-                    + "," + canonicalWorld.z.ToString("F2", ic) + ")"
-                    + " reason=" + (reason ?? "<none>"),
-                5.0);
         }
     }
 }

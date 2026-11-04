@@ -9130,6 +9130,13 @@ columns whose blanks are visible, where the old outline simply said nothing.
   checks red as expected). A name-based scan still finds 85 untested `internal` logic methods
   in those classes (338 counting `private`), most of them Unity-coupled (particle systems,
   audio, transforms) or reachable only through private helpers.
+- Dead Re-Fly frame-offset chain removed (no behavior or log-text change): its offset resolver
+  always refused (`display-alignment-removed`), so `TryCanonicalizeReFlyRecordingPoint` /
+  `TryCanonicalizeReFlyRecordingOrbitSegment` never changed a point or a segment and every
+  caller ignored the result. The 15 point call sites go; the 8 orbit-segment call sites keep
+  the one line the old path could write (`... skipped: ... reason=orbital-velocity-non-finite`)
+  through `FlightRecorder.LogReFlyOrbitSegmentVelocityNonFinite`. The two characterization
+  cases of the removed `TryApplyReFlyRecordingFrameOffsetToWorld` went with it (146 remain).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

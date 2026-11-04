@@ -1713,10 +1713,9 @@ namespace Parsek
         private OrbitSegment CreateOrbitSegmentWithRotation(Vessel v, double startUT)
         {
             var segment = CreateOrbitSegmentFromVessel(v, startUT);
-            TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+            LogActiveReFlyOrbitSegmentVelocityNonFinite(
                 v,
                 startUT,
-                ref segment,
                 "orbit-segment");
 
             StampVesselOrbitalFrameRotation(ref segment, v);
@@ -1876,10 +1875,9 @@ namespace Parsek
             var v = data.host;
             double soiUT = Planetarium.GetUniversalTime();
             currentOrbitSegment = CreateOrbitSegmentFromVessel(v, soiUT);
-            TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+            LogActiveReFlyOrbitSegmentVelocityNonFinite(
                 v,
                 soiUT,
-                ref currentOrbitSegment,
                 "soi-change");
 
             // Capture orbital-frame-relative rotation for new SOI, through the same encode the
@@ -2032,10 +2030,9 @@ namespace Parsek
             {
                 double backgroundUT = Planetarium.GetUniversalTime();
                 currentOrbitSegment = CreateOrbitSegmentFromVessel(v, backgroundUT);
-                TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+                LogActiveReFlyOrbitSegmentVelocityNonFinite(
                     v,
                     backgroundUT,
-                    ref currentOrbitSegment,
                     "transition-to-background");
                 isOnRails = true;
             }
