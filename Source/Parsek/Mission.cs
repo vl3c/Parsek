@@ -59,20 +59,12 @@ namespace Parsek
         // Collapsed = the Missions tab draws only this mission's two-line bar (title, values,
         // summary, buttons) and hides the rows below it (vessel, interval detail, chapter and
         // Docked partner rows). Missions-tab view state only: it does not change looping or ghost
-        // playback. Saved as "collapsed"; a save written before the rename carries the same flag
-        // as "archived" (the retired Archive list filter's per-mission mark), which Load reads.
+        // playback. Saved as "collapsed".
         public bool Collapsed;
 
-        // M-MIS-5 (D3): the interval-key SCHEMA GENERATION this selection was last authored /
-        // reconciled under. 0 = pre-M-MIS-5 (dock edges did not exist, so an excluded structural
-        // key covered the WHOLE structural interval including any docked stretch); 1 = current
-        // (dock/board sub-intervals key as "<parentKey>@dockM" and are selected independently).
-        // MissionStore.ReconcileSelections extends a generation-0 mission's excluded keys across
-        // their @dock sub-siblings once (semantics-preserving) and stamps EVERY tree-resolvable
-        // mission to the current generation. The field initializer covers every creation path
-        // (ctor, EnsureDefaultsForTrees, UI creates); Clone copies the source's generation; ONLY
-        // Load with the key absent yields 0.
-        public int SelectionSchemaGeneration = CurrentSelectionSchemaGeneration;
+        // The interval-key schema generation written with every mission ("selectionSchemaGeneration"):
+        // dock/board sub-intervals key as "<parentKey>@dockM" and are selected independently.
+        // Format 1 writes it as a constant; nothing reads it back.
         internal const int CurrentSelectionSchemaGeneration = 1;
 
         public Mission() { }
@@ -101,9 +93,6 @@ namespace Parsek
             copy.LoopTimeUnit = LoopTimeUnit;
             copy.LoopAnchorUT = LoopAnchorUT;
             copy.Collapsed = Collapsed;
-            // The clone's selection was authored under the SAME schema generation as its source
-            // (a not-yet-reconciled generation-0 copy must still receive the @dock extension).
-            copy.SelectionSchemaGeneration = SelectionSchemaGeneration;
             return copy;
         }
 
@@ -120,7 +109,7 @@ namespace Parsek
                 LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("collapsed", Collapsed);
             node.AddValue("selectionSchemaGeneration",
-                SelectionSchemaGeneration.ToString(CultureInfo.InvariantCulture));
+                CurrentSelectionSchemaGeneration.ToString(CultureInfo.InvariantCulture));
             foreach (string h in ExcludedThroughLineHeadIds)
                 node.AddValue("excludedHead", h ?? "");
             foreach (string k in ExcludedIntervalKeys)
@@ -164,19 +153,8 @@ namespace Parsek
             if (double.TryParse(node.GetValue("loopAnchorUT"),
                     NumberStyles.Float, CultureInfo.InvariantCulture, out double loopAnchor))
                 m.LoopAnchorUT = loopAnchor;
-            // "collapsed" first; an older save's "archived" carries the same per-mission flag.
-            string collapsedValue = node.GetValue("collapsed") ?? node.GetValue("archived");
-            if (bool.TryParse(collapsedValue, out bool collapsed))
+            if (bool.TryParse(node.GetValue("collapsed"), out bool collapsed))
                 m.Collapsed = collapsed;
-
-            // M-MIS-5 (D3): the ONLY path that yields generation 0 - a save written before the
-            // key existed (or a malformed value). The field initializer defaults every freshly
-            // constructed Mission to the current generation.
-            m.SelectionSchemaGeneration =
-                int.TryParse(node.GetValue("selectionSchemaGeneration"),
-                    NumberStyles.Integer, CultureInfo.InvariantCulture, out int schemaGen)
-                ? schemaGen
-                : 0;
 
             string[] heads = node.GetValues("excludedHead");
             for (int i = 0; i < heads.Length; i++)

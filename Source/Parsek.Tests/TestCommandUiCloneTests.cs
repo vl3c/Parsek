@@ -136,12 +136,11 @@ namespace Parsek.Tests
         // ============================================ the interval checkbox's body
 
         [Fact]
-        public void ApplyIntervalInclusion_Exclude_WritesTheKeyStampsAndLogsTheProductionLine()
+        public void ApplyIntervalInclusion_Exclude_WritesTheKeyAndLogsTheProductionLine()
         {
-            var m = new Mission("m1", "t1", "Kerbal X") { SelectionSchemaGeneration = 0 };
+            var m = new Mission("m1", "t1", "Kerbal X");
             Assert.True(MissionsWindowUI.ApplyIntervalInclusion(m, "rec1", false));
             Assert.Contains("rec1", m.ExcludedIntervalKeys);
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, m.SelectionSchemaGeneration);
             // The literal the leg-trim lane gates on: a C# bool, so `False`, not `false`.
             Assert.Contains(logLines, l => l.Contains("[Mission]")
                 && l.Contains("Mission 'Kerbal X' interval 'rec1' included=False"));
@@ -172,14 +171,13 @@ namespace Parsek.Tests
         }
 
         /// <summary>Idempotent: the seam takes an explicit direction, so a request matching
-        /// the current state must write, stamp and log nothing.</summary>
+        /// the current state must write and log nothing.</summary>
         [Fact]
         public void ApplyIntervalInclusion_NoChange_WritesAndLogsNothing()
         {
-            var m = new Mission("m1", "t1", "Kerbal X") { SelectionSchemaGeneration = 0 };
+            var m = new Mission("m1", "t1", "Kerbal X");
             Assert.False(MissionsWindowUI.ApplyIntervalInclusion(m, "rec1", true));
             Assert.Empty(m.ExcludedIntervalKeys);
-            Assert.Equal(0, m.SelectionSchemaGeneration);
             Assert.DoesNotContain(logLines, l => l.Contains("interval 'rec1'"));
 
             m.ExcludedIntervalKeys.Add("rec1");

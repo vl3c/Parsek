@@ -356,36 +356,10 @@ namespace Parsek.Tests
             ConfigNode saved = node.GetNodes("MISSION")[0];
             Assert.Equal("True", saved.GetValue("collapsed"));
             Assert.Null(saved.GetValue("archived"));
-            // The retired list filter is not written.
-            Assert.Null(node.GetValue("missionHideArchived"));
 
             MissionStore.ResetForTesting();
             MissionStore.Load(node);
             Assert.True(First().Collapsed);
-        }
-
-        // catches: a save written before Missions Model 1 losing each mission's mark. The
-        // per-mission "archived" flag of the retired Archive filter IS the collapsed flag now,
-        // so an older save's value must come back as Collapsed; the global filter key it also
-        // carried is dropped on the next save.
-        [Fact]
-        public void Load_AnOlderSavesArchivedValue_ReadsAsCollapsed()
-        {
-            var node = new ConfigNode("PARSEK");
-            node.AddValue("missionHideArchived", "True");
-            ConfigNode mNode = node.AddNode("MISSION");
-            mNode.AddValue("id", "m1");
-            mNode.AddValue("treeId", "t1");
-            mNode.AddValue("name", "Kerbal X");
-            mNode.AddValue("archived", "True");
-
-            MissionStore.Load(node);
-            Assert.True(First().Collapsed);
-
-            var resaved = new ConfigNode("PARSEK");
-            resaved.AddValue("missionHideArchived", "True");
-            MissionStore.Save(resaved);
-            Assert.Null(resaved.GetValue("missionHideArchived"));
         }
 
         [Fact]
@@ -685,7 +659,7 @@ namespace Parsek.Tests
                   && l.Contains("stale interval key"));
         }
 
-        // --- M-MIS-5 (D3): SelectionSchemaGeneration + the generation-0 reconcile ---
+        // --- interval keys across a dock edge ---
 
         // launch -> dock -> undock tree whose composition mints the "launch@dock1" sub-interval
         // (selectable keys: launch, launch@dock1, launch/seg1, payload).
@@ -737,138 +711,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EnsureDefaults_CreatesMissionsAtCurrentSelectionSchemaGeneration()
-        {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, First().SelectionSchemaGeneration);
-        }
-
-        [Fact]
-        public void Clone_CopiesSelectionSchemaGeneration()
-        {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            Mission source = First();
-            source.SelectionSchemaGeneration = 0; // a not-yet-reconciled legacy mission
-            Mission clone = MissionStore.Clone(source);
-            // The clone's selection was authored under the SAME generation as its source:
-            // a generation-0 copy must still receive the @dock extension on the next reconcile.
-            Assert.Equal(0, clone.SelectionSchemaGeneration);
-        }
-
-        [Fact]
-        public void SaveLoad_RoundTripsSelectionSchemaGeneration()
-        {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, First().SelectionSchemaGeneration);
-
-            var node = new ConfigNode("PARSEK");
-            MissionStore.Save(node);
-            MissionStore.ResetForTesting();
-            MissionStore.Load(node);
-
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, First().SelectionSchemaGeneration);
-        }
-
-        [Fact]
-        public void Load_MissingSelectionSchemaGeneration_DefaultsToZero()
-        {
-            // A pre-M-MIS-5 save carries no generation key: Load (and ONLY Load) yields 0,
-            // marking the selection for the one-time @dock exclusion extension.
-            var node = new ConfigNode("PARSEK");
-            ConfigNode mNode = node.AddNode("MISSION");
-            mNode.AddValue("id", "m1");
-            mNode.AddValue("treeId", "t1");
-            mNode.AddValue("name", "Kerbal X");
-
-            MissionStore.Load(node);
-            Assert.Equal(0, First().SelectionSchemaGeneration);
-        }
-
-        [Fact]
-        public void ReconcileSelections_Generation0_ExtendsExclusionsAcrossDockSubIntervals()
+        public void ReconcileSelections_PreservesMixedDockSelection()
         {
             var logLines = new List<string>();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             MissionStore.SuppressLogging = false;
 
-            RecordingTree tree = DockTree("t1");
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { tree });
-            Mission m = First();
-            // A pre-M-MIS-5 selection: "launch" covered the WHOLE structural interval
-            // [launch .. undock), docked stretch included.
-            m.SelectionSchemaGeneration = 0;
-            m.ExcludedIntervalKeys.Add("launch");
-
-            MissionStore.ReconcileSelections(new List<RecordingTree> { tree });
-
-            // The @dock sub-sibling is extended in (semantics-preserving), nothing else.
-            Assert.Contains("launch", m.ExcludedIntervalKeys);
-            Assert.Contains("launch@dock1", m.ExcludedIntervalKeys);
-            Assert.DoesNotContain("launch/seg1", m.ExcludedIntervalKeys);
-            Assert.Equal(2, m.ExcludedIntervalKeys.Count);
-            // The mission is stamped to the current generation.
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, m.SelectionSchemaGeneration);
-            // Both the per-mission extension Info and the stamp summary Info fired.
-            Assert.Contains(logLines, l => l.Contains("[Mission]")
-                && l.Contains("generation-0 selection extended") && l.Contains("1 @dock"));
-            Assert.Contains(logLines, l => l.Contains("[Mission]")
-                && l.Contains("stamped 1 mission(s)"));
-
-            // Idempotence across a crash-and-reload re-run: a second reconcile (with the
-            // generation forced back to 0, the crash-before-save shape) is a superset union.
-            m.SelectionSchemaGeneration = 0;
-            MissionStore.ReconcileSelections(new List<RecordingTree> { tree });
-            Assert.Equal(2, m.ExcludedIntervalKeys.Count);
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, m.SelectionSchemaGeneration);
-        }
-
-        [Fact]
-        public void ReconcileSelections_Generation0_EmptyExclusions_StampedWithoutExtension()
-        {
-            var logLines = new List<string>();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            MissionStore.SuppressLogging = false;
-
-            // Verdict C3b: an empty-exclusion generation-0 mission must STILL be stamped
-            // (no extension work), or a later deliberate pre-dock-only exclusion would be
-            // wrongly extended on the next load.
-            RecordingTree tree = DockTree("t1");
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { tree });
-            Mission m = First();
-            m.SelectionSchemaGeneration = 0;
-
-            MissionStore.ReconcileSelections(new List<RecordingTree> { tree });
-
-            Assert.Empty(m.ExcludedIntervalKeys);
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, m.SelectionSchemaGeneration);
-            Assert.DoesNotContain(logLines, l => l.Contains("generation-0 selection extended"));
-            Assert.Contains(logLines, l => l.Contains("stamped 1 mission(s)"));
-
-            // The now-generation-1 mission excludes ONLY the pre-dock half deliberately:
-            // the next reconcile must NOT extend it.
-            m.ExcludedIntervalKeys.Add("launch");
-            MissionStore.ReconcileSelections(new List<RecordingTree> { tree });
-            Assert.DoesNotContain("launch@dock1", m.ExcludedIntervalKeys);
-            Assert.Single(m.ExcludedIntervalKeys);
-        }
-
-        [Fact]
-        public void ReconcileSelections_Generation1_PreservesMixedDockSelection()
-        {
-            var logLines = new List<string>();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            MissionStore.SuppressLogging = false;
-
-            // A current-generation mission that deliberately excludes the pre-dock lead
+            // A mission that deliberately excludes the pre-dock lead
             // interval but KEEPS the docked stretch (the M-MIS-5 headline selection):
             // reconcile must not touch it.
             RecordingTree tree = DockTree("t1");
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { tree });
             Mission m = First();
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, m.SelectionSchemaGeneration);
             m.ExcludedIntervalKeys.Add("launch");
             m.ExcludedIntervalKeys.Add("payload");
 
@@ -877,38 +732,6 @@ namespace Parsek.Tests
             Assert.Equal(0, removed);
             Assert.Equal(2, m.ExcludedIntervalKeys.Count);
             Assert.DoesNotContain("launch@dock1", m.ExcludedIntervalKeys);
-            Assert.DoesNotContain(logLines, l => l.Contains("generation-0 selection extended"));
-            Assert.DoesNotContain(logLines, l => l.Contains("stamped"));
-        }
-
-        [Fact]
-        public void ReconcileSelections_Generation0_TreeNotCommitted_StampDeferred()
-        {
-            var logLines = new List<string>();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            MissionStore.SuppressLogging = false;
-
-            // A legacy mission whose tree is not in the reconcile list (parked Limbo /
-            // restored later in OnLoad) keeps generation 0 - a premature stamp would skip
-            // the @dock extension forever - and the deferral is visible in the log.
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t-limbo", "Limbo") });
-            Mission m = First();
-            m.SelectionSchemaGeneration = 0;
-            m.ExcludedIntervalKeys.Add("launch");
-
-            MissionStore.ReconcileSelections(new List<RecordingTree>());
-
-            Assert.Equal(0, m.SelectionSchemaGeneration);          // NOT stamped
-            Assert.Contains("launch", m.ExcludedIntervalKeys);     // NOT touched
-            Assert.Contains(logLines, l => l.Contains("[Mission]")
-                && l.Contains("stamped 0 mission(s)") && l.Contains("1 deferred"));
-
-            // Once the tree appears, the deferred mission is extended + stamped.
-            RecordingTree tree = DockTree("t-limbo");
-            MissionStore.ReconcileSelections(new List<RecordingTree> { tree });
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, m.SelectionSchemaGeneration);
-            Assert.Contains("launch@dock1", m.ExcludedIntervalKeys);
         }
 
         // First selectable composition-node HeadLegId in a depth-first walk (null if none).
