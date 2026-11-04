@@ -7408,8 +7408,8 @@ Supervisor defaults (not overridden):
   measured that it ignores `GUI.matrix`). A window is pulled on screen on its first draw after a scale change.
   Gates: `ParsekUiScaleTests` (pure rules plus source gates for the one window entry point, the
   host scopes and the anchor conversion), the in-game `UiScale` category, and lane
-  `UIS-1-ui-scale` at `UI_SCALE = 1.5` (harness `kspSettings` gained `UI_SCALE`). Status: NOT YET
-  FLOWN. Known limit: the GUI census instruments (`GuiTreeRecorder`, `UiPointer`) still assume
+  `UIS-1-ui-scale` at `UI_SCALE = 1.5` (harness `kspSettings` gained `UI_SCALE`). Status:
+  LIVE-PROVEN 2026-11-04 (`2026-11-04_1925` PASS, 3 of 3 cells). Known limit: the GUI census instruments (`GuiTreeRecorder`, `UiPointer`) still assume
   100%, which every census profile pins.
 - ~~S11 (Q6). Alt+F12 cheat currency (`TransactionReasons.Cheating`) stays unledgered and
   clamp-held until the next rewind; log it once per event.~~ FIXED 2026-09-26, branch

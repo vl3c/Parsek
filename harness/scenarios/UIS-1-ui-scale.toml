@@ -27,9 +27,11 @@ tier = "nightly"
 #     it, then the window stops drawing and the sweep frees the lock); and the applied
 #     scale is the live stock setting.
 #
-# NEVER FLOWN: `total=3` is attribute-exact; the passed / skipped split is open until the
-# first flight measures it (the lock cell skips when the OS pointer cannot be parked).
-description = "NOT YET FLOWN: Parsek's IMGUI windows at KSP UI Scale 1.5 - the Flight host scales from the live setting, the Missions window fits the scaled 853x480 screen, and the UiScale cells prove the scaled draw, the popup-anchor conversion and the drawn-window input lock."
+# LIVE-PROVEN 2026-11-04 (`2026-11-04_1925` PASS attempt 1, wall 51 s): the pin is whole,
+# `passed=3 skipped=0`, as measured. The first flight (`_1905`) red 1/3 on a wrong
+# GUIToScreenPoint expectation and skipped the lock cell (the IMGUI event mouse read (0,0) in
+# an unfocused window); both fixed before the re-fly.
+description = "LIVE-PROVEN 2026-11-04: Parsek's IMGUI windows at KSP UI Scale 1.5 - the Flight host scales from the live setting, the Missions window fits the scaled 853x480 screen, and the UiScale cells prove the scaled draw, the popup-anchor conversion and the drawn-window input lock."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ui-scale", "imgui", "settings-axis", "UIS-1"]
 
@@ -55,8 +57,8 @@ steps = [
 ]
 
 [dimensionsCovered]
-# Minimal and honest until the first flight: a `ui-scale` D14 value is claimed only once
-# this lane has flown green.
+# No `ui-scale` D14 value is claimed: adding one is a registry decision left for a
+# coverage pass.
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]
@@ -68,7 +70,7 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=UiScale scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=UiScale scene=FLIGHT",
   # 1. the live Flight host scaled from the stock setting (no test override).
   "\\[Parsek\\]\\[INFO\\]\\[UIScale\\] UI scale changed 1 -> 1\\.5: Parsek windows, popups and tooltips now drawn at 1\\.5x \\(GameSettings\\.UI_SCALE=1\\.5, host=Flight\\)",
   # 2. the screen clamp read the scaled screen.
