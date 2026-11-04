@@ -841,7 +841,7 @@ namespace Parsek
             // Additive keys (design 3.15 step 5): the take-back era and the timeline breaks.
             StockShadowTakeBack.SaveInto(root);
             // Additive keys: when the allow-negative-currency setting changed.
-            CareerSettingsLog.SaveInto(root);
+            CareerSettingsLock.SaveInto(root);
             return root;
         }
 
@@ -898,7 +898,7 @@ namespace Parsek
             unreadableActionNodes = new List<ConfigNode>();
             progressSeed = PreLedgerProgressSeed.NotCaptured;
             StockShadowTakeBack.LoadFrom(null, "failed-load");
-            CareerSettingsLog.LoadFrom(null, "failed-load");
+            CareerSettingsLock.LoadFrom(null, "failed-load");
             BumpStateVersion();
         }
 
@@ -1053,7 +1053,7 @@ namespace Parsek
             unreadableActionNodes = newUnreadable;
             progressSeed = PreLedgerProgressSeed.LoadFrom(loaded, out int seedMalformed);
             StockShadowTakeBack.LoadFrom(loaded, sourceLabel);
-            CareerSettingsLog.LoadFrom(loaded, sourceLabel);
+            CareerSettingsLock.LoadFrom(loaded, sourceLabel);
             BumpStateVersion();
             ParsekLog.Verbose("Ledger",
                 $"Loaded ledger from '{sourceLabel}': version={version}, actions={actions.Count}, " +
@@ -1587,7 +1587,7 @@ namespace Parsek
             ResetContractDeadlineMigrationTally();
             CaptureSequence.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
-            CareerSettingsLog.ResetForTesting();
+            CareerSettingsLock.ResetForTesting();
             // Test isolation: route events and the retired route cargo stash lived in the
             // ledger before route events left it, so every test that resets the ledger also
             // starts with an empty route event log and stash.

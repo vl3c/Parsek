@@ -6225,16 +6225,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The stock difficulty dialog closed: when it applied its changes, the live
-        /// allow-negative-currency value is noted for the rows captured from now on
-        /// (<see cref="CareerSettingsLog"/>).
+        /// The stock difficulty dialog closed: the allow-negative switch's lock mark is taken
+        /// off, and when the dialog applied its changes the live value is held to the career's
+        /// lock (<see cref="CareerSettingsLock"/>; the greyed switch should leave it equal).
         /// </summary>
         private void OnDifficultySettingsDismissed(DifficultyOptionsMenu menu, bool applied)
         {
             ParsekLog.Verbose("CareerSettings", $"Difficulty dialog closed: applied={applied}");
+            Patches.AllowNegativeCurrencyLockPatch.EndDialog("dismissed");
             if (!applied)
                 return;
-            CareerSettingsLog.NoteLive(StockCurrencyClamp.ReadAllowNegativeCurrency(), "difficulty-dialog");
+            CareerSettingsLock.EnsureAndEnforce(KspStatePatcher.ReadLiveAllowNegativeCurrency(), "difficulty-dialog");
         }
 
         /// <summary>

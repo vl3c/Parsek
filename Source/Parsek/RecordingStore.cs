@@ -5636,6 +5636,9 @@ namespace Parsek
                         RewindToLaunchLeadTimeSeconds, ResolveRewindClaimedVesselPids);
                 }
 
+                // Parsek's time travel keeps the current difficulty settings (owner ruling Q1):
+                // captured before the load, installed before the game is written or started.
+                ConfigNode liveParameters = DifficultySettingsCarry.CaptureLive(messageLabel);
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 
                 // Delete the temp copy (file already parsed into Game object)
@@ -5692,6 +5695,8 @@ namespace Parsek
                 // PreProcessRewindSave already merged it before its strip; this covers the
                 // un-preprocessed path and is a no-op otherwise.
                 PlaybackScopeTracker.UnionFromScenarios(game.scenarios, messageLabel);
+
+                DifficultySettingsCarry.ApplyTo(game, liveParameters, messageLabel);
 
                 // The Space Center start reloads persistent.sfs, not CurrentGame: put the rewind
                 // game there so the rewind lands in the rewind save's own world.

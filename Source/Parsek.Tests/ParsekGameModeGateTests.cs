@@ -267,6 +267,8 @@ namespace Parsek.Tests
             "Parsek.Patches.ContractParameterRewardCapturePatch.Prefix",
             "Parsek.Patches.CrewAutoAssignPatch.Prefix",
             "Parsek.Patches.CrewRespawnTimerPatch.Prefix",
+            "Parsek.Patches.AllowNegativeCurrencyLockDialogPatch.Prefix",
+            "Parsek.Patches.AllowNegativeCurrencyLockInteractiblePatch.Postfix",
             "Parsek.Patches.DeployedScienceSubmitScopePatch.Prefix",
             "Parsek.Patches.CrewDialogAvailItemPatch.Postfix",
             "Parsek.Patches.CrewDialogAvailListPatch.Postfix",
