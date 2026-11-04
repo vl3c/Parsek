@@ -310,7 +310,6 @@ namespace Parsek.Tests
             Assert.Equal("Jumping Flea", parsed.VesselName);
             Assert.Equal("Launch Pad", parsed.LaunchSiteName);
             Assert.Equal(ProductionGuid, parsed.VesselGuid);
-            Assert.False(parsed.IsLegacyBareKey);
         }
 
         [Fact]
@@ -1231,38 +1230,6 @@ namespace Parsek.Tests
                 l.Contains("two adopted rollouts match within window — keeping both"));
         }
 
-        /// <summary>
-        /// Legacy bare-key rollouts (no structured pid/site/vessel fields in
-        /// the dedup key) must NOT be silently collapsed — we cannot prove
-        /// they refer to the same vessel. The fallback path is intentionally
-        /// strict.
-        /// </summary>
-        [Fact]
-        public void RepairDuplicateRolloutActions_LegacyBareKey_NotCollapsed()
-        {
-            Ledger.AddAction(new GameAction
-            {
-                UT = 100.0,
-                Type = GameActionType.FundsSpending,
-                FundsSpent = 5000f,
-                FundsSpendingSource = FundsSpendingSource.VesselBuild,
-                DedupKey = "rollout:100", // legacy bare key shape
-            });
-            Ledger.AddAction(new GameAction
-            {
-                UT = 100.5,
-                Type = GameActionType.FundsSpending,
-                FundsSpent = 5000f,
-                FundsSpendingSource = FundsSpendingSource.VesselBuild,
-                DedupKey = "rollout:100.5", // legacy bare key shape
-            });
-
-            int removed = Ledger.RepairDuplicateRolloutActions();
-
-            Assert.Equal(0, removed);
-            Assert.Equal(2, CountUnadoptedRollouts());
-        }
-
         // ----------------------------------------------------------------
         // End-to-end: the full revert→relaunch→OnKspLoad cycle
         // ----------------------------------------------------------------
@@ -1276,10 +1243,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnKspLoad_RunsDuplicateRolloutRepairOnAlreadyCorruptLedger()
         {
-            // Seed the ledger so OnKspLoad's MigrateOldSaveEvents short-circuit
-            // is happy (FundsInitial is a sentinel "ledger has been used" marker
-            // — without one, OnKspLoad can re-classify the save as fresh and
-            // wipe synthetic rows).
+            // Seed the ledger (FundsInitial marks a ledger in use).
             Ledger.SeedInitialFunds(25000.0);
 
             // Inline the production duplicate cluster.

@@ -287,10 +287,8 @@ ACTIVE_CONTRACT_VALUES = ("21600,9201600,0,"
 # IT USED TO MIRROR values[1] INSTEAD, and that was faithful to a defect rather
 # than to KSP: the pre-fix handler captured `Contract.TimeDeadline` (a DURATION)
 # into a field every consumer reads as a UT, which is exactly what the c2 accept
-# row's `deadlineUT = 8228571.5` records. A pre-fix save still spells the key
-# `deadlineUT`; `GameAction.ResolveContractDeadlineUT` migrates that shape on
-# load by adding the row's own `ut`, which for this fixture would reproduce
-# 360 + 9201600 = 9201960 - the number now authored directly.
+# row's `deadlineUT = 8228571.5` records. The absolute value for this fixture is
+# 360 + 9201600 = 9201960, the number now authored directly.
 CONTRACT_DEADLINE_UT = "9201960"
 CONTRACT_FUNDS_PENALTY = "27225"
 CONTRACT_REP_PENALTY = "12"
@@ -679,11 +677,10 @@ def verify_ledger(lines: List[str]) -> List[str]:
         legacy = get_value(lines, accept, "deadlineUT")
         if legacy is not None:
             problems.append(
-                "accept row spells its deadline `deadlineUT`, the LEGACY key whose "
+                "accept row spells its deadline `deadlineUT`, the old key whose "
                 "value is a DURATION (CONTRACT-DEADLINE-CAPTURED-AS-DURATION). "
-                "GameAction.ResolveContractDeadlineUT would MIGRATE it on load by "
-                "adding the row's own ut, so the fixture would not carry the value "
-                "it states. Write `deadlineAbsUT` with the contract's values[10]")
+                "The loader reads only deadlineAbsUT, so the row would load with "
+                "no deadline. Write `deadlineAbsUT` with the contract's values[10]")
         else:
             problems.append("accept row has no deadlineAbsUT (a missing key is legal "
                             "- it reads back NaN - but this recipe writes one, so "

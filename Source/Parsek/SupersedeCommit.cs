@@ -2187,8 +2187,8 @@ namespace Parsek
                     return false;
 
                 // Reserved legacy supply-route ids: supply routes keep their events in the
-                // route event log (Logistics.RouteEventLog), never in the ledger, and an old
-                // save's route rows are dropped at ledger load. The ids stay excluded so a
+                // route event log (Logistics.RouteEventLog), never in the ledger, and a row of
+                // one is kept verbatim as unreadable at ledger load. The ids stay excluded so a
                 // stray row could never fall through to true and strict-block a supersede.
                 case GameActionType.RouteDispatched:
                 case GameActionType.RouteCargoDebited:

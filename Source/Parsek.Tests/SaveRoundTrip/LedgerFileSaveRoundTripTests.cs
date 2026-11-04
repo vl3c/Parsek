@@ -60,10 +60,6 @@ namespace Parsek.Tests.SaveRoundTrip
 
         internal static FieldSpec LedgerSpec() => new FieldSpec(typeof(Ledger))
             .Derived("moves on every ledger change, including the load itself", "StateVersion")
-            .Derived("per-load migration tallies and their one-shot log latch; each load recounts",
-                "LegacyActionIdMigrationCount", "legacyActionIdMigrationLogEmitted",
-                "ContractDeadlineAbsoluteCount", "ContractDeadlineMigratedCount",
-                "ContractDeadlineAbsentCount", "ContractDeadlineUnparseableCount")
             .Fill("actions", () => Rows())
             .Compare("actions", CompareRows)
             .Fill("unreadableActionNodes", () => UnreadableRows())

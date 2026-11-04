@@ -367,7 +367,7 @@ Each resource type is an independent module with its own earning/spending rules.
 | Career | Facilities | — | Upgrade cost (funds), gates capabilities |
 | Career | Strategies | Ongoing resource conversion rates | — |
 
-**Supply routes are not a ledger module** (0.10.6, todo LOGISTICS-WITHOUT-MONEY). Routes carry no money (phase 1: no route funds gate, dispatch charge or recovery credit; a Space Center route dispatches free in every mode), and their events are not ledger rows (phase 2): every dispatch, debit, pickup, delivery, pause, resume, hold and endpoint-lost event goes to the route-owned `RouteEventLog`, persisted as `ROUTE_EVENT_LOG` with the route store in the PARSEK scenario node, and the former `RouteModule` is deleted. The ledger therefore holds committed history only. `GameActionType` ids 23 to 30 and 36 stay reserved; a row of those types in an old save's ledger is dropped at ledger load (`LedgerLoadMigration.IsLegacyRouteNode`) with one Info line naming the count per type, so the next save holds none. The route system (logistics milestones M1-M6) has its own design spec: see `docs/parsek-logistics-supply-routes-design.md` (section 10.6 for the real-time rule).
+**Supply routes are not a ledger module** (0.10.6, todo LOGISTICS-WITHOUT-MONEY). Routes carry no money (phase 1: no route funds gate, dispatch charge or recovery credit; a Space Center route dispatches free in every mode), and their events are not ledger rows (phase 2): every dispatch, debit, pickup, delivery, pause, resume, hold and endpoint-lost event goes to the route-owned `RouteEventLog`, persisted as `ROUTE_EVENT_LOG` with the route store in the PARSEK scenario node, and the former `RouteModule` is deleted. The ledger therefore holds committed history only. `GameActionType` ids 23 to 30 and 36 stay reserved and no build writes them; a row of those types found in a ledger is kept verbatim as unreadable (`GameAction.ClassifyUnreadableActionNode`, reason `type-reserved`): never recalculated, written back on save, with one Info line per load naming the count. The route system (logistics milestones M1-M6) has its own design spec: see `docs/parsek-logistics-supply-routes-design.md` (section 10.6 for the real-time rule).
 
 ### 3.12 Module documentation template
 
@@ -519,7 +519,6 @@ Built (build order step 3). `LedgerEventIdentityRegistry` (`Source/Parsek/GameAc
 
 Built (build order step 2). Each site and what it keys on now:
 - `LedgerOrchestrator.DeduplicateAgainst` (every recording commit and its preview, the discard re-home, the retired Re-Fly provisional, the recovery XP, crew-close and vessel-recovered writers): a row converted from a captured event (`GameStateEventConverter.ConvertEvent`, transient `HasEventCaptureIdentity`) collapses only onto a row with the same `cseq` and key, at any UT. A row of another capture with the same type, key and 0.1 s window is a second event and stays. Science keeps its own capture id (`ActionId`). The type + UT + key match stays the fallback when either side names no capture: rows from older saves, and rows built without an event (vessel cost, crew assignment, the death penalty, recovery rows).
-- `LedgerLoadMigration.LedgerHasMatchingAction` (the save recovery migration): the event's row is the one with its `cseq`; the economic match only for a pair without one.
 - `GameStateStore.EventIdentityMatches` (event detail update, retag, remove): two events with one moment, type, key and tag are told apart by `cseq`; a copy taken before the store stamped it keeps the field match.
 - Kept as they are, because they cannot hold two events: the recorder's contract and parameter re-fire debounce and the converter's contract bucket (contract guid inside 0.1 s, one outcome per accept, cleared at every scene change, one recording's events), the rollout dedup (launch guid, built by RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT), the recovery funds pairing (the paired event's UT, pool values and tag), the resource-event coalescing (one pool's contiguous moves inside 0.1 s merged, the sum kept), the crew-status bounce (no ledger row). A world record's thresholds folded into one milestone row stay folded: the row names each threshold it holds (step 4), so the replay tells a re-crossing from a new one.
 
@@ -689,8 +688,6 @@ The ledger file contains all game actions across all resource modules — scienc
 **Implementation divergence:** The actual data flow uses `GameStateRecorder` → `GameStateStore` (in-memory) → `GameStateEventConverter` → Ledger (at commit time). Raw events are NOT written to recording sidecar files — they are captured in memory during flight and converted to `GameAction` entries when the recording is committed. The sidecar retains trajectory/part event data only.
 
 **Commit pipeline (v0.4):** At commit time, `LedgerOrchestrator.OnRecordingCommitted` runs a multi-step pipeline: (1) convert `GameStateStore` events to `GameAction` entries, (2) deduplicate against existing ledger entries (`DeduplicateAgainstLedger` — prevents double-adding KSC events like tech unlocks, facility upgrades, and hires that may overlap with the recording's time range), (3) create vessel cost actions from `Recording.PreLaunchFunds` delta, (4) create `KerbalAssignment` actions from crew snapshot data, (5) append to ledger, (6) recalculate and patch.
-
-**KSP load migration:** `LedgerOrchestrator.OnKspLoad` includes a migration path — if the ledger is empty but committed recordings exist, old save events are converted to bootstrap the ledger.
 
 ### 4.3 KSP load reconciliation
 
@@ -1779,10 +1776,8 @@ ContractAccept (KSC action — consumes a slot)
   title:          string — human-readable (e.g. "Explore the Mun")
   advanceFunds:   float — advance payment received (IMMUTABLE)
   deadlineAbsUT:  double or NULL — ABSOLUTE expiration UT (stock
-                  `Contract.DateDeadline`), NULL if no deadline. The legacy key
-                  `deadlineUT` carries a DURATION and is migrated on load — see
-                  CONTRACT-DEADLINE-CAPTURED-AS-DURATION in
-                  `docs/dev/todo-and-known-bugs.md`
+                  `Contract.DateDeadline`), NULL if no deadline. The old
+                  `deadlineUT` key (a DURATION) is not read
 
 ContractComplete (recording-associated earning)
   ut:             double — when completion conditions were met during flight

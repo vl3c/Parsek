@@ -2145,56 +2145,6 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // MigrateOldSaveEvents: the retro-fill exclusion
-        // ================================================================
-
-        [Fact]
-        public void MigrateOldSaveEvents_ScienceChangedStrategyInput_ProducesNoStrategyScienceDebit()
-        {
-            // STRATEGY-SCIENCE-CONVERSION-LEAK. The migration converts with a NULL
-            // recording scope, so it matches EVERY stored event regardless of age - and
-            // an old save's science EARNINGS rode PendingScienceSubjects, not a
-            // GameStateEvent, so they cannot be reconstructed here. Retro-creating only
-            // the debit half biases the reconstruction LOW and trips the drawdown-guard
-            // clamp + player toast on the old save's first load. Pre-fix history stays
-            // pre-fix.
-            LedgerOrchestrator.Initialize();
-
-            var exchange = StrategyInputScienceDebit(8599.87, 750.0, 641.15828148);
-            GameStateStore.AddEvent(ref exchange);
-            // A convertible neighbour proves the filter is scoped to ScienceChanged and
-            // has not disabled the migration wholesale.
-            var tech = new GameStateEvent
-            {
-                ut = 8600.0,
-                eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry",
-                detail = "cost=45"
-            };
-            GameStateStore.AddEvent(ref tech);
-
-            LedgerLoadMigration.MigrateOldSaveEvents(new HashSet<string>());
-
-            Assert.DoesNotContain(Ledger.Actions,
-                a => a.Type == GameActionType.StrategyScienceDebit);
-            Assert.Contains(Ledger.Actions,
-                a => a.Type == GameActionType.ScienceSpending);
-        }
-
-        [Fact]
-        public void IsMigrationConvertibleEvent_ExcludesOnlyScienceChanged()
-        {
-            Assert.False(LedgerLoadMigration.IsMigrationConvertibleEvent(
-                GameStateEventType.ScienceChanged));
-            Assert.True(LedgerLoadMigration.IsMigrationConvertibleEvent(
-                GameStateEventType.FundsChanged));
-            Assert.True(LedgerLoadMigration.IsMigrationConvertibleEvent(
-                GameStateEventType.ReputationChanged));
-            Assert.True(LedgerLoadMigration.IsMigrationConvertibleEvent(
-                GameStateEventType.TechResearched));
-        }
-
-        // ================================================================
         // ExtractCrewFromRecording
         // ================================================================
 

@@ -184,7 +184,6 @@ namespace Parsek.Tests
                 eventType = GameStateEventType.FacilityUpgraded,
                 key = "KSC",
                 ut = 1.0,
-                epoch = 3
             };
             GameStateStore.AddEvent(ref e);
 

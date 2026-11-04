@@ -44,11 +44,9 @@ LedgerOrchestrator.emittedReconcileWarnKeys log rate limiter (once per play sess
 LedgerOrchestrator.emittedScienceReconcileDumpKeys log rate limiter (once per play session)
 LedgerOrchestrator.EmptyPendingScience constant empty list
 LedgerOrchestrator.ExpectedCurrencySingletonsForTesting test seam
-LedgerOrchestrator.FacilityCostTableProbeForTesting test seam
 LedgerOrchestrator.fundsTrackedOverrideForTesting test seam
 LedgerOrchestrator.NowUtProviderForTesting test seam
 LedgerOrchestrator.OneShotReconcileSkipLogIntervalSeconds constant
-LedgerOrchestrator.OnKspLoadAfterOldSaveEventReconcileForTesting test seam
 LedgerOrchestrator.OnRecordingCommittedFaultInjector test seam
 LedgerOrchestrator.OnRecordingCommittedPostSciencePersistFaultInjector test seam
 LedgerOrchestrator.OnTimelineDataChanged UI subscription (timeline invalidation callback), not save state

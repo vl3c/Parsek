@@ -1786,9 +1786,9 @@ namespace Parsek
 
             // SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: store the increment this callback
             // added, not subject.science. The ledger ADDS every ScienceEarning row per
-            // subject (ScienceModule.ProcessEarning, BuildCommittedScienceSubjectCredits,
-            // LedgerLoadMigration.GetLedgerScienceEarningTotal), so a running total would
-            // re-credit every earlier submission of the same subject. subject.science may
+            // subject (ScienceModule.ProcessEarning, BuildCommittedScienceSubjectCredits),
+            // so a running total would re-credit every earlier submission of the same
+            // subject. subject.science may
             // include Harmony-injected committed science (ScienceSubjectPatch); the
             // increment is unaffected by that.
             float increment = ComputeScienceSubjectIncrement(

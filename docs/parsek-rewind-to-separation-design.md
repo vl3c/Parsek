@@ -601,9 +601,7 @@ File: `Source/Parsek/GameActions/GameAction.cs`.
 
 | Field | Type | Purpose |
 |---|---|---|
-| `ActionId` | `string` | Stable, immutable `act_<Guid-N>` id. Precondition for tombstoning. Legacy migration at load generates a deterministic hash from `UT + Type + RecordingId + Sequence` (`GameAction.cs:541`), so the same legacy action always yields the same id on repeated loads — tombstones written on one load resolve cleanly on the next. |
-
-Migration log on first-post-upgrade load: `[LegacyMigration] Info: Assigned deterministic ActionId to <N> legacy actions`. Idempotent — replaying the migration on a save that already carries ActionIds is a no-op.
+| `ActionId` | `string` | Stable, immutable `act_<Guid-N>` id, written with every row. Precondition for tombstoning. |
 
 ### 5.5 RewindPoint
 
@@ -1944,7 +1942,6 @@ A save made before the change has a crashed booster in Unfinished Flights whose 
 
 - Load cleanly. All five new ConfigNode sections are absent → treated as empty lists / null singletons (`REWIND_POINTS`, `RECORDING_SUPERSEDES`, `LEDGER_TOMBSTONES` → `List<T>()`; `REFLY_SESSION_MARKER`, `MERGE_JOURNAL` → `null`).
 - `Recording.MergeState` legacy migration: binary `committed = True` → `Immutable`; `committed = False` → `NotCommitted`; absent → `Immutable` (pre-feature invariant: any recording reachable from a committed tree was already sealed). One-shot `[LegacyMigration] Info` log line on first post-upgrade load.
-- `GameAction.ActionId` legacy migration: deterministic hash `act_<hash>` generated from `UT + Type + RecordingId + Sequence` (`GameAction.cs:541`). Idempotent — the same action always yields the same id. One-shot `[LegacyMigration] Info` log line.
 - `Recording.SupersedeTargetId` — never set on pre-v0.9.0 saves. Non-empty values on `Immutable` / `CommittedProvisional` recordings (should only happen on a corrupt or hand-edited save) log Warn and are treated as cleared (`LoadTimeSweep.ClearStraySupersedeTargets`, `LoadTimeSweep.cs:326`).
 - `BranchPoint.RewindPointId` — absent on pre-v0.9.0 saves. No `IsUnfinishedFlight` predicate matches on pre-feature BG-crashed siblings because the predicate requires a non-null parent `RewindPointId`. The player's existing crashed siblings are NOT retroactively made Unfinished Flights.
 - Pre-v0.9.0 recordings have no cargo/crew manifest changes; Rewind to Separation does not read or write those fields.
@@ -2334,7 +2331,7 @@ The Rewind-scoped test classes in `Source/Parsek.Tests/`:
 - `EffectiveStateTests` — ERS/ELS computation, mixed-parent halt, IsVisible, IsUnfinishedFlight, EffectiveRecordingId.
 - `GrepAuditTests` — CI gate: verifies the `scripts/grep-audit-ers-els.ps1` allowlist matches the current source.
 - `LedgerTombstoneRoundTripTests` — tombstone serialization.
-- `LegacyMigrationTests` — MergeState migration + ActionId migration idempotence.
+- `LegacyMigrationTests` — MergeState migration; `ActionIdMigrationTests` — ActionId assignment and round trip.
 - `LoadTimeSweepTests` — marker validation, spare/discard sets, orphan logs, stray field, nested cleanup, summary.
 - `MergeCrashRecoveryMatrixTests` — per-window state-invariant assertions for the 5-point crash matrix.
 - `MergeJournalOrchestratorTests` — happy path + rollback + completion + idempotence + null-guard.

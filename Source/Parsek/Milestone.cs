@@ -10,7 +10,6 @@ namespace Parsek
         public double StartUT;
         public double EndUT;
         public string RecordingId;
-        public uint Epoch;
         public List<GameStateEvent> Events = new List<GameStateEvent>();
         public bool Committed;
         public int LastReplayedEventIndex;
@@ -49,10 +48,6 @@ namespace Parsek
 
             m.RecordingId = node.GetValue("recordingId") ?? "";
 
-            string epochStr = node.GetValue("epoch");
-            if (epochStr != null)
-                uint.TryParse(epochStr, NumberStyles.Integer, ic, out m.Epoch);
-
             string committedStr = node.GetValue("committed");
             if (committedStr != null)
                 bool.TryParse(committedStr, out m.Committed);
@@ -67,9 +62,6 @@ namespace Parsek
                 for (int i = 0; i < eventNodes.Length; i++)
                     m.Events.Add(GameStateEvent.DeserializeFrom(eventNodes[i]));
             }
-
-            GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
-                m.Events, $"milestone:{m.MilestoneId ?? "(unknown)"}");
 
             return m;
         }

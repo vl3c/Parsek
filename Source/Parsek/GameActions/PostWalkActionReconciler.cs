@@ -228,8 +228,7 @@ namespace Parsek
 
                 case GameActionType.ReputationEarning:
                 {
-                    // Map source -> key. Synthetic sources (Other, and LegacyMigration if
-                    // re-introduced on the rep enum later) return Reconcile=false.
+                    // Map source -> key. Synthetic sources (Other) return Reconcile=false.
                     string key;
                     switch (action.RepSource)
                     {
@@ -319,7 +318,6 @@ namespace Parsek
                     // for direct "Other"-source KSC payouts (today: none from stock; mod
                     // strategy payouts could land here once #439 Phase C captures them).
                     if (!action.Effective) return exp;
-                    if (action.FundsSource == FundsEarningSource.LegacyMigration) return exp;
                     if (action.FundsSource == FundsEarningSource.Recovery) return exp;
                     if (action.FundsSource == FundsEarningSource.ContractComplete) return exp;
                     if (action.FundsSource == FundsEarningSource.ContractAdvance) return exp;
@@ -1274,8 +1272,7 @@ namespace Parsek
 
             if (action.Type != GameActionType.ScienceEarning ||
                 leg.EventType != GameStateEventType.ScienceChanged ||
-                string.IsNullOrEmpty(action.SubjectId) ||
-                action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
+                string.IsNullOrEmpty(action.SubjectId))
             {
                 return;
             }
@@ -1308,8 +1305,7 @@ namespace Parsek
 
             if (action.Type != GameActionType.ScienceEarning ||
                 leg.EventType != GameStateEventType.ScienceChanged ||
-                string.IsNullOrEmpty(action.SubjectId) ||
-                action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
+                string.IsNullOrEmpty(action.SubjectId))
             {
                 return;
             }
@@ -1835,8 +1831,7 @@ namespace Parsek
             if (action != null &&
                 action.Type == GameActionType.ScienceEarning &&
                 leg.EventType == GameStateEventType.ScienceChanged &&
-                !string.IsNullOrEmpty(action.SubjectId) &&
-                !action.SubjectId.StartsWith("LegacyMigration:", StringComparison.Ordinal))
+                !string.IsNullOrEmpty(action.SubjectId))
             {
                 return $"within science window [{LedgerOrchestrator.FormatFixed1(startUt)},{LedgerOrchestrator.FormatFixed1(endUt)}] for action ut={LedgerOrchestrator.FormatFixed1(action.UT)}";
             }

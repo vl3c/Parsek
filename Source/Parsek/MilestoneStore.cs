@@ -464,7 +464,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("MilestoneStore",
                     $"  milestone[{i}]: id={ShortId(milestones[i].MilestoneId)}, " +
-                    $"epoch={milestones[i].Epoch}, events={milestones[i].Events.Count}, " +
+                    $"events={milestones[i].Events.Count}, " +
                     $"committed={milestones[i].Committed}, lastReplayedIdx={milestones[i].LastReplayedEventIndex}");
             }
         }

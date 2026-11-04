@@ -222,13 +222,13 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("Loaded ledger") && l.Contains("actions=5"));
         }
 
-        // catches: an old save's supply-route rows surviving the load. Route events
-        // live in the route event log (todo LOGISTICS-WITHOUT-MONEY phase 2): every row
-        // of a reserved route type (23-30, 36) is dropped before deserialization with
-        // one Info summary, the rest of the ledger loads untouched, and the next save
-        // writes none of them, so a second load drops nothing.
+        // catches: a supply-route row being read as a live action. Route events live in
+        // the route event log (todo LOGISTICS-WITHOUT-MONEY phase 2) and no build writes a
+        // row of a reserved route type (23-30, 36), so such a row is kept verbatim like any
+        // unreadable row: never recalculated, one Info summary and no WARN, and written
+        // back unchanged on save so a second load reads the same rows again.
         [Fact]
-        public void LoadFromFile_DropsEveryLegacyRouteRow_KeepsTheRest()
+        public void LoadFromFile_KeepsReservedRouteRowsVerbatim_LoadsTheRest()
         {
             Ledger.AddAction(new GameAction
             {
@@ -271,30 +271,28 @@ namespace Parsek.Tests
             Assert.DoesNotContain(Ledger.Actions, a => LedgerLoadMigration.IsReservedRouteActionType(a.Type));
             Assert.Single(logLines, l =>
                 l.Contains("[INFO]") && l.Contains("[Ledger]")
-                && l.Contains("Dropped 10 legacy supply-route rows at load")
-                && l.Contains("RouteDispatched=2 RouteCargoDebited=1 RouteCargoDelivered=1 RoutePaused=1 "
-                    + "RouteEndpointLost=1 RouteRecoveryCredited=1 RouteCargoPickedUp=1 RouteResumed=1 RouteHeld=1"));
+                && l.Contains("Kept 10 row(s) of reserved supply-route types verbatim"));
             Assert.DoesNotContain(logLines, l => l.Contains("[WARN]") && l.Contains("[Ledger]"));
             // The route event log is not fed from the ledger.
             Assert.Empty(Parsek.Logistics.RouteEventLog.Events);
 
-            // Idempotent: the next save writes no route row, and its load drops nothing.
+            // The next save writes the kept rows back, and its load keeps them again.
             Assert.True(Ledger.SaveToFile(LedgerPath));
             string resaved = File.ReadAllText(LedgerPath);
-            Assert.DoesNotContain("route-old", resaved);
-            Assert.DoesNotContain("routeId", resaved);
+            Assert.Contains("route-old", resaved);
             Ledger.ResetForTesting();
             logLines.Clear();
             Assert.True(Ledger.LoadFromFile(LedgerPath));
             Assert.Equal(2, Ledger.Actions.Count);
-            Assert.DoesNotContain(logLines, l => l.Contains("legacy supply-route rows"));
+            Assert.Single(logLines, l => l.Contains("Kept 10 row(s) of reserved supply-route types"));
         }
 
-        // catches: the drop predicate over-reaching or under-reaching. Exactly the
-        // reserved route ids are dropped; every other type, an unknown id, a missing or
-        // unparseable type and a null node are left to the normal deserializer.
+        // catches: the reserved-type classification over-reaching or under-reaching.
+        // Exactly the reserved route ids classify as type-reserved; every other defined
+        // type is readable, and an unknown id or a missing or unparseable type keeps its
+        // own unreadable reason.
         [Fact]
-        public void IsLegacyRouteNode_ClassifiesByType_AndTallies()
+        public void ClassifyUnreadableActionNode_ReservedRouteTypes()
         {
             ConfigNode Node(string type)
             {
@@ -303,24 +301,21 @@ namespace Parsek.Tests
                 return n;
             }
 
-            var tally = new LedgerLoadMigration.LegacyRouteRowTally();
+            int reservedCount = 0;
             foreach (GameActionType t in Enum.GetValues(typeof(GameActionType)))
             {
                 bool reserved = LedgerLoadMigration.IsReservedRouteActionType(t);
-                Assert.Equal(reserved, LedgerLoadMigration.IsLegacyRouteNode(
-                    Node(((int)t).ToString(System.Globalization.CultureInfo.InvariantCulture)), tally));
+                if (reserved) reservedCount++;
+                string reason = GameAction.ClassifyUnreadableActionNode(
+                    Node(((int)t).ToString(System.Globalization.CultureInfo.InvariantCulture)), out _);
+                Assert.Equal(reserved ? GameAction.ReservedTypeReason : null, reason);
             }
-            Assert.Equal(9, tally.Total);
-            Assert.Equal(1, tally.CountOf(GameActionType.RouteHeld));
-            Assert.Equal(0, tally.CountOf(GameActionType.FundsSpending));
+            Assert.Equal(9, reservedCount);
 
-            Assert.False(LedgerLoadMigration.IsLegacyRouteNode(Node("9999"), tally));
-            Assert.False(LedgerLoadMigration.IsLegacyRouteNode(Node("RouteDispatched"), tally));
-            Assert.False(LedgerLoadMigration.IsLegacyRouteNode(Node(null), tally));
-            Assert.False(LedgerLoadMigration.IsLegacyRouteNode(null, tally));
-            Assert.True(LedgerLoadMigration.IsLegacyRouteNode(Node("23"), null));
-            Assert.Equal(9, tally.Total);
-            Assert.Equal("none", new LedgerLoadMigration.LegacyRouteRowTally().FormatByType());
+            Assert.Equal("type-unknown", GameAction.ClassifyUnreadableActionNode(Node("9999"), out _));
+            Assert.Equal("type-unparseable",
+                GameAction.ClassifyUnreadableActionNode(Node("RouteDispatched"), out _));
+            Assert.Equal("type-missing", GameAction.ClassifyUnreadableActionNode(Node(null), out _));
         }
 
         [Fact]
@@ -699,24 +694,24 @@ namespace Parsek.Tests
         [Fact]
         public void RetagActionsForRecordingRewrite_RemapsAllMatchingActions_SurvivesReconcile()
         {
-            // Canonical round-2 P2 scenario: a LegacyMigration FundsEarning synthetic
-            // tagged with the old root recording id becomes orphaned when the
-            // optimizer rewrites tree.RootRecordingId. Retag remaps the synthetic
-            // (along with any other action tagged with the old id) to the new root.
+            // Canonical round-2 P2 scenario: an action tagged with the old root
+            // recording id becomes orphaned when the optimizer rewrites
+            // tree.RootRecordingId. Retag remaps every action tagged with the old id
+            // to the new root.
             Ledger.AddAction(new GameAction
             {
                 UT = 150.0,
                 Type = GameActionType.FundsEarning,
                 RecordingId = "rec_old_root",
                 FundsAwarded = 34400f,
-                FundsSource = FundsEarningSource.LegacyMigration
+                FundsSource = FundsEarningSource.Recovery
             });
             Ledger.AddAction(new GameAction
             {
                 UT = 155.0,
                 Type = GameActionType.ScienceSpending,
                 RecordingId = "rec_old_root",
-                NodeId = "LegacyMigration:tree_x",
+                NodeId = "basicRocketry",
                 Cost = 7.7f
             });
             Ledger.AddAction(new GameAction

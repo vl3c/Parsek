@@ -296,7 +296,6 @@ namespace Parsek.Tests
                 detail = GameStateRecorder.BuildStrategyActivateDetail(
                     "Unpaid Research Program", "Science",
                     factor: 0.25f, setupFunds: 7500f, setupSci: 0f, setupRep: 0f),
-                epoch = 3,
                 recordingId = "rec-round-trip"
             };
 
@@ -309,7 +308,6 @@ namespace Parsek.Tests
             Assert.Equal(original.ut, reloaded.ut);
             Assert.Equal(original.key, reloaded.key);
             Assert.Equal(original.detail, reloaded.detail);
-            Assert.Equal(0u, reloaded.epoch);
             Assert.Equal(original.recordingId, reloaded.recordingId);
         }
 

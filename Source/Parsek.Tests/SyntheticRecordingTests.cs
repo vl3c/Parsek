@@ -11558,7 +11558,6 @@ namespace Parsek.Tests
                 StartUT = milestoneStart,
                 EndUT = milestoneEnd,
                 RecordingId = "",
-                Epoch = 0,
                 Events = events,
                 Committed = true,
                 LastReplayedEventIndex = 3 // first 4 events replayed (tech, part, accept, complete)
