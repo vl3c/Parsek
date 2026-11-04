@@ -17,6 +17,41 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REPLAY-AUDIT-CODEC-HYGIENE: six reader / invariant gaps from the replay-theory audit (R8 to R13)~~ [FILED 2026-11-04 from the replay-theory audit (doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, findings R8-R13, main b2182df); FIXED 2026-11-04, branch `claude/project-thread-dxut6r`; xUnit only, no lane (every case needs a hand-edited, newer-build or crash-damaged save); product, low]
+
+**Symptom.** Each reader defaulted what it could not read instead of rejecting or passing it on.
+R8: a ledger row with an unknown type id loaded as type 0 (`ScienceEarning`) and was saved back
+as one; a row whose parse threw was dropped and the drop saved. R9: a Cold load resolved a named
+sidecar hash from the head and `_versions/` but not from an unfiled `<id><suffix>.incoming.<guid>`
+backup, which the collector files only at the end of the same load, so the ghost was missing for
+one session. R10: an unknown or undefined `mergeState` read as `Immutable` (the most committed
+state), and a RECORDING with no `recordingId` kept the random Guid `new Recording()` assigns.
+R11: nothing checked that one old recording id has one effective supersede target; both walkers
+take the first matching row, so a fork would make the slot tip depend on list order. R12:
+`RecordingStore.RestoreFromSnapshotForTesting` cleared and refilled the committed list with no
+index notifications, in FLIGHT with ghosts alive. R13: `VesselSpawner.PrepareSpawnNodeAtPosition`
+wrote lat / lon / alt with `ToString("R")` and no culture.
+
+**Fix.** R8: `GameAction.ClassifyUnreadableActionNode` (`type-missing` / `type-unparseable` /
+`type-unknown`) runs before deserialization; such a row, and a row whose parse throws, is kept as
+a verbatim node copy in `Ledger.unreadableActionNodes`, never recalculated, and written back by
+`BuildSaveNode`; every load replaces the list, `Clear()` keeps it (like the progress seed). R9:
+`SidecarVersionResolution.Resolve` falls back to `FindIncomingWithHash` (only files that parse as
+this id and kind, read only when the bytes carry the named hash) and reads it as a version
+(`source=incoming` in the resolve line), so the usual single-owner promote applies. R10:
+`RecordingTreeRecordCodec.ClassifyUnreadableRecordingNode` (`recording-id-missing`,
+`merge-state-unknown`, defined members only) rejects the recording through the same `-1` format
+path as the schema gate, and `InertRecordingTrees.ClassifySchemaRejection` counts it, so a tree
+whose every member is unreadable is held inert. Whether a partly rejected tree drops its rejected
+members on the next save stays the audit's open question T6. R11: INV7 family 2c
+(`kind=ambiguous-supersede`, FAIL) reports a second row for an old id only when its walk ends at a
+different tip than the first row's; a redundant A->C beside A->B, B->C is not reported. R12: the
+restore keeps the common reference prefix, removes the rest top-down through
+`RemoveCommittedAtWithNotifications`, then appends the snapshot's tail. R13: InvariantCulture.
+Tests: `CodecReadabilityTests`, `SidecarVersionRetentionTests` (two incoming cells),
+`Inv7TreeTopologyTests` (three supersede cells), `RecordingStoreResetGuardTests` (three restore
+cells), `SpawnRotationContractTests` (de-DE coordinates), and the ledger field round trip.
+
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 
 Closed since the audit (each with its own entry or PR): A1 RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP

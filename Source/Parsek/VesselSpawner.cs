@@ -1268,9 +1268,9 @@ namespace Parsek
             if (spawnNode == null)
                 return null;
 
-            spawnNode.SetValue("lat", lat.ToString("R"), true);
-            spawnNode.SetValue("lon", lon.ToString("R"), true);
-            spawnNode.SetValue("alt", alt.ToString("R"), true);
+            spawnNode.SetValue("lat", lat.ToString("R", CultureInfo.InvariantCulture), true);
+            spawnNode.SetValue("lon", lon.ToString("R", CultureInfo.InvariantCulture), true);
+            spawnNode.SetValue("alt", alt.ToString("R", CultureInfo.InvariantCulture), true);
 
             string sit = DetermineSituation(alt, overWater, speed, orbitalSpeed);
 

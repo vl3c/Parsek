@@ -33,6 +33,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Save data Parsek cannot read is no longer guessed at.** A ledger entry it cannot read is kept
+  as written instead of being saved back as a science entry, a recording with an unreadable state
+  is rejected instead of loading as final, and a recording file a crash left half-moved is still
+  found on the next load. (REPLAY-AUDIT-CODEC-HYGIENE)
 - **Revert to Launch no longer records over a committed flight.** After reverting, a vessel that
   already has a committed recording later on the timeline stays unrecorded instead of resuming
   that recording from the past, which left it with a doubled track. (REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END)

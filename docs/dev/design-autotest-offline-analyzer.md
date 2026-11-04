@@ -467,6 +467,11 @@ the LOADER-FAULT rule that turns loader parse failures into findings. Each is on
   so it is a maintenance signal rather than a broken invariant (contrast the
   `Recording.SupersedeTargetId` and tombstone `RetiringRecordingId` dangling
   cases, which stay FAIL because they break visibility / retirement resolution).
+  One effective supersede target per old id: both supersede walkers take the FIRST row
+  whose `OldRecordingId` matches, so a second row for the same old id whose walk ends at
+  a different tip than the first row's is an order-dependent fork -> FAIL
+  (`kind=ambiguous-supersede firstTip=<a> otherTip=<b>`); a redundant row that reaches
+  the same tip is not reported.
   CitedContract: `Recording.ChainId/ChainIndex/ChainBranch` +
   `RecordingTreeSplitter` HEAD/TIP split + `RecordingOptimizer.CanAutoMerge`
   supersede guard + `EffectiveState.IsSupersededByRelation` (verify against the
