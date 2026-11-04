@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using ClickThroughFix;
 using KSP.UI.Screens;
 using ToolbarControl_NS;
 using UnityEngine;
@@ -247,6 +246,8 @@ namespace Parsek
 
         void OnGUI()
         {
+            // Before every early return, so a hidden window never leaves input locked.
+            ParsekUiScale.SweepStaleLocks();
             if (!showUI) return;
 
             // Hide the toolbar window while the Esc / pause overlay is up so
@@ -255,6 +256,15 @@ namespace Parsek
             if (PauseMenuGate.IsPauseMenuOpen())
                 return;
 
+            using (ParsekUiScale.BeginHost("KSC"))
+                DrawKscWindows();
+        }
+
+        // Every Parsek window at the Space Center, inside the UI-scale host scope: the
+        // rects, the after-draw hover checks and the screen clamps all read scaled-root
+        // units here.
+        private void DrawKscWindows()
+        {
             windowRect.height = 0f;
             var mainWindowStyle = ui.GetMainWindowStyle();
             if (mainWindowStyle == null)
@@ -263,7 +273,7 @@ namespace Parsek
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
             try
             {
-                windowRect = ClickThruBlocker.GUILayoutWindow(
+                windowRect = ParsekUiScale.Window(
                     GetInstanceID(), windowRect, ui.DrawWindow,
                     "Parsek", mainWindowStyle, GUILayout.Width(250));
             }
@@ -2447,6 +2457,7 @@ namespace Parsek
 
         void OnDestroy()
         {
+            ParsekUiScale.ReleaseAllScaledLocks("ksc-destroy");
             if (inertForGameMode)
                 return; // nothing was built or subscribed (S9 game-mode gate)
             RecordingStore.CommittedRecordingRemoving -= OnCommittedRecordingRemoving;

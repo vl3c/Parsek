@@ -27126,6 +27126,24 @@ class ScreenResolutionSpecTests(unittest.TestCase):
             self.assertIn("runtime.kspSettings", errs[0])
         self.assertEqual(1, len(hlib.validate_screen_resolution({"kspSettings": 5})))
 
+    def test_ui_scale_is_a_gameplay_setting_with_a_bounded_number(self):
+        # Parsek's IMGUI windows follow stock UI Scale (todo S10); the UI-scale lane
+        # flies at 1.5 through this per-run delta.
+        self.assertIn("UI_SCALE", hlib.KSP_GAMEPLAY_SETTING_KEYS)
+        for good in (1.5, 2, 0.5, 3.0, 1):
+            self.assertEqual([], hlib.validate_screen_resolution(
+                {"kspSettings": {"UI_SCALE": good}}), good)
+        for bad in (0.4, 3.5, "1.5", True, float("nan"), -1):
+            errs = hlib.validate_screen_resolution({"kspSettings": {"UI_SCALE": bad}})
+            self.assertEqual(1, len(errs), (bad, errs))
+            self.assertIn("number in [0.5, 3]", errs[0])
+        self.assertEqual({"UI_SCALE": "1.5"}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"UI_SCALE": 1.5}}}))
+        self.assertEqual({"UI_SCALE": "2"}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"UI_SCALE": 2}}}))
+        self.assertEqual({"UI_SCALE": "1.25"}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"UI_SCALE": 1.25}}}))
+
     def test_spec_ksp_gameplay_settings(self):
         self.assertEqual({}, hlib.spec_ksp_gameplay_settings({}))
         self.assertEqual({}, hlib.spec_ksp_gameplay_settings({"runtime": {"budgetSeconds": 5}}))

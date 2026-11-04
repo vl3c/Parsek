@@ -204,7 +204,7 @@ namespace Parsek
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
             try
             {
-                spawnControlWindowRect = ClickThruBlocker.GUILayoutWindow(
+                spawnControlWindowRect = ParsekUiScale.Window(
                     WindowIdKey.GetHashCode(),
                     spawnControlWindowRect,
                     (id) => DrawSpawnControlWindow(id, flight),

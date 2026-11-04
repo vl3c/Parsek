@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
-using ClickThroughFix;
 using KSP.UI.Screens;
 using ToolbarControl_NS;
 using UnityEngine;
@@ -2299,55 +2298,72 @@ namespace Parsek
             // because they live on the same Canvas as the overlay; ours do
             // not. Skip both Layout and Repaint passes so layout-driven sizes
             // don't flicker between events while paused.
+            // The UI-scale lock sweep runs before the pause gate so a window hidden by
+            // the pause menu never leaves the game input locked.
+            ParsekUiScale.SweepStaleLocks();
             if (PauseMenuGate.IsPauseMenuOpen())
                 return;
 
+            // Map markers and ghost labels are projected from world positions in
+            // physical pixels and stay unscaled (UI-scale ruling 2026-11-04).
             if (MapView.MapIsEnabled)
                 ui.DrawMapMarkers();
 
             if (watchMode.IsWatchingGhost)
-                watchMode.DrawWatchModeOverlay();
+            {
+                using (ParsekUiScale.BeginHost("WatchOverlay"))
+                    watchMode.DrawWatchModeOverlay();
+            }
 
             // Phase 6d: Ghost labels on chain ghost GOs (no-op when ghost GOs are null)
             DrawGhostLabels();
 
             if (showUI)
             {
-                windowRect.height = 0f;
-                var mainWindowStyle = ui.GetMainWindowStyle();
-                if (mainWindowStyle == null)
-                    return;
-
-                ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
-                try
-                {
-                    windowRect = ClickThruBlocker.GUILayoutWindow(
-                        GetInstanceID(),
-                        windowRect,
-                        ui.DrawWindow,
-                        "Parsek",
-                        mainWindowStyle,
-                        GUILayout.Width(250)
-                    );
-                }
-                finally
-                {
-                    ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
-                }
-                ui.LogMainWindowPosition(windowRect);
-                ui.DrawRecordingsWindowIfOpen(windowRect);
-                ui.DrawTimelineWindowIfOpen(windowRect);
-                ui.DrawKerbalsWindowIfOpen(windowRect);
-                ui.DrawLogisticsWindowIfOpen(windowRect);
-                ui.DrawStructureWindowIfOpen(windowRect);
-                ui.DrawSettingsWindowIfOpen(windowRect);
-                ui.DrawSpawnControlWindowIfOpen(windowRect);
-                ui.DrawTestRunnerWindowIfOpen(windowRect, this);
+                using (ParsekUiScale.BeginHost("Flight"))
+                    DrawFlightWindows();
             }
+        }
+
+        // Every Parsek window in FLIGHT, inside the UI-scale host scope: the rects, the
+        // after-draw hover checks and the screen clamps all read scaled-root units here.
+        private void DrawFlightWindows()
+        {
+            windowRect.height = 0f;
+            var mainWindowStyle = ui.GetMainWindowStyle();
+            if (mainWindowStyle == null)
+                return;
+
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                windowRect = ParsekUiScale.Window(
+                    GetInstanceID(),
+                    windowRect,
+                    ui.DrawWindow,
+                    "Parsek",
+                    mainWindowStyle,
+                    GUILayout.Width(250)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
+            ui.LogMainWindowPosition(windowRect);
+            ui.DrawRecordingsWindowIfOpen(windowRect);
+            ui.DrawTimelineWindowIfOpen(windowRect);
+            ui.DrawKerbalsWindowIfOpen(windowRect);
+            ui.DrawLogisticsWindowIfOpen(windowRect);
+            ui.DrawStructureWindowIfOpen(windowRect);
+            ui.DrawSettingsWindowIfOpen(windowRect);
+            ui.DrawSpawnControlWindowIfOpen(windowRect);
+            ui.DrawTestRunnerWindowIfOpen(windowRect, this);
         }
 
         void OnDestroy()
         {
+            ParsekUiScale.ReleaseAllScaledLocks("flight-destroy");
             SpawnedHarvesterRestore.Clear("flight-destroy");
             if (inertForGameMode)
                 return; // never subscribed, never became Instance (S9 game-mode gate)

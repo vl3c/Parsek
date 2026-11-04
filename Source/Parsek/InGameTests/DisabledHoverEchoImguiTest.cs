@@ -157,6 +157,21 @@ namespace Parsek.InGameTests
 
             internal static CursorPlacement TryPlaceOverProbeButton()
             {
+                return TryPlace(-1, -1);
+            }
+
+            /// <summary>Parks the pointer at a client-area point (top-left origin, physical
+            /// pixels: the same frame as a top-left GUI point at scale 1). Used by the
+            /// UI-scale cells to hover a scaled window at a chosen spot.</summary>
+            internal static CursorPlacement TryPlaceAtClientPoint(int clientX, int clientY)
+            {
+                if (clientX < 0 || clientY < 0)
+                    return new CursorPlacement(false, "negative client point", 0, 0);
+                return TryPlace(clientX, clientY);
+            }
+
+            private static CursorPlacement TryPlace(int clientX, int clientY)
+            {
                 if (Environment.OSVersion.Platform != PlatformID.Win32NT)
                     return new CursorPlacement(false, "not Windows: " + Environment.OSVersion.Platform, 0, 0);
                 try
@@ -195,9 +210,13 @@ namespace Parsek.InGameTests
                         return new CursorPlacement(false, "GetClientRect failed", 0, 0);
                     int width = client.Right - client.Left;
                     int height = client.Bottom - client.Top;
-                    if (width <= 0 || height < ProbeButtonHeightPx)
+                    bool explicitPoint = clientX >= 0 && clientY >= 0;
+                    if (width <= 0 || height < ProbeButtonHeightPx
+                        || (explicitPoint && (clientX >= width || clientY >= height)))
                         return new CursorPlacement(false, "client area " + width + "x" + height + " too small", 0, 0);
-                    var target = new NativeMethods.POINT { X = width / 2, Y = ProbeButtonHeightPx / 2 };
+                    var target = explicitPoint
+                        ? new NativeMethods.POINT { X = clientX, Y = clientY }
+                        : new NativeMethods.POINT { X = width / 2, Y = ProbeButtonHeightPx / 2 };
                     if (!NativeMethods.ClientToScreen(window, ref target))
                         return new CursorPlacement(false, "ClientToScreen failed", 0, 0);
                     if (!NativeMethods.GetCursorPos(out NativeMethods.POINT previous))
