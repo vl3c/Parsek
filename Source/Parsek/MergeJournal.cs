@@ -37,10 +37,9 @@ namespace Parsek
         public string TreeId;
 
         /// <summary>
-        /// Phase string. v1 only writes <see cref="Phases.Begin"/> while a merge is
-        /// in staged commit (see design doc section 6.6 failure-recovery matrix).
-        /// Additional phase constants are declared for forward-compat so §10 writers
-        /// and §6.9 finishers reference the same strings.
+        /// Phase string: the last checkpoint the staged-commit merge reached (see
+        /// design doc section 6.6 failure-recovery matrix). The §10 writer and the
+        /// §6.9 finisher reference the same <see cref="Phases"/> strings.
         /// </summary>
         public string Phase = Phases.Begin;
 
@@ -66,10 +65,9 @@ namespace Parsek
         /// rewind-to-staging rollout extends the single <see cref="Begin"/>
         /// marker with the intermediate staged-commit checkpoints written by
         /// <c>MergeJournalOrchestrator.RunMerge</c>. The on-load finisher
-        /// branches on these strings to decide whether the interrupted merge
-        /// should roll back (Phase less-than-or-equal <see cref="Finalize"/>)
-        /// or be driven to completion (Phase greater-than-or-equal
-        /// <see cref="Durable1Done"/>).
+        /// resumes the interrupted merge from the phase on disk and drives it
+        /// to completion; no phase rolls back, because the attempt's tree is
+        /// committed before the journal is first written.
         /// </summary>
         public static class Phases
         {
@@ -89,21 +87,6 @@ namespace Parsek
             public const string MarkerCleared = "MarkerCleared";
             public const string Durable2Done = "Durable2Done";
             public const string Complete = "Complete";
-        }
-
-        /// <summary>
-        /// Returns true if <paramref name="phase"/> represents the single
-        /// checkpoint that still rolls back on crash — i.e. on-disk state is
-        /// still the pre-merge snapshot and any in-memory mutation must be
-        /// undone (design §6.6 failure-recovery matrix; fix-supersede-identity-scope
-        /// plan W2/W5 reclassification). Only <see cref="Phases.Begin"/>
-        /// qualifies under the post-Split-durable-barrier classification;
-        /// Split/Supersede/Tombstone/Finalize are now post-Begin-durable and
-        /// drive forward via idempotent re-run instead of rolling back.
-        /// </summary>
-        public static bool IsPreDurablePhase(string phase)
-        {
-            return phase == Phases.Begin;
         }
 
         /// <summary>
@@ -135,8 +118,8 @@ namespace Parsek
         /// Returns true if <paramref name="phase"/> is one of the recognized
         /// post-Begin phase strings. Used by
         /// <c>MergeJournalOrchestrator.RunFinisher</c>'s dispatcher to
-        /// distinguish "known phase, drive forward" from "unknown phase,
-        /// roll back defensively". Effectively a documentation alias for
+        /// distinguish a known phase (resume from it) from an unknown one
+        /// (re-run the whole idempotent tail from TreeMerge). Effectively a documentation alias for
         /// <see cref="IsPostDurablePhase"/> in the new classification (because
         /// post-Begin-durable == post-durable), but the distinct name conveys
         /// dispatch-site intent better: dispatch asks "is this a phase we
