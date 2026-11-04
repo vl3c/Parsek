@@ -64,8 +64,9 @@ background vessels record only inside a tree). The on-rails state is untouched. 
 refused closing samples, Relative anchor, armed flag, active-vs-background parity, source wiring
 and the on-rails state shape). Lane owed: a formation flight through an SOI edge, two vessels
 within physics range (one loaded in the background) crossing together off rails, gating on the
-background split line `at SOI boundary ... pid=<wingman>` and two Absolute sections on the
-wingman's recording; not built.
+background split line `at SOI boundary ... pid=<wingman>` and one section per body on the
+wingman's recording (a wingman that close likely records Relative to the active vessel, so expect
+`closingSample=0` and two Relative sections, not two Absolute ones); not built.
 
 ## ~~FLAT-POINTS-READ-RELATIVE-OFFSETS: a flat-points playback fallback reads Relative metre offsets as lat/lon/alt~~ [FILED 2026-11-04 from the replay-theory audit (finding R4), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit only; product, medium (a ghost placed deep inside the planet for the frames of a section gap next to a Relative section)]
 
