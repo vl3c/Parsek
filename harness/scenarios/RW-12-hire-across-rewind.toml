@@ -138,7 +138,7 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # The host's 34 recordings plus H; the check launch is unrecorded. INTERIM window.
-count = 35
+count = { min = 35, max = 35 }
 
 [expectations.logContracts]
 required = [

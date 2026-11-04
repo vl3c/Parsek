@@ -58,6 +58,23 @@ id = "CS-7-career-mun-landing"
 # below their attach points against the leg's ~0.8 m stroke); then they stand as
 # outriggers round it. The landing site's sun angle and the powered Mun phases' draw.
 #
+# THE 2026-11-04 REDS (full lane run, `2026-11-04_0447_CS-7` and `_a2`, both INVALID
+# vessel-lost in MUN-ASCENT; todo CS7-LANDER-TIPS-AT-BOARD): no Parsek line touches the
+# lander. Both landed about 12 s later than the green `2026-10-31_0654_a2`, the boarding
+# left the lander rocking (angV 0.322, hspd 1.0) and it settled about 0.2 m lower,
+# leaning; MechJeb's engage then pushed it along the ground (hspd 7 -> 44 m/s at alt 0.9,
+# LANDED) until it broke up. Since then EVA-SETTLE counts a frame only with angV under
+# parkMaxAngularVelocityRadPerSec and hspd under landedMaxHorizontalSpeedMps, the
+# telemetry row carries `pitch=` (Flight.Pitch in the surface frame, +90 upright; the
+# first guard flight read it in the body frame, -77 on a level lander), and a settled lander
+# leaning more than munAscentMaxTiltDeg (opt-in, 30 here) off vertical flakes
+# `mun-lander-tipped` at once instead of engaging. The surface-frame re-flight
+# (`2026-11-04_1803` / `_1823_a2`) settled it: the lander touches down upright (pitch 89.9,
+# alt 4.1) and then FALLS OVER on its legs at zero throttle, once during LANDED-SETTLE and
+# once mid-EVA (pitch to -11..-17, alt to ~1.1); the ascent then slides it to vessel-lost.
+# A craft-stability problem (the LT-05 stance), not Parsek; the gate is armed below so the
+# lane reads `mun-lander-tipped`. Todo CS7-LANDER-TIPS-AT-BOARD.
+#
 # THE ROUTE, mission `b13_mun_landing_return` (mlib.mlr_decide): B5's machine VERBATIM
 # with captureEnabled and landingEnabled (B11's capture, a 60 s park, B13's untargeted
 # MechJeb landing, a 30 s settled dwell), with CS-4's career launch gate. NEW SINCE THE
@@ -248,6 +265,9 @@ ascentType                 = 0
 # --- the surface visit ---
 evaSettleSeconds           = 5
 evaSettleFrames            = 3
+# The lander tips over on its legs after landing (see THE 2026-11-04 REDS); refuse the
+# ascent from a lean past 30 deg so the run names it instead of sliding to vessel-lost.
+munAscentMaxTiltDeg        = 30
 # Off the ladder, Jeb lands in Ragdoll and, as the ACTIVE vessel, never stands up
 # without a movement key (stock CanRecover); switch to the lander for 20 s so he
 # recovers, then back to him for the flag (mlib THE RAGDOLL RECOVERY).
