@@ -41,6 +41,21 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A loose part another flight left is no longer duplicated by a rewind.** Picking it up in EVA
+  construction is now recorded, so after a rewind to before the pick-up the old part shows until
+  that moment and then goes, instead of standing beside the copy the kerbal took.
+  (CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED)
+- **Looping map icons no longer flicker at very high warp.** Above 50x, when one frame skips past
+  a whole launch interval of a loop that overlaps itself, the map and Tracking Station keep one
+  icon per looped recording and move it to the newest launch. Below that nothing changes.
+  (OVERLAP-MAP-GHOSTS-CHURN-AT-HIGH-WARP)
+- **A rescue no longer blocks a later flight's stand-in.** A flight recorded after a rescue with
+  the rescued kerbal aboard now gets its stand-in as usual, and rescues whose vessel is gone are
+  dropped from the save. (RESCUE-PLACED-MARKER-NEVER-RETIRES)
+- **A replayed flag is planted once, and a flag you remove stays removed.** Loops no longer plant
+  a recorded flag again after you pick it up, recover it or terminate it. A kerbal's flag pick-up
+  is now recorded, so after a rewind the replay takes the flag down at that moment and a flag you
+  moved ends up in one place. (LOOP-REPLAY-REPLANTS-REMOVED-FLAG)
 - **A rewind never lowers a once-only reward.** If a science result, world-first or record step
   was paid at a higher reward setting on the committed timeline and you earn it again earlier at
   a lower one, the committed flight now still pays the difference, so your total stays at the

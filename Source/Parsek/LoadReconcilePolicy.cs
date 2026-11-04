@@ -95,6 +95,10 @@ namespace Parsek
         /// the playhead was seen before, saved in the PARSEK node (todo
         /// REPLAY-SCOPE-LOST-ON-SAVE-LOAD).</summary>
         PlaybackReplayScope,
+        /// <summary><c>RemovedReplayFlags</c>: the flags the player removed from the world, so no
+        /// replay plants them again (todo LOOP-REPLAY-REPLANTS-REMOVED-FLAG), saved in the PARSEK
+        /// node.</summary>
+        RemovedReplayFlags,
     }
 
     /// <summary>What a load does with one category today.</summary>
@@ -471,6 +475,7 @@ namespace Parsek
                 case LoadStateCategory.RewindVesselHolds:
                 case LoadStateCategory.LedgerHeldWindow:
                 case LoadStateCategory.PlaybackReplayScope:
+                case LoadStateCategory.RemovedReplayFlags:
                     return true;
                 case LoadStateCategory.UntaggedLedgerRowsAfterCutoff:
                 case LoadStateCategory.PendingScience:
@@ -537,6 +542,7 @@ namespace Parsek
                 case LoadStateCategory.RewindVesselHolds: return DecideRewindVesselHolds(kind);
                 case LoadStateCategory.LedgerHeldWindow: return DecideLedgerHeldWindow(kind);
                 case LoadStateCategory.PlaybackReplayScope: return DecidePlaybackReplayScope(kind);
+                case LoadStateCategory.RemovedReplayFlags: return DecideRemovedReplayFlags(kind);
             }
             throw new ArgumentOutOfRangeException(nameof(category), category, "unknown LoadStateCategory");
         }
@@ -1170,6 +1176,39 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Memory, PlaybackReplayScopeMemory);
+            }
+            throw UnknownKind(kind);
+        }
+
+        private const string RemovedReplayFlagsReconcile =
+            "RemovedReplayFlags is static memory, kept across the load; ParsekScenario."
+            + "ReconcileRemovedReplayFlagsAtLoad then drops every removal after the loaded world's UT (the "
+            + "LiveOnlyIncome drop's UT), since that world is from before it and the flag stands there again "
+            + "or replay plants it at its moment";
+
+        // Todo LOOP-REPLAY-REPLANTS-REMOVED-FLAG: a removed flag is world state, so a cold load
+        // takes the save's copy; every other load keeps memory's and forgets the removals the
+        // loaded world has not seen yet (a plain rewind's OnLoad node is persistent.sfs carrying
+        // the session's node, so its own copy is no better than memory's).
+        private static LoadReconcileDecision DecideRemovedReplayFlags(LoadKind kind)
+        {
+            switch (kind)
+            {
+                case LoadKind.Cold:
+                    return Today(LoadReconcileAction.Save,
+                        "ParsekScenario.LoadRemovedReplayFlags -> RemovedReplayFlags.LoadFrom installs the loaded node's "
+                        + "REMOVED_REPLAY_FLAGS: the flags missing from the save's world because the player removed them");
+                case LoadKind.PlainRewind:
+                    return Today(LoadReconcileAction.ReconcileAtCutoff,
+                        RemovedReplayFlagsReconcile + " (the rewind save's world UT, HandleRewindOnLoad's timeline break)");
+                case LoadKind.ReFlyStart:
+                case LoadKind.DiscardReFly:
+                    return Today(LoadReconcileAction.ReconcileAtCutoff, RemovedReplayFlagsReconcile);
+                // Consumed in the prologue, before the revert detector: one cell for all three.
+                case LoadKind.StockRevert:
+                case LoadKind.QuickloadFlight:
+                case LoadKind.InSessionOther:
+                    return Today(LoadReconcileAction.ReconcileAtCutoff, RemovedReplayFlagsReconcile);
             }
             throw UnknownKind(kind);
         }

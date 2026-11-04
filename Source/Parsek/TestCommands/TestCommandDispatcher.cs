@@ -316,6 +316,9 @@ namespace Parsek.TestCommands
         // ----- LaunchSiteProbe (Launch pressed on an obstructed site; stock's launch-site-clear
         // dialog read and answered through its own buttons) -----
         void LaunchSiteProbe(ParsedCommand cmd);
+        // ----- PickUpFlag (the active EVA kerbal takes down the nearest real flag through
+        // stock's own FlagSite.PickUp) -----
+        void PickUpFlag(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -721,6 +724,10 @@ namespace Parsek.TestCommands
                 // refuses every other scene (launchsiteprobe-wrong-scene). Default budget (no
                 // scene load; both dialogs spawn inside the press's own call stack).
                 ["LaunchSiteProbe"] = VerbSceneRequirement.RequiresGameLoaded,
+                // PickUpFlag: the EVA family row. RequiresFlight, and the not-eva defer below
+                // lets the preceding EvaExit's auto-switch settle. Default budget (stock's
+                // pick-up kills the flag vessel inside the call).
+                ["PickUpFlag"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -1085,7 +1092,8 @@ namespace Parsek.TestCommands
                 case "EvaBoard":
                 case "EvaChuteDeploy":
                 case "EvaGroundScience":
-                    // All four act on the EVA kerbal, so defer while the preceding EvaExit's
+                case "PickUpFlag":
+                    // All five act on the EVA kerbal, so defer while the preceding EvaExit's
                     // auto-switch is still settling (the active vessel is not yet the EVA one).
                     if (!state.ActiveVesselIsEva)
                         return DispatchResult.Defer("not-eva");

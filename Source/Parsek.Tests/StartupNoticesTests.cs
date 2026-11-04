@@ -54,6 +54,7 @@ namespace Parsek.Tests
         [InlineData("RecoveryScopeVesselRetrievalPatch", "science and milestone rewards")]
         [InlineData("FreeTechUnlockCapturePatch", "science and milestone rewards")]
         [InlineData("PhysicsFramePatch", "flight recording")]
+        [InlineData("FlagPickUpCapturePatch", "flight recording")]
         [InlineData("RevertToLaunchInterceptor", "revert, rewind and scene changes")]
         [InlineData("FlightResultsDialogLogPatches.DisplayPatch", "diagnostic logging")]
         [InlineData("VesselRenameAcceptCapturePatch", "vessel names")]

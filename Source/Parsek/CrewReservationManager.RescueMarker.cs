@@ -54,13 +54,43 @@ namespace Parsek
         //     path runs. Stale entries with a now-invalid pid never match a
         //     live vessel, so no per-vessel-destruction invalidation is
         //     needed.
-        private static readonly Dictionary<string, ulong> rescuePlacedKerbals
-            = new Dictionary<string, ulong>(System.StringComparer.Ordinal);
+        //   - Retired per kerbal (RESCUE-PLACED-MARKER-NEVER-RETIRES) when the
+        //     kerbal's reservation gains a row from a recording that started
+        //     after the rescue (MarkUT): that recording was flown after
+        //     the rescue, so its reservation is not the one the rescue
+        //     completed and it gets a stand-in like any fresh reservation, even
+        //     while the kerbal is still aboard the rescue vessel pid. A walk
+        //     re-deriving the rescue's own reservation reads the same
+        //     pre-rescue rows and never retires. A marker with no MarkUT (NaN)
+        //     is never retired this way.
+        //   - Left out of the save when its vessel pid matches no vessel in
+        //     FlightGlobals.Vessels nor flightState.protoVessels, in a scene
+        //     whose vessel lists are populated (CollectSavableRescueMarkers).
+        //     Memory keeps it until the next bulk clear or load, so a vessel
+        //     restored with its identity later in the session still matches.
+        private static readonly Dictionary<string, RescuePlacedMarker> rescuePlacedKerbals
+            = new Dictionary<string, RescuePlacedMarker>(System.StringComparer.Ordinal);
 
         /// <summary>
-        /// Read-only access to the rescue-placed kerbal map (name -> pid).
+        /// One rescue-placed marker: the vessel the rescue placed the kerbal on
+        /// and the UT of that rescue (NaN when unknown).
         /// </summary>
-        internal static IReadOnlyDictionary<string, ulong> RescuePlacedKerbals => rescuePlacedKerbals;
+        internal struct RescuePlacedMarker
+        {
+            internal ulong VesselPid;
+            internal double MarkUT;
+
+            internal RescuePlacedMarker(ulong vesselPid, double markUT)
+            {
+                VesselPid = vesselPid;
+                MarkUT = markUT;
+            }
+        }
+
+        /// <summary>
+        /// Read-only access to the rescue-placed kerbal map (name -> marker).
+        /// </summary>
+        internal static IReadOnlyDictionary<string, RescuePlacedMarker> RescuePlacedKerbals => rescuePlacedKerbals;
 
         /// <summary>
         /// True if <paramref name="kerbalName"/> was placed onto a
@@ -102,7 +132,70 @@ namespace Parsek
                 vesselPersistentId = 0UL;
                 return false;
             }
-            return rescuePlacedKerbals.TryGetValue(kerbalName, out vesselPersistentId);
+            RescuePlacedMarker marker;
+            if (!rescuePlacedKerbals.TryGetValue(kerbalName, out marker))
+            {
+                vesselPersistentId = 0UL;
+                return false;
+            }
+            vesselPersistentId = marker.VesselPid;
+            return true;
+        }
+
+        /// <summary>
+        /// Full marker accessor (vessel pid + rescue UT) for
+        /// <paramref name="kerbalName"/>.
+        /// </summary>
+        internal static bool TryGetRescuePlacedMarker(string kerbalName, out RescuePlacedMarker marker)
+        {
+            if (string.IsNullOrEmpty(kerbalName))
+            {
+                marker = default(RescuePlacedMarker);
+                return false;
+            }
+            return rescuePlacedKerbals.TryGetValue(kerbalName, out marker);
+        }
+
+        /// <summary>
+        /// True when a reservation whose newest contributing row comes from a
+        /// recording starting at <paramref name="latestRowStartUT"/> is a NEW
+        /// reservation relative to a rescue made at <paramref name="markUT"/>:
+        /// that recording started after the rescue, so it was flown after it.
+        /// A start at exactly the rescue UT is not new: a recording that began in
+        /// the rescue's own frame (a Re-Fly load spawning its tips at the rewind
+        /// UT) is part of the state the rescue completed. Unknown on either side
+        /// (NaN / infinity) answers false and keeps the marker. Pure.
+        /// </summary>
+        internal static bool IsReservationNewerThanRescue(double markUT, double latestRowStartUT)
+        {
+            if (double.IsNaN(markUT) || double.IsInfinity(markUT)) return false;
+            if (double.IsNaN(latestRowStartUT) || double.IsInfinity(latestRowStartUT)) return false;
+            return latestRowStartUT > markUT;
+        }
+
+        /// <summary>
+        /// Retires <paramref name="kerbalName"/>'s marker when
+        /// <see cref="IsReservationNewerThanRescue"/> says his reservation is a
+        /// new one (RESCUE-PLACED-MARKER-NEVER-RETIRES). Returns true when it
+        /// removed a marker. Called by the <see cref="KerbalsModule.ApplyToRoster"/>
+        /// guard before it reads the marker.
+        /// </summary>
+        internal static bool TryRetireRescuePlacedForNewReservation(
+            string kerbalName, double latestRowStartUT)
+        {
+            RescuePlacedMarker marker;
+            if (!TryGetRescuePlacedMarker(kerbalName, out marker))
+                return false;
+            if (!IsReservationNewerThanRescue(marker.MarkUT, latestRowStartUT))
+                return false;
+            rescuePlacedKerbals.Remove(kerbalName);
+            ParsekLog.Info("CrewReservation",
+                $"Retired rescue-placed marker: '{kerbalName}' vesselPid={marker.VesselPid} " +
+                $"markUT={marker.MarkUT.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} " +
+                "newestRowStartUT=" +
+                latestRowStartUT.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) +
+                " (a flight recorded after the rescue holds the kerbal; its stand-in is no longer suppressed)");
+            return true;
         }
 
         /// <summary>
@@ -118,21 +211,35 @@ namespace Parsek
         /// </summary>
         internal static void MarkRescuePlaced(string kerbalName, ulong vesselPersistentId)
         {
+            MarkRescuePlaced(kerbalName, vesselPersistentId, double.NaN);
+        }
+
+        /// <summary>
+        /// <see cref="MarkRescuePlaced(string, ulong)"/> with the UT of the
+        /// rescue, which <see cref="TryRetireRescuePlacedForNewReservation"/>
+        /// compares with the kerbal's reservation rows. A NaN
+        /// <paramref name="markUT"/> keeps the UT an existing marker already
+        /// carries.
+        /// </summary>
+        internal static void MarkRescuePlaced(string kerbalName, ulong vesselPersistentId, double markUT)
+        {
             if (string.IsNullOrEmpty(kerbalName)) return;
-            ulong existing;
+            RescuePlacedMarker existing;
             bool hadPrior = rescuePlacedKerbals.TryGetValue(kerbalName, out existing);
-            rescuePlacedKerbals[kerbalName] = vesselPersistentId;
+            double keptUT = double.IsNaN(markUT) && hadPrior ? existing.MarkUT : markUT;
+            rescuePlacedKerbals[kerbalName] = new RescuePlacedMarker(vesselPersistentId, keptUT);
+            string utText = keptUT.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
             if (!hadPrior)
             {
                 ParsekLog.Verbose("CrewReservation",
-                    $"Marked rescue-placed: '{kerbalName}' vesselPid={vesselPersistentId} " +
+                    $"Marked rescue-placed: '{kerbalName}' vesselPid={vesselPersistentId} markUT={utText} " +
                     "(#608/#609 rescue path; #615 guard signal — pid-scoped)");
             }
-            else if (existing != vesselPersistentId)
+            else if (existing.VesselPid != vesselPersistentId)
             {
                 ParsekLog.Verbose("CrewReservation",
-                    $"Re-marked rescue-placed: '{kerbalName}' vesselPid={vesselPersistentId} " +
-                    $"(superseding prior pid={existing}; #615 pid-scoped marker)");
+                    $"Re-marked rescue-placed: '{kerbalName}' vesselPid={vesselPersistentId} markUT={utText} " +
+                    $"(superseding prior pid={existing.VesselPid}; #615 pid-scoped marker)");
             }
         }
 
@@ -168,8 +275,10 @@ namespace Parsek
         /// </para>
         ///
         /// <para>
-        /// The marker is now cleared ONLY by the bulk lifecycle paths
-        /// listed above, on session / rewind / wipe-all boundaries. Within
+        /// Besides <see cref="TryRetireRescuePlacedForNewReservation"/> (a flight
+        /// recorded after the rescue holds the kerbal), the marker is cleared
+        /// only by the bulk lifecycle paths listed above, on session / rewind /
+        /// wipe-all boundaries. Within
         /// a session it accumulates harmlessly because the
         /// <see cref="KerbalsModule.ApplyToRoster"/> predicate also requires
         /// the kerbal to be on a live vessel — a stale-true marker for a
@@ -180,12 +289,12 @@ namespace Parsek
         internal static void ClearRescuePlaced(string kerbalName)
         {
             if (string.IsNullOrEmpty(kerbalName)) return;
-            ulong removedPid;
-            if (rescuePlacedKerbals.TryGetValue(kerbalName, out removedPid)
+            RescuePlacedMarker removed;
+            if (rescuePlacedKerbals.TryGetValue(kerbalName, out removed)
                 && rescuePlacedKerbals.Remove(kerbalName))
             {
                 ParsekLog.Verbose("CrewReservation",
-                    $"Cleared rescue-placed marker: '{kerbalName}' vesselPid={removedPid} (bulk lifecycle)");
+                    $"Cleared rescue-placed marker: '{kerbalName}' vesselPid={removed.VesselPid} (bulk lifecycle)");
             }
         }
     }

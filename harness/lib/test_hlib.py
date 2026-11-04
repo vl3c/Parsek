@@ -1221,7 +1221,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # site and stock's launch-site-clear dialog read and pressed (LS-1).
         # 59 / 4 after NewGame, an ADDITION by one: a genuine stock new game under the loaded
         # save's name (the scripted campaign program's CS-0 host).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 59)
+        # 60 / 4 after PickUpFlag, an ADDITION by one: the active EVA kerbal takes down the
+        # nearest real flag through stock's own FlagSite.PickUp (FLG-1).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 60)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -16696,15 +16698,16 @@ class PostMissionOutcomeGateTests(unittest.TestCase):
                  if v not in hlib.IMPLEMENTED_SEAM_VERBS]
         self.assertEqual([], extra, "stale post-mission-role rows: %s" % (extra,))
 
-    def test_outcome_set_is_exactly_the_five_eva_verbs(self):
+    def test_outcome_set_is_exactly_the_six_eva_verbs(self):
         # The whole gating set. Each one's verdict is a claim about a KERBAL's
         # in-world state that no verifier re-derives; widening this set to a Parsek
         # verb would route a Parsek defect through the wrong subkind. Coverage wave 10
-        # added EvaGroundScience ("the part is on the ground / back in the inventory").
+        # added EvaGroundScience ("the part is on the ground / back in the inventory");
+        # FLG-1 added PickUpFlag ("the flag is out of the ground").
         outcome = sorted(v for v, r in hlib.SEAM_VERB_POST_MISSION_ROLE.items()
                          if r == hlib.POST_MISSION_ROLE_OUTCOME)
         self.assertEqual(["EvaBoard", "EvaChuteDeploy", "EvaExit", "EvaGroundScience",
-                          "PlantFlag"], outcome)
+                          "PickUpFlag", "PlantFlag"], outcome)
 
     def test_recording_verbs_do_not_gate(self):
         # The ORIGINAL carve-out, preserved: a good flight Parsek then failed to
@@ -18365,6 +18368,57 @@ class EvaSeatSourceSyncTests(unittest.TestCase):
         errs = v(3, "EvaSeatBoard", {"targetPid": "1"})
         self.assertEqual(1, len(errs), errs)
         self.assertIn("driver.steps[3]", errs[0])
+        self.assertIn("silently ignored", errs[0])
+
+
+class PickUpFlagSourceSyncTests(unittest.TestCase):
+    """`PickUpFlag`. Reads OUTSIDE harness/: the verb and the refusal and error reasons (IN
+    ORDER) of the comment-stripped TestCommands/TestCommandPickUpFlag.cs, and the applier's
+    call into stock's own FlagSite.PickUp (the method Parsek's FlagPickUpCapturePatch marks),
+    so the pre-launch validator and a spec's pinned reasons cannot drift from the seam."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# PickUpFlag tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_verb_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandPickUpFlag.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.PICKUPFLAG_VERB, text)
+        self.assertEqual(list(hlib.PICKUPFLAG_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.PICKUPFLAG_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        for reason in hlib.PICKUPFLAG_REASONS:
+            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in hlib.PICKUPFLAG_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_applier_presses_stocks_own_pick_up(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.PickUpFlag.cs")
+        self.assertIn("pickUpFlagSite.PickUp();", applier)
+        patch = self._source("Patches", "FlagPickUpCapturePatch.cs")
+        self.assertIn("[HarmonyPatch(typeof(FlagSite), nameof(FlagSite.PickUp))]", patch)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.PICKUPFLAG_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_OUTCOME, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertTrue(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_pick_up_flag_step
+        self.assertEqual([], v(0, {}))
+        errs = v(4, {"pid": "1"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("driver.steps[4]", errs[0])
         self.assertIn("silently ignored", errs[0])
 
 
