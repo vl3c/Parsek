@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **The user guide says what a rewind cannot undo in other mods.** A new section, Other Mods and
+  Rewinds, explains that a mod's own saved data goes back to the rewind point while your committed
+  flights stay, that a load another mod starts may keep Parsek's timeline, and that contract packs
+  counting vessels can count a replaying ghost. Stock KSP alone is not affected.
 - **A Leaves Warp in orbit keeps you beside the ghost.** Pressing Warp on a Real Spawn Control row
   that leaves its orbit now moves your vessel, and the vessels flying with you, to the same spot
   beside the ghost at the new time, so you watch it burn away instead of finding it gone. When
