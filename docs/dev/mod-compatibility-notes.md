@@ -32,6 +32,21 @@ KSP version range and dependencies stay with `Parsek.version` and CKAN; a missin
 ClickThroughBlocker or ToolbarControl keeps `Parsek.dll` from loading at all, so Parsek cannot
 report it.
 
+## Any mod with its own saved state (rewind scope)
+A rewind or Re-Fly restores stock state only. Four limits follow from that, stated for the
+player in the user guide ("Other Mods and Rewinds"); none is fixable inside Parsek (replay-theory
+audit 2026-11-04, tensions T3-T5, `docs/dev/research/replay-theory-audit-2026-11-04.md`):
+
+- **Mod scenario modules come back at the rewind point** while Parsek keeps the committed future
+  (T5). Parsek replays no third-party state, so a mod's own counters can disagree with it.
+- **GameEvents already delivered to a mod are irrevocable** (T5). Nothing tells a mod that a
+  rewind or Re-Fly took an event back.
+- **An unannounced load** that a mod triggers without stock's load path is classified in-session
+  and keeps memory's lists (T4); the stamp canary only warns. F9 and the Load menu are exact.
+- **Ghosts are visible to vessel-counting contracts** (T3): a ghost keeps its recorded vessel type
+  with Owned discovery, so a Contract Configurator vessel count can include it.
+  Not measured by a lane yet.
+
 ## CustomBarnKit
 CustomBarnKit modifies facility upgrade costs and tier counts. Parsek's FacilitiesModule stores facility levels as integers from KSP's normalized values. The dynamic slot limit mapping in LedgerOrchestrator assumes stock 3-tier progression (levels 0/1/2). CustomBarnKit compatibility requires verifying that the normalized-to-integer level conversion still produces correct values with non-standard tier counts.
 
