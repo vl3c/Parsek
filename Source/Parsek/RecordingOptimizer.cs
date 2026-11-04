@@ -1439,7 +1439,10 @@ namespace Parsek
 
             if (second.Points.Count > 0)
             {
-                var firstPt = second.Points[0];
+                // The flat list can open with the first half's closing sample (an equal-UT
+                // body seam) or with a Relative offset; the second half's own first section
+                // frame is the authoritative start.
+                var firstPt = ResolveSecondHalfStartPoint(second);
                 second.StartBodyName = firstPt.bodyName;
                 second.StartBiome = VesselSpawner.TryResolveBiome(firstPt.bodyName, firstPt.latitude, firstPt.longitude);
                 // StartSituation left null — ambiguous from environment alone
@@ -2319,6 +2322,26 @@ namespace Parsek
         /// instead; ExoPropulsive body boundaries still split.
         /// Uses orbit segment body if available, otherwise first trajectory point body.
         /// </summary>
+        /// <summary>
+        /// The body-fixed point a split's second half starts from: its first section's first
+        /// Absolute frame, or a Relative section's first body-fixed shadow, else the first
+        /// flat point. Pure.
+        /// </summary>
+        internal static TrajectoryPoint ResolveSecondHalfStartPoint(Recording second)
+        {
+            if (second.TrackSections != null && second.TrackSections.Count > 0)
+            {
+                TrackSection first = second.TrackSections[0];
+                if (first.referenceFrame == ReferenceFrame.Absolute
+                    && first.frames != null && first.frames.Count > 0)
+                    return first.frames[0];
+                if (first.referenceFrame == ReferenceFrame.Relative
+                    && first.bodyFixedFrames != null && first.bodyFixedFrames.Count > 0)
+                    return first.bodyFixedFrames[0];
+            }
+            return second.Points[0];
+        }
+
         internal static bool SectionBodyChanged(TrackSection prev, TrackSection next)
         {
             string prevBody = GetSectionBody(prev);

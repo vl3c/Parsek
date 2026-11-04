@@ -1,0 +1,233 @@
+schema = 1
+id = "SOI-1-mun-exit-physics-burn"
+# =====================================================================================
+# SOI-1: A 1x BURN THROUGH THE MUN SOI EXIT. THE OFF-RAILS SOI CHANGE MUST SPLIT THE
+# OPEN TRACKSECTION. NEVER FLOWN.
+# =====================================================================================
+#
+# WHAT IT PROVES (R3 of the 2026-11-04 replay-theory audit). Before the fix an SOI
+# change while the ACTIVE vessel was OFF rails (a burn through the boundary, or a 1x /
+# physics-warp coast) authored no TrackSection boundary: `OnVesselSOIChanged` returned
+# early unless `isOnRails`, so one section held frames on two bodies and every reader
+# that keys a section on one body read the second body's frames in the first body's
+# frame. Now `OnVesselSOIChanged` off rails logs and arms a forced sample, and the
+# per-frame sampler closes the section at the first sample on the new body (after
+# committing the same position re-expressed on the OLD body, so no interpolation pair
+# spans two bodies) and opens the next section in the same reference frame
+# (`FlightRecorder.PhysicsSoi.cs`). This lane makes exactly that crossing: the crewed
+# Kerbal X upper stage starts parked in a ~139.6 km Mun orbit, burns prograde to a
+# Mun ESCAPE hyperbola, rails-warps the coast to 150 s before the Mun SOI exit, drops
+# to 1x, and burns prograde at throttle 0.1 from 40 s before the exit to 30 s after
+# it, so the SOI change happens IN PHYSICS WITH THE ENGINE FIRING. Mission
+# `soi1_mun_exit_burn` (machine `mlib.soi1_decide`; derivation in its header).
+#
+# WHY THE DISCRIMINATORS DISCRIMINATE.
+#   (1) `SOI changed off rails Mun -> Kerbin at UT=...: section split deferred to the
+#       first sample on the new body` is printed ONLY by the new off-rails branch of
+#       `OnVesselSOIChanged` (`ArmPhysicsSoiSample`). The pre-fix DLL returns before any
+#       log on that branch, so the line cannot exist without the fix.
+#   (2) `Reference frame transition: Absolute -> Absolute at SOI boundary UT=...
+#       onRails=0 source=Active from=Mun to=Kerbin closingSample=1` is printed ONLY by
+#       `TrySplitSectionAtPhysicsBodyChange`, i.e. only when the sampler actually SPLIT
+#       the section (line 1 alone proves the event was seen, not that the section was
+#       split). `closingSample=1` pins the same-position closing frame on the old body.
+#       `Absolute` because nothing anchors this lone stage (no vessel inside the
+#       relative-frame range); `source=Active` because it is the focused recorder.
+#   (3) FORBIDDEN `at SOI boundary UT=... onRails=1` is the PRE-EXISTING on-rails line
+#       (`Reference frame transition: <X> -> OrbitalCheckpoint ... onRails=1
+#       source=Checkpoint`). It must be ABSENT, which is the proof that the crossing
+#       did not happen on rails - i.e. that this flight tested the physics path and not
+#       the old one. The mission guards the same thing from its side: an SOI change
+#       during the rails COAST is an immediate MISSION-ASSERT-FAIL, and rails warp is
+#       permitted in COAST only (`mlib.soi1_rails_warp_permitted`).
+#   (4) `SOI change boundary suppressed in tree mode: Mun to Kerbin` is the downstream
+#       consumer: the physics split raises `SoiChangePending`, which ParsekFlight
+#       clears in tree mode. Not unique to the fix (B30 prints it from the on-rails
+#       path), but the pre-fix DLL never raised the flag off rails, so on THIS flight
+#       it is absent without the fix too.
+#
+# PRE-REGISTERED OUTCOMES, read off the run's own KSP.log before any edit:
+#   (A) EXPECTED. Lines (1), (2) and (4) present, (3) absent, recording count 2 (see
+#       the window). PASS. Then tighten `count` to the measured value and take the
+#       negative control on a pre-fix DLL, which must red on (1), (2) and (4).
+#   (B) (1) present, (2) absent. The SOI event was armed but no sample split the
+#       section (the decision read NotApplicable / SameBody, or the first sample on
+#       the new body never came). A PARSEK FINDING: file it, do not re-run it away.
+#   (C) (2) present with `closingSample=0`. The split happened, but the closing frame
+#       on the old body could not be built, so the old section ends at its last
+#       pre-crossing sample. Reds on the pinned regex by design; a Parsek finding of
+#       lower severity, reported from the bytes.
+#   (D) (2) present with a frame other than Absolute. Something anchored the stage;
+#       report from the bytes (the split keeps the frame by construction).
+#   (E) (3) present. The crossing ran on rails. The mission should already have
+#       ended MISSION-ASSERT-FAIL (driver INVALID), so a PASS-shaped mission with (3)
+#       present is a harness defect, not a Parsek one.
+#   (F) The mission ends INVALID by name (handoff refused, align give-up, periapsis
+#       falling, unlit or dry engine, crossed during the coast, crossed before the
+#       straddle ignition): a mission that did not fly is never PARSEK-FAIL.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane").
+#   1 Reuse a flight: no host flies a physics-frame SOI exit. B30 is the only Mun-
+#     escape lane and it crosses ON RAILS by design (13,759 s escape coast,
+#     native-warped), and its expectations need that, so its flight cannot carry
+#     these tokens. A new mission instead of a B30 extension.
+#   2 No idle waits: the coast is a native WarpToUT to an explicit UT (the predicted
+#     SOI exit minus 150 s); no seam wait steps.
+#   3 Minimal dwells: the 1x approach is 150 - 40 = 110 game s, sized for the ~53 deg
+#     re-point the frozen rails attitude needs (B4 measured ~340 s for a 180 deg slew
+#     on this stack); the straddle is 40 s before + 30 s after the crossing, enough for
+#     several samples on each side at the recorder's cadence.
+#   4 Burns at 1x: both burns run at 1x; the warp policy permits physics warp only
+#     for the ALIGN slew (2x, dropped to 1x before ignition) and the WarpTo tail in
+#     COAST, rails only in COAST (`mlib.soi1_max_physics_warp`).
+#   5 b5 coasts: not applicable (not a b5 machine; one SOI change, which IS the
+#     subject and must not be warped through).
+#   6 Fail fast: every way the flight stops being its own subject ends at once by
+#     name (above). Retry stays "once" for the never-flown kRPC flake class.
+#   7 Tight windows: the count window is derived, tighten after flight 1.
+#   8 Tier by measured cost: never flown, so "operator" (the calibration discipline
+#     the never-flown body lanes B25 / BAY-1 / B30 used); nominal ~600 wall s.
+#   9 Measure: run tools/flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "operator"  # calibration discipline; never flown
+description = "R3 of the 2026-11-04 replay-theory audit: an SOI change while the active vessel is OFF rails must split the open TrackSection at the first physics sample on the new body. The crewed Kerbal X upper stage starts parked in a ~139.6 km Mun orbit (mun-park-kerbalx), burns prograde to a Mun escape hyperbola (eccentricity 1.2, ~212 m/s), rails-warps the coast to 150 s before the Mun SOI exit, drops to 1x and burns prograde at throttle 0.1 from 40 s before the exit to 30 s after it, so the crossing happens in physics with the engine firing; CommitTree lands the tree. Gates on the new off-rails SOI line and the physics section-split line (onRails=0, from=Mun, to=Kerbin, closingSample=1), and forbids the on-rails SOI line (onRails=1), which proves the crossing did not run on rails. Never flown."
+instanceProfile = "stock-minimal"
+tags = ["SOI1", "mun", "kerbin", "cross-soi", "physics-soi", "track-section", "recorder",
+        "orbit-start", "crewed", "R3"]
+
+[fixture]
+# `mun-park-kerbalx`: the Parsek-stripped Mun park B30 and MC-3 start from (crewed
+# Kerbal X upper stage ORBITING the Mun, SMA 339,568.97 m, ecc 0.000126, 6.5878 t of
+# usable propellant, ~1,970-2,280 m/s; no `Parsek/` directory and no committed tree,
+# so the seam StartRecording opens a fresh standalone tree on it). Provenance and the
+# strip are in B30-mun-minmus-transfer.toml's [fixture] block. Nothing is launched,
+# so no `fixtures/shared-ships.toml` row.
+saveTemplate       = "fixtures/saves/mun-park-kerbalx"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "soi1_mun_exit_burn"
+# B30's preamble verbatim (the recording is opened through the seam on the parked
+# stage), then the mission, then the commit the recording-count window reads.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 1200 },
+  { cmd = "CommitTree",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+homeBodyName                = "Mun"
+parentBodyName              = "Kerbin"
+minCrew                     = 1
+startMaxEccentricity        = 0.05
+startMinPeriapsisMeters     = 100000
+# ALIGN: the fixture's attitude is whatever B11's capture left (likely retrograde-ish),
+# so the slew can be ~180 deg; 2x physics warp (index 1, B30's flipPhysicsWarpFactor)
+# halves its wall cost and is dropped to 1x before the escape ignition.
+alignMaxErrorDeg            = 10
+alignDebounceFrames         = 3
+alignTimeoutSeconds         = 900
+alignPhysicsWarpIndex       = 1
+# ESCAPE: eccentricity 1.2 = 211.6 m/s prograde from the 437.98 m/s park (v_inf 195.9
+# m/s), ~23 s at throttle 0.5; SOI exit ~6,782 game s later. The periapsis floor is
+# the fail-fast for a burn that is not pointing prograde.
+escapeThrottle              = 0.5
+escapeEccentricity          = 1.2
+escapeMinPeriapsisMeters    = 100000
+escapeBurnTimeoutSeconds    = 120
+igniteFrames                = 20
+# COAST: native warp to the SOI exit minus 150 s.
+warpLeadSeconds             = 150
+warpArrivalToleranceSeconds = 15
+maxWarpIssues               = 3
+coastTimeoutSeconds         = 20000
+# APPROACH + STRADDLE: ignite at time_to_soi <= 40 s, cut 30 s after the first Kerbin
+# frame; ~1.9 m/s^2 at throttle 0.1, ~130 m/s in all.
+approachTimeoutSeconds      = 400
+burnLeadSeconds             = 40
+burnTrailSeconds            = 30
+straddleThrottle            = 0.1
+straddleTimeoutSeconds      = 240
+minObservedBurnLeadSeconds  = 10
+
+[dimensionsCovered]
+D3  = ["absolute"]
+D4  = ["exo-propulsive"]
+D14 = ["mun", "kerbin", "warp-1x", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THE ARITHMETIC, over the Parsek-stripped fixture (zero `.prec`, zero trees).
+#   +1  this lane's recording: the stage flies as one piece, no staging anywhere.
+#   +1  the commit-time optimization pass (`CommitTreeFlight: optimization pass ran`)
+#       now has a SECTION boundary at the crossing: the body changes (Mun -> Kerbin)
+#       with ExoPropulsive on both sides, which is step 4 of
+#       `IsSplittableEnvOrBodyBoundary` (BodyChange; step 3's cohesive exo coast needs
+#       raw ExoBallistic or OrbitalCheckpoint on both sides), and both halves outlast
+#       the 5 s floor. So the derived value is 2. Every other boundary in the flight
+#       (park ExoBallistic, the escape ExoPropulsive run, the rails checkpoints) is one
+#       Exo split class on one body, so NotABoundary.
+#   A pre-fix DLL authors no boundary at the crossing, so the pass has nothing to
+#   split: 1. The window admits 1 on this never-flown lane because the logContracts
+#   above are the gate; a 1 with lines (1) and (2) present is a reading about the
+#   optimizer, not about this fix. Tighten to the measured value after flight 1.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+# Lines (1)-(4) of the header. Patterns are regexes (re.search); the UT is the
+# recorder's F2 invariant format.
+required  = [
+  "Recording started",
+  "SOI changed off rails Mun -> Kerbin at UT=[0-9]+\\.[0-9]{2}: section split deferred to the first sample on the new body",
+  "Reference frame transition: Absolute -> Absolute at SOI boundary UT=[0-9]+\\.[0-9]{2} onRails=0 source=Active from=Mun to=Kerbin closingSample=1",
+  "SOI change boundary suppressed in tree mode: Mun to Kerbin",
+  "committree committed=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # (3): the on-rails SOI line. Absent = the crossing did not run on rails.
+  "at SOI boundary UT=[0-9]+\\.[0-9]{2} onRails=1",
+]
+
+[expectations.rewind]
+# REPORT-ONLY (gating absent = false; the ARMED_ALLOWLIST discipline). A single-craft
+# flight with no separation and no re-fly authors no RewindPoint, no supersede row and
+# no tombstone (B30 measured 0/0/0 on this fixture).
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# WALL arithmetic (the mission budget is WALL; the missionParams budgets are GAME s):
+#   LoadGame                300  declared
+#   preamble seam verbs     ~10
+#   ALIGN                  ~170  a ~180 deg slew at B4's ~340 game s, run at 2x
+#   ESCAPE-BURN             ~25
+#   COAST                   ~60  ~6,782 game s native-warped
+#   APPROACH               ~110  1x, the re-point
+#   STRADDLE-BURN           ~75  1x
+#   => mission ~440 nominal; 1,200 covers an align at its 900 game-s give-up (450
+#      wall) plus the rest at nominal with ~2x margin.
+#   CommitTree 120 + FlushAndQuit ~60 + margin.
+# 1,800 >= 300 + 10 + 1,200 + 120 + 60 + 110.
+budgetSeconds = 1800
+
+[retry]
+# One retry prices the kRPC / AutoPilot flake class on a never-flown lane. It does not
+# absorb a systematic failure: a Parsek red (outcomes B-D) reproduces and is filed.
+policy = "once"
+
+[expectedFail]
+bugId = ""

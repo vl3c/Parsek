@@ -108,6 +108,10 @@ namespace Parsek
             public string currentAnchorRecordingId;
             public RecordingAnchorCandidate currentAnchorCandidate;
             public bool hasCurrentAnchorCandidate;
+            // Set by an SOI change while this vessel is loaded (in physics): the next tick
+            // samples even if the adaptive sampler would skip it, so the section split at the
+            // first sample on the new body lands at the crossing (BackgroundRecorder.PhysicsSoi.cs).
+            public bool physicsSoiSamplePending;
             public ProximitySamplingTier debrisProximityTier = ProximitySamplingTier.None;
             public double debrisProximityDistanceMeters = double.NaN;
             public string debrisProximityReason;

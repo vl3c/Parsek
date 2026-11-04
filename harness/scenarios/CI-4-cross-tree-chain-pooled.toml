@@ -40,6 +40,11 @@
 # PR #2015 the re-fly conclusion leaves mission B's optimizer chain head 8267c27c without a
 # terminal (`is a non-final chain segment ... - not finalized as a leaf`); the 09-23 runs
 # finalized it as a leaf and inferred SubOrbital.
+# GHOSTED-COUNT RE-PINNED 1 -> 0 off `2026-11-02_0520` (PARSEK-FAIL expectation on that one
+# token): since bb75c4673 the Re-Fly invoke hold despawns the Station at the invoke, before
+# the flight-ready chain walk, so the walk logs `already ghosted` and counts 0. The Station
+# is still ghosted exactly once (`Vessel ghosted: pid=3620499050`, kept) and the chain still
+# claims it, now pinned on the walk's `already ghosted` line and the hold's claim release.
 
 schema = 1
 id = "CI-4-cross-tree-chain-pooled"
@@ -103,7 +108,12 @@ required  = [
   "\\[ChainWalker\\] Chain built: vessel=3620499050 links=2 tip=30b49a24c3214903aa9e1f61a1f3b258 spawnUT=11806\\.7 terminated=False",
   "\\[Ghoster\\] Ghosting vessel: pid=3620499050 name=Kerbal X ",
   "\\[Ghoster\\] Vessel ghosted: pid=3620499050 name=Kerbal X",
-  "\\[Ghoster\\] Ghost chains evaluated: 20 chain\\(s\\), 1 vessel\\(s\\) ghosted",
+  # Since the Re-Fly invoke hold runs at the invoke (bb75c4673, design section 2.12 Rule 3)
+  # it ghosts the Station first, so the chain walk finds it held and counts 0; the chain
+  # still claims it (the `already ghosted` line). Re-pinned off run `2026-11-02_0520`.
+  "Chain tip spawn claim released: rec=\\S+ vessel=.* pid=3620499050 priorSpawned=\\S+ - the chain ghosted the vessel the claim named \\(refly-invoke-hold\\)",
+  "\\[Ghoster\\] Chain vessel pid=3620499050 already ghosted \\(chain=3620499050\\)",
+  "\\[Ghoster\\] Ghost chains evaluated: 20 chain\\(s\\), 0 vessel\\(s\\) ghosted",
   "(?m)listhandles kind=chains count=1 truncated=false evaluated=true digest=1610c96e$",
   "(?m)listhandles chain index=0 pid=3620499050 links=2 trees=2 treeIds=8c677bba0ec04e558c6ebec4ad8c3c9f,ac9641d6642c4853aaed10f8054995a5 tip=30b49a24c3214903aa9e1f61a1f3b258$",
   "answermergedialog choice=merge result=committed",

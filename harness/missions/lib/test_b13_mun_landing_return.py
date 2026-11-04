@@ -27,6 +27,7 @@ NO krpc, NO KSP, NO network. Import path matches the sibling suites.
 import dataclasses
 import hashlib
 import inspect
+import math
 import os
 import re
 import sys
@@ -372,6 +373,84 @@ class SurfaceVisitTests(unittest.TestCase):
         st, _ = mlib.mlr_decide(st, _lander(50000.0 + 901.0, liquid_fuel=0.0))
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
         self.assertIn(mlib.MLR_BOARD_NOT_ABOARD, st.flake_reason)
+
+    def _settle(self, frames, params=None):
+        st = _at(mlib.MLR_EVA, mlib.MLR_EVA_SETTLE, params=params)
+        actions = []
+        for f in frames:
+            st, actions = mlib.mlr_decide(st, f)
+            if st.done:
+                break
+        return st, actions
+
+    def test_a_rocking_or_sliding_lander_does_not_settle(self):
+        # CS-7 2026-11-04_0447_a2: right after the board the lander read angV=0.322
+        # and hspd=1.044; neither frame may count toward the settle streak.
+        st, _ = self._settle([_lander(50001.0, angular_velocity=0.322)])
+        self.assertEqual(0, st.eva_settle_streak)
+        st, _ = self._settle([_lander(50001.0, horizontal_speed=1.044)])
+        self.assertEqual(0, st.eva_settle_streak)
+        st, _ = self._settle([_lander(50001.0, angular_velocity=0.005,
+                                      horizontal_speed=0.0)])
+        self.assertEqual(1, st.eva_settle_streak)
+
+    def test_a_still_rocking_lander_at_the_budget_is_named(self):
+        st, _ = self._settle([_lander(50001.0, angular_velocity=0.3),
+                              _lander(50000.0 + 901.0, angular_velocity=0.3,
+                                      surface_pitch=40.0)])
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("never came to rest", st.flake_reason)
+        self.assertIn("pitch=40", st.flake_reason)
+
+    def test_a_tipped_lander_flakes_instead_of_engaging_the_ascent(self):
+        frames = [_lander(50000.0 + t, angular_velocity=0.004, horizontal_speed=0.0,
+                          surface_pitch=8.0) for t in (2.0, 4.0, 6.0)]
+        st, actions = self._settle(frames, params=_params(munAscentMaxTiltDeg=30))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn(mlib.MLR_LANDER_TIPPED, st.flake_reason)
+        self.assertIn("82.0 deg off vertical", st.flake_reason)
+        self.assertEqual([], actions)
+
+    def test_the_tilt_gate_is_report_only_by_default(self):
+        self.assertIsNone(_params().ascent_max_tilt_deg)
+        frames = [_lander(50000.0 + t, angular_velocity=0.004, horizontal_speed=0.0,
+                          surface_pitch=-77.0) for t in (2.0, 4.0, 6.0)]
+        st, actions = self._settle(frames)
+        self.assertFalse(st.done)
+        self.assertEqual(mlib.MLR_ASCENT, st.phase)
+        self.assertTrue(actions)
+
+    def test_an_upright_or_unread_lander_engages_the_ascent(self):
+        for pitch in (89.5, 65.0, float("nan")):
+            with self.subTest(pitch=pitch):
+                frames = [_lander(50000.0 + t, angular_velocity=0.004,
+                                  horizontal_speed=0.0, surface_pitch=pitch)
+                          for t in (2.0, 4.0, 6.0)]
+                st, actions = self._settle(frames, params=_params(munAscentMaxTiltDeg=30))
+                self.assertFalse(st.done)
+                self.assertEqual(mlib.MLR_ASCENT, st.phase)
+                self.assertTrue(actions)
+
+    def test_the_tilt_limit_is_a_param(self):
+        p = _params(munAscentMaxTiltDeg=10)
+        self.assertEqual(10.0, p.ascent_max_tilt_deg)
+        frames = [_lander(50000.0 + t, surface_pitch=65.0) for t in (2.0, 4.0, 6.0)]
+        st, _ = self._settle(frames, params=p)
+        self.assertIn(mlib.MLR_LANDER_TIPPED, st.flake_reason)
+        for bad in (0, 91):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    _params(munAscentMaxTiltDeg=bad)
+
+    def test_the_tilt_reads_off_the_pitch(self):
+        self.assertEqual(0.0, mlib.mlr_lander_tilt_deg(snap(surface_pitch=90.0)))
+        self.assertEqual(90.0, mlib.mlr_lander_tilt_deg(snap(surface_pitch=0.0)))
+        self.assertEqual(180.0, mlib.mlr_lander_tilt_deg(snap(surface_pitch=-90.0)))
+        self.assertTrue(math.isnan(mlib.mlr_lander_tilt_deg(snap())))
+
+    def test_the_telemetry_row_carries_the_pitch_only_when_read(self):
+        self.assertIn(" pitch=12.5", mlib.format_snapshot_compact(snap(surface_pitch=12.5)))
+        self.assertNotIn("pitch=", mlib.format_snapshot_compact(snap()))
 
     def test_aboard_needs_fuel_the_target_and_a_landed_situation(self):
         p = _params()
@@ -962,7 +1041,8 @@ class SchemaAndSpecTests(unittest.TestCase):
                                       "evaRecoverReissueSeconds",
                                       "evaExitRetrySeconds",
                                       "ascentCoastWheelFloorMeters",
-                                      "ascentCoastWheelCeilingMeters"}
+                                      "ascentCoastWheelCeilingMeters",
+                                      "munAscentMaxTiltDeg"}
 
     def test_mor_and_b13_keys_are_declared_identically(self):
         mine = _schema("b13_mun_landing_return")["params"]

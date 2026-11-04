@@ -165,7 +165,7 @@ namespace Parsek
             Rect drawnRect;
             try
             {
-                drawnRect = ClickThruBlocker.GUILayoutWindow(
+                drawnRect = ParsekUiScale.Window(
                     WindowIdKey.GetHashCode(),
                     requestedRect,
                     DrawSettingsWindow,

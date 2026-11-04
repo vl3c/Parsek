@@ -375,6 +375,66 @@ namespace Parsek
             loadedStates[vesselPid] = state;
         }
 
+        internal void ArmLoadedPhysicsSoiSampleForTesting(uint vesselPid, string fromBody, string toBody, double ut)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                ArmBackgroundPhysicsSoiSample(state, fromBody, toBody, ut);
+        }
+
+        internal bool GetLoadedPhysicsSoiSamplePendingForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            return loadedStates.TryGetValue(vesselPid, out state) && state.physicsSoiSamplePending;
+        }
+
+        /// <summary>
+        /// For testing: the vessel-free split a loaded vessel's physics sample runs before it
+        /// is appended. The tree recording is the flat list the closing sample goes to.
+        /// </summary>
+        internal bool TrySplitLoadedSectionAtPhysicsBodyChangeForTesting(
+            uint vesselPid,
+            TrajectoryPoint sample,
+            TrajectoryPoint? closingPoint)
+        {
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state))
+                return false;
+            Recording treeRec = null;
+            if (tree != null && !string.IsNullOrEmpty(state.recordingId))
+                tree.Recordings.TryGetValue(state.recordingId, out treeRec);
+            return TrySplitBackgroundSectionAtPhysicsBodyChange(state, treeRec, sample, closingPoint);
+        }
+
+        /// <summary>For testing: the sampler's append of one sample (flat list + open section).</summary>
+        internal void AppendLoadedSampleForTesting(uint vesselPid, TrajectoryPoint point)
+        {
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state))
+                return;
+            Recording treeRec;
+            if (tree != null && tree.Recordings.TryGetValue(state.recordingId, out treeRec))
+            {
+                treeRec.Points.Add(point);
+                treeRec.MarkFilesDirty();
+            }
+            state.lastRecordedUT = point.ut;
+            AddFrameToActiveTrackSection(state, point);
+        }
+
+        internal void CloseCurrentTrackSectionForTesting(uint vesselPid, double ut)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                CloseBackgroundTrackSection(state, ut);
+        }
+
+        internal int GetSectionFrameWarpFlagCountForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            return loadedStates.TryGetValue(vesselPid, out state) ? state.sectionFrameWarpFlags.Count : -1;
+        }
+
         internal void StartRelativeTrackSectionForTesting(
             uint vesselPid,
             string anchorRecordingId,

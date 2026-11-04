@@ -824,6 +824,43 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertFalse(v.ok)
         self.assertTrue(any("D99" in e for e in v.errors))
 
+    # --- [expectations.recordings] count shape ---
+    # The 2026-11-01 full run: 13 RW lanes pinned `count = N` (a bare int), which
+    # evaluate_expectations skips (never gated) and run.py's verifier chain crashed on.
+
+    def _with_count(self, value):
+        def m(s):
+            s.setdefault("expectations", {}).setdefault("recordings", {})["count"] = value
+        return self._reject(m)
+
+    def test_recordings_count_window_shapes_accepted(self):
+        for value in ({"min": 3, "max": 3}, {"min": 1}, {"max": 9}, {"min": 0, "max": 0}):
+            with self.subTest(value=value):
+                v = self._with_count(value)
+                self.assertTrue(v.ok, v.errors)
+
+    def test_recordings_count_bad_shapes_rejected(self):
+        cases = (
+            (35, "must be a { min = N, max = M } window"),
+            ("35", "must be a { min = N, max = M } window"),
+            ([1, 2], "must be a { min = N, max = M } window"),
+            ({}, "declares neither min nor max"),
+            ({"min": 1, "exact": 2}, "unknown key(s)"),
+            ({"min": 1.5}, "min = 1.5 must be a non-negative int"),
+            ({"max": True}, "max = True must be a non-negative int"),
+            ({"min": -1}, "min = -1 must be a non-negative int"),
+            ({"min": 5, "max": 4}, "min 5 > max 4"),
+        )
+        for value, needle in cases:
+            with self.subTest(value=value):
+                v = self._with_count(value)
+                self.assertFalse(v.ok)
+                self.assertTrue(any(e.startswith("expectations.recordings.count: ")
+                                    and needle in e for e in v.errors), v.errors)
+
+    def test_recordings_count_absent_is_fine(self):
+        self.assertEqual([], hlib.validate_recordings_count_spec(None))
+
     def test_autopilot_driver_kind_rejected(self):
         v = self._reject(lambda s: s["driver"].__setitem__("kind", "autopilot"))
         self.assertFalse(v.ok)
@@ -1221,7 +1258,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # site and stock's launch-site-clear dialog read and pressed (LS-1).
         # 59 / 4 after NewGame, an ADDITION by one: a genuine stock new game under the loaded
         # save's name (the scripted campaign program's CS-0 host).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 59)
+        # 60 / 4 after PickUpFlag, an ADDITION by one: the active EVA kerbal takes down the
+        # nearest real flag through stock's own FlagSite.PickUp (FLG-1).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 60)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -11204,6 +11243,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Priority register C4 (2026-09-23, `d5-debris`): the two D5 debris lanes on
         # the kx machine's close-cut opt-in.
         "GS-10-kerbalx-debris-ttl.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-ttl: GS-7's crash lane with round 1's close cut, the kx machine's impactCutAtLastBoosterDrop opt-in); operator tier is GS-7's cadence (a 12-minute crash + rewind + watch flight), and the discipline is recorded in its status row, not a debt",
+        "SOI-1-mun-exit-physics-burn.toml": "tier=operator by the calibration discipline, NOT debt; AUTHORED 2026-11-04, LIVE-PROVEN 2026-11-04_1851 - R3 of the replay-theory audit (an off-rails SOI change splits the open TrackSection), a 1x burn through the Mun SOI exit on `mun-park-kerbalx` with its outcomes pre-registered in the header; what is open is its pre-fix negative control, not a human review call",
         "BAY-1-runway-cargo-bays.toml": "calibration-discipline - AUTHORED 2026-09-26 (coverage wave 7, D7 `bays`: the stock Mallard staged in place on the Runway, its three Mk3 cargo bays cycled, committed, Rewound-to-Launch and replayed as a Space Center ghost); operator tier is the calibration discipline for a new lane (reading 1 `2026-09-25_2214` red on the filed deploy-limit gap, reading 2 `_2218` PASS, armed `_2230` PASS, negative controls offline; the stock 44/45/51 deploy limits restored 2026-09-27 with the fix, per-bay limit tokens read PASS on `2026-09-27_1029`), and its status row records what has flown, not a debt",
         "GS-12-kerbalx-loop-cycles.toml": "calibration-discipline - AUTHORED 2026-09-24 (ghost-replay Tier C item 12: GS-4's flight, then the committed mission looped in three stages through the kx machine's loopStages opt-in); operator tier is GS-4's cadence plus the warped loop block, and its status row records what has flown, not a debt",
         "GS-11-kerbalx-debris-promotion.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-promotion: GS-10's close cut plus the promoteDebrisVesselName switch to a just-dropped booster inside its TTL); operator tier is GS-7's cadence; its status row records what has flown, not a debt",
@@ -16696,15 +16736,16 @@ class PostMissionOutcomeGateTests(unittest.TestCase):
                  if v not in hlib.IMPLEMENTED_SEAM_VERBS]
         self.assertEqual([], extra, "stale post-mission-role rows: %s" % (extra,))
 
-    def test_outcome_set_is_exactly_the_five_eva_verbs(self):
+    def test_outcome_set_is_exactly_the_six_eva_verbs(self):
         # The whole gating set. Each one's verdict is a claim about a KERBAL's
         # in-world state that no verifier re-derives; widening this set to a Parsek
         # verb would route a Parsek defect through the wrong subkind. Coverage wave 10
-        # added EvaGroundScience ("the part is on the ground / back in the inventory").
+        # added EvaGroundScience ("the part is on the ground / back in the inventory");
+        # FLG-1 added PickUpFlag ("the flag is out of the ground").
         outcome = sorted(v for v, r in hlib.SEAM_VERB_POST_MISSION_ROLE.items()
                          if r == hlib.POST_MISSION_ROLE_OUTCOME)
         self.assertEqual(["EvaBoard", "EvaChuteDeploy", "EvaExit", "EvaGroundScience",
-                          "PlantFlag"], outcome)
+                          "PickUpFlag", "PlantFlag"], outcome)
 
     def test_recording_verbs_do_not_gate(self):
         # The ORIGINAL carve-out, preserved: a good flight Parsek then failed to
@@ -18365,6 +18406,57 @@ class EvaSeatSourceSyncTests(unittest.TestCase):
         errs = v(3, "EvaSeatBoard", {"targetPid": "1"})
         self.assertEqual(1, len(errs), errs)
         self.assertIn("driver.steps[3]", errs[0])
+        self.assertIn("silently ignored", errs[0])
+
+
+class PickUpFlagSourceSyncTests(unittest.TestCase):
+    """`PickUpFlag`. Reads OUTSIDE harness/: the verb and the refusal and error reasons (IN
+    ORDER) of the comment-stripped TestCommands/TestCommandPickUpFlag.cs, and the applier's
+    call into stock's own FlagSite.PickUp (the method Parsek's FlagPickUpCapturePatch marks),
+    so the pre-launch validator and a spec's pinned reasons cannot drift from the seam."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# PickUpFlag tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_verb_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandPickUpFlag.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.PICKUPFLAG_VERB, text)
+        self.assertEqual(list(hlib.PICKUPFLAG_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.PICKUPFLAG_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        for reason in hlib.PICKUPFLAG_REASONS:
+            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in hlib.PICKUPFLAG_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_applier_presses_stocks_own_pick_up(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.PickUpFlag.cs")
+        self.assertIn("pickUpFlagSite.PickUp();", applier)
+        patch = self._source("Patches", "FlagPickUpCapturePatch.cs")
+        self.assertIn("[HarmonyPatch(typeof(FlagSite), nameof(FlagSite.PickUp))]", patch)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.PICKUPFLAG_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_OUTCOME, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertTrue(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_pick_up_flag_step
+        self.assertEqual([], v(0, {}))
+        errs = v(4, {"pid": "1"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("driver.steps[4]", errs[0])
         self.assertIn("silently ignored", errs[0])
 
 
@@ -27033,6 +27125,24 @@ class ScreenResolutionSpecTests(unittest.TestCase):
             self.assertEqual(1, len(errs), (bad, errs))
             self.assertIn("runtime.kspSettings", errs[0])
         self.assertEqual(1, len(hlib.validate_screen_resolution({"kspSettings": 5})))
+
+    def test_ui_scale_is_a_gameplay_setting_with_a_bounded_number(self):
+        # Parsek's IMGUI windows follow stock UI Scale (todo S10); the UI-scale lane
+        # flies at 1.5 through this per-run delta.
+        self.assertIn("UI_SCALE", hlib.KSP_GAMEPLAY_SETTING_KEYS)
+        for good in (1.5, 2, 0.5, 3.0, 1):
+            self.assertEqual([], hlib.validate_screen_resolution(
+                {"kspSettings": {"UI_SCALE": good}}), good)
+        for bad in (0.4, 3.5, "1.5", True, float("nan"), -1):
+            errs = hlib.validate_screen_resolution({"kspSettings": {"UI_SCALE": bad}})
+            self.assertEqual(1, len(errs), (bad, errs))
+            self.assertIn("number in [0.5, 3]", errs[0])
+        self.assertEqual({"UI_SCALE": "1.5"}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"UI_SCALE": 1.5}}}))
+        self.assertEqual({"UI_SCALE": "2"}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"UI_SCALE": 2}}}))
+        self.assertEqual({"UI_SCALE": "1.25"}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"UI_SCALE": 1.25}}}))
 
     def test_spec_ksp_gameplay_settings(self):
         self.assertEqual({}, hlib.spec_ksp_gameplay_settings({}))

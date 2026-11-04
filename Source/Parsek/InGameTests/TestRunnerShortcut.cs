@@ -276,6 +276,15 @@ namespace Parsek.InGameTests
                 return;
             }
 
+            // Inside the UI-scale host scope, so this window follows KSP's UI Scale like
+            // every other Parsek window; its own lock's hover check reads the scaled-root
+            // mouse, which is right under the scope.
+            using (ParsekUiScale.BeginHost("TestRunnerShortcut"))
+                DrawGlobalWindow();
+        }
+
+        private void DrawGlobalWindow()
+        {
             EnsureRunner();
 
             if (windowRect.width < 1f)

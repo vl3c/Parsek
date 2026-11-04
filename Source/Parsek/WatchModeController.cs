@@ -1092,7 +1092,7 @@ namespace Parsek
             }
 
             float boxW = 300f, boxH = 50f;
-            float x = (Screen.width * 0.5f - boxW) / 2f; // centered in the left half of the screen
+            float x = (ParsekUiScale.ScaledScreenWidth * 0.5f - boxW) / 2f; // centered in the left half of the screen (scaled-root units)
             float y = 10f;
             Rect bgRect = new Rect(x, y, boxW, boxH);
 

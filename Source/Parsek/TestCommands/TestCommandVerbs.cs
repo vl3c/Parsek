@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer + CycleVessel + the EvaSeatBoard / EvaSeatLeave pair + AlarmJump + LaunchSiteProbe + NewGame): 59 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer + CycleVessel + the EvaSeatBoard / EvaSeatLeave pair + AlarmJump + LaunchSiteProbe + NewGame + PickUpFlag): 60 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -403,6 +403,13 @@ namespace Parsek.TestCommands
             // TestCommandNewGame; TWO-PHASE, RequiresGameLoaded (Space Center only, the wrong
             // scene its own typed REJECTED), 300 s. State-mutating (it replaces the save).
             "NewGame",
+            // PickUpFlag. ADDITIVE (59 -> 60 implemented, reserved unchanged at 4): the active
+            // EVA kerbal takes down the nearest real flag through stock's own FlagSite.PickUp,
+            // so Parsek's flag pick-up capture (SegmentEventType.FlagPickedUp) runs as for a
+            // player. Contract on TestCommandPickUpFlag; TWO-PHASE, RequiresFlight (the
+            // not-eva defer PlantFlag / EvaBoard use), default budget. State-mutating (it
+            // removes a flag vessel and gives the kerbal the flag back).
+            "PickUpFlag",
         };
 
         // Reserved (recognized, not implemented in v1): 4 verbs.

@@ -2788,7 +2788,9 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     expectations = spec.get("expectations", {}) or {}
     recordings = expectations.get("recordings", {}) or {}
     count_spec = recordings.get("count", {}) or {}
-    count_max = count_spec.get("max")
+    # validate_spec rejects a non-table count pre-launch; never crash the verifier
+    # chain on one that reached here anyway.
+    count_max = count_spec.get("max") if isinstance(count_spec, dict) else None
     log_contracts = expectations.get("logContracts", {}) or {}
     required = log_contracts.get("required", []) or []
     requires_batch = any("BATCH_COMPLETE" in str(p) for p in required)

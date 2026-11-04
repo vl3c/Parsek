@@ -169,11 +169,33 @@ namespace Parsek
                 };
             }
 
-            var content = new GUIContent(text);
-            float height = style.CalcHeight(content, TooltipWidth);
-            float x = Mathf.Min(mouse.x + 16f, Screen.width - TooltipWidth - 8f);
-            float y = Mathf.Min(Screen.height - mouse.y + 16f, Screen.height - height - 8f);
-            GUI.Box(new Rect(x, y, TooltipWidth, height), content, style);
+            // The hover test above stays in physical pixels (the stock widget and
+            // Input.mousePosition both are); the box itself follows KSP's UI Scale.
+            using (ParsekUiScale.BeginHost("CurrencyOverlay"))
+            {
+                var content = new GUIContent(text);
+                float height = style.CalcHeight(content, TooltipWidth);
+                GUI.Box(PlaceTooltip(mouse, Screen.width, Screen.height, TooltipWidth, height,
+                    ParsekUiScale.ActiveScale), content, style);
+            }
+        }
+
+        /// <summary>
+        /// The tooltip box rect in scaled-root GUI units: 16 px below-right of the pointer
+        /// (in scaled units), kept 8 px inside the screen's right and bottom edges.
+        /// <paramref name="mouseUp"/> is <see cref="Input.mousePosition"/> (physical,
+        /// y up); the screen size is physical too.
+        /// </summary>
+        internal static Rect PlaceTooltip(Vector2 mouseUp, float screenWidth, float screenHeight,
+            float width, float height, float scale)
+        {
+            float sw = ParsekUiScale.ToScaled(screenWidth, scale);
+            float sh = ParsekUiScale.ToScaled(screenHeight, scale);
+            float mx = ParsekUiScale.ToScaled(mouseUp.x, scale);
+            float my = ParsekUiScale.ToScaled(screenHeight - mouseUp.y, scale);
+            float x = Mathf.Min(mx + 16f, sw - width - 8f);
+            float y = Mathf.Min(my + 16f, sh - height - 8f);
+            return new Rect(x, y, width, height);
         }
 
         /// <summary>

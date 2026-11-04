@@ -596,6 +596,7 @@ class KrpcMissionControl(MissionControl):
         # ``landed-never-stable`` with NOTHING in the log naming the channel that
         # decided it. One Warn on the first fault, latched.
         self._warned_horizontal_speed_read = False
+        self._warned_surface_pitch_read = False
         self._conn = None
         self._mechjeb = None
         self._ascent = None
@@ -912,9 +913,26 @@ class KrpcMissionControl(MissionControl):
             landing_ap_enabled = -1
             landing_ap_status = ""
             horizontal_speed = float("nan")
+            surface_pitch = float("nan")
             if self._read_landing:
                 landing_ap_enabled, landing_ap_status = \
                     self._read_landing_autopilot()
+                # The lander's lean (mlib.mlr_lander_tilt_deg). kRPC's Flight.Pitch is
+                # measured in the FLIGHT's own reference frame, so it must be the
+                # vessel's surface frame (local horizon); in the body frame (flight_srf)
+                # a level lander read -77 on the Mun (CS-7 2026-11-04_1106). Own
+                # try/except, NaN on a fault (the tilt gate then stands down).
+                try:
+                    surface_pitch = float(v.flight(v.surface_reference_frame).pitch)
+                except Exception as exc:
+                    surface_pitch = float("nan")
+                    if not self._warned_surface_pitch_read:
+                        self._warned_surface_pitch_read = True
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "Telemetry",
+                            "Flight.Pitch UNREADABLE (%s: %s); the lander tilt gate "
+                            "stands down (NaN). Logged once per run."
+                            % (type(exc).__name__, str(exc)[:160])))
                 try:
                     horizontal_speed = float(flight_srf.horizontal_speed)
                 except Exception as exc:
@@ -1062,6 +1080,9 @@ class KrpcMissionControl(MissionControl):
                 landing_ap_enabled=landing_ap_enabled,
                 landing_ap_status=landing_ap_status,
                 horizontal_speed=horizontal_speed,
+                # The lean off the local horizon (NaN = not read; the tilt gate
+                # stands down).
+                surface_pitch=surface_pitch,
                 # OBSERVED camera mode ("" = not read / read failed; fails the
                 # V1 staged-map-camera gate closed).
                 camera_mode=camera_mode,
@@ -1563,6 +1584,24 @@ class KrpcMissionControl(MissionControl):
                 ap.deceleration_time = (15.0, 15.0, 15.0)
             except Exception:
                 pass  # tuning is best-effort; the attitude gate is the safety
+            ap.engage()
+        elif kind == mlib.ACTION_AP_POINT_PROGRADE:
+            # The prograde sibling of AP_POINT_RETROGRADE above (SOI-1): the same
+            # native AutoPilot, executor abort and heavy-stack tuning, with the
+            # orbital frame's +y (prograde). orbital_reference_frame is rebuilt from
+            # the vessel's current orbit, so the target follows an SOI change.
+            if self._mechjeb is not None:
+                try:
+                    self._mechjeb.node_executor.abort()
+                except Exception:
+                    pass
+            ap = v.auto_pilot
+            ap.reference_frame = v.orbital_reference_frame
+            ap.target_direction = (0.0, 1.0, 0.0)
+            try:
+                ap.deceleration_time = (15.0, 15.0, 15.0)
+            except Exception:
+                pass  # tuning is best-effort; the machine reads ap_error
             ap.engage()
         elif kind == mlib.ACTION_AP_DISENGAGE:
             v.auto_pilot.disengage()

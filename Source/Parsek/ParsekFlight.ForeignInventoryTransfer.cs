@@ -171,25 +171,7 @@ namespace Parsek
 
         void AdoptForeignCargoPartner(Recording kerbalRec, Vessel v, SegmentEvent transfer)
         {
-            var (bp, member) = ForeignInventoryTransfer.BuildMemberBranchData(
-                kerbalRec.RecordingId,
-                activeTree.Id,
-                transfer.ut,
-                v.persistentId,
-                Recording.ResolveLocalizedName(v.vesselName) ?? "Unknown",
-                kerbalRec.Generation);
-
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(v);
-            member.GhostVisualSnapshot = snapshot;
-            member.VesselSnapshot = snapshot != null ? snapshot.CreateCopy() : null;
-            member.StartResources = VesselSnapshotOps.ExtractResourceManifest(snapshot);
-            int invSlots;
-            member.StartInventory = VesselSnapshotOps.ExtractInventoryManifest(snapshot, out invSlots);
-            member.StartInventorySlots = invSlots;
-            member.StartCrew = VesselSpawner.ExtractCrewManifest(snapshot);
-            member.Controllers = ControllerInfo.CaptureFromVessel(v);
-            member.RecordedVesselGuid = AnchorDetector.TryReadLiveVesselGuid(v);
-            member.AdoptRecordedVesselGuidIfEmpty(VesselLaunchIdentity.TryReadVesselGuid(snapshot));
+            var (bp, member) = BuildAdoptedForeignMember(kerbalRec, v, transfer.ut);
 
             ForeignInventoryTransfer.AttachMember(activeTree, kerbalRec, bp, member, transfer);
 
@@ -207,6 +189,103 @@ namespace Parsek
                     "vesselPid={1} keeps its adoption snapshot only",
                     member.RecordingId, v.persistentId));
             }
+        }
+
+        /// <summary>
+        /// The branch point and member recording for a foreign vessel joining the tree, with the
+        /// vessel's live snapshot, manifests, controllers and launch guid (the guid is what lets
+        /// a later rewind hold the vessel by POSITIVE launch identity, never by pid alone).
+        /// </summary>
+        (BranchPoint bp, Recording member) BuildAdoptedForeignMember(
+            Recording kerbalRec, Vessel v, double ut)
+        {
+            var (bp, member) = ForeignInventoryTransfer.BuildMemberBranchData(
+                kerbalRec.RecordingId,
+                activeTree.Id,
+                ut,
+                v.persistentId,
+                Recording.ResolveLocalizedName(v.vesselName) ?? "Unknown",
+                kerbalRec.Generation);
+
+            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(v);
+            member.GhostVisualSnapshot = snapshot;
+            member.VesselSnapshot = snapshot != null ? snapshot.CreateCopy() : null;
+            member.StartResources = VesselSnapshotOps.ExtractResourceManifest(snapshot);
+            int invSlots;
+            member.StartInventory = VesselSnapshotOps.ExtractInventoryManifest(snapshot, out invSlots);
+            member.StartInventorySlots = invSlots;
+            member.StartCrew = VesselSpawner.ExtractCrewManifest(snapshot);
+            member.Controllers = ControllerInfo.CaptureFromVessel(v);
+            member.RecordedVesselGuid = AnchorDetector.TryReadLiveVesselGuid(v);
+            member.AdoptRecordedVesselGuidIfEmpty(VesselLaunchIdentity.TryReadVesselGuid(snapshot));
+            return (bp, member);
+        }
+
+        /// <summary>
+        /// The EVA-construction pick-up of a loose part that is NOT a member of this tree (todo
+        /// CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED). Called from the pocket seam
+        /// (<see cref="TryStampDisassembledTerminal"/>) on a BackgroundMap miss, synchronously
+        /// inside <c>onVesselWillDestroy</c>: stock's <c>PickupPart</c> has handed the part to the
+        /// kerbal and is killing its vessel. With no record of that death, a rewind to before the
+        /// pick-up kept the old loose part beside whatever the replayed kerbal made of it. The
+        /// vessel joins the tree as an InventoryTransfer member of the kerbal, stamped
+        /// Disassembled at once (<see cref="ForeignInventoryTransfer.AttachPickedUpMember"/>); the
+        /// rewind's vessel hold then takes the real part out of the rewound world, draws it as a
+        /// hold ghost until the pick-up, and nothing spawns it back. Returns true when a member
+        /// was adopted and stamped.
+        /// </summary>
+        bool TryAdoptForeignConstructionPickup(Vessel v)
+        {
+            VesselDeathEvidence evidence;
+            VesselDeathKind deathKind =
+                VesselDisassemblyClassifier.ClassifyLiveVesselDeath(v, out evidence);
+            // An ordinary death of a vessel outside the tree is not this seam's business.
+            if (deathKind != VesselDeathKind.Disassembled)
+                return false;
+
+            Vessel active = FlightGlobals.ActiveVessel;
+            uint changedPid = v.persistentId;
+            uint activePid = active != null ? active.persistentId : 0u;
+            Part part = v.parts != null && v.parts.Count > 0 ? v.parts[0] : null;
+            uint partPid = part != null ? part.persistentId : 0u;
+            string partName = part != null && part.partInfo != null ? part.partInfo.name : null;
+
+            Recording activeRec = null;
+            if (!string.IsNullOrEmpty(activeTree.ActiveRecordingId))
+                activeTree.Recordings.TryGetValue(activeTree.ActiveRecordingId, out activeRec);
+
+            ForeignInventoryTransferVerdict verdict = ForeignInventoryTransfer.Evaluate(
+                hasActiveTree: true,
+                recorderIsRecording: recorder != null && recorder.IsRecording,
+                parsekWriteInProgress: false,
+                activeVesselIsEva: active != null && active.isEVA,
+                activeVesselPid: activePid,
+                activeRecordingVesselPid: activeRec != null ? activeRec.VesselPersistentId : 0u,
+                changedVesselPid: changedPid,
+                changedVesselIsGhost: changedPid != 0 && GhostMapPresence.IsGhostMapVessel(changedPid),
+                membership: ForeignInventoryTransfer.ResolveMembership(activeTree, changedPid));
+
+            if (activeRec == null
+                || !ForeignInventoryTransfer.ShouldAdoptConstructionPickup(deathKind, verdict))
+            {
+                ParsekLog.Verbose("Flight", ForeignInventoryTransfer.FormatConstructionPickupSkipLog(
+                    verdict, changedPid, activePid, partName, partPid));
+                return false;
+            }
+
+            double ut = Planetarium.GetUniversalTime();
+            SegmentEvent pickup = ForeignInventoryTransfer.BuildConstructionPickupSegmentEvent(
+                ut, partName, partPid);
+            var (bp, member) = BuildAdoptedForeignMember(activeRec, v, ut);
+            TrajectoryPoint lastPose = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                v, ut, preferRootPartSurfacePose: true);
+            ForeignInventoryTransfer.AttachPickedUpMember(
+                activeTree, activeRec, bp, member, pickup, lastPose, ut);
+
+            ParsekLog.Info("Flight", FormatDisassembledTerminalLog(
+                v.vesselName, changedPid, evidence.PartCount, member.RecordingId, ut,
+                ForeignInventoryTransfer.ConstructionPickupLogReason));
+            return true;
         }
 
         void AppendForeignTransfer(Vessel v, SegmentEvent transfer,

@@ -213,7 +213,10 @@ namespace Parsek
             uint pid = PersistentId;
             Guid vesselId = vessel != null ? vessel.id : (proto != null ? proto.vesselID : Guid.Empty);
             if (vessel != null)
-                vessel.Die();
+            {
+                using (RemovedReplayFlags.BeginParsekRemoval())
+                    vessel.Die();
+            }
             int removed = RemoveFlightStateEntries(protoVessels, proto, pid, vesselId);
             if (protoVessels != null)
                 ParsekLog.Verbose("ClaimRemoval",

@@ -1548,6 +1548,11 @@ namespace Parsek
                 savePhase = "playback-replay-scope";
                 PlaybackScopeTracker.SaveInto(node);
 
+                // The flags the player removed, so no replay of this save plants them again
+                // (todo LOOP-REPLAY-REPLANTS-REMOVED-FLAG).
+                savePhase = "removed-replay-flags";
+                RemovedReplayFlags.SaveInto(node);
+
                 // A fresh stamp per save: an in-session load that reads another one read a
                 // save no stock load announced (the canary, design 4.1).
                 savePhase = "save-stamp";
@@ -4112,6 +4117,12 @@ namespace Parsek
                 loadPhase = "playback-replay-scope-load";
                 LoadPlaybackReplayScope(node, earlyLoadKind);
 
+                // The flags the player removed describe the world of the save that carries them
+                // (LoadReconcilePolicy, RemovedReplayFlags): a cold load takes the save's; every
+                // other load keeps memory's and drops the removals after the loaded world's UT below.
+                loadPhase = "removed-replay-flags-load";
+                LoadRemovedReplayFlags(node, earlyLoadKind);
+
                 // A rewind point always survives a plain rewind (operator ruling
                 // 2026-09-23). The node above is persistent.sfs as last written, not the
                 // rewind save (SpaceCenterMain.Start reloads persistent), so its RP list is
@@ -4191,6 +4202,9 @@ namespace Parsek
                         // Live-only income (design 3.15 step 9): the rewind save's stock state
                         // forgets income no ledger channel converts that was earned after its UT.
                         LiveOnlyIncome.DropAfterTimeTravelLoad(LoadKind.PlainRewind, rewindWorldUT);
+                        // A flag the player removed after the rewind save's UT stands in its world
+                        // again (or replay plants it at its moment).
+                        ReconcileRemovedReplayFlagsAtLoad(LoadKind.PlainRewind, rewindWorldUT);
 
                         loadPhase = "rewind";
                         HandleRewindOnLoad(node, recordings);
@@ -4360,6 +4374,8 @@ namespace Parsek
                     // Live-only income (design 3.15 step 9): the same load forgets income no
                     // ledger channel converts that was earned after the loaded UT.
                     LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, loadedWorldUT);
+                    // The same load forgets the player's flag removals after the loaded UT.
+                    ReconcileRemovedReplayFlagsAtLoad(refinedLoadKind, loadedWorldUT);
 
                     // Vessel names (design 7.6, ruling 5): a stock revert or Discard Re-fly cancels
                     // the current flight epoch, and with it the stock renames made inside it.
@@ -9052,6 +9068,10 @@ namespace Parsek
                 return;
             }
 
+            // A recovered flag is never planted again by a replay (todo
+            // LOOP-REPLAY-REPLANTS-REMOVED-FLAG).
+            NoteFlagProtoRemoved(pv, "recovered");
+
             // KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: carry the live launch guid
             // on the identity. It rides all the way into
             // LedgerOrchestrator.PickRecoveryRecordingId, including through the DEFERRED
@@ -9173,6 +9193,7 @@ namespace Parsek
             if (pv == null) return;
             if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
             if (RewindContext.IsRewinding) return;
+            NoteFlagProtoRemoved(pv, "terminated");
             RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
                 pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv));
             if (!identity.HasName) return;

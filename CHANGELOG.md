@@ -14,6 +14,14 @@ _(unreleased - entries accumulate here per commit)_
   your saves, and an older Parsek keeps what it cannot read instead of deleting it. Saves from
   earlier test versions still load, best effort; the old repair code that only fixed problems in
   those test saves is gone. (SAVE-FORMAT-1-0-FREEZE)
+- **Parsek windows follow KSP's UI Scale.** Every Parsek window, popup and tooltip now grows or
+  shrinks with the UI Scale slider in KSP's settings, like the stock interface, and a window left
+  near the screen edge is pulled back on screen when the scale changes. Map markers and ghost name
+  labels keep their size. (KSP-SETTINGS-AUDIT-2026-09-26 S10)
+- **The user guide says what a rewind cannot undo in other mods.** A new section, Other Mods and
+  Rewinds, explains that a mod's own saved data goes back to the rewind point while your committed
+  flights stay, that a load another mod starts may keep Parsek's timeline, and that contract packs
+  counting vessels can count a replaying ghost. Stock KSP alone is not affected.
 - **A Leaves Warp in orbit keeps you beside the ghost.** Pressing Warp on a Real Spawn Control row
   that leaves its orbit now moves your vessel, and the vessels flying with you, to the same spot
   beside the ghost at the new time, so you watch it burn away instead of finding it gone. When
@@ -37,6 +45,36 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel flying beside yours through an SOI edge is recorded per body too.** When a second
+  vessel in physics range crosses a sphere-of-influence boundary with you, its recording now
+  starts a new section on the new body, so its replay no longer blends the two bodies and the
+  recording can split there. (RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT)
+- **A burn through a moon's boundary is recorded as two legs.** Crossing into or out of a moon's
+  sphere of influence at normal speed (a burn, or a coast without warp) now splits the recording
+  at the crossing like a warped crossing does, so each body gets its own leg and the ghost does
+  not blend positions across the two bodies. (RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT)
+- **A ghost no longer dives into the planet in a recording gap next to a close-formation leg.**
+  Playback that fills a gap from the raw sample list now reads a formation-flying stretch through
+  its own planet-relative copy, or hides the ghost for that moment. (FLAT-POINTS-READ-RELATIVE-OFFSETS)
+- **A stand-in's crash no longer kills the kerbal he stood in for.** After a rewind, a stand-in who
+  dies in a reserved kerbal's seat is now the one marked lost, so the reserved kerbal keeps his
+  committed flights, and a Re-Fly whose stand-in crashes can be merged instead of being refused.
+  (STAND-IN-DEATH-FILED-UNDER-THE-SLOT-OWNER)
+- **A loose part another flight left is no longer duplicated by a rewind.** Picking it up in EVA
+  construction is now recorded, so after a rewind to before the pick-up the old part shows until
+  that moment and then goes, instead of standing beside the copy the kerbal took.
+  (CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED)
+- **Looping map icons no longer flicker at very high warp.** Above 50x, when one frame skips past
+  a whole launch interval of a loop that overlaps itself, the map and Tracking Station keep one
+  icon per looped recording and move it to the newest launch. Below that nothing changes.
+  (OVERLAP-MAP-GHOSTS-CHURN-AT-HIGH-WARP)
+- **A rescue no longer blocks a later flight's stand-in.** A flight recorded after a rescue with
+  the rescued kerbal aboard now gets its stand-in as usual, and rescues whose vessel is gone are
+  dropped from the save. (RESCUE-PLACED-MARKER-NEVER-RETIRES)
+- **A replayed flag is planted once, and a flag you remove stays removed.** Loops no longer plant
+  a recorded flag again after you pick it up, recover it or terminate it. A kerbal's flag pick-up
+  is now recorded, so after a rewind the replay takes the flag down at that moment and a flag you
+  moved ends up in one place. (LOOP-REPLAY-REPLANTS-REMOVED-FLAG)
 - **A rewind never lowers a once-only reward.** If a science result, world-first or record step
   was paid at a higher reward setting on the committed timeline and you earn it again earlier at
   a lower one, the committed flight now still pays the difference, so your total stays at the

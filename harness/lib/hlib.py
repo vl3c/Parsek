@@ -875,6 +875,13 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     `mode= preset= save= scene= seed=` plus `funds= science= rep=` where the mode keeps
     #     them, once the Space Center settled on the new game with ParsekScenario loaded.
     "NewGame",
+    # ADDITIVE (59 -> 60 implemented, reserved unchanged at 4), the FLG-1 host (a recorded flag
+    # pick-up replayed after a rewind).
+    #   PickUpFlag (no args), FLIGHT, TWO-PHASE, default 60 s: the active EVA kerbal takes down
+    #     the nearest loaded real flag (not a ghost map vessel) within 5 m through stock's own
+    #     FlagSite.PickUp, so Parsek's FlagPickUpCapturePatch runs as for a player. OK `flag=
+    #     flagPid= kerbal= dist= fires=` once the flag vessel is gone and the scene settled.
+    "PickUpFlag",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1513,6 +1520,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "AlarmJump": TAIL_ROLE_WORLD_MUTATING,
     # LaunchSiteProbe can recover the site's vessels and launch (stock state a save captures).
     "LaunchSiteProbe": TAIL_ROLE_WORLD_MUTATING,
+    # PickUpFlag removes a flag vessel and gives the kerbal the flag back (PlantFlag's mirror).
+    "PickUpFlag": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1541,9 +1550,10 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
 # analyzer / expectations / ledger chain already owns.
 #   outcome   -> gates. Its failure means the FLIGHT failed after the handoff.
 #   recording -> non-gating, exactly as before. Preserves the original carve-out.
-# The four M-C2 EVA verbs are the whole outcome set today: each one's OK/ERROR is a
-# claim about a kerbal's in-world state (left the pod / boarded / flag planted /
-# canopy opened and landed alive). Everything else is Parsek or plumbing.
+# The four M-C2 EVA verbs, EvaGroundScience and PickUpFlag are the whole outcome set
+# today: each one's OK/ERROR is a claim about a kerbal's in-world state (left the pod /
+# boarded / flag planted / canopy opened and landed alive / part placed or picked up /
+# flag taken down). Everything else is Parsek or plumbing.
 #
 # The pairing is gated by a unit cell, so promoting a RESERVED verb or adding a new
 # one forces an explicit decision here instead of inheriting a default silently.
@@ -1739,6 +1749,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # LaunchSiteProbe is `recording`: its OK reports what Parsek's launch-site hold left on
     # stock's dialog (a Parsek claim), never a mission outcome.
     "LaunchSiteProbe": POST_MISSION_ROLE_RECORDING,
+    # PickUpFlag is `outcome` for PlantFlag's reason, mirrored: "the flag is out of the ground
+    # and back in the kerbal's hands", a kerbal's in-world state no verifier re-derives.
+    "PickUpFlag": POST_MISSION_ROLE_OUTCOME,
 }
 
 
@@ -4417,6 +4430,17 @@ EVASEAT_ERROR_REASONS: Tuple[str, ...] = (
 )
 
 
+# PickUpFlag: mirrored from TestCommands/TestCommandPickUpFlag.cs (PickUpFlagSourceSyncTests).
+# The verb reads no arg.
+PICKUPFLAG_VERB = "PickUpFlag"
+PICKUPFLAG_REASONS: Tuple[str, ...] = (
+    "pickupflag-not-eva", "pickupflag-no-flag", "pickupflag-not-near-flag",
+)
+PICKUPFLAG_ERROR_REASONS: Tuple[str, ...] = (
+    "pickupflag-threw", "pickupflag-flag-lost", "pickupflag-timeout",
+)
+
+
 # NewGame: mirrored from TestCommands/TestCommandNewGame.cs (NewGameSourceSyncTests). All
 # three args are REQUIRED. `mode` CANNOT ride VERB_SCOPED_CLOSED_ARGS: that table keys one
 # verb per arg name and UiAction already owns `mode` (the interface mode), so validate_spec
@@ -4576,6 +4600,16 @@ def validate_alarm_jump_step(index: int, step_args: Dict) -> List[str]:
         errors.append("driver.steps[%d].args: %s reads only %s, so %s would be silently ignored"
                       % (index, ALARMJUMP_VERB, ", ".join(known), ", ".join(extra)))
     return errors
+
+
+def validate_pick_up_flag_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``PickUpFlag`` step: the verb reads no arg, so any key
+    would be sent and silently ignored."""
+    extra = sorted(str(k) for k in step_args)
+    if extra:
+        return ["driver.steps[%d].args: %s reads no args, so %s would be silently ignored"
+                % (index, PICKUPFLAG_VERB, ", ".join(extra))]
+    return []
 
 
 def validate_eva_seat_step(index: int, cmd: str, step_args: Dict) -> List[str]:
@@ -7483,6 +7517,39 @@ def _validate_mission_params(params: Dict, schema: Optional[Dict]) -> List[str]:
     return errs
 
 
+RECORDINGS_COUNT_KEYS = ("min", "max")
+
+
+def validate_recordings_count_spec(count_spec: Any) -> List[str]:
+    """Shape errors for ``[expectations.recordings] count``. Absent (None) is fine; a
+    declared count must be a table with only ``min`` / ``max``, each a non-negative
+    int, and ``min <= max`` when both are set. An exact pin is ``{ min = N, max = N }``.
+    Pure."""
+    if count_spec is None:
+        return []
+    prefix = "expectations.recordings.count: "
+    if not isinstance(count_spec, dict):
+        return [prefix + "%r must be a { min = N, max = M } window (an exact pin is "
+                "{ min = N, max = N }); a bare value is never evaluated" % (count_spec,)]
+    errors: List[str] = []
+    unknown = sorted(k for k in count_spec if k not in RECORDINGS_COUNT_KEYS)
+    if unknown:
+        errors.append(prefix + "unknown key(s) %s (only min / max)" % (unknown,))
+    if not any(k in count_spec for k in RECORDINGS_COUNT_KEYS):
+        errors.append(prefix + "declares neither min nor max")
+    for key in RECORDINGS_COUNT_KEYS:
+        if key not in count_spec:
+            continue
+        value = count_spec[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            errors.append(prefix + "%s = %r must be a non-negative int" % (key, value))
+    cmin, cmax = count_spec.get("min"), count_spec.get("max")
+    if (isinstance(cmin, int) and isinstance(cmax, int)
+            and not isinstance(cmin, bool) and not isinstance(cmax, bool) and cmin > cmax):
+        errors.append(prefix + "min %d > max %d" % (cmin, cmax))
+    return errors
+
+
 def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] = None,
                   mission_schemas: Optional[Dict] = None) -> SpecValidation:
     """Validate a parsed scenario spec against the design rules + the registry.
@@ -7851,6 +7918,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_cycle_vessel_step(i, step_args))
         elif cmd in (EVASEAT_BOARD_VERB, EVASEAT_LEAVE_VERB):
             errors.extend(validate_eva_seat_step(i, cmd, step_args))
+        elif cmd == PICKUPFLAG_VERB:
+            errors.extend(validate_pick_up_flag_step(i, step_args))
         elif cmd == NEWGAME_VERB:
             errors.extend(validate_new_game_step(i, step_args, run_save_name))
         elif cmd == ALARMJUMP_VERB:
@@ -8305,6 +8374,13 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                "" if not declared
                else "; the declared exception(s) %s are INERT where they sit and "
                     "the sweep would run with none allowed" % (list(declared),)))
+
+    # recordings.count is a { min, max } window. A bare int (`count = 35`) is NOT read
+    # as an exact pin: evaluate_expectations skips any non-dict count (the pin never
+    # gated) and run.py's verifier chain crashed on `.get("max")` (13 RW lanes INVALID
+    # in the 2026-11-01 full run). Reject every other shape pre-launch.
+    errors.extend(validate_recordings_count_spec(
+        ((expectations or {}).get("recordings") or {}).get("count")))
 
     # The allowedAnomalies ENTRY shapes (bare token or { token, maxCount } budget).
     # Structural errors reject pre-launch for the same reason the misplaced-key guard
@@ -9094,12 +9170,18 @@ def render_screen_restore_marker(original: Dict[str, str]) -> str:
 #   MAX_VESSELS_BUDGET - int >= -1 (stock: -1 = no limit; the dropdown offers
 #                        0, 25, 50 ...; settings.cfg takes any int).
 #   DECLUTTER_KSC      - bool, written as KSP writes one (`True` / `False`).
+#   UI_SCALE           - number in [0.5, 3.0] (stock's UI Scale slider; Parsek's
+#                        IMGUI windows follow it, todo S10). Written as the shortest
+#                        decimal (`1.5`, `2`).
 # Unlike the screen override, a gameplay delta the shell cannot apply makes the
 # run INVALID(staging): a lane measuring a budget it did not get would read a
 # green that proves nothing.
 # ---------------------------------------------------------------------------
 
-KSP_GAMEPLAY_SETTING_KEYS: Tuple[str, ...] = ("MAX_VESSELS_BUDGET", "DECLUTTER_KSC")
+KSP_GAMEPLAY_SETTING_KEYS: Tuple[str, ...] = ("MAX_VESSELS_BUDGET", "DECLUTTER_KSC", "UI_SCALE")
+
+KSP_UI_SCALE_MIN = 0.5
+KSP_UI_SCALE_MAX = 3.0
 
 KSP_GAMEPLAY_RESTORE_MARKER = provlib.KSP_GAMEPLAY_RESTORE_MARKER
 
@@ -9114,7 +9196,20 @@ def _canonical_ksp_gameplay_value(key: str, value: Any) -> Optional[str]:
         if not isinstance(value, bool):
             return None
         return "True" if value else "False"
+    if key == "UI_SCALE":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        if value != value or value < KSP_UI_SCALE_MIN or value > KSP_UI_SCALE_MAX:
+            return None
+        return ("%.3f" % float(value)).rstrip("0").rstrip(".")
     return None
+
+
+_KSP_GAMEPLAY_VALUE_HINTS = {
+    "MAX_VESSELS_BUDGET": "int >= -1",
+    "DECLUTTER_KSC": "bool",
+    "UI_SCALE": "number in [%g, %g]" % (KSP_UI_SCALE_MIN, KSP_UI_SCALE_MAX),
+}
 
 
 def validate_ksp_gameplay_settings(runtime: Dict) -> List[str]:
@@ -9137,7 +9232,7 @@ def validate_ksp_gameplay_settings(runtime: Dict) -> List[str]:
         if _canonical_ksp_gameplay_value(key, table[key]) is None:
             errors.append("runtime.%s.%s: %r is not a valid value (%s)"
                           % (KSP_SETTINGS_SPEC_KEY, key, table[key],
-                             "int >= -1" if key == "MAX_VESSELS_BUDGET" else "bool"))
+                             _KSP_GAMEPLAY_VALUE_HINTS.get(key, "?")))
     return errors
 
 
@@ -12391,6 +12486,12 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "evaseatleave-not-seated": "driver-gate",
     "evaseatleave-seated-ambiguous": "driver-gate",
     "evaseatleave-tourist": "driver-gate",
+    # PickUpFlag reads no args, so every refusal is a live state the pick-up would not act in
+    # (the kerbal not out, no real loaded flag, the nearest one out of reach)
+    # (PickUpFlagSourceSyncTests).
+    "pickupflag-not-eva": "driver-gate",
+    "pickupflag-no-flag": "driver-gate",
+    "pickupflag-not-near-flag": "driver-gate",
     # NewGame: the six arg refusals are the spec's fault; the rest are a live state the new
     # game would not start from (the wrong scene, another save loaded, stock's main-menu
     # lock, Parsek state a lane must resolve first) (NewGameSourceSyncTests).

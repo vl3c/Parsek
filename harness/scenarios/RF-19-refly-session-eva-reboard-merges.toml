@@ -129,8 +129,12 @@ required = [
   "fenced live session's own recordings sess=\\S+ provisional=rec_[0-9a-f]{32} count=[3-9]",
   "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]",
   # THE SEAL on the walked tip: the focus-slot verdict on Orbiting (the headless cell's
-  # reason), or the session's structural EVA if the live classifier reads it first.
-  "Auto-sealed re-fly slot=0 rec=rec_[0-9a-f]{32} rp=\\S+ mergeState=Immutable terminal=Orbiting reason=(classifierClosed:stableTerminalFocusSlot|structuralMutation:)",
+  # reason), or the session's structural EVA if the live classifier reads it first, or
+  # (since the 2026-10-20 value gate, design section 2.12 Rule 1) a milestone the re-fly
+  # earned: the classifier reads a sealing row ahead of stableTerminalFocusSlot
+  # (UnfinishedFlightClassifier.TryRejectRecordingScopedWorldAction), so the reason is
+  # `recordingAction:MilestoneAchievement:<ActionId>`. Re-pinned off the 2026-11-01 lane run (`_2353`).
+  "Auto-sealed re-fly slot=0 rec=rec_[0-9a-f]{32} rp=\\S+ mergeState=Immutable terminal=Orbiting reason=(classifierClosed:stableTerminalFocusSlot|structuralMutation:|recordingAction:MilestoneAchievement:)",
   "FlipMergeStateAndClearTransient: session vessel tip rec=\\S+ (already Immutable|mergeState CommittedProvisional->Immutable)",
   "End reason=merged sess=",
 ]

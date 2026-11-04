@@ -936,7 +936,7 @@ namespace Parsek
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
             try
             {
-                recordingsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                recordingsWindowRect = ParsekUiScale.Window(
                     WindowIdKey.GetHashCode(),
                     recordingsWindowRect,
                     DrawRecordingsWindow,
@@ -2245,7 +2245,7 @@ namespace Parsek
                     new GUIContent("G", "Choose which folders this recording belongs to."),
                     ColW_Group))
             {
-                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                var mousePos = ParsekUiScale.GuiPointToScaledRoot(Event.current.mousePosition);
                 groupPicker.OpenForRecording(ri, mousePos);
                 ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
             }
@@ -2872,7 +2872,7 @@ namespace Parsek
             }
             if (grpGClicked)
             {
-                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                var mousePos = ParsekUiScale.GuiPointToScaledRoot(Event.current.mousePosition);
                 groupPicker.OpenForGroup(groupName, mousePos);
                 ParsekLog.Verbose("UI", $"Group popup opened for group '{groupName}'");
             }
@@ -2883,7 +2883,7 @@ namespace Parsek
             }
             if (grpSegmentsClicked)
             {
-                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                var mousePos = ParsekUiScale.GuiPointToScaledRoot(Event.current.mousePosition);
                 groupPicker.OpenForRecordings(absorbedRootMembers, mousePos);
                 ParsekLog.Verbose("UI",
                     $"Group popup opened for the launched vessel's segments of '{groupName}' "
@@ -4735,7 +4735,7 @@ namespace Parsek
                     new GUIContent("G", "Choose which folders every segment of this flight belongs to."),
                     ColW_Group))
             {
-                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                var mousePos = ParsekUiScale.GuiPointToScaledRoot(Event.current.mousePosition);
                 if (!string.IsNullOrEmpty(chainIdForPopup))
                     groupPicker.OpenForChain(chainIdForPopup, mousePos);
                 else
