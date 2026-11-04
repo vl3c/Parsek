@@ -660,6 +660,26 @@ part with a member of its own, and after a rewind both come back. A member picke
 construction mode ends `Disassembled` through the existing pocket seam (its vessel is a
 `DroppedPart`, the last part goes into the kerbal's hand).
 
+**A foreign loose part picked up in construction mode (2026-11-04, todo
+CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED).** `EVAConstructionModeEditor.PickupPart` takes
+the last part of a `DroppedPart` / `Debris` vessel into the kerbal's hand and calls `vessel.Die()`.
+When that vessel is not in this tree's `BackgroundMap` (a part an earlier flight left, or one never
+recorded), the pocket seam (`TryStampDisassembledTerminal`) hands it to
+`TryAdoptForeignConstructionPickup`: when the pocket classifier reads the death as the pick-up and
+the transfer gate above adopts the vessel, it joins the tree as an InventoryTransfer member of the
+kerbal with its snapshot and launch guid, one `PartRemoved` event (`construction part=<name>
+action=pickup pid=<part pid>`), its last pose as its one trajectory point (a member with none is
+pruned as a zero-point leaf), and `Disassembled` at the pick-up UT (`Recording terminal:
+kind=Disassembled reason=foreign-part-picked-up`; skips log `Foreign construction pick-up not
+recorded: reason=...`). The same destroy event then finishes it like a pocketed tree member. The
+chain walker's claim on it ends Disassembled, a terminated chain, which ghosts and holds nothing;
+what brings the old part back to the right place after a rewind to before the pick-up is the
+member's recorded launch: the plain-rewind and Re-Fly holds (rewind design 10.13) hold a vessel of
+the rewound world that a committed recording of its own launch (pid and guid equal) flies after the
+rewind UT (`evidence=flies`, first claim = the pick-up), so the part leaves the rewound world, shows
+as a hold ghost until the pick-up, and nothing spawns it back. Before this, nothing recorded the
+death and the rewound world kept the old part beside whatever the replayed kerbal made of it.
+
 ### 4.13 Flag Plants
 
 A flag a kerbal plants (`GameEvents.afterFlagPlanted`, after the stock site-name dialog) is captured

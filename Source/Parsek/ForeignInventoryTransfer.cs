@@ -190,6 +190,88 @@ namespace Parsek
             };
         }
 
+        /// <summary>
+        /// The terminal reason of a foreign vessel whose last part the recorded kerbal picked up in
+        /// EVA construction (todo CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED).
+        /// </summary>
+        internal const string ConstructionPickupTerminalReason = "ForeignConstructionPickup";
+
+        /// <summary>The <c>reason=</c> token of that stamp's <c>Recording terminal:</c> line.</summary>
+        internal const string ConstructionPickupLogReason = "foreign-part-picked-up";
+
+        /// <summary>
+        /// The pick-up of a foreign loose part in EVA construction: the vessel's last part went
+        /// into the kerbal's hand and stock killed the vessel. A
+        /// <see cref="SegmentEventType.PartRemoved"/> like a detach; only the action differs.
+        /// </summary>
+        internal static SegmentEvent BuildConstructionPickupSegmentEvent(
+            double ut, string partName, uint partPid)
+        {
+            return new SegmentEvent
+            {
+                ut = ut,
+                type = SegmentEventType.PartRemoved,
+                details = string.Format(CultureInfo.InvariantCulture,
+                    "{0} part={1} action=pickup pid={2}",
+                    ConstructionDetailsPrefix,
+                    string.IsNullOrEmpty(partName) ? "unknown" : partName,
+                    partPid)
+            };
+        }
+
+        /// <summary>
+        /// Should a vessel outside the tree that dies at the destroy seam be adopted as the
+        /// picked-up part? Only a death the pocket classifier reads as the EVA-construction
+        /// pick-up (<see cref="VesselDeathKind.Disassembled"/>), and only when the transfer gate
+        /// adopts it (the tree records its EVA kerbal, the vessel is real, not a ghost, and no
+        /// recording of the tree carries it). Any other death keeps today's handling.
+        /// </summary>
+        internal static bool ShouldAdoptConstructionPickup(
+            VesselDeathKind deathKind, ForeignInventoryTransferVerdict verdict)
+        {
+            return deathKind == VesselDeathKind.Disassembled
+                && verdict == ForeignInventoryTransferVerdict.Adopt;
+        }
+
+        /// <summary>
+        /// Wires the picked-up foreign vessel into the tree as an InventoryTransfer member that
+        /// ends where it starts: the pick-up event, the vessel's last pose as its one trajectory
+        /// point (a member with none would be pruned as a zero-point leaf), and the
+        /// <see cref="TerminalState.Disassembled"/> stamp at the pick-up UT. The member keeps its
+        /// BackgroundMap entry so the same destroy event finishes it as it finishes a pocketed
+        /// tree member (the deferred destruction check persists it and drops the entry). Its
+        /// recorded launch (pid and guid) is what holds the real vessel back after a rewind to
+        /// before the pick-up (<see cref="ReFlyInvokeHold.Classify(IReadOnlyList{ValueTuple{uint, string}}, ICollection{uint}, IReadOnlyList{Recording}, IReadOnlyList{GameAction}, double, out int)"/>,
+        /// evidence <c>flies</c>): a Disassembled member never spawns, so the vessel does not
+        /// come back.
+        /// </summary>
+        internal static void AttachPickedUpMember(
+            RecordingTree tree, Recording parentRec, BranchPoint bp, Recording member,
+            SegmentEvent pickup, TrajectoryPoint? lastPose, double ut)
+        {
+            AttachMember(tree, parentRec, bp, member, pickup);
+            if (lastPose.HasValue)
+            {
+                if (member.Points == null) member.Points = new List<TrajectoryPoint>();
+                member.Points.Add(lastPose.Value);
+            }
+            ParsekFlight.ApplyDisassembledTerminal(member, ut, ConstructionPickupTerminalReason);
+        }
+
+        internal static string FormatConstructionPickupSkipLog(
+            ForeignInventoryTransferVerdict verdict, uint changedVesselPid, uint activeVesselPid,
+            string partName, uint partPid)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Foreign construction pick-up not recorded: reason={0} changedVesselPid={1} " +
+                "activePid={2} part='{3}' partPid={4}",
+                verdict,
+                changedVesselPid,
+                activeVesselPid,
+                string.IsNullOrEmpty(partName) ? "(none)" : partName,
+                partPid);
+        }
+
         internal static string FormatConstructionSkipLog(
             ForeignInventoryTransferVerdict verdict, bool attached, uint changedVesselPid,
             uint activeVesselPid, string partName, uint partPid)

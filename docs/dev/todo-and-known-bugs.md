@@ -5679,7 +5679,50 @@ kerbals 153 m from the pad, so no committed lane exercises the circle with such 
 
 ---
 
-## CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED: a loose part of another flight picked up in EVA construction dies unrecorded [FILED 2026-10-31 from the EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED drop fix, branch `claude/project-thread-ucsdk0`, by code read; not reproduced. OPEN, product, low]
+## ~~CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED: a loose part of another flight picked up in EVA construction dies unrecorded~~ [FILED 2026-10-31 from the EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED drop fix, branch `claude/project-thread-ucsdk0`, by code read; not reproduced. FIXED 2026-11-04, branch `fix-construction-pickup`; xUnit only; no lane (needs a new seam op, below); product, low]
+
+**Fix (2026-11-04, branch `fix-construction-pickup`).** The bug is as filed; the sketch was right
+about the adoption but wrong about what holds the old part after a rewind. The member ends
+`Disassembled`, so the chain walker's claim on it is a TERMINATED chain, and a terminated chain
+ghosts and holds nothing (`FilterAndGhostChains` and `RewindVesselHold.CollectChainHolds` both skip
+it, #174): the chain alone would have changed nothing. What holds the old part is the member's
+recorded launch: the plain-rewind hold (and the Re-Fly invoke hold) take out of the rewound world
+any vessel that a committed recording of its own launch (pid and guid both equal,
+`ReFlyInvokeHold.Classify`, evidence `flies`) flies after the rewind UT, draw it as a hold ghost
+until that recording's start, and give it back only through the recording's end spawn, which a
+Disassembled member never makes. So: the pocket seam (`ParsekFlight.TryStampDisassembledTerminal`)
+now hands a BackgroundMap miss to `TryAdoptForeignConstructionPickup`, which reads the pocket
+classifier (only a death it reads as the construction pick-up goes on) and the
+`ForeignInventoryTransfer.Evaluate` gate (recording EVA kerbal, real vessel, not a ghost map
+vessel, no recording of the tree carries the pid), then joins the vessel as the kerbal's
+InventoryTransfer member with its snapshot and live launch guid, one `PartRemoved` event
+(`construction part=<name> action=pickup pid=<part pid>`), its last pose as its one trajectory point
+(without it the finalize prune drops the member as a zero-point leaf), and `Disassembled` at the
+pick-up UT (`ForeignInventoryTransfer.AttachPickedUpMember`; log `Recording terminal:
+kind=Disassembled reason=foreign-part-picked-up`, skips `Foreign construction pick-up not recorded:
+reason=...`). The member keeps its BackgroundMap entry, so the same destroy event finishes it like
+a pocketed tree member (`DeferredDestructionCheck` keeps the verdict and persists the sidecar). A
+loose part that an earlier flight spawned is kept in the rewind save by the strip scope (the
+member is a transfer member, `FliesTransferAdoptedVessel`), so the hold finds it. A multi-part
+Debris vessel whose leaf is picked up stays Destroyed, as for a tree member (the classifier's
+`partCount == 1`). Cells in `ForeignConstructionPickupTests` (the event, the gate, the member shape
+and its zero-point control, the hold with evidence `flies` and first claim at the pick-up, its
+control without the member, another launch on the same pid never held, a rewind after the pick-up,
+the terminated chain holding nothing, an earlier flight's spawned part kept for the hold, the seam
+wiring). Design: flight recorder design 4.12.
+
+**Lane: not authored, needs a new seam op.** `EvaGroundScience action=pickup` drives the ground
+part's own `ModuleGroundPart.RetrievePart` (a different stock path: no construction panel, no
+`EVAConstructionModeEditor.PickupPart`), and `action=detach` injects only `DetachInput`, which
+refuses the root part, so neither can pick up a single-part loose vessel. A lane needs an
+`action=pickup-construction` (name open) beside attach / detach: open the panel, the same armed-frame
+shim transpiled into `EVAConstructionModeEditor.PickupPartInput` (its own `*InputSites` table,
+pre-scanned for read counts), the hovered part answered as the target loose part, then the
+existing slot click that stores it. Host: EVA-16 already ends with a committed tree whose dropped
+panel spawns as a real loose `DroppedPart` vessel; a second recording on a kerbal picking that
+panel up, a commit, a Rewind-to-Launch of the SECOND tree and a flight reload would gate on
+`reason=foreign-part-picked-up`, `Rewind held vessel for its committed future: pid=<panel>
+... evidence=flies`, no panel vessel after the pick-up UT, and the kerbal spawning with the panel.
 
 `EVAConstructionModeEditor.PickupPart` (decompiled KSP 1.12.5) takes a part of a `DroppedPart` /
 `Debris` vessel into the kerbal's hand and calls `vessel.Die()` on its vessel. When that vessel is a
