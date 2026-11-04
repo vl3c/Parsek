@@ -978,7 +978,12 @@ namespace Parsek.Tests
         {
             var book = new RecordThresholdBook();
             book.Reset(null);
-            book.Credit(Record("r1", "RecordsAltitude", 100, 10, 1, 2, 3));
+            // The first payments price each interval as one payment of the repeat does, so no
+            // top-up applies (the top-up has its own cells in RewindTopUpMilestoneTests).
+            book.Credit(RecordBand("r1", "RecordsAltitude", 100, 10, 3,
+                new RecordThresholdCredit(1, 1000f, 1f, 0f),
+                new RecordThresholdCredit(2, 2000f, 2f, 0f),
+                new RecordThresholdCredit(3, 3000f, 2f, 1f)));
             // Five awards over three intervals: 1 and 2 once, 3 first paid then re-paid twice,
             // folded into its entry (9000 = three payments of 3000).
             GameAction row = RecordBand("r2", "RecordsAltitude", 120, 20, 5,

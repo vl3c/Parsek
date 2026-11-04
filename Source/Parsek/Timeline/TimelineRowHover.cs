@@ -62,15 +62,23 @@ namespace Parsek
             }
         }
 
+        /// <summary>A once-only milestone repeated at a higher reward (owner ruling
+        /// 2026-11-04): it pays only the difference over what the earlier time paid.</summary>
+        internal const string ToppedUpText =
+            "Partly counted: already reached earlier on timeline for a smaller reward, so only the difference paid.";
+
         /// <summary>
         /// A world-record row the walk credited only in part (design 7.8, 3.15 step 4): some of
         /// the record steps it crossed were already reached earlier on timeline, so it paid
-        /// for the rest only. Null on any other row.
+        /// for the rest only. A once-only milestone topped up (owner ruling 2026-11-04):
+        /// <see cref="ToppedUpText"/>. Null on any other row.
         /// </summary>
         internal static string RecordPartlyCounted(GameAction action)
         {
             if (action == null || !action.Effective || !action.RecordPartlyCredited)
                 return null;
+            if (!MilestonesModule.IsRepeatableWorldRecordMilestone(action.MilestoneId))
+                return ToppedUpText;
             int total = action.RecordThresholdsTotal;
             int repeated = total - action.RecordThresholdsCredited;
             if (total <= 0 || repeated <= 0)
