@@ -1,0 +1,11 @@
+# Format versions this golden folder carries (SaveFormat.All name=version).
+save=1
+recording-format=1
+recording-schema-generation=4
+tree-format=0
+trajectory-binary=1
+snapshot-sidecar=0
+ledger=0
+game-state-store=1
+milestones=1
+mission-selection=1

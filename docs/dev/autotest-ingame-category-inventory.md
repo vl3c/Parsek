@@ -220,6 +220,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `TrajectoryMath` | 8 | 8 | 8 | 8 | 0 | 0 | H7 | A |
 | `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | H49 (flown 2026-08-28, executes 4 of 4) | A |
 | `UiComplexityMode` | 4 | 4 | 0 | 0 | 0 | 4 | H22 | A |
+| `UiScale` | 3 | 3 | 3 | 3 | 0 | 2 | UIS-1-ui-scale (LIVE-PROVEN 2026-11-04, `2026-11-04_1925`, whole pin `passed=3 skipped=0`). The live check for todo S10, Parsek windows following KSP's UI Scale: a probe window drawn in a 1.5x scope draws under the 1.5x matrix and GUIToScreenPoint / the popup-anchor conversion report its origin in the rect's own units; the scaled path's own input lock follows the window as drawn (OS pointer parked where only the scaled window is, then off it, then the sweep); the applied scale is the live stock setting. Two cells self-skip when no IMGUI repaint is seen or the OS pointer cannot be parked | A |
 | `Unity` | 4 | 4 | 4 | 4 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 4 of 4 - the whole category at FLIGHT with zero skips) | A |
 | `VesselBudget` | 1 | 0 | 0 | 1 | 0 | 1 | NOT DRIVEN (KSP-SETTINGS-AUDIT S5, 2026-09-26, branch `kss-debris`). One TRACKSTATION cell that builds a REAL stock `new FlightState()` with `MAX_VESSELS_BUDGET` set to the scene's real-vessel count and asserts the ghost-exclusion patch (`Patches/FlightStateGhostBudgetPatch.cs`) reached the constructor (its exact `MAX_VESSELS_BUDGET <real> -> <real+ghosts>` line), that no real vessel was dropped, and that the budget is restored. Self-skips with no ghost map vessel in the scene. Its OWN category for the standing reason - a TRACKSTATION cell in `GhostMap` would move H44's derivable split and S1.6's flown `total=25` pin. The owner ruling (S6 / Q4) gave S5 unit and in-game cells and NO dedicated lane, so the row stays unclaimed; the natural host is H44's 274-recording corpus at TRACKSTATION. NEVER FLOWN | B |
 | `VesselNames` | 3 | 3 | 0 | 0 | 0 | 3 | VN-1-stock-rename-staging-f9 (authored 2026-10-11, branch `vessel-names-links`; LIVE-PROVEN 2026-10-12, result `2026-10-12_0458` PASS attempt 1, `total=3 passed=3 failed=0 skipped=0`, pinned WHOLE): the three cells run on GS-1's pad vessel right after StartRecording, before the flight. Vessel names Phase 2a, 2026-10-11, branch `vessel-names-stock`. Three FLIGHT cells against the active vessel the live tree records: a stock rename dialog accept (`Vessel.onVesselRenameAccept`, so the Harmony capture pair runs) renames every covered leg, its ghost protos and ghost CommNet nodes; a Parsek rename writes through to the live vessel, fires `onVesselRename` once and is not re-captured; the priority naming part keeps the name when stock re-derives it. Each restores the names and the decision store. Self-skips without a recorded active vessel. Its OWN category for the standing reason (a cell in an existing category moves a pinned tally). Its pad host has no ghost of the active vessel's earlier legs, so the ghost-proto and CommNet halves of the first cell assert over zero entries there | B |
@@ -229,8 +230,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **135 categories / 684 declarations**. Buckets **A 100 categories
-(385 declarations)**, **B 34 categories (295 declarations)**, **C 1 category (4
+Totals, re-derived: **136 categories / 687 declarations**. Buckets **A 101 categories
+(388 declarations)**, **B 34 categories (295 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells

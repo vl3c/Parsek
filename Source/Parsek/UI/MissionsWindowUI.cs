@@ -425,17 +425,6 @@ namespace Parsek
         private static readonly GUIContent ChapterIncludeCheckboxContent =
             new GUIContent("", MissionPresentation.ChapterIncludeCheckboxTooltip);
 
-        // The one stamp every ExcludedIntervalKeys write site must pair with the mutation: an
-        // interval edit is authored against CURRENT key numbering, and a gen-0 mission whose
-        // tree was uncommitted at load (reconcile stamp DEFERRED) becomes editable once the
-        // tree commits mid-session - without this stamp the next load's generation-0 reconcile
-        // would wrongly extend the fresh selection across @dock sub-siblings the player
-        // deliberately kept. Routing both toggles through here keeps the pairing mechanical.
-        private static void StampSelectionEdit(Mission mission)
-        {
-            mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
-        }
-
         // Per-frame cache of the header summary-line facts (T1.1), keyed by TREE id: the facts are
         // derived from the tree's read models only (span, vessel count, crew union, terminal word),
         // never from a Mission's selection, so every Mission over one tree shares them. Cleared
@@ -635,26 +624,16 @@ namespace Parsek
         internal void CommitMissionRenameForTesting()
             => CommitMissionRenameById(renamingMissionId);
 
-        /// <summary>The one selection-edit stamp every <c>ExcludedIntervalKeys</c> write
-        /// site must pair with its mutation (<see cref="StampSelectionEdit"/>), for
-        /// <c>UiAction op=select</c>. A wrapper rather than a copy of the one line, so the
-        /// seam cannot drift from what the click does if the stamp ever gains a second
-        /// field.</summary>
-        internal static void StampSelectionEditForTesting(Mission mission)
-        {
-            if (mission != null) StampSelectionEdit(mission);
-        }
-
         /// <summary>
         /// The body of ONE interval's include checkbox (the expanded vessel detail rows and the
         /// foreign partner-journey subtrees): moves the interval's key into or out of
         /// <see cref="Mission.ExcludedIntervalKeys"/> with NO cascade (unticking the launch
         /// interval start-trims the loop and leaves the post-separation survivor included),
-        /// stamps the selection generation, and logs the edit. The checkbox and the
+        /// and logs the edit. The checkbox and the
         /// automation-only <c>UiAction op=select key=leg:</c> both call it, so the seam drives
         /// the exact write and the exact log line a click produces.
         ///
-        /// <para>Idempotent: a request matching the current state writes, stamps and logs
+        /// <para>Idempotent: a request matching the current state writes and logs
         /// nothing and returns false. Both checkbox callers derive the shown state from exact
         /// set membership, so a click always changes the set and its behaviour is unchanged;
         /// the seam takes an explicit direction and relies on the no-op answer.</para>
@@ -669,7 +648,6 @@ namespace Parsek
                 : mission.ExcludedIntervalKeys.Add(headLegId);
             if (!changed)
                 return false;
-            StampSelectionEdit(mission);
             ParsekLog.Info("Mission",
                 $"Mission '{mission.Name}' interval '{headLegId}' included={include}");
             return true;
@@ -1940,8 +1918,6 @@ namespace Parsek
                     bool include = inclusion != MissionVesselInclusion.All;
                     int changed = MissionVesselRowBuilder.ApplyVesselInclusion(
                         row, include, mission.ExcludedIntervalKeys);
-                    if (changed > 0)
-                        StampSelectionEdit(mission);
                     ParsekLog.Info("Mission",
                         $"Mission '{mission.Name}' vessel '{row.VesselName}' " +
                         $"(head={row.OwnerHeadId}) included={include} " +
@@ -2353,11 +2329,6 @@ namespace Parsek
                 {
                     int changed = MissionChapters.ApplyChapterToggle(
                         chapter.IntervalKeys, mission.ExcludedIntervalKeys, toggled);
-                    // Same reason as the per-interval checkbox: this edit is authored against
-                    // CURRENT key numbering, so a gen-0 mission that became editable
-                    // mid-session must not be extended across its @dock sub-siblings by the
-                    // next load's legacy reconcile.
-                    mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
                     ParsekLog.Info("Mission",
                         $"chapter '{chapter.Root.Title}' {(toggled ? "include" : "exclude")} " +
                         $"keys={changed.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +

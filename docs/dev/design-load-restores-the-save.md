@@ -765,6 +765,8 @@ for those lanes, so the kind and its column stay and lose only the cells of dele
 
 ## 9. Backward compatibility
 
+From the 1.0 save format these keys are part of the baseline: the `GAME_STATE` node's ledger, events and milestones keep their own `version` rows in `SaveFormat.cs`, and the rest of the PARSEK node is versioned by `parsekSaveFormat` (`docs/dev/design-save-format-policy.md`). The bullets below record the change as it shipped.
+
 - Additive keys only (`GAME_STATE`, `precHash` / `vesselHash` / `ghostHash`, `saveStamp`). No
   generation bump (CLAUDE.md: purely additive keys are not a shape change).
 - New build, old save: today's cold behavior per missing piece (6.7), plus the safer collection.

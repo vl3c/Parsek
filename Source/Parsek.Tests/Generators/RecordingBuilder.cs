@@ -895,7 +895,7 @@ namespace Parsek.Tests.Generators
             if (segmentEvents.Count > 0)
                 RecordingStore.SerializeSegmentEvents(node, segmentEvents);
             if (trackSections.Count > 0)
-                RecordingStore.SerializeTrackSections(node, trackSections, formatVersion);
+                RecordingStore.SerializeTrackSections(node, trackSections);
 
             return node;
         }
@@ -1184,7 +1184,7 @@ namespace Parsek.Tests.Generators
             if (segmentEvents.Count > 0)
                 RecordingStore.SerializeSegmentEvents(node, segmentEvents);
             if (trackSections.Count > 0)
-                RecordingStore.SerializeTrackSections(node, trackSections, formatVersion);
+                RecordingStore.SerializeTrackSections(node, trackSections);
 
             // Resource manifests (Phase 11)
             SerializeResourceManifestInto(node);

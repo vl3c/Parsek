@@ -11243,6 +11243,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Priority register C4 (2026-09-23, `d5-debris`): the two D5 debris lanes on
         # the kx machine's close-cut opt-in.
         "GS-10-kerbalx-debris-ttl.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-ttl: GS-7's crash lane with round 1's close cut, the kx machine's impactCutAtLastBoosterDrop opt-in); operator tier is GS-7's cadence (a 12-minute crash + rewind + watch flight), and the discipline is recorded in its status row, not a debt",
+        "SOI-1-mun-exit-physics-burn.toml": "tier=operator by the calibration discipline, NOT debt; AUTHORED 2026-11-04, LIVE-PROVEN 2026-11-04_1851 - R3 of the replay-theory audit (an off-rails SOI change splits the open TrackSection), a 1x burn through the Mun SOI exit on `mun-park-kerbalx` with its outcomes pre-registered in the header; what is open is its pre-fix negative control, not a human review call",
         "BAY-1-runway-cargo-bays.toml": "calibration-discipline - AUTHORED 2026-09-26 (coverage wave 7, D7 `bays`: the stock Mallard staged in place on the Runway, its three Mk3 cargo bays cycled, committed, Rewound-to-Launch and replayed as a Space Center ghost); operator tier is the calibration discipline for a new lane (reading 1 `2026-09-25_2214` red on the filed deploy-limit gap, reading 2 `_2218` PASS, armed `_2230` PASS, negative controls offline; the stock 44/45/51 deploy limits restored 2026-09-27 with the fix, per-bay limit tokens read PASS on `2026-09-27_1029`), and its status row records what has flown, not a debt",
         "GS-12-kerbalx-loop-cycles.toml": "calibration-discipline - AUTHORED 2026-09-24 (ghost-replay Tier C item 12: GS-4's flight, then the committed mission looped in three stages through the kx machine's loopStages opt-in); operator tier is GS-4's cadence plus the warped loop block, and its status row records what has flown, not a debt",
         "GS-11-kerbalx-debris-promotion.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-promotion: GS-10's close cut plus the promoteDebrisVesselName switch to a just-dropped booster inside its TTL); operator tier is GS-7's cadence; its status row records what has flown, not a debt",
@@ -23909,8 +23910,8 @@ class DebrisPopulationGateTests(unittest.TestCase):
 
     # The text that was BackgroundRecorder.cs before scripts/refactor/
     # split_backgroundrecorder.py split it: the main file plus the eight partials
-    # that script writes (NOT the older PartEventPolling / State / Testing /
-    # TimeJump siblings, which were never part of it), each file whole.
+    # that script writes (NOT the older PartEventPolling / PhysicsSoi / State /
+    # Testing / TimeJump siblings, which were never part of it), each file whole.
     BG_RECORDER_SPLIT_FILES = (
         "BackgroundRecorder.cs",
         "BackgroundRecorder.Finalization.cs",
@@ -23926,6 +23927,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # The older siblings: partials of the class that the reader deliberately skips.
     BG_RECORDER_OTHER_PARTIALS = (
         "BackgroundRecorder.PartEventPolling.cs",
+        "BackgroundRecorder.PhysicsSoi.cs",
         "BackgroundRecorder.State.cs",
         "BackgroundRecorder.Testing.cs",
         "BackgroundRecorder.TimeJump.cs",
@@ -27165,6 +27167,24 @@ class ScreenResolutionSpecTests(unittest.TestCase):
             self.assertEqual(1, len(errs), (bad, errs))
             self.assertIn("runtime.kspSettings", errs[0])
         self.assertEqual(1, len(hlib.validate_screen_resolution({"kspSettings": 5})))
+
+    def test_ui_scale_is_a_gameplay_setting_with_a_bounded_number(self):
+        # Parsek's IMGUI windows follow stock UI Scale (todo S10); the UI-scale lane
+        # flies at 1.5 through this per-run delta.
+        self.assertIn("UI_SCALE", hlib.KSP_GAMEPLAY_SETTING_KEYS)
+        for good in (1.5, 2, 0.5, 3.0, 1):
+            self.assertEqual([], hlib.validate_screen_resolution(
+                {"kspSettings": {"UI_SCALE": good}}), good)
+        for bad in (0.4, 3.5, "1.5", True, float("nan"), -1):
+            errs = hlib.validate_screen_resolution({"kspSettings": {"UI_SCALE": bad}})
+            self.assertEqual(1, len(errs), (bad, errs))
+            self.assertIn("number in [0.5, 3]", errs[0])
+        self.assertEqual({"UI_SCALE": "1.5"}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"UI_SCALE": 1.5}}}))
+        self.assertEqual({"UI_SCALE": "2"}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"UI_SCALE": 2}}}))
+        self.assertEqual({"UI_SCALE": "1.25"}, hlib.spec_ksp_gameplay_settings(
+            {"runtime": {"kspSettings": {"UI_SCALE": 1.25}}}))
 
     def test_spec_ksp_gameplay_settings(self):
         self.assertEqual({}, hlib.spec_ksp_gameplay_settings({}))

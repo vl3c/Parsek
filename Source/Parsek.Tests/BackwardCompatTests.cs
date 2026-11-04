@@ -73,8 +73,6 @@ namespace Parsek.Tests
             // loop in the test body (as this cell used to) also got the rule wrong:
             // in-flight and pending marker trees are NOT committed and must not count.
             var scenarioNode = new ConfigNode("SCENARIO");
-            scenarioNode.AddNode("RECORDING");
-            scenarioNode.AddNode("RECORDING");
 
             var treeNode = scenarioNode.AddNode("RECORDING_TREE");
             treeNode.AddValue("id", "tree1");
@@ -95,23 +93,14 @@ namespace Parsek.Tests
             pendingNode.AddValue("isPending", "True");
             pendingNode.AddNode("RECORDING").AddValue("recordingId", "r4");
 
-            int savedTreeRecCount;
-            int totalSavedRecCount = ParsekScenario.CountSavedCommittedRecordingNodes(
-                scenarioNode, out savedTreeRecCount);
-
-            // 2 standalone + 2 committed tree recordings; the marker trees' two
-            // recordings are excluded.
-            Assert.Equal(2, savedTreeRecCount);
-            Assert.Equal(4, totalSavedRecCount);
+            // 2 committed tree recordings; the marker trees' two recordings are excluded.
+            Assert.Equal(2, ParsekScenario.CountSavedCommittedRecordingNodes(scenarioNode));
 
             // A save with no nodes at all counts zero rather than throwing, and a null
             // node (no SCENARIO written yet) is the same answer.
             Assert.Equal(0, ParsekScenario.CountSavedCommittedRecordingNodes(
-                new ConfigNode("SCENARIO"), out savedTreeRecCount));
-            Assert.Equal(0, savedTreeRecCount);
-            Assert.Equal(0, ParsekScenario.CountSavedCommittedRecordingNodes(
-                null, out savedTreeRecCount));
-            Assert.Equal(0, savedTreeRecCount);
+                new ConfigNode("SCENARIO")));
+            Assert.Equal(0, ParsekScenario.CountSavedCommittedRecordingNodes(null));
         }
 
         #endregion

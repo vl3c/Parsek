@@ -936,7 +936,7 @@ namespace Parsek
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
             try
             {
-                recordingsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                recordingsWindowRect = ParsekUiScale.Window(
                     WindowIdKey.GetHashCode(),
                     recordingsWindowRect,
                     DrawRecordingsWindow,

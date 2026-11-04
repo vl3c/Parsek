@@ -7,26 +7,6 @@ namespace Parsek
 {
     internal static partial class LedgerOrchestrator
     {
-        internal static void ResetMigrateOldSaveEventsForLoad()
-        {
-            LedgerLoadMigration.ResetMigrateOldSaveEventsForLoad();
-        }
-
-        internal static void ResetMigrateOldSaveEventsForTesting()
-        {
-            LedgerLoadMigration.ResetMigrateOldSaveEventsForTesting();
-        }
-
-        internal static void SetMigrateOldSaveEventsRanThisLoadForTesting(bool value)
-        {
-            LedgerLoadMigration.SetMigrateOldSaveEventsRanThisLoadForTesting(value);
-        }
-
-        internal static bool GetMigrateOldSaveEventsRanThisLoadForTesting()
-        {
-            return LedgerLoadMigration.GetMigrateOldSaveEventsRanThisLoadForTesting();
-        }
-
         /// <summary>
         /// Called on KSP load. Reconcile ledger against current save state,
         /// then recalculate and patch.
@@ -51,16 +31,6 @@ namespace Parsek
             Initialize();
             InvalidateCommittedFutureSnapshot("ksp-load");
 
-            // Reset the per-load MigrateOldSaveEvents flag — only this load's
-            // MigrateOldSaveEvents synthetics should gate the null-tag coverage rule.
-            // Previous loads' TryRecoverBrokenLedgerOnLoad synthetics (persisted in the
-            // ledger file) must NOT falsely register as "MigrateOldSaveEvents output".
-            ResetMigrateOldSaveEventsForLoad();
-            // Drop the previous save's unmatchable strategy-exchange residual before
-            // anything in THIS load can read it. There is no save-unload hook to hang this
-            // on, and loading save B in a process that had save A open would otherwise let
-            // A's residual bound B's pending amount until the sweep below re-measures it.
-            unmatchableStrategyScienceDebitBaseline = 0.0;
             LedgerRecoveryFundsPairing.ClearConsumedRecoveryEventKeys();
             RecoveryPayoutContextStore.Clear("KSP load");
             // Log-before-clear so any stale entries from the previous session show up
@@ -129,33 +99,8 @@ namespace Parsek
             // double-credit after the per-session consumed set is cleared on load.
             RepairMissingRecoveryDedupKeys();
 
-            // Migration: if ledger is still empty after reconcile but committed recordings exist,
-            // this is an old save being loaded for the first time with the ledger system.
-            // Convert existing GameStateStore events into GameActions.
-            // Done AFTER the existing-ledger reconcile, then immediately reconciled so
-            // future rows from the old event store cannot bypass maxUT on first load.
-            // GC-3: recordings of trees kept inert (another schema generation) are known to the
-            // reconcile above, but they neither trigger the migration nor feed it: an inert
-            // tree is never interpreted, and a save holding only inert trees is not an old save.
-            HashSet<string> migrationRecordingIds = ExcludeInertRecordingIds(validRecordingIds);
-            if (Ledger.Actions.Count == 0 && migrationRecordingIds != null && migrationRecordingIds.Count > 0)
-            {
-                int beforeOldSaveMigration = Ledger.Actions.Count;
-                MigrateOldSaveEvents(migrationRecordingIds);
-                if (Ledger.Actions.Count != beforeOldSaveMigration)
-                {
-                    Ledger.Reconcile(
-                        validRecordingIds,
-                        maxUT,
-                        preserveFutureTimelineActions: preserveFutureRows);
-                }
-            }
-
-            OnKspLoadAfterOldSaveEventReconcileForTesting?.Invoke();
-
-            // Migration: ensure all committed recordings have KerbalAssignment actions.
-            // Old saves predating the KerbalAssignment feature have recordings but no
-            // kerbal actions in the ledger.
+            // Re-derive every committed recording's KerbalAssignment rows from its crew
+            // data, keeping ActionIds where the row identity matches.
             MigrateKerbalAssignments();
 
             // NO load-time backfill for the paired kerbal-death reputation penalty.
@@ -169,21 +114,6 @@ namespace Parsek
             // Flights filed before this producer shipped therefore keep exactly the rows
             // they had; only newly committed recordings get one.
 
-            // #401/#396 one-shot save recovery now runs here, after committed recordings
-            // (and any cold-start pending active tree) have been loaded. That gives the
-            // post-epoch visibility filter an authoritative recording-id scope and keeps
-            // old hidden branch events out of the synthesized ledger rows for the right
-            // reason: their recording ids are no longer part of the current timeline.
-            try
-            {
-                TryRecoverBrokenLedgerOnLoad(maxUT);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn(Tag,
-                    $"TryRecoverBrokenLedgerOnLoad failed during OnKspLoad: {ex.GetType().Name}: {ex.Message}");
-            }
-
             // BUG-F: during a cold OnLoad the universe clock is not yet initialized, so
             // maxUT (= Planetarium.GetUniversalTime() at the load call site) reads as 0.
             // A current-UT cutoff at UT=0 treats the entire established career as "future"
@@ -193,14 +123,6 @@ namespace Parsek
             // action. The deferred-seed coroutine re-applies the cutoff once the clock is
             // ready, so a genuine future-timeline (post-rewind) cold load is still honored.
             // currentUtReady was computed above (it also gates row preservation in Reconcile).
-            //
-            // STRATEGY-PREFIX-HOLDBACK-PERMANENT: measure the unmatchable strategy-exchange
-            // science residual BEFORE the load recalc, so the very first PatchScience of the
-            // load already sees the bound and a pre-capture-fix save never emits the
-            // GUARDED DRAWDOWN clamp + player toast at all. Placed after Reconcile /
-            // MigrateOldSaveEvents / TryRecoverBrokenLedgerOnLoad so the sweep nets against
-            // the same ledger rows the recalc is about to walk.
-            CaptureUnmatchableStrategyScienceDebitBaselineOnLoad();
 
             bool hasFutureActions = HasActionsAfterUT(maxUT);
             bool useCurrentUtCutoff =
@@ -263,44 +185,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The ids of <paramref name="validRecordingIds"/> that do not belong to a committed tree
-        /// kept inert (<see cref="InertRecordingTrees"/>). Returns the same set when none do.
-        /// </summary>
-        internal static HashSet<string> ExcludeInertRecordingIds(HashSet<string> validRecordingIds)
-        {
-            if (validRecordingIds == null || InertRecordingTrees.Count == 0)
-                return validRecordingIds;
-            var kept = new HashSet<string>(StringComparer.Ordinal);
-            int excluded = 0;
-            foreach (string id in validRecordingIds)
-            {
-                if (InertRecordingTrees.ContainsRecordingId(id))
-                    excluded++;
-                else
-                    kept.Add(id);
-            }
-            if (excluded > 0)
-                ParsekLog.Verbose(Tag,
-                    "OnKspLoad: old-save migration scope excludes " +
-                    excluded.ToString(CultureInfo.InvariantCulture) +
-                    " recording id(s) of inert trees; remaining=" +
-                    kept.Count.ToString(CultureInfo.InvariantCulture));
-            return kept;
-        }
-
-        /// <summary>
-        /// Migration for old saves: converts existing GameStateStore events from committed
-        /// recordings into GameActions and adds them to the ledger.
-        /// </summary>
-        private static void MigrateOldSaveEvents(HashSet<string> validRecordingIds)
-        {
-            LedgerLoadMigration.MigrateOldSaveEvents(validRecordingIds);
-        }
-
-        /// <summary>
-        /// Migration: ensures all committed recordings have KerbalAssignment actions
-        /// in the ledger. Old saves predating the feature have recordings but no kerbal
-        /// actions. Generates them from vessel snapshot crew data.
+        /// Re-derives the KerbalAssignment rows of every committed recording from its
+        /// vessel snapshot crew data, so each recording has the rows its crew implies.
         /// </summary>
         private static void MigrateKerbalAssignments()
         {
@@ -817,7 +703,6 @@ namespace Parsek
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
-            legacyFacilityUpgradeEstimateDone = false;
 
             string source;
             if (saveLedgerNode != null)
@@ -842,17 +727,6 @@ namespace Parsek
                 source = "'" + path + "'";
             }
 
-            int repairedLegacyPartPurchaseEvents =
-                GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
-            int repairedLegacyPartPurchaseActions =
-                RepairLegacyPartPurchaseActionsOnLoad(GameStateStore.Events, Ledger.Actions);
-            if (repairedLegacyPartPurchaseEvents > 0 || repairedLegacyPartPurchaseActions > 0)
-            {
-                ParsekLog.Info(Tag,
-                    $"OnLoad: repaired legacy R&D part-purchase rows " +
-                    $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
-            }
-            RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
             SeedKscSequenceCounterFromLoadedLedger(Ledger.Actions);
             CareerSettingsLock.EnsureAndEnforce(KspStatePatcher.ReadLiveAllowNegativeCurrency(), "ledger-load");
             ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from {source}");
@@ -883,95 +757,5 @@ namespace Parsek
         }
 
         internal static int KscSequenceCounterForTesting => kscSequenceCounter;
-
-        internal static int RepairLegacyPartPurchaseActionsOnLoad(
-            IReadOnlyList<GameStateEvent> events,
-            IReadOnlyList<GameAction> ledgerActions)
-        {
-            return LedgerLoadMigration.RepairLegacyPartPurchaseActionsOnLoad(events, ledgerActions);
-        }
-
-        /// <summary>
-        /// Load-time repair of FacilityUpgrade rows written at cost 0 before the upgrade cost
-        /// capture (see <see cref="LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad"/>),
-        /// with one summary line. Returns the number of rows repaired.
-        /// </summary>
-        internal static int RepairZeroCostFacilityUpgradeActionsOnLoad(
-            IReadOnlyList<GameStateEvent> events,
-            IReadOnlyList<GameAction> ledgerActions)
-        {
-            var result = LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad(events, ledgerActions);
-            if (result.Repaired > 0)
-            {
-                ParsekLog.Info(Tag,
-                    "OnLoad: repaired cost-0 facility-upgrade rows from their saved " +
-                    "StructureConstruction debits: " + result.Format());
-            }
-            else if (result.ZeroCostRows > 0)
-            {
-                ParsekLog.Verbose(Tag,
-                    "OnLoad: cost-0 facility-upgrade rows kept as stored (no unique saved debit " +
-                    "proves their cost): " + result.Format());
-            }
-            return result.Repaired;
-        }
-
-        /// <summary>
-        /// One-shot save recovery migration for legacy saves with missing funds,
-        /// contract, or science ledger rows.
-        /// </summary>
-        internal static int TryRecoverBrokenLedgerOnLoad(double? maxUT = null)
-        {
-            return LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad(maxUT);
-        }
-
-        /// <summary>Pure: event types the migration can synthesize actions for.</summary>
-        internal static bool IsRecoverableEventType(GameStateEventType t)
-        {
-            return LedgerLoadMigration.IsRecoverableEventType(t);
-        }
-
-        /// <summary>
-        /// Pure: checks whether the ledger already has an action matching the given
-        /// event. Used by the save recovery migration to avoid duplicates.
-        /// </summary>
-        internal static bool LedgerHasMatchingAction(GameStateEvent evt)
-        {
-            return LedgerLoadMigration.LedgerHasMatchingAction(evt);
-        }
-
-        /// <summary>
-        /// <see cref="LedgerHasMatchingAction(GameStateEvent)"/> over an explicit row list,
-        /// reporting whether a row of another capture matched economically only.
-        /// </summary>
-        internal static bool LedgerHasMatchingAction(
-            GameStateEvent evt, IReadOnlyList<GameAction> actions, out bool otherCaptureMatched)
-        {
-            return LedgerLoadMigration.LedgerHasMatchingAction(evt, actions, out otherCaptureMatched);
-        }
-
-        /// <summary>
-        /// Pure: checks whether the ledger already has enough ScienceEarning credit
-        /// for the given subject.
-        /// </summary>
-        internal static bool LedgerHasMatchingScienceEarning(string subjectId, float minScience)
-        {
-            return LedgerLoadMigration.LedgerHasMatchingScienceEarning(subjectId, minScience);
-        }
-
-        /// <summary>
-        /// Pure: returns the total ScienceAwarded already present in the ledger for a
-        /// given subject.
-        /// </summary>
-        internal static float GetLedgerScienceEarningTotal(string subjectId)
-        {
-            return LedgerLoadMigration.GetLedgerScienceEarningTotal(subjectId);
-        }
-
-        /// <summary>Pure: maps GameStateEventType to the corresponding GameActionType.</summary>
-        internal static GameActionType? MapEventTypeToActionType(GameStateEventType t)
-        {
-            return LedgerLoadMigration.MapEventTypeToActionType(t);
-        }
     }
 }

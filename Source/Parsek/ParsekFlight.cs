@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
-using ClickThroughFix;
 using KSP.UI.Screens;
 using ToolbarControl_NS;
 using UnityEngine;
@@ -2299,55 +2298,72 @@ namespace Parsek
             // because they live on the same Canvas as the overlay; ours do
             // not. Skip both Layout and Repaint passes so layout-driven sizes
             // don't flicker between events while paused.
+            // The UI-scale lock sweep runs before the pause gate so a window hidden by
+            // the pause menu never leaves the game input locked.
+            ParsekUiScale.SweepStaleLocks();
             if (PauseMenuGate.IsPauseMenuOpen())
                 return;
 
+            // Map markers and ghost labels are projected from world positions in
+            // physical pixels and stay unscaled (UI-scale ruling 2026-11-04).
             if (MapView.MapIsEnabled)
                 ui.DrawMapMarkers();
 
             if (watchMode.IsWatchingGhost)
-                watchMode.DrawWatchModeOverlay();
+            {
+                using (ParsekUiScale.BeginHost("WatchOverlay"))
+                    watchMode.DrawWatchModeOverlay();
+            }
 
             // Phase 6d: Ghost labels on chain ghost GOs (no-op when ghost GOs are null)
             DrawGhostLabels();
 
             if (showUI)
             {
-                windowRect.height = 0f;
-                var mainWindowStyle = ui.GetMainWindowStyle();
-                if (mainWindowStyle == null)
-                    return;
-
-                ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
-                try
-                {
-                    windowRect = ClickThruBlocker.GUILayoutWindow(
-                        GetInstanceID(),
-                        windowRect,
-                        ui.DrawWindow,
-                        "Parsek",
-                        mainWindowStyle,
-                        GUILayout.Width(250)
-                    );
-                }
-                finally
-                {
-                    ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
-                }
-                ui.LogMainWindowPosition(windowRect);
-                ui.DrawRecordingsWindowIfOpen(windowRect);
-                ui.DrawTimelineWindowIfOpen(windowRect);
-                ui.DrawKerbalsWindowIfOpen(windowRect);
-                ui.DrawLogisticsWindowIfOpen(windowRect);
-                ui.DrawStructureWindowIfOpen(windowRect);
-                ui.DrawSettingsWindowIfOpen(windowRect);
-                ui.DrawSpawnControlWindowIfOpen(windowRect);
-                ui.DrawTestRunnerWindowIfOpen(windowRect, this);
+                using (ParsekUiScale.BeginHost("Flight"))
+                    DrawFlightWindows();
             }
+        }
+
+        // Every Parsek window in FLIGHT, inside the UI-scale host scope: the rects, the
+        // after-draw hover checks and the screen clamps all read scaled-root units here.
+        private void DrawFlightWindows()
+        {
+            windowRect.height = 0f;
+            var mainWindowStyle = ui.GetMainWindowStyle();
+            if (mainWindowStyle == null)
+                return;
+
+            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
+            try
+            {
+                windowRect = ParsekUiScale.Window(
+                    GetInstanceID(),
+                    windowRect,
+                    ui.DrawWindow,
+                    "Parsek",
+                    mainWindowStyle,
+                    GUILayout.Width(250)
+                );
+            }
+            finally
+            {
+                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
+            }
+            ui.LogMainWindowPosition(windowRect);
+            ui.DrawRecordingsWindowIfOpen(windowRect);
+            ui.DrawTimelineWindowIfOpen(windowRect);
+            ui.DrawKerbalsWindowIfOpen(windowRect);
+            ui.DrawLogisticsWindowIfOpen(windowRect);
+            ui.DrawStructureWindowIfOpen(windowRect);
+            ui.DrawSettingsWindowIfOpen(windowRect);
+            ui.DrawSpawnControlWindowIfOpen(windowRect);
+            ui.DrawTestRunnerWindowIfOpen(windowRect, this);
         }
 
         void OnDestroy()
         {
+            ParsekUiScale.ReleaseAllScaledLocks("flight-destroy");
             SpawnedHarvesterRestore.Clear("flight-destroy");
             if (inertForGameMode)
                 return; // never subscribed, never became Instance (S9 game-mode gate)
@@ -12237,7 +12253,7 @@ namespace Parsek
             if (!wasWarpActive && isWarpNow)
             {
                 warpStartUT = Planetarium.GetUniversalTime();
-                if (LedgerOrchestrator.IsInitialized)
+                if (LedgerOrchestrator.IsInitialized && !Ledger.IsHeldFromNewerVersion)
                 {
                     // Same suppression PatchAll wraps it in: the patch's SetLevel /
                     // Demolish / Repair fire the stock facility and building events, which
@@ -12248,6 +12264,11 @@ namespace Parsek
                         "Warp start at UT="
                         + warpStartUT.ToString("R", CultureInfo.InvariantCulture)
                         + " — patched facility visuals");
+                }
+                else if (Ledger.IsHeldFromNewerVersion)
+                {
+                    ParsekLog.Verbose("WarpFacilities",
+                        "Warp start: facility patch skipped (ledger held from a newer Parsek version)");
                 }
             }
 
@@ -19197,7 +19218,9 @@ namespace Parsek
             InterpolateAndPosition(ghostObject, recording, orbitSegments,
                 ref lastPlaybackIndex, recordingTime, 10000, out interpResult,
                 skipOrbitSegments: surfaceSkip,
-                recordingId: previewRecording?.RecordingId);
+                recordingId: previewRecording?.RecordingId,
+                pointFrameSource: "preview-flat-points",
+                flatPointSections: previewRecording?.TrackSections);
 
             if (previewGhostState != null && previewRecording != null)
             {
@@ -19717,7 +19740,9 @@ namespace Parsek
                     InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, skipOrbitSegments: surfaceSkip,
-                        recordingId: bgRec.RecordingId);
+                        recordingId: bgRec.RecordingId,
+                        pointFrameSource: "chain-flat-points",
+                        flatPointSections: bgRec.TrackSections);
 
                     // Update ghost map ProtoVessel orbit if segment changed
                     UpdateChainGhostOrbitIfNeeded(chain, bgRec.OrbitSegments, currentUT);
@@ -23093,7 +23118,8 @@ namespace Parsek
                 ref playbackIdx, ut, index * 10000, out interpResult,
                 allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip,
                 recordingId: traj.RecordingId, sectionIndex: splineSectionIdx,
-                pointFrameSource: "flat-points");
+                pointFrameSource: "flat-points",
+                flatPointSections: traj.TrackSections);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -24163,12 +24189,30 @@ namespace Parsek
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex,
             double targetUT, bool allowActivation, out InterpolationResult interpResult,
             string recordingId = null, int sectionIndex = -1,
-            string pointFrameSource = "input")
+            string pointFrameSource = "input",
+            List<TrackSection> flatPointSections = null)
         {
             TrajectoryPoint before, after;
             float t;
             bool hasSegment = TrajectoryMath.InterpolatePoints(
                 points, ref cachedIndex, targetUT, out before, out after, out t);
+
+            // A flat Points read can land on a Relative section's anchor-local metre
+            // offsets (a section gap, or a span no section covers). Those are not
+            // lat/lon/alt: route them through the section's body-fixed shadow, or refuse.
+            // Without a segment only `before` is meaningful (`after` is default).
+            if (!hasSegment)
+                after = before;
+            if (flatPointSections != null
+                && points != null
+                && points.Count > 0
+                && !TryDispatchFlatPointEndpoints(
+                    flatPointSections, ref before, ref after, targetUT, recordingId, pointFrameSource))
+            {
+                interpResult = InterpolationResult.Zero;
+                ghost.SetActive(false);
+                return;
+            }
 
             if (!hasSegment)
             {
@@ -26452,7 +26496,8 @@ namespace Parsek
             bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
             if (TryResolveInterpolatedWorldPosition(
                     traj.Points, traj.OrbitSegments, ref cachedIndex,
-                    playbackUT, index * 10000, surfaceSkip, out worldPos))
+                    playbackUT, index * 10000, surfaceSkip, out worldPos,
+                    traj.TrackSections))
             {
                 return true;
             }
@@ -26470,7 +26515,8 @@ namespace Parsek
             double targetUT,
             int orbitCacheBase,
             bool skipOrbitSegments,
-            out Vector3d worldPos)
+            out Vector3d worldPos,
+            List<TrackSection> flatPointSections = null)
         {
             if (!skipOrbitSegments
                 && TryResolveOrbitWorldPosition(segments, targetUT, orbitCacheBase, out worldPos))
@@ -26478,7 +26524,8 @@ namespace Parsek
                 return true;
             }
 
-            return TryResolvePointWorldPosition(points, ref cachedIndex, targetUT, out worldPos);
+            return TryResolvePointWorldPosition(
+                points, ref cachedIndex, targetUT, out worldPos, flatPointSections);
         }
 
         bool TryResolveOrbitTailWorldPosition(
@@ -27056,19 +27103,39 @@ namespace Parsek
             List<TrajectoryPoint> points,
             ref int cachedIndex,
             double targetUT,
-            out Vector3d worldPos)
+            out Vector3d worldPos,
+            List<TrackSection> flatPointSections = null)
         {
             worldPos = Vector3d.zero;
             if (points == null || points.Count == 0)
                 return false;
-            if (points.Count == 1)
-                return TryResolveTrajectoryPointWorldPosition(points[0], out worldPos);
 
             TrajectoryPoint before;
             TrajectoryPoint after;
             float t;
+            if (points.Count == 1)
+            {
+                before = points[0];
+                after = points[0];
+                if (flatPointSections != null
+                    && !TryDispatchFlatPointEndpoints(
+                        flatPointSections, ref before, ref after, targetUT, null, "world-resolve-flat-points"))
+                {
+                    return false;
+                }
+                return TryResolveTrajectoryPointWorldPosition(before, out worldPos);
+            }
+
             bool hasSegment = TrajectoryMath.InterpolatePoints(
                 points, ref cachedIndex, targetUT, out before, out after, out t);
+            if (!hasSegment)
+                after = before;
+            if (flatPointSections != null
+                && !TryDispatchFlatPointEndpoints(
+                    flatPointSections, ref before, ref after, targetUT, null, "world-resolve-flat-points"))
+            {
+                return false;
+            }
             if (!hasSegment)
             {
                 return points != null
@@ -28309,7 +28376,9 @@ namespace Parsek
             InterpolateAndPosition(ghost, rec.Points, rec.OrbitSegments,
                 ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
                 allowActivation: allowActivation,
-                recordingId: rec.RecordingId, sectionIndex: splineSectionIdx);
+                recordingId: rec.RecordingId, sectionIndex: splineSectionIdx,
+                pointFrameSource: "loop-flat-points",
+                flatPointSections: rec.TrackSections);
         }
 
         /// <summary>
@@ -29497,7 +29566,8 @@ namespace Parsek
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
             out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false,
             string recordingId = null, int sectionIndex = -1,
-            string pointFrameSource = "input")
+            string pointFrameSource = "input",
+            List<TrackSection> flatPointSections = null)
         {
             // Check orbit segments first (unless suppressed for surface vehicles)
             if (!skipOrbitSegments && segments != null && segments.Count > 0)
@@ -29545,7 +29615,47 @@ namespace Parsek
 
             // Fall through to point-based interpolation
             InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult,
-                recordingId, sectionIndex, pointFrameSource);
+                recordingId, sectionIndex, pointFrameSource, flatPointSections);
+        }
+
+        /// <summary>
+        /// Flat-points dispatch for <see cref="FlatPointFrameDispatch"/>: substitutes the
+        /// body-fixed shadow for a Relative-offset endpoint, or returns false when an
+        /// endpoint has no body-fixed reading. Both outcomes are logged rate-limited.
+        /// </summary>
+        private static bool TryDispatchFlatPointEndpoints(
+            List<TrackSection> sections,
+            ref TrajectoryPoint before,
+            ref TrajectoryPoint after,
+            double targetUT,
+            string recordingId,
+            string pointFrameSource)
+        {
+            if (FlatPointFrameDispatch.TryDispatchEndpoints(
+                    sections, ref before, ref after, out int substituted))
+            {
+                if (substituted > 0)
+                {
+                    ParsekLog.VerboseRateLimited("Playback",
+                        "flat-point-relative-shadow|" + (recordingId ?? "(none)"),
+                        $"Flat-point fallback read a Relative offset; used the body-fixed shadow: " +
+                        $"rec={recordingId ?? "(none)"} source={pointFrameSource ?? "(none)"} " +
+                        $"endpoints={substituted.ToString(CultureInfo.InvariantCulture)} " +
+                        $"ut={targetUT.ToString("F2", CultureInfo.InvariantCulture)}",
+                        5.0);
+                }
+                return true;
+            }
+
+            ParsekLog.InfoRateLimited("Playback",
+                "flat-point-relative-refused|" + (recordingId ?? "(none)"),
+                $"Flat-point fallback refused: a Relative-offset endpoint has no body-fixed shadow, ghost hidden " +
+                $"rec={recordingId ?? "(none)"} source={pointFrameSource ?? "(none)"} " +
+                $"ut={targetUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"beforeUT={before.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"afterUT={after.ut.ToString("F2", CultureInfo.InvariantCulture)}",
+                10.0);
+            return false;
         }
 
         #endregion

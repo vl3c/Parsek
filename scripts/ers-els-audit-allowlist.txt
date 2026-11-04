@@ -38,7 +38,6 @@ Source/Parsek/GameActions/LedgerOrchestrator.Persistence.cs
 Source/Parsek/GameActions/LedgerOrchestrator.Recalculate.cs
 Source/Parsek/GameActions/LedgerOrchestrator.Recovery.cs
 Source/Parsek/GameActions/LedgerOrchestrator.Seeds.cs
-Source/Parsek/GameActions/LedgerLoadMigration.cs
 # [ERS-exempt] the capture-order allocator takes the next value above every row the ledger
 # physically holds (tombstoned and superseded rows included), so no number is ever reissued.
 Source/Parsek/GameActions/CaptureSequence.cs

@@ -117,14 +117,9 @@ namespace Parsek
                             ApplyParachuteDeployedEvent(state, ghost, evt.partPersistentId));
                         break;
                     case PartEventType.EngineIgnited:
-                        // Use at least a minimum emission on ignition (#165) — older
-                        // recordings may contain seed events with throttle=0 from before
-                        // the recording-side fix. The 0.01 floor ensures plume visibility
-                        // for backward compatibility. New recordings skip zero-throttle
-                        // engine seeds entirely (PartStateSeeder.EmitEngineSeedEvents).
-                        RecordEngineEvent(
-                            tally, state, evt, System.Math.Max(evt.value, 0.01f),
-                            ref audioPowerTouched);
+                        // Producers never emit a zero-throttle ignition (#165,
+                        // PartStateSeeder.ShouldSkipZeroThrottleEngineSeed).
+                        RecordEngineEvent(tally, state, evt, evt.value, ref audioPowerTouched);
                         break;
                     case PartEventType.EngineShutdown:
                         RecordEngineEvent(tally, state, evt, 0f, ref audioPowerTouched);

@@ -119,8 +119,8 @@ namespace Parsek.Tests.Analyzer.Rules
             Assert.DoesNotContain(findings, f => f.Level == VerdictLevel.Fail);
         }
 
-        // Guards (edge cases 1-3): a trajectory LoadFault (truncated / text /
-        // pre-reset) surfaces as a FAIL carrying the exact production reason string.
+        // Guards (edge cases 1-3): a trajectory LoadFault (truncated / not the
+        // current magic) surfaces as a FAIL carrying the exact production reason string.
         // Fails if malformed sidecars are dropped instead of reported.
         [Fact]
         public void TrajectoryLoadFault_FailsWithReason()
@@ -128,7 +128,7 @@ namespace Parsek.Tests.Analyzer.Rules
             var model = ModelWith(
                 loadFaults: new[]
                 {
-                    new LoadFault("p", "trajectory", "text-sidecar-unsupported", "text0"),
+                    new LoadFault("p", "trajectory", "magic-mismatch", "text0"),
                 });
 
             List<Finding> findings = Run(model);
@@ -137,7 +137,7 @@ namespace Parsek.Tests.Analyzer.Rules
                 f.RuleId == Inv5SchemaGate.SchemaGateRuleId
                 && f.Level == VerdictLevel.Fail
                 && f.Target == "text0"
-                && f.Message.Contains("reason=text-sidecar-unsupported"));
+                && f.Message.Contains("reason=magic-mismatch"));
         }
 
         // Guards: a sidecar that both load-faulted AND disagrees on generation is

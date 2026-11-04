@@ -118,14 +118,13 @@ AREAS = collections.OrderedDict([
         BuildCommittedScienceSubjectCredits
         """)),
     ("Seeds", (
-        "Initial resource baselines: the funds / science / reputation / progress seeds, "
-        "the facility cost estimates and the budget-touch predicates.",
+        "Initial resource baselines: the funds / science / reputation / progress seeds "
+        "and the budget-touch predicates.",
         """
         SeedInitialResourceBalances ProgressSeedProbe ReadProgressSeedProbe
         ReadProgressSeedProbeLive EnsurePreLedgerProgressSeed EnsureReputationSeedForCommit
         CurrencyPoolProbe ReadCurrencyPoolProbe FundsSeedDecision DecideInitialFundsSeed
-        EnsureInitialFundsSeed TryGetFundsSeed EnsureLegacyFacilityUpgradeCostEstimates
-        ReadFacilityCostTableProbe ReadFacilityCostTableProbeLive ReadFacilityLevelCosts
+        EnsureInitialFundsSeed TryGetFundsSeed
         EnsureInitialScienceSeed EnsureInitialReputationSeed
         TryReadUncommittedRecordingsAtSeedCapture ReadLoadedFlightStateUT ResolveSeedCaptureUT
         ReadUncommittedRecordingIdsLive AddTreeRecordingIds StampRowsRecordedBeforeSeedCapture
@@ -138,20 +137,15 @@ AREAS = collections.OrderedDict([
         ActionTouchesReputationBudget IsAuthoritativeReduction
         """)),
     ("Persistence", (
-        "Save and load: OnKspLoad, OnSave / OnLoad, old-save migration and the load-time "
-        "ledger repairs.",
+        "Save and load: OnKspLoad, OnSave / OnLoad and the load-time kerbal assignment "
+        "repairs.",
         """
-        ResetMigrateOldSaveEventsForLoad ResetMigrateOldSaveEventsForTesting
-        SetMigrateOldSaveEventsRanThisLoadForTesting GetMigrateOldSaveEventsRanThisLoadForTesting
-        OnKspLoad KeepRowsOfRecordingsThatFailedToLoad ExcludeInertRecordingIds
-        MigrateOldSaveEvents MigrateKerbalAssignments InheritKerbalAssignmentActionIds
+        OnKspLoad KeepRowsOfRecordingsThatFailedToLoad
+        MigrateKerbalAssignments InheritKerbalAssignmentActionIds
         SlotOwnerOrSelf CrewSlotOwnerName IsResourceImpactingAction KerbalAssignmentRepairRename KerbalAssignmentEndStateRewrite
         CarryTouristRoles KerbalAssignmentRepairStats ClassifyKerbalAssignmentRepair
         FindRepairRowMatch KerbalAssignmentActionsMatch PopulateUnpopulatedCrewEndStates
         OnSave OnLoad SeedKscSequenceCounterFromLoadedLedger KscSequenceCounterForTesting
-        RepairLegacyPartPurchaseActionsOnLoad RepairZeroCostFacilityUpgradeActionsOnLoad
-        TryRecoverBrokenLedgerOnLoad IsRecoverableEventType LedgerHasMatchingAction
-        LedgerHasMatchingScienceEarning GetLedgerScienceEarningTotal MapEventTypeToActionType
         """)),
     ("LiveEvents", (
         "Live gameplay events written straight to the ledger: KSC spending, strategy "
@@ -184,16 +178,12 @@ AREAS = collections.OrderedDict([
         ResolveRecoveryAdmissibleRecordingIds PickRecoveryRecording
         """)),
     ("Affordability", (
-        "Pending science debits and credits not yet in the ledger, the strategy science "
-        "baseline, and the affordability checks stock UI blocks read.",
+        "Pending science debits and credits not yet in the ledger, and the affordability "
+        "checks stock UI blocks read.",
         """
         ComputePendingRecentKscTechResearchScienceDebit GetPendingRecentKscTechResearchScienceDebit
         ComputePendingUncommittedStrategyScienceDebit SumObservedStrategyInputScienceDebits
-        SumCommittedExchangerStrategyScienceDebits ComputeUnmatchableStrategyScienceDebitBaseline
-        ResolveEffectiveUnmatchableStrategyScienceBaseline CanStrategyScienceDebitRowStillLand
-        CaptureUnmatchableStrategyScienceDebitBaselineOnLoad
-        SetUnmatchableStrategyScienceDebitBaselineForTesting
-        GetUnmatchableStrategyScienceDebitBaselineForTesting
+        SumCommittedExchangerStrategyScienceDebits
         GetPendingUncommittedStrategyScienceDebit ComputePendingRecentKscScienceCredit
         GetPendingRecentKscScienceCredit CollectLedgerActionIds ComputeEffectiveAffordable
         CanAffordScienceSpending CanAffordFundsSpending

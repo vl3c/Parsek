@@ -370,38 +370,9 @@ the LOADER-FAULT rule that turns loader parse failures into findings. Each is on
   only against physical sections, not checkpoint-vs-checkpoint), not a legitimate
   coarse/fine wrap, so no type-aware exemption is granted (see
   `docs/dev/todo-and-known-bugs.md` "Overlapping / duplicate TrackSections").
-  **The checkpoint-vs-checkpoint half of the residue is repaired at LOAD, never exempted
-  here (2026-09-07).** The rule is unchanged, and deliberately: a save written before the
-  producer's anti-double-cover guard (`dd8b0272c`) keeps a coarse `OrbitalCheckpoint`
-  envelope `[T0,T2]` alongside a payload-LESS shell `[T0,T1]` and a re-clip `[T1,T2]`,
-  and re-running the producer over such a save adds and clips nothing - both read paths
-  also gate its empty-shell reconcile off (`reconcileEmptySections: false` in
-  `TrajectorySidecarBinary.cs` and `TrajectoryTextSidecarCodec.cs`) - so the shape would
-  otherwise red forever. `CheckpointDoubleCoverRetire` drops the shell and the re-clip IN
-  MEMORY during `ParsekScenario.OnLoad`, under a coverage predicate (the survivors must
-  already carry the whole span AND, where the candidate carries one, the identical conic;
-  a shell is a candidate but never a coverer) with the coverage union and the optimizer's
-  split decisions both asserted unmoved.
-
-  What it measurably does, on the three operator sidecars committed at
-  `Source/Parsek.Tests/Fixtures/Inv2DoubleCoverResidue/` and driven through the
-  production read path by `CheckpointDoubleCoverRetireTests.RealBytes_*`:
-
-  | recording | sections | INV2 overlaps | dropped section indices |
-  | --- | --- | --- | --- |
-  | `041770246...` | 57 -> 55 | 3 -> 1 | 45 (shell), 47 (re-clip) |
-  | `36c7688b...` | 64 -> 62 | 4 -> 2 | 58 (shell), 60 (re-clip) |
-  | `58130506...` | 25 -> 23 | 3 -> 1 | 5 (shell), 7 (re-clip) |
-
-  So the pass does NOT make such a save analyze `RED=0` in game. Every
-  checkpoint-vs-checkpoint overlap goes; what stands is a different population, pinned by
-  `RealBytes_WhatStandsAfterwardsIsAlwaysAnEmptyAbsoluteExactSpanDuplicate`: a frame-LESS
-  `Absolute` section whose span exactly equals the checkpoint section beside it (todo
-  `EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT`). Separately, the
-  OFFLINE analyzer reads the sidecar bytes and never runs `OnLoad`, so it still reports
-  the retired sections too. That asymmetry is intended: the offline reading is the one
-  the fixture builders and the harness `analyzer` verifier gate on, and it must keep
-  naming residue that is still on disk.
+  A save written before the producer's anti-double-cover guard (`dd8b0272c`) keeps that
+  checkpoint-vs-checkpoint residue on disk and is not repaired at load (1.0 save-format
+  ruling, 2026-11-04: alpha saves load best effort), so INV2 keeps reporting it.
 - **INV3 RELATIVE contract** (`RuleId INV3-RELATIVE-CONTRACT`). For a
   `ReferenceFrame.Relative` section: `anchorRecordingId` (non-loop) OR
   `anchorVesselId` (loop) must be present, and out-of-`[-90,90]`/`[-180,180]`
@@ -715,14 +686,12 @@ Each: scenario -> expected behavior -> v1 or deferred.
    returns a probe with `Supported=false` or the read throws; the loader records
    a `LoadFault{ FileKind="trajectory", Reason=<probe reason> }` and a
    `INV5-SCHEMA-GATE` FAIL. The analyzer does not crash. v1.
-2. **Text-format `.prec` (pre-v0-reset corpus)**. Scenario: a 9/14-style legacy
-   text sidecar. Expected: `TryProbeTrajectorySidecar` returns
-   `Supported=false, FailureReason="text-sidecar-unsupported"`; loader records a
-   LoadFault; INV5 FAIL with that reason. Matches the production hard reject at
+2. **Text-format `.prec`**. Expected: `TryProbeTrajectorySidecar` returns
+   `Supported=false, FailureReason="magic-mismatch"`; loader records a
+   LoadFault; INV5 FAIL with that reason. Matches the production reject at
    `RecordingStore.DeserializeTrajectorySidecar`. v1.
-3. **Pre-reset binary magic**. Scenario: a sidecar with the old binary magic
-   tag. Expected: `HasPreResetBinaryMagic` path yields a probe with the
-   pre-reset failure reason; LoadFault + INV5 FAIL. v1.
+3. **Any other non-`PSK0` magic**. Expected: the same `magic-mismatch` probe;
+   LoadFault + INV5 FAIL. v1.
 4. **Recording metadata generation != sidecar generation**. Scenario: tree node
    says gen 4, `.prec` probe says gen 3. Expected: INV5 FAIL reason
    `generation-mismatch` (the loader mirrors the production check at
@@ -825,9 +794,10 @@ Each: scenario -> expected behavior -> v1 or deferred.
 - The RELATIVE / parent-anchored / schema-generation contracts are not
   reinterpreted. The analyzer asserts them as-is; a rule that would require
   changing a contract is a design bug, caught by the `CitedContract` review gate.
-- No migration or back-compat path is added for pre-generation-4 recordings
-  (pre-1.0 no-migration policy). Old-generation data is REPORTED (STALE-FIXTURE
-  for fixtures, FAIL for real saves via INV5), never silently upgraded.
+- No migration or back-compat path is added for pre-generation-4 (pre-1.0)
+  recordings (save-format policy `docs/dev/design-save-format-policy.md`).
+  Old-generation data is REPORTED (STALE-FIXTURE for fixtures, FAIL for real
+  saves via INV5), never silently upgraded.
 
 ## Backward Compatibility
 
@@ -1031,7 +1001,7 @@ and known-good builder output exposes wrong rules). Body resolution uses
   exception escapes `Analyzer.Run`. Fails if a corrupt sidecar crashes the tool
   (ties into F-series fault scenarios; a crash instead of a finding is itself a
   bug).
-- **Text / pre-reset sidecar**: LoadFault with the exact production reason
+- **Non-`PSK0` sidecar**: LoadFault with the exact production reason
   string, no crash. Fails if the analyzer diverges from the production reject
   path.
 - **Corrupt `.sfs` (unbalanced braces)**: single `sfs` LoadFault + empty model,

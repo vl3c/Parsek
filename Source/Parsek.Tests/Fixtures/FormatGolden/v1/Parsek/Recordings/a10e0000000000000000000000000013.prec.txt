@@ -1,0 +1,94 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = a10e0000000000000000000000000013
+sidecarEpoch = 1
+sectionAuthoritative = True
+TRACK_SECTION
+{
+	env = 2
+	ref = 1
+	startUT = 160
+	endUT = 170
+	sampleRate = 5
+	src = 1
+	minAlt = 71000
+	maxAlt = 72500
+	anchorRecordingId = a10e0000000000000000000000000011
+	anchorPid = 3100000
+	POINT
+	{
+		ut = 160
+		lat = 0
+		lon = -1.5
+		alt = 0.2
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 0
+		velZ = 0
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+	POINT
+	{
+		ut = 170
+		lat = 2
+		lon = -40
+		alt = 3
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 0
+		velZ = 0
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+	BODY_FIXED_POINT
+	{
+		ut = 160
+		lat = -0.086
+		lon = -74.538
+		alt = 71000
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 1890
+		velZ = 0
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+	BODY_FIXED_POINT
+	{
+		ut = 170
+		lat = -0.085
+		lon = -74.52
+		alt = 72500
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 1700
+		velZ = 0
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+}

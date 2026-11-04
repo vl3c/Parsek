@@ -4,8 +4,9 @@
 A pure file move: every class-level member (method or nested type) is copied verbatim,
 with its leading comments, doc comments and attributes, into
 ``BackgroundRecorder.<Area>.cs``; nothing inside a member is edited. The class is already
-``internal partial class BackgroundRecorder`` (siblings PartEventPolling / State / Testing /
-TimeJump predate this script and are not touched), so no declaration changes. Everything
+``internal partial class BackgroundRecorder`` (siblings PartEventPolling / PhysicsSoi / State /
+Testing / TimeJump are not outputs of this script and are not touched), so no declaration
+changes. Everything
 above the class declaration (usings, the ``InheritedEngineState`` struct, the class doc
 comment) stays in the main file; each new file repeats only the usings.
 
@@ -38,8 +39,8 @@ Re-running on a newer main (for example after a merge conflict on the split bran
     git checkout origin/main -- Source/Parsek/BackgroundRecorder.cs
     python3 scripts/refactor/split_backgroundrecorder.py
 
-(``--remove-outputs`` deletes exactly the AREAS files and nothing else, so the four older
-siblings PartEventPolling / State / Testing / TimeJump survive; never ``rm`` a
+(``--remove-outputs`` deletes exactly the AREAS files and nothing else, so the five other
+siblings PartEventPolling / PhysicsSoi / State / Testing / TimeJump survive; never ``rm`` a
 ``BackgroundRecorder.*.cs`` glob.) Then map any member it reports as unmapped (edit AREAS or
 MAIN_MEMBERS below) and run it again. ``--list`` prints every class-level member with its
 kind, line range and target file and writes nothing; ``--check`` runs the split and

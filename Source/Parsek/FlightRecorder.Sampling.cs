@@ -642,7 +642,7 @@ namespace Parsek
                 effectiveMinSampleInterval,
                 attitudeSampleThresholdDegrees);
 
-            if (!motionTriggered && !attitudeTriggered)
+            if (!motionTriggered && !attitudeTriggered && !physicsSoiSamplePending)
             {
                 // Bug #595: the previous 2.0s rate-limit window still produced
                 // ~200 lines per 30-min session during stationary intervals.
@@ -669,6 +669,10 @@ namespace Parsek
                 point.longitude = pose.Longitude;
                 point.altitude = pose.Altitude;
             }
+            // One section holds one body: a sample on a new body (an off-rails SOI change)
+            // closes the section here and becomes the next section's first frame.
+            SplitSectionIfPhysicsBodyChanged(v, point);
+            ClearPhysicsSoiSamplePending();
             TryCanonicalizeActiveReFlyRecordingPoint(ref point, "physics-sample");
             TrajectoryPoint absolutePoint = point;
 

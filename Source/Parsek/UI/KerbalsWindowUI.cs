@@ -505,7 +505,7 @@ namespace Parsek
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
             try
             {
-                kerbalsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                kerbalsWindowRect = ParsekUiScale.Window(
                     WindowIdKey.GetHashCode(),
                     kerbalsWindowRect,
                     DrawKerbalsWindow,

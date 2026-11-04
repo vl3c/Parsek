@@ -1858,7 +1858,7 @@ namespace Parsek
 
         public void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
-            if (!IsRecording || !isOnRails) return;
+            if (!IsRecording) return;
             if (data.host != FlightGlobals.ActiveVessel)
             {
                 ParsekLog.VerboseRateLimited("Recorder", "soi-other-vessel",
@@ -1866,6 +1866,15 @@ namespace Parsek
                 return;
             }
             if (data.host.persistentId != RecordingVesselId) return;
+
+            // Off rails (a burn through the boundary, a 1x or physics-warp coast) there is no
+            // orbit segment to roll over; the per-frame sampler splits the section at the
+            // first sample on the new body (SplitSectionIfPhysicsBodyChanged).
+            if (!isOnRails)
+            {
+                ArmPhysicsSoiSample(data.from?.name, data.to?.name, Planetarium.GetUniversalTime());
+                return;
+            }
 
             // Close current orbit segment in old SOI
             currentOrbitSegment.endUT = Planetarium.GetUniversalTime();

@@ -35,7 +35,7 @@ Re-running on a newer main (for example after a merge conflict on the split bran
     python3 scripts/refactor/split_flightrecorder.py --clean
 
 ``--clean`` deletes this script's own outputs (the AREAS files) before splitting; the
-older sibling partials FlightRecorder.CheatTeleport.cs / .Classifiers.cs /
+other sibling partials FlightRecorder.CheatTeleport.cs / .Classifiers.cs / .PhysicsSoi.cs /
 .ReFlyCanonicalization.cs / .ReflectionClassifiers.cs are NOT outputs of this script and
 are never touched. Then map any member it reports as unmapped (edit AREAS below) and run
 it again. ``--list`` prints every class-level member with its kind, line range and target
@@ -58,7 +58,8 @@ CLASS_NAME = "FlightRecorder"
 CLASS_DECL = "    public partial class FlightRecorder"
 
 # Existing sibling partials (not produced here); an area must not reuse their names.
-EXISTING_SIBLINGS = ("CheatTeleport", "Classifiers", "ReFlyCanonicalization", "ReflectionClassifiers")
+EXISTING_SIBLINGS = ("CheatTeleport", "Classifiers", "PhysicsSoi", "ReFlyCanonicalization",
+                     "ReflectionClassifiers")
 
 # Area -> (one-line description written above the class wrapper, member names in it).
 # Order here is the order the files are reported in; members keep their original order

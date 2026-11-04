@@ -29,8 +29,8 @@ namespace Parsek.Tests
         private readonly List<string> logLines = new List<string>();
         private readonly string tempDir;
 
-        // Every suffix the recording pipeline writes (RecordingPaths.Build* + the
-        // legacy .pcrf). The reaper must delete all of these.
+        // Every suffix the recording pipeline writes (RecordingPaths.Build*). The
+        // reaper must delete all of these.
         private static readonly string[] AllSuffixes =
         {
             ".prec",
@@ -40,7 +40,6 @@ namespace Parsek.Tests
             "_vessel.craft.txt",
             "_ghost.craft",
             "_ghost.craft.txt",
-            ".pcrf",
         };
 
         public InGameTestSidecarReaperTests()
@@ -95,7 +94,7 @@ namespace Parsek.Tests
             int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
                 tempDir, new[] { syntheticA, syntheticB }, Ctx);
 
-            // Two ids x eight suffixes.
+            // Two ids x seven suffixes.
             Assert.Equal(AllSuffixes.Length * 2, deleted);
 
             // All sidecars for the two ids are gone.
@@ -111,7 +110,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO][TestRunner]") &&
                 l.Contains("UnitTest sidecar reap") &&
-                l.Contains("deleted 16 sidecar file(s)") &&
+                l.Contains("deleted 14 sidecar file(s)") &&
                 l.Contains("for 2 synthetic recording id(s)") &&
                 l.Contains("preservedKnown=0"));
         }
@@ -325,7 +324,7 @@ namespace Parsek.Tests
         public void SuffixListMatches_RecordingPipeline()
         {
             // Confirm the reaper's suffix coverage matches what RecordingPaths exposes
-            // PER-RECORDING builders for (plus the legacy .pcrf, which has no builder left).
+            // PER-RECORDING builders for.
             //
             // The builder set is DISCOVERED by reflection - every static string-returning method on
             // RecordingPaths whose single parameter is a recordingId - so adding a builder actually
@@ -355,9 +354,9 @@ namespace Parsek.Tests
                 expectedList.Add(Path.GetFileName((string)m.Invoke(null, new object[] { id })));
             string[] expectedFromPaths = expectedList.ToArray();
 
-            // The reaper's own list carries the seven builder suffixes plus the legacy .pcrf.
+            // The reaper's own list carries exactly the seven builder suffixes.
             Assert.Equal(7, expectedFromPaths.Length);
-            Assert.Equal(expectedFromPaths.Length + 1, AllSuffixes.Length);
+            Assert.Equal(expectedFromPaths.Length, AllSuffixes.Length);
             foreach (string fileName in expectedFromPaths)
             {
                 string suffix = fileName.Substring(id.Length);

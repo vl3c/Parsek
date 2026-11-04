@@ -22,6 +22,19 @@ namespace Parsek
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
 
+        /// <summary>The <c>PARSEK_MILESTONES</c> <c>version</c> this build writes (1.0 baseline: 1).</summary>
+        internal const int CurrentMilestonesVersion = 1;
+
+        // A PARSEK_MILESTONES node a newer build wrote (version above CurrentMilestonesVersion),
+        // held as a verbatim copy: nothing is loaded from it and every save writes it back
+        // unchanged, with the MILESTONE_STATE nodes the load saw. Null otherwise. Replaced by every
+        // milestone load and the cold-load reset.
+        private static ConfigNode heldNewerMilestonesNode;
+        private static List<ConfigNode> heldNewerMutableStateNodes;
+
+        /// <summary>True while the loaded milestones came from a newer build and are held verbatim.</summary>
+        internal static bool IsHeldFromNewerVersion => heldNewerMilestonesNode != null;
+
         private static string ShortId(string id)
         {
             if (string.IsNullOrEmpty(id)) return "?";
@@ -333,8 +346,17 @@ namespace Parsek
         /// <summary>Builds the <c>PARSEK_MILESTONES</c> node (file and save node).</summary>
         internal static ConfigNode BuildMilestonesNode()
         {
+            if (heldNewerMilestonesNode != null)
+            {
+                if (milestones.Count > 0)
+                    ParsekLog.WarnRateLimited("MilestoneStore", "held-newer-drops-session",
+                        $"Milestones are held from a newer Parsek version; {milestones.Count.ToString(CultureInfo.InvariantCulture)} " +
+                        "milestone(s) made this session are not saved (the held node is written back unchanged)");
+                return heldNewerMilestonesNode.CreateCopy();
+            }
+
             var rootNode = new ConfigNode(MilestonesNodeName);
-            rootNode.AddValue("version", 1);
+            rootNode.AddValue("version", CurrentMilestonesVersion);
 
             for (int i = 0; i < milestones.Count; i++)
             {
@@ -447,24 +469,62 @@ namespace Parsek
 
             initialLoadDone = true;
             milestones.Clear();
+            heldNewerMilestonesNode = null;
+            heldNewerMutableStateNodes = null;
             return true;
         }
 
         private static void ParseMilestonesNode(ConfigNode rootNode, string sourceLabel)
         {
+            string versionStr = rootNode.GetValue("version");
+            SaveFormatClass versionClass = SaveFormat.Milestones.Classify(SaveFormat.ParseStored(versionStr));
+            if (versionClass == SaveFormatClass.Newer)
+            {
+                heldNewerMilestonesNode = rootNode.CreateCopy();
+                ParsekLog.Warn("MilestoneStore",
+                    $"Milestones in {sourceLabel} have version={versionStr} newer than this build's " +
+                    $"{CurrentMilestonesVersion.ToString(CultureInfo.InvariantCulture)}: held verbatim " +
+                    $"({rootNode.GetNodes("MILESTONE").Length.ToString(CultureInfo.InvariantCulture)} node(s)), " +
+                    "nothing loaded from them, written back unchanged on save");
+                return;
+            }
+            if (versionClass == SaveFormatClass.Upgradable)
+            {
+                // Upgrade a copy: the caller's node is the save's own.
+                rootNode = rootNode.CreateCopy();
+                if (!SaveFormat.TryUpgradeNode(SaveFormat.Milestones, SaveFormat.ParseStored(versionStr).Value,
+                        rootNode, sourceLabel, out string upgradeFailure))
+                    ParsekLog.Warn("MilestoneStore",
+                        $"Milestones in {sourceLabel} version={versionStr} could not be upgraded ({upgradeFailure}); " +
+                        "loading best effort");
+            }
+            else if (versionClass != SaveFormatClass.Current)
+            {
+                ParsekLog.Info("MilestoneStore",
+                    $"Milestones in {sourceLabel} have version='{versionStr ?? "(missing)"}' ({versionClass}); " +
+                    "pre-1.0 data, loading best effort");
+            }
+
             ConfigNode[] milestoneNodes = rootNode.GetNodes("MILESTONE");
+            int unreadableEvents = 0;
             if (milestoneNodes != null)
             {
                 for (int i = 0; i < milestoneNodes.Length; i++)
-                    milestones.Add(Milestone.DeserializeFrom(milestoneNodes[i]));
+                {
+                    Milestone m = Milestone.DeserializeFrom(milestoneNodes[i]);
+                    unreadableEvents += m.UnreadableEventNodes.Count;
+                    milestones.Add(m);
+                }
             }
 
-            ParsekLog.Info("MilestoneStore", $"Loaded {milestones.Count} milestones from {sourceLabel}");
+            ParsekLog.Info("MilestoneStore",
+                $"Loaded {milestones.Count} milestones from {sourceLabel}; " +
+                $"unreadableEventTypesKeptVerbatim={unreadableEvents.ToString(CultureInfo.InvariantCulture)}");
             for (int i = 0; i < milestones.Count; i++)
             {
                 ParsekLog.Verbose("MilestoneStore",
                     $"  milestone[{i}]: id={ShortId(milestones[i].MilestoneId)}, " +
-                    $"epoch={milestones[i].Epoch}, events={milestones[i].Events.Count}, " +
+                    $"events={milestones[i].Events.Count}, " +
                     $"committed={milestones[i].Committed}, lastReplayedIdx={milestones[i].LastReplayedEventIndex}");
             }
         }
@@ -513,6 +573,16 @@ namespace Parsek
             }
 
             ConfigNode[] stateNodes = scenarioNode.GetNodes("MILESTONE_STATE");
+            if (heldNewerMilestonesNode != null)
+            {
+                heldNewerMutableStateNodes = new List<ConfigNode>();
+                for (int i = 0; i < stateNodes.Length; i++)
+                    heldNewerMutableStateNodes.Add(stateNodes[i].CreateCopy());
+                ParsekLog.Verbose("MilestoneStore",
+                    $"RestoreMutableState: milestones held from a newer version; kept " +
+                    $"{stateNodes.Length.ToString(CultureInfo.InvariantCulture)} MILESTONE_STATE node(s) verbatim");
+                return;
+            }
             var stateMap = BuildStateMap(stateNodes);
 
             ParsekLog.Verbose("MilestoneStore",
@@ -556,6 +626,17 @@ namespace Parsek
             if (scenarioNode == null) return;
 
             scenarioNode.RemoveNodes("MILESTONE_STATE");
+
+            if (heldNewerMilestonesNode != null)
+            {
+                int kept = heldNewerMutableStateNodes?.Count ?? 0;
+                for (int i = 0; i < kept; i++)
+                    scenarioNode.AddNode(heldNewerMutableStateNodes[i].CreateCopy());
+                ParsekLog.Verbose("MilestoneStore",
+                    $"SaveMutableState: milestones held from a newer version; wrote {kept.ToString(CultureInfo.InvariantCulture)} " +
+                    "held MILESTONE_STATE node(s) back verbatim");
+                return;
+            }
 
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             for (int i = 0; i < milestones.Count; i++)
@@ -603,6 +684,8 @@ namespace Parsek
         {
             int dropped = milestones.Count;
             milestones.Clear();
+            heldNewerMilestonesNode = null;
+            heldNewerMutableStateNodes = null;
             initialLoadDone = false;
             lastSaveFolder = null;
             return dropped;

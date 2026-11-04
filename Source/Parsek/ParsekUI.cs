@@ -3096,8 +3096,10 @@ namespace Parsek
         internal static void FitWindowToScreen(ref Rect windowRect, float minWidth,
             string windowName)
         {
-            float sw = Screen.width;
-            float sh = Screen.height;
+            // Scaled-root units: inside a UI-scale host scope the screen is
+            // Screen.width / scale wide (ParsekUiScale).
+            float sw = ParsekUiScale.ScaledScreenWidth;
+            float sh = ParsekUiScale.ScaledScreenHeight;
             Rect before = windowRect;
             if (!WideWindowLayout.FitToScreen(ref windowRect, minWidth, sw, sh)) return;
             string name = windowName ?? "Popup window";
@@ -3113,7 +3115,7 @@ namespace Parsek
                 // Never wider than the screen, and a screen narrower than the window's own
                 // minimum lowers that minimum to the screen width.
                 float newW = WideWindowLayout.ResizeDragWidth(
-                    Event.current.mousePosition.x, windowRect.x, minWidth, Screen.width);
+                    Event.current.mousePosition.x, windowRect.x, minWidth, ParsekUiScale.ScaledScreenWidth);
                 float newH = Mathf.Max(minHeight, Event.current.mousePosition.y - windowRect.y);
                 windowRect.width = newW;
                 windowRect.height = newH;

@@ -497,7 +497,7 @@ namespace Parsek
                 attitudeMinSampleInterval,
                 backgroundAttitudeSampleThresholdDegrees);
 
-            if (!motionTriggered && !attitudeTriggered)
+            if (!motionTriggered && !attitudeTriggered && !state.physicsSoiSamplePending)
             {
                 return;
             }
@@ -512,6 +512,11 @@ namespace Parsek
                 state.recordingId,
                 ref point,
                 "physics-sample");
+            // One section holds one body: a sample on a new body (an SOI change while this
+            // vessel is in physics) closes the section here and becomes the next section's
+            // first frame.
+            SplitBackgroundSectionIfPhysicsBodyChanged(state, treeRec, bgVessel, point);
+            state.physicsSoiSamplePending = false;
             TrajectoryPoint absolutePoint = point;
             bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, bgVessel, ut);
             LogFirstDebrisOrdinarySampleDiagnostics(
@@ -1063,8 +1068,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Called when a background vessel changes SOI.
-        /// Closes the orbit segment in the old SOI and opens one in the new SOI.
+        /// Called when a background vessel changes SOI. On rails: closes the orbit segment in
+        /// the old SOI and opens one in the new SOI. Loaded (in physics): arms a sample, and
+        /// the per-frame sampler splits the track section at the first sample on the new body
+        /// (BackgroundRecorder.PhysicsSoi.cs).
         /// </summary>
         public void OnBackgroundVesselSOIChanged(Vessel v, CelestialBody fromBody)
         {
@@ -1113,7 +1120,15 @@ namespace Parsek
 
                 ParsekLog.Info("BgRecorder", $"SOI change for background vessel: pid={pid} " +
                     $"from={fromBody?.name ?? "?"} to={v.mainBody?.name ?? "?"}");
+                return;
             }
+
+            // Loaded (a formation flight through the boundary with the active vessel): no
+            // orbit segment to roll over; the sampler splits the section at the first sample
+            // on the new body (SplitBackgroundSectionIfPhysicsBodyChanged).
+            BackgroundVesselState loadedState;
+            if (loadedStates.TryGetValue(pid, out loadedState))
+                ArmBackgroundPhysicsSoiSample(loadedState, fromBody?.name, v.mainBody?.name, ut);
         }
 
         /// <summary>

@@ -65,11 +65,6 @@ namespace Parsek.Tests
                 ["GameActions/LedgerRolloutAdoption.cs::RecordVesselRolloutSpending"] = new[] { Stock },
                 // The recovery funds stock paid, paired to its recording.
                 ["GameActions/LedgerRecoveryFundsPairing.cs::TryAddVesselRecoveryFundsAction"] = new[] { Stock },
-                // Old-save and broken-ledger recovery convert stock events the pool already
-                // holds (stock applied them; a ParsekAuthored stamp would count them twice
-                // next to a saved reference, see the todo entry's phase 2 note).
-                ["GameActions/LedgerLoadMigration.cs::MigrateOldSaveEvents"] = new[] { Stock },
-                ["GameActions/LedgerLoadMigration.cs::TryRecoverBrokenLedgerOnLoad"] = new[] { Stock, Stock },
                 // In-game tests.
                 ["InGameTests/RuntimeTests.cs::CurrencyConverterStrategy_LedgerMatchesNetCredit"] = new[] { Stock },
                 ["InGameTests/RuntimeTests.cs::WriteLedgerVisibleFundsRow"] = new[] { Stock },

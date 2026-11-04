@@ -137,7 +137,6 @@ namespace Parsek.Tests
                 MilestoneId = id,
                 StartUT = startUT,
                 EndUT = endUT,
-                Epoch = 0,
                 Committed = true,
                 LastReplayedEventIndex = lastReplayedIdx
             };

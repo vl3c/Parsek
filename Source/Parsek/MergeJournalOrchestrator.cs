@@ -378,14 +378,6 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Finisher sess={sessionId} markerWas={(markerPresent ? "present" : "absent")} phase={phase}");
 
-            if (phase == MergeJournal.Phases.Complete)
-            {
-                // Legacy/older saves may persist Phase=Complete instead of the
-                // fully-cleared terminal state. Clear idempotently.
-                ClearJournalAndFinalSave(scenario, sessionId, persistSynchronously: false);
-                return true;
-            }
-
             // Every phase drives forward, Begin and an unknown phase string included.
             // A journal exists only after the attempt's tree committed (MergeCommit
             // commits it before RunMerge writes the journal), so no phase on disk is
@@ -727,8 +719,7 @@ namespace Parsek
             // Production RunMerge must durably persist the *cleared* journal
             // state, so clear before the final SaveGame call. The load-time
             // finisher cannot do that because it must not re-enter OnSave;
-            // there we keep the legacy Complete marker semantics and clear
-            // only in memory.
+            // there the journal is marked Complete and cleared only in memory.
             if (persistSynchronously)
             {
                 scenario.ActiveMergeJournal = null;

@@ -671,7 +671,8 @@ into stack "AB" and later undock:
    known head ids at definition time, a bigger change deferred to logistics.
    v1 DECISION: keep the excluded-head-id model. Reasons: (1) head ids are stable as
    verified above; (2) pre-1.0, no save-migration burden, so the persistence shape can
-   change later for free; (3) the cleanest harden (key exclusions by the fork's
+   change later for free (no longer true from the 1.0 save format: a shape change now
+   ships an upgrade step, `docs/dev/design-save-format-policy.md`); (3) the cleanest harden (key exclusions by the fork's
    `BranchPoint.Id`) has its own hole, since disconnected roots have no branch point.
    Phase-B safety to build in: when a Mission is loaded / used, drop any excluded head
    id that no longer resolves to a current through-line head and WARN-log it, so future

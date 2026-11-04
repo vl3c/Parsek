@@ -121,7 +121,7 @@ FAMILIES = collections.OrderedDict([
         [
             "RewindReadbackVerdict", "RewindReadbackFundsTolerance",
             "RewindReadbackScienceTolerance", "RewindReadbackReputationTolerance",
-            "ResolveRewindDivergence", "IsFinite", "ReadLiveSciencePoolForReadback",
+            "ResolveRewindDivergence", "IsFinite",
             "RunRewindReadbackGuard", "EvaluateReadbackResource", "RewindReadbackTag",
             "FmtNullable",
         ])),

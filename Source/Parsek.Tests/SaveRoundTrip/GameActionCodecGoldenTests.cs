@@ -12,10 +12,8 @@ namespace Parsek.Tests.SaveRoundTrip
     /// once with every field filled (capture sequence, conversion cause and sources set) and
     /// once sparse (every optional field unset), plus the capture-sequence edge values; the
     /// exact key / value sequence of the whole set is pinned by hash, a few header shapes are
-    /// pinned literally, and a load of the pinned node must write back byte-identically. The
-    /// load-side tallies a GAME_ACTION read feeds (legacy action ids, ContractAccept deadline
-    /// resolutions) are pinned through the one-line summaries the ledger load prints. A move
-    /// of codec code between types must keep every expectation here unchanged.
+    /// pinned literally, and a load of the pinned node must write back byte-identically. A
+    /// move of codec code between types must keep every expectation here unchanged.
     /// </summary>
     [Collection("Sequential")]
     public class GameActionCodecGoldenTests : IDisposable
@@ -186,47 +184,6 @@ namespace Parsek.Tests.SaveRoundTrip
                 Assert.Equal(FundsEarningSource.Recovery, loaded[n - 1].FundsSource);
                 Assert.Equal(ReputationSource.Other, loaded[n - 2].RepSource);
             });
-        }
-
-        [Fact]
-        public void Load_FeedsTheLegacyIdAndDeadlineTallies()
-        {
-            Ledger.ResetLegacyActionIdMigrationForTesting();
-            Ledger.ResetContractDeadlineMigrationTally();
-
-            var legacy = new ConfigNode("GAME_ACTION");
-            legacy.AddValue("ut", "55.5");
-            legacy.AddValue("type", ((int)GameActionType.FundsEarning).ToString(System.Globalization.CultureInfo.InvariantCulture));
-            legacy.AddValue("recordingId", "rec-legacy");
-            legacy.AddValue("seq", "4");
-            legacy.AddValue("cseq", "abc");
-            GameAction legacyRow = GameAction.DeserializeFrom(legacy);
-            Assert.Equal("act_legacy_a1a3abe44b49f15c", legacyRow.ActionId);
-            Assert.Equal(0L, legacyRow.CaptureSequence);
-
-            string accept = ((int)GameActionType.ContractAccept).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var absolute = new ConfigNode("GAME_ACTION");
-            absolute.AddValue("ut", "10"); absolute.AddValue("type", accept); absolute.AddValue("actionId", "act_a");
-            absolute.AddValue("deadlineAbsUT", "500");
-            var migrated = new ConfigNode("GAME_ACTION");
-            migrated.AddValue("ut", "10"); migrated.AddValue("type", accept); migrated.AddValue("actionId", "act_b");
-            migrated.AddValue("deadlineUT", "200");
-            var unparseable = new ConfigNode("GAME_ACTION");
-            unparseable.AddValue("ut", "10"); unparseable.AddValue("type", accept); unparseable.AddValue("actionId", "act_c");
-            unparseable.AddValue("deadlineAbsUT", "nope");
-            var absent = new ConfigNode("GAME_ACTION");
-            absent.AddValue("ut", "10"); absent.AddValue("type", accept); absent.AddValue("actionId", "act_d");
-            foreach (ConfigNode node in new[] { absolute, migrated, migrated, unparseable, absent, absent, absent })
-                GameAction.DeserializeFrom(node);
-
-            logLines.Clear();
-            Ledger.EmitLegacyActionIdMigrationLogOnce();
-            Ledger.EmitContractDeadlineMigrationSummary("golden");
-
-            Assert.Contains(logLines, l => l.Contains("[Ledger]")
-                && l.Contains("Assigned deterministic ActionIds to 1 legacy actions"));
-            Assert.Contains(logLines, l => l.Contains("[Ledger]") && l.Contains(
-                "ContractAccept deadline resolution for 'golden': absolute=1, migratedFromDuration=2, noDeadline=3, unparseable=1"));
         }
     }
 }

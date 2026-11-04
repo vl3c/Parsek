@@ -65,41 +65,46 @@ namespace Parsek
         /// Amount of pre-launch setup time rewind-to-launch restores before the launch UT.
         /// </summary>
         internal const double RewindToLaunchLeadTimeSeconds = 15.0;
-        // v0 reset: current post-redesign private-development schema. A separate
-        // RecordingSchemaGeneration discriminator rejects old internal saves that
-        // also defaulted to recordingFormatVersion=0.
 
         internal static bool IsRecordingSchemaCompatible(
             int recordingFormatVersion,
             int recordingSchemaGeneration,
             out string reason)
         {
-            if (recordingSchemaGeneration == 0)
+            return IsRecordingSchemaCompatible(
+                recordingFormatVersion, recordingSchemaGeneration, out reason, out _);
+        }
+
+        /// <summary>
+        /// The recording schema gate (<see cref="SaveFormat"/> rows recording-schema-generation and
+        /// recording-format). Current stamps pass; an Upgradable stamp (at or after the 1.0
+        /// baseline, below current) passes only when its upgrade steps are registered, and then
+        /// <paramref name="needsUpgrade"/> is true and the reader runs them; everything else is
+        /// rejected with <c>generation-missing</c> / <c>generation-older</c> (pre-baseline, or no
+        /// upgrade path) / <c>generation-newer</c> / <c>format-version-mismatch</c>.
+        /// </summary>
+        internal static bool IsRecordingSchemaCompatible(
+            int recordingFormatVersion,
+            int recordingSchemaGeneration,
+            out string reason,
+            out bool needsUpgrade)
+        {
+            reason = SaveFormat.GateReason(
+                SaveFormat.RecordingSchemaGeneration, recordingSchemaGeneration, zeroIsMissing: true,
+                missingReason: "generation-missing", olderReason: "generation-older",
+                newerReason: "generation-newer", needsUpgrade: out bool generationUpgrade);
+            if (reason != null)
             {
-                reason = "generation-missing";
+                needsUpgrade = false;
                 return false;
             }
 
-            if (recordingSchemaGeneration < CurrentRecordingSchemaGeneration)
-            {
-                reason = "generation-older";
-                return false;
-            }
-
-            if (recordingSchemaGeneration > CurrentRecordingSchemaGeneration)
-            {
-                reason = "generation-newer";
-                return false;
-            }
-
-            if (recordingFormatVersion != CurrentRecordingFormatVersion)
-            {
-                reason = "format-version-mismatch";
-                return false;
-            }
-
-            reason = null;
-            return true;
+            reason = SaveFormat.GateReason(
+                SaveFormat.RecordingFormat, recordingFormatVersion, zeroIsMissing: false,
+                missingReason: "format-version-mismatch", olderReason: "format-version-mismatch",
+                newerReason: "format-version-mismatch", needsUpgrade: out bool formatUpgrade);
+            needsUpgrade = reason == null && (generationUpgrade || formatUpgrade);
+            return reason == null;
         }
 
         // When true, suppresses logging calls (for unit testing outside Unity)
@@ -6507,11 +6512,6 @@ namespace Parsek
             return TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(rec);
         }
 
-        private static int GetTrajectoryFormatVersion(ConfigNode sourceNode)
-        {
-            return TrajectoryTextSidecarCodec.GetTrajectoryFormatVersion(sourceNode);
-        }
-
         internal static int RebuildPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
         {
             return TrajectoryTextSidecarCodec.RebuildPointsFromTrackSections(tracks, points);
@@ -6666,12 +6666,9 @@ namespace Parsek
             TrajectoryTextSidecarCodec.DeserializeSegmentEvents(parent, events);
         }
 
-        internal static void SerializeTrackSections(
-            ConfigNode parent,
-            List<TrackSection> tracks,
-            int recordingFormatVersion = CurrentRecordingFormatVersion)
+        internal static void SerializeTrackSections(ConfigNode parent, List<TrackSection> tracks)
         {
-            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, tracks, recordingFormatVersion);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, tracks);
         }
 
         internal static void DeserializeTrackSections(ConfigNode parent, List<TrackSection> tracks)
@@ -6801,8 +6798,6 @@ namespace Parsek
         /// recording's expected epoch (loaded from .sfs). When true, the caller
         /// should skip trajectory deserialization — the .prec is from a different
         /// save point and its data would be inconsistent with the .sfs metadata.
-        /// Backward compat: if the .sfs epoch is 0 (old save without epoch),
-        /// validation is skipped and the sidecar is always accepted.
         /// </summary>
         internal static bool ShouldSkipStaleSidecar(Recording rec, int fileEpoch)
         {
@@ -6866,8 +6861,8 @@ namespace Parsek
         /// Probes a trajectory sidecar. When <paramref name="quietOnSuccess"/> is
         /// true, the routine Verbose summary line on a successful supported probe
         /// is suppressed; Warn lines for unsupported sidecars still fire because
-        /// callers always want to see those (corruption, schema drift, pre-reset
-        /// files). Use the quiet form from diagnostic-only preflights that run
+        /// callers always want to see those (corruption, schema drift, a file that is
+        /// not a current-format sidecar). Use the quiet form from diagnostic-only preflights that run
         /// many times per save (e.g. trajectory-shrinkage warning).
         /// </summary>
         internal static bool TryProbeTrajectorySidecar(string path, out TrajectorySidecarProbe probe, bool quietOnSuccess)
@@ -6901,36 +6896,11 @@ namespace Parsek
                 return binaryProbeOk;
             }
 
-            if (TrajectorySidecarBinary.HasPreResetBinaryMagic(path))
-            {
-                probe = TrajectorySidecarBinary.BuildPreResetMagicProbe();
-                if (!SuppressLogging)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"TryProbeTrajectorySidecar: unsupported pre-reset binary trajectory " +
-                        $"reason={probe.FailureReason} magic={probe.MagicTag}");
-                }
-                return true;
-            }
-
-            probe = new TrajectorySidecarProbe
-            {
-                Success = true,
-                Supported = false,
-                Encoding = TrajectorySidecarEncoding.TextConfigNode,
-                FormatVersion = -1,
-                SchemaGeneration = 0,
-                SidecarEpoch = 0,
-                RecordingId = null,
-                MagicTag = "<text>",
-                LegacyNode = null,
-                FailureReason = "text-sidecar-unsupported"
-            };
-
+            probe = TrajectorySidecarBinary.BuildMagicMismatchProbe();
             if (!SuppressLogging)
             {
                 ParsekLog.Warn("RecordingStore",
-                    $"TryProbeTrajectorySidecar: unsupported text trajectory sidecar " +
+                    $"TryProbeTrajectorySidecar: unsupported trajectory sidecar " +
                     $"reason={probe.FailureReason} path='{path}'");
             }
 
@@ -6945,7 +6915,8 @@ namespace Parsek
                 return;
             }
 
-            throw new InvalidOperationException("Text trajectory sidecar loading is not supported after the v0 reset.");
+            throw new InvalidOperationException(
+                $"Unsupported trajectory sidecar encoding {probe.Encoding} at '{path}'.");
         }
 
         internal static bool LoadTrajectorySidecarForTesting(string path, Recording rec)

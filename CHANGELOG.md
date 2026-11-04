@@ -10,6 +10,14 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Saves now have a stable format.** From this version on, later versions of Parsek keep loading
+  your saves, and an older Parsek keeps what it cannot read instead of deleting it. Saves from
+  earlier test versions still load, best effort; the old repair code that only fixed problems in
+  those test saves is gone. (SAVE-FORMAT-1-0-FREEZE)
+- **Parsek windows follow KSP's UI Scale.** Every Parsek window, popup and tooltip now grows or
+  shrinks with the UI Scale slider in KSP's settings, like the stock interface, and a window left
+  near the screen edge is pulled back on screen when the scale changes. Map markers and ghost name
+  labels keep their size. (KSP-SETTINGS-AUDIT-2026-09-26 S10)
 - **The user guide says what a rewind cannot undo in other mods.** A new section, Other Mods and
   Rewinds, explains that a mod's own saved data goes back to the rewind point while your committed
   flights stay, that a load another mod starts may keep Parsek's timeline, and that contract packs
@@ -37,6 +45,17 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel flying beside yours through an SOI edge is recorded per body too.** When a second
+  vessel in physics range crosses a sphere-of-influence boundary with you, its recording now
+  starts a new section on the new body, so its replay no longer blends the two bodies and the
+  recording can split there. (RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT)
+- **A burn through a moon's boundary is recorded as two legs.** Crossing into or out of a moon's
+  sphere of influence at normal speed (a burn, or a coast without warp) now splits the recording
+  at the crossing like a warped crossing does, so each body gets its own leg and the ghost does
+  not blend positions across the two bodies. (RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT)
+- **A ghost no longer dives into the planet in a recording gap next to a close-formation leg.**
+  Playback that fills a gap from the raw sample list now reads a formation-flying stretch through
+  its own planet-relative copy, or hides the ghost for that moment. (FLAT-POINTS-READ-RELATIVE-OFFSETS)
 - **A stand-in's crash no longer kills the kerbal he stood in for.** After a rewind, a stand-in who
   dies in a reserved kerbal's seat is now the one marked lost, so the reserved kerbal keeps his
   committed flights, and a Re-Fly whose stand-in crashes can be merged instead of being refused.

@@ -1,0 +1,96 @@
+schema = 1
+id = "UIS-1-ui-scale"
+tier = "nightly"
+# PARSEK WINDOWS FOLLOW KSP'S UI SCALE (todo S10, owner ruling 2026-11-04: "Scale the
+# Parsek layer"). Every Parsek IMGUI window, popup and tooltip is drawn inside a
+# `ParsekUiScale` host scope that sets GUI.matrix to GameSettings.UI_SCALE; at 1.0 the
+# scope is inert, which is why no other lane can see this change at all (every profile
+# pins UI_SCALE = "1.0").
+#
+# WHAT THE LANE FLIES. The gloops-airshow FLIGHT host at a per-run `UI_SCALE = 1.5`
+# (`[runtime] kspSettings`, the closed per-run delta; restored at teardown) on the
+# profile's 1280x720 window, so the scaled screen is 853x480 units. It opens the main
+# window and the Missions window through the seam, photographs them for the in-game
+# judgement, and runs the in-game `UiScale` category.
+#
+# WHAT IT GATES.
+#  1. The live hosts really scaled: the Flight host's first draw at 1.5 logs
+#     `UI scale changed 1 -> 1.5 ... (GameSettings.UI_SCALE=1.5, host=Flight)` with no
+#     test override - the stock setting reached Parsek through the per-run delta.
+#  2. The screen clamps read scaled units: the Missions window (1355 minimum) is fitted
+#     to an 853x480 screen, not the physical 1280x720 one.
+#  3. The three `UiScale` cells: a probe window drawn in a 1.5x scope draws under the
+#     1.5x matrix, and GUIToScreenPoint / the popup-anchor conversion report its origin in
+#     the rect's own units (the conversion ignores GUI.matrix); the scaled path's own
+#     input lock follows the window AS DRAWN (the OS pointer is parked where only the
+#     scaled window is - ClickThroughBlocker's raw hit test misses that spot - then off
+#     it, then the window stops drawing and the sweep frees the lock); and the applied
+#     scale is the live stock setting.
+#
+# LIVE-PROVEN 2026-11-04 (`2026-11-04_1925` PASS attempt 1, wall 51 s): the pin is whole,
+# `passed=3 skipped=0`, as measured. The first flight (`_1905`) red 1/3 on a wrong
+# GUIToScreenPoint expectation and skipped the lock cell (the IMGUI event mouse read (0,0) in
+# an unfocused window); both fixed before the re-fly.
+description = "LIVE-PROVEN 2026-11-04: Parsek's IMGUI windows at KSP UI Scale 1.5 - the Flight host scales from the live setting, the Missions window fits the scaled 853x480 screen, and the UiScale cells prove the scaled draw, the popup-anchor conversion and the drawn-window input lock."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "ui-scale", "imgui", "settings-axis", "UIS-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The fit line and the scaled-lock lines are verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  # `open window=main` first: a non-main open settle refuses while the host's showUI is false.
+  { cmd = "UiAction",   args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "uiscale-150-main-missions" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "UiScale" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# No `ui-scale` D14 value is claimed: adding one is a registry decision left for a
+# coverage pass.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: nothing here records.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=UiScale scene=FLIGHT",
+  # 1. the live Flight host scaled from the stock setting (no test override).
+  "\\[Parsek\\]\\[INFO\\]\\[UIScale\\] UI scale changed 1 -> 1\\.5: Parsek windows, popups and tooltips now drawn at 1\\.5x \\(GameSettings\\.UI_SCALE=1\\.5, host=Flight\\)",
+  # 2. the screen clamp read the scaled screen.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] Missions window fitted to screen 853x480",
+  # 3. the cells' own readings.
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] UiScale_InGame: setting UI_SCALE=1\\.5 applied=1\\.5 override=none",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] UiScale_InGame: PASS geometry scale=1\\.5",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=uiscale-150-main-missions",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "ui-action-not-settled",
+]
+
+[runtime]
+budgetSeconds = 720
+kspSettings = { UI_SCALE = 1.5 }
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

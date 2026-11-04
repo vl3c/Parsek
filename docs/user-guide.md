@@ -12,11 +12,15 @@ Parsek lets you record missions, commit them to the timeline, and rewind to an e
 
 The Parsek window is available from the toolbar button in Flight, Map, and KSC views. The Tracking Station has no Parsek window and no toolbar button: every recording, mission, loop and watch control lives in the Parsek window in Flight or at the Space Center. Recording is triggered automatically on launch/EVA; there is no start/stop hotkey.
 
+Parsek's windows, popups and tooltips follow the **UI Scale** slider in KSP's settings, like the stock interface. Map markers and ghost name labels keep their size.
+
 ## Install and First Load
 
 Parsek must sit in `GameData/Parsek`. If it is installed wrong, a message on screen once the main menu settles says so and how to fix it: when Parsek loads from the wrong place (inside a second `GameData` folder, inside the zip's own folder, loose in `GameData`, or a leftover copy in another folder), and when some of its game patches fail to load (usually another mod or a different KSP version), naming the features that may not work. Each notice shows once per game start and never on a correct install; details are in `KSP.log`.
 
 The first time Parsek opens one of your existing saves, it first makes a one-time backup of that save, taken before Parsek changes anything, and says so on screen. The copy is a separate save named `<Name> (pre-Parsek <date>_<time>)` in KSP's Load menu, so you can always go back to your career as it was before Parsek. If the backup fails, an on-screen message asks you to back the save up yourself, and Parsek tries again the next time the save is loaded.
+
+From this version on, Parsek saves have a stable format: later versions of Parsek will keep loading them. If you open a save in an older Parsek, data it does not understand is kept unchanged rather than deleted, but career changes you make in that older version may not be kept, so play a save on the newest version you have used it with. Saves made with earlier test versions of Parsek still load, on a best-effort basis: most of their history comes through, but anything that only an old test version could get wrong is no longer repaired.
 
 ## How It Works
 

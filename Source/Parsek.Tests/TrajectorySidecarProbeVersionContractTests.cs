@@ -32,7 +32,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TextConfigNode_CurrentVersion_IsUnsupportedAfterReset()
+        public void TextFile_CurrentVersion_IsRejectedAsMagicMismatch()
         {
             string path = SaveTextSidecar(RecordingStore.CurrentRecordingFormatVersion);
             try
@@ -41,9 +41,9 @@ namespace Parsek.Tests
                 Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
 
                 Assert.False(probe.Supported);
-                Assert.Equal(TrajectorySidecarEncoding.TextConfigNode, probe.Encoding);
+                Assert.Equal(TrajectorySidecarEncoding.UnknownBinary, probe.Encoding);
                 Assert.Equal(-1, probe.FormatVersion);
-                Assert.Equal("text-sidecar-unsupported", probe.FailureReason);
+                Assert.Equal("magic-mismatch", probe.FailureReason);
             }
             finally
             {

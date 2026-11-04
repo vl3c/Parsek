@@ -247,14 +247,14 @@ their size and module breakdown, then for the largest knot it shows the hubs
 (the members other members reference most, with their in-knot references) and a
 **greedy cut sequence**: each step picks, among the highest-fan-in members, the
 sink whose outgoing references, when removed, break the knot the most, and
-reports the references that were dropped. `542 -> cut Recording -> 494`
+reports the references that were dropped. `542 -> cut Recording -> 496`
 means removing `Recording`'s two references inside the knot
-(`LaunchSiteOnlyGhost`, `SidecarVersions`) splits off 48 members, and the
-second row, `GameAction` (`CaptureSequence`, `Ledger`), 39 more. Some cuts are
+(`LaunchSiteOnlyGhost`, `SidecarVersions`) splits off 46 members, and the
+second row, `GameAction` (`CaptureSequence`), 40 more. Some cuts are
 cheap inversions like those - one or two references between hubs holding a
 whole region together, and those are the references a refactor should look at
 first - while the rest touch many small references at once (the `RecordingStore`
-cut, fourth on the current tree, drops 47), and the named
+cut, fifth on the current tree, drops 47), and the named
 sink there often needs a new abstraction (an interface, a data boundary) rather
 than moved edges. The table is a research list, not a verdict - the tool never says a
 reference is wrong, only that it holds a cycle together. Nothing in this phase

@@ -265,7 +265,8 @@ namespace Parsek.Tests.SaveRoundTrip
                 // The text header names the recording; the owning record carries its own id,
                 // so the reader does not copy it back (asserted written, not read).
                 Assert.Equal(written.RecordingId, node.GetValue("recordingId"));
-                Assert.Equal(written.RecordingFormatVersion, TrajectoryTextSidecarCodec.GetTrajectoryFormatVersion(node));
+                Assert.Equal(written.RecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    node.GetValue("version"));
                 Assert.Equal(written.RecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     node.GetValue("recordingSchemaGeneration"));
             });

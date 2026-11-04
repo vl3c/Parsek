@@ -452,12 +452,7 @@ namespace Parsek
             // a seed exists it must not be upgraded later from future live state.
             SeedInitialResourceBalances();
 
-            // Price the cost-0 facility-upgrade rows no saved debit proves, once per load, as
-            // soon as the seed and the facility cost table are readable. Runs before the walk,
-            // so this recalc is the one that charges them.
-            EnsureLegacyFacilityUpgradeCostEstimates();
-
-            // Same idea for stock progress: capture (once per save) what the career had
+            // For stock progress: capture (once per save) what the career had
             // achieved before the ledger began, and hand it to the milestones module for
             // this walk. Until it is captured PatchMilestones skips, so nothing is cleared.
             EnsurePreLedgerProgressSeed();
@@ -501,9 +496,18 @@ namespace Parsek
             // uncommitted in-flight effects that the committed-only ledger cannot see yet.
             // Walking the committed ledger is still useful, but writing that partial state
             // back into KSP is destructive. Rewind-style cutoff walks remain authoritative.
-            string patchDeferralReason = bypassPatchDeferral
-                ? null
-                : GetKspPatchDeferralReason();
+            // A ledger held from a newer Parsek version walks empty: patching KSP from that walk
+            // would reset the career's pools to seed values, so no walk patches this session
+            // (cutoff walks included).
+            string patchDeferralReason = Ledger.IsHeldFromNewerVersion
+                ? HeldLedgerPatchDeferralReason
+                : bypassPatchDeferral
+                    ? null
+                    : GetKspPatchDeferralReason();
+            if (Ledger.IsHeldFromNewerVersion)
+                ParsekLog.InfoRateLimited(Tag, "held-ledger-patch-skipped",
+                    "RecalculateAndPatch: KSP state patch skipped (" + HeldLedgerPatchDeferralReason +
+                    "); funds, science, reputation, tech, contracts, facilities and strategies keep the save's values");
             if (!string.IsNullOrEmpty(patchDeferralReason))
             {
                 ParsekLog.Verbose(Tag,
@@ -578,7 +582,10 @@ namespace Parsek
             // walks intentionally leave the live module at the rewind/jump target, but
             // the persisted cache is a load-recovery source and must retain future
             // committed science rows that still survive in the ledger.
-            RebuildCommittedScienceFromSurvivingLedger(actions);
+            // The cache is a load-recovery source persisted beside the events; an empty walk of a
+            // held ledger must not overwrite it.
+            if (!Ledger.IsHeldFromNewerVersion)
+                RebuildCommittedScienceFromSurvivingLedger(actions);
 
             string completeStateKey = string.Format(
                 CultureInfo.InvariantCulture,

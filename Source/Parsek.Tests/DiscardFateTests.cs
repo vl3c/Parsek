@@ -176,7 +176,6 @@ namespace Parsek.Tests
                 StartUT = 0,
                 EndUT = 500,
                 RecordingId = "",
-                Epoch = 0,
                 Committed = true,
                 Events = new List<GameStateEvent>
                 {
@@ -486,7 +485,6 @@ namespace Parsek.Tests
             MilestoneStore.AddMilestoneForTesting(new Milestone
             {
                 MilestoneId = "m1",
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     MakeEvent(GameStateEventType.TechResearched, "node", 10.0, "rec-reset")
@@ -608,7 +606,6 @@ namespace Parsek.Tests
                 StartUT = 0,
                 EndUT = 500,
                 RecordingId = "",
-                Epoch = 0,
                 Committed = true,
                 Events = new List<GameStateEvent>
                 {
@@ -664,7 +661,6 @@ namespace Parsek.Tests
                 StartUT = 0,
                 EndUT = 500,
                 RecordingId = "",
-                Epoch = 0,
                 Committed = true,
                 Events = events,
                 LastReplayedEventIndex = 2, // "tech-C" is the last replayed event

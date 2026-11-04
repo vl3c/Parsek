@@ -665,11 +665,12 @@ namespace Parsek
         /// side of an SOI boundary, following the rails state exactly as
         /// OnVesselGoOnRails / OnVesselGoOffRails / ResumeAfterFalseAlarm do.
         ///
-        /// ONLY THE onRails==true BRANCH SHIPS TODAY. The sole production caller is
-        /// OnVesselSOIChanged, whose own `if (!IsRecording || !isOnRails) return;` guard
-        /// proves onRails at the call. The off-rails branch is a defensive default that
-        /// keeps this a total function and states what a future off-rails SOI producer
-        /// would get; it is pinned by a unit cell, not reachable in production.
+        /// ONLY THE onRails==true BRANCH SHIPS TODAY. The sole production caller is the
+        /// on-rails half of OnVesselSOIChanged. An off-rails SOI change never reaches here:
+        /// it arms a sample and the per-frame sampler splits the section at the first
+        /// sample on the new body (FlightRecorder.PhysicsSoi.cs), keeping the frame it was
+        /// in. The off-rails branch is a defensive default that keeps this a total
+        /// function; it is pinned by a unit cell, not reachable in production.
         ///
         /// RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM: this used to open Absolute
         /// unconditionally, but OnVesselSOIChanged only runs while isOnRails is true and

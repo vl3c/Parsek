@@ -105,17 +105,15 @@ namespace Parsek.Tests
         [Fact]
         public void CleanOrphanFiles_StillCleansTransientArtifacts_WhenKnownIdsEmpty()
         {
-            // The guard must not block cleanup of transient/legacy artifacts when those
+            // The guard must not block cleanup of transient artifacts when those
             // are the only files present — those carry no recoverable bulk data.
             string recordingsDir = CreateRecordingsDir("transients-only");
             string transientStage = Path.Combine(recordingsDir, "rec-x.prec.stage.1");
             string transientBak = Path.Combine(recordingsDir, "rec-y_vessel.craft.bak.1");
             string transientTmp = Path.Combine(recordingsDir, "rec-z_ghost.craft.tmp");
-            string legacyPcrf = Path.Combine(recordingsDir, "rec-w.pcrf");
             File.WriteAllText(transientStage, "stage");
             File.WriteAllText(transientBak, "bak");
             File.WriteAllText(transientTmp, "tmp");
-            File.WriteAllText(legacyPcrf, "pcrf");
 
             logLines.Clear();
             ParsekFileCollector.Run("test");
@@ -123,7 +121,6 @@ namespace Parsek.Tests
             Assert.False(File.Exists(transientStage));
             Assert.False(File.Exists(transientBak));
             Assert.False(File.Exists(transientTmp));
-            Assert.False(File.Exists(legacyPcrf));
             Assert.DoesNotContain(logLines, l => l.Contains("REFUSING to delete"));
         }
 
@@ -245,14 +242,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CollectSidecarIdsOnDisk_ExcludesTransientAndLegacyArtifacts()
+        public void CollectSidecarIdsOnDisk_ExcludesTransientArtifacts()
         {
             string recordingsDir = CreateRecordingsDir("exclude-artifacts");
             File.WriteAllText(Path.Combine(recordingsDir, "rec-real.prec"), "p");
             File.WriteAllText(Path.Combine(recordingsDir, "rec-stage.prec.stage.1"), "s");
             File.WriteAllText(Path.Combine(recordingsDir, "rec-bak_vessel.craft.bak.1"), "b");
             File.WriteAllText(Path.Combine(recordingsDir, "rec-tmp_ghost.craft.tmp"), "t");
-            File.WriteAllText(Path.Combine(recordingsDir, "rec-legacy.pcrf"), "l");
             File.WriteAllText(Path.Combine(recordingsDir, "readme.txt"), "r");
 
             var ids = RecordingStore.CollectSidecarIdsOnDisk();

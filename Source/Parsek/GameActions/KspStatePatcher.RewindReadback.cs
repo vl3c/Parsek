@@ -111,33 +111,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The live science pool for the rewind read-back guard's discriminator, so it
-        /// stays byte-identical to <see cref="PatchScience"/>'s (which resolves the strategy
-        /// pending amount against live since STRATEGY-PREFIX-HOLDBACK-PERMANENT).
-        ///
-        /// <para><c>[MethodImpl(NoInlining)]</c> and reached ONLY when the caller already
-        /// has a non-null <see cref="ScienceModule"/>: mono runs a failing type initializer
-        /// at JIT of the CALLING method, so the <c>ResearchAndDevelopment</c> read is fenced
-        /// in its own core rather than left to poison
-        /// <see cref="RunRewindReadbackGuard"/>, which the headless suite drives with a null
-        /// science module. Same pattern as <c>RecordingStore.ReadUnityApplicationIsPlayingCore</c>.</para>
-        ///
-        /// <para>With no live pool there is no science pool to reconcile against and
-        /// <see cref="PatchScience"/> early-returns without writing a discriminator at all,
-        /// so there is nothing to be byte-identical WITH. The fallback returns the
-        /// pre-strategy running balance, i.e. zero overhang and therefore maximum
-        /// withholding - stated here rather than left implicit, because it is a choice
-        /// between two arbitrary readings of an absent pool, not a derived value.</para>
-        /// </summary>
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private static double ReadLiveSciencePoolForReadback(ScienceModule science)
-        {
-            if (ResearchAndDevelopment.Instance != null)
-                return ResearchAndDevelopment.Instance.Science;
-            return ComputePreStrategyPendingAdjustedRunningScience(science);
-        }
-
-        /// <summary>
         /// Runs the rewind read-back guard over the three economy modules at the rewind
         /// apply boundary. For each resource it computes the SAME realized running value the
         /// matching <c>Patch*</c> writes (funds <c>GetRunningBalance()</c>, science the
@@ -170,8 +143,7 @@ namespace Parsek
                 RewindReadbackGuard.Before.Science,
                 RewindReadbackGuard.Loaded.Science,
                 science != null
-                    ? (double?)ComputePendingAdjustedRunningScience(
-                        science, ReadLiveSciencePoolForReadback(science))
+                    ? (double?)ComputePendingAdjustedRunningScience(science)
                     : null,
                 RewindReadbackScienceTolerance,
                 authoritativeReduction);

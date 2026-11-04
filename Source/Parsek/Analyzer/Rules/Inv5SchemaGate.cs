@@ -22,8 +22,8 @@ namespace Parsek.Analyzer.Rules
     //     first (preserved) and a -1 format still yields format-version-mismatch.
     //   - generation-mismatch FAIL: metadata passes the gate but the paired
     //     trajectory sidecar reported a different generation (edge case 4).
-    //   - trajectory LoadFault FAIL: truncated / text-format / pre-reset-magic
-    //     sidecars (edge cases 1-3), surfaced with the production reason string so
+    //   - trajectory LoadFault FAIL: truncated sidecars or files without the current
+    //     magic (magic-mismatch) (edge cases 1-3), surfaced with the production reason string so
     //     a triage grep matches KSP.log.
     //   - orphan-sidecar WARN: a SidecarSchema key with no matching recording is a
     //     stray .prec the tree no longer references (edge case 20).
@@ -112,7 +112,7 @@ namespace Parsek.Analyzer.Rules
                 }
             }
 
-            // Unloadable trajectory sidecars (truncated / text / pre-reset magic).
+            // Unloadable trajectory sidecars (truncated / not the current magic).
             if (model.LoadFaults != null)
             {
                 foreach (LoadFault f in model.LoadFaults)

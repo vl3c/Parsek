@@ -81,7 +81,7 @@ folder = "UI"
 # session lifecycle, revert and unfinished-flight machinery (named in the rewind section of CLAUDE.md); SceneExitInterceptor is a Harmony-driven entry point referenced only from comments
 [[module]]
 name = "Rewind"
-prefix = "^UnfinishedFlightClassifier[.]cs$|^UnfinishedFlightSealHandler[.]cs$|^UnfinishedFlightStashHandler[.]cs$|^PostLoadStripper[.]cs$|^ReconciliationBundle[.]cs$|^MarkerValidator[.]cs$|^RevertDetector[.]cs$|^RevertInterceptor[.]cs$|^SceneExitInterceptor[.]cs$|^QuickloadResumeMatchGuard[.]cs$|^CrashCoalescer[.]cs$|^CheckpointDoubleCoverRetire[.]cs$"
+prefix = "^UnfinishedFlightClassifier[.]cs$|^UnfinishedFlightSealHandler[.]cs$|^UnfinishedFlightStashHandler[.]cs$|^PostLoadStripper[.]cs$|^ReconciliationBundle[.]cs$|^MarkerValidator[.]cs$|^RevertDetector[.]cs$|^RevertInterceptor[.]cs$|^SceneExitInterceptor[.]cs$|^QuickloadResumeMatchGuard[.]cs$|^CrashCoalescer[.]cs$"
 placement = "R0"
 
 # sidecar I/O, recorder policy and classifiers; each referenced only by Recording or by Recording plus one controller
@@ -222,6 +222,20 @@ placement = "R0"
 [[module]]
 name = "Missions"
 prefix = "^VesselIdentity[.]cs$|^VesselNameStore[.]cs$|^VesselNameStore[.]Links[.]cs$|^VesselNameStore[.]RevertUndo[.]cs$|^VesselNameLiveSync[.]cs$|^VesselNameSpawn[.]cs$|^VesselRenameWriter[.]cs$|^DisplayNames[.]cs$"
+placement = "R0"
+
+# the save-format version registry (SaveFormat.cs): every on-disk format number, its 1.0
+# baseline and the load-side classification; most readers are the recording sidecar codecs
+[[module]]
+name = "Recording"
+prefix = "^SaveFormat[.]cs$"
+placement = "R0"
+
+# pure classifier over the flat Recording.Points list: which entries are Relative-section
+# metre offsets, and the body-fixed shadow a flat-points playback fallback reads instead
+[[module]]
+name = "Trajectory"
+prefix = "^FlatPointFrameDispatch[.]cs$"
 placement = "R0"
 
 [[module]]

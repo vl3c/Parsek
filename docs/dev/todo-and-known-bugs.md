@@ -17,6 +17,115 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SAVE-FORMAT-1-0-FREEZE: the next release is the first stable save format, with no alpha save repair code~~ [RULED 2026-11-04 by the owner (V: "any safe number", "clean, without old baggage"); DONE 2026-11-04, branch `claude/project-thread-8twhvr`; xUnit; product, high (every later save depends on it)]
+
+**Ruling.** Today's version numbers become the 1.0 baseline; every build from 1.0 loads every 1.0+
+save; data newer than the build is kept, never wiped; pre-1.0 saves (a handful of testers) load
+best effort. Policy: `docs/dev/design-save-format-policy.md`.
+
+**Shipped.** `SaveFormat.cs` registers the ten versioned formats with their 1.0 baselines (recording
+format 1, schema generation 4, tree format 0, PSK0 1, PSN0 0, ledger 0, game-state store 1,
+milestones 1, mission selection 1, and the new save-wide `parsekSaveFormat = 1` plus the
+informational `parsekWrittenBy` on the PARSEK node), the pure `Classify`
+(Missing / PreBaseline / Upgradable / Current / Newer) every reader routes through, and an empty
+per-format upgrade-step registry (`Registry_EveryFormatAtBaseline_HasNoProductionSteps`: step count
+== Current - Baseline). Newer data is held: recording trees (and a newer `treeFormatVersion`,
+`tree-format-newer`) inert via `InertRecordingTrees`, the ledger held verbatim with every KSP state
+patch suspended (`Ledger.IsHeldFromNewerVersion`), milestones held with their `MILESTONE_STATE`,
+unknown game-state event types kept raw, a newer mission selection generation warned and written
+back. About 10,800 lines of alpha save compat deleted: the old-save ledger event migration,
+broken-ledger recovery, the legacy part-purchase and facility-cost repairs, legacy route row drops
+(now kept verbatim, `type-reserved`), legacy action ids, contract deadline durations, the PRKB / PRKS
+probes, text-sidecar detection, `.pcrf` reaping, the epoch-0 bypass, the terminal-orbit back-fill,
+the double-cover retire, the legacy EVA rewind-point reap, the legacy retirement scrubs and the
+mission selection generation-0 upgrade. Kept because current data needs them too:
+`RepairDuplicateRolloutActions`, `RepairMissingRecoveryDedupKeys`, the `CREW_REPLACEMENTS` slot
+fallback, the bare milestone-id fallback, `DropNonMonotonicTrajectoryPoints`,
+`SplitParentLinks.RepairStaleParents`, `RepairMissingContiguousChainPredecessors`,
+`MigrateKerbalAssignments`. Frozen golden saves `Source/Parsek.Tests/Fixtures/FormatGolden/v1/`
+(`FormatGoldenV1Tests`) and `SaveFormatGoldenGateTests` (a bump without a new `vN` folder, or an
+edited frozen file, fails). Tests: `SaveFormatTests`, `SaveFormatHoldTests`,
+`SaveFormatLedgerHoldTests`.
+
+**Follow-ups (open, low).**
+- While a ledger or milestones node is held from a newer version, rows made that session are not
+  saved (rate-limited Warn `held-ledger-drops-session-rows` / `held-newer-drops-session`).
+- `CrewReservationManager.ApplyToRoster` still runs under a held ledger, on the kerbal rows the
+  load derives from the committed recordings.
+
+---
+
+## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
+
+**Symptom.** `FlightRecorder.OnVesselSOIChanged` returned at once unless the vessel was on rails,
+so a burn through a sphere-of-influence boundary, or a 1x / physics-warp coast across one, made no
+section boundary. One Absolute section then held both bodies' samples: the optimizer's body rule
+(#251) reads a section's body from its first frame and could not split there, the section was
+labelled with the first body, the crossing pair lerped in world space between two body frames
+(each sample still resolves on its own body, so this only shows on a time-shifted replay), the
+finalization cache was not refreshed, and the atmosphere / approach-altitude state stayed seeded for
+the old body (a Kerbin -> Mun crossing left `currentAltitudeThreshold` at 0, so the Mun approach
+boundary never fired for that flight).
+
+**Fix.** Off rails, `OnVesselSOIChanged` arms a forced sample (`ArmPhysicsSoiSample`, Info
+`SOI changed off rails <from> -> <to> ...`). `OnPhysicsFrame` runs `SplitSectionIfPhysicsBodyChanged`
+on every sample before the Relative rewrite and the commit: when the sample's body differs from the
+open section's last frame (`DecidePhysicsBodyChange`, pure), it commits the same position expressed
+on the old body as the old section's closing frame (Absolute only), closes the section at the sample
+UT and opens the next one in the same frame (Relative keeps its anchor), then reseeds the atmosphere
+and altitude state and sets the SOI flag like the on-rails path. The flat list carries the
+equal-UT seam, so no interpolation pair spans the two bodies. Detecting at the sample rather than in
+the SOI callback keeps the split right when the callback fires inside a physics step. Because the
+flat list now opens the optimizer's second half with the first half's closing sample,
+`RecordingOptimizer.SplitAtSection` takes the second half's start body / biome from its first
+section's own first frame (`ResolveSecondHalfStartPoint`; a Relative section's body-fixed shadow),
+not from the flat list. Tests:
+`PhysicsSoiSectionSplitTests` (truth table, bookkeeping, the optimizer reads a burn as
+`BodyChange` and a coast as `SuppressedExoCoastBodyChange`, source wiring).
+
+**Residue (FIXED 2026-11-04, branch `fix-bg-loaded-soi-split`, stacked on #2372; xUnit only).**
+The background recorder's LOADED (physics) vessels had the same gap:
+`BackgroundRecorder.OnBackgroundVesselSOIChanged` handled only on-rails states. Now a loaded state
+arms its own forced sample (`ArmBackgroundPhysicsSoiSample`, Info `SOI changed off rails for
+background vessel: pid=...`), and `OnBackgroundPhysicsFrame` runs
+`SplitBackgroundSectionIfPhysicsBodyChanged` on every sample before the Relative rewrite and the
+append (`BackgroundRecorder.PhysicsSoi.cs`). It reuses the active side's pure pieces
+(`DecidePhysicsBodyChangeForSection`, `IsCommittableSoiClosingPoint`, `TryBuildSamePositionOnBody`,
+the shared split line plus `pid=` / `rec=`): the closing sample goes through the #419 monotonic
+flat append and then the old section (its altitude range and warp flags in lockstep), the section
+closes at the sample UT and the next one opens in the same frame, environment and source (Relative
+keeps its anchor), and the finalization cache is refreshed. Mirror check: the active split also
+reseeds its atmosphere / approach-altitude chain-boundary state and raises `SoiChangePending`; the
+background recorder has neither (its environment classifier reads the current body every tick, and
+background vessels record only inside a tree). The on-rails state is untouched. Tests:
+`BackgroundPhysicsSoiSectionSplitTests` (split bookkeeping, flat-list seam, optimizer burn / coast,
+refused closing samples, Relative anchor, armed flag, active-vs-background parity, source wiring
+and the on-rails state shape). Lane owed: a formation flight through an SOI edge, two vessels
+within physics range (one loaded in the background) crossing together off rails, gating on the
+background split line `at SOI boundary ... pid=<wingman>` and one section per body on the
+wingman's recording (a wingman that close likely records Relative to the active vessel, so expect
+`closingSample=0` and two Relative sections, not two Absolute ones); not built.
+
+## ~~FLAT-POINTS-READ-RELATIVE-OFFSETS: a flat-points playback fallback reads Relative metre offsets as lat/lon/alt~~ [FILED 2026-11-04 from the replay-theory audit (finding R4), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit only; product, medium (a ghost placed deep inside the planet for the frames of a section gap next to a Relative section)]
+
+**Symptom.** The flat `Points` list is the concatenation of the section frames, so inside a
+Relative section it holds anchor-local metre offsets. Every flight-scene flat-points reader
+(`InterpolateAndPositionEntryCore`'s fallback, the loop fallback, the background chain ghost, the
+manual preview and `TryResolvePointWorldPosition`'s world resolve) fed its bracketing points straight
+to `GetWorldSurfacePosition`, so a playback UT in a section gap whose neighbour sample sat in a
+Relative section put the ghost inside the planet. The sidecar writer substitutes the body-fixed
+frames and the reader heals the flat list, so only recordings still in memory from the current
+session were exposed (the audit's independent review narrowed it so).
+
+**Fix.** `FlatPointFrameDispatch` (pure) identifies a flat point as a Relative offset when a
+Relative section spanning its UT holds a byte-equal frame (equality, not the UT, decides at a
+boundary shared with an Absolute neighbour), and returns the section's body-fixed shadow at the same
+UT. The two flat-points sinks in `ParsekFlight` take the sections (`flatPointSections`) and substitute
+the shadow, or hide the ghost when the offset has no shadow (Info, rate-limited). Map / Tracking
+Station / KSC flat readers were not part of the finding and are unchanged. Tests:
+`FlatPointFrameDispatchTests` (classification, gap read, refusal, and a source gate that every
+flat-points call site passes its sections).
+
 ## ~~LOOP-REPLAY-REPLANTS-REMOVED-FLAG: a looping replay plants a recorded flag again after the player removes it~~ [FILED 2026-11-04 from the replay-theory audit (finding R5, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, confirmed by code read on main b2182df); FIXED 2026-11-04, branch `claude/project-thread-2p1zb5`; LIVE-PROVEN FLG-1 `2026-11-04_1743`; owner ruling 2026-11-04 "plant once and record pick-ups"; product, low (an unremovable flag per looped flag plant)]
 
 **Symptom.** A recording that planted a flag replays it as a real flag vessel when replay reaches the
@@ -528,7 +637,8 @@ round-tripped for that value only.
 
 Found and fixed: RECORDING-VESSEL-SITUATION-NOT-SAVED and RESCUE-PLACED-MARKER-SESSION-ONLY
 (below). Classified by design and left as is: the legacy `GameStateEvent.epoch` /
-`Milestone.Epoch` stamps (read from old saves, never assigned or written), the vessel-name
+`Milestone.Epoch` stamps (read from old saves, never assigned or written; the read is deleted by
+SAVE-FORMAT-1-0-FREEZE), the vessel-name
 revert-undo epoch, and the runtime caches each spec names.
 
 ## ~~RESCUE-PLACED-MARKER-SESSION-ONLY: the #615 rescue-completion marker did not survive a save and load~~ [FIXED 2026-10-31; xUnit only; low]
@@ -1647,6 +1757,9 @@ LIVE-PROVEN by RW-23's re-flight `2026-10-31_1836` (PASS attempt 1, DLL e9e5b38e
 PartPurchased row(s) as recorded ... repaired=0` on every cold load of the batch, no adjustment, no
 guard clamp, LedgerGroundTruth `hardFailures=0 reportOnly=0`.
 
+Superseded 2026-11-04 by SAVE-FORMAT-1-0-FREEZE: the legacy part-purchase repair is deleted
+whole; `cost=` is the only charged amount.
+
 ## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; repair LIVE-PROVEN by RW-9, purchase LIVE-PROVEN by RW-23 (`2026-10-31_1836`); product, medium (a discount credited twice, breaking "nothing is paid twice")]
 
 Stock `AgressiveNegotiations` multiplies funds under `VesselRollout` / `RnDPartPurchase` (0.70 at
@@ -2095,7 +2208,8 @@ Fix: the rollback is gone (`DropSupersedesRewoundOutOfExistence*`,
 rows=N forks=N sealed=N open=N dangling=N` plus one `Kept re-fly fork across rewind: rec=..
 mergeState=..|<missing>` line per fork. Nothing in the mod writes a `RecordingRewindRetirement`
 any more; its readers and the load-time sweep's legacy handling stay for old saves, which are not
-repaired (no compatibility work before the public release). Old saves: no committed fixture
+repaired (no compatibility work before the public release). [2026-11-04, SAVE-FORMAT-1-0-FREEZE: the
+legacy retirement scrubs are deleted; the orphan sweep keeps its null / orphan cleanup.] Old saves: no committed fixture
 (`harness/fixtures/`, `Source/Parsek.Tests/Fixtures/`) carries a rewind retirement, so no lane
 reads the old bad state; `RewindKeepsSupersedeRowsTests.Fixtures_CarryNoRewindRetirement` keeps it
 that way and `Source_NothingOutsideTheLoaderBuildsARewindRetirement` keeps the writer gone. Unit:
@@ -3259,7 +3373,8 @@ origin: dispatch row only (free, no debit row)`); a vessel origin still writes d
 Old saves, by the coordinator's scope change (no conversion): `Ledger.LoadFromFile` drops legacy
 route money rows at the ConfigNode level before deserialization (`LedgerLoadMigration.IsLegacyRouteMoneyNode`, widened by phase 2 to every route row as `IsLegacyRouteNode`:
 type 28, and type 24 with a non-zero `routeKscFundsCost`) with one Info count line; the next save
-holds none, so a second load drops nothing. `RouteCodec` ignores `kscDispatchFundsCost` and the
+holds none, so a second load drops nothing. [2026-11-04, SAVE-FORMAT-1-0-FREEZE: the drop is deleted;
+a reserved route row is now kept verbatim as unreadable, reason `type-reserved`.] `RouteCodec` ignores `kscDispatchFundsCost` and the
 pending-credit keys and never writes them; `WaitingForFunds` reads as `Active`; a FundsShort hold
 still loads and renders a generic line. `Route.CreationTreeRecordingIds` kept. Harness: RVR-4,
 RVR-17, GUI-23, the `rover-route-career` fixture and builder, `[fixture.career]` and the oracle's
@@ -4412,7 +4527,7 @@ traced end to end; each is a question, not a defect.
 - [x] ~~GC2-CLAIMED-VESSEL-RECOVER-OUTSIDE-FLIGHT: after a rewind the Space Center and the Tracking Station keep a vessel a committed future dock claims live in its pre-claim form (CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT), and stock Recover / Delete were not blocked there (the TS blocks covered only Parsek's ghost markers; the KSC marker's Recover, offered for every landed vessel on Kerbin, not at all). Recovering station S before tug T's recorded dock paid S's value; when the chain tip's spawn UT passed, the tip spawned the docked S+T with S's identity, so S's parts existed twice and a second recovery paid for them again (Delete brought S back the same way).~~ Fix (2026-10-21, branch `claude/project-thread-vxwms3`): `ClaimedVesselDisposalGate.IsHeldByCommittedFuture` reads the flight ghosting predicate (chain not terminated, `GhostChainWalker.ShouldGhostChainAtUT`, pid in `ParsekFlight.SelectChainPidsToGhost`) over the walker's chains in any scene; `Patches/ClaimedVesselDisposalPatches.cs` greys the TS Recover / Delete (postfixes on `SpaceTracking.SetVessel` and `unlockUI`, where stock unlocks them) and the KSC marker's Recover (`KSCVesselMarker.Create` postfix) with the reason on their stock tooltips (`ReservationExplanation.ClaimedVesselHold`: "Used by a later flight until DATE, blocked by timeline until then."), and the click-blocks read the same predicate (`GhostTrackingRecoverPatch` / `GhostTrackingDeletePatch` confirm prefixes, `KSCVesselMarkers.RecoverVessel` prefix). Fly stays open (a flight load ghosts the vessel as before). Tests: `ClaimedVesselDisposalGateTests` (red first on the wiring cells). LIVE-PROVEN 2026-10-22 by EVA-11 `2026-10-22_1214` (branch `claude/project-thread-77b92l`): after the rewind, `KscMarkerRecover` and `TrackingStationRecover` of the claimed rover both answer button-locked and both greyed `[ClaimedVessel]` lines print. Left as is, matching flight (#174): a TERMINATED chain's vessel stays recoverable; when the committed future recovers it too, both recoveries pay (unverified whether the ledger pairs them).
 - [x] ~~GC4-VESSEL-CYCLE-ACTIVATES-GHOST-MARKER: inside physics range a ghost's map ProtoVessel is loaded (`GhostVesselLoadedInertPatch`), and decompiled stock `VesselSwitching.Update` (KSP 1.12.5) collects every loaded vessel that is not the active one, not a `DeployedSciencePart` and not `vesselType <= SpaceObject` for the `[` / `]` keys and switches with `FlightGlobals.ForceSetActiveVessel`, which nothing patched (`GhostVesselSwitchPatch` covers only `SetActiveVessel(Vessel)`, and the cycle patch acts only during a Re-Fly). The player could make a one-part ghost marker the active vessel, and stock then evaluates progress nodes and contract parameters on it (inferred from stock reading the active vessel).~~ Fix (2026-10-21, branch `claude/project-thread-vxwms3`): the `VesselSwitching.Update` prefix (`VesselCycleReFlySwitchPatch`, until now active only during a Re-Fly) drops ghost map markers from stock's candidate list on every press (`FilterCandidates`) and switches to the next real candidate itself, because stock ignores `ForceSetActiveVessel`'s answer and runs `FlightInputHandler.ResumeVesselCtrlState` on the candidate anyway (copying its throttle and action groups onto the active vessel); `GhostVesselForceSwitchPatch` (`Patches/GhostVesselLoadPatch.cs`) also refuses `ForceSetActiveVessel` for a ghost map vessel as a backstop for any other caller. Tests: `GhostVesselForceSwitchPatchTests` (the force-switch cells red first). LIVE-PROVEN 2026-10-22 by the new lane GC-4-vessel-cycle-skips-ghost-marker `2026-10-22_1227` (branch `claude/project-thread-77b92l`, new seam verb `CycleVessel`): the cycle skipped two loaded ghost markers stock would have picked, and a forced switch to one was refused. Not reachable there: the branch where every candidate is a ghost.
 - [x] ~~GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE: a save whose committed trees carry another recording schema generation (older, or newer when an older build opens it) is rejected by design, but the rejection was not contained: the next save dropped the trees (`SaveTreeRecordings`), `Ledger.Reconcile` pruned every row tagged to their recordings (funds, science, reputation, milestones, contracts), `RewindPointReaper` reaped their rewind points, and the mission, group and load-time sweeps treated their ids as unknown, with no player notice.~~ Fixed 2026-10-21 (owner ruling "Keep them inert, untouched"). Fix: `InertRecordingTrees` holds a deep copy of each COMMITTED tree node the schema gate rejects in `LoadRecordingTrees` (the tree-level generation gate, or every recording rejected so nothing loaded; `ClassifySchemaRejection`), replaced on every `LoadRecordingTrees` and cleared by the cold save-scoped reset (in the `SaveScopedSessionResetTests` inventory). `SaveTreeRecordings` writes each node back verbatim after the committed trees (skipped, logged, when a committed tree has the same id). Its recording ids join `BuildKnownRecordingIds` / `BuildKnownRecordingIdsForCleanup` (ledger reconcile via `BuildValidRecordingIdsForKspLoad`, the load-time sweeps, `DiscardSidecarReap`); `IsReapEligible` reads a slot whose tip is inert as OPEN; the legacy old-side retirement sweep skips inert rows; `CollectParkedTreeIdsForMissionPrune` protects their missions; the group prune keeps their `recordingGroup` names; the file collector's memory set names their recordings, hashes and rewind saves; the route-candidate sweeps (`RouteStore.SweepStaleDismissedCandidates` / `SweepStalePromptedCandidates`) keep their tree ids; and `LedgerOrchestrator.OnKspLoad` leaves their ids out of the old-save migration's trigger and scope (`ExcludeInertRecordingIds`), so a save holding only inert trees is not migrated. ELS filters tombstones only, so a kept row is credited. One screen message per cold load names the count (queued on `ParsekHarmony`'s settled-scene poster). A pass-through, not a migration: nothing reads an inert tree beyond those keys or writes to it. Active / pending nodes and partial rejection inside a current tree are unchanged. Tests: `InertRecordingTreesTests`. The ledger itself used to be rejected wholesale when its own `recordingSchemaGeneration` differed; fixed separately (GC3-LEDGER-GENERATION-GATE-DROPS-ROWS below): the ledger now loads whenever its version matches. LIVE-PROVEN 2026-10-22 by the new operator lane GC-3-other-generation-tree-kept-inert `2026-10-22_1226` on the derived fixture `career-earned-pad-oldgen` (branch `claude/project-thread-77b92l`): the generation-3 tree is kept inert, the reconcile prunes nothing, and the produced save's tree node and sidecars are byte-identical to the fixture. The rewind-point reaper half is not covered (the fixture has no rewind point).
-- [x] ~~GC3-LEDGER-GENERATION-GATE-DROPS-ROWS: `Ledger.LoadFromNodeCore` rejected the whole ledger (the `GAME_STATE/LEDGER` node and `ledger.pgld`) when its `recordingSchemaGeneration` was not the current one and started empty; the next save wrote the empty ledger, so a save made entirely by another Parsek generation lost every earned row even though its trees are kept inert (GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE).~~ Fixed 2026-10-21 (owner ruling "Load it when its format matches"). Fix: the ledger's format is its `version` (`CurrentLedgerVersion`), which stays a hard gate; a ledger stamped with another recording schema generation (or none) loads, with one Info line naming the generation (a row carries no recording schema). The next save stamps the current generation. Not a migration: no row is rewritten. A build older than this one still rejects a ledger of another generation (owner, 2026-10-21: the mod is not public, so backward compatibility is not a goal). Tests: `LedgerTests.LoadFromFile_OtherSchemaGeneration_LoadsWhenTheVersionMatches`, `GameStateSaveNodeTests.LedgerNode_OtherRecordingSchemaGeneration_Loads`.
+- [x] ~~GC3-LEDGER-GENERATION-GATE-DROPS-ROWS: `Ledger.LoadFromNodeCore` rejected the whole ledger (the `GAME_STATE/LEDGER` node and `ledger.pgld`) when its `recordingSchemaGeneration` was not the current one and started empty; the next save wrote the empty ledger, so a save made entirely by another Parsek generation lost every earned row even though its trees are kept inert (GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE).~~ Fixed 2026-10-21 (owner ruling "Load it when its format matches"). Fix: the ledger's format is its `version` (`CurrentLedgerVersion`), which stays a hard gate; a ledger stamped with another recording schema generation (or none) loads, with one Info line naming the generation (a row carries no recording schema). The next save stamps the current generation. Not a migration: no row is rewritten. A build older than this one still rejects a ledger of another generation (owner, 2026-10-21: the mod is not public, so backward compatibility is not a goal). Superseded 2026-11-04 by SAVE-FORMAT-1-0-FREEZE: from 1.0 every build loads every 1.0+ save, and a ledger `version` newer than the build is held verbatim and written back. Tests: `LedgerTests.LoadFromFile_OtherSchemaGeneration_LoadsWhenTheVersionMatches`, `GameStateSaveNodeTests.LedgerNode_OtherRecordingSchemaGeneration_Loads`.
 - [x] ~~GC1-SAVE-SCOPED-STATE-LEFTOVERS: per-career state PR #2155's save-scoped reset (`ResetSaveScopedSessionState`) does not reset. (1) A stuck `RewindContext.IsRewinding` (a rewind reload that never settles, or `HandleRewindOnLoad` throwing before `EndRewind`) makes the next Cold load of ANOTHER save skip `LoadCrewAndGroupState` (crew replacements, kerbal slots, group hierarchy) and the ledger load, so save A's values carry into save B; it is cleared only later in `DiscardStalePendingState`. (2) `RouteRunPrompt.PendingPromptTreeId` survives into the next save (the Supply Route banner names A's mission; Dismiss writes A's tree id into B's dismissed set). (3) Low: `KerbalsModule` `lastKnownHold` / `pendingTombstonedRosterKerbals` and `RewindInvokeContext.Pending`.~~ Fixed 2026-10-21. Fix: `ResetSaveScopedSessionState` (every Cold load) now clears `RewindContext` (`ResetForSaveLoad`, Warn when a rewind was still live), `RewindInvokeContext` (Warn when an invoke was still pending) and the Supply Route banner (`RouteRunPrompt.ResetForSaveLoad`); the three classes joined the `SaveScopedSessionResetTests` inventory gate, which learned to set float, nullable, struct and read-only-list statics. Checked first: a Cold load is never a rewind's or a Re-Fly invoke's own load (`LoadReconcilePolicy.ClassifyEarly` ranks both ahead of a save-file load, and neither initiator loads with `initialLoadDone` false). (3)'s `KerbalsModule` caches were already covered: the reset replaces the ledger modules (`LedgerOrchestrator.ResetForSaveLoad` + `Initialize` builds a new `KerbalsModule`). Not live-proven: a stuck rewind needs a reload that never settles.
 - [x] ~~GC-5: A floating EVA kerbal as a recording's terminal spawn after a rewind or warp (H20 covers a landed kerbal only).~~ TRACED 2026-10-24 (branch `gc5-orbiting-eva-spawn`): an EVA that ended Orbiting spawned from its body-fixed end point re-seeded at the spawn UT, not from its recorded terminal orbit. CONFIRMED: GC5-ORBITING-EVA-SPAWN-USES-STALE-SURFACE-POINT below.
 - [x] ~~GC-6: A held (reserved) kerbal dying aboard a live vessel that is not his reserved flight.~~ TRACED 2026-10-24 (branch `gc6-foreign-tree-hold`): a live vessel that is not his flight is still recorded by whatever flight is active, so the question is whether that recording takes his hold over. A Dock / Board / cargo claim did; a later flight that records the vessel itself (a `]` switch to it) did not. CONFIRMED: GC6-FOREIGN-TREE-RECORDING-KEEPS-OPEN-HOLD below.
@@ -7154,7 +7269,7 @@ read as a background vessel), the cleanup sites that null the field when the lat
 removed. The switch-segment subtree walk now finds branches by parent id (fixed above); the rest
 are unaudited for impact. Fix direction: the same parent-id lookup where a walk needs every child.
 
-## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override; 2026-10-03 (branch `settings-risks`): S4 struck and live-proven by ZF-1, reward multipliers with money changing hands live-proven by HC-2, the quickload-off Re-Fly closed by evidence under S7; still open: S10 (UI_SCALE)]
+## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override; 2026-10-03 (branch `settings-risks`): S4 struck and live-proven by ZF-1, reward multipliers with money changing hands live-proven by HC-2, the quickload-off Re-Fly closed by evidence under S7; S10 (UI_SCALE) fixed 2026-11-04, lane UIS-1 not yet flown]
 
 Audit of every player-facing stock KSP 1.12.5 setting (new-game modes and presets, the 103
 `GameParameters` fields, the 306 `settings.cfg` keys, the Alt+F12 cheats) against what
@@ -7431,8 +7546,23 @@ Owner rulings (2026-09-26):
 
 Supervisor defaults (not overridden):
 
-- S10 (Q5). Parsek IMGUI windows ignore `GameSettings.UI_SCALE`; scale them to match. Separate
-  UI work, not in the fix PR.
+- ~~S10 (Q5). Parsek IMGUI windows ignore `GameSettings.UI_SCALE`; scale them to match. Separate
+  UI work, not in the fix PR.~~ FIXED 2026-11-04, branch `claude/project-thread-0l64yy` (owner
+  ruling 2026-11-04: scale the whole Parsek layer, no Parsek setting; map markers and ghost labels
+  stay unscaled). Fix: `UI/ParsekUiScale.cs`. Each draw host (Flight, KSC, the global test runner,
+  the watch-mode readout, the currency hover) opens a `BeginHost` scope that sets `GUI.matrix` to
+  the live `UI_SCALE` (inert at 1). Every window draws through `ParsekUiScale.Window`: at 1 it is
+  ClickThroughBlocker; otherwise `GUILayout.Window` plus a Parsek-owned `ALLBUTCAMERAS` lock
+  hit-tested in scaled units, because ClickThroughBlocker compares the raw mouse with the scaled
+  rect; that lock hit-tests `Input.mousePosition`, because the IMGUI event position only moves
+  on a delivered mouse event. Screen clamps read `ScaledScreenWidth/Height`, and popup anchors use
+  `GuiPointToScaledRoot`, which is plain `GUIToScreenPoint` (first flight `2026-11-04_1905`
+  measured that it ignores `GUI.matrix`). A window is pulled on screen on its first draw after a scale change.
+  Gates: `ParsekUiScaleTests` (pure rules plus source gates for the one window entry point, the
+  host scopes and the anchor conversion), the in-game `UiScale` category, and lane
+  `UIS-1-ui-scale` at `UI_SCALE = 1.5` (harness `kspSettings` gained `UI_SCALE`). Status:
+  LIVE-PROVEN 2026-11-04 (`2026-11-04_1925` PASS, 3 of 3 cells). Known limit: the GUI census instruments (`GuiTreeRecorder`, `UiPointer`) still assume
+  100%, which every census profile pins.
 - ~~S11 (Q6). Alt+F12 cheat currency (`TransactionReasons.Cheating`) stays unledgered and
   clamp-held until the next rewind; log it once per event.~~ FIXED 2026-09-26, branch
   `kss-ledger`: each captured `Cheating` funds / science / reputation change writes one Info line
@@ -9521,7 +9651,8 @@ columns whose blanks are visible, where the old outline simply said nothing.
   compiled-code changes marked refactor-branch-only, so its `Parsek.dll` is method for method
   identical to main's (ikdasm compare). It keeps the partial-file splits (re-split from main's
   single files by the scripts), the test-only changes and the architecture tooling; there the
-  knots are 542, 4 and 3 and the cut-residue ratchet is 301.
+  knots are 542, 4 and 3 and the cut-residue ratchet is 306 (301 before main's save-format
+  freeze #2380 removed `GameAction`'s `Ledger` call; the first two cuts now leave 496 and 456).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

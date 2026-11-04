@@ -13,7 +13,6 @@ RecordingStore.CommittedRecordingRemoving committed-list notification event; the
 RecordingStore.RecordingPlaybackEnabledChanged UI notification event subscription, not save state
 RecordingStore.committedRecordings cleared by the cold branch's ClearCommittedInternal with notifications, then filled from the save
 RecordingStore.committedTrees cleared by the cold branch (ClearCommittedInternal, LoadRecordingTrees), then filled from the save
-RecordingStore.LegacyRecordingFileSuffixes constant table
 RecordingStore.RecordingFileSuffixes constant table
 RecordingStore.PostRewindPersistentWriteForTesting test seam
 RecordingStore.RewindWritePersistentForTesting test seam
@@ -44,11 +43,9 @@ LedgerOrchestrator.emittedReconcileWarnKeys log rate limiter (once per play sess
 LedgerOrchestrator.emittedScienceReconcileDumpKeys log rate limiter (once per play session)
 LedgerOrchestrator.EmptyPendingScience constant empty list
 LedgerOrchestrator.ExpectedCurrencySingletonsForTesting test seam
-LedgerOrchestrator.FacilityCostTableProbeForTesting test seam
 LedgerOrchestrator.fundsTrackedOverrideForTesting test seam
 LedgerOrchestrator.NowUtProviderForTesting test seam
 LedgerOrchestrator.OneShotReconcileSkipLogIntervalSeconds constant
-LedgerOrchestrator.OnKspLoadAfterOldSaveEventReconcileForTesting test seam
 LedgerOrchestrator.OnRecordingCommittedFaultInjector test seam
 LedgerOrchestrator.OnRecordingCommittedPostSciencePersistFaultInjector test seam
 LedgerOrchestrator.OnTimelineDataChanged UI subscription (timeline invalidation callback), not save state

@@ -32,7 +32,6 @@ namespace Parsek
         private static bool fundsSeedDone;
         private static bool scienceSeedDone;
         private static bool repSeedDone;
-        private static bool legacyFacilityUpgradeEstimateDone;
         [ThreadStatic]
         private static bool? fundsTrackedOverrideForTesting;
         [ThreadStatic]
@@ -196,23 +195,6 @@ namespace Parsek
         internal static Action<string> OnRecordingCommittedPostSciencePersistFaultInjector;
 
         /// <summary>
-        /// Test-only hook fired after old-save event migration has had its targeted
-        /// reconcile pass on load. Used to prove later load-time synthesizers are not
-        /// swept by a broad second reconcile.
-        /// </summary>
-        internal static Action OnKspLoadAfterOldSaveEventReconcileForTesting;
-
-        /// <summary>
-        /// STRATEGY-PREFIX-HOLDBACK-PERMANENT: the load-time unmatchable strategy-exchange
-        /// science residual (see
-        /// <see cref="ComputeUnmatchableStrategyScienceDebitBaseline"/>). Re-measured from
-        /// the on-disk state at every <see cref="OnKspLoad"/> - never persisted, because it
-        /// is a deterministic function of the store + ledger that were just loaded. 0 on a
-        /// post-capture-fix save, which is what makes the bound a no-op there.
-        /// </summary>
-        private static double unmatchableStrategyScienceDebitBaseline;
-
-        /// <summary>
         /// Sentinel value passed by <see cref="NotifyLedgerTreeCommitted"/> to recordings
         /// in a multi-recording tree that should NOT absorb any pending science subjects.
         /// Distinct from <c>null</c>, which means "read from the static list as usual"
@@ -268,9 +250,6 @@ namespace Parsek
         /// <summary>Test seam replacing <see cref="ReadCurrencyPoolProbe"/>. Cleared by ResetForTesting.</summary>
         internal static Func<CurrencyPoolProbe> CurrencyPoolProbeForTesting;
 
-        /// <summary>Test seam replacing <see cref="ReadFacilityCostTableProbe"/>. Cleared by ResetForTesting.</summary>
-        internal static Func<LedgerLoadMigration.FacilityCostTableProbe> FacilityCostTableProbeForTesting;
-
         /// <summary>Test seam replacing the uncommitted-recording read a live-pool
         /// reputation seed records. Cleared by ResetForTesting.</summary>
         internal static Func<List<string>> UncommittedRecordingIdsForTesting;
@@ -286,6 +265,8 @@ namespace Parsek
         /// <summary>Why <see cref="PlanReachedCommittedDismissals"/> planned nothing.</summary>
         internal const string DismissalSkipRewindPending = "rewind-ut-adjustment-pending";
         internal const string DismissalSkipClockNotReady = "clock-not-ready";
+
+        internal const string HeldLedgerPatchDeferralReason = "ledger held from a newer Parsek version";
 
         /// <summary>
         /// Test-only one-frame defer host. Non-null replaces
@@ -417,12 +398,9 @@ namespace Parsek
             strategiesModule = null;
             kerbalsModule = null;
             RecalculationEngine.ClearModules();
-            legacyFacilityUpgradeEstimateDone = false;
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
-            ResetMigrateOldSaveEventsForLoad();
-            unmatchableStrategyScienceDebitBaseline = 0.0;
             kscSequenceCounter = 0;
             LedgerRecoveryFundsPairing.ResetForSaveLoad();
             CommittedFutureIndexCache.Invalidate("save-scoped-reset");
@@ -441,16 +419,12 @@ namespace Parsek
             LoadedFlightStateUTForTesting = null;
             ExpectedCurrencySingletonsForTesting = null;
             ProgressSeedProbeForTesting = null;
-            FacilityCostTableProbeForTesting = null;
-            legacyFacilityUpgradeEstimateDone = false;
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
             fundsTrackedOverrideForTesting = null;
             scienceTrackedOverrideForTesting = null;
             repTrackedOverrideForTesting = null;
-            ResetMigrateOldSaveEventsForTesting();
-            unmatchableStrategyScienceDebitBaseline = 0.0;
             kscSequenceCounter = 0;
             emittedReconcileWarnKeys.Clear();
             emittedScienceReconcileDumpKeys.Clear();
@@ -469,7 +443,6 @@ namespace Parsek
             OnTimelineDataChanged = null;
             OnRecordingCommittedFaultInjector = null;
             OnRecordingCommittedPostSciencePersistFaultInjector = null;
-            OnKspLoadAfterOldSaveEventReconcileForTesting = null;
             NowUtProviderForTesting = null;
             CommittedFutureIndexCache.ResetForTesting();
             DeferOneFrameForTesting = null;

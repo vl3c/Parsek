@@ -1585,6 +1585,24 @@ class KrpcMissionControl(MissionControl):
             except Exception:
                 pass  # tuning is best-effort; the attitude gate is the safety
             ap.engage()
+        elif kind == mlib.ACTION_AP_POINT_PROGRADE:
+            # The prograde sibling of AP_POINT_RETROGRADE above (SOI-1): the same
+            # native AutoPilot, executor abort and heavy-stack tuning, with the
+            # orbital frame's +y (prograde). orbital_reference_frame is rebuilt from
+            # the vessel's current orbit, so the target follows an SOI change.
+            if self._mechjeb is not None:
+                try:
+                    self._mechjeb.node_executor.abort()
+                except Exception:
+                    pass
+            ap = v.auto_pilot
+            ap.reference_frame = v.orbital_reference_frame
+            ap.target_direction = (0.0, 1.0, 0.0)
+            try:
+                ap.deceleration_time = (15.0, 15.0, 15.0)
+            except Exception:
+                pass  # tuning is best-effort; the machine reads ap_error
+            ap.engage()
         elif kind == mlib.ACTION_AP_DISENGAGE:
             v.auto_pilot.disengage()
         elif kind == mlib.ACTION_AP_SET_PITCH_HEADING:

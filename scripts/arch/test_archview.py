@@ -3287,12 +3287,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
         self.assertIn("| Core |", fresh)
-        # 192: the historical before-state collects every root file the narrowed
+        # 196: the historical before-state collects every root file the narrowed
         # family rules leave behind (138 on 2026-09-25, 126 before the stock-UI
         # reservation files landed at the root; the 2026-11-01 refresh placed
-        # 50 more by hand, the 2026-11-04 merge of main three more); 9 after, the
-        # kernel list as it stands today.
-        self.assertIn("| Core | 195 | 9 |", fresh)
+        # 50 more by hand, the first 2026-11-04 merge of main three more, the
+        # second two more while main deleted one); 9 after, the kernel list as
+        # it stands today.
+        self.assertIn("| Core | 196 | 9 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -3326,33 +3327,35 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(len(production), 20)
 
     def test_first_cut_matches_the_documented_tree(self):
-        # Re-derived 2026-11-04 on the release branch (main's production code):
-        # Recording's two helper calls (LaunchSiteOnlyGhost, SidecarVersions)
-        # are the first cut and GameAction's real Ledger and CaptureSequence
-        # calls the second. The refactor branch claude/project-thread-bkwmrr
+        # Re-derived 2026-11-04 on the release branch (main's production code at
+        # becf1e92e): Recording's two helper calls (LaunchSiteOnlyGhost,
+        # SidecarVersions) are the first cut and GameAction's real CaptureSequence
+        # call the second (main's save-format freeze removed its Ledger call; the
+        # cuts were 494 and 455 before it). The refactor branch claude/project-thread-bkwmrr
         # moves both out, and there the first cut is Route. On 2026-09-25
         # GameAction was first (301 -> 273, dropping Ledger) and RecordingStore
         # second. Same canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
         self.assertEqual(first["sink"], "Recording")
         self.assertEqual(first["sizeBefore"], 542)
-        self.assertEqual(first["sizeAfter"], 494)
+        self.assertEqual(first["sizeAfter"], 496)
         self.assertEqual(first["droppedReferences"], ["LaunchSiteOnlyGhost", "SidecarVersions"])
         self.assertEqual(second["sink"], "GameAction")
-        self.assertEqual(second["sizeAfter"], 455)
-        self.assertEqual(second["droppedReferences"], ["CaptureSequence", "Ledger"])
+        self.assertEqual(second["sizeAfter"], 456)
+        self.assertEqual(second["droppedReferences"], ["CaptureSequence"])
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
         # a residue of about 300 types (328 of 584 before the scanner learned
-        # member names; 301 of 542 on main's production code with it, the value
-        # pinned here; 277 of 456 on the refactor branch, where Recording and
-        # GameAction are cut): the god objects at the end of the sequence hold
-        # a core the cheap cuts cannot reach. The bound is that residue, a
-        # ratchet the refactor program tightens toward half the knot; refactor
-        # work must never loosen it.
+        # member names; 306 of 542 on main's production code at becf1e92e with
+        # it, the value pinned here, 301 before main's save-format freeze removed
+        # GameAction's Ledger call; 277 of 456 on the refactor branch, where
+        # Recording and GameAction are cut): the god objects at the end of the
+        # sequence hold a core the cheap cuts cannot reach. The bound is that
+        # residue, a ratchet the refactor program tightens toward half the knot;
+        # refactor work must never loosen it.
         largest = self.model["knots"][0]
-        self.assertLessEqual(largest["cuts"][-1]["sizeAfter"], 301)
+        self.assertLessEqual(largest["cuts"][-1]["sizeAfter"], 306)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

@@ -62,14 +62,12 @@ career donor, read, never modified):
           H73's `logi-cargo-career`, so nothing patches it either. Any OTHER pool-moving type
           (science / funds / reputation earnings or spendings, contracts, facility
           upgrades, hires, strategies, lab earnings) is refused rather than guessed at.
-       c. legacy supply-route rows (23-30, 36). `Ledger` drops them at every load since
-          LOGISTICS-WITHOUT-MONEY phase 2 (`LedgerLoadMigration.IsLegacyRouteNode`), so
-          the strip changes no loaded state; no committed spec reads the load's
-          `Dropped N legacy supply-route rows` line.
+       c. supply-route rows (23-30, 36). Their ids are reserved since
+          LOGISTICS-WITHOUT-MONEY phase 2: `Ledger` keeps such a row verbatim as
+          unreadable and never recalculates it, so the strip changes no recalculated
+          state.
      Zero-award milestone rows and every non-currency row (KerbalAssignment and the like)
-     stay byte for byte. Note: a ledger left EMPTY with committed recordings makes the
-     first load run `MigrateOldSaveEvents` over the save's events file, which is empty
-     in every source here ("no events to migrate").
+     stay byte for byte.
   6. `persistent.loadmeta`: `gameMode`, `funds`, `science`, `reputationPercent` and
      `ongoingContracts` from `fresh-career`'s; vessel count, UT and timestamp stay the
      source's.

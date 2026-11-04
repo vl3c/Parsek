@@ -45,7 +45,6 @@ namespace Parsek.Tests
                 MilestoneId = id,
                 StartUT = startUT,
                 EndUT = endUT,
-                Epoch = 0,
                 Committed = true,
                 LastReplayedEventIndex = (events?.Length ?? 0) - 1,
                 Events = events != null ? new List<GameStateEvent>(events) : new List<GameStateEvent>()
@@ -63,7 +62,6 @@ namespace Parsek.Tests
                 StartUT = 0,
                 EndUT = 17090.5,
                 RecordingId = "rec789",
-                Epoch = 2,
                 Committed = true,
                 LastReplayedEventIndex = 3,
                 Events = new List<GameStateEvent>
@@ -74,7 +72,6 @@ namespace Parsek.Tests
                         eventType = GameStateEventType.TechResearched,
                         key = "basicRocketry",
                         detail = "cost=5",
-                        epoch = 2
                     },
                     new GameStateEvent
                     {
@@ -82,7 +79,6 @@ namespace Parsek.Tests
                         eventType = GameStateEventType.PartPurchased,
                         key = "mk1pod.v2",
                         detail = "cost=600",
-                        epoch = 2
                     }
                 }
             };
@@ -100,17 +96,14 @@ namespace Parsek.Tests
             Assert.Equal(0, restored.StartUT);
             Assert.Equal(17090.5, restored.EndUT);
             Assert.Equal("rec789", restored.RecordingId);
-            Assert.Equal(0u, restored.Epoch);
             Assert.True(restored.Committed);
             Assert.Equal(3, restored.LastReplayedEventIndex);
             Assert.Equal(2, restored.Events.Count);
             Assert.Equal(GameStateEventType.TechResearched, restored.Events[0].eventType);
             Assert.Equal("basicRocketry", restored.Events[0].key);
             Assert.Equal("cost=5", restored.Events[0].detail);
-            Assert.Equal(0u, restored.Events[0].epoch);
             Assert.Equal(GameStateEventType.PartPurchased, restored.Events[1].eventType);
             Assert.Equal("mk1pod.v2", restored.Events[1].key);
-            Assert.Equal(0u, restored.Events[1].epoch);
         }
 
         [Fact]
@@ -122,7 +115,6 @@ namespace Parsek.Tests
                 StartUT = 100,
                 EndUT = 200,
                 RecordingId = "rec1",
-                Epoch = 0,
                 Committed = false,
                 LastReplayedEventIndex = -1
             };
@@ -138,103 +130,7 @@ namespace Parsek.Tests
             Assert.Equal(-1, restored.LastReplayedEventIndex);
         }
 
-        [Fact]
-        public void Milestone_DeserializeFrom_MigratesLegacyFreePartUnlockShape()
-        {
-            var node = new ConfigNode("MILESTONE");
-            node.AddValue("id", "ms-451");
-            node.AddValue("startUT", "0");
-            node.AddValue("endUT", "1000");
-            node.AddValue("recordingId", "");
-            node.AddValue("epoch", "0");
-            node.AddValue("committed", "True");
-            node.AddValue("lastReplayedIdx", "1");
-
-            var techEvent = node.AddNode("GAME_STATE_EVENT");
-            new GameStateEvent
-            {
-                ut = 500,
-                eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry",
-                detail = "cost=5;parts=solidBooster.v2"
-            }.SerializeInto(techEvent);
-
-            var purchaseEvent = node.AddNode("GAME_STATE_EVENT");
-            new GameStateEvent
-            {
-                ut = 500,
-                eventType = GameStateEventType.PartPurchased,
-                key = "solidBooster.v2",
-                detail = "cost=800;entryCost=800",
-                valueBefore = 50000,
-                valueAfter = 49200
-            }.SerializeInto(purchaseEvent);
-
-            var restored = Milestone.DeserializeFrom(node);
-
-            Assert.Equal(2, restored.Events.Count);
-            Assert.Equal("cost=0;entryCost=800", restored.Events[1].detail);
-            Assert.Equal(restored.Events[1].valueAfter, restored.Events[1].valueBefore);
-        }
-
-        [Fact]
-        public void Milestone_DeserializeFrom_IgnoresDifferentEpochFundsDebitWhenMigratingLegacyFreePartUnlockShape()
-        {
-            var node = new ConfigNode("MILESTONE");
-            node.AddValue("id", "ms-451-epoch");
-            node.AddValue("startUT", "0");
-            node.AddValue("endUT", "1000");
-            node.AddValue("recordingId", "");
-            node.AddValue("epoch", "2");
-            node.AddValue("committed", "True");
-            node.AddValue("lastReplayedIdx", "2");
-
-            var techEvent = node.AddNode("GAME_STATE_EVENT");
-            new GameStateEvent
-            {
-                ut = 500,
-                epoch = 2,
-                eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry",
-                detail = "cost=5;parts=solidBooster.v2"
-            }.SerializeInto(techEvent);
-            techEvent.AddValue("epoch", "2");
-
-            var purchaseEvent = node.AddNode("GAME_STATE_EVENT");
-            new GameStateEvent
-            {
-                ut = 500,
-                epoch = 2,
-                eventType = GameStateEventType.PartPurchased,
-                key = "solidBooster.v2",
-                detail = "cost=800;entryCost=800",
-                valueBefore = 50000,
-                valueAfter = 49200
-            }.SerializeInto(purchaseEvent);
-            purchaseEvent.AddValue("epoch", "2");
-
-            var fundsEvent = node.AddNode("GAME_STATE_EVENT");
-            new GameStateEvent
-            {
-                ut = 500,
-                epoch = 1,
-                eventType = GameStateEventType.FundsChanged,
-                key = "RnDPartPurchase",
-                valueBefore = 50000,
-                valueAfter = 49200
-            }.SerializeInto(fundsEvent);
-            fundsEvent.AddValue("epoch", "1");
-
-            var restored = Milestone.DeserializeFrom(node);
-
-            Assert.Equal(3, restored.Events.Count);
-            Assert.Equal("cost=0;entryCost=800", restored.Events[1].detail);
-            Assert.Equal(restored.Events[1].valueAfter, restored.Events[1].valueBefore);
-            Assert.Equal(1u, restored.Events[2].epoch);
-        }
-
         #endregion
-
         #region MilestoneStore.CreateMilestone
 
         [Fact]
@@ -690,52 +586,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region GameStateEvent Epoch Field
-
-        [Fact]
-        public void GameStateEvent_EpochField_DeserializeReadsLegacyValue()
-        {
-            var node = new ConfigNode("GAME_STATE_EVENT");
-            node.AddValue("ut", "100");
-            node.AddValue("type", ((int)GameStateEventType.TechResearched).ToString(CultureInfo.InvariantCulture));
-            node.AddValue("key", "basicRocketry");
-            node.AddValue("epoch", "3");
-
-            var restored = GameStateEvent.DeserializeFrom(node);
-            Assert.Equal(3u, restored.epoch);
-        }
-
-        [Fact]
-        public void GameStateEvent_EpochField_DefaultsToZero()
-        {
-            // Old events without epoch field should default to 0
-            var node = new ConfigNode("GAME_STATE_EVENT");
-            node.AddValue("ut", "100");
-            node.AddValue("type", "6"); // TechResearched
-
-            var restored = GameStateEvent.DeserializeFrom(node);
-            Assert.Equal(0u, restored.epoch);
-        }
-
-        [Fact]
-        public void GameStateStore_AddEvent_PreservesLegacyEpochField()
-        {
-            GameStateStore.ResetForTesting();
-
-            var evt = new GameStateEvent
-            {
-                ut = 100,
-                eventType = GameStateEventType.TechResearched,
-                key = "test",
-                epoch = 5
-            };
-            GameStateStore.AddEvent(ref evt);
-
-            Assert.Equal(5u, GameStateStore.Events[0].epoch);
-        }
-
-        #endregion
-
         #region Visibility-Aware StartUT Watermark
 
         [Fact]
@@ -924,7 +774,6 @@ namespace Parsek.Tests
                 MilestoneId = "provisional-ms",
                 StartUT = 0,
                 EndUT = 100,
-                Epoch = 0,
                 Committed = false,
                 LastReplayedEventIndex = 0,
                 Events = new List<GameStateEvent>

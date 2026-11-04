@@ -136,13 +136,7 @@ namespace Parsek
             // here because ContractAccept ledger actions are consumed by UI/policy paths
             // that do not re-open the stored snapshot.
             // DateDeadline == 0 means no deadline (DeadlineType.None) — store as NaN.
-            //
-            // The KEY NAME is the migration stamp on this surface too, and it is not
-            // optional: stored GameStateEvents are re-converted into ledger rows at
-            // arbitrary later loads (LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad /
-            // MigrateOldSaveEvents), long after any load-time ledger migration has run.
-            // A pre-fix event's `deadline=` value is a DURATION forever; `deadlineAbsUT=`
-            // always means an absolute UT.
+            // `deadlineAbsUT=` is an absolute UT.
             string deadlineStr = deadlineAbsUT > 0
                 ? deadlineAbsUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
                 : "NaN";

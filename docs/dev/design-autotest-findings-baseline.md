@@ -645,8 +645,9 @@ Each: scenario -> expected behavior -> v1 or deferred.
   whatever `PARSEK_ANALYZER_BASELINE_MODE` resolves to (default `ignore`), and the
   CI fixture floor + the M-A5 harness verifier pass `Forbid`.
 - **No migration of existing saves.** There is nothing to migrate; a save simply
-  has no `baseline.cfg` until `-WriteBaseline` creates one. Consistent with the
-  pre-1.0 no-migration policy.
+  has no `baseline.cfg` until `-WriteBaseline` creates one. The baseline file
+  is an analyzer artifact, not save data, so the save-format policy does not
+  cover it.
 
 ## Diagnostic Logging
 

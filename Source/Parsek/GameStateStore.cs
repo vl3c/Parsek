@@ -13,6 +13,18 @@ namespace Parsek
         private static Dictionary<string, float> committedScienceSubjects = new Dictionary<string, float>();
         private static Dictionary<string, float> originalScienceValues = new Dictionary<string, float>();
 
+        // GAME_STATE_EVENT nodes whose type this build cannot read (GameStateEvent.IsUnreadableTypeNode,
+        // a newer build's event type), kept as verbatim copies and appended after the readable events
+        // on every save. Never deserialized, so no converter, ledger, reconcile or UI path sees them.
+        // Replaced by every event load; cleared with the events.
+        private static List<ConfigNode> unreadableEventNodes = new List<ConfigNode>();
+
+        /// <summary>The <c>PARSEK_GAME_STATE</c> <c>version</c> this build writes (1.0 baseline: 1).</summary>
+        internal const int CurrentEventsVersion = 1;
+
+        /// <summary>How many event nodes the last load kept verbatim because this build cannot read their type.</summary>
+        internal static int UnreadableEventCount => unreadableEventNodes.Count;
+
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
 
@@ -176,10 +188,7 @@ namespace Parsek
             if (candidate.captureSequence > 0 && target.captureSequence > 0)
                 return candidate.captureSequence == target.captureSequence;
 
-            // Legacy saves can still carry old epoch stamps on otherwise-untagged rows.
-            // Preserve that as a final tie-breaker for historical duplicates, but new
-            // production logic no longer depends on the field.
-            return !string.IsNullOrEmpty(candidateRecordingId) || candidate.epoch == target.epoch;
+            return true;
         }
 
         internal static bool IsResourceEvent(GameStateEventType type)
@@ -449,7 +458,7 @@ namespace Parsek
 
         /// <summary>
         /// Updates the <c>detail</c> field of the first event matching the given
-        /// ut/eventType/key/epoch. Returns true if an entry was found and updated.
+        /// ut/eventType/key/tag. Returns true if an entry was found and updated.
         /// GameStateEvent is a value type, so callers can't just mutate their copy —
         /// this helper rewrites the underlying list slot. Used by the milestone reward
         /// enrichment path (#400), which emits the event first with zero-reward detail
@@ -596,7 +605,7 @@ namespace Parsek
         /// Removes visible events that have been consumed by milestone creation and ledger
         /// conversion. Hidden tagged events from reverted-away branches are preserved so a
         /// later F9 quickload that restores the matching recording ids can make them visible
-        /// again without relying on the old epoch gate.
+        /// again.
         /// </summary>
         internal static int PruneProcessedEvents()
         {
@@ -771,234 +780,6 @@ namespace Parsek
             return removed;
         }
 
-        /// <summary>
-        /// Rewrites any legacy persisted <see cref="GameStateEventType.PartPurchased"/>
-        /// rows whose stored <c>cost=</c> token still means rollout <c>part.cost</c>
-        /// instead of the real historical R&amp;D debit captured by saved
-        /// <see cref="GameStateEventType.FundsChanged"/> history. The only no-funds
-        /// fallback is the legacy stock-bypass shape: one stale part-purchase row,
-        /// zero paired <c>RnDPartPurchase</c> funds events, and a loaded save whose
-        /// difficulty still reports <c>BypassEntryPurchaseAfterResearch=true</c>.
-        /// Ambiguous or coalesced windows are left untouched rather than guessed from
-        /// current runtime state.
-        /// Runs against the live in-memory list so recovery and load-time compatibility
-        /// paths see corrected event data without a save-format bump.
-        /// </summary>
-        internal static int RepairLegacyPartPurchaseEventsForCurrentSemantics()
-        {
-            return RepairLegacyPartPurchaseEventsForCurrentSemantics(events);
-        }
-
-        internal static int RepairLegacyPartPurchaseEventsForCurrentSemantics(IList<GameStateEvent> sourceEvents)
-        {
-            if (sourceEvents == null || sourceEvents.Count == 0)
-                return 0;
-
-            IReadOnlyList<GameStateEvent> readOnlySource =
-                sourceEvents as IReadOnlyList<GameStateEvent> ??
-                new List<GameStateEvent>(sourceEvents);
-
-            int repaired = 0;
-            int currentRecorderRowsKept = 0;
-            for (int i = 0; i < sourceEvents.Count; i++)
-            {
-                if (sourceEvents[i].eventType == GameStateEventType.PartPurchased &&
-                    IsCurrentRecorderPartPurchaseDetail(sourceEvents[i].detail))
-                {
-                    currentRecorderRowsKept++;
-                    continue;
-                }
-
-                GameStateEvent rewritten;
-                if (!TryRewriteLegacyPartPurchaseEvent(sourceEvents[i], readOnlySource, out rewritten))
-                    continue;
-
-                sourceEvents[i] = rewritten;
-                repaired++;
-            }
-
-            if (currentRecorderRowsKept > 0)
-            {
-                ParsekLog.Verbose("GameStateStore",
-                    $"RepairLegacyPartPurchaseEvents: kept {currentRecorderRowsKept} current-recorder " +
-                    $"PartPurchased row(s) as recorded (entryCost= present, cost= is gross), repaired={repaired}");
-            }
-
-            return repaired;
-        }
-
-        internal static bool TryRewriteLegacyPartPurchaseEvent(
-            GameStateEvent evt,
-            IReadOnlyList<GameStateEvent> sourceEvents,
-            out GameStateEvent rewritten)
-        {
-            rewritten = evt;
-            if (evt.eventType != GameStateEventType.PartPurchased)
-                return false;
-
-            float storedCost;
-            if (!TryGetStoredPartPurchaseCost(evt.detail, out storedCost))
-                return false;
-
-            // The current recorder writes `entryCost=` beside `cost=`, and its `cost=` is the
-            // gross price by contract: a strategy discount on the purchase is its own
-            // conversion leg bound to this row, so the paired FundsChanged net differs from
-            // `cost=` on purpose. Only a pre-#451 row (`cost=` alone) may be re-read from the
-            // funds event; rewriting a current row to the net would count the discount twice
-            // (todo LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE).
-            if (IsCurrentRecorderPartPurchaseDetail(evt.detail))
-                return false;
-
-            float canonicalCost;
-            if (!TryResolveLegacyPartPurchaseCharge(evt, sourceEvents, out canonicalCost))
-                return false;
-
-            double storedDelta = evt.valueBefore - evt.valueAfter;
-            if (Math.Abs(storedCost - canonicalCost) <= 0.01f &&
-                Math.Abs(storedDelta - canonicalCost) <= 0.01)
-            {
-                return false;
-            }
-
-            rewritten.detail = "cost=" + canonicalCost.ToString("R", CultureInfo.InvariantCulture);
-            rewritten.valueBefore = evt.valueAfter + canonicalCost;
-            return true;
-        }
-
-        /// <summary>
-        /// Pure: true when a PartPurchased detail carries the <c>entryCost=</c> token, which
-        /// only the current recorder writes; such a row's <c>cost=</c> is authoritative and is
-        /// never re-read from a funds event at load.
-        /// </summary>
-        internal static bool IsCurrentRecorderPartPurchaseDetail(string detail)
-        {
-            return !string.IsNullOrEmpty(GameStateEventDisplay.ExtractDetailField(detail, "entryCost"));
-        }
-
-        internal static bool TryGetStoredPartPurchaseCost(string detail, out float partPurchaseCost)
-        {
-            partPurchaseCost = 0f;
-
-            string costStr = GameStateEventDisplay.ExtractDetailField(detail, "cost");
-            return !string.IsNullOrEmpty(costStr) &&
-                   float.TryParse(costStr, NumberStyles.Float, CultureInfo.InvariantCulture,
-                       out partPurchaseCost);
-        }
-
-        private static bool TryResolveLegacyPartPurchaseCharge(
-            GameStateEvent evt,
-            IReadOnlyList<GameStateEvent> sourceEvents,
-            out float canonicalCost)
-        {
-            canonicalCost = 0f;
-
-            // Only trust the paired FundsChanged delta when the window contains a single
-            // part purchase. Batched unlocks can coalesce multiple RnDPartPurchase deltas
-            // into one resource event, which is ambiguous per purchase. Do not fall back
-            // to current difficulty or part metadata — that can silently rewrite old
-            // history using today's runtime semantics instead of the saved savefile facts.
-            if (TryGetUnambiguousPartPurchaseChargeFromFundsEvent(
-                evt, sourceEvents, out canonicalCost))
-            {
-                return true;
-            }
-
-            // Older stock-bypass saves never emitted RnDPartPurchase funds events at all,
-            // but pre-fix Parsek still persisted a non-zero PartPurchased row. Restore
-            // only that exact "single purchase, zero funds events" shape.
-            if (!IsKnownLegacyBypassPartPurchaseShape(evt, sourceEvents))
-                return false;
-
-            bool bypassEntryPurchaseAfterResearch;
-            if (!GameStateRecorder.TryGetBypassEntryPurchaseAfterResearch(
-                out bypassEntryPurchaseAfterResearch) || !bypassEntryPurchaseAfterResearch)
-            {
-                return false;
-            }
-
-            canonicalCost = 0f;
-            return true;
-        }
-
-        private static bool TryGetUnambiguousPartPurchaseChargeFromFundsEvent(
-            GameStateEvent target,
-            IReadOnlyList<GameStateEvent> sourceEvents,
-            out float canonicalCost)
-        {
-            canonicalCost = 0f;
-            int partPurchasesInWindow = 0;
-            int fundsEventsInWindow = 0;
-            GameStateEvent fundsMatch = default(GameStateEvent);
-            ScanPartPurchaseWindow(
-                target,
-                sourceEvents,
-                out partPurchasesInWindow,
-                out fundsEventsInWindow,
-                out fundsMatch);
-
-            if (partPurchasesInWindow != 1 || fundsEventsInWindow != 1)
-                return false;
-
-            double delta = fundsMatch.valueAfter - fundsMatch.valueBefore;
-            if (delta >= -0.01)
-                return false;
-
-            canonicalCost = (float)(-delta);
-            return true;
-        }
-
-        private static bool IsKnownLegacyBypassPartPurchaseShape(
-            GameStateEvent target,
-            IReadOnlyList<GameStateEvent> sourceEvents)
-        {
-            int partPurchasesInWindow = 0;
-            int fundsEventsInWindow = 0;
-            GameStateEvent ignoredFundsEvent;
-            ScanPartPurchaseWindow(
-                target,
-                sourceEvents,
-                out partPurchasesInWindow,
-                out fundsEventsInWindow,
-                out ignoredFundsEvent);
-            return partPurchasesInWindow == 1 && fundsEventsInWindow == 0;
-        }
-
-        private static void ScanPartPurchaseWindow(
-            GameStateEvent target,
-            IReadOnlyList<GameStateEvent> sourceEvents,
-            out int partPurchasesInWindow,
-            out int fundsEventsInWindow,
-            out GameStateEvent fundsMatch)
-        {
-            partPurchasesInWindow = 0;
-            fundsEventsInWindow = 0;
-            fundsMatch = default(GameStateEvent);
-            if (sourceEvents == null || sourceEvents.Count == 0)
-                return;
-
-            for (int i = 0; i < sourceEvents.Count; i++)
-            {
-                var candidate = sourceEvents[i];
-                if (candidate.epoch != target.epoch)
-                    continue;
-                if (Math.Abs(candidate.ut - target.ut) > ResourceCoalesceEpsilon)
-                    continue;
-
-                if (candidate.eventType == GameStateEventType.PartPurchased)
-                {
-                    partPurchasesInWindow++;
-                    continue;
-                }
-
-                if (candidate.eventType == GameStateEventType.FundsChanged &&
-                    string.Equals(candidate.key, "RnDPartPurchase", StringComparison.Ordinal))
-                {
-                    fundsEventsInWindow++;
-                    fundsMatch = candidate;
-                }
-            }
-        }
-
         #endregion
 
         #region Committed Science Subjects
@@ -1058,19 +839,19 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Tries to get the committed science value for a subject.
-        /// Returns false if the subject has not been committed.
-        /// </summary>
-        /// <summary>
-        /// Returns a snapshot of committed subject IDs for iteration (e.g., by the
-        /// save recovery migration in <see cref="LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad"/>).
-        /// Returns a new list so callers can mutate the underlying store while iterating.
+        /// Returns a snapshot of committed subject IDs for iteration (e.g., by
+        /// <see cref="KspStatePatcher.PatchPerSubjectScience"/>). Returns a new list so
+        /// callers can mutate the underlying store while iterating.
         /// </summary>
         internal static List<string> GetCommittedScienceSubjectIds()
         {
             return new List<string>(committedScienceSubjects.Keys);
         }
 
+        /// <summary>
+        /// Tries to get the committed science value for a subject.
+        /// Returns false if the subject has not been committed.
+        /// </summary>
         internal static bool TryGetCommittedSubjectScience(string subjectId, out float science)
         {
             return committedScienceSubjects.TryGetValue(subjectId, out science);
@@ -1409,7 +1190,7 @@ namespace Parsek
             // and corrupt facility/building cache seeding.
             var build = new EventsNodeBuild();
             var rootNode = new ConfigNode(EventsNodeName);
-            rootNode.AddValue("version", 1);
+            rootNode.AddValue("version", CurrentEventsVersion);
             ConfigNode attemptNode = null;
             if (!string.IsNullOrEmpty(attemptTreeId))
             {
@@ -1441,6 +1222,9 @@ namespace Parsek
                 e.SerializeInto(eventNode);
                 build.SavedEvents++;
             }
+            // Events this build could not read go back out untouched, after the readable ones.
+            for (int i = 0; i < unreadableEventNodes.Count; i++)
+                rootNode.AddNode(unreadableEventNodes[i].CreateCopy());
 
             foreach (var snap in contractSnapshots)
             {
@@ -1535,7 +1319,7 @@ namespace Parsek
                     return false;
                 }
 
-                ParseEventsNode(rootNode, path, "events.pgse");
+                ParseEventsNode(rootNode, path);
                 return true;
             }
             catch (Exception ex)
@@ -1561,7 +1345,7 @@ namespace Parsek
             BeginEventLoad("LoadEventsFromSaveNode");
             try
             {
-                ParseEventsNode(eventsNode, "the save's GAME_STATE node", "GAME_STATE/PARSEK_GAME_STATE");
+                ParseEventsNode(eventsNode, "the save's GAME_STATE node");
                 return true;
             }
             catch (Exception ex)
@@ -1595,6 +1379,7 @@ namespace Parsek
             int prevEvents = events.Count;
             int prevSnapshots = contractSnapshots.Count;
             events.Clear();
+            unreadableEventNodes = new List<ConfigNode>();
             contractSnapshots.Clear();
             committedScienceSubjects.Clear();
             originalScienceValues.Clear();
@@ -1603,30 +1388,41 @@ namespace Parsek
             return true;
         }
 
-        private static void ParseEventsNode(ConfigNode rootNode, string sourceLabel, string migrationLabel)
+        private static void ParseEventsNode(ConfigNode rootNode, string sourceLabel)
         {
-            int version = 1;
+            // Events are self-describing rows: an unreadable row is kept verbatim below, so a
+            // version this build does not know still loads every row it can read.
             string versionStr = rootNode.GetValue("version");
-            if (!string.IsNullOrEmpty(versionStr) && !int.TryParse(versionStr, out version))
+            SaveFormatClass versionClass = SaveFormat.GameStateStoreFormat.Classify(SaveFormat.ParseStored(versionStr));
+            if (versionClass != SaveFormatClass.Current)
             {
-                ParsekLog.Warn("GameStateStore", $"Invalid game state events version '{versionStr}'");
-                version = 1;
-            }
-            if (version != 1)
-            {
-                ParsekLog.Warn("GameStateStore", $"Unsupported game state events version={version} (expected 1)");
+                // Only a newer store is worth a WRN: a missing or older stamp is a pre-1.0 or
+                // hand-built node, loaded best effort like every other pre-baseline store.
+                string versionMessage =
+                    $"Game state events version='{versionStr ?? "(missing)"}' is {versionClass} " +
+                    $"(current={CurrentEventsVersion.ToString(CultureInfo.InvariantCulture)}); loading every readable event";
+                if (versionClass == SaveFormatClass.Newer)
+                    ParsekLog.Warn("GameStateStore", versionMessage);
+                else
+                    ParsekLog.Info("GameStateStore", versionMessage);
             }
 
             // ConfigNode.Load returns the file contents directly
             ConfigNode[] eventNodes = rootNode.GetNodes("GAME_STATE_EVENT");
+            int unreadable = 0;
             if (eventNodes != null)
             {
                 foreach (var en in eventNodes)
+                {
+                    if (GameStateEvent.IsUnreadableTypeNode(en))
+                    {
+                        unreadable++;
+                        unreadableEventNodes.Add(en.CreateCopy());
+                        continue;
+                    }
                     events.Add(GameStateEvent.DeserializeFrom(en));
+                }
             }
-
-            int migratedPartPurchases =
-                GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(events, migrationLabel);
 
             ConfigNode[] snapNodes = rootNode.GetNodes("CONTRACT_SNAPSHOT");
             if (snapNodes != null)
@@ -1639,8 +1435,8 @@ namespace Parsek
 
             ParsekLog.Info("GameStateStore",
                 $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
-                $"{committedScienceSubjects.Count} science subjects from {sourceLabel} " +
-                $"(partPurchaseCompatMigrations={migratedPartPurchases})");
+                $"{committedScienceSubjects.Count} science subjects from {sourceLabel}; " +
+                $"unreadableTypesKeptVerbatim={unreadable.ToString(CultureInfo.InvariantCulture)}");
 
             // Log event type distribution for diagnostics
             if (events.Count > 0)
@@ -1674,10 +1470,19 @@ namespace Parsek
             if (attemptNode == null)
                 return 0;
             int restored = 0;
+            int unreadable = 0;
             HashSet<string> droppedContractAcceptGuids = null;
             ConfigNode[] eventNodes = attemptNode.GetNodes("GAME_STATE_EVENT");
             for (int i = 0; i < eventNodes.Length; i++)
             {
+                // An attempt event is memory-only state of an uncommitted flight; one this build
+                // cannot read is not restored (counted in the summary below).
+                if (GameStateEvent.IsUnreadableTypeNode(eventNodes[i]))
+                {
+                    unreadable++;
+                    droppedEvents++;
+                    continue;
+                }
                 GameStateEvent e = GameStateEvent.DeserializeFrom(eventNodes[i]);
                 if (keepEvent != null && !keepEvent(e))
                 {
@@ -1703,6 +1508,10 @@ namespace Parsek
                     continue;
                 contractSnapshots.Add(snap);
             }
+            if (unreadable > 0)
+                ParsekLog.Info("GameStateStore",
+                    $"RestoreAttemptEventsToMemory: skipped {unreadable.ToString(CultureInfo.InvariantCulture)} " +
+                    "attempt event(s) of a type this build cannot read");
             return restored;
         }
 
@@ -1876,6 +1685,7 @@ namespace Parsek
         {
             int dropped = events.Count;
             events.Clear();
+            unreadableEventNodes = new List<ConfigNode>();
             contractSnapshots.Clear();
             baselines.Clear();
             committedScienceSubjects.Clear();

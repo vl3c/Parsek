@@ -440,7 +440,6 @@ namespace Parsek.Tests
         [InlineData("abc123_ghost.craft.txt", "abc123")]
         [InlineData("abc123.pann", "abc123")]                          // pipeline-annotation sidecar (PR #626 P2#1)
         [InlineData("abc123.PANN", "abc123")]                          // case-insensitive
-        [InlineData("abc123.pcrf", null)]                              // .pcrf no longer recognized (#260)
         [InlineData("a1b2c3d4e5f6.prec", "a1b2c3d4e5f6")]           // GUID-style ID
         [InlineData("id.with.dots.prec", "id.with.dots")]             // dots in ID
         [InlineData("abc123.prec.tmp", null)]                         // safe-write temp file — should be ignored
@@ -456,21 +455,6 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData("abc123.pcrf", true)]                                    // legacy ghost-geometry sidecar (#260)
-        [InlineData("a1b2c3d4e5f6.pcrf", true)]
-        [InlineData("ABC123.PCRF", true)]                                    // case-insensitive
-        [InlineData("abc123.prec", false)]                                   // current sidecar — not legacy
-        [InlineData("abc123_vessel.craft", false)]
-        [InlineData("abc123_ghost.craft", false)]
-        [InlineData("readme.txt", false)]
-        [InlineData("", false)]
-        [InlineData(null, false)]
-        public void IsLegacySidecarFile_Works(string fileName, bool expected)
-        {
-            Assert.Equal(expected, RecordingStore.IsLegacySidecarFile(fileName));
-        }
-
-        [Theory]
         [InlineData("abc123.prec.stage.123", true)]
         [InlineData("abc123.prec.stage.123.tmp", true)]
         [InlineData("abc123_vessel.craft.bak.123", true)]
@@ -479,7 +463,6 @@ namespace Parsek.Tests
         [InlineData("abc123_vessel.craft.txt.bak.123", true)]
         [InlineData("abc123_ghost.craft.txt.tmp", true)]
         [InlineData("abc123.prec", false)]
-        [InlineData("abc123.pcrf", false)]
         [InlineData("readme.txt", false)]
         [InlineData("", false)]
         [InlineData(null, false)]

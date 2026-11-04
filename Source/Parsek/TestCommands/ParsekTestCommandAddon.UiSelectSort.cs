@@ -691,7 +691,6 @@ namespace Parsek.TestCommands
         {
             int changed = MissionVesselRowBuilder.ApplyVesselInclusion(
                 row, include, mission.ExcludedIntervalKeys);
-            if (changed > 0) MissionsWindowUI.StampSelectionEditForTesting(mission);
             ParsekLog.Info(Tag, $"uiaction select vessel mission={mission.Id} "
                 + $"head={row.OwnerHeadId} vessel={row.VesselName} "
                 + $"include={TestCommandUiSelectSort.IncludeToken(include)} "
@@ -770,7 +769,6 @@ namespace Parsek.TestCommands
                                               List<ForeignDockLink> links, bool include)
         {
             int changed = ApplyBulkVesselSelection(mission, rows, include);
-            if (changed > 0) MissionsWindowUI.StampSelectionEditForTesting(mission);
 
             int linkChanged = 0;
             if (links != null)

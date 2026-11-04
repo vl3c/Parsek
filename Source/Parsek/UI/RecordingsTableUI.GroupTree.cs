@@ -285,7 +285,7 @@ namespace Parsek
             }
             if (grpGClicked)
             {
-                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                var mousePos = ParsekUiScale.GuiPointToScaledRoot(Event.current.mousePosition);
                 groupPicker.OpenForGroup(groupName, mousePos);
                 ParsekLog.Verbose("UI", $"Group popup opened for group '{groupName}'");
             }
@@ -296,7 +296,7 @@ namespace Parsek
             }
             if (grpSegmentsClicked)
             {
-                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                var mousePos = ParsekUiScale.GuiPointToScaledRoot(Event.current.mousePosition);
                 groupPicker.OpenForRecordings(absorbedRootMembers, mousePos);
                 ParsekLog.Verbose("UI",
                     $"Group popup opened for the launched vessel's segments of '{groupName}' "

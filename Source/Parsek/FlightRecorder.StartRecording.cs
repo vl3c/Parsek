@@ -464,6 +464,7 @@ namespace Parsek
             EnteredAtmosphere = false;
             SoiChangePending = false;
             SoiChangeFromBody = null;
+            ClearPhysicsSoiSamplePending();
 
             // Seed altitude boundary state (airless bodies)
             ReseedAltitudeState(v);

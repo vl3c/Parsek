@@ -540,7 +540,7 @@ namespace Parsek.Tests
         //     node by SaveTreeRecordings, loaded from the committed-tree
         //     storage (RecordingStore.CommittedTrees), not from the
         //     clone.
-        //   - Sidecars (.prec / *_vessel.craft / *_ghost.craft / .pcrf)
+        //   - Sidecars (.prec / *_vessel.craft / *_ghost.craft)
         //     contain trajectory + craft data only. ChildBranchPointId
         //     is per-recording tree metadata serialized by
         //     RecordingTreeRecordCodec.WriteRecord into the RECORDING
