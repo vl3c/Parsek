@@ -143,7 +143,7 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # The host's 34 recordings plus V; the check launch is unrecorded. Measured on `2026-10-28_1750`.
-count = 35
+count = { min = 35, max = 35 }
 
 [expectations.logContracts]
 required = [

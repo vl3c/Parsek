@@ -346,7 +346,10 @@ required = [
 
   # ---- the crossing: H's rows and the accept reached once, Jeb freed ----
   "MISSIONMARK label=rw2-standin-recovered ut=[\\s\\S]*?\\[KerbalsModule\\] Reservation released: 'Jebediah Kerman' endUT=[0-9.]+ [\\s\\S]*?MISSIONMARK label=rw2-crossed ut=",
-  "MISSIONMARK label=rw2-standin-recovered ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]\\r\\n]*KerbalAssignment@[\\s\\S]*?MISSIONMARK label=rw2-crossed ut=",
+  # H's KerbalAssignment row is dated at H's launch, the rewind save's own UT, so since
+  # dcee3f7ad (the Rewind-to-Launch lead window holds rows up to that UT as reached) it is
+  # never committed future and never crosses (2026-11-01 run); Jeb's hold and its release
+  # are pinned by the Reservation released line above.
   "MISSIONMARK label=rw2-standin-recovered ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]\\r\\n]*KerbalExperience@[\\s\\S]*?MISSIONMARK label=rw2-crossed ut=",
   "MISSIONMARK label=rw2-standin-recovered ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]\\r\\n]*ContractAccept@[\\s\\S]*?MISSIONMARK label=rw2-crossed ut=",
 

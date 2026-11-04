@@ -74,6 +74,79 @@ namespace Parsek.Tests
             Assert.Equal(34.0, desired[0].UT);
         }
 
+        // STAND-IN-DEATH-FILED-UNDER-THE-SLOT-OWNER: a stand-in's death row now names the
+        // stand-in, so a row stored under the slot owner must keep its id (and so its
+        // tombstone) when it re-derives under the stand-in's name.
+        [Fact]
+        public void Inherit_StandInDeathRenamedFromOwner_KeepsTheOwnerRowsId()
+        {
+            var existing = new List<GameAction>
+            {
+                Row("rec", "Jebediah Kerman", 8.0, KerbalEndState.Dead, id: "act_jeb"),
+                Row("rec", "Bob Kerman", 8.0, KerbalEndState.Aboard, id: "act_bob"),
+            };
+            var desired = new List<GameAction>
+            {
+                Row("rec", "Leia Kerman", 8.0, KerbalEndState.Dead),
+                Row("rec", "Bob Kerman", 8.0, KerbalEndState.Aboard),
+            };
+            Func<string, string> ownerOf = n => n == "Leia Kerman" ? "Jebediah Kerman" : n;
+
+            int fresh;
+            int inherited = LedgerOrchestrator.InheritKerbalAssignmentActionIds(
+                existing, desired, out fresh, ownerOf);
+
+            Assert.Equal(2, inherited);
+            Assert.Equal(0, fresh);
+            Assert.Equal("act_jeb", desired[0].ActionId);
+            Assert.Equal("act_bob", desired[1].ActionId);
+            Assert.Contains(logLines, l => l.Contains("InheritKerbalAssignmentActionIds")
+                && l.Contains("'Leia Kerman'") && l.Contains("same slot owner 'Jebediah Kerman'"));
+        }
+
+        [Fact]
+        public void Inherit_SameNameWinsOverSlotOwner_AndNoOwnerMapKeepsTheOldRule()
+        {
+            // Two stored rows in one seat chain: the exact-name row pairs first, the
+            // owner-identity pass only sees what is left.
+            var existing = new List<GameAction>
+            {
+                Row("rec", "Jebediah Kerman", 8.0, KerbalEndState.Aboard, id: "act_jeb"),
+                Row("rec", "Leia Kerman", 8.0, KerbalEndState.Dead, id: "act_leia"),
+            };
+            var desired = new List<GameAction> { Row("rec", "Leia Kerman", 8.0, KerbalEndState.Dead) };
+            Func<string, string> ownerOf = n => n == "Leia Kerman" ? "Jebediah Kerman" : n;
+
+            int fresh;
+            LedgerOrchestrator.InheritKerbalAssignmentActionIds(existing, desired, out fresh, ownerOf);
+            Assert.Equal("act_leia", desired[0].ActionId);
+
+            // Without the owner map a renamed row keeps a fresh id, as before.
+            var renamed = new List<GameAction> { Row("rec", "Leia Kerman", 8.0, KerbalEndState.Dead) };
+            int inherited = LedgerOrchestrator.InheritKerbalAssignmentActionIds(
+                new List<GameAction> { Row("rec", "Jebediah Kerman", 8.0, KerbalEndState.Dead, id: "act_jeb") },
+                renamed, out fresh);
+            Assert.Equal(0, inherited);
+            Assert.Equal(1, fresh);
+            Assert.NotEqual("act_jeb", renamed[0].ActionId);
+        }
+
+        [Fact]
+        public void CrewSlotOwnerName_MapsAStandInToItsOwner()
+        {
+            CrewReservationManager.ResetReplacementsForTesting();
+            try
+            {
+                CrewReservationManager.SetReplacement("Jebediah Kerman", "Leia Kerman");
+                Assert.Equal("Jebediah Kerman", LedgerOrchestrator.CrewSlotOwnerName("Leia Kerman"));
+                Assert.Equal("Bob Kerman", LedgerOrchestrator.CrewSlotOwnerName("Bob Kerman"));
+            }
+            finally
+            {
+                CrewReservationManager.ResetReplacementsForTesting();
+            }
+        }
+
         [Fact]
         public void Inherit_SeveralRowsPerKerbal_PairsInOrder_NoIdIsShared()
         {

@@ -48,7 +48,8 @@ id = "RW-6-refly-science-discard-merge"
 #   Attempt 2: InvokeRewind slot 0 again from that flight; the pod comes back EMPTY
 #     (`exp:data=0`: the discarded report is gone with its attempt); the same crew report,
 #     `exp:data=1`, then AnswerMergeDialog merge (the HEAD / TIP split of G's launch recording,
-#     supersede rows, no tombstone, the slot auto-sealed Immutable on its Landed ending); then
+#     supersede rows, one tombstone for the crew's Aboard row, the slot auto-sealed Immutable on
+#     its Landed ending); then
 #     the pod is recovered from the Tracking Station (L13 / STR-2 / RF-L2's live-proven
 #     route), which is when stock pays the report and the ledger files it under the merged
 #     recording.
@@ -70,7 +71,7 @@ id = "RW-6-refly-science-discard-merge"
 #     KSC science row tagged to the merged attempt's recording, every walk's `Earning:` line
 #     with awarded = effective = creditedTotal = maxValue, no `Earning (cap hit):`, and the
 #     science pool after it equals the pre-invoke 20.17 plus that value;
-#   - the merge: dominance pass, variant A, the split, supersede rows, 0 tombstones,
+#   - the merge: dominance pass, variant A, the split, supersede rows, 1 tombstone (Kerbal=1),
 #     mergeState=Immutable by stableTerminalFocusSlot, End reason=merged once;
 #   - the sealed slot: `invokerewind refused: refly-gate recordingAction:` after the recovery.
 #
@@ -254,7 +255,7 @@ id = "RW-6-refly-science-discard-merge"
 # Every pinned literal is derived from source (file:line above), the host and the flown RW-1 /
 # RW-3 / RW-5 / RW-6 (1145, steps 1-57) logs.
 tier = "operator"
-description = "Rewind ledger campaign, science across a discarded and a merged Re-Fly of one slot (plan row 7): on cs-career-mun4, RW-5's committed pad flight and contract accept, a Rewind-to-Launch and a CS Flea Probe flight decoupled on the pad (a rewind point) and committed without science; a first Re-Fly of the pod slot takes the crew report and is discarded (the report never reaches the ledger, the next attempt's pod starts empty, the pools and rows return to their pre-invoke values); a second Re-Fly takes the same report and merges (split, supersede rows, no tombstone, auto-sealed), and the pod's Tracking Station recovery credits the subject once at full value under the merged flight, after which the value gate refuses that slot; then a warp across the committed rows and LedgerGroundTruth."
+description = "Rewind ledger campaign, science across a discarded and a merged Re-Fly of one slot (plan row 7): on cs-career-mun4, RW-5's committed pad flight and contract accept, a Rewind-to-Launch and a CS Flea Probe flight decoupled on the pad (a rewind point) and committed without science; a first Re-Fly of the pod slot takes the crew report and is discarded (the report never reaches the ledger, the next attempt's pod starts empty, the pools and rows return to their pre-invoke values); a second Re-Fly takes the same report and merges (split, supersede rows, one tombstone for the crew's Aboard row, auto-sealed), and the pod's Tracking Station recovery credits the subject once at full value under the merged flight, after which the value gate refuses that slot; then a warp across the committed rows and LedgerGroundTruth."
 instanceProfile = "stock-tree"
 tags = ["RW-6", "career", "ledger", "science", "crew-report", "rewind", "rewind-to-launch",
         "refly", "discard-refly", "refly-merge", "refly-gate", "value-gate", "supersede",
@@ -469,7 +470,10 @@ required = [
   "Controllable split children: \\[[0-9]+,[0-9]+\\] \\(orig=[0-9]+, ",
   "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1857[0-9]{2}\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
   "MISSIONMARK label=rw6-rewound ut=[\\s\\S]*?committree committed=true[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=",
-  "MISSIONMARK label=rw6-rewound ut=[\\s\\S]*?Current-UT ledger recalculation: reason=flight-tree-commit cutoffUT=1857[0-9]{2}[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=",
+  # G is committed inside the Rewind-to-Launch lead window, so its walk's cutoff is the rewind's
+  # held-through UT (#2324), not the clock: RW-7's pin. Re-pinned off the 2026-11-01 full run
+  # (cutoffUT=185800.30, the held-through UT).
+  "Rewind: ledger held-through UT none -> ([0-9.]+) [\\s\\S]*?MISSIONMARK label=rw6-rewound ut=[\\s\\S]*?Current-UT ledger recalculation: reason=flight-tree-commit cutoffUT=\\1(?![0-9])[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=",
   "MISSIONMARK label=rw6-rewound ut=[\\s\\S]*?CommitTree: promoted normal staging rp=rp_[0-9a-f]{32} tree=\\S+ to persistent[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=",
   "Stashed slot=0 rec=\\S+ bp=\\S+ rp=rp_[0-9a-f]{32} tip=\\S+ tipMergeState=CommittedProvisional tipDemoted=True terminal=Landed reaperBlocked=True",
   "stashslot complete rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ tipMergeState=Immutable->CommittedProvisional stashed=true unfinishedFlight=true unfinishedRow=\\S+",
@@ -531,12 +535,17 @@ required = [
   # The attempt recorded a trajectory (a pointless provisional cannot supersede).
   "MISSIONMARK label=rw6-refly2-started ut=[\\s\\S]*?recordingstate recording=true tree=\\S+ points=[1-9][0-9]* scene=FLIGHT[\\s\\S]*?MISSIONMARK label=rw6-refly2-report ut=",
 
-  # ---- THE MERGE: dominance, split, supersede, no tombstone, sealed Immutable ----
+  # ---- THE MERGE: dominance, split, supersede, the crew row's tombstone, sealed Immutable ----
   "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Merge dominance check sess=\\S+ result=pass pool=\\S+ ut=\\S+ before=\\S+ after=\\S+ ",
   "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Loss swap sess=\\S+ variant=A repLossOld=\\S+ repLossNew=\\S+",
   "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Split origin [0-9a-f]{32} at UT=1857[0-9]{2}\\.[0-9]{2}: HEAD=\\[",
   "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Added [1-9][0-9]* supersede relations for subtree rooted at ",
-  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Tombstoned 0 career actions ",
+  # One tombstone, the pod crew's open-ended Aboard row: since 434ea07c9 an Aboard / Unknown
+  # crew row is keyed by its EndUT, so the split moves it onto the TIP and the merge retires it
+  # (the 2026-11-01 run, KSP.log 31153 `Step9: 1 pre-rewind-boarded open-ended crew row(s)
+  # retagged to TIP` and 31500 `Tombstoned 1 career actions (... Kerbal=1 ...)`). Nothing else.
+  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Step9: 1 pre-rewind-boarded open-ended crew row\\(s\\) retagged to TIP by endUT ",
+  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Tombstoned 1 career actions \\(Contract=0, Milestone=0, Facility=0, Strategy=0, ScienceSpending=0, Science=0, Funds=0, Reputation=0, Kerbal=1, Other=0\\); ",
   "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?mergeState=Immutable terminalKind=\\S+ qualifies=\\S+ slot=0 rp=rp_[0-9a-f]{32} focusSlot=0 focusSlotOverride=0 classifierReason=stableTerminalFocusSlot autoSeal=True ",
   "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Auto-sealed re-fly slot=0 rec=\\S+ rp=rp_[0-9a-f]{32} mergeState=Immutable terminal=Landed reason=classifierClosed:\\S+",
   "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?End reason=merged sess=\\S+ ",
@@ -645,7 +654,9 @@ forbidden = [
   "\\A(?:(?!MISSIONMARK label=rw6-refly2-armed )[\\s\\S])*?Added [1-9][0-9]* supersede relations",
   "\\A(?:(?!MISSIONMARK label=rw6-refly2-armed )[\\s\\S])*?End reason=merged ",
   "\\A(?:[\\s\\S]*?End reason=merged ){2}",
-  "Tombstoned [1-9][0-9]* career actions",
+  # Only the merge's one crew-row tombstone (pinned above), and only once.
+  "Tombstoned (?!0 career actions |1 career actions \\(Contract=0, Milestone=0, Facility=0, Strategy=0, ScienceSpending=0, Science=0, Funds=0, Reputation=0, Kerbal=1, Other=0\\); )[0-9]+ career actions",
+  "\\A(?:[\\s\\S]*?Tombstoned [1-9][0-9]* career actions ){2}",
   "Merge dominance check sess=\\S+ result=refuse",
   "AppendRelations outcome=refused-unflown-provisional",
   "End reason=concluded-no-supersede",
@@ -668,12 +679,12 @@ forbidden = [
 ]
 
 # REPORT-ONLY until the reading run: the point survives (the stand's slot stays open), the
-# merge writes its supersede rows and no tombstone.
+# merge writes its supersede rows and one tombstone (the crew's Aboard row, 434ea07c9).
 [expectations.rewind]
 gating        = false
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 1 }
-tombstones    = { max = 0 }
+tombstones    = { min = 1, max = 1 }
 
 [runtime]
 budgetSeconds = 7700

@@ -2077,6 +2077,8 @@ Slot owner dies → no auto-replacement, roster shrinks, player hires manually.
 Stand-in dies within temporary chain → chain continues, new stand-in generated.
 ```
 
+**Implementation note: a stand-in's death is filed under the stand-in (2026-11-03).** Crew rows reverse-map a seated stand-in to the slot owner he fills (#337), so the owner's hold covers the seat. A death is the one exception: when the seat's end state is Dead and the seated kerbal is a stand-in, the `KerbalAssignment` row names the stand-in (`LedgerOrchestrator.ResolveCrewRowName`). The owner keeps his slot and his committed flights, the stand-in takes the death hold (permanent, or until his stock respawn), and the Re-Fly world clause (rewind design section 2.12 Rule 5) reads the death against the stand-in, so a re-fly whose stand-in crashes is no longer refused because the owner flies later. Before this the death read as the owner's: after a rewind to before his committed flight, a stand-in crash marked him lost while that flight still flew. Todo STAND-IN-DEATH-FILED-UNDER-THE-SLOT-OWNER. The recorder's snapshots already carry the owner in that seat (`TryBackupSnapshot` reverse-maps it), so the reverse map leaves a `PARSEK_SEATED_STANDINS` record (`seat = owner|standIn`) in the snapshot, and the crew rows read who sat from it.
+
 **Sandbox mode:** kerbals are free and the player can create new ones at will. Permanent loss has no mechanical cost — the player simply creates a replacement.
 
 **Science mode:** funds don't exist, so hiring cost doesn't apply. Permanent loss behaves like sandbox — the player creates a replacement kerbal for free. The roster shrink is cosmetic until the player acts.

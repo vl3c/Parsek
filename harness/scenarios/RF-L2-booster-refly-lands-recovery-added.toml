@@ -97,7 +97,9 @@ steps = [
   { cmd = "MissionMark",       args = { label = "rfl2-merged" },                        expect = "OK" },
   { cmd = "RecordingState",                                                             expect = "OK" },
   # ---- ACT 3: recover the landed booster from the Tracking Station ----
-  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  # No ExitToSpaceCenter here (RF-C1's 60c8136e5): AnswerMergeDialog concludes the Re-Fly by
+  # driving the scene exit to the Space Center itself, so a second exit only ever deferred
+  # `not-in-flight` to a seam timeout (driver-INVALID on both attempts of the 2026-11-01 run).
   { cmd = "TrackingStationRecover", args = { pid = "${bst.pid}" },                      expect = "OK", budget = 120 },
   { cmd = "MissionMark",       args = { label = "rfl2-recovered" },                     expect = "OK" },
   { cmd = "FlushAndQuit",                                                               expect = "OK" },
@@ -207,7 +209,7 @@ supersedeRows = { min = 1 }
 tombstones    = { max = 0 }
 
 [runtime]
-# LoadGame x2 (660 each), mission 900, ExitToSpaceCenter x2 (180 each), SaveGame 120,
+# LoadGame x2 (660 each), mission 900, ExitToSpaceCenter x1 (180), SaveGame 120,
 # InvokeRewind 660, WarpToUT 540, AnswerMergeDialog 300, TrackingStationRecover 180, and
 # about 15 inert steps at 120: sum about 6,300 s.
 budgetSeconds = 6600

@@ -730,6 +730,16 @@ type = "number"
 min = 1.0
 max = 100.0
 
+# The ascent's tilt gate (opt-in; absent = report-only): when the boarded lander has
+# settled, a lean off vertical (90 - Flight.Pitch in the surface frame) above this many
+# degrees flakes the run mun-lander-tipped instead of engaging an ascent that would
+# push the lander along the ground.
+[params.munAscentMaxTiltDeg]
+required = false
+type = "number"
+min = 1.0
+max = 90.0
+
 # EVA-RECOVER (opt-in; absent = off): after EvaExit, switch to the lander for this
 # many GAME s so a ragdolled kerbal (not the active vessel) stands up, then switch
 # back and send PlantFlag once the active vessel's name reads as the kerbal for

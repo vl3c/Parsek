@@ -301,10 +301,12 @@ required = [
 
   # ---- the crossing, RW-9: the rows reached at the Space Center, the Runway raised once ----
   "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=rw1-crossed ut=",
-  # Measured on the first flight: the accept row crosses with the H recovery batch, the
-  # upgrade row on its own.
+  # Which rows share a crossing batch follows the warp steps and the lead-window dating
+  # (1476ccd3f): the first flight crossed the accept with the H recovery batch and the upgrade
+  # alone; the 2026-11-01 run crossed both together (`crossed=2 [ContractAccept@..,
+  # FacilityUpgrade@..]`). Each row is pinned in some batch; the single raise is pinned below.
   "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*ContractAccept@",
-  "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=1 \\[FacilityUpgrade@",
+  "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*FacilityUpgrade@",
   "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?PatchFacilities: 'SpaceCenter/Runway' level 0 -> 1 [\\s\\S]*?MISSIONMARK label=rw1-crossed ut=",
 
   # ---- the ground truth, in FLIGHT on the unrecorded check Flea ----

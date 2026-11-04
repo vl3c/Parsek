@@ -44,6 +44,10 @@ _(unreleased - entries accumulate here per commit)_
 - **A ghost no longer dives into the planet in a recording gap next to a close-formation leg.**
   Playback that fills a gap from the raw sample list now reads a formation-flying stretch through
   its own planet-relative copy, or hides the ghost for that moment. (FLAT-POINTS-READ-RELATIVE-OFFSETS)
+- **A stand-in's crash no longer kills the kerbal he stood in for.** After a rewind, a stand-in who
+  dies in a reserved kerbal's seat is now the one marked lost, so the reserved kerbal keeps his
+  committed flights, and a Re-Fly whose stand-in crashes can be merged instead of being refused.
+  (STAND-IN-DEATH-FILED-UNDER-THE-SLOT-OWNER)
 - **A loose part another flight left is no longer duplicated by a rewind.** Picking it up in EVA
   construction is now recorded, so after a rewind to before the pick-up the old part shows until
   that moment and then goes, instead of standing beside the copy the kerbal took.

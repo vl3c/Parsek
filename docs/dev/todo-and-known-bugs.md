@@ -230,6 +230,43 @@ all five red on the old code.
 live only through `MergeJournalOrchestrator.FaultInjectionPoint`, and the in-game
 `MergeInterruptionRecoveryTest` already drives the same finisher path from `Durable1Done`.
 
+## ~~STAND-IN-DEATH-FILED-UNDER-THE-SLOT-OWNER: a stand-in's crash is booked as the death of the kerbal he stood in for~~ [FILED 2026-11-03 from the 2026-11-01 full lane run (R1-rewind-loop-flown `2026-11-01_2334` / `_2339_a2`, INVALID merge-refused-at-click, deterministic); FIXED 2026-11-03, branch `claude/project-thread-rp1ciy`, owner ruling 2026-11-04 ("death belongs to who flew"); xUnit, R1 re-flight owed; product, medium (a reserved kerbal reads lost after his stand-in crashes; a Re-Fly that crashes a stand-in cannot merge)]
+
+R1 rewinds to `rp_b9_root` after a flown Kerbal X ascent it committed mid-flight, relaunches the pad Kerbal X and merges. After the rewind Jeb is reserved by the committed ascent, so his seat holds the stand-in Milrie; the relaunch ends at UT 41 at 250 m with a predicted crash. `LedgerOrchestrator.ExtractCrewFromRecording` reverse-maps every seated stand-in to his slot owner (#337), so the crash wrote `Jebediah Kerman Dead`, and the Re-Fly dominance check (rewind design section 2.12 Rule 5, world clause) refused the merge at the click: `world=kerbal:Jebediah Kerman ut=213.119`, the committed ascent's later use of Jeb. The same row in plain play makes the walk hold the owner permanently lost while his committed flight still flies, which contradicts design section 9.11 (a stand-in who dies is the stand-in; the chain continues). RW-7 met the same mapping and passed only because its later committed rows started before the crash.
+
+Fix: a crew row whose end state is Dead names the kerbal who was seated, so a stand-in's death is filed under the stand-in. The recorder's `TryBackupSnapshot` reverse-maps a seated stand-in to the owner before the crash is read (the first cut missed this and R1 `2026-11-04_1042` still refused), so the reverse map now leaves a seat record in the snapshot (`PARSEK_SEATED_STANDINS`, `seat = owner|standIn`, `KerbalsModule.ReadSeatedStandIn`) and the crew rows read the seated name from it; it stays with the recording, so a later load re-derives the same row (`LedgerOrchestrator.ResolveCrewRowName`, Verbose `Crew row: stand-in ... died in the seat of ...`); every other end state keeps the slot owner, as #337 wants. The owner keeps his hold and committed flights, the stand-in takes the death hold, and the world clause reads the death against the stand-in. Because the row's name can now change between derivations (a row stored under the owner by an older build, or an end state that moved), load-time re-derivation pairs a renamed row with the stored row of the same slot owner (`InheritKerbalAssignmentActionIds`' second pass, `CrewSlotOwnerName`), so a tombstoned stand-in death keeps its id and stays retired. Known and accepted: the Re-Fly world clause reads a later committed seat by its slot owner, so a re-fly that kills a stand-in who also sits in a later committed flight of the same slot is not refused; design section 9.11 reads that seat as the slot's, and the slot chain continues past the dead stand-in. Tests: `KerbalAssignmentIdentityTests.Inherit_StandInDeathRenamedFromOwner_KeepsTheOwnerRowsId`, `Inherit_SameNameWinsOverSlotOwner_AndNoOwnerMapKeepsTheOldRule`, `CrewSlotOwnerName_MapsAStandInToItsOwner`, `LedgerOrchestratorTests.ResolveCrewRowName_DeadStandIn_NamesTheStandIn`, `ExtractCrewFromRecording_DeadStandIn_DeathFiledUnderTheStandIn`, `KerbalReservationTests.Recalculate_StandInDiesBeforeOwnersCommittedFlight_OwnerStaysAlive`. Also seen on R1, by design and left as is: the merge is offered when the dialog opens and refused at the click, because the dialog-open check runs on the tree before `FinalizeTreeOnSceneChange` stamps the predicted crash; the click re-check is the authority (rewind design section 6.12 step 0).
+
+---
+
+## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; OPEN, needs a steadier lander craft, deferred until after the release bugs (owner ruling 2026-11-04); test harness, low; no Parsek defect]
+
+From the run's KSP.log and mission rows: no Parsek line spawns, packs or moves the lander in
+the window (the only spawn lines are the periodic `Spawn suppressed`, as in the green run). Both
+attempts landed about 12 s later than the green `2026-10-31_0654_a2`; right after the EvaBoard
+the lander read angV 0.322 and hspd 1.0 and settled about 0.2 m lower, leaning. MechJeb's
+ascent then pushed it sideways along the ground (hspd 7 -> 44 m/s at alt 0.9, still LANDED)
+until the solar panel, chute and heat shield broke off and the vessel was lost. What gave the
+kick at the board (stock's board teleport or the legs) is not in the logs.
+
+The first guard flight (`2026-11-04_1106` / `_1126_a2`) flaked `mun-lander-tipped` on both attempts, but on a wrong read: kRPC's Flight.Pitch is measured in the flight's own frame, and the shell read it in the body frame, where the level lander read -77 before the EVA. The shell now reads it in the vessel's surface frame, and the tilt gate is opt-in (`munAscentMaxTiltDeg`, absent = report-only) until a flight shows what an upright boarded lander reads: after the board the rows also read alt ~1.0 where the landed lander read ~4, as in the green run, so the post-board attitude read is not yet trusted. The surface-frame re-flight settled the cause: both attempts touched down upright (pitch 89.9, alt 4.1) and then fell over on the legs at zero throttle, one during LANDED-SETTLE and one about 14 s into the EVA (pitch to -11 / -17, alt to ~1.1). The craft's stance (four LT-05s round a Terrier, the spec's own pre-flight risk) is too narrow for the sites MechJeb picks. CS-7 now arms the gate at 30 deg, so the lane reads `mun-lander-tipped` instead of vessel-lost; making it pass needs a wider-stance lander (`harness/tools/build_cs_orbiter_craft.py --variant solar`) and a CS-7 re-flight. Guard: `mlr_decide`'s EVA-SETTLE counts a frame only when the lander is at rest (angV and hspd
+under B5's park / settled-touchdown bounds), the telemetry row carries the new `pitch=` read,
+and, when `munAscentMaxTiltDeg` is set, a settled lander leaning more than that off vertical
+flakes `mun-lander-tipped` instead of engaging the ascent. That turns a doomed ascent into a named,
+fast INVALID; it does not make the lane pass. If the re-flight tips again, the `pitch=` rows show
+whether it tipped at the touchdown, the EVA, the flag or the board, which decides the next step.
+
+## ~~RECORDINGS-COUNT-BARE-INT-CRASHES-VERIFIER: a spec pinning `[expectations.recordings] count = N` as a bare number made its lane INVALID~~ [FILED 2026-11-04 from the full lane run (RW-7 and RW-10..RW-22, 14 lanes INVALID); FIXED 2026-11-04, branch `claude/project-thread-rp1ciy`; harness unit cells; the 14 lanes' re-flight owed; test harness, medium (14 lanes could never pass)]
+
+The fourteen rewind-campaign specs wrote the recording-count window as a bare int (`count = 3`)
+where every reader expects a table (`count = { min = 3, max = 3 }`). `run.py`'s verifier chain
+called `count_spec.get("max")` on the int and crashed the lane INVALID, and hlib's count check
+skipped any non-table silently, so the pin was never enforced either.
+
+Fix: `hlib.validate_recordings_count_spec` (called from `validate_spec`) rejects a non-table
+count, unknown keys, a window with neither bound, a non-int / bool / negative bound and
+`min > max`; `run.py` no longer assumes the table; the 14 specs carry the table form; cells in
+`SpecValidationRejectTests` cover every shape, and every committed spec passes them.
+
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 
 Closed since the audit (each with its own entry or PR): A1 RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP
