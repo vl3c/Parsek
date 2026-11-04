@@ -5949,11 +5949,12 @@ namespace Parsek
         /// side of an SOI boundary, following the rails state exactly as
         /// OnVesselGoOnRails / OnVesselGoOffRails / ResumeAfterFalseAlarm do.
         ///
-        /// ONLY THE onRails==true BRANCH SHIPS TODAY. The sole production caller is
-        /// OnVesselSOIChanged, whose own `if (!IsRecording || !isOnRails) return;` guard
-        /// proves onRails at the call. The off-rails branch is a defensive default that
-        /// keeps this a total function and states what a future off-rails SOI producer
-        /// would get; it is pinned by a unit cell, not reachable in production.
+        /// ONLY THE onRails==true BRANCH SHIPS TODAY. The sole production caller is the
+        /// on-rails half of OnVesselSOIChanged. An off-rails SOI change never reaches here:
+        /// it arms a sample and the per-frame sampler splits the section at the first
+        /// sample on the new body (FlightRecorder.PhysicsSoi.cs), keeping the frame it was
+        /// in. The off-rails branch is a defensive default that keeps this a total
+        /// function; it is pinned by a unit cell, not reachable in production.
         ///
         /// RECORDER-SUSPECTED-DOUBLE-EMIT-AT-SOI-SEAM: this used to open Absolute
         /// unconditionally, but OnVesselSOIChanged only runs while isOnRails is true and
@@ -7096,6 +7097,7 @@ namespace Parsek
             EnteredAtmosphere = false;
             SoiChangePending = false;
             SoiChangeFromBody = null;
+            ClearPhysicsSoiSamplePending();
 
             // Seed altitude boundary state (airless bodies)
             ReseedAltitudeState(v);
@@ -9724,7 +9726,7 @@ namespace Parsek
                 effectiveMinSampleInterval,
                 attitudeSampleThresholdDegrees);
 
-            if (!motionTriggered && !attitudeTriggered)
+            if (!motionTriggered && !attitudeTriggered && !physicsSoiSamplePending)
             {
                 // Bug #595: the previous 2.0s rate-limit window still produced
                 // ~200 lines per 30-min session during stationary intervals.
@@ -9751,6 +9753,10 @@ namespace Parsek
                 point.longitude = pose.Longitude;
                 point.altitude = pose.Altitude;
             }
+            // One section holds one body: a sample on a new body (an off-rails SOI change)
+            // closes the section here and becomes the next section's first frame.
+            SplitSectionIfPhysicsBodyChanged(v, point);
+            ClearPhysicsSoiSamplePending();
             TryCanonicalizeActiveReFlyRecordingPoint(ref point, "physics-sample");
             TrajectoryPoint absolutePoint = point;
 
@@ -12052,7 +12058,7 @@ namespace Parsek
 
         public void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
-            if (!IsRecording || !isOnRails) return;
+            if (!IsRecording) return;
             if (data.host != FlightGlobals.ActiveVessel)
             {
                 ParsekLog.VerboseRateLimited("Recorder", "soi-other-vessel",
@@ -12060,6 +12066,15 @@ namespace Parsek
                 return;
             }
             if (data.host.persistentId != RecordingVesselId) return;
+
+            // Off rails (a burn through the boundary, a 1x or physics-warp coast) there is no
+            // orbit segment to roll over; the per-frame sampler splits the section at the
+            // first sample on the new body (SplitSectionIfPhysicsBodyChanged).
+            if (!isOnRails)
+            {
+                ArmPhysicsSoiSample(data.from?.name, data.to?.name, Planetarium.GetUniversalTime());
+                return;
+            }
 
             // Close current orbit segment in old SOI
             currentOrbitSegment.endUT = Planetarium.GetUniversalTime();

@@ -883,6 +883,11 @@ ACTION_MJ_PLAN_PARK_TRIM = "mj_plan_park_trim"              # value = None
 # allow_rails_warp).
 ACTION_AP_POINT_RETROGRADE = "ap_point_retrograde"         # value = None
 ACTION_AP_DISENGAGE = "ap_disengage"                       # value = None
+# The prograde sibling of AP_POINT_RETROGRADE (SOI-1): kRPC's native AutoPilot in
+# vessel.orbital_reference_frame, target_direction (0, 1, 0). That frame is rebuilt
+# from the vessel's CURRENT orbit, so after an SOI change it tracks the new body's
+# prograde. COMMANDED only; the machine's gates read ap_error and the orbit.
+ACTION_AP_POINT_PROGRADE = "ap_point_prograde"             # value = None
 # KX-REWIND-WATCH gravity-turn steering. Drives kRPC's NATIVE AutoPilot in the
 # vessel's SURFACE reference frame (``target_pitch_and_heading(pitch, heading)``
 # + ``engage()``), which is the only steering surface available to a mission that
@@ -21977,6 +21982,17 @@ MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
     # straddling death rows and leaves no permanent reservation, before and after a
     # reload. That belongs to the spec's log contracts and the armed rewind facets.
     # The terminal is the literal "ORBIT" because RFO_ORBIT is defined below this table.
+    # soi1_mun_exit_burn (SOI-1) is SBR's kind of gap: it terminates ON its own outcome
+    # (the crossing under thrust at 1x and the parent SOI are observed on frames it
+    # read), and the reason it is flown is a recorder claim it has no view of: whether
+    # the off-rails SOI change split the open TrackSection at the first sample on the
+    # new body. That is the spec's log contracts and recording window. The terminal is
+    # the literal because SOI1_DONE is defined below this table.
+    "soi1_mun_exit_burn": {
+        "terminal": "SOI1-IN-PARENT",
+        "unverifiedByMission": ["physicsSoiSectionSplit"],
+        "verifiedBy": ["logContracts", "recordings"],
+    },
     "rf12s_refly_orbit_insert": {
         "terminal": "ORBIT",
         "unverifiedByMission": ["tombstoneScreening", "reservationRecovery"],
@@ -34389,3 +34405,578 @@ def evaluate_msc_assertions(frames, params: MscParams,
         "scienceKeptToSplashdown", g("kept_data", -1) >= want_low, g("kept_data", -1),
         {"want": want_low}))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# SOI-1 physics-frame SOI exit under thrust (mission soi1_mun_exit_burn). Pure.
+#
+# WHAT IT IS FOR (R3 of the 2026-11-04 replay-theory audit). Before that fix an SOI
+# change while the ACTIVE vessel was OFF rails - a burn through the boundary, or a
+# 1x / physics-warp coast - authored no TrackSection boundary, so one section held
+# frames on two bodies. The recorder now splits the open section at the first
+# physics sample on the new body. This mission produces exactly that crossing and
+# nothing else: from the crewed Kerbal X upper stage parked in a ~139.6 km Mun orbit
+# (`mun-park-kerbalx`) it burns prograde to a Mun ESCAPE hyperbola, rails-warps the
+# coast to a short lead before the Mun SOI exit, drops to 1x, and burns prograde at a
+# modest throttle across the boundary, so the crossing happens in PHYSICS with the
+# engine firing. It ends once the vessel has been in the parent's (Kerbin's) SOI for
+# a short trail.
+#
+#     START     (first frame: the handoff must be the crewed stage ORBITING the home
+#                body on a near-circular orbit; AP prograde + optional align warp)
+#       -> ALIGN       (AP prograde converges within alignMaxErrorDeg on K frames;
+#                       the align warp is dropped to 1x BEFORE any throttle-up)
+#       -> ESCAPE-BURN (throttle escapeThrottle until eccentricity >= escapeEccentricity
+#                       with an SOI change on the trajectory; cut)
+#       -> COAST       (native warp_to_ut to the SOI-exit UT minus warpLeadSeconds;
+#                       the ONLY phase that permits rails warp)
+#       -> APPROACH    (1x; the AP re-points prograde; ignite at time_to_soi <=
+#                       burnLeadSeconds, NOT gated on alignment: the claim needs an
+#                       engine firing across the boundary, not a prograde vector)
+#       -> STRADDLE-BURN (1x, throttle straddleThrottle; stamp the last home frame
+#                       and the first parent frame; cut burnTrailSeconds after it)
+#       -> IN-PARENT   (terminal)
+#
+# DERIVATION (fixture bytes: SMA 339,568.97 m, ecc 0.000126, Mun GM 6.5138398e10,
+# SOI 2,429,559 m; ~13.6-15.1 t stack, Poodle 250 kN / Isp 350). Circular speed
+# 437.98 m/s, escape speed 619.40. eccentricity 1.2 needs a 211.6 m/s prograde burn
+# (v_inf 195.9 m/s), ~23 s at throttle 0.5, overshoot <= ~4.6 m/s per 0.5 s poll;
+# the SOI exit is then ~6,782 game s away and the prograde vector turns ~53 deg
+# between the cut and the exit (the rails coast freezes the attitude, so APPROACH
+# spends its 1x lead re-pointing). The straddle burn at throttle 0.1 is ~1.9 m/s^2,
+# ~130 m/s over a 40 s lead + 30 s trail. Total ~340 m/s of ~1,970-2,280 available.
+#
+# FAIL FAST. Every way the lane can stop being its own subject ends at once, by name:
+# a periapsis falling during the escape (pointing wrong), an SOI change during the
+# coast (crossed ON RAILS: the old path, not this lane's), a crossing before the
+# straddle ignition (unpowered), an unlit or dry engine, a lost escape (no SOI change
+# on the trajectory). A loss is MISSION-ASSERT-FAIL (driver INVALID, never
+# PARSEK-FAIL); an expired bound is MISSION-FLAKE.
+#
+# THE MISSION SEES NOTHING OF PARSEK. Whether the recorder split the section is the
+# scenario's `[expectations.logContracts]` question (MISSION_HANDOFF_CONTRACTS).
+# ---------------------------------------------------------------------------
+
+SOI1_START = "SOI1-START"
+SOI1_ALIGN = "SOI1-ALIGN"
+SOI1_ESCAPE = "SOI1-ESCAPE-BURN"
+SOI1_COAST = "SOI1-COAST"
+SOI1_APPROACH = "SOI1-APPROACH"
+SOI1_STRADDLE = "SOI1-STRADDLE-BURN"
+SOI1_DONE = "SOI1-IN-PARENT"
+SOI1_PHASES: Tuple[str, ...] = (SOI1_START, SOI1_ALIGN, SOI1_ESCAPE, SOI1_COAST,
+                                SOI1_APPROACH, SOI1_STRADDLE, SOI1_DONE)
+# KSP physics warp factor INDEX -> rate (TimeWarp.physicsWarpRates, stock 1/2/3/4).
+SOI1_PHYSICS_WARP_RATES: Tuple[float, ...] = (1.0, 2.0, 3.0, 4.0)
+# Frames between two native warp issues: the WarpService target reads back on the
+# next poll, so an immediate re-issue would only retarget the same warp.
+SOI1_WARP_REISSUE_FRAMES = 4
+
+
+@dataclass(frozen=True)
+class Soi1Params:
+    """SOI-1 parameters. Every value is a target / tolerance / bound."""
+    home_body: str = "Mun"
+    parent_body: str = "Kerbin"
+    min_crew: int = 1
+    start_max_eccentricity: float = 0.05
+    start_min_periapsis: float = 20000.0
+    align_max_error_deg: float = 10.0
+    align_debounce_frames: int = 3
+    align_timeout_seconds: float = 900.0
+    align_physics_warp_index: int = 1
+    escape_throttle: float = 0.5
+    escape_eccentricity: float = 1.2
+    escape_min_periapsis: float = 20000.0
+    escape_burn_timeout_seconds: float = 300.0
+    ignite_frames: int = 20
+    warp_lead_seconds: float = 150.0
+    warp_arrival_tolerance_seconds: float = 15.0
+    max_warp_issues: int = 3
+    coast_timeout_seconds: float = 20000.0
+    approach_timeout_seconds: float = 600.0
+    burn_lead_seconds: float = 40.0
+    burn_trail_seconds: float = 30.0
+    straddle_throttle: float = 0.1
+    straddle_timeout_seconds: float = 300.0
+    min_observed_burn_lead_seconds: float = 10.0
+
+    @property
+    def align_physics_warp_rate(self) -> float:
+        idx = max(0, min(len(SOI1_PHYSICS_WARP_RATES) - 1,
+                         int(self.align_physics_warp_index)))
+        return SOI1_PHYSICS_WARP_RATES[idx]
+
+
+def soi1_params_from_dict(params: Dict) -> Soi1Params:
+    """Build ``Soi1Params`` from a spec ``missionParams`` dict (schema:
+    ``soi1_mun_exit_burn.schema.toml``)."""
+    params = params or {}
+    d = Soi1Params()
+    return Soi1Params(
+        home_body=str(params.get("homeBodyName", d.home_body)),
+        parent_body=str(params.get("parentBodyName", d.parent_body)),
+        min_crew=int(params.get("minCrew", d.min_crew)),
+        start_max_eccentricity=float(params.get("startMaxEccentricity",
+                                                d.start_max_eccentricity)),
+        start_min_periapsis=float(params.get("startMinPeriapsisMeters",
+                                             d.start_min_periapsis)),
+        align_max_error_deg=float(params.get("alignMaxErrorDeg", d.align_max_error_deg)),
+        align_debounce_frames=int(params.get("alignDebounceFrames",
+                                             d.align_debounce_frames)),
+        align_timeout_seconds=float(params.get("alignTimeoutSeconds",
+                                               d.align_timeout_seconds)),
+        align_physics_warp_index=int(params.get("alignPhysicsWarpIndex",
+                                                d.align_physics_warp_index)),
+        escape_throttle=float(params.get("escapeThrottle", d.escape_throttle)),
+        escape_eccentricity=float(params.get("escapeEccentricity", d.escape_eccentricity)),
+        escape_min_periapsis=float(params.get("escapeMinPeriapsisMeters",
+                                              d.escape_min_periapsis)),
+        escape_burn_timeout_seconds=float(params.get("escapeBurnTimeoutSeconds",
+                                                     d.escape_burn_timeout_seconds)),
+        ignite_frames=int(params.get("igniteFrames", d.ignite_frames)),
+        warp_lead_seconds=float(params.get("warpLeadSeconds", d.warp_lead_seconds)),
+        warp_arrival_tolerance_seconds=float(params.get(
+            "warpArrivalToleranceSeconds", d.warp_arrival_tolerance_seconds)),
+        max_warp_issues=int(params.get("maxWarpIssues", d.max_warp_issues)),
+        coast_timeout_seconds=float(params.get("coastTimeoutSeconds",
+                                               d.coast_timeout_seconds)),
+        approach_timeout_seconds=float(params.get("approachTimeoutSeconds",
+                                                  d.approach_timeout_seconds)),
+        burn_lead_seconds=float(params.get("burnLeadSeconds", d.burn_lead_seconds)),
+        burn_trail_seconds=float(params.get("burnTrailSeconds", d.burn_trail_seconds)),
+        straddle_throttle=float(params.get("straddleThrottle", d.straddle_throttle)),
+        straddle_timeout_seconds=float(params.get("straddleTimeoutSeconds",
+                                                  d.straddle_timeout_seconds)),
+        min_observed_burn_lead_seconds=float(params.get(
+            "minObservedBurnLeadSeconds", d.min_observed_burn_lead_seconds)),
+    )
+
+
+@dataclass(frozen=True)
+class Soi1State:
+    """SOI-1 machine state; every evidence field is stamped on the frame that
+    produced it (machine-carried, settle_frames=0)."""
+    params: Soi1Params
+    phase: str = SOI1_START
+    phase_entry_ut: float = float("nan")
+    phase_frames: int = 0
+    phases_reached: Tuple[str, ...] = (SOI1_START,)
+    done: bool = False
+    verdict: Optional[str] = None
+    flake_phase: str = ""
+    flake_reason: str = ""
+    loss_reason: str = ""
+    # Handoff evidence (first frame).
+    start_body: str = ""
+    start_situation: str = ""
+    start_eccentricity: float = float("nan")
+    start_periapsis: float = float("nan")
+    start_crew: int = -1
+    # ALIGN.
+    align_streak: int = 0
+    align_warp_dropped: bool = False
+    align_error_at_ignite: float = float("nan")
+    # Burn tracking (reset per burn).
+    peak_thrust: float = float("nan")
+    # ESCAPE-BURN cut evidence.
+    escape_cut_ut: float = float("nan")
+    escape_cut_eccentricity: float = float("nan")
+    escape_cut_periapsis: float = float("nan")
+    escape_cut_time_to_soi: float = float("nan")
+    escape_cut_next_body: str = ""
+    escape_peak_thrust: float = float("nan")
+    # COAST.
+    warp_target_ut: float = float("nan")
+    warp_issues: int = 0
+    last_warp_issue_frame: int = -1000
+    # APPROACH.
+    approach_entry_ut: float = float("nan")
+    approach_entry_time_to_soi: float = float("nan")
+    # STRADDLE-BURN.
+    ignite_ut: float = float("nan")
+    ignite_time_to_soi: float = float("nan")
+    ignite_ap_error: float = float("nan")
+    straddle_warp_frames: int = 0
+    last_home_ut: float = float("nan")
+    last_home_throttle: float = float("nan")
+    last_home_thrust: float = float("nan")
+    last_home_warp_rate: float = float("nan")
+    cross_ut: float = float("nan")
+    cross_throttle: float = float("nan")
+    cross_thrust: float = float("nan")
+    cross_warp_mode: str = ""
+    cross_warp_rate: float = float("nan")
+    end_ut: float = float("nan")
+    end_body: str = ""
+    end_liquid_fuel: float = float("nan")
+
+
+def soi1_initial_state(params: Soi1Params) -> Soi1State:
+    """Fresh SOI-1 machine at START."""
+    return Soi1State(params=params)
+
+
+def soi1_at_1x(snapshot: TelemetrySnapshot) -> bool:
+    """True iff the snapshot reads 1x: no warp mode, or a rate at/below 1. An
+    unreadable (non-finite) rate with a non-NONE mode is NOT 1x (fail closed)."""
+    mode = str(snapshot.warp_mode or "").upper()
+    if mode in ("", WARP_NONE):
+        return True
+    return _is_finite(snapshot.warp_rate) and snapshot.warp_rate <= 1.0
+
+
+def soi1_max_physics_warp(state) -> float:
+    """The SOI-1 shell's per-frame physics-warp ceiling (``MissionSpec.
+    max_physics_warp`` as a callable). ALIGN runs its slew under the configured
+    physics warp (an attitude slew, not a burn); COAST tolerates the stock 4x that
+    kRPC's WarpTo reads in its last game seconds. Everywhere else - the escape burn,
+    the 1x approach and the straddle burn - any physics warp is a flake."""
+    phase = getattr(state, "phase", None)
+    if phase == SOI1_ALIGN:
+        params = getattr(state, "params", None)
+        rate = params.align_physics_warp_rate if params is not None else 1.0
+        return rate if rate > 1.0 else 0.0
+    if phase == SOI1_COAST:
+        return STOCK_PHYSICS_WARP_CEILING
+    return 0.0
+
+
+def soi1_rails_warp_permitted(state) -> bool:
+    """The SOI-1 shell's per-frame rails-warp permission: True ONLY in COAST. A
+    rails warp anywhere near the boundary would put the crossing back on the
+    on-rails path this lane exists to avoid."""
+    return getattr(state, "phase", None) == SOI1_COAST
+
+
+def soi1_handoff_refusal(params: Soi1Params, snapshot: TelemetrySnapshot) -> str:
+    """Why the first frame is NOT the crewed stage parked at the home body, or ""
+    when it is. Pure and separate so each refusal is unit-covered by name."""
+    if snapshot.body != params.home_body:
+        return ("handoff not at %s: body=%s"
+                % (params.home_body, snapshot.body or "<unread>"))
+    if snapshot.situation != "ORBITING":
+        return ("handoff not ORBITING: situation=%s"
+                % (snapshot.situation or "<unread>"))
+    if (not _is_finite(snapshot.eccentricity)
+            or snapshot.eccentricity > params.start_max_eccentricity):
+        return ("handoff orbit not near-circular: eccentricity=%s (max %.3f)"
+                % (snapshot.eccentricity, params.start_max_eccentricity))
+    if (not _is_finite(snapshot.periapsis)
+            or snapshot.periapsis < params.start_min_periapsis):
+        return ("handoff periapsis %s below %.0f m"
+                % (snapshot.periapsis, params.start_min_periapsis))
+    if snapshot.crew_count < params.min_crew:
+        return ("handoff crew %d < minCrew %d" % (snapshot.crew_count, params.min_crew))
+    return ""
+
+
+def _soi1_enter(state: Soi1State, new_phase: str, ut: float) -> Soi1State:
+    return replace(
+        state, phase=new_phase,
+        phase_entry_ut=ut if _is_finite(ut) else state.phase_entry_ut,
+        phase_frames=0,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == SOI1_DONE))
+
+
+def _soi1_fail(state: Soi1State, reason: str) -> Soi1State:
+    return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                   loss_reason="%s in phase %s" % (reason, state.phase))
+
+
+def _soi1_flake(state: Soi1State, reason: str) -> Soi1State:
+    return replace(state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason)
+
+
+def _soi1_stop_actions() -> List[Action]:
+    """The cleanup tail of every give-up: no thrust, no warp, no autopilot."""
+    return [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_CANCEL_WARP),
+            Action(ACTION_AP_DISENGAGE)]
+
+
+def _soi1_elapsed(state: Soi1State, snapshot: TelemetrySnapshot) -> float:
+    if not (_is_finite(snapshot.ut) and _is_finite(state.phase_entry_ut)):
+        return 0.0
+    return float(snapshot.ut) - float(state.phase_entry_ut)
+
+
+def _soi1_track_thrust(st: Soi1State, snapshot: TelemetrySnapshot) -> Tuple[Soi1State, bool]:
+    thrust = snapshot.available_thrust
+    if _is_finite(thrust) and (not _is_finite(st.peak_thrust) or thrust > st.peak_thrust):
+        st = replace(st, peak_thrust=thrust)
+    return st, bool(_is_finite(st.peak_thrust) and st.peak_thrust > 0.0)
+
+
+def soi1_warp_target(params: Soi1Params, snapshot: TelemetrySnapshot) -> float:
+    """The coast's native warp target: the predicted SOI-exit UT minus the lead.
+    NaN when the SOI change is not on the trajectory or UT is unreadable."""
+    if not (_is_finite(snapshot.ut) and _is_finite(snapshot.time_to_soi)):
+        return float("nan")
+    return float(snapshot.ut) + float(snapshot.time_to_soi) - params.warp_lead_seconds
+
+
+def soi1_decide(state: Soi1State,
+                snapshot: TelemetrySnapshot) -> Tuple[Soi1State, List[Action]]:
+    """Advance the SOI-1 machine one frame; return (new_state, actions)."""
+    if state.done:
+        return state, []
+    p = state.params
+    if snapshot.vessel_lost:
+        return _soi1_fail(state, "vessel-lost"), []
+
+    if state.phase == SOI1_START:
+        stamped = replace(state, start_body=snapshot.body,
+                          start_situation=snapshot.situation,
+                          start_eccentricity=snapshot.eccentricity,
+                          start_periapsis=snapshot.periapsis,
+                          start_crew=snapshot.crew_count)
+        refusal = soi1_handoff_refusal(p, snapshot)
+        if refusal:
+            return _soi1_fail(stamped, refusal), []
+        actions = [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_POINT_PROGRADE)]
+        if p.align_physics_warp_rate > 1.0:
+            actions.append(Action(ACTION_SET_PHYSICS_WARP,
+                                  float(p.align_physics_warp_index),
+                                  text="align-slew: physics warp while the AP turns"))
+        return _soi1_enter(stamped, SOI1_ALIGN, snapshot.ut), actions
+
+    if state.phase == SOI1_ALIGN:
+        st = replace(state, phase_frames=state.phase_frames + 1)
+        err = snapshot.ap_error
+        aligned = _is_finite(err) and abs(err) <= p.align_max_error_deg
+        st = replace(st, align_streak=(st.align_streak + 1) if aligned else 0)
+        if _soi1_elapsed(st, snapshot) > p.align_timeout_seconds:
+            return (_soi1_flake(st, "AP prograde did not converge within %.0f deg in "
+                                    "%.0f game s (apErr=%s)"
+                                % (p.align_max_error_deg, p.align_timeout_seconds, err)),
+                    _soi1_stop_actions())
+        if st.align_streak >= p.align_debounce_frames:
+            if not soi1_at_1x(snapshot):
+                # Drop the slew warp and wait for the 1x readback: a burn never
+                # integrates at a scaled physics step.
+                if st.align_warp_dropped:
+                    return st, []
+                return (replace(st, align_warp_dropped=True),
+                        [Action(ACTION_SET_PHYSICS_WARP, 0.0,
+                                text="align-slew done: back to 1x before ignition")])
+            st = replace(st, align_error_at_ignite=err, peak_thrust=float("nan"))
+            return (_soi1_enter(st, SOI1_ESCAPE, snapshot.ut),
+                    [Action(ACTION_SET_THROTTLE, p.escape_throttle)])
+        return st, []
+
+    if state.phase == SOI1_ESCAPE:
+        st = replace(state, phase_frames=state.phase_frames + 1)
+        st, lit = _soi1_track_thrust(st, snapshot)
+        thrust = snapshot.available_thrust
+        if snapshot.body != p.home_body:
+            return (_soi1_fail(st, "left %s during the escape burn (body=%s)"
+                               % (p.home_body, snapshot.body or "<unread>")),
+                    _soi1_stop_actions())
+        if _is_finite(snapshot.periapsis) and snapshot.periapsis < p.escape_min_periapsis:
+            return (_soi1_fail(st, "periapsis %.0f m fell below %.0f m during the escape "
+                                   "burn (not pointing prograde)"
+                               % (snapshot.periapsis, p.escape_min_periapsis)),
+                    _soi1_stop_actions())
+        if (lit and _is_finite(snapshot.eccentricity)
+                and snapshot.eccentricity >= p.escape_eccentricity
+                and _is_finite(snapshot.time_to_soi) and snapshot.time_to_soi > 0.0):
+            if snapshot.next_body and snapshot.next_body != p.parent_body:
+                return (_soi1_fail(st, "escape leads to %s, not %s"
+                                   % (snapshot.next_body, p.parent_body)),
+                        _soi1_stop_actions())
+            st = replace(st, escape_cut_ut=snapshot.ut,
+                         escape_cut_eccentricity=snapshot.eccentricity,
+                         escape_cut_periapsis=snapshot.periapsis,
+                         escape_cut_time_to_soi=snapshot.time_to_soi,
+                         escape_cut_next_body=snapshot.next_body,
+                         escape_peak_thrust=st.peak_thrust,
+                         peak_thrust=float("nan"))
+            return (_soi1_enter(st, SOI1_COAST, snapshot.ut),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        if not lit and st.phase_frames >= p.ignite_frames:
+            return (_soi1_fail(st, "engine never lit: available_thrust stayed 0 for %d "
+                                   "frames" % p.ignite_frames),
+                    _soi1_stop_actions())
+        if lit and _is_finite(thrust) and thrust <= 0.0:
+            return (_soi1_fail(st, "propellant exhausted short of escape: "
+                                   "eccentricity=%s" % (snapshot.eccentricity,)),
+                    _soi1_stop_actions())
+        if _soi1_elapsed(st, snapshot) > p.escape_burn_timeout_seconds:
+            return (_soi1_flake(st, "escape burn exceeded %.0f game s (eccentricity=%s, "
+                                    "target %.3f)"
+                                % (p.escape_burn_timeout_seconds, snapshot.eccentricity,
+                                   p.escape_eccentricity)),
+                    _soi1_stop_actions())
+        return st, []
+
+    if state.phase == SOI1_COAST:
+        st = replace(state, phase_frames=state.phase_frames + 1)
+        if snapshot.body != p.home_body:
+            return (_soi1_fail(st, "SOI change during the coast (body=%s): the crossing "
+                                   "ran on rails, not in physics"
+                               % (snapshot.body or "<unread>")),
+                    _soi1_stop_actions())
+        target = soi1_warp_target(p, snapshot)
+        if not _is_finite(target):
+            return (_soi1_fail(st, "no SOI change on the trajectory after the escape cut "
+                                   "(time_to_soi=%s)" % (snapshot.time_to_soi,)),
+                    _soi1_stop_actions())
+        if snapshot.ut >= target - p.warp_arrival_tolerance_seconds:
+            st = replace(st, approach_entry_ut=snapshot.ut,
+                         approach_entry_time_to_soi=snapshot.time_to_soi)
+            return (_soi1_enter(st, SOI1_APPROACH, snapshot.ut),
+                    [Action(ACTION_CANCEL_WARP), Action(ACTION_AP_POINT_PROGRADE)])
+        if _soi1_elapsed(st, snapshot) > p.coast_timeout_seconds:
+            return (_soi1_flake(st, "coast exceeded %.0f game s short of the warp target "
+                                    "%.1f" % (p.coast_timeout_seconds, target)),
+                    _soi1_stop_actions())
+        if _is_finite(snapshot.warping_to):
+            return st, []
+        if st.phase_frames - st.last_warp_issue_frame < SOI1_WARP_REISSUE_FRAMES:
+            return st, []
+        if st.warp_issues >= p.max_warp_issues:
+            return (_soi1_flake(st, "native warp went idle %d times short of the target "
+                                    "%.1f (ut=%.1f)"
+                                % (st.warp_issues, target, snapshot.ut)),
+                    _soi1_stop_actions())
+        st = replace(st, warp_target_ut=target, warp_issues=st.warp_issues + 1,
+                     last_warp_issue_frame=st.phase_frames)
+        return st, [Action(ACTION_WARP_TO_UT, target,
+                           text="soi-exit-lead: %.0f s before the %s SOI exit"
+                                % (p.warp_lead_seconds, p.home_body))]
+
+    if state.phase == SOI1_APPROACH:
+        st = replace(state, phase_frames=state.phase_frames + 1)
+        if snapshot.body != p.home_body:
+            return (_soi1_fail(st, "crossed into %s before the straddle ignition (the "
+                                   "boundary was crossed unpowered)"
+                               % (snapshot.body or "<unread>")),
+                    _soi1_stop_actions())
+        if not _is_finite(snapshot.time_to_soi):
+            return (_soi1_fail(st, "no SOI change on the trajectory during the approach"),
+                    _soi1_stop_actions())
+        if not soi1_at_1x(snapshot):
+            return st, [Action(ACTION_CANCEL_WARP)]
+        if snapshot.time_to_soi <= p.burn_lead_seconds:
+            st = replace(st, ignite_ut=snapshot.ut,
+                         ignite_time_to_soi=snapshot.time_to_soi,
+                         ignite_ap_error=snapshot.ap_error,
+                         peak_thrust=float("nan"))
+            return (_soi1_enter(st, SOI1_STRADDLE, snapshot.ut),
+                    [Action(ACTION_SET_THROTTLE, p.straddle_throttle)])
+        if _soi1_elapsed(st, snapshot) > p.approach_timeout_seconds:
+            return (_soi1_flake(st, "approach exceeded %.0f game s (time_to_soi=%.1f)"
+                                % (p.approach_timeout_seconds, snapshot.time_to_soi)),
+                    _soi1_stop_actions())
+        return st, []
+
+    if state.phase == SOI1_STRADDLE:
+        st = replace(state, phase_frames=state.phase_frames + 1)
+        st, lit = _soi1_track_thrust(st, snapshot)
+        thrust = snapshot.available_thrust
+        actions: List[Action] = []
+        if not soi1_at_1x(snapshot):
+            st = replace(st, straddle_warp_frames=st.straddle_warp_frames + 1)
+            actions.append(Action(ACTION_CANCEL_WARP))
+        if snapshot.body == p.home_body:
+            st = replace(st, last_home_ut=snapshot.ut,
+                         last_home_throttle=snapshot.throttle,
+                         last_home_thrust=thrust,
+                         last_home_warp_rate=snapshot.warp_rate)
+        elif snapshot.body == p.parent_body:
+            if not _is_finite(st.cross_ut):
+                st = replace(st, cross_ut=snapshot.ut, cross_throttle=snapshot.throttle,
+                             cross_thrust=thrust, cross_warp_mode=snapshot.warp_mode,
+                             cross_warp_rate=snapshot.warp_rate)
+            if (_is_finite(snapshot.ut)
+                    and snapshot.ut - st.cross_ut >= p.burn_trail_seconds):
+                st = replace(st, end_ut=snapshot.ut, end_body=snapshot.body,
+                             end_liquid_fuel=snapshot.liquid_fuel)
+                return (_soi1_enter(st, SOI1_DONE, snapshot.ut),
+                        actions + [Action(ACTION_CUT_THROTTLE, 0.0),
+                                   Action(ACTION_AP_DISENGAGE)])
+        else:
+            return (_soi1_fail(st, "unexpected body %s during the straddle burn"
+                               % (snapshot.body or "<unread>")),
+                    _soi1_stop_actions())
+        if not lit and st.phase_frames >= p.ignite_frames:
+            return (_soi1_fail(st, "engine never lit for the straddle burn"),
+                    _soi1_stop_actions())
+        if lit and _is_finite(thrust) and thrust <= 0.0:
+            return (_soi1_fail(st, "propellant exhausted during the straddle burn"),
+                    _soi1_stop_actions())
+        if _soi1_elapsed(st, snapshot) > p.straddle_timeout_seconds:
+            return (_soi1_fail(st, "straddle burn exceeded %.0f game s without %.0f s "
+                                   "in %s" % (p.straddle_timeout_seconds,
+                                              p.burn_trail_seconds, p.parent_body)),
+                    _soi1_stop_actions())
+        return st, actions
+
+    return _soi1_flake(state, "unknown phase %s" % state.phase), []
+
+
+def evaluate_soi1_assertions(frames, params: Soi1Params,
+                             state: Optional[Soi1State] = None) -> List[AssertionOutcome]:
+    """Machine-carried evidence only (settle_frames=0); ``frames`` is unused."""
+    st = state if state is not None else soi1_initial_state(params)
+    handoff = bool(st.start_body == params.home_body and st.start_situation == "ORBITING"
+                   and _is_finite(st.start_eccentricity)
+                   and st.start_eccentricity <= params.start_max_eccentricity
+                   and st.start_crew >= params.min_crew)
+    escape = bool(_is_finite(st.escape_cut_eccentricity)
+                  and st.escape_cut_eccentricity >= params.escape_eccentricity
+                  and st.escape_cut_next_body == params.parent_body)
+    min_throttle = 0.5 * params.straddle_throttle
+
+    def powered(throttle, thrust) -> bool:
+        return bool(_is_finite(throttle) and throttle >= min_throttle
+                    and _is_finite(thrust) and thrust > 0.0)
+
+    def one_x(rate) -> bool:
+        return bool(_is_finite(rate) and rate <= 1.0)
+
+    lead = (st.cross_ut - st.ignite_ut
+            if _is_finite(st.cross_ut) and _is_finite(st.ignite_ut) else float("nan"))
+    crossed = bool(_is_finite(st.cross_ut) and _is_finite(st.last_home_ut)
+                   and powered(st.last_home_throttle, st.last_home_thrust)
+                   and powered(st.cross_throttle, st.cross_thrust)
+                   and one_x(st.last_home_warp_rate) and one_x(st.cross_warp_rate)
+                   and st.straddle_warp_frames == 0
+                   and _is_finite(lead)
+                   and lead >= params.min_observed_burn_lead_seconds)
+    in_parent = bool(st.phase == SOI1_DONE and st.end_body == params.parent_body)
+    return [
+        AssertionOutcome(
+            "handoffHomePark", handoff, st.start_situation or None,
+            {"body": st.start_body or None, "eccentricity": st.start_eccentricity,
+             "periapsis": st.start_periapsis, "crew": st.start_crew,
+             "minCrew": params.min_crew}),
+        AssertionOutcome(
+            "escapeTrajectory", escape, st.escape_cut_eccentricity,
+            {"targetEccentricity": params.escape_eccentricity,
+             "nextBody": st.escape_cut_next_body or None,
+             "cutUT": st.escape_cut_ut, "cutPeriapsis": st.escape_cut_periapsis,
+             "cutTimeToSoi": st.escape_cut_time_to_soi,
+             "peakThrust": st.escape_peak_thrust}),
+        AssertionOutcome(
+            "crossedUnderThrustAt1x", crossed, st.cross_ut,
+            {"igniteUT": st.ignite_ut, "igniteTimeToSoi": st.ignite_time_to_soi,
+             "igniteApError": st.ignite_ap_error, "observedLeadSeconds": lead,
+             "minLeadSeconds": params.min_observed_burn_lead_seconds,
+             "lastHomeUT": st.last_home_ut, "lastHomeThrottle": st.last_home_throttle,
+             "lastHomeThrust": st.last_home_thrust,
+             "lastHomeWarpRate": st.last_home_warp_rate,
+             "crossThrottle": st.cross_throttle, "crossThrust": st.cross_thrust,
+             "crossWarpMode": st.cross_warp_mode or None,
+             "crossWarpRate": st.cross_warp_rate,
+             "straddleWarpFrames": st.straddle_warp_frames,
+             "warpIssues": st.warp_issues}),
+        AssertionOutcome(
+            "endedInParentSoi", in_parent, st.end_body or None,
+            {"parentBody": params.parent_body, "endUT": st.end_ut,
+             "trailSeconds": params.burn_trail_seconds,
+             "liquidFuelAtEnd": st.end_liquid_fuel,
+             "phasesReached": list(st.phases_reached)}),
+    ]

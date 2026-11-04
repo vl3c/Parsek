@@ -33,6 +33,13 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A burn through a moon's boundary is recorded as two legs.** Crossing into or out of a moon's
+  sphere of influence at normal speed (a burn, or a coast without warp) now splits the recording
+  at the crossing like a warped crossing does, so each body gets its own leg and the ghost does
+  not blend positions across the two bodies. (RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT)
+- **A ghost no longer dives into the planet in a recording gap next to a close-formation leg.**
+  Playback that fills a gap from the raw sample list now reads a formation-flying stretch through
+  its own planet-relative copy, or hides the ghost for that moment. (FLAT-POINTS-READ-RELATIVE-OFFSETS)
 - **Revert to Launch no longer records over a committed flight.** After reverting, a vessel that
   already has a committed recording later on the timeline stays unrecorded instead of resuming
   that recording from the past, which left it with a doubled track. (REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END)

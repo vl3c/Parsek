@@ -19073,7 +19073,9 @@ namespace Parsek
             InterpolateAndPosition(ghostObject, recording, orbitSegments,
                 ref lastPlaybackIndex, recordingTime, 10000, out interpResult,
                 skipOrbitSegments: surfaceSkip,
-                recordingId: previewRecording?.RecordingId);
+                recordingId: previewRecording?.RecordingId,
+                pointFrameSource: "preview-flat-points",
+                flatPointSections: previewRecording?.TrackSections);
 
             if (previewGhostState != null && previewRecording != null)
             {
@@ -19593,7 +19595,9 @@ namespace Parsek
                     InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, skipOrbitSegments: surfaceSkip,
-                        recordingId: bgRec.RecordingId);
+                        recordingId: bgRec.RecordingId,
+                        pointFrameSource: "chain-flat-points",
+                        flatPointSections: bgRec.TrackSections);
 
                     // Update ghost map ProtoVessel orbit if segment changed
                     UpdateChainGhostOrbitIfNeeded(chain, bgRec.OrbitSegments, currentUT);
@@ -22969,7 +22973,8 @@ namespace Parsek
                 ref playbackIdx, ut, index * 10000, out interpResult,
                 allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip,
                 recordingId: traj.RecordingId, sectionIndex: splineSectionIdx,
-                pointFrameSource: "flat-points");
+                pointFrameSource: "flat-points",
+                flatPointSections: traj.TrackSections);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -24039,12 +24044,30 @@ namespace Parsek
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex,
             double targetUT, bool allowActivation, out InterpolationResult interpResult,
             string recordingId = null, int sectionIndex = -1,
-            string pointFrameSource = "input")
+            string pointFrameSource = "input",
+            List<TrackSection> flatPointSections = null)
         {
             TrajectoryPoint before, after;
             float t;
             bool hasSegment = TrajectoryMath.InterpolatePoints(
                 points, ref cachedIndex, targetUT, out before, out after, out t);
+
+            // A flat Points read can land on a Relative section's anchor-local metre
+            // offsets (a section gap, or a span no section covers). Those are not
+            // lat/lon/alt: route them through the section's body-fixed shadow, or refuse.
+            // Without a segment only `before` is meaningful (`after` is default).
+            if (!hasSegment)
+                after = before;
+            if (flatPointSections != null
+                && points != null
+                && points.Count > 0
+                && !TryDispatchFlatPointEndpoints(
+                    flatPointSections, ref before, ref after, targetUT, recordingId, pointFrameSource))
+            {
+                interpResult = InterpolationResult.Zero;
+                ghost.SetActive(false);
+                return;
+            }
 
             if (!hasSegment)
             {
@@ -26328,7 +26351,8 @@ namespace Parsek
             bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
             if (TryResolveInterpolatedWorldPosition(
                     traj.Points, traj.OrbitSegments, ref cachedIndex,
-                    playbackUT, index * 10000, surfaceSkip, out worldPos))
+                    playbackUT, index * 10000, surfaceSkip, out worldPos,
+                    traj.TrackSections))
             {
                 return true;
             }
@@ -26346,7 +26370,8 @@ namespace Parsek
             double targetUT,
             int orbitCacheBase,
             bool skipOrbitSegments,
-            out Vector3d worldPos)
+            out Vector3d worldPos,
+            List<TrackSection> flatPointSections = null)
         {
             if (!skipOrbitSegments
                 && TryResolveOrbitWorldPosition(segments, targetUT, orbitCacheBase, out worldPos))
@@ -26354,7 +26379,8 @@ namespace Parsek
                 return true;
             }
 
-            return TryResolvePointWorldPosition(points, ref cachedIndex, targetUT, out worldPos);
+            return TryResolvePointWorldPosition(
+                points, ref cachedIndex, targetUT, out worldPos, flatPointSections);
         }
 
         bool TryResolveOrbitTailWorldPosition(
@@ -26932,19 +26958,39 @@ namespace Parsek
             List<TrajectoryPoint> points,
             ref int cachedIndex,
             double targetUT,
-            out Vector3d worldPos)
+            out Vector3d worldPos,
+            List<TrackSection> flatPointSections = null)
         {
             worldPos = Vector3d.zero;
             if (points == null || points.Count == 0)
                 return false;
-            if (points.Count == 1)
-                return TryResolveTrajectoryPointWorldPosition(points[0], out worldPos);
 
             TrajectoryPoint before;
             TrajectoryPoint after;
             float t;
+            if (points.Count == 1)
+            {
+                before = points[0];
+                after = points[0];
+                if (flatPointSections != null
+                    && !TryDispatchFlatPointEndpoints(
+                        flatPointSections, ref before, ref after, targetUT, null, "world-resolve-flat-points"))
+                {
+                    return false;
+                }
+                return TryResolveTrajectoryPointWorldPosition(before, out worldPos);
+            }
+
             bool hasSegment = TrajectoryMath.InterpolatePoints(
                 points, ref cachedIndex, targetUT, out before, out after, out t);
+            if (!hasSegment)
+                after = before;
+            if (flatPointSections != null
+                && !TryDispatchFlatPointEndpoints(
+                    flatPointSections, ref before, ref after, targetUT, null, "world-resolve-flat-points"))
+            {
+                return false;
+            }
             if (!hasSegment)
             {
                 return points != null
@@ -28185,7 +28231,9 @@ namespace Parsek
             InterpolateAndPosition(ghost, rec.Points, rec.OrbitSegments,
                 ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
                 allowActivation: allowActivation,
-                recordingId: rec.RecordingId, sectionIndex: splineSectionIdx);
+                recordingId: rec.RecordingId, sectionIndex: splineSectionIdx,
+                pointFrameSource: "loop-flat-points",
+                flatPointSections: rec.TrackSections);
         }
 
         /// <summary>
@@ -29373,7 +29421,8 @@ namespace Parsek
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
             out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false,
             string recordingId = null, int sectionIndex = -1,
-            string pointFrameSource = "input")
+            string pointFrameSource = "input",
+            List<TrackSection> flatPointSections = null)
         {
             // Check orbit segments first (unless suppressed for surface vehicles)
             if (!skipOrbitSegments && segments != null && segments.Count > 0)
@@ -29421,7 +29470,47 @@ namespace Parsek
 
             // Fall through to point-based interpolation
             InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult,
-                recordingId, sectionIndex, pointFrameSource);
+                recordingId, sectionIndex, pointFrameSource, flatPointSections);
+        }
+
+        /// <summary>
+        /// Flat-points dispatch for <see cref="FlatPointFrameDispatch"/>: substitutes the
+        /// body-fixed shadow for a Relative-offset endpoint, or returns false when an
+        /// endpoint has no body-fixed reading. Both outcomes are logged rate-limited.
+        /// </summary>
+        private static bool TryDispatchFlatPointEndpoints(
+            List<TrackSection> sections,
+            ref TrajectoryPoint before,
+            ref TrajectoryPoint after,
+            double targetUT,
+            string recordingId,
+            string pointFrameSource)
+        {
+            if (FlatPointFrameDispatch.TryDispatchEndpoints(
+                    sections, ref before, ref after, out int substituted))
+            {
+                if (substituted > 0)
+                {
+                    ParsekLog.VerboseRateLimited("Playback",
+                        "flat-point-relative-shadow|" + (recordingId ?? "(none)"),
+                        $"Flat-point fallback read a Relative offset; used the body-fixed shadow: " +
+                        $"rec={recordingId ?? "(none)"} source={pointFrameSource ?? "(none)"} " +
+                        $"endpoints={substituted.ToString(CultureInfo.InvariantCulture)} " +
+                        $"ut={targetUT.ToString("F2", CultureInfo.InvariantCulture)}",
+                        5.0);
+                }
+                return true;
+            }
+
+            ParsekLog.InfoRateLimited("Playback",
+                "flat-point-relative-refused|" + (recordingId ?? "(none)"),
+                $"Flat-point fallback refused: a Relative-offset endpoint has no body-fixed shadow, ghost hidden " +
+                $"rec={recordingId ?? "(none)"} source={pointFrameSource ?? "(none)"} " +
+                $"ut={targetUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"beforeUT={before.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"afterUT={after.ut.ToString("F2", CultureInfo.InvariantCulture)}",
+                10.0);
+            return false;
         }
 
         #endregion

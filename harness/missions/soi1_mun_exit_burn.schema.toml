@@ -1,0 +1,157 @@
+# Declared param schema for mission soi1_mun_exit_burn (SOI-1: burn through the Mun
+# SOI exit at 1x; see the machine header in mlib: `soi1_decide`).
+#
+# run.py parses this with tomllib and injects it into hlib's pure validator, which
+# checks required-key presence and per-value type/range. Every value is a target /
+# tolerance / bound, never a golden trajectory. None is required: the defaults are
+# the ones the machine header derives for `mun-park-kerbalx`. Times are GAME seconds
+# unless named FRAMES.
+
+# The home body the stage starts parked at, and the parent it exits into.
+[params.homeBodyName]
+required = false
+type = "string"
+
+[params.parentBodyName]
+required = false
+type = "string"
+
+# The first-frame handoff gate: the crewed stage ORBITING the home body on a
+# near-circular orbit above this periapsis.
+[params.minCrew]
+required = false
+type = "int"
+min = 0
+max = 16
+
+[params.startMaxEccentricity]
+required = false
+type = "number"
+min = 0.0
+max = 0.9
+
+[params.startMinPeriapsisMeters]
+required = false
+type = "number"
+min = 0.0
+
+# ALIGN: the AP prograde error must read at/below alignMaxErrorDeg on
+# alignDebounceFrames consecutive frames, inside alignTimeoutSeconds. The slew runs
+# under physics warp factor INDEX alignPhysicsWarpIndex (0 = 1x .. 3 = 4x), dropped
+# to 1x before the escape ignition.
+[params.alignMaxErrorDeg]
+required = false
+type = "number"
+min = 0.5
+max = 45.0
+
+[params.alignDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 20
+
+[params.alignTimeoutSeconds]
+required = false
+type = "number"
+min = 10.0
+
+[params.alignPhysicsWarpIndex]
+required = false
+type = "int"
+min = 0
+max = 3
+
+# ESCAPE-BURN: throttle escapeThrottle until the eccentricity reads at/above
+# escapeEccentricity (> 1 = hyperbolic) with an SOI change on the trajectory. A
+# periapsis below escapeMinPeriapsisMeters ends the attempt (pointing wrong).
+[params.escapeThrottle]
+required = false
+type = "number"
+min = 0.05
+max = 1.0
+
+[params.escapeEccentricity]
+required = false
+type = "number"
+min = 0.5
+max = 3.0
+
+[params.escapeMinPeriapsisMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.escapeBurnTimeoutSeconds]
+required = false
+type = "number"
+min = 10.0
+
+# FRAMES after a throttle-up within which available_thrust must read > 0.
+[params.igniteFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
+# COAST: native warp to the predicted SOI-exit UT minus warpLeadSeconds; the coast
+# hands over when UT is within warpArrivalToleranceSeconds of that target. A warp
+# that goes idle short of the target is re-issued at most maxWarpIssues times.
+[params.warpLeadSeconds]
+required = false
+type = "number"
+min = 30.0
+
+[params.warpArrivalToleranceSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 120.0
+
+[params.maxWarpIssues]
+required = false
+type = "int"
+min = 1
+max = 20
+
+[params.coastTimeoutSeconds]
+required = false
+type = "number"
+min = 60.0
+
+# APPROACH (1x): ignite the straddle burn once time_to_soi reads at/below
+# burnLeadSeconds; give up after approachTimeoutSeconds.
+[params.approachTimeoutSeconds]
+required = false
+type = "number"
+min = 10.0
+
+[params.burnLeadSeconds]
+required = false
+type = "number"
+min = 5.0
+
+# STRADDLE-BURN (1x): throttle straddleThrottle through the crossing and cut
+# burnTrailSeconds after the first parent-SOI frame; straddleTimeoutSeconds bounds
+# the whole burn. The crossedUnderThrustAt1x assertion needs the crossing at least
+# minObservedBurnLeadSeconds after ignition.
+[params.burnTrailSeconds]
+required = false
+type = "number"
+min = 1.0
+
+[params.straddleThrottle]
+required = false
+type = "number"
+min = 0.02
+max = 1.0
+
+[params.straddleTimeoutSeconds]
+required = false
+type = "number"
+min = 10.0
+
+[params.minObservedBurnLeadSeconds]
+required = false
+type = "number"
+min = 0.0
