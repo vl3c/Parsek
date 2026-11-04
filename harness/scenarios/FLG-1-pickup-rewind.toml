@@ -1,0 +1,158 @@
+schema = 1
+id = "FLG-1-pickup-rewind"
+# =====================================================================================
+# FLG-1: A FLAG PICKED UP ON A RECORDED FLIGHT IS PLANTED ONCE AND TAKEN DOWN AGAIN AFTER A
+# REWIND (owner ruling 2026-11-04, plant once and record pick-ups; todo
+# LOOP-REPLAY-REPLANTS-REMOVED-FLAG; flight recorder design 4.13).
+# AUTHORED 2026-11-04 (branch `claude/flag-lane-wip`). NOT FLOWN YET.
+#
+# WHAT IT PROVES. A kerbal's flag pick-up on a recorded flight is a FlagPickedUp segment
+# event on the kerbal's recording (captured by Patches/FlagPickUpCapturePatch.cs on stock
+# FlagSite.PickUp plus ParsekFlight.OnVesselWillDestroy). After a Rewind-to-Launch to before
+# the plant, the replay plants the flag at its moment (GhostPlaybackLogic.ApplyFlagEvents)
+# and takes it down at the pick-up moment (ApplyFlagPickUps), so the flag stands only for
+# the recorded interval, and the live pick-up's own removal tombstone (after the rewind
+# save's UT) does not block the replayed plant (LoadReconcilePolicy RemovedReplayFlags,
+# PlainRewind: memory minus removals after the loaded world's UT).
+#
+# THE HOST is EVA-1's: gloops-airshow, Jeb in a mk1pod.v2 PRELAUNCH on the pad at UT 21.16.
+# EVA-1's act, with the new seam verb PickUpFlag between the plant and the board:
+#   (1) StartRecording on the pod (a fresh, non-promotion start: it captures the tree's
+#       parsek_rw_ rewind save, CN-4 / VN-3's order), EvaExit release=true (the recorder
+#       follows Jeb), PlantFlag ("Flag event captured" into Jeb's recording), PickUpFlag
+#       (stock FlagSite.PickUp: "Flag pick-up captured", "Flag removed by the player ...
+#       source=picked-up"), EvaBoard, StopRecording, CommitTree, StopRecording (EVA-6 /
+#       VN-3's commit order: the second stop ends the committed-restore clone).
+#   (2) InvokeRewindToLaunch tree=latest: the Space Center at start - 15 s (~6.5).
+#   (3) 1x Space Center time to UT 150. Jeb's KSC ghost (an EVA kerbal's recording is never
+#       launch-site hidden, PADG-1) replays the plant ("Spawned flag vessel", Verbose) and
+#       then the pick-up ("Flag pick-up replayed ... took down 1 standing flag(s)").
+#
+# THE REWIND MECHANISM, and the guess in it. InvokeRewindToLaunch (RecordingStore.
+# InitiateRewind) reloads the parsek_rw_ save StartRecording captured, 15 s before the
+# recording start (RewindToLaunchLeadTimeSeconds), and lands at the Space Center; the
+# committed tree replays there as KSC ghosts (PADG-1, EVA-6). The pick-up UT is not known
+# before a flight: EVA-1's act (exit, ladder release, plant gate and animation, dialog)
+# plus one PickUpFlag press should end well under UT 100, so the 1x wait goes to 150. The
+# wait stays at 1x on purpose: the replayed plant and pick-up are a seam round trip apart
+# (well under a game second at 1x), and a walk that crosses both in one frame applies the
+# pick-up first, whose tombstone then blocks the plant (no "Spawned flag vessel"). Re-pin
+# the target from the measured pick-up UT after the first flight.
+#
+# PRE-REGISTERED READINGS (first flight):
+#   - no "Spawned flag vessel" after the rewind mark, with "Flag replay skipped" instead:
+#     the live pick-up's tombstone survived the rewind load (a product defect: file it), or
+#     one KSC walk crossed both events (re-read the two UTs).
+#   - "took down 0 standing flag(s)": the replay planted the flag somewhere the take-down
+#     did not find it (the 3 m match), or the plant never landed at the Space Center.
+#   - pickupflag-not-near-flag: the kerbal walked off the flag after the plant; read
+#     `nearest=` (the seam's bound is 5 m).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: EVA-1's flight is a prefix of this
+# one, but EVA-1 is the live-proven plant lane and must keep its plant-only shape and its
+# exact count 4, so the pick-up and the rewind go in their own lane; (2) the only wait is
+# an explicit-UT WarpToUT maxRate=1 (see THE REWIND MECHANISM for why it is not a rails
+# rate); (3)-(5) no dwell, burn or coast; (6) retry once (the EVA verbs have a ragdoll
+# flake history); (7) count window 4..6 until measured (EVA-1's 4 plus the restore clone
+# VN-3 / CN-4 allow for), pin after the first flight; (8) nightly, expected ~5 min;
+# (9) flight_efficiency.py owed on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "A flag picked up on a recorded flight comes back once and goes away again after a rewind: on gloops-airshow Jeb steps out of the pad pod with a recording live, plants a flag, picks it up through stock's FlagSite.PickUp (the FlagPickedUp event) and re-boards; after the commit and a Rewind-to-Launch to before the plant, 1x Space Center time replays the plant and then the pick-up, which takes the replayed flag down."
+instanceProfile = "stock-minimal"
+tags = ["FLG-1", "eva", "flag-plant", "flag-pickup", "rewind-to-launch", "scene-ksc",
+        "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # LOAD-BEARING: "Spawned flag vessel" and "Mid-recording EVA detected" are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },     expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # ACT 1: the recorded flight. Its start captures the rewind save.
+  { cmd = "StartRecording",                                                       expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "flg1-exit" },                       expect = "OK" },
+  { cmd = "EvaExit",        args = { release = "true" },                          expect = "OK", budget = 120 },
+  { cmd = "PlantFlag",                                                            expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "flg1-planted" },                    expect = "OK" },
+  { cmd = "PickUpFlag",                                                           expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "flg1-picked" },                     expect = "OK" },
+  { cmd = "EvaBoard",                                                             expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "CommitTree",                                                           expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  # ACT 2: back to before the plant, at the Space Center.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                     expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "flg1-rewound" },                    expect = "OK" },
+  # ACT 3: 1x Space Center time past the pick-up UT (see THE REWIND MECHANISM).
+  { cmd = "WarpToUT",       args = { ut = "150", maxRate = "1" },                 expect = "OK", budget = 240 },
+  { cmd = "MissionMark",    args = { label = "flg1-replayed" },                   expect = "OK" },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["eva-branch"]
+D7  = ["flag-plant"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# EVA-1's four (pod root, pod continuation, Jeb's EVA, the board merge) plus at most two
+# committed-restore clones. A reading window: pin it after the first flight.
+count = { min = 4, max = 6 }
+
+[expectations.logContracts]
+required = [
+  "Captured rewind save at UT",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Tree branch created: type=EVA",
+  "MISSIONMARK label=flg1-exit[\\s\\S]*Flag event captured \\(foreground recorder pid=[0-9]+\\)[\\s\\S]*MISSIONMARK label=flg1-planted ",
+  # The seam's own press, then Parsek's capture of it, inside the pick-up step.
+  "MISSIONMARK label=flg1-planted [\\s\\S]*pickupflag start kerbal='Jebediah Kerman' flag='[^'\\r\\n]*' flagPid=[0-9]+ dist=[0-9.]+[\\s\\S]*Flag pick-up captured \\(foreground recorder pid=[0-9]+\\): [\\s\\S]*Flag removed by the player: [^\\r\\n]* source=picked-up;[\\s\\S]*pickupflag complete kerbal='Jebediah Kerman' [^\\r\\n]* fires=1[\\s\\S]*MISSIONMARK label=flg1-picked ",
+  "detected boarding from EVA",
+  "committree committed=true",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest",
+  "Rewind-to-Launch initiated to UT",
+  # THE CLAIM: after the rewind the replay plants the flag once and then takes it down.
+  "MISSIONMARK label=flg1-rewound [\\s\\S]*Spawned flag vessel: '[^'\\r\\n]*' by '[^'\\r\\n]*' [\\s\\S]*Flag pick-up replayed: '[^'\\r\\n]*' on Kerbin ut=[0-9.Ee+-]+ rec=[0-9a-f]+ took down 1 standing flag\\(s\\)[\\s\\S]*MISSIONMARK label=flg1-replayed ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording start-refused",
+  "evaexit refused",
+  "evaexit timeout",
+  "plantflag refused",
+  "plantflag failed",
+  "pickupflag rejected",
+  "pickupflag error",
+  "invokerewindtolaunch refused",
+  "warptout refused",
+  # The live pick-up went unrecorded (no recording owned the kerbal).
+  "picked up by pid=[0-9]+ but no foreground or background recording owns the kerbal",
+  "Flag pick-up not replayed",
+  # A plant blocked after the rewind before any replayed plant (PRE-REGISTERED READINGS).
+  "MISSIONMARK label=flg1-rewound (?:(?!Spawned flag vessel)[\\s\\S])*Flag replay skipped",
+  # A second replayed plant after the take-down: the flag came back.
+  "Flag pick-up replayed: [\\s\\S]*Spawned flag vessel",
+]
+
+[runtime]
+# LoadGame 300, StartRecording 180, EvaExit 120, PlantFlag 180, PickUpFlag 60 (default),
+# EvaBoard 120, CommitTree 120, InvokeRewindToLaunch 300, the 1x KSC WarpToUT 240 (~145
+# game seconds at 1x), the rest on the default, plus margin.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

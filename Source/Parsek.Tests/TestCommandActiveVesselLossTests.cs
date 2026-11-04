@@ -31,15 +31,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WatchedSet_IsTheTwoKerbalVerbs()
+        public void WatchedSet_IsTheThreeKerbalVerbs()
         {
-            Assert.Equal(new[] { "EvaGroundScience", "PlantFlag" },
+            Assert.Equal(new[] { "EvaGroundScience", "PickUpFlag", "PlantFlag" },
                 TestCommandActiveVesselLoss.WatchedVerbList.OrderBy(v => v, StringComparer.Ordinal).ToArray());
         }
 
         [Theory]
         [InlineData("EvaGroundScience", true)]
         [InlineData("PlantFlag", true)]
+        [InlineData("PickUpFlag", true)]
         // Owns its own debounced eva-chute-kerbal-lost terminal.
         [InlineData("EvaChuteDeploy", false)]
         // Boarding removes the EVA vessel on its own success path.

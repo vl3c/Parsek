@@ -77,6 +77,7 @@ namespace Parsek.Tests
             public void NewGame(ParsedCommand cmd) => Calls.Add("NewGame");
             public void AlarmJump(ParsedCommand cmd) => Calls.Add("AlarmJump");
             public void LaunchSiteProbe(ParsedCommand cmd) => Calls.Add("LaunchSiteProbe");
+            public void PickUpFlag(ParsedCommand cmd) => Calls.Add("PickUpFlag");
         }
 
         [Fact]
@@ -219,6 +220,8 @@ namespace Parsek.Tests
         [InlineData("AlarmJump", "RequiresFlight")]
         // LaunchSiteProbe: the editor-route row (EDITOR or SPACECENTER, checked by the executor).
         [InlineData("LaunchSiteProbe", "RequiresGameLoaded")]
+        // PickUpFlag: a live kerbal and a live flag vessel (the EVA family row).
+        [InlineData("PickUpFlag", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -288,6 +291,7 @@ namespace Parsek.Tests
             fake.NewGame(cmd);
             fake.AlarmJump(cmd);
             fake.LaunchSiteProbe(cmd);
+            fake.PickUpFlag(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();
