@@ -32,7 +32,8 @@ namespace Parsek
         /// <summary>
         /// A recovered kerbal's flight log was archived into their career log, which is what
         /// stock derives experience from. Explicitly numbered and append-only: an older build
-        /// loading a save with this row WARNs and drops it, which costs the XP re-assert on
+        /// loading a save with this row keeps it verbatim without reading it
+        /// (<see cref="GameStateEvent.IsUnreadableTypeNode"/>), which costs the XP re-assert on
         /// that build and nothing else.
         /// </summary>
         ExperienceGained = 22,
