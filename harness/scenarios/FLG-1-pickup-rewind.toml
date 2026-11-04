@@ -24,7 +24,7 @@ id = "FLG-1-pickup-rewind"
 #       source=picked-up"), EvaBoard, StopRecording, CommitTree, StopRecording (EVA-6 /
 #       VN-3's commit order: the second stop ends the committed-restore clone).
 #   (2) InvokeRewindToLaunch tree=latest: the Space Center at start - 15 s (~6.5).
-#   (3) 1x Space Center time to UT 150. Jeb's KSC ghost (an EVA kerbal's recording is never
+#   (3) 1x Space Center time to UT 50. Jeb's KSC ghost (an EVA kerbal's recording is never
 #       launch-site hidden, PADG-1) replays the plant ("Spawned flag vessel", Verbose) and
 #       then the pick-up ("Flag pick-up replayed ... took down 1 standing flag(s)").
 #
@@ -32,12 +32,12 @@ id = "FLG-1-pickup-rewind"
 # InitiateRewind) reloads the parsek_rw_ save StartRecording captured, 15 s before the
 # recording start (RewindToLaunchLeadTimeSeconds), and lands at the Space Center; the
 # committed tree replays there as KSC ghosts (PADG-1, EVA-6). The pick-up UT is not known
-# before a flight: EVA-1's act (exit, ladder release, plant gate and animation, dialog)
-# plus one PickUpFlag press should end well under UT 100, so the 1x wait goes to 150. The
+# before a flight. MEASURED on run 2026-11-04_1733 (attempt 1): rewind landed at UT 7.78,
+# plant at UT 31.68, pick-up at UT 31.70, so the 1x wait goes to 50. The
 # wait stays at 1x on purpose: the replayed plant and pick-up are a seam round trip apart
 # (well under a game second at 1x), and a walk that crosses both in one frame applies the
-# pick-up first, whose tombstone then blocks the plant (no "Spawned flag vessel"). Re-pin
-# the target from the measured pick-up UT after the first flight.
+# pick-up first, whose tombstone then blocks the plant (no "Spawned flag vessel"). The
+# measured run replayed the plant and the take-down 0.15 s of wall time apart.
 #
 # PRE-REGISTERED READINGS (first flight):
 #   - no "Spawned flag vessel" after the rewind mark, with "Flag replay skipped" instead:
@@ -53,8 +53,8 @@ id = "FLG-1-pickup-rewind"
 # exact count 4, so the pick-up and the rewind go in their own lane; (2) the only wait is
 # an explicit-UT WarpToUT maxRate=1 (see THE REWIND MECHANISM for why it is not a rails
 # rate); (3)-(5) no dwell, burn or coast; (6) retry once (the EVA verbs have a ragdoll
-# flake history); (7) count window 4..6 until measured (EVA-1's 4 plus the restore clone
-# VN-3 / CN-4 allow for), pin after the first flight; (8) nightly, expected ~5 min;
+# flake history); (7) count pinned 4..4 (measured on run 2026-11-04_1733: EVA-1's four, no
+# restore clone); (8) nightly, expected ~5 min;
 # (9) flight_efficiency.py owed on the first green flight.
 # =====================================================================================
 tier = "nightly"
@@ -91,7 +91,7 @@ steps = [
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                     expect = "OK", budget = 300 },
   { cmd = "MissionMark",    args = { label = "flg1-rewound" },                    expect = "OK" },
   # ACT 3: 1x Space Center time past the pick-up UT (see THE REWIND MECHANISM).
-  { cmd = "WarpToUT",       args = { ut = "150", maxRate = "1" },                 expect = "OK", budget = 240 },
+  { cmd = "WarpToUT",       args = { ut = "50", maxRate = "1" },                  expect = "OK", budget = 120 },
   { cmd = "MissionMark",    args = { label = "flg1-replayed" },                   expect = "OK" },
   { cmd = "FlushAndQuit",                                                         expect = "OK" },
 ]
@@ -106,9 +106,9 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# EVA-1's four (pod root, pod continuation, Jeb's EVA, the board merge) plus at most two
-# committed-restore clones. A reading window: pin it after the first flight.
-count = { min = 4, max = 6 }
+# EVA-1's four (pod root, pod continuation, Jeb's EVA, the board merge), measured on run
+# 2026-11-04_1733 (3 mk1-capsule + 1 Jebediah Kerman, one committed tree).
+count = { min = 4, max = 4 }
 
 [expectations.logContracts]
 required = [
@@ -117,7 +117,7 @@ required = [
   "Tree branch created: type=EVA",
   "MISSIONMARK label=flg1-exit[\\s\\S]*Flag event captured \\(foreground recorder pid=[0-9]+\\)[\\s\\S]*MISSIONMARK label=flg1-planted ",
   # The seam's own press, then Parsek's capture of it, inside the pick-up step.
-  "MISSIONMARK label=flg1-planted [\\s\\S]*pickupflag start kerbal='Jebediah Kerman' flag='[^'\\r\\n]*' flagPid=[0-9]+ dist=[0-9.]+[\\s\\S]*Flag pick-up captured \\(foreground recorder pid=[0-9]+\\): [\\s\\S]*Flag removed by the player: [^\\r\\n]* source=picked-up;[\\s\\S]*pickupflag complete kerbal='Jebediah Kerman' [^\\r\\n]* fires=1[\\s\\S]*MISSIONMARK label=flg1-picked ",
+  "MISSIONMARK label=flg1-planted [\\s\\S]*pickupflag start kerbal='Jebediah Kerman' flag='[^'\\r\\n]*' flagPid=[0-9]+ dist=[0-9.]+[\\s\\S]*Flag pick-up captured \\(foreground recorder pid=[0-9]+ rec=[0-9a-f]+\\): [\\s\\S]*Flag removed by the player: [^\\r\\n]* source=picked-up;[\\s\\S]*pickupflag complete kerbal='Jebediah Kerman' [^\\r\\n]* fires=1[\\s\\S]*MISSIONMARK label=flg1-picked ",
   "detected boarding from EVA",
   "committree committed=true",
   "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest",
@@ -147,7 +147,7 @@ forbidden = [
 
 [runtime]
 # LoadGame 300, StartRecording 180, EvaExit 120, PlantFlag 180, PickUpFlag 60 (default),
-# EvaBoard 120, CommitTree 120, InvokeRewindToLaunch 300, the 1x KSC WarpToUT 240 (~145
+# EvaBoard 120, CommitTree 120, InvokeRewindToLaunch 300, the 1x KSC WarpToUT 120 (~42
 # game seconds at 1x), the rest on the default, plus margin.
 budgetSeconds = 1800
 
