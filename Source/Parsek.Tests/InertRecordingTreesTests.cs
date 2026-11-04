@@ -418,7 +418,6 @@ namespace Parsek.Tests
             var oldSide = new RecordingRewindRetirement
             {
                 RetirementId = "rrt-inert", RecordingId = RecA1,
-                Reason = RecordingRewindRetirement.RewoundOutOldSideReason,
             };
             var scenario = new ParsekScenario
             {

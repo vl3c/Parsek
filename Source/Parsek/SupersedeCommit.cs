@@ -1562,8 +1562,8 @@ namespace Parsek
             // pre-Re-Fly post-RP branch points back into the loaded tree
             // and they look identical to session-authored ones — so the
             // gate would auto-seal a stashed slot the player never
-            // mutated. Conservatively skip the gate when the baseline is
-            // absent (legacy markers created before this field shipped).
+            // mutated. Without a baseline the gate cannot tell them apart,
+            // so it is skipped.
             if (marker.PreSessionBranchPointIds == null) return false;
 
             ParsekScenario scenario = ParsekScenario.Instance;

@@ -504,11 +504,8 @@ namespace Parsek.Tests
         [Fact]
         public void Reap_OpenCommittedProvisionalEvaTip_OrdinaryReaperKeepsRpAlive()
         {
-            // Legacy data: an older build promoted a stranded EVA kerbal to
-            // CommittedProvisional. The ordinary reaper reads only the tip
-            // MergeState, so the open slot keeps the RP alive here; the
-            // load-time LoadTimeSweep.SweepLegacyEvaRewindPoints is what retires
-            // EVA Rewind Points (ReFlySeparationsOnlyTests).
+            // An EVA kerbal tip left CommittedProvisional: the reaper reads only
+            // the tip MergeState, so the open slot keeps the RP alive.
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
                 new List<Recording>

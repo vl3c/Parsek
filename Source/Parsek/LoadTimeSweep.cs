@@ -256,7 +256,6 @@ namespace Parsek
                 GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("load-time-sweep");
             }
             int missingQuicksaveRps = SweepMissingRewindPointQuicksaves(scenario);
-            LegacyEvaRewindPointSweepResult legacyEvaRps = SweepLegacyEvaRewindPoints(scenario);
             SweepValueSealedSlots(scenario);
 
             // ----------------------------------------------------------------
@@ -288,7 +287,6 @@ namespace Parsek
                 $"strayFields={strayFields.ToString(CultureInfo.InvariantCulture)} " +
                 $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)} " +
                 $"missingQuicksaveRps={missingQuicksaveRps.ToString(CultureInfo.InvariantCulture)} " +
-                $"legacyEvaRpsReaped={legacyEvaRps.Reaped.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanReFlyAnchors={orphanSnapshotsCleared.ToString(CultureInfo.InvariantCulture)}");
 
             // ----------------------------------------------------------------
@@ -502,203 +500,6 @@ namespace Parsek
                 $"rpsReaped={result.RewindPointsReaped.ToString(ic)}");
         }
 
-        /// <summary>What the load-time sweep does with one Rewind Point under the EVA ruling.</summary>
-        internal enum LegacyEvaRewindPointVerdict
-        {
-            /// <summary>Authored at a vessel separation: untouched.</summary>
-            NotEva,
-            /// <summary>Its branch point is in no loaded tree: left for the ordinary reaper.</summary>
-            BranchPointUnresolved,
-            /// <summary>An EVA RP the live Re-Fly session is using: reaped after the session concludes.</summary>
-            KeepLiveSession,
-            /// <summary>An EVA RP whose tree or session has not merged yet: reaped on a later load.</summary>
-            KeepSessionProvisional,
-            /// <summary>An EVA RP nothing uses: its slots are concluded and it is reaped.</summary>
-            Reap,
-        }
-
-        /// <summary>
-        /// Pure decision for a Rewind Point under the owner ruling of
-        /// 2026-09-27 (Re-Fly is for vessel separations only; an EVA never gets
-        /// a Re-Fly). Rewind Points authored at an EVA split by older builds are
-        /// reaped, except one a live <see cref="ReFlySessionMarker"/> references
-        /// (never break an in-progress session) or one still session-provisional
-        /// (its owning tree or session has not merged; the reaper would keep it
-        /// anyway, and a later load reaps it).
-        /// </summary>
-        internal static LegacyEvaRewindPointVerdict ClassifyLegacyEvaRewindPoint(
-            RewindPoint rp,
-            BranchPointType? branchPointType,
-            string markerRewindPointId)
-        {
-            if (rp == null) return LegacyEvaRewindPointVerdict.NotEva;
-            if (!branchPointType.HasValue) return LegacyEvaRewindPointVerdict.BranchPointUnresolved;
-            if (RewindPointAuthor.IsReFlySplitType(branchPointType.Value))
-                return LegacyEvaRewindPointVerdict.NotEva;
-            if (!string.IsNullOrEmpty(markerRewindPointId)
-                && string.Equals(rp.RewindPointId, markerRewindPointId, StringComparison.Ordinal))
-                return LegacyEvaRewindPointVerdict.KeepLiveSession;
-            if (rp.SessionProvisional)
-                return LegacyEvaRewindPointVerdict.KeepSessionProvisional;
-            return LegacyEvaRewindPointVerdict.Reap;
-        }
-
-        internal struct LegacyEvaRewindPointSweepResult
-        {
-            public int Found;
-            public int Reaped;
-            public int TipsConcluded;
-            public int KeptLiveSession;
-            public int KeptSessionProvisional;
-            public int KeptOpen;
-        }
-
-        /// <summary>
-        /// Reaps Rewind Points that older builds authored at an EVA split.
-        /// Each reapable RP's CommittedProvisional slot tips are concluded
-        /// (flipped to Immutable, the same close the Seal action and the
-        /// missing-quicksave sweep perform), then the ordinary
-        /// <see cref="RewindPointReaper.ReapOrphanedRPs"/> deletes the quicksave,
-        /// the scenario entry, the branch-point back-reference and the RP's
-        /// contract snapshots. A tip still NotCommitted keeps its RP (the
-        /// reaper refuses an open slot); it is counted as keptOpen. Logs one
-        /// summary line with the counts when any EVA RP was found.
-        /// </summary>
-        internal static LegacyEvaRewindPointSweepResult SweepLegacyEvaRewindPoints(ParsekScenario scenario)
-        {
-            var result = new LegacyEvaRewindPointSweepResult();
-            if (object.ReferenceEquals(null, scenario)
-                || scenario.RewindPoints == null
-                || scenario.RewindPoints.Count == 0)
-                return result;
-
-            string markerRewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
-            IReadOnlyList<RecordingSupersedeRelation> supersedes =
-                scenario.RecordingSupersedes
-                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
-            var reapIds = new HashSet<string>(StringComparer.Ordinal);
-
-            for (int i = 0; i < scenario.RewindPoints.Count; i++)
-            {
-                var rp = scenario.RewindPoints[i];
-                if (rp == null) continue;
-                var verdict = ClassifyLegacyEvaRewindPoint(
-                    rp, FindBranchPointTypeInStores(rp.BranchPointId), markerRewindPointId);
-                switch (verdict)
-                {
-                    case LegacyEvaRewindPointVerdict.KeepLiveSession:
-                        result.Found++;
-                        result.KeptLiveSession++;
-                        ParsekLog.Info(SweepTag,
-                            $"Legacy EVA Rewind Point kept for the live Re-Fly session rp={rp.RewindPointId} " +
-                            $"bp={rp.BranchPointId ?? "<no-bp>"} " +
-                            $"sess={scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-sess>"} " +
-                            "(reaped after the session concludes)");
-                        break;
-                    case LegacyEvaRewindPointVerdict.KeepSessionProvisional:
-                        result.Found++;
-                        result.KeptSessionProvisional++;
-                        ParsekLog.Verbose(SweepTag,
-                            $"Legacy EVA Rewind Point kept while session-provisional rp={rp.RewindPointId} " +
-                            $"bp={rp.BranchPointId ?? "<no-bp>"} (reaped on a later load)");
-                        break;
-                    case LegacyEvaRewindPointVerdict.Reap:
-                        result.Found++;
-                        if (!string.IsNullOrEmpty(rp.RewindPointId))
-                            reapIds.Add(rp.RewindPointId);
-                        result.TipsConcluded += ConcludeProvisionalSlotTips(rp, supersedes);
-                        break;
-                }
-            }
-
-            if (reapIds.Count > 0)
-            {
-                RewindPointReaper.ReapOrphanedRPs();
-                for (int i = 0; i < scenario.RewindPoints.Count; i++)
-                {
-                    var rp = scenario.RewindPoints[i];
-                    if (rp != null && !string.IsNullOrEmpty(rp.RewindPointId)
-                        && reapIds.Remove(rp.RewindPointId))
-                    {
-                        result.KeptOpen++;
-                        ParsekLog.Info(SweepTag,
-                            $"Legacy EVA Rewind Point not reaped: a slot is still open rp={rp.RewindPointId} " +
-                            $"bp={rp.BranchPointId ?? "<no-bp>"}");
-                    }
-                }
-                result.Reaped = reapIds.Count;
-            }
-
-            if (result.Found > 0)
-            {
-                var ic = CultureInfo.InvariantCulture;
-                ParsekLog.Info(SweepTag,
-                    "Legacy EVA Rewind Points (Re-Fly is for vessel separations only): " +
-                    $"found={result.Found.ToString(ic)} reaped={result.Reaped.ToString(ic)} " +
-                    $"tipsConcluded={result.TipsConcluded.ToString(ic)} " +
-                    $"keptLiveSession={result.KeptLiveSession.ToString(ic)} " +
-                    $"keptSessionProvisional={result.KeptSessionProvisional.ToString(ic)} " +
-                    $"keptOpen={result.KeptOpen.ToString(ic)}");
-            }
-            return result;
-        }
-
-        private static int ConcludeProvisionalSlotTips(
-            RewindPoint rp, IReadOnlyList<RecordingSupersedeRelation> supersedes)
-        {
-            if (rp?.ChildSlots == null) return 0;
-            int concluded = 0;
-            for (int s = 0; s < rp.ChildSlots.Count; s++)
-            {
-                var slot = rp.ChildSlots[s];
-                if (slot == null) continue;
-                string tipId = slot.EffectiveRecordingId(supersedes);
-                Recording tip = EffectiveState.FindCommittedRecordingByIdRaw(tipId);
-                if (tip == null || tip.MergeState != MergeState.CommittedProvisional)
-                    continue;
-                tip.MergeState = MergeState.Immutable;
-                tip.FilesDirty = true;
-                concluded++;
-                ParsekLog.Verbose(SweepTag,
-                    $"Legacy EVA Rewind Point concluded slot={s.ToString(CultureInfo.InvariantCulture)} " +
-                    $"rp={rp.RewindPointId} tip={tipId} -> Immutable");
-            }
-            return concluded;
-        }
-
-        /// <summary>
-        /// Type of the branch point with this id, searched in the committed trees
-        /// and the pending tree (the stores <see cref="RewindPointReaper.ClearBranchPointBackref"/>
-        /// walks). Null when no loaded tree carries it.
-        /// </summary>
-        private static BranchPointType? FindBranchPointTypeInStores(string branchPointId)
-        {
-            if (string.IsNullOrEmpty(branchPointId)) return null;
-            var trees = RecordingStore.CommittedTrees;
-            if (trees != null)
-            {
-                for (int t = 0; t < trees.Count; t++)
-                {
-                    BranchPointType? found = FindBranchPointTypeInTree(trees[t], branchPointId);
-                    if (found.HasValue) return found;
-                }
-            }
-            return FindBranchPointTypeInTree(RecordingStore.PendingTree, branchPointId);
-        }
-
-        private static BranchPointType? FindBranchPointTypeInTree(RecordingTree tree, string branchPointId)
-        {
-            var bps = tree?.BranchPoints;
-            if (bps == null) return null;
-            for (int b = 0; b < bps.Count; b++)
-            {
-                var bp = bps[b];
-                if (bp != null && string.Equals(bp.Id, branchPointId, StringComparison.Ordinal))
-                    return bp.Type;
-            }
-            return null;
-        }
-
         private sealed class MissingRewindPointQuicksave
         {
             public MissingRewindPointQuicksave(
@@ -889,6 +690,8 @@ namespace Parsek
             return result;
         }
 
+        // Nothing writes rewind-retirement rows any more; rows a save carries are read
+        // as they are. Only rows naming no recording at all are removed here.
         private static int SweepOrphanRewindRetirements(ParsekScenario scenario)
         {
             if (object.ReferenceEquals(null, scenario)
@@ -898,46 +701,8 @@ namespace Parsek
 
             var knownRecordingIds = RecordingStore.BuildKnownRecordingIdsForCleanup();
 
-            // Build an Immutable-id lookup so we can detect retirements pointing
-            // at canon recordings. Pre-fix saves can carry these from the buggy
-            // code path that retired Immutable forks; the Pass 1/Pass 2
-            // predicate-classifier added in this PR keeps new saves clean, but
-            // we still need to scrub legacy state on load.
-            //
-            // recordingIdToTreeId maps every live committed recording to its
-            // owning tree. The legacy non-Immutable old-side sweep below is
-            // TREE-SCOPED: it must defer only the trees actually carrying the
-            // pre-canon-forks multi-old-side-to-one-Immutable-fork shape, not
-            // every save that happens to have a healthy Immutable supersede
-            // elsewhere. The fan-in shape is inherently tree-local (the rewind
-            // walked one tree's subtree), so the priorTip's tree id is the
-            // correct scoping key. Recordings with a null/empty TreeId are
-            // standalone/pre-tree and cannot carry the tree-rewind fan-in
-            // shape — they map to no tree.
-            var committed = RecordingStore.CommittedRecordings;
-            var immutableRecordingIds = new HashSet<string>(StringComparer.Ordinal);
-            var recordingIdToTreeId = new Dictionary<string, string>(StringComparer.Ordinal);
-            if (committed != null)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    var rec = committed[i];
-                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
-                    if (rec.MergeState == MergeState.Immutable)
-                        immutableRecordingIds.Add(rec.RecordingId);
-                    if (!string.IsNullOrEmpty(rec.TreeId))
-                        recordingIdToTreeId[rec.RecordingId] = rec.TreeId;
-                }
-            }
-
             int removed = 0;
-            int removedImmutableRetirements = 0;
             int retainedWithMissingRestored = 0;
-            // Trees from which a legacy Immutable fork retirement was removed
-            // THIS load (the deferImmediate signal — covers load 1 including
-            // the reconstruction-failed case where no durable signal exists).
-            var treesWithRemovedImmutableForkRetirement =
-                new HashSet<string>(StringComparer.Ordinal);
             for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
             {
                 var retirement = scenario.RecordingRewindRetirements[i];
@@ -948,8 +713,7 @@ namespace Parsek
                     continue;
                 }
 
-                bool retiredResolved = RecordingExists(retirement.RecordingId, knownRecordingIds);
-                if (!retiredResolved)
+                if (!RecordingExists(retirement.RecordingId, knownRecordingIds))
                 {
                     ParsekLog.Info(SupersedeTag,
                         $"Orphan rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
@@ -959,319 +723,16 @@ namespace Parsek
                     continue;
                 }
 
-                // Defensive Immutable cleanup: a retirement pointing at a
-                // canon Immutable recording is either:
-                //   (a) Pre-fix legacy bad state. The old buggy code path
-                //       retired Immutable forks unconditionally; that broke
-                //       the canon contract. Cleanup: remove the retirement
-                //       and reconstruct the dropped priorTip → canon
-                //       supersede relation so the priorTip stays superseded.
-                //   (b) Intentional Pass-2 demotion from this PR. The canon
-                //       fork's priorTip was itself retired in the same
-                //       rewind batch, so the canon collapses. The retirement
-                //       carries Reason=DemotedCanonReason as a tag so this
-                //       sweep can tell intent (b) apart from legacy (a).
-                //
-                // Without the reason tag a sweep would fail to disambiguate:
-                // both `A → B(Imm) → C(Imm)` (legacy) and `A → B(Prov) →
-                // C(Imm) → D(Imm)` (post-fix) produce retirements pointing
-                // at Immutable forks whose RestoredRecordingId is also a
-                // retired fork in the same batch.
-                bool isImmutableTarget =
-                    immutableRecordingIds.Contains(retirement.RecordingId);
-                bool isIntentionalDemotedCanon = isImmutableTarget
-                    && string.Equals(retirement.Reason,
-                        RecordingRewindRetirement.DemotedCanonReason,
-                        StringComparison.Ordinal);
-                // Self-rewound canon retirements (this PR): user explicitly
-                // clicked Rewind on the canon fork. The classifier forced
-                // the drop and tagged the retirement with
-                // SelfRewoundCanonReason. If the legacy-Immutable sweep
-                // reconstructed the priorTip → canon relation here, the
-                // user's self-rewind would be silently undone on every
-                // load — the canon would become visible again and the
-                // priorTip would re-hide. Skip these retirements.
-                bool isIntentionalSelfRewoundCanon = isImmutableTarget
-                    && string.Equals(retirement.Reason,
-                        RecordingRewindRetirement.SelfRewoundCanonReason,
-                        StringComparison.Ordinal);
-                // Old-side retirements (PR #807) target priorTips of dropped
-                // supersedes that were rewound out of existence. They are
-                // intentional and authored with RestoredRecordingId=null, so
-                // TryRestoreLegacyImmutableSupersede couldn't reconstruct
-                // anything anyway. But guard explicitly so a future Immutable
-                // priorTip (e.g. a canon Re-Fly stacked on top of another
-                // canon) doesn't get its old-side retirement swept.
-                bool isIntentionalOldSide = isImmutableTarget
-                    && string.Equals(retirement.Reason,
-                        RecordingRewindRetirement.RewoundOutOldSideReason,
-                        StringComparison.Ordinal);
-                if (isImmutableTarget
-                    && !isIntentionalDemotedCanon
-                    && !isIntentionalSelfRewoundCanon
-                    && !isIntentionalOldSide)
-                {
-                    LegacyImmutableSupersedeRestoreResult restoreResult =
-                        TryRestoreLegacyImmutableSupersede(
-                            scenario, retirement, knownRecordingIds);
-                    string restoreNote;
-                    switch (restoreResult)
-                    {
-                        case LegacyImmutableSupersedeRestoreResult.Restored:
-                            restoreNote = "and restored supersede relation priorTip→canon ";
-                            break;
-                        case LegacyImmutableSupersedeRestoreResult.AlreadyPresent:
-                            restoreNote = "(supersede relation already present — left intact) ";
-                            break;
-                        case LegacyImmutableSupersedeRestoreResult.MissingMetadata:
-                            restoreNote = "(no RestoredRecordingId in retirement metadata — supersede relation cannot be reconstructed; priorTip may render alongside canon, investigate) ";
-                            break;
-                        case LegacyImmutableSupersedeRestoreResult.RestoredRecordingMissing:
-                            restoreNote = "(RestoredRecordingId no longer exists in committed store — supersede relation not reconstructed to avoid creating a one-sided orphan; priorTip may render alongside canon, investigate) ";
-                            break;
-                        default:
-                            restoreNote = "(restore outcome=" + restoreResult.ToString() + ") ";
-                            break;
-                    }
-                    ParsekLog.Warn(SupersedeTag,
-                        $"Removing rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
-                        $"pointing at Immutable canon recording={retirement.RecordingId} " +
-                        restoreNote +
-                        "(legacy pre-fix save state). The canon recording will be visible after sweep.");
-                    scenario.RecordingRewindRetirements.RemoveAt(i);
-                    removed++;
-                    removedImmutableRetirements++;
-                    // Tree-scope the deferImmediate signal: record the tree this
-                    // Immutable fork belongs to so the second pass only defers
-                    // old-side rows in the SAME tree.
-                    string removedForkTreeId;
-                    if (recordingIdToTreeId.TryGetValue(
-                            retirement.RecordingId, out removedForkTreeId)
-                        && !string.IsNullOrEmpty(removedForkTreeId))
-                    {
-                        treesWithRemovedImmutableForkRetirement.Add(removedForkTreeId);
-                    }
-                    continue;
-                }
-
-                bool restoredMissing = !string.IsNullOrEmpty(retirement.RestoredRecordingId)
-                    && !RecordingExists(retirement.RestoredRecordingId, knownRecordingIds);
-                if (restoredMissing)
+                if (!string.IsNullOrEmpty(retirement.RestoredRecordingId)
+                    && !RecordingExists(retirement.RestoredRecordingId, knownRecordingIds))
                     retainedWithMissingRestored++;
             }
 
-            // --------------------------------------------------------------
-            // Second pass (this PR): legacy non-Immutable old-side cleanup.
-            //
-            // RewoundOutOldSideReason rows targeting a NON-Immutable priorTip
-            // were authored by the deprecated Pass-2 code path that retired
-            // priorTips for every dropped supersede regardless of the fork's
-            // MergeState. The post-fix Pass 2 only writes such a row when the
-            // dropped relation had an Immutable fork; that path is in turn
-            // unreachable in production
-            // demotion shapes (the priorTip is itself a Pass-1 fork retirement
-            // shadowed by seenRetiredIds). So a live-priorTip non-Immutable
-            // RewoundOutOldSideReason row is pre-fix stale state: sweep it so
-            // the priorTip becomes visible and Watch playback can replay it.
-            //
-            // BUT: pre-canon-forks saves can carry the multi-old-side-to-one-
-            // Immutable-fork shape PR #807 originally addressed — one canon
-            // (Immutable) fork superseded several priorTips; the buggy code
-            // dropped every relation and wrote one DefaultReason fork
-            // retirement plus per-priorTip RewoundOutOldSideReason rows. The
-            // per-row legacy-Immutable cleanup above reconstructs ONLY ONE
-            // priorTip→canon relation (the one named in the fork retirement's
-            // RestoredRecordingId); the other priorTips stay hidden by their
-            // own RewoundOutOldSideReason rows. Removing those rows would
-            // re-expose the un-reconstructed priorTips — the exact regression
-            // PR #807 fixed.
-            //
-            // The guard must be DURABLE across loads AND TREE-SCOPED. The fork
-            // retirement itself is a one-shot signal: the per-row loop above
-            // removes it and the save persists without it, so a guard keyed on
-            // the fork retirement would defer on load 1 and then wrongly sweep
-            // on load 2. And a GLOBAL signal over-defers: a save carrying the
-            // user's stale CommittedProvisional priorTip row PLUS an unrelated
-            // healthy Immutable Re-Fly elsewhere would never sweep the stale
-            // row. The fan-in shape is tree-local (the rewind walked one tree's
-            // subtree), so the guard is keyed per-tree on two survivable
-            // signals:
-            //
-            //   - treesWithRemovedImmutableForkRetirement: a tree from which
-            //     the per-row loop just removed a legacy Immutable fork
-            //     retirement THIS load. Covers load 1 including the case where
-            //     TryRestoreLegacyImmutableSupersede could not reconstruct the
-            //     relation (no durable signal would then exist, so this load
-            //     is the only chance to defer).
-            //
-            //   - treesWithSurvivingImmutableSupersede: a tree containing a
-            //     RecordingSupersedeRelation whose NewRecordingId resolves to a
-            //     live Immutable recording. On load 1 (success) this includes
-            //     the relation the per-row loop just reconstructed; on load 2+
-            //     it is the same relation, persisted. This is the durable
-            //     signal.
-            //
-            // An old-side row is deferred only when its priorTip's tree is in
-            // either set.
-            //
-            // ACCEPTED LIMITATION — same-tree mixed shapes are over-deferred.
-            // A single recording tree can hold multiple independent rewound-out
-            // Re-Fly slots. If a pre-canon-forks tree carries BOTH a surviving
-            // (or just-reconstructed) Immutable supersede AND a genuinely-stale
-            // non-Immutable RewoundOutOldSideReason row from a *different* slot,
-            // the tree is in treesWithSurvivingImmutableSupersede and the stale
-            // row is deferred even though it is not part of the multi-old
-            // fan-in. We CANNOT do better here: PR #807 deliberately writes
-            // RewoundOutOldSideReason rows with RestoredRecordingId == null and
-            // SourceSupersedeRelationId == null ("an old-side can be the
-            // OldRecordingId of multiple dropped relations — picking one is
-            // misleading"), so a row carries no link to its fork; and RewindUT
-            // identifies only the rewind *batch*, which can retire several
-            // forks at once. There is no recorded provenance to scope tighter
-            // than the tree without a schema change.
-            //
-            // Deferral is nonetheless the correct conservative choice for that
-            // rare shape. The two outcomes are asymmetric:
-            //   - Defer (current): the stale non-Immutable row stays — the
-            //     priorTip remains hidden. This is exactly its pre-PR-848
-            //     state (PR #807 hid it on purpose at the time). A missed
-            //     cleanup, NOT a regression: nothing renders incorrectly, the
-            //     recordings table / ERS stay internally consistent, and the
-            //     row is still removed by the existing orphan / TreeDiscardPurge
-            //     paths when the recording or tree goes away.
-            //   - Sweep: risks re-exposing the multi-old-Immutable victims
-            //     (P2/P3) as visible "Destroyed" outcomes alongside the canon
-            //     — the double-materialization rendering corruption PR
-            //     #776/#777/#807 exist to prevent.
-            // A missed cleanup is strictly less bad than a rendering
-            // corruption, so when a row cannot be proven independent of the
-            // tree's canon state we keep it. PR #848 therefore IMPROVES the
-            // common case (the user's repro, and every single-shape tree)
-            // without REGRESSING the rare same-tree-mixed case — it just does
-            // not improve that one. LegacyOldSideSweep_SameTreeMixedShape_
-            // DefersStaleRowConservatively pins this behavior.
-            //
-            // Residual gap: a load-2+ visit of a save whose load-1
-            // reconstruction FAILED leaves that tree in neither set — but the
-            // tree is already degraded (load 1 logged "priorTip may render
-            // alongside canon, investigate"), so sweeping is not making a
-            // healthy tree worse.
-            int removedLegacyNonImmutableOldSideRetirements = 0;
-            var treesWithSurvivingImmutableSupersede =
-                new HashSet<string>(StringComparer.Ordinal);
-            if (scenario.RecordingSupersedes != null)
-            {
-                for (int i = 0; i < scenario.RecordingSupersedes.Count; i++)
-                {
-                    var rel = scenario.RecordingSupersedes[i];
-                    if (rel == null
-                        || string.IsNullOrEmpty(rel.NewRecordingId)
-                        || !immutableRecordingIds.Contains(rel.NewRecordingId))
-                        continue;
-                    string immForkTreeId;
-                    if (recordingIdToTreeId.TryGetValue(rel.NewRecordingId, out immForkTreeId)
-                        && !string.IsNullOrEmpty(immForkTreeId))
-                    {
-                        treesWithSurvivingImmutableSupersede.Add(immForkTreeId);
-                    }
-                }
-            }
-
-            int legacyOldSideCandidates = 0;
-            int legacyOldSideDeferred = 0;
-            int keptInertOldSide = 0;
-            for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
-            {
-                var retirement = scenario.RecordingRewindRetirements[i];
-                if (retirement == null
-                    || string.IsNullOrEmpty(retirement.RecordingId)
-                    || !string.Equals(retirement.Reason,
-                        RecordingRewindRetirement.RewoundOutOldSideReason,
-                        StringComparison.Ordinal)
-                    || immutableRecordingIds.Contains(retirement.RecordingId))
-                    continue;
-
-                // GC-3: a row naming a recording of an inert tree (another recording schema
-                // generation) is kept as the save holds it; its MergeState is unknown here.
-                if (InertRecordingTrees.ContainsRecordingId(retirement.RecordingId))
-                {
-                    keptInertOldSide++;
-                    continue;
-                }
-
-                // Live non-Immutable priorTip carrying RewoundOutOldSideReason.
-                // (Orphan priorTips were already removed by the per-row loop's
-                // !retiredResolved branch, so anything reaching here is live.)
-                legacyOldSideCandidates++;
-
-                // Tree-scoped deferral: only defer when the priorTip's OWN tree
-                // carries the pre-canon-forks Immutable canon state. A null/
-                // empty TreeId is a standalone/pre-tree recording that cannot
-                // be part of a tree-rewind fan-in — it is never deferred.
-                string priorTipTreeId;
-                bool resolvedTree = recordingIdToTreeId.TryGetValue(
-                    retirement.RecordingId, out priorTipTreeId)
-                    && !string.IsNullOrEmpty(priorTipTreeId);
-                bool deferThisRow = resolvedTree
-                    && (treesWithRemovedImmutableForkRetirement.Contains(priorTipTreeId)
-                        || treesWithSurvivingImmutableSupersede.Contains(priorTipTreeId));
-                if (deferThisRow)
-                {
-                    legacyOldSideDeferred++;
-                    continue;
-                }
-
-                ParsekLog.Info(SupersedeTag,
-                    $"Removing legacy rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
-                    $"recording={retirement.RecordingId} " +
-                    $"reason=fork-non-immutable-priortip-pre-fix " +
-                    "(pre-fix Pass-2 wrote this row before the new MergeState gate; " +
-                    "priorTip will be visible after sweep so spawn-at-endpoint can replay it)");
-                scenario.RecordingRewindRetirements.RemoveAt(i);
-                removed++;
-                removedLegacyNonImmutableOldSideRetirements++;
-            }
-
-            if (legacyOldSideDeferred > 0)
+            if (removed > 0)
             {
                 ParsekLog.Info(SweepTag,
-                    $"[LoadSweep] Legacy non-Immutable old-side sweep deferred: " +
-                    $"{legacyOldSideDeferred.ToString(CultureInfo.InvariantCulture)} of " +
-                    $"{legacyOldSideCandidates.ToString(CultureInfo.InvariantCulture)} candidate row(s) " +
-                    "retained because their tree carries Immutable canon supersede state " +
-                    "(reconstructed or surviving). Removing them could expose " +
-                    "multi-old-side-to-one-Immutable-fork priorTips kept hidden by their " +
-                    "per-row retirements. Rows stay until a future rewind reseals them.");
-            }
-            if (keptInertOldSide > 0)
-            {
-                ParsekLog.Info(SweepTag,
-                    $"[LoadSweep] Kept {keptInertOldSide.ToString(CultureInfo.InvariantCulture)} old-side " +
-                    "rewind-retirement row(s) naming inert recordings (committed trees from a different " +
-                    "recording schema generation)");
-            }
-
-            int orphanOnly = removed
-                - removedImmutableRetirements
-                - removedLegacyNonImmutableOldSideRetirements;
-            if (orphanOnly > 0)
-            {
-                ParsekLog.Info(SweepTag,
-                    $"[LoadSweep] Cleaned {orphanOnly.ToString(CultureInfo.InvariantCulture)} " +
+                    $"[LoadSweep] Cleaned {removed.ToString(CultureInfo.InvariantCulture)} " +
                     "orphan rewind-retirement row(s); persists on next OnSave");
-            }
-            if (removedImmutableRetirements > 0)
-            {
-                ParsekLog.Info(SweepTag,
-                    $"[LoadSweep] Removed {removedImmutableRetirements.ToString(CultureInfo.InvariantCulture)} " +
-                    "rewind-retirement row(s) pointing at Immutable canon recordings (legacy state cleanup)");
-            }
-            if (removedLegacyNonImmutableOldSideRetirements > 0)
-            {
-                ParsekLog.Info(SweepTag,
-                    $"[LoadSweep] Removed {removedLegacyNonImmutableOldSideRetirements.ToString(CultureInfo.InvariantCulture)} " +
-                    "rewind-retirement row(s) RewoundOutOldSide on non-Immutable priorTip(s) " +
-                    "(pre-fix Pass-2 state cleanup; priorTip becomes visible again for spawn-at-endpoint)");
             }
             if (retainedWithMissingRestored > 0)
             {
@@ -1280,82 +741,6 @@ namespace Parsek
                     "rewind-retirement row(s) whose restored recording no longer exists");
             }
             return removed;
-        }
-
-        private enum LegacyImmutableSupersedeRestoreResult
-        {
-            /// <summary>Relation reconstructed from retirement metadata.</summary>
-            Restored,
-            /// <summary>Equivalent priorTip → canon relation already in scenario; left intact.</summary>
-            AlreadyPresent,
-            /// <summary>Retirement is orphan or carries no RestoredRecordingId; cannot reconstruct.</summary>
-            MissingMetadata,
-            /// <summary>RestoredRecordingId names a recording that no longer exists in the live store.</summary>
-            RestoredRecordingMissing,
-        }
-
-        /// <summary>
-        /// Reconstruct the priorTip → canon supersede relation that the
-        /// pre-fix buggy rewind code dropped alongside writing this
-        /// retirement. Returns an outcome enum so callers can produce
-        /// distinguishable log lines for each skip cause.
-        /// </summary>
-        private static LegacyImmutableSupersedeRestoreResult TryRestoreLegacyImmutableSupersede(
-            ParsekScenario scenario,
-            RecordingRewindRetirement retirement,
-            HashSet<string> knownRecordingIds)
-        {
-            if (object.ReferenceEquals(null, scenario)
-                || retirement == null
-                || string.IsNullOrEmpty(retirement.RecordingId)
-                || string.IsNullOrEmpty(retirement.RestoredRecordingId))
-                return LegacyImmutableSupersedeRestoreResult.MissingMetadata;
-
-            // Verify the priorTip recording still exists in the live store.
-            // Without this check, a save where the priorTip was purged
-            // out-of-band (e.g. by an earlier discard sweep, by manual user
-            // delete, by a tree-discard purge) would have us synthesize a
-            // one-sided orphan relation that survives until the next load —
-            // SweepOrphanSupersedes ran earlier in this same sweep, so the
-            // newly-injected orphan won't be cleaned this cycle.
-            if (knownRecordingIds == null
-                || !knownRecordingIds.Contains(retirement.RestoredRecordingId))
-                return LegacyImmutableSupersedeRestoreResult.RestoredRecordingMissing;
-
-            if (scenario.RecordingSupersedes == null)
-                scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
-
-            // Idempotency: if any supersede already names the same priorTip →
-            // canon pair, skip. The exact RelationId or UT does not matter
-            // for visibility computation (EffectiveState reads only Old/New).
-            for (int i = 0; i < scenario.RecordingSupersedes.Count; i++)
-            {
-                var existing = scenario.RecordingSupersedes[i];
-                if (existing == null) continue;
-                if (string.Equals(existing.OldRecordingId, retirement.RestoredRecordingId, StringComparison.Ordinal)
-                    && string.Equals(existing.NewRecordingId, retirement.RecordingId, StringComparison.Ordinal))
-                {
-                    return LegacyImmutableSupersedeRestoreResult.AlreadyPresent;
-                }
-            }
-
-            // Synthesize a fresh relation. Use the retirement's preserved
-            // SourceSupersedeRelationId when available so audit trails
-            // referencing the original RelationId still resolve. Fall back to
-            // a "rsr_legacyrestore_<guid>" id otherwise. UT defaults to
-            // retirement.CreatedUT (the moment the buggy retirement was
-            // written) — the original merge UT is not recoverable.
-            var restored = new RecordingSupersedeRelation
-            {
-                RelationId = !string.IsNullOrEmpty(retirement.SourceSupersedeRelationId)
-                    ? retirement.SourceSupersedeRelationId
-                    : "rsr_legacyrestore_" + Guid.NewGuid().ToString("N"),
-                OldRecordingId = retirement.RestoredRecordingId,
-                NewRecordingId = retirement.RecordingId,
-                UT = retirement.CreatedUT,
-            };
-            scenario.RecordingSupersedes.Add(restored);
-            return LegacyImmutableSupersedeRestoreResult.Restored;
         }
 
         // ------------------------------------------------------------------
