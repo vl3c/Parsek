@@ -646,6 +646,13 @@ the updates below record how each verb arrived.
 > optional `forceGhost=true` then calls `ForceSetActiveVessel` on a ghost marker to witness the
 > backstop. Full contract below (`#### CycleVessel`); lane `GC-4-vessel-cycle-skips-ghost-marker`.
 
+> Update (PickUpFlag, 2026-11-04): one ADDITIVE verb, taking the table to **60 implemented / 4
+> reserved**, for the recorded flag pick-up (owner ruling 2026-11-04, plant once and record
+> pick-ups; todo LOOP-REPLAY-REPLANTS-REMOVED-FLAG). `PickUpFlag` (no args) makes the active EVA
+> kerbal take down the nearest real flag through stock's own `FlagSite.PickUp`, so Parsek's
+> `FlagPickUpCapturePatch` records the `FlagPickedUp` event as for a player. Full contract below
+> (`#### PickUpFlag`); lane `FLG-1-pickup-rewind`.
+
 > Update (NewGame, 2026-10-25): one ADDITIVE verb, taking the table to **59 implemented / 4
 > reserved**, so stage CS-0 of the scripted campaign program can start from a genuine stock New
 > Game. `NewGame mode=SCIENCE_SANDBOX|CAREER|SANDBOX preset=Easy|Normal|Moderate|Hard save=` quits
@@ -5269,6 +5276,40 @@ the dialog is gone and the scene stayed 30 frames and 1 s (`outcome=stayed`), or
 pressed outcome obstructingBefore obstructingAfter`: the facts; the lane judges them. Pure half
 `TestCommandLaunchSiteProbe`, applier `ParsekTestCommandAddon.LaunchSiteProbe.cs`, mirrored by
 `LaunchSiteProbeSourceSyncTests`.
+
+#### PickUpFlag (additive; a kerbal takes down a flag, the recorded pick-up)
+
+**Why.** A pick-up on a recorded flight is a `SegmentEventType.FlagPickedUp` event the replay
+applies after a rewind (`GhostPlaybackLogic.ApplyFlagPickUps`), and no seam verb could take a flag
+down, so the capture (`Patches/FlagPickUpCapturePatch.cs` + `ParsekFlight.OnVesselWillDestroy`)
+had no lane.
+
+**Stock ground truth (decompiled `FlagSite`, KSP 1.12.5).** `FlagSite.PickUp()` (the toppled
+flag's "Pick Up" event; the standing flag's "Take Down" event calls it) reads
+`FlightGlobals.ActiveVessel.GetComponent<KerbalEVA>()`, returns silently when there is none or the
+kerbal `isRagdoll`, and otherwise calls `KerbalEVA.AddFlag()` and the flag vessel's `Die()`, which
+fires `onVesselWillDestroy`, sets `state = DEAD` and (for a non-active vessel) removes it from
+`FlightGlobals` inside the call. Both events carry `unfocusedRange = 2`, a range on the right-click
+menu only: the method itself has no distance check.
+
+**Grammar.** `cmd=PickUpFlag`, issued in FLIGHT, no args (the pre-launch validator rejects any
+key).
+
+**Behavior.** Dispatch defers `not-eva` until the active vessel is an EVA kerbal (PlantFlag /
+EvaBoard's defer). The target is the nearest loaded `VesselType.Flag` vessel that is not a ghost
+map vessel. REJECTED (gate-class, nothing pressed): `pickupflag-not-eva`, `pickupflag-no-flag`,
+`pickupflag-not-near-flag` (beyond 5 m inclusive, the seam's bound over `PickUp`'s missing range
+check). Logs `pickupflag start kerbal='..' flag='..' flagPid= dist=`.
+
+**Phases.** TWO-PHASE, `RequiresFlight`, default 60 s budget, world-mutating tail role, `outcome`
+post-mission role (PlantFlag's, mirrored), watched by the active-vessel-loss guard. Each poll waits
+out a ragdolled kerbal (stock would ignore the press), presses `FlagSite.PickUp()` once (`pickupflag
+press flagPid= fire=`), and presses again at most three times in all when the flag still stands 30
+polls later. OK once the flag vessel is gone (Unity-null, DEAD or out of the vessel list) and the
+scene settled: `pickupflag complete kerbal='..' flag='..' flagPid= fires=`, payload `flag flagPid
+kerbal dist fires`. ERROR `pickupflag-threw`, `pickupflag-flag-lost` (the flag went before any
+press) or `pickupflag-timeout`. Pure half `TestCommandPickUpFlag`, applier
+`ParsekTestCommandAddon.PickUpFlag.cs`, mirrored by `PickUpFlagSourceSyncTests`.
 
 ### Addon lifecycle
 

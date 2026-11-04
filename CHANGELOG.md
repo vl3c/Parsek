@@ -37,6 +37,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A replayed flag is planted once, and a flag you remove stays removed.** Loops no longer plant
+  a recorded flag again after you pick it up, recover it or terminate it. A kerbal's flag pick-up
+  is now recorded, so after a rewind the replay takes the flag down at that moment and a flag you
+  moved ends up in one place. (LOOP-REPLAY-REPLANTS-REMOVED-FLAG)
 - **A rewind never lowers a once-only reward.** If a science result, world-first or record step
   was paid at a higher reward setting on the committed timeline and you earn it again earlier at
   a lower one, the committed flight now still pays the difference, so your total stays at the

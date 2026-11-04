@@ -17,6 +17,50 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~LOOP-REPLAY-REPLANTS-REMOVED-FLAG: a looping replay plants a recorded flag again after the player removes it~~ [FILED 2026-11-04 from the replay-theory audit (finding R5, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, confirmed by code read on main b2182df); FIXED 2026-11-04, branch `claude/project-thread-2p1zb5`; LIVE-PROVEN FLG-1 `2026-11-04_1743`; owner ruling 2026-11-04 "plant once and record pick-ups"; product, low (an unremovable flag per looped flag plant)]
+
+**Symptom.** A recording that planted a flag replays it as a real flag vessel when replay reaches the
+plant UT (`GhostPlaybackLogic.ApplyFlagEvents`). The only dedup is "a flag already stands within 1 m"
+(`FlagExistsAtPosition`), which reads the world. So after the player picks the flag up on EVA,
+recovers it or terminates it, every later walk over the event plants it again: each loop cycle
+(`ResetForLoopCycle` rewinds `flagEventIndex`), each KSC overlap ghost, each chain-loop unit and
+loop-synced debris cycle (fresh state through `RenderInRangeGhost` at the loop UT), each fresh playback
+state after a scene change while the ghost is in range, and each deferred flush. Against flight
+recorder design 12.7 ("all subsequent loops are purely visual").
+
+**Fix.** `RemovedReplayFlags` keeps a tombstone per removed flag vessel (body, position, removal UT),
+written from `ParsekFlight.OnVesselWillDestroy` (EVA pick-up, crash) and `ParsekScenario`'s
+`OnVesselRecovered` / `OnVesselTerminated`, never for a ghost map vessel or during a rewind strip.
+`TrySpawnFlagVessel` checks it before the world scan: a flag event on the same body within 3 m planted
+no later than the removal is skipped (`removed by the player`, counted apart from failures so the
+deferred flush does not retry). Saved as `REMOVED_REPLAY_FLAGS`; new `LoadStateCategory.RemovedReplayFlags`
+(cold: the save's copy; every other load: memory's, minus removals after the loaded world's UT, at the
+live-only income drop sites). Design: flight recorder design 4.13. Tests: `RemovedReplayFlagsTests`
+(loop cycle, fresh state, deferred flush counts, other flags still plant, matching tolerance, time
+travel, culture-safe round trip, policy cells).
+
+**Owner ruling 2026-11-04 ("plant once and record pick-ups").** A replay plants a recorded flag once,
+at its moment; loops never plant again; a removal sticks until a load from before it. A kerbal's pick-up
+on a recorded flight is recorded and replayed, so a moved flag ends up in one place after a rewind.
+Tracking Station / Space Center removals are not part of a flight and a rewind before them undoes them.
+Renames and plaque edits stay unrecorded (cosmetic; stock sets both only in the planting dialog,
+decompiled `FlagSite` has no rename event). Built: `SegmentEventType.FlagPickedUp = 9` (additive, no
+generation bump), captured by `Patches/FlagPickUpCapturePatch.cs` (prefix + finalizer on
+`FlagSite.PickUp`) and `ParsekFlight.TryCaptureFlagPickUp` from the flag's `onVesselWillDestroy`
+inside the call, onto the picker's recording (foreground: the active tree recording directly, so an
+F5 carries it; or a background tree member); replayed by
+`GhostPlaybackLogic.ApplyFlagPickUps` before the plants of each walk (writes the tombstone at the
+pick-up UT, takes down a standing flag at that spot, no-op when the tombstone already exists). Parsek's
+own `Die()` on a flag (replayed pick-up, failed spawn cleanup, claimed-vessel removal) runs inside
+`RemovedReplayFlags.BeginParsekRemoval`, so its synchronous `onVesselWillDestroy` writes no tombstone
+(review finding: a late walk otherwise tombstoned the spot at the walk's UT and blocked a re-plant there). Tests:
+the pick-up half of `RemovedReplayFlagsTests` (details round trip under de-DE, replay once at its UT,
+moved flag after a rewind ends in one place, catch-up walk never plants, live pick-up is a no-op).
+LIVE-PROVEN by `FLG-1-pickup-rewind` (`2026-11-04_1743` PASS attempt 1): EVA-1's act with the
+new `PickUpFlag` seam verb (stock `FlagSite.PickUp`) between the plant and the board, commit,
+Rewind-to-Launch, 1x Space Center time to UT 50; the capture, the replayed plant and the replayed
+take-down (`took down 1 standing flag(s)`) all logged, and nothing planted again.
+
 ## ~~REPLAY-AUDIT-T2-TOP-UP: a reward setting changed across a rewind could lower a once-only reward, and changed career settings re-judged the past~~ [FILED 2026-11-04 from the replay-theory audit (question T2, owner ruling 2026-11-04 11:19Z) and the career settings audit (`analysis/career-settings-audit-2026-11-04.md` in the project files, sections 3.1 to 3.6); FIXED 2026-11-04, branch `claude/project-thread-dxut6r`; xUnit only, no lane (no fixture or lane changes a difficulty value mid-career or across a rewind); product, medium]
 
 **Symptom.** A load restores the save's own difficulty settings, so a rewind can price one

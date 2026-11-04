@@ -142,6 +142,7 @@ namespace Parsek
                 case SegmentEventType.CrewLost:
                 case SegmentEventType.CrewTransfer:
                 case SegmentEventType.TimeJump:  // recording discontinuity marker, not a physical state change
+                case SegmentEventType.FlagPickedUp:  // the kerbal's own shape does not change; the flag is its own vessel
                     return false;
 
                 default:
