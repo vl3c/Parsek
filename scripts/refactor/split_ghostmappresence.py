@@ -32,8 +32,8 @@ Re-running on a newer main (for example after a merge conflict on the split bran
     python3 scripts/refactor/split_ghostmappresence.py
 
 ``--remove-outputs`` deletes ONLY the area files this script writes (never the
-pre-existing GhostMapPresence.CameraRetarget / Observability / OverlapSchedule /
-ReFlySuppressionCache / SuppressionFinders siblings, which are not inputs). Then map any
+pre-existing GhostMapPresence.CameraRetarget / Observability / OverlapHighWarp /
+OverlapSchedule / ReFlySuppressionCache / SuppressionFinders siblings, which are not inputs). Then map any
 member the run reports as unmapped (edit FAMILIES below) and run it again. ``--list``
 prints every class-level member with its kind, line range and target file and writes
 nothing; ``--check`` runs the split and verification without writing.
@@ -266,7 +266,7 @@ MOVABLE_KINDS = ("method", "type", "property")
 
 # Partial files that existed before this split. They are not inputs and are never touched;
 # an area named like one of them is refused.
-EXISTING_SIBLINGS = ("CameraRetarget", "Observability", "OverlapSchedule",
+EXISTING_SIBLINGS = ("CameraRetarget", "Observability", "OverlapHighWarp", "OverlapSchedule",
                      "ReFlySuppressionCache", "SuppressionFinders")
 
 

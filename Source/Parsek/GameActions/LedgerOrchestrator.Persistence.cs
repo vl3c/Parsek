@@ -351,7 +351,7 @@ namespace Parsek
 
                 int freshIds;
                 int inheritedIds = InheritKerbalAssignmentActionIds(
-                    existing, kerbalActions, out freshIds);
+                    existing, kerbalActions, out freshIds, CrewSlotOwnerName);
                 inheritedRows += inheritedIds;
                 freshIdRows += freshIds;
                 ParsekLog.Verbose(Tag,
@@ -417,11 +417,21 @@ namespace Parsek
         /// member) is dropped as before; a desired row with no partner keeps its fresh
         /// id. Callers pass rows already grouped by one recording.
         /// </para>
+        /// <para>
+        /// A crew row names the seated stand-in when it ends Dead and the slot owner
+        /// otherwise (<see cref="ResolveCrewRowName"/>), so one seat's row can change
+        /// name between derivations (a save written before that rule, or an end state
+        /// that moved). When <paramref name="slotOwnerOf"/> is given, a desired row with
+        /// no same-name partner pairs, in a second pass, with an unconsumed stored row of
+        /// the same recording whose name maps to the same slot owner, so a tombstoned
+        /// death keeps its id across the rename.
+        /// </para>
         /// Returns the number of inherited ids; <paramref name="freshCount"/> counts the
         /// desired rows that kept a fresh id.
         /// </summary>
         internal static int InheritKerbalAssignmentActionIds(
-            List<GameAction> existing, List<GameAction> desired, out int freshCount)
+            List<GameAction> existing, List<GameAction> desired, out int freshCount,
+            Func<string, string> slotOwnerOf = null)
         {
             freshCount = 0;
             if (desired == null || desired.Count == 0)
@@ -429,49 +439,88 @@ namespace Parsek
 
             int existingCount = existing != null ? existing.Count : 0;
             var consumed = new bool[existingCount];
+            var paired = new bool[desired.Count];
             int inherited = 0;
-            for (int d = 0; d < desired.Count; d++)
+            for (int pass = 0; pass < 2; pass++)
             {
-                var want = desired[d];
-                if (want == null)
-                    continue;
-
-                int match = -1;
-                int sameFateMatch = -1;
-                for (int e = 0; e < existingCount; e++)
+                if (pass == 1 && slotOwnerOf == null)
+                    break;
+                for (int d = 0; d < desired.Count; d++)
                 {
-                    if (consumed[e])
+                    var want = desired[d];
+                    if (want == null || paired[d])
                         continue;
-                    var have = existing[e];
-                    if (have == null
-                        || have.Type != GameActionType.KerbalAssignment
-                        || string.IsNullOrEmpty(have.ActionId)
-                        || !string.Equals(have.RecordingId, want.RecordingId, StringComparison.Ordinal)
-                        || !string.Equals(have.KerbalName, want.KerbalName, StringComparison.Ordinal))
-                        continue;
-                    if (match < 0)
-                        match = e;
-                    if (have.KerbalEndStateField == want.KerbalEndStateField)
+                    string wantOwner = pass == 1 ? SlotOwnerOrSelf(slotOwnerOf, want.KerbalName) : null;
+
+                    int match = -1;
+                    int sameFateMatch = -1;
+                    for (int e = 0; e < existingCount; e++)
                     {
-                        sameFateMatch = e;
-                        break;
+                        if (consumed[e])
+                            continue;
+                        var have = existing[e];
+                        if (have == null
+                            || have.Type != GameActionType.KerbalAssignment
+                            || string.IsNullOrEmpty(have.ActionId)
+                            || !string.Equals(have.RecordingId, want.RecordingId, StringComparison.Ordinal))
+                            continue;
+                        bool sameKerbal = pass == 0
+                            ? string.Equals(have.KerbalName, want.KerbalName, StringComparison.Ordinal)
+                            : !string.IsNullOrEmpty(wantOwner)
+                              && string.Equals(SlotOwnerOrSelf(slotOwnerOf, have.KerbalName),
+                                  wantOwner, StringComparison.Ordinal);
+                        if (!sameKerbal)
+                            continue;
+                        if (match < 0)
+                            match = e;
+                        if (have.KerbalEndStateField == want.KerbalEndStateField)
+                        {
+                            sameFateMatch = e;
+                            break;
+                        }
                     }
-                }
-                if (sameFateMatch >= 0)
-                    match = sameFateMatch;
+                    if (sameFateMatch >= 0)
+                        match = sameFateMatch;
+                    if (match < 0)
+                        continue;
 
-                if (match < 0)
-                {
-                    freshCount++;
-                    continue;
+                    if (pass == 1)
+                        ParsekLog.Verbose(Tag,
+                            $"InheritKerbalAssignmentActionIds: row '{want.KerbalName}' in recording " +
+                            $"'{want.RecordingId}' inherits the id of stored row '{existing[match].KerbalName}' " +
+                            $"(same slot owner '{wantOwner}')");
+                    consumed[match] = true;
+                    paired[d] = true;
+                    want.ActionId = existing[match].ActionId;
+                    inherited++;
                 }
-
-                consumed[match] = true;
-                want.ActionId = existing[match].ActionId;
-                inherited++;
             }
 
+            for (int d = 0; d < desired.Count; d++)
+                if (desired[d] != null && !paired[d])
+                    freshCount++;
             return inherited;
+        }
+
+        private static string SlotOwnerOrSelf(Func<string, string> slotOwnerOf, string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return name;
+            string owner = slotOwnerOf(name);
+            return string.IsNullOrEmpty(owner) ? name : owner;
+        }
+
+        /// <summary>
+        /// The slot owner a crew name stands in for, or the name itself when it is
+        /// nobody's stand-in (the same reverse map crew rows use, #337).
+        /// </summary>
+        internal static string CrewSlotOwnerName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return name;
+            var one = new List<string> { name };
+            KerbalsModule.ReverseMapCrewNames(one, CrewReservationManager.CrewReplacements, null);
+            return one[0];
         }
 
         internal static bool IsResourceImpactingAction(GameActionType t)
@@ -805,6 +854,7 @@ namespace Parsek
             }
             RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
             SeedKscSequenceCounterFromLoadedLedger(Ledger.Actions);
+            CareerSettingsLock.EnsureAndEnforce(KspStatePatcher.ReadLiveAllowNegativeCurrency(), "ledger-load");
             ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from {source}");
         }
 

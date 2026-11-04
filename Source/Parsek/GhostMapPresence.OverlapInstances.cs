@@ -88,6 +88,10 @@ namespace Parsek
         /// ALL N instances (including the newest cycle) live in
         /// <see cref="overlapInstanceVessels"/> (single-ownership rule). Returns the number of
         /// instances created this call so the caller can debit a shared per-frame spawn counter.
+        /// <paramref name="warpRate"/> + <paramref name="sweepGameSeconds"/> feed the high-warp
+        /// collapse gate (<see cref="ShouldCollapseOverlapToSingleInstance"/>): while a sweep spans a
+        /// launch cycle above the ghost-hide warp, the recording keeps one re-pointed map vessel
+        /// instead (<see cref="EnsureCollapsedOverlapInstance"/>).
         /// </summary>
         internal static int EnsureOverlapInstances(
             int recIdx,
@@ -95,7 +99,9 @@ namespace Parsek
             double currentUT,
             IReadOnlyList<Recording> committed,
             GhostPlaybackLogic.LoopUnitSet loopUnits,
-            ref int frameSpawnCount)
+            ref int frameSpawnCount,
+            float warpRate = 1f,
+            double sweepGameSeconds = 0.0)
         {
             if (rec == null)
                 return 0;
@@ -150,6 +156,17 @@ namespace Parsek
             {
                 if (kvp.Key.recIdx == recIdx)
                     existing.Add(kvp.Key.cycle);
+            }
+
+            // High-warp collapse (todo OVERLAP-MAP-GHOSTS-CHURN-AT-HIGH-WARP): when this sweep spans
+            // a launch cycle above the ghost-hide warp, the window moves past live instances on every
+            // sweep; keep one map vessel and re-point it instead of creating and destroying vessels.
+            if (ShouldCollapseOverlapToSingleInstance(warpRate, sweepGameSeconds, cycleDuration))
+            {
+                return EnsureCollapsedOverlapInstance(
+                    recIdx, rec, currentUT, playbackStartUT, scheduleStartUT, duration, cycleDuration,
+                    firstCycle, lastCycle, existing, liveLaunchMatchedAnchorOfActiveMember,
+                    ref frameSpawnCount);
             }
 
             int spawnBudget = GhostPlayback.MaxSpawnsPerFrame - frameSpawnCount;
@@ -242,6 +259,13 @@ namespace Parsek
             if (loopUnits == null)
                 loopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
 
+            // Game time the cycle window moved since the previous sweep + the live warp rate: the
+            // inputs of the high-warp collapse gate EnsureOverlapInstances applies per recording.
+            double sweepGameSeconds = ResolveOverlapSweepGameSeconds(lastOverlapSweepUT, currentUT);
+            lastOverlapSweepUT = currentUT;
+            float warpRate = ReadOverlapSweepWarpRate();
+            ResetOverlapCollapseTally();
+
             // Snapshot the set of indices that currently have any per-instance vessel, so we can
             // reap the ones that should no longer be driven per-instance after the create pass below.
             HashSet<int> indicesWithInstances = null;
@@ -288,7 +312,8 @@ namespace Parsek
                         }
                         continue;
                     }
-                    EnsureOverlapInstances(i, rec, currentUT, committed, loopUnits, ref frameSpawnCount);
+                    EnsureOverlapInstances(i, rec, currentUT, committed, loopUnits, ref frameSpawnCount,
+                        warpRate, sweepGameSeconds);
                     if (drivenThisFrame == null) drivenThisFrame = new HashSet<int>();
                     drivenThisFrame.Add(i);
                 }
@@ -307,6 +332,8 @@ namespace Parsek
                     DestroyAllOverlapInstancesForRecording(idx, "overlap-no-longer-per-instance");
                 }
             }
+
+            LogOverlapCollapseSummary(warpRate, sweepGameSeconds);
         }
 
         /// <summary>

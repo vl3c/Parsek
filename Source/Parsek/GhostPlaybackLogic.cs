@@ -114,6 +114,9 @@ namespace Parsek
         {
             flagExistsOverrideForTesting = null;
             spawnFlagOverrideForTesting = null;
+            RemovedReplayFlags.ResetForTesting();
+            bodyRadiusOverrideForTesting = null;
+            removeStandingFlagOverrideForTesting = null;
         }
 
         #endregion
@@ -420,6 +423,9 @@ namespace Parsek
         }
 
         #endregion
+
+        private static Func<string, double> bodyRadiusOverrideForTesting;
+        private static Func<RemovedReplayFlags.Tombstone, int> removeStandingFlagOverrideForTesting;
 
         /// <summary>
         /// How many individual FX magnitude field writes have been REFUSED or have thrown since the

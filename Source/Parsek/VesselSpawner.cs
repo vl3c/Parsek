@@ -831,7 +831,10 @@ namespace Parsek
                 proto =>
                 {
                     if (proto?.vesselRef != null)
-                        proto.vesselRef.Die();
+                    {
+                        using (RemovedReplayFlags.BeginParsekRemoval())
+                            proto.vesselRef.Die();
+                    }
                 });
         }
 
@@ -984,16 +987,21 @@ namespace Parsek
                 // persistentId, mark each rescued kerbal with the new vessel's
                 // pid so the ApplyToRoster guard can scope the rescue marker
                 // to the actual vessel the kerbal was placed onto.
+                // The rescue UT lets a later flight's reservation retire the marker
+                // (RESCUE-PLACED-MARKER-NEVER-RETIRES).
                 ulong respawnedVesselPid = pv.vesselRef.persistentId;
+                double respawnRescueUT = rescuedNames.Count > 0
+                    ? Planetarium.GetUniversalTime() : double.NaN;
                 for (int rn = 0; rn < rescuedNames.Count; rn++)
                 {
                     CrewReservationManager.MarkRescuePlaced(
-                        rescuedNames[rn], respawnedVesselPid);
+                        rescuedNames[rn], respawnedVesselPid, respawnRescueUT);
                 }
                 if (rescuedNames.Count > 0)
                     ParsekLog.Info("Spawner",
                         $"Rescue marker pid-scoped for {rescuedNames.Count} kerbal(s) " +
-                        $"(vesselPid={respawnedVesselPid}; #615 P1 fourth pass)");
+                        $"(vesselPid={respawnedVesselPid} " +
+                        $"markUT={respawnRescueUT.ToString("F1", CultureInfo.InvariantCulture)}; #615 P1 fourth pass)");
 
                 ParsekLog.Info("Spawner", $"Vessel respawned (sit={spawnNode.GetValue("sit")}, pid={pv.vesselRef.persistentId}) " +
                     VesselSnapshotOps.FormatStoredPartsForLog(spawnNode));
@@ -1268,9 +1276,9 @@ namespace Parsek
             if (spawnNode == null)
                 return null;
 
-            spawnNode.SetValue("lat", lat.ToString("R"), true);
-            spawnNode.SetValue("lon", lon.ToString("R"), true);
-            spawnNode.SetValue("alt", alt.ToString("R"), true);
+            spawnNode.SetValue("lat", lat.ToString("R", CultureInfo.InvariantCulture), true);
+            spawnNode.SetValue("lon", lon.ToString("R", CultureInfo.InvariantCulture), true);
+            spawnNode.SetValue("alt", alt.ToString("R", CultureInfo.InvariantCulture), true);
 
             string sit = DetermineSituation(alt, overWater, speed, orbitalSpeed);
 
@@ -1496,15 +1504,18 @@ namespace Parsek
                 // pid so the ApplyToRoster guard can scope the rescue marker
                 // to the actual vessel the kerbal was placed onto.
                 ulong spawnedAtPositionVesselPid = pv.vesselRef.persistentId;
+                double spawnedAtPositionRescueUT = rescuedNames.Count > 0
+                    ? Planetarium.GetUniversalTime() : double.NaN;
                 for (int rn = 0; rn < rescuedNames.Count; rn++)
                 {
                     CrewReservationManager.MarkRescuePlaced(
-                        rescuedNames[rn], spawnedAtPositionVesselPid);
+                        rescuedNames[rn], spawnedAtPositionVesselPid, spawnedAtPositionRescueUT);
                 }
                 if (rescuedNames.Count > 0)
                     ParsekLog.Info("Spawner",
                         $"Rescue marker pid-scoped for {rescuedNames.Count} kerbal(s) " +
-                        $"(vesselPid={spawnedAtPositionVesselPid}; #615 P1 fourth pass)");
+                        $"(vesselPid={spawnedAtPositionVesselPid} " +
+                        $"markUT={spawnedAtPositionRescueUT.ToString("F1", CultureInfo.InvariantCulture)}; #615 P1 fourth pass)");
 
                 ParsekLog.Info("Spawner", $"SpawnAtPosition: vessel spawned (sit={sit}, pid={pv.vesselRef.persistentId}, " +
                     $"body={body.name}, alt={alt:F0}m) " + VesselSnapshotOps.FormatStoredPartsForLog(spawnNode));

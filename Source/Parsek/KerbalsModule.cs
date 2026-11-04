@@ -596,6 +596,14 @@ namespace Parsek
             /// <see cref="PostWalk"/> creates no slot and demands no stand-in for him.
             /// </summary>
             public bool IsTouristPassenger;
+            /// <summary>
+            /// The latest recording StartUT among the rows behind this hold, or NaN when
+            /// none is known. The #615 rescue guard compares it with the rescue's UT: a
+            /// row from a recording that started after the rescue is a flight
+            /// flown after it, so the rescue marker retires
+            /// (<see cref="CrewReservationManager.TryRetireRescuePlacedForNewReservation"/>).
+            /// </summary>
+            public double LatestRowStartUT = double.NaN;
         }
 
         /// <summary>
@@ -739,6 +747,18 @@ namespace Parsek
             // replaced); a respawn clears it on the walk that releases the hold.
             public bool OwnerPermanentlyGone;
             public List<string> Chain = new List<string>(); // stand-in names, ordered by depth
+        }
+
+        /// <summary>
+        /// The later of two recording start UTs, ignoring a NaN / infinite one (NaN
+        /// when neither is finite). Pure.
+        /// </summary>
+        internal static double LaterRowStartUT(double current, double candidate)
+        {
+            bool candidateFinite = !double.IsNaN(candidate) && !double.IsInfinity(candidate);
+            if (!candidateFinite) return current;
+            if (double.IsNaN(current) || double.IsInfinity(current)) return candidate;
+            return candidate > current ? candidate : current;
         }
 
         internal static string FormatPrePassSummary(
@@ -1824,6 +1844,7 @@ namespace Parsek
                 if (!double.IsNaN(deathRespawnUT)
                     && (double.IsNaN(existing.DeathRespawnUT) || deathRespawnUT > existing.DeathRespawnUT))
                     existing.DeathRespawnUT = deathRespawnUT;
+                existing.LatestRowStartUT = LaterRowStartUT(existing.LatestRowStartUT, meta.StartUT);
                 ParsekLog.Verbose(Tag,
                     $"Reservation extended: '{name}' endUT->{existing.ReservedUntilUT:F1} " +
                     $"(permanent={existing.IsPermanent})" +
@@ -1840,7 +1861,8 @@ namespace Parsek
                     IsPermanent = permanent,
                     DeathRespawnUT = deathRespawnUT,
                     OpenEndedCoRowStartUT = openEndedStartUT,
-                    IsTouristPassenger = touristRow
+                    IsTouristPassenger = touristRow,
+                    LatestRowStartUT = LaterRowStartUT(double.NaN, meta.StartUT)
                 };
                 ParsekLog.Verbose(Tag,
                     $"Reservation: '{name}' endUT={( permanent ? "INDEFINITE" : endUT.ToString("F1") )} " +
@@ -2435,6 +2457,52 @@ namespace Parsek
         /// in-flight <paramref name="replacements"/> dict still covers same-session
         /// swaps even before any commit walk runs.
         /// </summary>
+        /// <summary>
+        /// VESSEL child node that keeps who actually sat in a seat the reverse map renamed:
+        /// one <c>seat = owner|standIn</c> value per renamed seat. The crew rows read it to
+        /// file a stand-in's death under the stand-in (STAND-IN-DEATH-FILED-UNDER-THE-SLOT-OWNER);
+        /// KSP ignores an unknown child node when it loads the snapshot.
+        /// </summary>
+        internal const string SeatedStandInNodeName = "PARSEK_SEATED_STANDINS";
+        private const string SeatedStandInValueName = "seat";
+
+        /// <summary>
+        /// The stand-in the snapshot recorded in <paramref name="ownerName"/>'s seat, or null.
+        /// </summary>
+        internal static string ReadSeatedStandIn(ConfigNode snapshot, string ownerName)
+        {
+            if (snapshot == null || string.IsNullOrEmpty(ownerName))
+                return null;
+            ConfigNode seats = snapshot.GetNode(SeatedStandInNodeName);
+            if (seats == null)
+                return null;
+            string[] values = seats.GetValues(SeatedStandInValueName);
+            if (values == null)
+                return null;
+            for (int i = 0; i < values.Length; i++)
+            {
+                string v = values[i];
+                if (string.IsNullOrEmpty(v)) continue;
+                int bar = v.IndexOf('|');
+                if (bar <= 0 || bar >= v.Length - 1) continue;
+                if (string.Equals(v.Substring(0, bar), ownerName, System.StringComparison.Ordinal))
+                    return v.Substring(bar + 1);
+            }
+            return null;
+        }
+
+        private static void RecordSeatedStandIn(ConfigNode snapshot, string ownerName, string standInName)
+        {
+            ConfigNode seats = snapshot.GetNode(SeatedStandInNodeName) ?? snapshot.AddNode(SeatedStandInNodeName);
+            string entry = ownerName + "|" + standInName;
+            string[] values = seats.GetValues(SeatedStandInValueName);
+            if (values != null)
+                for (int i = 0; i < values.Length; i++)
+                    if (string.Equals(values[i], entry, System.StringComparison.Ordinal))
+                        return;
+            seats.AddValue(SeatedStandInValueName, entry);
+        }
+
         internal static int ReverseMapCrewNamesInSnapshot(
             ConfigNode snapshot,
             IReadOnlyDictionary<string, string> replacements,
@@ -2488,6 +2556,7 @@ namespace Parsek
                     if (original != null && !string.Equals(original, name, System.StringComparison.Ordinal))
                     {
                         rewrittenList.Add(original);
+                        RecordSeatedStandIn(snapshot, original, name);
                         partChanged = true;
                         rewritten++;
                     }
@@ -2839,6 +2908,84 @@ namespace Parsek
         /// </summary>
         internal static CrewRespawnPolicyReader CrewRespawnPolicyProviderForTesting;
 
+        /// <summary>Reads one kerbal's stock roster respawn state: true when the roster holds
+        /// the kerbal as Missing, with stock's respawn instant <c>UTaR</c>.</summary>
+        internal delegate bool MissingRespawnReader(string kerbalName, out double utar);
+
+        /// <summary>Test seam for <see cref="TryReadMissingRespawnUT"/>. Null in production
+        /// (reads <c>HighLogic.CurrentGame.CrewRoster</c>).</summary>
+        internal static MissingRespawnReader MissingRespawnProviderForTesting;
+
+        /// <summary>
+        /// True when stock's roster holds <paramref name="kerbalName"/> as Missing, with its
+        /// respawn instant: stock started the respawn period at the death
+        /// (<c>StartRespawnPeriod</c>, only with respawn on), and <c>UTaR</c> is the death
+        /// plus the timer as it stood then. False with no roster (headless host).
+        /// </summary>
+        internal static bool TryReadMissingRespawnUT(string kerbalName, out double utar)
+        {
+            var provider = MissingRespawnProviderForTesting;
+            if (provider != null)
+                return provider(kerbalName, out utar);
+            try
+            {
+                return ReadMissingRespawnUTCore(kerbalName, out utar);
+            }
+            catch (Exception)
+            {
+                utar = double.NaN;
+                return false;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool ReadMissingRespawnUTCore(string kerbalName, out double utar)
+        {
+            utar = double.NaN;
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null || string.IsNullOrEmpty(kerbalName))
+                return false;
+            ProtoCrewMember pcm = roster[kerbalName];
+            if (pcm == null || pcm.rosterStatus != ProtoCrewMember.RosterStatus.Missing)
+                return false;
+            utar = pcm.UTaR;
+            return !double.IsNaN(utar) && !double.IsInfinity(utar);
+        }
+
+        /// <summary>
+        /// Career settings audit 2026-11-04 section 3.6: the respawn timer a recorded death
+        /// stamps is stock's own decision at the death, read from the roster, never the live
+        /// slider at commit (the difficulty dialog is reachable from the flight pause menu, so
+        /// the timer can change between the death and the commit). Pure over
+        /// <paramref name="readMissing"/>: when any dead kerbal is Missing in the roster the
+        /// death respawns, and the timer is the longest <c>UTaR - deathUT</c> among them
+        /// (never below 0), so the respawn instant is stock's own. False when no dead kerbal
+        /// is Missing: the caller falls back to the live policy.
+        /// </summary>
+        internal static bool TryResolveRespawnStampFromRoster(
+            IEnumerable<string> deadNames, double deathUT, MissingRespawnReader readMissing,
+            out double respawnSeconds, out string evidence)
+        {
+            respawnSeconds = double.NaN;
+            evidence = null;
+            if (deadNames == null || readMissing == null || double.IsNaN(deathUT))
+                return false;
+            foreach (string name in deadNames)
+            {
+                double utar;
+                if (!readMissing(name, out utar))
+                    continue;
+                double seconds = Math.Max(0.0, utar - deathUT);
+                if (double.IsNaN(respawnSeconds) || seconds > respawnSeconds)
+                {
+                    respawnSeconds = seconds;
+                    evidence = name + " Missing until UTaR=" + utar.ToString("R", CultureInfo.InvariantCulture);
+                }
+            }
+            return !double.IsNaN(respawnSeconds);
+        }
+
         /// <summary>
         /// The live stock crew respawn policy: <c>Difficulty.MissingCrewsRespawn</c> and
         /// <c>Difficulty.RespawnTimer</c> (seconds). Stock's crew death (decompiled
@@ -2902,6 +3049,19 @@ namespace Parsek
 
             bool respawns;
             double timerSeconds;
+            string rosterEvidence;
+            if (TryResolveRespawnStampFromRoster(DeadCrewNames(rec), rec.EndUT,
+                    TryReadMissingRespawnUT, out timerSeconds, out rosterEvidence))
+            {
+                rec.CrewDeathRespawns = true;
+                rec.CrewDeathRespawnSeconds = timerSeconds;
+                ParsekLog.Info(Tag,
+                    $"Crew death respawn policy stamped from the roster: recording='{rec.RecordingId}' " +
+                    $"({rec.VesselName}) deadCrew={deadCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"respawn=True timer={timerSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"({rosterEvidence}; stock's own respawn instant, whatever the slider reads now)");
+                return true;
+            }
             if (!TryReadStockCrewRespawnPolicy(out respawns, out timerSeconds))
             {
                 ParsekLog.Verbose(Tag,
@@ -2918,6 +3078,15 @@ namespace Parsek
                 $"({rec.VesselName}) deadCrew={deadCount.ToString(CultureInfo.InvariantCulture)} " +
                 $"respawn={respawns} timer={timerSeconds.ToString("R", CultureInfo.InvariantCulture)}");
             return true;
+        }
+
+        private static IEnumerable<string> DeadCrewNames(Recording rec)
+        {
+            if (rec?.CrewEndStates == null)
+                yield break;
+            foreach (KeyValuePair<string, KerbalEndState> kv in rec.CrewEndStates)
+                if (kv.Value == KerbalEndState.Dead)
+                    yield return kv.Key;
         }
 
         /// <summary>
@@ -4039,6 +4208,7 @@ namespace Parsek
                 int guardDeclinedLiveButNoMarker = 0;
                 int guardDeclinedMarkerButNotLive = 0;
                 int guardDeclinedMarkerStalePid = 0;
+                int guardRetiredForNewReservation = 0;
                 foreach (var kvp in slots)
                 {
                     var slot = kvp.Value;
@@ -4080,6 +4250,18 @@ namespace Parsek
                         // owner at depth 0 and the prior chain entry at
                         // deeper levels.
                         string replacedName = i == 0 ? slot.OwnerName : slot.Chain[i - 1];
+                        // RESCUE-PLACED-MARKER-NEVER-RETIRES: a row from a recording that
+                        // started after the rescue is a flight flown after it, a new
+                        // reservation the rescue did not complete. Retire the marker so this
+                        // and every later walk give that reservation its stand-in. Re-deriving
+                        // the rescue's own reservation reads the same pre-rescue rows and
+                        // leaves the marker in place.
+                        KerbalReservation replacedReservation;
+                        if (!string.IsNullOrEmpty(replacedName)
+                            && reservations.TryGetValue(replacedName, out replacedReservation)
+                            && CrewReservationManager.TryRetireRescuePlacedForNewReservation(
+                                replacedName, replacedReservation.LatestRowStartUT))
+                            guardRetiredForNewReservation++;
                         ulong rescuedVesselPid = 0UL;
                         bool isRescuePlaced = !string.IsNullOrEmpty(replacedName)
                             && CrewReservationManager.TryGetRescuePlacedVessel(
@@ -4220,7 +4402,8 @@ namespace Parsek
                 if (skippedRescuedOriginal > 0
                     || guardDeclinedLiveButNoMarker > 0
                     || guardDeclinedMarkerButNotLive > 0
-                    || guardDeclinedMarkerStalePid > 0)
+                    || guardDeclinedMarkerStalePid > 0
+                    || guardRetiredForNewReservation > 0)
                 {
                     // P1 review (third pass): aggregate outcome of the
                     // rescue-completion guard for this walk so KSP.log shows
@@ -4243,7 +4426,8 @@ namespace Parsek
                         "(marker persistent — preserved across walks; pid-scoped) " +
                         $"declinedLiveButNoMarker={guardDeclinedLiveButNoMarker} " +
                         $"declinedMarkerButNotLive={guardDeclinedMarkerButNotLive} " +
-                        $"declinedMarkerStalePid={guardDeclinedMarkerStalePid}");
+                        $"declinedMarkerStalePid={guardDeclinedMarkerStalePid} " +
+                        $"retiredForNewReservation={guardRetiredForNewReservation}");
                 }
                 if (skippedRescuedOriginal > 0)
                     ParsekLog.Info(Tag,

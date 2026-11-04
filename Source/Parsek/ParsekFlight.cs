@@ -702,6 +702,50 @@ namespace Parsek
         internal FlightRecorder ActiveRecorderForSerialization => recorder;
 
         /// <summary>
+        /// The recorder a deferred split parked (EVA / undock / decouple, until the split finishes
+        /// next frame), for <c>ParsekScenario.SaveActiveTreeIfAny</c>; null otherwise.
+        /// </summary>
+        internal FlightRecorder ParkedSplitRecorderForSerialization => pendingSplitRecorder;
+
+        /// <summary>
+        /// Lays the parked split recorder's unflushed buffers over the active tree's current
+        /// recording for one save (audit R6, <see cref="ParkedSplitSaveOverlay"/>), or returns null
+        /// when no overlay applies (logged with the reason). The caller restores it after the write.
+        /// </summary>
+        internal ParkedSplitSaveOverlay BeginParkedSplitSaveOverlay()
+        {
+            FlightRecorder parked = pendingSplitRecorder;
+            string skip = ParkedSplitSaveOverlay.ResolveSkipReason(
+                liveRecorderPresent: recorder != null,
+                parkedRecorderPresent: parked != null,
+                activeTree: activeTree,
+                parkedRecorderTree: parked?.ActiveTree,
+                parkedRecorderVesselPid: parked != null ? parked.RecordingVesselId : 0u,
+                out Recording target);
+            if (skip != null)
+            {
+                if (parked != null)
+                    ParsekLog.Warn("Flight",
+                        $"BeginParkedSplitSaveOverlay: save during a deferred split not overlaid ({skip}); " +
+                        "the parked recorder's unflushed data is not in this save");
+                return null;
+            }
+
+            ParkedSplitSaveOverlay overlay = ParkedSplitSaveOverlay.Apply(
+                target,
+                parked.Recording,
+                parked.OrbitSegments,
+                parked.PartEvents,
+                parked.FlagEvents,
+                parked.TrackSections,
+                parked.lastEmittedTerminalEvents);
+            ParsekLog.Info("Flight",
+                $"BeginParkedSplitSaveOverlay: save during a deferred split; parked recorder data laid over " +
+                $"the active recording for this write ({overlay.Describe()})");
+            return overlay;
+        }
+
+        /// <summary>
         /// The live tree's leg recording the live vessel <paramref name="vesselPid"/> right now
         /// (the active recorder's leg, else its background leg), or null. The vessel names live
         /// write rule reads it as the vessel's current leg (design 7.4 step 3).
@@ -3395,6 +3439,8 @@ namespace Parsek
                     $"FinalizeTreeOnSceneChange: {stashCause} out of flight (dest={scene}) - stashing the "
                     + $"live tree '{activeTree.TreeName}' as pending Limbo instead of committing it; the "
                     + "cold load replaces it from the save");
+                if (NoSaveSceneExit.IsArmedFor(scene))
+                    NoSaveSceneExit.NoteStashedTree(activeTree.Id, NoSaveSceneExit.CurrentSaveFolder());
                 StashActiveTreeAsPendingLimbo(commitUT);
             }
             else if (!SceneExitInterceptor.IsAutoMergeForSceneExitLive(
@@ -3518,6 +3564,17 @@ namespace Parsek
         void OnVesselWillDestroy(Vessel v)
         {
             if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+
+            // A flag picked up by a kerbal, recovered or destroyed here is never planted again
+            // by a replay (todo LOOP-REPLAY-REPLANTS-REMOVED-FLAG). Before the restore guard:
+            // the removal is world state, not tree bookkeeping.
+            if (v != null && v.vesselType == VesselType.Flag)
+            {
+                bool pickUp = FlagPickUp.IsPendingPickUp(v.persistentId);
+                if (pickUp)
+                    TryCaptureFlagPickUp(v, FlagPickUp.PendingPickerPid);
+                ParsekScenario.NoteFlagVesselRemoved(v, pickUp ? "picked-up" : "destroyed-in-flight");
+            }
 
             // #267: skip tree-related processing if restore coroutine is mid-yield
             if (restoringActiveTree)
@@ -13078,6 +13135,75 @@ namespace Parsek
                 $"Flag planted by '{placedBy}' but no foreground or background recording owns " +
                 $"the planting vessel - skipping (recorderPid={(recorder != null ? recorder.RecordingVesselId : 0)}, " +
                 $"hasTree={activeTree != null})");
+        }
+
+        /// <summary>
+        /// A kerbal took a flag down (<see cref="FlagPickUp"/>): record it on the recording that
+        /// owns the picking kerbal, the foreground recorder's vessel or a background tree member,
+        /// so a replay takes the flag down at the same moment.
+        /// </summary>
+        void TryCaptureFlagPickUp(Vessel flag, uint pickerPid)
+        {
+            if (flag == null || pickerPid == 0u)
+                return;
+            CelestialBody body = flag.mainBody;
+            double ut = Planetarium.GetUniversalTime();
+            SegmentEvent evt = FlagPickUp.BuildEvent(
+                ut, body != null ? body.name : null, flag.latitude, flag.longitude, flag.altitude, flag.vesselName);
+
+            if (recorder != null && recorder.IsRecording && recorder.RecordingVesselId == pickerPid)
+            {
+                // Straight onto the active tree recording when it exists: the mid-flight
+                // serialization flush (FlushRecorderIntoActiveTreeForSerialization) does not move
+                // recorder.SegmentEvents, so an event left there would miss an F5 and be lost on F9.
+                string activeRecId = activeTree?.ActiveRecordingId;
+                if (activeRecId != null
+                    && activeTree.Recordings.TryGetValue(activeRecId, out Recording activeRec)
+                    && activeRec != null)
+                {
+                    AppendSegmentEventToTreeRecording(activeRec, evt);
+                }
+                else
+                {
+                    recorder.SegmentEvents.Add(evt);
+                }
+                ParsekLog.Info("Flight",
+                    $"Flag pick-up captured (foreground recorder pid={pickerPid} rec={activeRecId ?? "(recorder buffer)"}): " +
+                    $"'{flag.vesselName}' on {(body != null ? body.name : "?")} ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
+                return;
+            }
+
+            if (activeTree != null
+                && activeTree.BackgroundMap.TryGetValue(pickerPid, out string bgRecId)
+                && activeTree.Recordings.TryGetValue(bgRecId, out Recording bgRec)
+                && bgRec != null)
+            {
+                AppendSegmentEventToTreeRecording(bgRec, evt);
+                ParsekLog.Info("Flight",
+                    $"Flag pick-up captured (background tree member pid={pickerPid} rec={bgRecId}): " +
+                    $"'{flag.vesselName}' ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
+                return;
+            }
+
+            ParsekLog.Verbose("Flight",
+                $"Flag '{flag.vesselName}' picked up by pid={pickerPid} but no foreground or background " +
+                $"recording owns the kerbal - not recorded (recorderPid={(recorder != null ? recorder.RecordingVesselId : 0)}, " +
+                $"hasTree={activeTree != null})");
+        }
+
+        /// <summary>
+        /// Appends a segment event to a tree recording in stable UT order and marks its sidecar
+        /// dirty, the segment-event twin of <see cref="AppendFlagEventToTreeRecording"/>.
+        /// </summary>
+        internal static void AppendSegmentEventToTreeRecording(Recording rec, SegmentEvent evt)
+        {
+            if (rec == null)
+                return;
+            rec.SegmentEvents.Add(evt);
+            var sorted = FlightRecorder.StableSortByUT(rec.SegmentEvents, e => e.ut);
+            rec.SegmentEvents.Clear();
+            rec.SegmentEvents.AddRange(sorted);
+            rec.MarkFilesDirty();
         }
 
         /// <summary>

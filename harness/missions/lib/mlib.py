@@ -3525,6 +3525,11 @@ class TelemetrySnapshot:
     # their floors, so an unread horizontal component can never certify a
     # sliding or tumbling craft as stable.
     horizontal_speed: float = float("nan")
+    # The active vessel's pitch above the local horizon, degrees (kRPC Flight.Pitch:
+    # +90 = the control axis straight up). Read on the LANDING channel only, so
+    # NaN = not read / read failed. A landed lander reads about +90; one lying on
+    # its side reads near 0, and an ascent from there drags it along the ground.
+    surface_pitch: float = float("nan")
     # The live camera mode, normalized by normalize_camera_mode over kRPC's
     # SpaceCenter.Camera.Mode name ("Map" / "Automatic" / ...). "" = UNREAD,
     # the fail-closed sentinel (same discipline as craft_chute_state): it
@@ -22904,6 +22909,8 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
                else (" landAP=%d" % snapshot.landing_ap_enabled))
     hspd = ("" if not _is_finite(snapshot.horizontal_speed)
             else (" hspd=%s" % _obs_fmt(snapshot.horizontal_speed)))
+    pitch = ("" if not _is_finite(snapshot.surface_pitch)
+             else (" pitch=%s" % _obs_fmt(snapshot.surface_pitch)))
     # ``sciData=`` / ``rec=`` / ``funds=`` / ``sci=`` ride the ring ONLY when the
     # opt-in career channel was actually read (science_bench_recover), so every
     # other mission's line is unchanged. Same rationale as ttPe and landAP: this
@@ -22935,7 +22942,8 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
                snapshot.docking_ap_status or "?", snapshot.warp_mode,
                _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
                " LOST" if snapshot.vessel_lost else ""))
-    return line + crew + node_exec + tt_pe + land_ap + hspd + sci_data + recoverable + pools
+    return (line + crew + node_exec + tt_pe + land_ap + hspd + pitch + sci_data
+            + recoverable + pools)
 
 
 # ---------------------------------------------------------------------------
@@ -32573,6 +32581,7 @@ MLR_BOARD_REFUSED = "eva-board-refused"
 MLR_BOARD_NOT_ABOARD = "eva-board-not-aboard"
 MLR_ASCENT_NOT_ENABLED = "mun-ascent-not-enabled"
 MLR_ASCENT_NEVER_LIFTED = "mun-ascent-never-lifted"
+MLR_LANDER_TIPPED = "mun-lander-tipped"
 MLR_ASCENT_NOT_IN_ORBIT = "mun-ascent-not-in-orbit"
 MLR_EC_EXHAUSTED = "electric-charge-exhausted"
 # The blocks the electric-charge watchdog reads (the EVA block's active vessel is
@@ -32616,6 +32625,13 @@ class MlrParams:
     eva_kerbal: str = ""
     eva_settle_seconds: float = 5.0
     eva_settle_frames: int = 3
+    # The most the lander may lean off vertical when the ascent would engage; past
+    # it the ascent's thrust pushes along the ground, so the run flakes at once.
+    # None (the default) = report-only: the telemetry rows carry pitch= and nothing
+    # gates on it. The first guard flights (CS-7 2026-11-04_1106 / _1126_a2) read a
+    # lean the green 2026-10-31 run could not have had, so the read is not trusted
+    # to gate until a flight shows what an upright boarded lander reads.
+    ascent_max_tilt_deg: Optional[float] = None
     eva_timeout: float = 900.0
     # None = no ragdoll recovery (EVA-EXIT goes straight to EVA-FLAG).
     eva_recover_seconds: Optional[float] = None
@@ -32673,6 +32689,8 @@ def mlr_params_from_dict(params: Dict) -> MlrParams:
         eva_kerbal=str(params.get("evaKerbalName", "") or ""),
         eva_settle_seconds=float(params.get("evaSettleSeconds", 5)),
         eva_settle_frames=int(params.get("evaSettleFrames", 3)),
+        ascent_max_tilt_deg=(None if params.get("munAscentMaxTiltDeg") is None
+                             else float(params["munAscentMaxTiltDeg"])),
         eva_timeout=float(params.get("evaPhaseTimeoutSeconds", 900)),
         eva_recover_seconds=(None if params.get("evaRagdollRecoverSeconds") is None
                              else float(params["evaRagdollRecoverSeconds"])),
@@ -32715,6 +32733,9 @@ def mlr_params_from_dict(params: Dict) -> MlrParams:
     if p.ascent_engage_frames <= 0 or p.eva_settle_frames <= 0:
         raise ValueError("munAscentEngageConfirmFrames and evaSettleFrames must be "
                          "positive")
+    if p.ascent_max_tilt_deg is not None and not (0.0 < p.ascent_max_tilt_deg <= 90.0):
+        raise ValueError("munAscentMaxTiltDeg must be in (0, 90], got %r"
+                         % (p.ascent_max_tilt_deg,))
     if p.ec_floor > 0.0 and p.ec_debounce <= 0:
         raise ValueError("electricChargeDebounceFrames must be positive when "
                          "electricChargeFloor arms the watchdog")
@@ -32914,6 +32935,29 @@ def mlr_aboard_lander(snapshot: TelemetrySnapshot, params: MlrParams) -> bool:
             and (snapshot.situation or "").upper() in params.orbit.landed_situations)
 
 
+def mlr_lander_at_rest(snapshot: TelemetrySnapshot, params: MlrParams) -> bool:
+    """False while the boarded lander still rocks or slides: a READ angular velocity
+    above B5's park bound or a READ horizontal speed above B13's settled-touchdown
+    bound. An unread (NaN) channel does not block, so a mission without the docking
+    or landing channel settles as before. Pure."""
+    o = params.orbit
+    if (_is_finite(snapshot.angular_velocity)
+            and snapshot.angular_velocity > o.park_max_angular_velocity):
+        return False
+    if (_is_finite(snapshot.horizontal_speed)
+            and snapshot.horizontal_speed > o.landed_max_horizontal_speed):
+        return False
+    return True
+
+
+def mlr_lander_tilt_deg(snapshot: TelemetrySnapshot) -> float:
+    """Degrees between the active vessel's control axis and the local vertical
+    (90 - pitch, clamped to [0, 180]); NaN when the pitch was not read. Pure."""
+    if not _is_finite(snapshot.surface_pitch):
+        return float("nan")
+    return min(max(90.0 - float(snapshot.surface_pitch), 0.0), 180.0)
+
+
 def mlr_in_target_orbit(snapshot: TelemetrySnapshot, params: MlrParams) -> bool:
     """True when the ascent has left a closed orbit about the target above the
     floor: ORBITING the target body, periapsis readable and >= the floor. Pure."""
@@ -33056,6 +33100,13 @@ def _mlr_eva(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, Li
     if (_is_finite(snapshot.ut)
             and snapshot.ut - state.phase_entry_ut > p.eva_timeout):
         if state.phase == MLR_EVA_SETTLE:
+            if mlr_aboard_lander(snapshot, p):
+                return _mfr_flake(st, "%s: the boarded lander never came to rest in "
+                                      "%.0f game s (angV=%s hspd=%s pitch=%s)"
+                                  % (MLR_BOARD_NOT_ABOARD, p.eva_timeout,
+                                     _obs_fmt(snapshot.angular_velocity),
+                                     _obs_fmt(snapshot.horizontal_speed),
+                                     _obs_fmt(snapshot.surface_pitch))), []
             return _mfr_flake(st, "%s: the boarded lander never read back as the active "
                                   "vessel in %.0f game s (body=%s situation=%s lf=%s)"
                               % (MLR_BOARD_NOT_ABOARD, p.eva_timeout,
@@ -33152,7 +33203,7 @@ def _mlr_eva(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, Li
         return _mfr_enter(out, MLR_EVA, MLR_EVA_SETTLE, snapshot.ut,
                           eva_settle_streak=0), []
     if state.phase == MLR_EVA_SETTLE:
-        if not mlr_aboard_lander(snapshot, p):
+        if not mlr_aboard_lander(snapshot, p) or not mlr_lander_at_rest(snapshot, p):
             return replace(st, eva_settle_streak=0), []
         streak = min(st.eva_settle_streak + 1, p.eva_settle_frames)
         st = replace(st, eva_settle_streak=streak)
@@ -33160,6 +33211,15 @@ def _mlr_eva(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, Li
                    and snapshot.ut - state.phase_entry_ut >= p.eva_settle_seconds)
         if streak < p.eva_settle_frames or not settled:
             return st, []
+        tilt = mlr_lander_tilt_deg(snapshot)
+        if (p.ascent_max_tilt_deg is not None and _is_finite(tilt)
+                and tilt > p.ascent_max_tilt_deg):
+            return _mfr_flake(st, "%s: the lander rests %.1f deg off vertical "
+                                  "(pitch=%s, limit %.1f) after the boarding; an "
+                                  "ascent from there pushes it along the ground"
+                                  % (MLR_LANDER_TIPPED, tilt,
+                                     _obs_fmt(snapshot.surface_pitch),
+                                     p.ascent_max_tilt_deg)), []
         aboard = replace(st, eva_aboard_ut=snapshot.ut, ascent_engaged=False,
                          ascent_engage_wait=0, ascent_reissues=0)
         return (_mfr_enter(aboard, MLR_ASCENT, MLR_ASCENT, snapshot.ut),

@@ -851,6 +851,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The kerbal a crew row names. <paramref name="ownerName"/> is the seat's kerbal after
+        /// the stand-in reverse map (the slot owner), <paramref name="seatedName"/> the one the
+        /// snapshot seated. A death is filed under the kerbal who was seated, so a stand-in's
+        /// crash never kills the slot owner he stood in for; every other end state keeps the
+        /// slot owner. Pure.
+        /// </summary>
+        internal static string ResolveCrewRowName(
+            string ownerName, string seatedName, KerbalEndState endState)
+        {
+            if (endState != KerbalEndState.Dead
+                || string.IsNullOrEmpty(seatedName)
+                || string.Equals(ownerName, seatedName, StringComparison.Ordinal))
+                return ownerName;
+            ParsekLog.Verbose(Tag,
+                $"Crew row: stand-in '{seatedName}' died in the seat of '{ownerName}' - " +
+                "the death is filed under the stand-in, the slot owner keeps his slot");
+            return seatedName;
+        }
+
+        /// <summary>
         /// Extracts crew members from a recording's vessel snapshot data,
         /// mirroring the crew extraction logic in KerbalsModule.ProcessAction.
         /// Uses GhostVisualSnapshot (recording-start state) as the primary source
@@ -876,21 +896,40 @@ namespace Parsek
 
             // Match PopulateCrewEndStates: later recordings may already contain stand-in
             // names after a prior commit swapped live vessel crew.
+            var seatedNames = new List<string>(names);
             KerbalsModule.ReverseMapCrewNames(
                 names,
                 CrewReservationManager.CrewReplacements,
                 null);
+            // The recorder's snapshots already carry the owner in a stand-in's seat
+            // (TryBackupSnapshot reverse-maps them), so who sat there is read from the
+            // seat record the reverse map left in the snapshot.
+            for (int i = 0; i < seatedNames.Count; i++)
+            {
+                if (!string.Equals(seatedNames[i], names[i], StringComparison.Ordinal))
+                    continue;
+                string standIn = KerbalsModule.ReadSeatedStandIn(rec.GhostVisualSnapshot, names[i])
+                    ?? KerbalsModule.ReadSeatedStandIn(rec.VesselSnapshot, names[i]);
+                if (!string.IsNullOrEmpty(standIn))
+                    seatedNames[i] = standIn;
+            }
 
             for (int i = 0; i < names.Count; i++)
             {
                 string name = names[i];
-                // A tourist keeps his row (role "Tourist"): it is the durable record of the
-                // passenger seat, and the kerbal-death count reads the same crew list.
-                string role = KerbalsModule.FindTraitForKerbal(name);
 
                 KerbalEndState endState = KerbalEndState.Unknown;
                 if (rec.CrewEndStates != null)
                     rec.CrewEndStates.TryGetValue(name, out endState);
+
+                // A stand-in who died in the seat is the one who died (design section 9.11:
+                // the slot owner keeps his slot and the chain continues). Every other end
+                // state keeps the slot owner's name, so the owner's hold reads as before.
+                name = ResolveCrewRowName(name, seatedNames[i], endState);
+
+                // A tourist keeps his row (role "Tourist"): it is the durable record of the
+                // passenger seat, and the kerbal-death count reads the same crew list.
+                string role = KerbalsModule.FindTraitForKerbal(name);
 
                 result.Add(new CrewInfo
                 {

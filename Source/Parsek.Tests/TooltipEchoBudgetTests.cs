@@ -373,6 +373,7 @@ namespace Parsek.Tests
                 Type = GameActionType.MilestoneAchievement, MilestoneId = "RecordsAltitude",
                 RecordPartlyCredited = true, RecordThresholdsTotal = 99, RecordThresholdsCredited = 1
             }));
+            tips.Add(TimelineRowHover.ToppedUpText);
             tips.Add(TimelineWindowUI.NowDividerTooltip);
 
             foreach (string tip in tips)

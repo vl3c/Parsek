@@ -15,9 +15,19 @@ namespace Parsek
         /// on, <c>Funding.AddFunds</c> / <c>SetFunds</c> and
         /// <c>ResearchAndDevelopment.AddScience</c> / <c>SetScience</c> skip their
         /// <c>Math.Max(0, pool)</c> clamp, so an involuntary debit (a contract failure
-        /// penalty) can leave the pool negative. Null-guarded: no live game reads false.
+        /// penalty) can leave the pool negative. Returns the value locked at career start
+        /// (<see cref="CareerSettingsLock"/>) once the career has one, else the live value.
         /// </summary>
         internal static bool ReadAllowNegativeCurrency()
+        {
+            return CareerSettingsLock.Resolve(ReadLiveAllowNegativeCurrency());
+        }
+
+        /// <summary>
+        /// The live game parameter, ignoring the career lock (the lock's own enforcement reads
+        /// it). Null-guarded: no live game reads false.
+        /// </summary>
+        internal static bool ReadLiveAllowNegativeCurrency()
         {
             var provider = AllowNegativeCurrencyProviderForTesting;
             if (provider != null)

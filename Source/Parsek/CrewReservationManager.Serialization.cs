@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace Parsek
 {
@@ -16,6 +18,7 @@ namespace Parsek
         {
             crewReplacements.Clear();
             rescuePlacedKerbals.Clear();
+            SaveVesselPidExistsOverrideForTesting = null;
         }
 
         /// <summary>
@@ -98,7 +101,7 @@ namespace Parsek
             crewReplacements.Clear();
             // #615: the rescue-placed markers are the save's own (RESCUE_PLACED_KERBALS);
             // entries left in memory from before the load are stale and dropped first.
-            // A stale pid in the save never matches a live vessel, so it needs no pruning.
+            // The save already left out markers whose vessel was gone when it was written.
             rescuePlacedKerbals.Clear();
             LoadRescuePlacedMarkers(node);
 
@@ -140,10 +143,17 @@ namespace Parsek
             {
                 string name = entry.GetValue("name");
                 if (!string.IsNullOrEmpty(name)
-                    && ulong.TryParse(entry.GetValue("vesselPid"), System.Globalization.NumberStyles.Integer,
-                        System.Globalization.CultureInfo.InvariantCulture, out ulong pid))
+                    && ulong.TryParse(entry.GetValue("vesselPid"), NumberStyles.Integer,
+                        CultureInfo.InvariantCulture, out ulong pid))
                 {
-                    rescuePlacedKerbals[name] = pid;
+                    // markUT is optional: absent (or unparsable) reads NaN, a marker the
+                    // new-reservation retirement never touches.
+                    double markUT = double.NaN;
+                    string utText = entry.GetValue(RescueMarkUTKey);
+                    if (!string.IsNullOrEmpty(utText)
+                        && !double.TryParse(utText, NumberStyles.Float, CultureInfo.InvariantCulture, out markUT))
+                        markUT = double.NaN;
+                    rescuePlacedKerbals[name] = new RescuePlacedMarker(pid, markUT);
                     loaded++;
                 }
                 else
@@ -154,18 +164,167 @@ namespace Parsek
             CrewLog($"Loaded {loaded} rescue-placed marker(s), skipped {skipped} malformed");
         }
 
+        internal const string RescueMarkUTKey = "markUT";
+
+        /// <summary>
+        /// Test seam for the save-time "does this vessel pid exist" answer. Null uses
+        /// the live vessel lists (<see cref="ResolveSaveVesselPidExists"/>).
+        /// </summary>
+        internal static Func<ulong, bool> SaveVesselPidExistsOverrideForTesting;
+
+        /// <summary>
+        /// Picks the rescue-placed markers worth writing to a save
+        /// (RESCUE-PLACED-MARKER-NEVER-RETIRES): a marker whose vessel pid matches no
+        /// vessel can never fire the guard again, so it is left out. A null
+        /// <paramref name="vesselPidExists"/> means no reliable vessel source exists
+        /// right now, and every marker is kept. Pure.
+        /// </summary>
+        internal static List<KeyValuePair<string, RescuePlacedMarker>> CollectSavableRescueMarkers(
+            IEnumerable<KeyValuePair<string, RescuePlacedMarker>> markers,
+            Func<ulong, bool> vesselPidExists,
+            out int pruned)
+        {
+            pruned = 0;
+            var kept = new List<KeyValuePair<string, RescuePlacedMarker>>();
+            if (markers == null) return kept;
+            foreach (var kvp in markers)
+            {
+                if (vesselPidExists != null && !vesselPidExists(kvp.Value.VesselPid))
+                {
+                    pruned++;
+                    continue;
+                }
+                kept.Add(kvp);
+            }
+            return kept;
+        }
+
+        /// <summary>
+        /// True for the scenes whose vessel lists describe every vessel of the game:
+        /// FLIGHT, SPACECENTER and TRACKSTATION hold the vessels in
+        /// <c>FlightGlobals.Vessels</c>, and every one of them plus EDITOR carries the
+        /// game's <c>flightState.protoVessels</c>. Other scenes (main menu, loading)
+        /// have no game universe to ask. Pure.
+        /// </summary>
+        internal static bool SceneHasReliableVesselLists(GameScenes scene)
+        {
+            return scene == GameScenes.FLIGHT
+                || scene == GameScenes.SPACECENTER
+                || scene == GameScenes.TRACKSTATION
+                || scene == GameScenes.EDITOR;
+        }
+
+        /// <summary>
+        /// The save-time vessel-exists predicate: the union of
+        /// <c>FlightGlobals.Vessels</c> and <c>HighLogic.CurrentGame.flightState.protoVessels</c>
+        /// pids, so a vessel that only one list knows (unloaded, packed, a fresh split
+        /// not yet in the flight state) still counts. Returns null with a reason when no
+        /// reliable source exists: the scene has no game universe, neither list could be
+        /// read, or both lists are empty (an empty universe and unpopulated lists look
+        /// the same, so nothing is pruned).
+        /// </summary>
+        private static Func<ulong, bool> ResolveSaveVesselPidExists(out string skipReason)
+        {
+            skipReason = null;
+            if (SaveVesselPidExistsOverrideForTesting != null)
+                return SaveVesselPidExistsOverrideForTesting;
+
+            GameScenes scene;
+            try { scene = ReadLoadedSceneCore(); }
+            catch (Exception ex)
+            {
+                skipReason = $"scene unreadable ({ex.GetType().Name})";
+                return null;
+            }
+            if (!SceneHasReliableVesselLists(scene))
+            {
+                skipReason = $"scene {scene} has no reliable vessel list";
+                return null;
+            }
+
+            var pids = new HashSet<ulong>();
+            bool anySource = false;
+            try
+            {
+                if (AddFlightGlobalsVesselPidsCore(pids)) anySource = true;
+            }
+            catch (Exception) { /* FlightGlobals not up in this scene; the flight state still answers */ }
+            try
+            {
+                if (AddProtoVesselPidsCore(pids)) anySource = true;
+            }
+            catch (Exception) { /* no game flight state; FlightGlobals may still answer */ }
+
+            if (!anySource)
+            {
+                skipReason = $"scene {scene}: neither vessel list readable";
+                return null;
+            }
+            if (pids.Count == 0)
+            {
+                skipReason = $"scene {scene}: both vessel lists empty";
+                return null;
+            }
+            return pid => pids.Contains(pid);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static GameScenes ReadLoadedSceneCore()
+        {
+            return HighLogic.LoadedScene;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool AddFlightGlobalsVesselPidsCore(HashSet<ulong> pids)
+        {
+            var vessels = FlightGlobals.Vessels;
+            if (vessels == null) return false;
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                var v = vessels[i];
+                if (v != null && v.persistentId != 0u) pids.Add(v.persistentId);
+            }
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool AddProtoVesselPidsCore(HashSet<ulong> pids)
+        {
+            var protoVessels = HighLogic.CurrentGame?.flightState?.protoVessels;
+            if (protoVessels == null) return false;
+            for (int i = 0; i < protoVessels.Count; i++)
+            {
+                var pv = protoVessels[i];
+                if (pv != null && pv.persistentId != 0u) pids.Add(pv.persistentId);
+            }
+            return true;
+        }
+
         internal static void SaveCrewReplacements(ConfigNode node)
         {
             if (rescuePlacedKerbals.Count > 0)
             {
-                ConfigNode markersNode = node.AddNode(RescuePlacedNodeName);
-                foreach (var kvp in rescuePlacedKerbals)
+                string skipReason;
+                Func<ulong, bool> pidExists = ResolveSaveVesselPidExists(out skipReason);
+                if (pidExists == null)
+                    ParsekLog.Verbose("CrewReservation",
+                        $"Rescue-placed marker prune skipped: {skipReason}; " +
+                        $"writing all {rescuePlacedKerbals.Count} marker(s)");
+                int pruned;
+                var kept = CollectSavableRescueMarkers(rescuePlacedKerbals, pidExists, out pruned);
+                if (kept.Count > 0)
                 {
-                    ConfigNode entry = markersNode.AddNode("ENTRY");
-                    entry.AddValue("name", kvp.Key);
-                    entry.AddValue("vesselPid", kvp.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    ConfigNode markersNode = node.AddNode(RescuePlacedNodeName);
+                    for (int i = 0; i < kept.Count; i++)
+                    {
+                        ConfigNode entry = markersNode.AddNode("ENTRY");
+                        entry.AddValue("name", kept[i].Key);
+                        entry.AddValue("vesselPid", kept[i].Value.VesselPid.ToString(CultureInfo.InvariantCulture));
+                        if (!double.IsNaN(kept[i].Value.MarkUT))
+                            entry.AddValue(RescueMarkUTKey, kept[i].Value.MarkUT.ToString("R", CultureInfo.InvariantCulture));
+                    }
                 }
-                CrewLog($"Saved {rescuePlacedKerbals.Count} rescue-placed marker(s)");
+                CrewLog($"Saved {kept.Count} rescue-placed marker(s), left out {pruned} whose vessel no longer exists");
             }
 
             if (crewReplacements.Count > 0)

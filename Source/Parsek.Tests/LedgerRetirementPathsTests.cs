@@ -154,10 +154,11 @@ namespace Parsek.Tests
             Assert.Empty(ParsekScenario.ComputeLoadDroppedRecordingIds(null, null));
         }
 
-        // catches: LoadRecordingTrees dropping a leaf whose schema stamp it rejects without
-        // telling the ledger load which recording the save named, so its rows are pruned.
+        // catches: a leaf whose schema stamp the load rejects losing its ledger rows. A partly
+        // rejected committed tree is kept inert whole (audit T6), so both the leaf and the root
+        // stay known to the ledger reconcile and keep their tagged rows.
         [Fact]
-        public void LoadRecordingTrees_PartialReject_ReportsTheDroppedLeaf()
+        public void LoadRecordingTrees_PartialReject_KeepsTheLeafKnownToTheLedger()
         {
             ConfigNode treeNode = BuildTreeNode(RootId, LeafId);
             treeNode.GetNodes("RECORDING")[1].SetValue("recordingSchemaGeneration",
@@ -167,10 +168,12 @@ namespace Parsek.Tests
 
             ParsekScenario.LoadRecordingTrees(scenario, RecordingStore.CommittedRecordings);
 
-            HashSet<string> dropped = ParsekScenario.TakeLoadDroppedRecordingIds();
-            Assert.NotNull(dropped);
-            Assert.Equal(new[] { LeafId }, dropped.ToArray());
-            Assert.Null(ParsekScenario.TakeLoadDroppedRecordingIds());
+            Assert.True(InertRecordingTrees.ContainsRecordingId(LeafId));
+            Assert.True(InertRecordingTrees.ContainsRecordingId(RootId));
+            HashSet<string> valid = ParsekScenario.BuildValidRecordingIdsForKspLoad();
+            Assert.Contains(LeafId, valid);
+            Assert.Contains(RootId, valid);
+            ParsekScenario.TakeLoadDroppedRecordingIds();
         }
 
         // catches: Ledger.Reconcile pruning the earnings of a committed recording the save

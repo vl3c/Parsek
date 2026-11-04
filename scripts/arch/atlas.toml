@@ -160,6 +160,9 @@ meaning = "The interface the playback engine sees instead of a Recording."
 [glossary.BranchPoint]
 meaning = "Where and why a tree branched: decouple, dock, undock, EVA, switch."
 
+[glossary.Action]
+meaning = "<code>CareerSettingsLock.Action</code>, the negative-currency lock's decision (lock, rewrite the live value, nothing). Its file count is a scanner false positive: every <code>System.Action</code> delegate reads as this type."
+
 [glossary.Kind]
 meaning = "What a rewind split mutated: a branch point, a debris parent, a track-section anchor, a ledger row or a milestone row."
 

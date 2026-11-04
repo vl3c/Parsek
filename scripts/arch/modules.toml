@@ -202,6 +202,22 @@ name = "UI"
 prefix = "^CareerSlotSummary[.]cs$"
 placement = "R0"
 
+# --- R0 operator placements (2026-11-04 merge of main) ---------------------
+# Root files main added after the 2026-11-01 refresh that no family rule matched.
+
+# flag replay: the recorded flag pick-up event (a SegmentEvent payload) and the removed-flag
+# tombstones the replay reads so it never replants a flag the player took away
+[[module]]
+name = "Ghost"
+prefix = "^FlagPickUp[.]cs$|^RemovedReplayFlags[.]cs$"
+placement = "R0"
+
+# the save-time view of a recorder parked by a deferred split (its buffers, the parent recording)
+[[module]]
+name = "Recording"
+prefix = "^ParkedSplitSaveOverlay[.]cs$"
+placement = "R0"
+
 # vessel and mission names (docs/dev/design-vessel-and-mission-names.md); MissionVesselNaming unions on VesselIdentity
 [[module]]
 name = "Missions"

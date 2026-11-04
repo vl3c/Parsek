@@ -105,7 +105,8 @@ FAMILIES = collections.OrderedDict([
         "Shared pool policy for the funds / science / reputation patches: the negative-currency "
         "target, the drawdown guard and the stock pool reference.",
         [
-            "ReadAllowNegativeCurrency", "ResolveNegativeCurrencyPatchTarget",
+            "ReadAllowNegativeCurrency", "ReadLiveAllowNegativeCurrency",
+            "ResolveNegativeCurrencyPatchTarget",
             "ResolveFundsPatchTarget", "ResolveSciencePatchBaseTarget",
             "IsSuspiciousDrawdown", "ResetDrawdownGuardSessionLatches",
             "DrawdownGuardSessionToastLatch", "ClampDirection", "IsGuardableDrawdown",

@@ -69,7 +69,7 @@ AREAS = collections.OrderedDict([
         CreateVesselCostActions BuildVesselCostActions AddVesselBuildCostActions
         AddVesselRecoveryCostActions CreateKerbalAssignmentActions BuildKerbalAssignmentActions
         CreateKerbalDeathRepPenaltyActions BuildKerbalDeathRepPenaltyActions CrewInfo
-        ExtractCrewFromRecording NeedsCrewEndStatePopulation FindRecordingById
+        ResolveCrewRowName ExtractCrewFromRecording NeedsCrewEndStatePopulation FindRecordingById
         """)),
     ("EarningsReconcile", (
         "Earnings reconciliation diagnostics: the commit window, KSC actions and the "
@@ -145,7 +145,7 @@ AREAS = collections.OrderedDict([
         SetMigrateOldSaveEventsRanThisLoadForTesting GetMigrateOldSaveEventsRanThisLoadForTesting
         OnKspLoad KeepRowsOfRecordingsThatFailedToLoad ExcludeInertRecordingIds
         MigrateOldSaveEvents MigrateKerbalAssignments InheritKerbalAssignmentActionIds
-        IsResourceImpactingAction KerbalAssignmentRepairRename KerbalAssignmentEndStateRewrite
+        SlotOwnerOrSelf CrewSlotOwnerName IsResourceImpactingAction KerbalAssignmentRepairRename KerbalAssignmentEndStateRewrite
         CarryTouristRoles KerbalAssignmentRepairStats ClassifyKerbalAssignmentRepair
         FindRepairRowMatch KerbalAssignmentActionsMatch PopulateUnpopulatedCrewEndStates
         OnSave OnLoad SeedKscSequenceCounterFromLoadedLedger KscSequenceCounterForTesting

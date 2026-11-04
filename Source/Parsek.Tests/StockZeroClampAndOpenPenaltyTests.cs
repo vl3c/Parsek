@@ -27,6 +27,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = () => false;
+            CareerSettingsLock.ResetForTesting();
             RecalculationEngine.ClearModules();
         }
 

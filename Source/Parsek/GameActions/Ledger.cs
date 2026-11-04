@@ -39,6 +39,15 @@ namespace Parsek
 
         private static List<GameAction> actions = new List<GameAction>();
 
+        // Rows this build cannot read (an unknown type id a newer build wrote, a row whose
+        // parse threw), kept as verbatim node copies and written back on every save. They are
+        // never deserialized, so no recalculation, reconcile or UI reads them. Replaced by
+        // every load and ResetForTesting; Clear() keeps them, like the progress seed.
+        private static List<ConfigNode> unreadableActionNodes = new List<ConfigNode>();
+
+        /// <summary>How many rows the last load kept verbatim because this build cannot read them.</summary>
+        internal static int UnreadableActionCount => unreadableActionNodes.Count;
+
         /// <summary>Read-only view of all actions in the ledger.</summary>
         internal static IReadOnlyList<GameAction> Actions => actions;
 
@@ -783,12 +792,18 @@ namespace Parsek
             {
                 actions[i].SerializeInto(root);
             }
+            // Rows this build could not read go back out untouched, so a save made by a
+            // newer build loses nothing when an older one re-saves it.
+            for (int i = 0; i < unreadableActionNodes.Count; i++)
+                root.AddNode(unreadableActionNodes[i].CreateCopy());
 
             // Additive child node: a build that predates it reads only GAME_ACTION
             // nodes, so the ledger version does not change.
             progressSeed.SerializeInto(root);
             // Additive keys (design 3.15 step 5): the take-back era and the timeline breaks.
             StockShadowTakeBack.SaveInto(root);
+            // Additive keys: when the allow-negative-currency setting changed.
+            CareerSettingsLock.SaveInto(root);
             return root;
         }
 
@@ -842,8 +857,10 @@ namespace Parsek
         internal static void ClearForFailedLoad()
         {
             actions.Clear();
+            unreadableActionNodes = new List<ConfigNode>();
             progressSeed = PreLedgerProgressSeed.NotCaptured;
             StockShadowTakeBack.LoadFrom(null, "failed-load");
+            CareerSettingsLock.LoadFrom(null, "failed-load");
             BumpStateVersion();
         }
 
@@ -954,8 +971,10 @@ namespace Parsek
 
             // Deserialize actions
             var newActions = new List<GameAction>();
+            var newUnreadable = new List<ConfigNode>();
             ConfigNode[] actionNodes = loaded.GetNodes(ActionNodeName);
             int parseErrors = 0;
+            int unreadableRows = 0;
             var droppedRouteRows = new LedgerLoadMigration.LegacyRouteRowTally();
             ResetContractDeadlineMigrationTally();
 
@@ -969,24 +988,38 @@ namespace Parsek
                     // route event log, which an old save does not have.
                     if (LedgerLoadMigration.IsLegacyRouteNode(actionNodes[i], droppedRouteRows))
                         continue;
+                    string unreadableReason = GameAction.ClassifyUnreadableActionNode(actionNodes[i], out _);
+                    if (unreadableReason != null)
+                    {
+                        unreadableRows++;
+                        newUnreadable.Add(actionNodes[i].CreateCopy());
+                        ParsekLog.Warn("Ledger",
+                            $"Kept unreadable action at index {i.ToString(CultureInfo.InvariantCulture)} verbatim: " +
+                            $"reason={unreadableReason} type='{actionNodes[i].GetValue("type") ?? "(missing)"}' " +
+                            $"ut='{actionNodes[i].GetValue("ut") ?? "(missing)"}'; not recalculated, written back on save");
+                        continue;
+                    }
                     var action = GameAction.DeserializeFrom(actionNodes[i]);
                     newActions.Add(action);
                 }
                 catch (Exception ex)
                 {
                     parseErrors++;
+                    newUnreadable.Add(actionNodes[i].CreateCopy());
                     ParsekLog.Warn("Ledger",
-                        $"Failed to deserialize action at index {i}: {ex.Message}");
+                        $"Failed to deserialize action at index {i}: {ex.Message}; kept verbatim, written back on save");
                 }
             }
 
             actions = newActions;
+            unreadableActionNodes = newUnreadable;
             progressSeed = PreLedgerProgressSeed.LoadFrom(loaded, out int seedMalformed);
             StockShadowTakeBack.LoadFrom(loaded, sourceLabel);
+            CareerSettingsLock.LoadFrom(loaded, sourceLabel);
             BumpStateVersion();
             ParsekLog.Verbose("Ledger",
                 $"Loaded ledger from '{sourceLabel}': version={version}, actions={actions.Count}, " +
-                $"parseErrors={parseErrors}");
+                $"parseErrors={parseErrors} unreadableRows={unreadableRows} keptVerbatim={unreadableActionNodes.Count}");
             if (droppedRouteRows.Total > 0)
             {
                 ParsekLog.Info("Ledger",
@@ -1509,12 +1542,14 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             actions = new List<GameAction>();
+            unreadableActionNodes = new List<ConfigNode>();
             progressSeed = PreLedgerProgressSeed.NotCaptured;
             BumpStateVersion();
             ResetLegacyActionIdMigrationForTesting();
             ResetContractDeadlineMigrationTally();
             CaptureSequence.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
+            CareerSettingsLock.ResetForTesting();
             // Test isolation: route events and the retired route cargo stash lived in the
             // ledger before route events left it, so every test that resets the ledger also
             // starts with an empty route event log and stash.

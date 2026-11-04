@@ -25,7 +25,9 @@ namespace Parsek.Tests.SaveRoundTrip
     [SaveRoundTripCovers(typeof(ReFlyInvokeHold))]
     [SaveRoundTripCovers(typeof(LedgerHeldWindow))]
     [SaveRoundTripCovers(typeof(PlaybackScopeTracker))]
+    [SaveRoundTripCovers(typeof(RemovedReplayFlags))]
     [SaveRoundTripCovers(typeof(StockShadowTakeBack))]
+    [SaveRoundTripCovers(typeof(CareerSettingsLock))]
     [SaveRoundTripCovers(typeof(StockPoolReference))]
     [SaveRoundTripCovers(typeof(GameStateStore))]
     [SaveRoundTripCovers(typeof(MilestoneStore))]
@@ -53,7 +55,9 @@ namespace Parsek.Tests.SaveRoundTrip
             RewindVesselHold.ResetForTesting();
             LedgerHeldWindow.ResetForTesting();
             PlaybackScopeTracker.ResetForTesting();
+            RemovedReplayFlags.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
+            CareerSettingsLock.ResetForTesting();
             StockPoolReference.ResetForTesting();
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
@@ -159,10 +163,26 @@ namespace Parsek.Tests.SaveRoundTrip
             },
             new StoreCase
             {
+                Name = "RemovedReplayFlags", Store = typeof(RemovedReplayFlags),
+                Save = n => RemovedReplayFlags.SaveInto(n), Reset = RemovedReplayFlags.ResetForTesting,
+                Load = n => RemovedReplayFlags.Replace(RemovedReplayFlags.LoadFrom(n), "round-trip test"),
+                Spec = () => new FieldSpec(typeof(RemovedReplayFlags))
+                    .NotPersisted("re-entry guard held only for the length of a Die() call", "parsekRemovalDepth"),
+                NestedSpecs = () => new[] { new FieldSpec(typeof(RemovedReplayFlags.Tombstone)) },
+            },
+            new StoreCase
+            {
                 Name = "StockShadowTakeBack", Store = typeof(StockShadowTakeBack),
                 Save = StockShadowTakeBack.SaveInto, Reset = StockShadowTakeBack.ResetForTesting,
                 Load = n => StockShadowTakeBack.LoadFrom(n, "round-trip test"),
                 Spec = () => new FieldSpec(typeof(StockShadowTakeBack)),
+            },
+            new StoreCase
+            {
+                Name = "CareerSettingsLock", Store = typeof(CareerSettingsLock),
+                Save = CareerSettingsLock.SaveInto, Reset = CareerSettingsLock.ResetForTesting,
+                Load = n => CareerSettingsLock.LoadFrom(n, "round-trip test"),
+                Spec = () => new FieldSpec(typeof(CareerSettingsLock)),
             },
             new StoreCase
             {

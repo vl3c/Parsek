@@ -12,9 +12,11 @@ tier = "nightly"
 # The chain the log contracts pin, in order: the prefix reads the unsaved confirm-exit and
 # follows the save; the scene-exit finalize stashes the live tree as Limbo instead of
 # committing it; the save-file load intent armed by the prefix makes the Space Center's
-# reload a Cold load; the save-scoped reset drops the stashed tree from memory. Forbidden:
-# any scene-exit commit (S0.7's own commit lines).
-description = "Drive stock's Quit without saving out of a live recording to the Space Center: no merge dialog, no commit, no save write; the Space Center's reload is a Cold load and the flight since the last save is gone from the recordings."
+# reload a Cold load; the save-scoped reset drops the stashed tree from memory, and the cold
+# branch deletes the files that flight wrote (owner ruling "if unused, delete"; the first flight,
+# 2026-11-01, was red only on the .prec count before that). Forbidden: any scene-exit commit
+# (S0.7's own commit lines).
+description = "Drive stock's Quit without saving out of a live recording to the Space Center: no merge dialog, no commit, no save write; the Space Center's reload is a Cold load, the flight since the last save is gone from the recordings and its files are deleted."
 instanceProfile = "stock-minimal"
 tags = ["scene-exit", "auto-merge", "live-recording", "quit-without-saving", "QWS-1"]
 
@@ -55,6 +57,8 @@ required  = [
   "FinalizeTreeOnSceneChange: quit without saving out of flight \\(dest=SPACECENTER\\) - stashing the live tree",
   "Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*\\bcoldReason=save-file\\b",
   "Save-scoped reset dropped the pending tree from memory only",
+  "Quit-without-saving flight dropped by the reload: tree=",
+  "discard sidecar-reap: context='quit-without-saving' treeRecordings=[1-9][0-9]* knownAfterDiscard=[0-9]+ reaped=[1-9][0-9]* failed=0 ",
   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
 ]
 forbidden = [

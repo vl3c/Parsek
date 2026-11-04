@@ -194,7 +194,8 @@ id = "RW-3-save-reload-takeback"
 # clock (~185785) to the rewind save's own UT (~185800.4) when dcee3f7 (2026-10-28 16:18Z, the
 # Rewind-to-Launch lead window's rows held as reached, LedgerHeldWindow) landed after this lane's
 # only green flight; the nightly-thread flights 2026-11-01_0114 / _0133 read 185800.38 / 185800.44
-# and missed only those two rows. Both now pin 1858xx. Not re-flown on the new pin.
+# and missed only those two rows. Both now pin 1858xx. Re-flown green on the new pin: `2026-11-01_1445`
+# PASS (165 s, main 461380a, LedgerGroundTruth passed=3).
 #
 # STATUS: LIVE-PROVEN 2026-10-28 on its first flight, `2026-10-28_0916` PASS attempt 1 (DLL b50fbc5d, main e1ea512 plus the revert-cutoff fix). After the Rewind-to-Launch
 # the pool held at 154614.18 (cutoff 185785.2); the cold player load read `Loaded take-back facts

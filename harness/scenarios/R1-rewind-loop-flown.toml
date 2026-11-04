@@ -58,6 +58,15 @@ id = "R1-rewind-loop-flown"
 # rewind THEN FLY AGAIN.
 tier = "operator"
 #
+# FLIGHT 2026-11-01 (full lane run, `2026-11-01_2334` and `_2339_a2`, INVALID, deterministic):
+# every mission phase met, then the post-mission merge was refused at the click
+# (`merge-refused-at-click`, `world=kerbal:Jebediah Kerman ut=213.119`). After the rewind Jeb's
+# seat held his stand-in, the relaunch ended in a predicted crash, and the crew row booked the
+# stand-in's death under Jeb, whom the committed ascent flies later. Product defect
+# STAND-IN-DEATH-FILED-UNDER-THE-SLOT-OWNER, fixed by filing a death under the kerbal who was
+# seated; no spec change. Pre-registered reading for the re-flight: the click check passes and
+# `Added [1-9][0-9]* supersede relations` matches again.
+#
 # FLIGHT-ENTRY NOTE (corrects the premise S1.5 / S4.1 carried until this lane).
 # The seam DOES have a flight-entry verb and always did: `LoadGame` realizes the
 # .sfs, and when `game.flightState.activeVesselIdx` names a focusable vessel it

@@ -186,8 +186,9 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # The host's 34, G's launch recording and its stand, the TIP the merge's split cuts, the merged
-# attempt's recording, and the debris recordings of the exploded booster's fins. INTERIM window.
-count = 39
+# attempt's recording, and the debris recordings of the exploded booster's fins. The fin count
+# is physics: one on the 2026-11-01 flight (39), two on `2026-11-04_0706` (40). Window 39..42.
+count = { min = 39, max = 42 }
 
 [expectations.logContracts]
 required = [

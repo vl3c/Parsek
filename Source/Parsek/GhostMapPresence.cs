@@ -1267,6 +1267,7 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             overlapInstanceVessels.Clear();
+            lastOverlapSweepUT = double.NaN;
             boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
@@ -1565,6 +1566,7 @@ namespace Parsek
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             overlapInstanceVessels.Clear();
+            lastOverlapSweepUT = double.NaN;
             boundaryOverlapSecondaryPids.Clear(); // M1
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
