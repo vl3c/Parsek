@@ -118,6 +118,25 @@ namespace Parsek.Tests
                 InertRecordingTrees.ClassifySchemaRejection(tree, null));
         }
 
+        [Fact]
+        public void CommittedTreeWithOneUnreadableRecording_IsSetAsideWhole()
+        {
+            // A committed tree is never pruned (T6): one unreadable member beside a readable
+            // one keeps the whole tree inert, while the active / pending prune is unchanged.
+            var tree = new ConfigNode("RECORDING_TREE");
+            tree.AddValue("id", "tree-y");
+            tree.AddValue("recordingSchemaGeneration",
+                RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
+            tree.AddNode(SavedRecordingNode("rec-ok", MergeState.Immutable));
+            ConfigNode bad = SavedRecordingNode("rec-bad", MergeState.Immutable);
+            bad.SetValue("mergeState", "Bogus", true);
+            tree.AddNode(bad);
+
+            Assert.Null(InertRecordingTrees.ClassifySchemaRejection(tree, null));
+            Assert.Equal("some-recordings-merge-state-unknown",
+                InertRecordingTrees.ClassifyCommittedTreeSchemaRejection(tree, null));
+        }
+
         // ---------------------------------------------------------------- ledger (R8)
 
         private static ConfigNode LedgerNode(params ConfigNode[] rows)

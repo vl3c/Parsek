@@ -702,6 +702,50 @@ namespace Parsek
         internal FlightRecorder ActiveRecorderForSerialization => recorder;
 
         /// <summary>
+        /// The recorder a deferred split parked (EVA / undock / decouple, until the split finishes
+        /// next frame), for <c>ParsekScenario.SaveActiveTreeIfAny</c>; null otherwise.
+        /// </summary>
+        internal FlightRecorder ParkedSplitRecorderForSerialization => pendingSplitRecorder;
+
+        /// <summary>
+        /// Lays the parked split recorder's unflushed buffers over the active tree's current
+        /// recording for one save (audit R6, <see cref="ParkedSplitSaveOverlay"/>), or returns null
+        /// when no overlay applies (logged with the reason). The caller restores it after the write.
+        /// </summary>
+        internal ParkedSplitSaveOverlay BeginParkedSplitSaveOverlay()
+        {
+            FlightRecorder parked = pendingSplitRecorder;
+            string skip = ParkedSplitSaveOverlay.ResolveSkipReason(
+                liveRecorderPresent: recorder != null,
+                parkedRecorderPresent: parked != null,
+                activeTree: activeTree,
+                parkedRecorderTree: parked?.ActiveTree,
+                parkedRecorderVesselPid: parked != null ? parked.RecordingVesselId : 0u,
+                out Recording target);
+            if (skip != null)
+            {
+                if (parked != null)
+                    ParsekLog.Warn("Flight",
+                        $"BeginParkedSplitSaveOverlay: save during a deferred split not overlaid ({skip}); " +
+                        "the parked recorder's unflushed data is not in this save");
+                return null;
+            }
+
+            ParkedSplitSaveOverlay overlay = ParkedSplitSaveOverlay.Apply(
+                target,
+                parked.Recording,
+                parked.OrbitSegments,
+                parked.PartEvents,
+                parked.FlagEvents,
+                parked.TrackSections,
+                parked.lastEmittedTerminalEvents);
+            ParsekLog.Info("Flight",
+                $"BeginParkedSplitSaveOverlay: save during a deferred split; parked recorder data laid over " +
+                $"the active recording for this write ({overlay.Describe()})");
+            return overlay;
+        }
+
+        /// <summary>
         /// The live tree's leg recording the live vessel <paramref name="vesselPid"/> right now
         /// (the active recorder's leg, else its background leg), or null. The vessel names live
         /// write rule reads it as the vessel's current leg (design 7.4 step 3).
