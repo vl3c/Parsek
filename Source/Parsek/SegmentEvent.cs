@@ -12,7 +12,8 @@ namespace Parsek
         PartDestroyed     = 5,  // part destroyed while vessel stays connected
         PartRemoved       = 6,  // part removed (e.g. inventory removal) without split
         PartAdded         = 7,  // part added (e.g. inventory placement) without merge
-        TimeJump          = 8   // discrete UT skip preserving physics bubble geometry
+        TimeJump          = 8,  // discrete UT skip preserving physics bubble geometry
+        FlagPickedUp      = 9   // the recorded EVA kerbal took a planted flag down (details: FlagPickUp.FormatDetails)
     }
 
     public struct SegmentEvent

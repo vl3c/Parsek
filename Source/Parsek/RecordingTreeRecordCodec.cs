@@ -482,6 +482,40 @@ namespace Parsek
 
         #endregion
 
+        /// <summary>
+        /// Pure: why a RECORDING node cannot be read even though its schema stamps are
+        /// current, or null when it can. <c>recording-id-missing</c>: no <c>recordingId</c>.
+        /// <c>merge-state-unknown</c>: a <c>mergeState</c> value that is not a defined
+        /// <see cref="MergeState"/> member. A missing <c>mergeState</c> is readable (the
+        /// writer omits it for the default). Shared by the load gate and
+        /// <see cref="InertRecordingTrees.ClassifySchemaRejection"/>, so a tree whose every
+        /// recording is unreadable is held inert like a schema-rejected one.
+        /// </summary>
+        internal static string ClassifyUnreadableRecordingNode(ConfigNode recNode)
+        {
+            if (recNode == null)
+                return "recording-id-missing";
+            if (string.IsNullOrEmpty(recNode.GetValue("recordingId")))
+                return "recording-id-missing";
+            string mergeStateStr = recNode.GetValue("mergeState");
+            if (mergeStateStr != null && !TryParseMergeState(mergeStateStr, out _))
+                return "merge-state-unknown";
+            return null;
+        }
+
+        /// <summary>Parses a defined <see cref="MergeState"/> member by name or number.</summary>
+        internal static bool TryParseMergeState(string value, out MergeState parsed)
+        {
+            parsed = MergeState.Immutable;
+            if (string.IsNullOrEmpty(value))
+                return false;
+            MergeState candidate;
+            if (!Enum.TryParse(value.Trim(), out candidate) || !Enum.IsDefined(typeof(MergeState), candidate))
+                return false;
+            parsed = candidate;
+            return true;
+        }
+
         internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
         {
             var inv = NumberStyles.Float;
@@ -523,6 +557,21 @@ namespace Parsek
                     $"recordingFormatVersion={rec.RecordingFormatVersion.ToString(CultureInfo.InvariantCulture)} " +
                     $"recordingSchemaGeneration={rec.RecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)} " +
                     $"reason={schemaRejectReason}. Pre-reset recordings are no longer loadable.");
+                rec.RecordingFormatVersion = -1;
+                return;
+            }
+
+            // Reject what cannot be read rather than default it (audit R10): a recording
+            // with no id cannot be named by its tree, its branch points or its sidecars,
+            // and an unknown merge state must never read as the most committed one.
+            string unreadableReason = ClassifyUnreadableRecordingNode(recNode);
+            if (unreadableReason != null)
+            {
+                ParsekLog.Warn("Codec",
+                    $"LoadRecordingFrom: rejecting recording {(string.IsNullOrEmpty(id) ? "<no-id>" : id)} " +
+                    $"reason={unreadableReason} mergeState='{recNode.GetValue("mergeState") ?? "(missing)"}'");
+                if (string.IsNullOrEmpty(id))
+                    rec.RecordingId = null;
                 rec.RecordingFormatVersion = -1;
                 return;
             }
@@ -912,20 +961,13 @@ namespace Parsek
             // Rewind-to-Staging (design section 5.5 + 9). Recordings without `mergeState`
             // default to Immutable. Stray transient SupersedeTargetId on committed
             // recordings is logged Warn and treated as cleared.
+            // An unreadable value never reaches this point: ClassifyUnreadableRecordingNode
+            // rejected the recording above.
             string mergeStateStr = recNode.GetValue("mergeState");
-            if (mergeStateStr != null)
-            {
-                MergeState parsed;
-                if (Enum.TryParse(mergeStateStr, out parsed))
-                    rec.MergeState = parsed;
-                else
-                    ParsekLog.Warn("RecordingTree",
-                        $"LoadRecordingFrom: unknown mergeState '{mergeStateStr}' for rec={rec.RecordingId} — defaulting to Immutable");
-            }
-            else
-            {
-                rec.MergeState = MergeState.Immutable;
-            }
+            MergeState parsedMergeState;
+            rec.MergeState = mergeStateStr != null && TryParseMergeState(mergeStateStr, out parsedMergeState)
+                ? parsedMergeState
+                : MergeState.Immutable;
 
             rec.CreatingSessionId = recNode.GetValue("creatingSessionId");
             rec.SupersedeTargetId = recNode.GetValue("supersedeTargetId");

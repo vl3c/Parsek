@@ -429,3 +429,14 @@ are drawn nowhere and cannot be turned off.
 - **Quit without saving** - When KSP can't save (in the atmosphere, under thrust, moving on the ground, on a ladder) the Esc menu offers to quit without saving, and the game goes back to the last save. The recording follows it: the flight since that save is dropped from the timeline as it is from the world, with no Merge dialog. This makes it a deliberate way to throw away a flight you don't want to keep. Ending a Re-Fly this way still asks with the Merge dialog.
 - **Revert to Launch / VAB / SPH** - KSP's stock flight-results dialog (with its Revert buttons) shows first on a crash; Parsek no longer pre-empts it. Picking Revert unstashes the in-progress recording without deleting it - sidecar files and career events captured during the reverted flight stay on disk, so a quicksave you took during the flight can still be F9'd back into. The reverted flight's career events are hidden from the current career's ledger because its recording was never committed. To keep the flight instead, pick **Space Center** (or any non-revert exit).
 - **Missed EndUT** - If a recording's EndUT passes while you're in the Space Center or Tracking Station, reserved crew are automatically freed so they don't stay stuck as Assigned forever.
+
+## Other Mods and Rewinds
+
+Parsek rewinds and replays what stock KSP keeps: vessels, crew, funds, science, reputation, research, buildings, contracts and strategies. It cannot rewind another mod's own data, so with some mods installed a rewind is not a clean trip back in time:
+
+- **A mod's own saved data goes back to the rewind point.** Anything a mod stores in the save for itself (its own progress, timers, queues or records) comes back as it was at the rewind point, while your committed flights stay on the timeline. The mod does not see those flights happen again as they replay, so its data can disagree with your committed future.
+- **What a mod already heard stays heard.** A mod that reacted to a launch, a crash or a contract when it happened is not told the event was taken back by a rewind or a Re-Fly.
+- **Load your saves through KSP.** F9 and the Load menu restore a save exactly (see Loading a save restores that save). A mod that loads a save on its own, without going through KSP's usual load, can leave Parsek keeping its current timeline instead of the save's.
+- **Contract packs that count vessels can count ghosts.** A replaying ghost looks like the vessel it replays, so a contract from a contract pack (Contract Configurator) that asks for a number of vessels somewhere, such as stations in orbit, may count a ghost as one of them. A ghost is only a replay: its flight's real vessel appears when that flight ends.
+
+None of this happens with stock KSP alone. If a mod's state matters to your game, a regular save before a rewind lets you go back with F9.

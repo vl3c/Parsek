@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **The user guide says what a rewind cannot undo in other mods.** A new section, Other Mods and
+  Rewinds, explains that a mod's own saved data goes back to the rewind point while your committed
+  flights stay, that a load another mod starts may keep Parsek's timeline, and that contract packs
+  counting vessels can count a replaying ghost. Stock KSP alone is not affected.
 - **A Leaves Warp in orbit keeps you beside the ghost.** Pressing Warp on a Real Spawn Control row
   that leaves its orbit now moves your vessel, and the vessels flying with you, to the same spot
   beside the ghost at the new time, so you watch it burn away instead of finding it gone. When
@@ -37,7 +41,46 @@ _(unreleased - entries accumulate here per commit)_
   dies in a reserved kerbal's seat is now the one marked lost, so the reserved kerbal keeps his
   committed flights, and a Re-Fly whose stand-in crashes can be merged instead of being refused.
   (STAND-IN-DEATH-FILED-UNDER-THE-SLOT-OWNER)
-
+- **A loose part another flight left is no longer duplicated by a rewind.** Picking it up in EVA
+  construction is now recorded, so after a rewind to before the pick-up the old part shows until
+  that moment and then goes, instead of standing beside the copy the kerbal took.
+  (CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED)
+- **Looping map icons no longer flicker at very high warp.** Above 50x, when one frame skips past
+  a whole launch interval of a loop that overlaps itself, the map and Tracking Station keep one
+  icon per looped recording and move it to the newest launch. Below that nothing changes.
+  (OVERLAP-MAP-GHOSTS-CHURN-AT-HIGH-WARP)
+- **A rescue no longer blocks a later flight's stand-in.** A flight recorded after a rescue with
+  the rescued kerbal aboard now gets its stand-in as usual, and rescues whose vessel is gone are
+  dropped from the save. (RESCUE-PLACED-MARKER-NEVER-RETIRES)
+- **A replayed flag is planted once, and a flag you remove stays removed.** Loops no longer plant
+  a recorded flag again after you pick it up, recover it or terminate it. A kerbal's flag pick-up
+  is now recorded, so after a rewind the replay takes the flag down at that moment and a flag you
+  moved ends up in one place. (LOOP-REPLAY-REPLANTS-REMOVED-FLAG)
+- **A rewind never lowers a once-only reward.** If a science result, world-first or record step
+  was paid at a higher reward setting on the committed timeline and you earn it again earlier at
+  a lower one, the committed flight now still pays the difference, so your total stays at the
+  higher amount. Such a flight counts as a gain and is no longer offered for Re-Fly. (REPLAY-AUDIT-T2-TOP-UP)
+- **Changing career settings no longer rewrites your past.** "Allow negative funds / science"
+  is now fixed when the career starts and greyed out afterwards. Rewinds and Re-Fly keep your
+  current difficulty settings instead of the ones saved back then. A kerbal whose death was
+  recorded with respawn on still comes back if you turn respawn off later. (REPLAY-AUDIT-T2-TOP-UP)
+- **A failed save step can no longer write ghost vessels into the save.** Ghost map vessels are
+  now removed from every save even when an earlier part of Parsek's save fails, so a later load
+  can never turn a ghost into a real ship. (SAVE-GHOST-STRIP-SKIPPED-ON-FAULT)
+- **A quicksave at the moment of staging keeps the flight's last seconds.** An F5 in the same
+  frame as an EVA, undock or decouple used to save the recording without its newest points; the
+  save now keeps them. (SAVE-DURING-DEFERRED-SPLIT-DROPS-TAIL)
+- **A mission with recordings from another Parsek version is kept whole.** When only some of a
+  mission's recordings come from a different Parsek version, the whole mission is set aside
+  untouched instead of losing those recordings on the next save. (SCHEMA-PARTIAL-TREE-DROPS-MEMBERS)
+- **Save data Parsek cannot read is no longer guessed at.** A ledger entry it cannot read is kept
+  as written instead of being saved back as a science entry, a recording with an unreadable state
+  is rejected instead of loading as final, and a recording file a crash left half-moved is still
+  found on the next load. (REPLAY-AUDIT-CODEC-HYGIENE)
+- **A Re-Fly merge cut off by a crash now finishes.** If the game crashed or a merge failed just
+  as it started, the next load used to drop only the re-flown vessel and keep its EVA kerbals and
+  dropped payloads (and what they earned) beside the old flight. The next load now completes the
+  merge you clicked, so the timeline holds one consistent flight. (MERGE-BEGIN-ROLLBACK-LEAKS-ATTEMPT)
 - **Revert to Launch no longer records over a committed flight.** After reverting, a vessel that
   already has a committed recording later on the timeline stays unrecorded instead of resuming
   that recording from the past, which left it with a doubled track. (REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END)

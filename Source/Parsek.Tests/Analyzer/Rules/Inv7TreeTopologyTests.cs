@@ -272,5 +272,57 @@ namespace Parsek.Tests.Analyzer.Rules
 
             Assert.Empty(Run(model).Where(f => f.Message.Contains("chaingap")));
         }
+
+        private static RecordingSupersedeRelation Rel(string oldId, string newId)
+        {
+            return new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_" + oldId + "_" + newId,
+                OldRecordingId = oldId,
+                NewRecordingId = newId,
+            };
+        }
+
+        private static AnalyzerModel SupersedeModel(params RecordingSupersedeRelation[] rels)
+        {
+            return new AnalyzerModel
+            {
+                SaveName = "inv7",
+                Recordings = new List<Recording> { Rec("a"), Rec("b"), Rec("c"), Rec("d") },
+                SupersedeRelations = new List<RecordingSupersedeRelation>(rels),
+            };
+        }
+
+        // Guards audit R11: two rows for one old id whose walks end at different tips make
+        // the slot tip depend on list order -> FAIL naming both tips.
+        [Fact]
+        public void DuplicateOldId_DifferentTips_FailsAsAmbiguous()
+        {
+            List<Finding> findings = Run(SupersedeModel(Rel("a", "b"), Rel("a", "c")));
+
+            Finding f = Assert.Single(findings, x => x.Message.Contains("kind=ambiguous-supersede"));
+            Assert.Equal(VerdictLevel.Fail, f.Level);
+            Assert.Contains("recording=a", f.Message);
+            Assert.Contains("firstTip=b", f.Message);
+            Assert.Contains("otherTip=c", f.Message);
+        }
+
+        // A redundant row (A->C beside A->B, B->C) resolves to the same tip either way,
+        // so it is not reported.
+        [Fact]
+        public void DuplicateOldId_SameTip_NotReported()
+        {
+            List<Finding> findings = Run(SupersedeModel(Rel("a", "b"), Rel("b", "c"), Rel("a", "c")));
+
+            Assert.DoesNotContain(findings, x => x.Message.Contains("ambiguous-supersede"));
+        }
+
+        [Fact]
+        public void LinearSupersedeChain_NotReported()
+        {
+            List<Finding> findings = Run(SupersedeModel(Rel("a", "b"), Rel("b", "c"), Rel("c", "d")));
+
+            Assert.Empty(findings);
+        }
     }
 }

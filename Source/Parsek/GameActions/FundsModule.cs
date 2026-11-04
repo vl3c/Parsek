@@ -80,7 +80,8 @@ namespace Parsek
         /// <summary>
         /// Stock's <c>AdvancedParams.AllowNegativeCurrency</c>, read once per walk in
         /// <see cref="Reset"/>. Off: a loss that is not a cost row stops at 0, as
-        /// <c>Funding.AddFunds</c> stops it.
+        /// <c>Funding.AddFunds</c> stops it. The value is locked at career start
+        /// (<see cref="CareerSettingsLock"/>), so every row is judged under the same one.
         /// </summary>
         private bool allowNegativeCurrency;
 

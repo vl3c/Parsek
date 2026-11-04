@@ -65,12 +65,13 @@ namespace Parsek
         {
             if (v == null || activeTree == null) return false;
 
-            // Only vessels this tree is recording in the background can be pocketed:
-            // the pickup path is gated on VesselType DroppedPart / Debris, which is
-            // never the active vessel (that is the EVA kerbal doing the picking).
+            // The pickup path is gated on VesselType DroppedPart / Debris, which is
+            // never the active vessel (that is the EVA kerbal doing the picking). A
+            // vessel this tree does not record is a foreign loose part: it joins the
+            // tree as the kerbal's InventoryTransfer member, stamped at once.
             string recordingId;
             if (!activeTree.BackgroundMap.TryGetValue(v.persistentId, out recordingId))
-                return false;
+                return TryAdoptForeignConstructionPickup(v);
 
             Recording rec;
             if (string.IsNullOrEmpty(recordingId)
