@@ -108,16 +108,16 @@ namespace Parsek.Tests.SaveRoundTrip
         {
             yield return new FieldSpec(typeof(ReFlySessionMarker))
                 .Derived("not written; LoadFrom sets it true on every marker it reads back", "LoadedFromSave");
-            yield return new FieldSpec(typeof(GameStateEvent))
-                .NotPersisted("legacy load-only stamp: read from old saves, never assigned or written by this build",
-                    "epoch");
-            yield return new FieldSpec(typeof(Milestone))
-                .NotPersisted("legacy load-only stamp: read from old saves, never assigned or written by this build",
-                    "Epoch");
             yield return new FieldSpec(typeof(ContractSnapshot))
                 .Fill("contractNode", () => ContractNode("snap"));
             yield return new FieldSpec(typeof(GameStateBaseline))
                 .Fill("activeContracts", () => new List<ConfigNode> { ContractNode("a"), ContractNode("b") });
+            yield return new FieldSpec(typeof(Milestone))
+                .Fill("UnreadableEventNodes", () => new List<ConfigNode>
+                {
+                    StoreSaveRoundTripTests.UnreadableEventNode("m1"),
+                    StoreSaveRoundTripTests.UnreadableEventNode("m2"),
+                });
             yield return new FieldSpec(typeof(MergeJournal))
                 .NotPersisted("transient thread inside CompleteFromPostDurable; documented as never persisted",
                     "RecoveredSubtreeIds")

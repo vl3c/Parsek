@@ -76,7 +76,7 @@ namespace Parsek.Tests
         [InlineData(GameActionType.ReputationInitial,    false)]
         // Route rows: supply routes carry no money (todo LOGISTICS-WITHOUT-MONEY), so
         // no route type moves a funds / science / reputation pool. RouteRecoveryCredited
-        // is a legacy type nothing writes; old rows are dropped at ledger load.
+        // is a reserved type nothing writes; such a row is kept verbatim as unreadable.
         [InlineData(GameActionType.RouteDispatched,      false)]
         [InlineData(GameActionType.RouteCargoDebited,    false)]
         [InlineData(GameActionType.RouteCargoDelivered,  false)]

@@ -32,7 +32,6 @@ namespace Parsek
         private static bool fundsSeedDone;
         private static bool scienceSeedDone;
         private static bool repSeedDone;
-        private static bool legacyFacilityUpgradeEstimateDone;
         [ThreadStatic]
         private static bool? fundsTrackedOverrideForTesting;
         [ThreadStatic]
@@ -47,25 +46,6 @@ namespace Parsek
         private static readonly HashSet<string> emittedScienceReconcileDumpKeys =
             new HashSet<string>(StringComparer.Ordinal);
 
-        internal static void ResetMigrateOldSaveEventsForLoad()
-        {
-            LedgerLoadMigration.ResetMigrateOldSaveEventsForLoad();
-        }
-
-        internal static void ResetMigrateOldSaveEventsForTesting()
-        {
-            LedgerLoadMigration.ResetMigrateOldSaveEventsForTesting();
-        }
-
-        internal static void SetMigrateOldSaveEventsRanThisLoadForTesting(bool value)
-        {
-            LedgerLoadMigration.SetMigrateOldSaveEventsRanThisLoadForTesting(value);
-        }
-
-        internal static bool GetMigrateOldSaveEventsRanThisLoadForTesting()
-        {
-            return LedgerLoadMigration.GetMigrateOldSaveEventsRanThisLoadForTesting();
-        }
         /// <summary>
         /// Test-only override for resource tracker availability checks used by the
         /// earnings reconciliation diagnostics. Null falls back to the live KSP
@@ -228,23 +208,6 @@ namespace Parsek
         /// <see cref="ResetForTesting"/>.
         /// </summary>
         internal static Action<string> OnRecordingCommittedPostSciencePersistFaultInjector;
-
-        /// <summary>
-        /// Test-only hook fired after old-save event migration has had its targeted
-        /// reconcile pass on load. Used to prove later load-time synthesizers are not
-        /// swept by a broad second reconcile.
-        /// </summary>
-        internal static Action OnKspLoadAfterOldSaveEventReconcileForTesting;
-
-        /// <summary>
-        /// STRATEGY-PREFIX-HOLDBACK-PERMANENT: the load-time unmatchable strategy-exchange
-        /// science residual (see
-        /// <see cref="ComputeUnmatchableStrategyScienceDebitBaseline"/>). Re-measured from
-        /// the on-disk state at every <see cref="OnKspLoad"/> - never persisted, because it
-        /// is a deterministic function of the store + ledger that were just loaded. 0 on a
-        /// post-capture-fix save, which is what makes the bound a no-op there.
-        /// </summary>
-        private static double unmatchableStrategyScienceDebitBaseline;
 
         /// <summary>
         /// Sentinel value passed by <see cref="NotifyLedgerTreeCommitted"/> to recordings
@@ -3387,131 +3350,6 @@ namespace Parsek
             return false;
         }
 
-        /// <summary>Test seam replacing <see cref="ReadFacilityCostTableProbe"/>. Cleared by ResetForTesting.</summary>
-        internal static Func<LedgerLoadMigration.FacilityCostTableProbe> FacilityCostTableProbeForTesting;
-
-        /// <summary>
-        /// Runs <see cref="LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts"/> once per
-        /// load: every recalc retries it until a pass completes (the funds seed exists, and in
-        /// a career the multiplier and the facility cost table are readable), then never again
-        /// until the next load. A completed pass that priced a row bumps the ledger state
-        /// version, so caches built on the cost-0 rows rebuild, and writes one Info summary.
-        /// </summary>
-        private static void EnsureLegacyFacilityUpgradeCostEstimates()
-        {
-            if (legacyFacilityUpgradeEstimateDone)
-                return;
-
-            GameAction seed;
-            bool hasSeed = TryGetFundsSeed(out seed);
-            GameStateBaseline initialBaseline;
-            bool hasInitialBaseline = TryGetInitialResourceBaseline(out initialBaseline);
-            var seedMoment = LedgerLoadMigration.ClassifyFundsSeedCaptureMoment(
-                hasSeed,
-                hasSeed ? seed.InitialFunds : 0f,
-                hasInitialBaseline,
-                hasInitialBaseline ? initialBaseline.funds : 0.0);
-            double seedCaptureUT = hasInitialBaseline ? initialBaseline.ut : double.NaN;
-
-            var result = LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts(
-                Ledger.Actions, GameStateStore.Events, ReadFacilityCostTableProbe(),
-                seedMoment, seedCaptureUT);
-            if (!result.Complete)
-            {
-                ParsekLog.VerboseOnChange(Tag, "legacy-facility-upgrade-estimate-defer", result.DeferReason,
-                    "Legacy facility-upgrade cost estimate: deferred - " + result.DeferReason +
-                    " (" + result.Candidates.ToString(CultureInfo.InvariantCulture) +
-                    " cost-0 row(s) wait for the next recalc)");
-                return;
-            }
-
-            legacyFacilityUpgradeEstimateDone = true;
-            if (result.Estimated > 0 || result.Repaired > 0)
-                Ledger.BumpStateVersion();
-            if (result.Candidates == 0)
-                return;
-            // Science / Sandbox rows are 0 by design (no funds were charged): not news.
-            if (result.NotCareer == result.Candidates)
-                ParsekLog.Verbose(Tag, "Legacy facility-upgrade cost estimate: " + result.Format());
-            else
-                ParsekLog.Info(Tag, "Legacy facility-upgrade cost estimate: " + result.Format());
-        }
-
-        internal static LedgerLoadMigration.FacilityCostTableProbe ReadFacilityCostTableProbe()
-        {
-            var provider = FacilityCostTableProbeForTesting;
-            if (provider != null)
-                return provider();
-            try
-            {
-                return ReadFacilityCostTableProbeLive();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.VerboseOnChange(Tag, "legacy-facility-upgrade-estimate-probe", ex.GetType().Name,
-                    "Legacy facility-upgrade cost estimate: game read failed (" + ex.GetType().Name +
-                    ": " + ex.Message + ") - treated as no current game");
-                return new LedgerLoadMigration.FacilityCostTableProbe();
-            }
-        }
-
-        [System.Runtime.CompilerServices.MethodImpl(
-            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static LedgerLoadMigration.FacilityCostTableProbe ReadFacilityCostTableProbeLive()
-        {
-            var probe = new LedgerLoadMigration.FacilityCostTableProbe();
-            Game game = HighLogic.CurrentGame;
-            if (game == null)
-                return probe;
-
-            probe.GameAvailable = true;
-            probe.IsCareer = game.Mode == Game.Modes.CAREER;
-            if (game.Parameters != null && game.Parameters.Career != null)
-            {
-                probe.MultiplierReadable = true;
-                probe.FundsLossMultiplier = game.Parameters.Career.FundsLossMultiplier;
-            }
-
-            // The table is loaded when at least one facility has a live object with levels;
-            // after that an id with no object is one the game does not know.
-            var protos = ScenarioUpgradeableFacilities.protoUpgradeables;
-            if (protos != null)
-            {
-                foreach (var kvp in protos)
-                {
-                    if (ReadFacilityLevelCosts(kvp.Value) != null)
-                    {
-                        probe.FacilityDataLoaded = true;
-                        break;
-                    }
-                }
-            }
-            probe.LevelCosts = id =>
-            {
-                ScenarioUpgradeableFacilities.ProtoUpgradeable proto;
-                var table = ScenarioUpgradeableFacilities.protoUpgradeables;
-                if (table == null || string.IsNullOrEmpty(id) || !table.TryGetValue(id, out proto))
-                    return null;
-                return ReadFacilityLevelCosts(proto);
-            };
-            return probe;
-        }
-
-        private static float[] ReadFacilityLevelCosts(ScenarioUpgradeableFacilities.ProtoUpgradeable proto)
-        {
-            if (proto == null || proto.facilityRefs == null || proto.facilityRefs.Count == 0)
-                return null;
-            var facility = proto.facilityRefs[0];
-            var levels = facility != null ? facility.UpgradeLevels : null;
-            if (levels == null || levels.Length == 0)
-                return null;
-
-            var costs = new float[levels.Length];
-            for (int i = 0; i < levels.Length; i++)
-                costs[i] = levels[i] != null ? levels[i].levelCost : float.NaN;
-            return costs;
-        }
-
         private static bool EnsureInitialScienceSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
         {
             if (LedgerHasSeed(GameActionType.ScienceInitial))
@@ -4410,12 +4248,7 @@ namespace Parsek
             // a seed exists it must not be upgraded later from future live state.
             SeedInitialResourceBalances();
 
-            // Price the cost-0 facility-upgrade rows no saved debit proves, once per load, as
-            // soon as the seed and the facility cost table are readable. Runs before the walk,
-            // so this recalc is the one that charges them.
-            EnsureLegacyFacilityUpgradeCostEstimates();
-
-            // Same idea for stock progress: capture (once per save) what the career had
+            // For stock progress: capture (once per save) what the career had
             // achieved before the ledger began, and hand it to the milestones module for
             // this walk. Until it is captured PatchMilestones skips, so nothing is cleared.
             EnsurePreLedgerProgressSeed();
@@ -4459,9 +4292,18 @@ namespace Parsek
             // uncommitted in-flight effects that the committed-only ledger cannot see yet.
             // Walking the committed ledger is still useful, but writing that partial state
             // back into KSP is destructive. Rewind-style cutoff walks remain authoritative.
-            string patchDeferralReason = bypassPatchDeferral
-                ? null
-                : GetKspPatchDeferralReason();
+            // A ledger held from a newer Parsek version walks empty: patching KSP from that walk
+            // would reset the career's pools to seed values, so no walk patches this session
+            // (cutoff walks included).
+            string patchDeferralReason = Ledger.IsHeldFromNewerVersion
+                ? HeldLedgerPatchDeferralReason
+                : bypassPatchDeferral
+                    ? null
+                    : GetKspPatchDeferralReason();
+            if (Ledger.IsHeldFromNewerVersion)
+                ParsekLog.InfoRateLimited(Tag, "held-ledger-patch-skipped",
+                    "RecalculateAndPatch: KSP state patch skipped (" + HeldLedgerPatchDeferralReason +
+                    "); funds, science, reputation, tech, contracts, facilities and strategies keep the save's values");
             if (!string.IsNullOrEmpty(patchDeferralReason))
             {
                 ParsekLog.Verbose(Tag,
@@ -4536,7 +4378,10 @@ namespace Parsek
             // walks intentionally leave the live module at the rewind/jump target, but
             // the persisted cache is a load-recovery source and must retain future
             // committed science rows that still survive in the ledger.
-            RebuildCommittedScienceFromSurvivingLedger(actions);
+            // The cache is a load-recovery source persisted beside the events; an empty walk of a
+            // held ledger must not overwrite it.
+            if (!Ledger.IsHeldFromNewerVersion)
+                RebuildCommittedScienceFromSurvivingLedger(actions);
 
             string completeStateKey = string.Format(
                 CultureInfo.InvariantCulture,
@@ -5337,6 +5182,8 @@ namespace Parsek
             return found;
         }
 
+        internal const string HeldLedgerPatchDeferralReason = "ledger held from a newer Parsek version";
+
         private static string GetKspPatchDeferralReason()
         {
             bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
@@ -5494,16 +5341,6 @@ namespace Parsek
             Initialize();
             InvalidateCommittedFutureSnapshot("ksp-load");
 
-            // Reset the per-load MigrateOldSaveEvents flag — only this load's
-            // MigrateOldSaveEvents synthetics should gate the null-tag coverage rule.
-            // Previous loads' TryRecoverBrokenLedgerOnLoad synthetics (persisted in the
-            // ledger file) must NOT falsely register as "MigrateOldSaveEvents output".
-            ResetMigrateOldSaveEventsForLoad();
-            // Drop the previous save's unmatchable strategy-exchange residual before
-            // anything in THIS load can read it. There is no save-unload hook to hang this
-            // on, and loading save B in a process that had save A open would otherwise let
-            // A's residual bound B's pending amount until the sweep below re-measures it.
-            unmatchableStrategyScienceDebitBaseline = 0.0;
             LedgerRecoveryFundsPairing.ClearConsumedRecoveryEventKeys();
             RecoveryPayoutContextStore.Clear("KSP load");
             // Log-before-clear so any stale entries from the previous session show up
@@ -5572,33 +5409,8 @@ namespace Parsek
             // double-credit after the per-session consumed set is cleared on load.
             RepairMissingRecoveryDedupKeys();
 
-            // Migration: if ledger is still empty after reconcile but committed recordings exist,
-            // this is an old save being loaded for the first time with the ledger system.
-            // Convert existing GameStateStore events into GameActions.
-            // Done AFTER the existing-ledger reconcile, then immediately reconciled so
-            // future rows from the old event store cannot bypass maxUT on first load.
-            // GC-3: recordings of trees kept inert (another schema generation) are known to the
-            // reconcile above, but they neither trigger the migration nor feed it: an inert
-            // tree is never interpreted, and a save holding only inert trees is not an old save.
-            HashSet<string> migrationRecordingIds = ExcludeInertRecordingIds(validRecordingIds);
-            if (Ledger.Actions.Count == 0 && migrationRecordingIds != null && migrationRecordingIds.Count > 0)
-            {
-                int beforeOldSaveMigration = Ledger.Actions.Count;
-                MigrateOldSaveEvents(migrationRecordingIds);
-                if (Ledger.Actions.Count != beforeOldSaveMigration)
-                {
-                    Ledger.Reconcile(
-                        validRecordingIds,
-                        maxUT,
-                        preserveFutureTimelineActions: preserveFutureRows);
-                }
-            }
-
-            OnKspLoadAfterOldSaveEventReconcileForTesting?.Invoke();
-
-            // Migration: ensure all committed recordings have KerbalAssignment actions.
-            // Old saves predating the KerbalAssignment feature have recordings but no
-            // kerbal actions in the ledger.
+            // Re-derive every committed recording's KerbalAssignment rows from its crew
+            // data, keeping ActionIds where the row identity matches.
             MigrateKerbalAssignments();
 
             // NO load-time backfill for the paired kerbal-death reputation penalty.
@@ -5612,21 +5424,6 @@ namespace Parsek
             // Flights filed before this producer shipped therefore keep exactly the rows
             // they had; only newly committed recordings get one.
 
-            // #401/#396 one-shot save recovery now runs here, after committed recordings
-            // (and any cold-start pending active tree) have been loaded. That gives the
-            // post-epoch visibility filter an authoritative recording-id scope and keeps
-            // old hidden branch events out of the synthesized ledger rows for the right
-            // reason: their recording ids are no longer part of the current timeline.
-            try
-            {
-                TryRecoverBrokenLedgerOnLoad(maxUT);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn(Tag,
-                    $"TryRecoverBrokenLedgerOnLoad failed during OnKspLoad: {ex.GetType().Name}: {ex.Message}");
-            }
-
             // BUG-F: during a cold OnLoad the universe clock is not yet initialized, so
             // maxUT (= Planetarium.GetUniversalTime() at the load call site) reads as 0.
             // A current-UT cutoff at UT=0 treats the entire established career as "future"
@@ -5636,14 +5433,6 @@ namespace Parsek
             // action. The deferred-seed coroutine re-applies the cutoff once the clock is
             // ready, so a genuine future-timeline (post-rewind) cold load is still honored.
             // currentUtReady was computed above (it also gates row preservation in Reconcile).
-            //
-            // STRATEGY-PREFIX-HOLDBACK-PERMANENT: measure the unmatchable strategy-exchange
-            // science residual BEFORE the load recalc, so the very first PatchScience of the
-            // load already sees the bound and a pre-capture-fix save never emits the
-            // GUARDED DRAWDOWN clamp + player toast at all. Placed after Reconcile /
-            // MigrateOldSaveEvents / TryRecoverBrokenLedgerOnLoad so the sweep nets against
-            // the same ledger rows the recalc is about to walk.
-            CaptureUnmatchableStrategyScienceDebitBaselineOnLoad();
 
             bool hasFutureActions = HasActionsAfterUT(maxUT);
             bool useCurrentUtCutoff =
@@ -5706,44 +5495,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The ids of <paramref name="validRecordingIds"/> that do not belong to a committed tree
-        /// kept inert (<see cref="InertRecordingTrees"/>). Returns the same set when none do.
-        /// </summary>
-        internal static HashSet<string> ExcludeInertRecordingIds(HashSet<string> validRecordingIds)
-        {
-            if (validRecordingIds == null || InertRecordingTrees.Count == 0)
-                return validRecordingIds;
-            var kept = new HashSet<string>(StringComparer.Ordinal);
-            int excluded = 0;
-            foreach (string id in validRecordingIds)
-            {
-                if (InertRecordingTrees.ContainsRecordingId(id))
-                    excluded++;
-                else
-                    kept.Add(id);
-            }
-            if (excluded > 0)
-                ParsekLog.Verbose(Tag,
-                    "OnKspLoad: old-save migration scope excludes " +
-                    excluded.ToString(CultureInfo.InvariantCulture) +
-                    " recording id(s) of inert trees; remaining=" +
-                    kept.Count.ToString(CultureInfo.InvariantCulture));
-            return kept;
-        }
-
-        /// <summary>
-        /// Migration for old saves: converts existing GameStateStore events from committed
-        /// recordings into GameActions and adds them to the ledger.
-        /// </summary>
-        private static void MigrateOldSaveEvents(HashSet<string> validRecordingIds)
-        {
-            LedgerLoadMigration.MigrateOldSaveEvents(validRecordingIds);
-        }
-
-        /// <summary>
-        /// Migration: ensures all committed recordings have KerbalAssignment actions
-        /// in the ledger. Old saves predating the feature have recordings but no kerbal
-        /// actions. Generates them from vessel snapshot crew data.
+        /// Re-derives the KerbalAssignment rows of every committed recording from its
+        /// vessel snapshot crew data, so each recording has the rows its crew implies.
         /// </summary>
         private static void MigrateKerbalAssignments()
         {
@@ -6260,7 +6013,6 @@ namespace Parsek
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
-            legacyFacilityUpgradeEstimateDone = false;
 
             string source;
             if (saveLedgerNode != null)
@@ -6285,17 +6037,6 @@ namespace Parsek
                 source = "'" + path + "'";
             }
 
-            int repairedLegacyPartPurchaseEvents =
-                GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
-            int repairedLegacyPartPurchaseActions =
-                RepairLegacyPartPurchaseActionsOnLoad(GameStateStore.Events, Ledger.Actions);
-            if (repairedLegacyPartPurchaseEvents > 0 || repairedLegacyPartPurchaseActions > 0)
-            {
-                ParsekLog.Info(Tag,
-                    $"OnLoad: repaired legacy R&D part-purchase rows " +
-                    $"(events={repairedLegacyPartPurchaseEvents}, actions={repairedLegacyPartPurchaseActions})");
-            }
-            RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
             SeedKscSequenceCounterFromLoadedLedger(Ledger.Actions);
             CareerSettingsLock.EnsureAndEnforce(KspStatePatcher.ReadLiveAllowNegativeCurrency(), "ledger-load");
             ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from {source}");
@@ -6326,96 +6067,6 @@ namespace Parsek
         }
 
         internal static int KscSequenceCounterForTesting => kscSequenceCounter;
-
-        internal static int RepairLegacyPartPurchaseActionsOnLoad(
-            IReadOnlyList<GameStateEvent> events,
-            IReadOnlyList<GameAction> ledgerActions)
-        {
-            return LedgerLoadMigration.RepairLegacyPartPurchaseActionsOnLoad(events, ledgerActions);
-        }
-
-        /// <summary>
-        /// Load-time repair of FacilityUpgrade rows written at cost 0 before the upgrade cost
-        /// capture (see <see cref="LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad"/>),
-        /// with one summary line. Returns the number of rows repaired.
-        /// </summary>
-        internal static int RepairZeroCostFacilityUpgradeActionsOnLoad(
-            IReadOnlyList<GameStateEvent> events,
-            IReadOnlyList<GameAction> ledgerActions)
-        {
-            var result = LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad(events, ledgerActions);
-            if (result.Repaired > 0)
-            {
-                ParsekLog.Info(Tag,
-                    "OnLoad: repaired cost-0 facility-upgrade rows from their saved " +
-                    "StructureConstruction debits: " + result.Format());
-            }
-            else if (result.ZeroCostRows > 0)
-            {
-                ParsekLog.Verbose(Tag,
-                    "OnLoad: cost-0 facility-upgrade rows kept as stored (no unique saved debit " +
-                    "proves their cost): " + result.Format());
-            }
-            return result.Repaired;
-        }
-
-        /// <summary>
-        /// One-shot save recovery migration for legacy saves with missing funds,
-        /// contract, or science ledger rows.
-        /// </summary>
-        internal static int TryRecoverBrokenLedgerOnLoad(double? maxUT = null)
-        {
-            return LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad(maxUT);
-        }
-
-        /// <summary>Pure: event types the migration can synthesize actions for.</summary>
-        internal static bool IsRecoverableEventType(GameStateEventType t)
-        {
-            return LedgerLoadMigration.IsRecoverableEventType(t);
-        }
-
-        /// <summary>
-        /// Pure: checks whether the ledger already has an action matching the given
-        /// event. Used by the save recovery migration to avoid duplicates.
-        /// </summary>
-        internal static bool LedgerHasMatchingAction(GameStateEvent evt)
-        {
-            return LedgerLoadMigration.LedgerHasMatchingAction(evt);
-        }
-
-        /// <summary>
-        /// <see cref="LedgerHasMatchingAction(GameStateEvent)"/> over an explicit row list,
-        /// reporting whether a row of another capture matched economically only.
-        /// </summary>
-        internal static bool LedgerHasMatchingAction(
-            GameStateEvent evt, IReadOnlyList<GameAction> actions, out bool otherCaptureMatched)
-        {
-            return LedgerLoadMigration.LedgerHasMatchingAction(evt, actions, out otherCaptureMatched);
-        }
-
-        /// <summary>
-        /// Pure: checks whether the ledger already has enough ScienceEarning credit
-        /// for the given subject.
-        /// </summary>
-        internal static bool LedgerHasMatchingScienceEarning(string subjectId, float minScience)
-        {
-            return LedgerLoadMigration.LedgerHasMatchingScienceEarning(subjectId, minScience);
-        }
-
-        /// <summary>
-        /// Pure: returns the total ScienceAwarded already present in the ledger for a
-        /// given subject.
-        /// </summary>
-        internal static float GetLedgerScienceEarningTotal(string subjectId)
-        {
-            return LedgerLoadMigration.GetLedgerScienceEarningTotal(subjectId);
-        }
-
-        /// <summary>Pure: maps GameStateEventType to the corresponding GameActionType.</summary>
-        internal static GameActionType? MapEventTypeToActionType(GameStateEventType t)
-        {
-            return LedgerLoadMigration.MapEventTypeToActionType(t);
-        }
 
         /// <summary>
         /// Called when a KSC spending action occurs outside of a flight recording session.
@@ -9631,38 +9282,13 @@ namespace Parsek
         /// <param name="visibilityFilter">Optional per-event gate. Production passes
         /// <c>GameStateStore.IsEventVisibleToCurrentTimeline</c> so a retired timeline's
         /// events cannot hold a phantom adjustment open; tests pass null.</param>
-        /// <param name="unmatchableBaseline">The load-time unmatchable residual measured by
-        /// <see cref="ComputeUnmatchableStrategyScienceDebitBaseline"/>: the part of the
-        /// observed population that no future row can EVER ingest, because it was written
-        /// before the capture fix (PR #1483) existed. Subtracted from the observed side so
-        /// a pre-fix save's orphaned event stops holding the patch target back on every
-        /// recalc for the rest of the save's life (STRATEGY-PREFIX-HOLDBACK-PERMANENT).
-        /// Defaults to 0, so every pre-existing caller and every unit cell keeps the
-        /// original unbounded netting.</param>
         /// </summary>
         internal static double ComputePendingUncommittedStrategyScienceDebit(
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> ledgerActions,
-            Func<GameStateEvent, bool> visibilityFilter = null,
-            double unmatchableBaseline = 0.0)
+            Func<GameStateEvent, bool> visibilityFilter = null)
         {
-            double observedDebit = SumObservedStrategyInputScienceDebits(
-                events, visibilityFilter, null);
-
-            // STRATEGY-PREFIX-HOLDBACK-PERMANENT. Bound the OBSERVED side by the residual
-            // that was already proven unmatchable when the save loaded. The drawdown guard
-            // is untouched (it is correct; the pending adjustment is what overstays) and
-            // the committed side keeps its exchanger-only filter, so the observed /
-            // committed symmetry the unbounded window depends on survives: the baseline is
-            // itself a NET of the SAME two populations, so an ownerless KSC exchange and a
-            // discard's re-homed untagged row still cancel exactly as before. See
-            // ComputeUnmatchableStrategyScienceDebitBaseline.
-            if (unmatchableBaseline > 0.0)
-            {
-                observedDebit -= unmatchableBaseline;
-                if (observedDebit < 0.0)
-                    observedDebit = 0.0;
-            }
+            double observedDebit = SumObservedStrategyInputScienceDebits(events, visibilityFilter);
 
             if (observedDebit <= 0.1)
                 return 0.0;
@@ -9674,18 +9300,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The OBSERVED side of the exchanger pending family, factored out so the pending
-        /// helper and the load-time baseline sweep below evaluate the SAME four predicates
-        /// (ScienceChanged / StrategyInput key / debit sign / visibility) over the same
-        /// store. A second hand-written copy would be a second thing to keep in step.
+        /// The OBSERVED side of the exchanger pending family: stored
+        /// ScienceChanged(StrategyInput) debits that pass the visibility gate.
         /// </summary>
-        /// <param name="extraGate">Optional additional per-event gate applied after the
-        /// four shared predicates. The baseline sweep passes "this event can no longer
-        /// gain a row"; the pending helper passes null.</param>
         private static double SumObservedStrategyInputScienceDebits(
             IReadOnlyList<GameStateEvent> events,
-            Func<GameStateEvent, bool> visibilityFilter,
-            Func<GameStateEvent, bool> extraGate)
+            Func<GameStateEvent, bool> visibilityFilter)
         {
             double observedDebit = 0.0;
             if (events == null)
@@ -9706,8 +9326,6 @@ namespace Parsek
                 if (evt.valueAfter >= evt.valueBefore)
                     continue;
                 if (visibilityFilter != null && !visibilityFilter(evt))
-                    continue;
-                if (extraGate != null && !extraGate(evt))
                     continue;
 
                 observedDebit += evt.valueBefore - evt.valueAfter;
@@ -9760,250 +9378,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// STRATEGY-PREFIX-HOLDBACK-PERMANENT: the one-time load-sweep reconciliation that
-        /// bounds <see cref="ComputePendingUncommittedStrategyScienceDebit"/>'s observed
-        /// side.
-        ///
-        /// <para>THE DEFECT. The pending helper's window is deliberately unbounded in UT -
-        /// the race it covers (KSP debits the pool at the exchange, the matching
-        /// <see cref="GameActionType.StrategyScienceDebit"/> row lands at recording COMMIT)
-        /// stays open for as long as the flight lasts, so a recent-UT window like its two
-        /// siblings' would never see it. On a save whose exchange predates the capture fix
-        /// the stored <c>ScienceChanged(StrategyInput)</c> event exists but the row never
-        /// will, so the un-ingested gap is permanent: the adjustment holds the patch target
-        /// back by the exchange's full take on EVERY recalc and the drawdown guard clamps
-        /// (WARN + player toast) each time, forever. Measured live at exactly 108.84
-        /// science on the test career's original <c>researchIPsellout</c> exchange
-        /// (<c>logs/2026-08-19_0002_strategy-multi-live</c>).</para>
-        ///
-        /// <para>THE BOUND. Only two writers ever produce a
-        /// <see cref="GameActionType.StrategyScienceDebit"/> exchanger row: the live KSC
-        /// door (<c>OnKscSpending</c>, synchronous with the event) and the commit-time
-        /// converter (<c>ConvertStrategyExchangeScience</c>, scoped to the committing
-        /// recording's id). So an observed event can still gain a row if and only if it is
-        /// TAGGED to a recording that has not committed yet. Every other visible observed
-        /// event - untagged, or tagged to an already-committed recording - has had its one
-        /// chance. This sweep sums exactly those, nets them against the committed side, and
-        /// returns the unmatchable residual.</para>
-        ///
-        /// <para>WHY THIS SHAPE AND NOT A NARROWER PREDICATE. The observed and committed
-        /// populations must stay symmetric w.r.t. <c>RecordingId</c> - that symmetry is
-        /// what lets an ownerless KSC-door exchange cancel itself and lets a non-rewind
-        /// discard's re-homed UNTAGGED row cancel its orphaned event
-        /// (<c>PreserveIrreversibleLiveGameplayOnDiscard</c>). Filtering the observed side
-        /// on tag WITHOUT mirroring the committed side would break exactly that. Returning
-        /// a NET residual instead keeps both populations intact: a matched pair cancels
-        /// inside this sweep and contributes nothing, so on an already-correct (post-fix)
-        /// save the residual is 0 and the pending helper is byte-identical to before -
-        /// which is also what makes re-running the sweep on every load idempotent.</para>
-        ///
-        /// <para>ONE QUALIFICATION on that symmetry, so it is not read as unconditional:
-        /// when the residual is nonzero the committed side appears in BOTH terms of the
-        /// pending algebra and cancels out of it, so an exchanger ROW paired with a
-        /// STILL-REACHABLE event would be subtracted twice. That pairing cannot occur on a
-        /// well-formed save - a row exists only after its recording committed or the KSC
-        /// door ran, and either makes the event unreachable - so it is reachable only via a
-        /// torn write (a ledger that landed the row while the store kept an uncommitted
-        /// recording id). The direction is under-holding-back, i.e. toward the guard
-        /// clamping rather than toward a wrong pool value.</para>
-        ///
-        /// <para>The result is DETERMINISTIC from the on-disk state, so it is recomputed
-        /// from scratch at every load rather than persisted - no schema change, and no
-        /// stale marker to reconcile. It is deliberately NOT a retro-fill: nothing is
-        /// written to the ledger, so the reconstruction is untouched and
-        /// <c>LedgerLoadMigration.IsMigrationConvertibleEvent</c>'s "pre-fix history stays
-        /// pre-fix" rule is not disturbed.</para>
+        /// Live wrapper over <see cref="ComputePendingUncommittedStrategyScienceDebit"/>:
+        /// the current GameStateStore / ledger state behind the current-timeline
+        /// visibility gate. The patch-target adjuster and the drawdown-guard
+        /// discriminator both read it.
         /// </summary>
-        /// <param name="rowStillReachable">REQUIRED per-event predicate: true when a future
-        /// row can still ingest this event. Production passes
-        /// <see cref="CanStrategyScienceDebitRowStillLand"/>; tests pass their own. Not
-        /// optional on purpose - a null would read as "nothing is reachable", which
-        /// fail-opens toward maximum cancellation.</param>
-        internal static double ComputeUnmatchableStrategyScienceDebitBaseline(
-            IReadOnlyList<GameStateEvent> events,
-            IReadOnlyList<GameAction> ledgerActions,
-            Func<GameStateEvent, bool> visibilityFilter,
-            Func<GameStateEvent, bool> rowStillReachable)
+        internal static double GetPendingUncommittedStrategyScienceDebit()
         {
-            if (rowStillReachable == null)
-                throw new ArgumentNullException(nameof(rowStillReachable));
-
-            double unmatchableObserved = SumObservedStrategyInputScienceDebits(
-                events, visibilityFilter, e => !rowStillReachable(e));
-
-            if (unmatchableObserved <= 0.1)
-                return 0.0;
-
-            double committedDebit = SumCommittedExchangerStrategyScienceDebits(ledgerActions);
-
-            double residual = unmatchableObserved - committedDebit;
-            return residual > 0.1 ? residual : 0.0;
-        }
-
-        /// <summary>
-        /// THE SECOND HALF OF THE FIX, and the one that keeps it symmetric (Finding 2 of the
-        /// `strategy-prefix-holdback` review). The load sweep above is POPULATION-based: it
-        /// answers "how much observed debit can never be ingested". It cannot answer "is the
-        /// reconstruction ALREADY running high by that amount", and the two pre-fix saves in
-        /// the wild differ on exactly that:
-        ///
-        /// <list type="bullet">
-        /// <item><b>Shape A</b> - the reconstruction agrees with the live pool
-        /// (<c>preStrategyRunning == live</c>). 15 of the 18 science clamps in
-        /// <c>logs/2026-08-19_0002_strategy-multi-live</c> are this shape (e.g.
-        /// <c>running=94.487645842134953 live=203.32925415039063
-        /// wouldBeTarget=203.32925415039063</c>: <c>live - running</c> is the exchange take
-        /// to the digit and <c>wouldBeTarget == clampedTo == live</c>, i.e. a pure NO-OP
-        /// WARN). Here the pending adjustment invents the discrepancy it then reports, and
-        /// the target subtraction is inert because
-        /// <c>AdjustSciencePatchTargetForPendingStrategyScienceDebit</c> early-returns when
-        /// the target is already at/below live. THE FILED DEFECT.</item>
-        /// <item><b>Shape B</b> - the reconstruction runs high by exactly the un-ingested
-        /// take (<c>preStrategyRunning == live + take</c>), because the ledger holds the
-        /// exchange's FUNDS credit and no science debit row. This is the DOCUMENTED
-        /// <c>C2Career</c> fixture shape (<c>C2CareerLedgerReplayTests</c> pins
-        /// <c>recon - save = +108.84171851920314</c>). Here the pending adjustment is doing
-        /// REAL work: it pulls both the target and the discriminator down onto live, and the
-        /// save is SILENT. Cancelling it outright would make the target overshoot live by
-        /// the take, trip <c>IsGuardableUplift</c>, and produce a permanent
-        /// <c>GUARDED UPLIFT clamped</c> WARN plus the "Held your science at the spent value"
-        /// toast - re-creating the forbidden class in the mirror direction, on the very save
-        /// the fixture suite documents.</item>
-        /// </list>
-        ///
-        /// <para>So the unmatchable residual is WITHHELD ONLY TO THE EXTENT THE
-        /// RECONSTRUCTION DOES NOT ALREADY CARRY IT: subtract the measured overhang
-        /// (<c>preStrategyRunning - live</c>, floored at 0) from the baseline and clamp to
-        /// [0, baseline]. Shape A has overhang 0 -> the whole residual is withheld -> pending
-        /// 0 -> no clamp. Shape B has overhang == take -> nothing is withheld -> pending ==
-        /// take -> byte-identical to main. Anything in between lands the discriminator
-        /// exactly ON live rather than on either side of it.</para>
-        ///
-        /// <para>SAFETY DIRECTION: this can only ever SHRINK the pending adjustment, never
-        /// grow it, so it cannot mask a leak. A genuine over-count larger than the residual
-        /// (<c>overhang &gt; baseline</c>) withholds nothing and clamps exactly as main does;
-        /// a genuine missing-earning DRAWDOWN (<c>overhang &lt; 0</c>) still reads below live
-        /// after the withhold and still clamps - with a discriminator that no longer
-        /// double-counts the phantom, so the reported number is the honest one.</para>
-        /// </summary>
-        /// <param name="preStrategyRunning">The running science balance with the two SIBLING
-        /// pending adjusters already folded in and the strategy one not yet applied - i.e.
-        /// the exact value the strategy debit is about to be subtracted from. Using the
-        /// same basis on both sides is what makes the target adjuster and the guard
-        /// discriminator resolve the identical pending amount.</param>
-        internal static double ResolveEffectiveUnmatchableStrategyScienceBaseline(
-            double unmatchableBaseline, double preStrategyRunning, double currentLiveScience)
-        {
-            if (unmatchableBaseline <= 0.0)
-                return 0.0;
-
-            double overhang = preStrategyRunning - currentLiveScience;
-            if (overhang <= 0.0)
-                return unmatchableBaseline;
-
-            double withheld = unmatchableBaseline - overhang;
-            return withheld > 0.0 ? withheld : 0.0;
-        }
-
-        /// <summary>
-        /// Production reachability predicate for
-        /// <see cref="ComputeUnmatchableStrategyScienceDebitBaseline"/>: an observed
-        /// <c>ScienceChanged(StrategyInput)</c> debit can still gain its
-        /// <see cref="GameActionType.StrategyScienceDebit"/> row only while it is tagged to
-        /// a recording whose COMMIT has not run yet (the commit-time converter is the only
-        /// writer left for it - the KSC door writes its row synchronously and is long
-        /// past). Untagged, or tagged to an already-committed recording, means the row is
-        /// unrecoverable.
-        ///
-        /// <para>Deliberately expressed as "not committed" rather than "is the live active
-        /// tree": at <see cref="OnKspLoad"/> time <c>ParsekFlight.Instance</c> may not be up
-        /// yet, and a mid-flight save's in-flight recording must not be mis-read as
-        /// unreachable and have its genuine hold-back cancelled. A by-id committed lookup
-        /// is available and correct at every load order.</para>
-        /// </summary>
-        internal static bool CanStrategyScienceDebitRowStillLand(GameStateEvent evt)
-        {
-            string recordingId = evt.recordingId;
-            if (string.IsNullOrEmpty(recordingId))
-                return false;
-            return !RecordingStore.IsCommittedRecordingId(recordingId);
-        }
-
-        /// <summary>
-        /// Re-measures <see cref="unmatchableStrategyScienceDebitBaseline"/> from the
-        /// just-loaded store + ledger. Called once per <see cref="OnKspLoad"/>, after the
-        /// ledger has been reconciled / repaired / migrated and before the load recalc, so
-        /// the sweep sees the same rows the recalc is about to walk.
-        /// </summary>
-        private static void CaptureUnmatchableStrategyScienceDebitBaselineOnLoad()
-        {
-            double previous = unmatchableStrategyScienceDebitBaseline;
-            unmatchableStrategyScienceDebitBaseline = ComputeUnmatchableStrategyScienceDebitBaseline(
-                GameStateStore.Events,
-                Ledger.Actions,
-                GameStateStore.IsEventVisibleToCurrentTimeline,
-                CanStrategyScienceDebitRowStillLand);
-
-            if (unmatchableStrategyScienceDebitBaseline > 0.0)
-            {
-                ParsekLog.Info(Tag,
-                    "Unmatchable strategy-exchange science baseline: " +
-                    unmatchableStrategyScienceDebitBaseline.ToString("R", CultureInfo.InvariantCulture) +
-                    " (was " + previous.ToString("R", CultureInfo.InvariantCulture) + "). " +
-                    "This save carries stored ScienceChanged(StrategyInput) debit(s) that no " +
-                    "future StrategyScienceDebit row can ingest (pre-capture-fix exchange); " +
-                    "the pending adjustment is bounded by this amount so the drawdown guard " +
-                    "stops clamping on every recalc. See STRATEGY-PREFIX-HOLDBACK-PERMANENT.");
-            }
-            else
-            {
-                ParsekLog.Verbose(Tag,
-                    "Unmatchable strategy-exchange science baseline: 0 (was " +
-                    previous.ToString("R", CultureInfo.InvariantCulture) +
-                    ") - every observed strategy-exchange science debit is either still " +
-                    "committable or already ingested.");
-            }
-        }
-
-        /// <summary>Test seam for the load-time baseline (production sets it in OnKspLoad).</summary>
-        internal static void SetUnmatchableStrategyScienceDebitBaselineForTesting(double value)
-        {
-            unmatchableStrategyScienceDebitBaseline = value;
-        }
-
-        /// <summary>Test-only reader paired with the setter above.</summary>
-        internal static double GetUnmatchableStrategyScienceDebitBaselineForTesting()
-        {
-            return unmatchableStrategyScienceDebitBaseline;
-        }
-
-        /// <summary>
-        /// Live wrapper over <see cref="ComputePendingUncommittedStrategyScienceDebit"/>.
-        /// Passes the current GameStateStore / ledger state, the current-timeline
-        /// visibility gate, and the load-time unmatchable baseline resolved against the
-        /// reconstruction's ACTUAL overhang
-        /// (<see cref="ResolveEffectiveUnmatchableStrategyScienceBaseline"/>).
-        ///
-        /// <para>Both live consumers - the patch-target adjuster and the drawdown-guard
-        /// discriminator - must call this with the SAME two numbers so they resolve the
-        /// identical pending amount; <c>KspStatePatcher.PatchScience</c> computes
-        /// <paramref name="preStrategyRunning"/> once via
-        /// <c>ComputePreStrategyPendingAdjustedRunningScience</c> and hands it to both.
-        /// There is deliberately NO parameterless overload: one would silently apply the
-        /// whole baseline and re-open the shape-B uplift this resolver exists to
-        /// prevent.</para>
-        /// </summary>
-        internal static double GetPendingUncommittedStrategyScienceDebit(
-            double preStrategyRunning, double currentLiveScience)
-        {
-            double effectiveBaseline = ResolveEffectiveUnmatchableStrategyScienceBaseline(
-                unmatchableStrategyScienceDebitBaseline, preStrategyRunning, currentLiveScience);
-
             return ComputePendingUncommittedStrategyScienceDebit(
                 GameStateStore.Events,
                 Ledger.Actions,
-                GameStateStore.IsEventVisibleToCurrentTimeline,
-                effectiveBaseline);
+                GameStateStore.IsEventVisibleToCurrentTimeline);
         }
 
         /// <summary>
@@ -10315,12 +9700,9 @@ namespace Parsek
             strategiesModule = null;
             kerbalsModule = null;
             RecalculationEngine.ClearModules();
-            legacyFacilityUpgradeEstimateDone = false;
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
-            ResetMigrateOldSaveEventsForLoad();
-            unmatchableStrategyScienceDebitBaseline = 0.0;
             kscSequenceCounter = 0;
             LedgerRecoveryFundsPairing.ResetForSaveLoad();
             CommittedFutureIndexCache.Invalidate("save-scoped-reset");
@@ -10339,16 +9721,12 @@ namespace Parsek
             LoadedFlightStateUTForTesting = null;
             ExpectedCurrencySingletonsForTesting = null;
             ProgressSeedProbeForTesting = null;
-            FacilityCostTableProbeForTesting = null;
-            legacyFacilityUpgradeEstimateDone = false;
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
             fundsTrackedOverrideForTesting = null;
             scienceTrackedOverrideForTesting = null;
             repTrackedOverrideForTesting = null;
-            ResetMigrateOldSaveEventsForTesting();
-            unmatchableStrategyScienceDebitBaseline = 0.0;
             kscSequenceCounter = 0;
             emittedReconcileWarnKeys.Clear();
             emittedScienceReconcileDumpKeys.Clear();
@@ -10367,7 +9745,6 @@ namespace Parsek
             OnTimelineDataChanged = null;
             OnRecordingCommittedFaultInjector = null;
             OnRecordingCommittedPostSciencePersistFaultInjector = null;
-            OnKspLoadAfterOldSaveEventReconcileForTesting = null;
             NowUtProviderForTesting = null;
             CommittedFutureIndexCache.ResetForTesting();
             DeferOneFrameForTesting = null;

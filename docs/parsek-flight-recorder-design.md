@@ -50,7 +50,7 @@ These principles govern every design decision in the flight recorder. They are l
 
 3. **Highest fidelity wins.** Multiple overlapping data sources are merged by selecting the best at each UT: active > background > checkpoint.
 
-4. **Single current recording contract.** Pre-1.0, there is no additive format evolution and no backward compatibility. Every recording carries a format version and a schema-generation discriminator (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`); loads reject any mismatched format version or older/newer generation via `RecordingStore.IsRecordingSchemaCompatible`. There are no migration or forward-tolerance paths - each generation bump deletes the prior generation's tolerance seams.
+4. **Stable recording format from 1.0.** Every recording carries a format version and a schema-generation discriminator (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`, the 1.0 baseline). Every build loads every 1.0+ recording: an additive change needs no bump, and a shape change bumps the generation and registers an upgrade step in `SaveFormat.cs`. `RecordingStore.IsRecordingSchemaCompatible` rejects a newer or pre-baseline stamp; a committed tree it rejects is kept inert and written back. Policy: `docs/dev/design-save-format-policy.md`.
 
 ### 2.2 Ghost Chains and Paradox Prevention
 
@@ -180,7 +180,7 @@ Recording
   VesselName:               string
   VesselPersistentId:       uint — KSP's vessel PID at recording time
   RecordingFormatVersion:   int - recording/sidecar format version (currently 1)
-  RecordingSchemaGeneration: int - clean-slate schema discriminator (currently 4); load rejects a mismatched format version or an older/newer generation
+  RecordingSchemaGeneration: int - schema discriminator (currently 4, the 1.0 baseline); load upgrades an older 1.0+ generation through its registered steps and rejects a newer or pre-baseline one
 
   // Trajectory data (primary)
   TrackSections:            list of TrackSection — typed trajectory chunks (Section 6)
@@ -2020,9 +2020,11 @@ Committed timeline with recordings
 
 Every recording carries two load-gating discriminators: `RecordingFormatVersion` (currently 1) and `RecordingSchemaGeneration` (currently 4). Any code that reads a recording or sidecar checks both first via `RecordingStore.IsRecordingSchemaCompatible`. A mismatched format version or an older/newer generation is rejected with a clear reason (`generation-missing`, `generation-older`, `generation-newer`, `format-version-mismatch`) rather than attempting to parse a shape it was not built for.
 
-### 17.2 Single Current Contract - No Migration
+**1.0 baseline and the upgrade lane.** Format 1 / generation 4 / tree format 0 / PSN0 format 0 is the 1.0 save-format baseline, registered with every other persisted format in `SaveFormat.cs` (one row per format: name, on-disk key, baseline, live constant). Every gate classifies a stored number through `SaveFormat.Classify` as Missing, PreBaseline, Upgradable (baseline <= stored < current), Current or Newer. Current loads; Upgradable loads only when the format's upgrade steps (`SaveFormatUpgradeStep`, one per `from -> from + 1`) are registered, and the reader then runs them on a copy of the node (`RecordingTreeRecordCodec.TryUpgradeRecordingNode`) and stamps the recording current; an Upgradable stamp with no registered path is rejected as `generation-older`. PreBaseline and Newer stay rejected with the reasons above, and a committed tree they reject is kept inert (`InertRecordingTrees`). The same routing covers the PSK0 / PSN0 header probes (a binary layout step is a decode branch in the reader, registered with a null node delegate) and the metadata-vs-sidecar stamp check (`RecordingSidecarStore.SidecarStampsAgreeWithMetadata`: an upgraded recording accepts its sidecar at the stored Upgradable stamp). Nothing is Upgradable while every current value equals its baseline. The tree's own `treeFormatVersion` is checked too (`RecordingTree.TreeFormatRejectReason`): a newer tree format is rejected as `tree-format-newer` (a committed tree is kept inert), an Upgradable one runs the tree-format steps, a missing or pre-baseline one loads best effort as format 0.
 
-Pre-1.0, the recording format is a single clean-slate contract with no additive evolution, no forward tolerance, and no migration paths. Each schema-generation bump is a hard reset that deletes the prior generation's tolerance seams, so a loader never sees a shape it was not built for. Recordings written by a different generation are rejected on load, not partially parsed or played back at reduced fidelity.
+### 17.2 Upgrade, Never Reset
+
+From the 1.0 baseline (policy: `docs/dev/design-save-format-policy.md`) a bump never resets: it registers the upgrade step from the previous value (section 17.1), so every 1.0+ recording keeps loading. Recordings written by a newer generation, or before the baseline, are rejected on load (and their committed trees kept inert), not partially parsed or played back at reduced fidelity.
 
 ### 17.3 Separation of Concerns
 
@@ -2092,7 +2094,7 @@ Ghost chain vessel conversion (Section 13.10) introduces the first modification 
 
 - **Corrupted sidecar:** Log warning, skip recording, show as "damaged" in recordings manager.
 - **Missing sidecar:** Log warning, show as "missing data." Timeline metadata preserved.
-- **Incompatible schema (format version or generation mismatch):** Reject on load via `RecordingStore.IsRecordingSchemaCompatible` with a clear reason (`generation-missing`/`generation-older`/`generation-newer`/`format-version-mismatch`). Do not attempt to parse - pre-1.0 there is no migration path.
+- **Incompatible schema (format version or generation mismatch):** Reject on load via `RecordingStore.IsRecordingSchemaCompatible` with a clear reason (`generation-missing`/`generation-older`/`generation-newer`/`format-version-mismatch`). Do not attempt to parse. The one exception is an Upgradable stamp (at or after the 1.0 baseline, below current) whose `SaveFormat` upgrade steps are registered: it is upgraded on read (section 17.1).
 - **Partially readable:** Parse the intact portion; a sidecar that cannot be parsed structurally is skipped and shown as "damaged." There is no forward-tolerance path that ignores unknown fields and plays back at reduced fidelity.
 
 ### 19.3 DAG Structure Errors
@@ -2161,9 +2163,9 @@ Stock `ScreenMessages` drops a post made during a scene load, so `StartupNoticeP
 
 ## 20. Schema Compatibility
 
-### 20.1 Single Current Generation - No Migration
+### 20.1 The 1.0 Baseline
 
-Pre-1.0, Parsek does not carry compatibility with older recordings. The recording schema is a single clean-slate contract: `RecordingFormatVersion = 1` plus a `RecordingSchemaGeneration` discriminator (currently 4). Loads reject any recording or sidecar whose format version differs, or whose generation is missing / older / newer, via `RecordingStore.IsRecordingSchemaCompatible`. There is no migration, no additive back-compat, and no retroactive re-interpretation of old payloads - each generation bump deletes the tolerance seams that only existed to read the prior generation (for example, generation 3 retired the last pre-reset seams, including the legacy v5 world-offset RELATIVE contract; generation 4 renamed the parent-anchor ConfigNode key). A save carrying recordings from a superseded generation is rejected on load rather than migrated.
+`RecordingFormatVersion = 1` with `RecordingSchemaGeneration = 4` is the 1.0 save-format baseline (owner ruling 2026-11-04; binding policy `docs/dev/design-save-format-policy.md`). Every build loads every 1.0+ recording: an additive change (a new optional key, a new enum member) needs no bump, and a shape change bumps the generation and ships an upgrade step registered in `SaveFormat.cs` (section 17.1). Before 1.0 each generation bump was a reset that deleted the prior generation's seams (generation 3 retired the legacy v5 world-offset RELATIVE contract; generation 4 renamed the parent-anchor ConfigNode key), so recordings stamped below generation 4 are pre-1.0 data: rejected on load, their committed trees kept inert. A newer generation is rejected the same way and written back verbatim.
 
 ### 20.2 Ghost Chain State Is Never Persisted
 
@@ -2200,7 +2202,7 @@ The ghost chain system, spawn safety, time jump, and ghost world presence are im
 | 6e — Relative-State Time Jump | Discrete UT skip, TIME_JUMP event | Done (27 tests) |
 | 6f — Ghost World Presence | Map view, tracking station, CommNet relay (stock API), antenna specs | Done (47 tests); CommNet relay: see 15.6 |
 
-New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, VesselGhoster, SpawnCollisionDetector, GhostExtender, TerrainCorrector, SpawnWarningUI, TimeJumpManager, GhostMapPresence, and (rebuilt 2026-09-26 per section 15.6) GhostCommNet + GhostCommNetManager in place of the never-wired GhostCommNetRelay / AntennaSpec. The recording schema is a single clean-slate contract (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`), not an additive versioned format.
+New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, VesselGhoster, SpawnCollisionDetector, GhostExtender, TerrainCorrector, SpawnWarningUI, TimeJumpManager, GhostMapPresence, and (rebuilt 2026-09-26 per section 15.6) GhostCommNet + GhostCommNetManager in place of the never-wired GhostCommNetRelay / AntennaSpec. The recording format is at its 1.0 baseline (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`; section 20.1).
 
 ### 21.3 Deferred Items
 

@@ -12,9 +12,7 @@ namespace Parsek.Tests
     /// with equal type, key and moment) keeps both rows for the replay to decide; a pair
     /// where either side names no capture (an older save) keeps the economic match.
     /// Covers <see cref="LedgerOrchestrator.DeduplicateAgainst"/>, the discard re-home that
-    /// runs through it, the save recovery migration's
-    /// <see cref="LedgerOrchestrator.LedgerHasMatchingAction(GameStateEvent)"/>, and
-    /// <see cref="GameStateStore.EventIdentityMatches"/>.
+    /// runs through it, and <see cref="GameStateStore.EventIdentityMatches"/>.
     /// </summary>
     [Collection("Sequential")]
     public class LedgerCaptureIdentityDedupTests : IDisposable
@@ -291,52 +289,6 @@ namespace Parsek.Tests
             Assert.Single(Ledger.Actions.Where(a =>
                 a.Type == GameActionType.MilestoneAchievement && a.MilestoneId == Node));
             Assert.Contains(logLines, l => l.Contains("PreserveIrreversibleLiveGameplayOnDiscard") && l.Contains("deduped=1"));
-        }
-
-        // ================================================================
-        // Save recovery migration
-        // ================================================================
-
-        [Fact]
-        public void RecoveryMigration_ARowOfAnotherCapture_IsNotThisEventsRow()
-        {
-            // Two accepts of one guid can never be the same capture: the stored event whose
-            // own row is missing is rebuilt even though a row with its key and moment exists.
-            var first = Captured(GameStateEventType.ContractAccepted, "guid-x", 100.0, "");
-            Ledger.AddAction(GameStateEventConverter.ConvertEvent(first, null));
-            var second = Captured(GameStateEventType.ContractAccepted, "guid-x", 100.0, "");
-
-            bool otherCapture;
-            Assert.False(LedgerOrchestrator.LedgerHasMatchingAction(second, Ledger.Actions, out otherCapture));
-            Assert.True(otherCapture);
-            Assert.True(LedgerOrchestrator.LedgerHasMatchingAction(first, Ledger.Actions, out otherCapture));
-
-            int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
-
-            Assert.Equal(1, recovered);
-            Assert.Equal(2, Ledger.Actions.Count(a => a.Type == GameActionType.ContractAccept));
-            Assert.Equal(1, CountLines("has no row of its own capture"));
-            Assert.Equal(1, CountLines("keptDistinctCapture=1"));
-            // Idempotent: both captures now have their row.
-            Assert.Equal(0, LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad());
-        }
-
-        [Fact]
-        public void RecoveryMigration_ARowWithNoCapture_KeepsTheEconomicMatch()
-        {
-            var evt = Captured(GameStateEventType.ContractAccepted, "guid-y", 100.0, "");
-            Ledger.AddAction(new GameAction
-            {
-                UT = 100.05,
-                Type = GameActionType.ContractAccept,
-                ContractId = "guid-y",
-                CaptureSequence = CaptureSequence.Unsequenced,
-            });
-
-            bool otherCapture;
-            Assert.True(LedgerOrchestrator.LedgerHasMatchingAction(evt, Ledger.Actions, out otherCapture));
-            Assert.False(otherCapture);
-            Assert.Equal(0, LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad());
         }
 
         // ================================================================

@@ -1557,6 +1557,9 @@ namespace Parsek
                 // save no stock load announced (the canary, design 4.1).
                 savePhase = "save-stamp";
                 WriteSaveStamp(node);
+                // The save-wide format (SaveFormat.CurrentSaveFormat) and the writer's version.
+                savePhase = "save-format";
+                SaveFormat.StampScenarioNode(node);
 
                 lastOnSaveScene = HighLogic.LoadedScene;
                 RecorderStateLog.RecState("OnSave:post", CaptureScenarioRecorderState());
@@ -3326,45 +3329,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// One-shot in-memory retire of checkpoint double-cover residue on the committed
-        /// recordings (todo INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER).
-        ///
-        /// <para>Saves written before <c>dd8b0272c</c> carry a coarse OrbitalCheckpoint
-        /// envelope [T0,T2] alongside the finer sections [T0,T1] + [T1,T2] that tile it.
-        /// The producer's anti-double-cover guard is PREVENTIVE - re-running it over such a
-        /// save adds and clips nothing - and its empty-shell reconcile only retires
-        /// payload-LESS sections, so the envelope survives forever and the analyzer's
-        /// INV2-NO-DOUBLE-COVER reds the save. <see cref="CheckpointDoubleCoverRetire"/>
-        /// drops the redundant section in memory; nothing is marked dirty, so no sidecar is
-        /// rewritten and no route's captured SidecarEpoch moves (the rule PR #1637 set for
-        /// the load-time flat-list heal). The pass is idempotent and costs one linear walk
-        /// per clean recording, so re-deriving it on every load is the whole persistence
-        /// story.</para>
-        ///
-        /// <para>Reads <see cref="RecordingStore.CommittedRecordings"/> raw ([ERS-exempt]:
-        /// this file is on <c>scripts/ers-els-audit-allowlist.txt</c>). Deliberately NOT
-        /// ERS-filtered - the residue is a data defect in the bytes, and a superseded
-        /// recording still on disk carries and re-emits it exactly like a visible one.</para>
-        ///
-        /// <para>Best-effort: a throw here must not abort an OnLoad that has already loaded
-        /// the ledger and the recordings.</para>
-        /// </summary>
-        private void RetireCheckpointDoubleCoverOnLoad()
-        {
-            try
-            {
-                CheckpointDoubleCoverRetire.RetireAcrossRecordings(
-                    RecordingStore.CommittedRecordings);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Error("Scenario",
-                    "RetireCheckpointDoubleCoverOnLoad failed (recordings left as loaded): "
-                    + ex.Message);
-            }
-        }
-
-        /// <summary>
         /// OnLoad crash-reconcile finisher for the in-game test runner's campaign
         /// isolation. Mirrors the re-fly marker + OnLoad-finisher idiom: a
         /// <see cref="TestBatchMarker"/> persisted into persistent.sfs before a
@@ -4043,6 +4007,11 @@ namespace Parsek
                 }
                 RecorderStateLog.RecState("OnLoad:settings-applied", CaptureScenarioRecorderState());
 
+                // The save-wide format stamp: log what wrote this save (pre-1.0, current, newer).
+                // Each store's own reader decides what it keeps; this read changes nothing.
+                loadPhase = "save-format";
+                SaveFormat.ClassifyLoadedScenarioNode(node, scenarioNodePopulated);
+
                 var recordings = RecordingStore.CommittedRecordings;
                 loadedRecordingCount = recordings.Count;
 
@@ -4272,17 +4241,10 @@ namespace Parsek
                     ApplyInSessionStagedStateHandoffStepB();
 
                     loadPhase = "revert-classification";
-                    ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
-                    if (savedRecNodes.Length > 0)
-                        ParsekLog.Warn("Scenario",
-                            $"OnLoad: found {savedRecNodes.Length} legacy standalone RECORDING node(s) — " +
-                            "these are no longer loaded (T56). Re-save to remove them.");
 
                     // Count tree recordings from saved tree nodes for accurate revert
                     // detection. Pure node arithmetic, extracted so the rule is testable.
-                    int savedTreeRecCount;
-                    int totalSavedRecCount = CountSavedCommittedRecordingNodes(
-                        node, out savedTreeRecCount);
+                    int savedTreeRecCount = CountSavedCommittedRecordingNodes(node);
 
                     // FLIGHT→FLIGHT can be a revert, a quickload, or a vessel switch.
                     // The event-based revert detector below owns the distinction; the
@@ -4379,7 +4341,7 @@ namespace Parsek
                     bool isRevert = ComputeIsRevertOnLoad(isVesselSwitch, revertKind);
                     ParsekLog.Verbose("Scenario",
                         $"OnLoad: revert detection — revertKind={revertKind}, " +
-                        $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
+                        $"savedTreeRecs={savedTreeRecCount}, " +
                         $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
                         $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
                         $"pendingTreeState={RecordingStore.PendingTreeStateValue}, " +
@@ -4978,9 +4940,6 @@ namespace Parsek
                     LoadTimeSweep.Run();
                     RefreshPendingQuickloadTrimScope();
 
-                    loadPhase = "checkpoint-double-cover-retire";
-                    RetireCheckpointDoubleCoverOnLoad();
-
                     // The sweep runs after this branch's ledger recalculation: when it discarded a
                     // zombie attempt (rewind design section 2.12 Rule 3), walk the ledger again so
                     // the patched career no longer carries its rows, nor what it earned into the
@@ -5408,9 +5367,6 @@ namespace Parsek
                 loadPhase = "load-time-sweep";
                 LoadTimeSweep.Run();
                 RefreshPendingQuickloadTrimScope();
-
-                loadPhase = "checkpoint-double-cover-retire";
-                RetireCheckpointDoubleCoverOnLoad();
 
                 loadPhase = "test-batch-reconcile";
                 RunTestBatchCrashReconcile();
@@ -6720,20 +6676,16 @@ namespace Parsek
         /// <summary>
         /// Revert-detection arithmetic over a SCENARIO node: the number of committed
         /// recordings the save claims. All committed recordings are serialized under
-        /// RECORDING_TREE nodes, so this is the legacy standalone RECORDING count plus
-        /// the RECORDING children of every committed tree node. Active-tree (in-flight)
-        /// and pending-tree marker nodes are skipped - their recordings are not
-        /// committed, and counting them reads a live flight as extra committed data and
-        /// suppresses the revert classification. <paramref name="savedTreeRecCount"/>
-        /// returns the tree half on its own for the OnLoad log line.
+        /// RECORDING_TREE nodes, so this is the RECORDING children of every committed
+        /// tree node. Active-tree (in-flight) and pending-tree marker nodes are skipped -
+        /// their recordings are not committed, and counting them reads a live flight as
+        /// extra committed data and suppresses the revert classification.
         /// </summary>
-        internal static int CountSavedCommittedRecordingNodes(
-            ConfigNode node, out int savedTreeRecCount)
+        internal static int CountSavedCommittedRecordingNodes(ConfigNode node)
         {
-            savedTreeRecCount = 0;
+            int savedTreeRecCount = 0;
             if (node == null) return 0;
 
-            ConfigNode[] standaloneRecNodes = node.GetNodes("RECORDING");
             ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
             for (int t = 0; t < treeNodes.Length; t++)
             {
@@ -6741,7 +6693,7 @@ namespace Parsek
                 if (IsPendingTreeNode(treeNodes[t])) continue;
                 savedTreeRecCount += treeNodes[t].GetNodes("RECORDING").Length;
             }
-            return standaloneRecNodes.Length + savedTreeRecCount;
+            return savedTreeRecCount;
         }
 
         internal static bool IsActiveTreeNode(ConfigNode treeNode)
@@ -8331,8 +8283,8 @@ namespace Parsek
         /// future same-tree recording into permanent ghost-only history (#589).
         ///
         /// <para>Same-tree future recordings are logged and deliberately left
-        /// spawn-eligible. Legacy unscoped markers from older saves are cleared when
-        /// this helper can prove they are future-of-rewind.</para>
+        /// spawn-eligible. A marker left by an earlier rewind is cleared when it no
+        /// longer matches this rewind's active/source scope.</para>
         /// </summary>
         internal static int MarkRewoundTreeRecordingsAsGhostOnly(
             IReadOnlyList<Recording> recordings)

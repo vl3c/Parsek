@@ -1562,8 +1562,8 @@ namespace Parsek
             // pre-Re-Fly post-RP branch points back into the loaded tree
             // and they look identical to session-authored ones — so the
             // gate would auto-seal a stashed slot the player never
-            // mutated. Conservatively skip the gate when the baseline is
-            // absent (legacy markers created before this field shipped).
+            // mutated. Without a baseline the gate cannot tell them apart,
+            // so it is skipped.
             if (marker.PreSessionBranchPointIds == null) return false;
 
             ParsekScenario scenario = ParsekScenario.Instance;
@@ -2187,8 +2187,8 @@ namespace Parsek
                     return false;
 
                 // Reserved legacy supply-route ids: supply routes keep their events in the
-                // route event log (Logistics.RouteEventLog), never in the ledger, and an old
-                // save's route rows are dropped at ledger load. The ids stay excluded so a
+                // route event log (Logistics.RouteEventLog), never in the ledger, and a row of
+                // one is kept verbatim as unreadable at ledger load. The ids stay excluded so a
                 // stray row could never fall through to true and strict-block a supersede.
                 case GameActionType.RouteDispatched:
                 case GameActionType.RouteCargoDebited:

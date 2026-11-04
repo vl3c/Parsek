@@ -470,8 +470,7 @@ namespace Parsek
             for (int i = 0; i < files.Length; i++)
             {
                 string fileName = Path.GetFileName(files[i]);
-                if (RecordingStore.IsTransientSidecarArtifactFile(fileName)
-                    || RecordingStore.IsLegacySidecarFile(fileName))
+                if (RecordingStore.IsTransientSidecarArtifactFile(fileName))
                     continue;
                 string id = RecordingStore.ExtractRecordingIdFromFileName(fileName);
                 if (!string.IsNullOrEmpty(id))
@@ -723,10 +722,9 @@ namespace Parsek
                 string id = RecordingStore.ExtractRecordingIdFromFileName(fileName);
                 if (id == null)
                 {
-                    // Legacy (.pcrf) and transient (.tmp / .stage / .bak) artifacts carry no
-                    // recorded data: deleted outright, as before.
-                    if (RecordingStore.IsLegacySidecarFile(fileName)
-                        || RecordingStore.IsTransientSidecarArtifactFile(fileName))
+                    // Transient (.tmp / .stage / .bak) artifacts carry no recorded data:
+                    // deleted outright.
+                    if (RecordingStore.IsTransientSidecarArtifactFile(fileName))
                     {
                         if (TryDelete(files[i], result))
                             result.TransientDeleted++;

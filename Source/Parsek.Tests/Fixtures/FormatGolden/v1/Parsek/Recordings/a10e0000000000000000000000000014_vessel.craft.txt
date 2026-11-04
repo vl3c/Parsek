@@ -1,0 +1,93 @@
+pid = dfa6e6abe518dea6d1e9a6e13ee8a6e0
+persistentId = 3100000
+name = Golden Lander
+type = Ship
+sit = ORBITING
+landed = False
+splashed = False
+met = 0
+lct = 0
+lastUT = -1
+root = 0
+lat = 0
+lon = 0
+alt = 110000
+hgt = -1
+nrm = 0,1,0
+rot = 0,0,0,1
+CoM = 0,0,0
+stg = 0
+prst = True
+ref = 0
+ctrl = False
+GroupOverride = 0
+OverrideDefault = False,False,False,False
+OverrideActionControl = 0,0,0,0
+OverrideAxisControl = 0,0,0,0
+OverrideGroupNames = ,,,
+ORBIT
+{
+	SMA = 710000
+	ECC = 0.002
+	INC = 28.6
+	LPE = 47
+	LAN = 92
+	MNA = 0.18
+	EPH = 175
+	REF = 1
+}
+PART
+{
+	name = mk1pod.v2
+	cid = 0
+	uid = 100000
+	mid = 100000
+	persistentId = 100000
+	launchID = 1
+	parent = 0
+	position = 0,0,0
+	rotation = 0,0,0,1
+	mirror = 1,1,1
+	symMethod = Radial
+	istg = 0
+	resPri = 0
+	dstg = 0
+	sqor = 0
+	sepI = 0
+	sidx = 0
+	attm = 0
+	sameVesselCollision = False
+	srfN = None, -1
+	mass = 1
+	shielded = False
+	temp = 300
+	tempExt = 300
+	expt = 0.5
+	state = 0
+	attached = True
+	autostrutMode = Off
+	rigidAttachment = False
+	flag = 
+	rTrf = mk1pod.v2
+	crew = Jebediah Kerman
+}
+ACTIONGROUPS
+{
+}
+DISCOVERY
+{
+	state = 29
+	lastObservedTime = 0
+	lifetime = Infinity
+	refTime = 0
+	size = 2
+}
+FLIGHTPLAN
+{
+}
+CTRLSTATE
+{
+}
+VESSELMODULES
+{
+}

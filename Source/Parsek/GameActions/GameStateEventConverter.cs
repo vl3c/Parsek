@@ -686,10 +686,9 @@ namespace Parsek
 
         /// <summary>PartPurchased -> FundsSpending (part name=key, cost from detail).</summary>
         /// <remarks>
-        /// #451: `cost=` is the authoritative charged amount. Post-#451 events may also
-        /// carry `entryCost=` for the raw stock unlock price, but bypass=true careers
-        /// persist `cost=0;entryCost=<raw>` and must reload as free purchases. Fall back
-        /// to `entryCost=` only when `cost=` is absent.
+        /// #451: `cost=` is the charged amount and the only one read. The event also
+        /// carries `entryCost=` for the raw stock unlock price as a diagnostic; bypass=true
+        /// careers persist `cost=0;entryCost=<raw>` and reload as free purchases.
         /// </remarks>
         private static GameAction ConvertPartPurchased(GameStateEvent evt, string recordingId)
         {
@@ -732,15 +731,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Parses the actual charged cost from a PartPurchased event detail. `cost=` is
-        /// authoritative (0 under bypass-entry-purchase); falls back to `entryCost=` only
-        /// when `cost=` is absent (pre-#451 events). Shared by the converter guard and the
-        /// Timeline legacy-collector skip so both agree on what counts as a free unlock.
+        /// Parses the actual charged cost from a PartPurchased event detail: `cost=`, the
+        /// amount stock charged (0 under bypass-entry-purchase). Shared by the converter guard
+        /// and the Timeline legacy-collector skip so both agree on what counts as a free unlock.
         /// </summary>
         internal static float ParsePartPurchaseChargedCost(string detail)
         {
-            string costStr = ExtractDetail(detail, "cost")
-                          ?? ExtractDetail(detail, "entryCost");
+            string costStr = ExtractDetail(detail, "cost");
             float cost = 0f;
             if (costStr != null)
                 float.TryParse(costStr, NumberStyles.Float, IC, out cost);
@@ -909,125 +906,75 @@ namespace Parsek
 
         /// <summary>
         /// ContractAccepted -> ContractAccept (contractId=key, title/type/deadline/advance/penalties from detail).
-        /// New format (v5): "title=...;deadlineAbsUT=...;type=...;funds=...;failFunds=...;failRep=..."
-        /// v4 (<c>deadline=</c> key): the value is a DURATION, not a UT — migrated here.
-        /// v3 (no type= key): backward compatible via snapshot fallback.
-        /// v2 (no funds= key): backward compatible, advance defaults to 0.
-        /// Legacy (v1): plain title string (no semicolons). Backward compatible.
+        /// Detail: "title=...;deadlineAbsUT=...;type=...;funds=...;failFunds=...;failRep=..."
+        /// (<c>type=</c> is omitted when stock gave none; the accept-time snapshot fills it).
         /// </summary>
         private static GameAction ConvertContractAccepted(GameStateEvent evt, string recordingId)
         {
-            string title;
-            string contractType = null;
             double deadlineUT = double.NaN;
             float advanceFunds = 0f;
             float fundsPenalty = 0f;
             float repPenalty = 0f;
             long stockContractId = 0;
             string goalKey = null;
-            bool structured = evt.detail != null && evt.detail.Contains(";");
             string typeSource = "missing";
             string deadlineSource = "missing";
 
-            // Detect structured vs legacy format by checking for semicolons
-            if (structured)
-            {
-                // Structured format: extract fields
-                title = ExtractDetail(evt.detail, "title") ?? "";
-                contractType = ExtractDetail(evt.detail, "type");
-                if (!string.IsNullOrEmpty(contractType))
-                    typeSource = "detail";
+            string title = ExtractDetail(evt.detail, "title") ?? "";
+            string contractType = ExtractDetail(evt.detail, "type");
+            if (!string.IsNullOrEmpty(contractType))
+                typeSource = "detail";
 
-                // CONTRACT-DEADLINE-CAPTURED-AS-DURATION. `deadlineAbsUT=` is an
-                // ABSOLUTE UT (stock Contract.DateDeadline). The legacy `deadline=` key
-                // is stock's TimeDeadline, a DURATION, and stock assigns
-                // dateDeadline = dateAccepted + TimeDeadline at accept — evt.ut IS the
-                // accept UT for this event type, so the migration is exact.
-                //
-                // The discriminator has to live on the record rather than in a one-shot
-                // load-time pass: stored events are re-converted into ledger rows at
-                // arbitrary later loads by LedgerLoadMigration, so a ledger already
-                // migrated (and re-stamped) can still be handed a pre-fix event.
-                string absStr = ExtractDetail(evt.detail, "deadlineAbsUT");
-                if (absStr != null)
+            // `deadlineAbsUT=` is an ABSOLUTE UT (stock Contract.DateDeadline); NaN means no
+            // deadline.
+            string absStr = ExtractDetail(evt.detail, "deadlineAbsUT");
+            if (absStr != null)
+            {
+                if (absStr != "NaN")
                 {
-                    if (absStr != "NaN")
+                    // The return value MUST be checked. TryParse zeroes its out parameter on
+                    // failure, so ignoring it would turn an unparseable value into
+                    // DeadlineUT = 0 - a deadline at UT zero, which persists permanently and
+                    // then trips the implausibility guard on every walk. Leave NaN (no
+                    // deadline) and say so.
+                    double parsedAbs;
+                    if (double.TryParse(absStr, NumberStyles.Float, IC, out parsedAbs))
                     {
-                        // The return value MUST be checked. TryParse zeroes its out
-                        // parameter on failure, so ignoring it would turn an
-                        // unparseable value into DeadlineUT = 0 - a deadline at UT
-                        // zero, which persists permanently and then trips the
-                        // implausibility guard on every walk forever while the log
-                        // claimed the value parsed. Leave NaN (no deadline) and say so.
-                        double parsedAbs;
-                        if (double.TryParse(absStr, NumberStyles.Float, IC, out parsedAbs))
-                        {
-                            deadlineUT = parsedAbs;
-                            deadlineSource = "detail-absolute";
-                        }
-                        else
-                        {
-                            deadlineSource = "detail-absolute-unparseable";
-                        }
+                        deadlineUT = parsedAbs;
+                        deadlineSource = "detail-absolute";
                     }
                     else
                     {
-                        deadlineSource = "detail-absolute-none";
+                        deadlineSource = "detail-absolute-unparseable";
                     }
                 }
                 else
                 {
-                    string legacyStr = ExtractDetail(evt.detail, "deadline");
-                    if (legacyStr != null && legacyStr != "NaN")
-                    {
-                        double duration;
-                        if (double.TryParse(legacyStr, NumberStyles.Float, IC, out duration)
-                            && !double.IsNaN(duration) && !double.IsInfinity(duration)
-                            && duration > 0.0)
-                        {
-                            deadlineUT = evt.ut + duration;
-                            deadlineSource = "detail-legacy-duration-migrated";
-                        }
-                        else
-                        {
-                            deadlineSource = "detail-legacy-duration-unusable";
-                        }
-                    }
-                    else if (legacyStr != null)
-                    {
-                        deadlineSource = "detail-legacy-none";
-                    }
+                    deadlineSource = "detail-absolute-none";
                 }
-                // else remains NaN
-
-                // v3: contract advance payment. Older detail strings omit this key — leave at 0.
-                string advanceStr = ExtractDetail(evt.detail, "funds");
-                if (advanceStr != null)
-                    float.TryParse(advanceStr, NumberStyles.Float, IC, out advanceFunds);
-
-                string failFundsStr = ExtractDetail(evt.detail, "failFunds");
-                if (failFundsStr != null)
-                    float.TryParse(failFundsStr, NumberStyles.Float, IC, out fundsPenalty);
-
-                string failRepStr = ExtractDetail(evt.detail, "failRep");
-                if (failRepStr != null)
-                    float.TryParse(failRepStr, NumberStyles.Float, IC, out repPenalty);
-
-                // Design 3.15 step 8: stock's uniqueness id (additive; older details omit it).
-                string cidStr = ExtractDetail(evt.detail, GameStateRecorder.ContractStockIdDetailKey);
-                if (cidStr != null)
-                    long.TryParse(cidStr, NumberStyles.Integer, IC, out stockContractId);
-
-                // Owner ruling 2026-10-27: the goal key of a once-per-career goal (additive).
-                string goalStr = ExtractDetail(evt.detail, GameStateRecorder.ContractGoalKeyDetailKey);
-                if (!string.IsNullOrEmpty(goalStr))
-                    goalKey = goalStr;
             }
-            else
-            {
-                // Legacy format: entire detail is the title
-                title = evt.detail ?? "";
-            }
+
+            string advanceStr = ExtractDetail(evt.detail, "funds");
+            if (advanceStr != null)
+                float.TryParse(advanceStr, NumberStyles.Float, IC, out advanceFunds);
+
+            string failFundsStr = ExtractDetail(evt.detail, "failFunds");
+            if (failFundsStr != null)
+                float.TryParse(failFundsStr, NumberStyles.Float, IC, out fundsPenalty);
+
+            string failRepStr = ExtractDetail(evt.detail, "failRep");
+            if (failRepStr != null)
+                float.TryParse(failRepStr, NumberStyles.Float, IC, out repPenalty);
+
+            // Design 3.15 step 8: stock's uniqueness id.
+            string cidStr = ExtractDetail(evt.detail, GameStateRecorder.ContractStockIdDetailKey);
+            if (cidStr != null)
+                long.TryParse(cidStr, NumberStyles.Integer, IC, out stockContractId);
+
+            // Owner ruling 2026-10-27: the goal key of a once-per-career goal.
+            string goalStr = ExtractDetail(evt.detail, GameStateRecorder.ContractGoalKeyDetailKey);
+            if (!string.IsNullOrEmpty(goalStr))
+                goalKey = goalStr;
 
             if (string.IsNullOrEmpty(contractType))
             {
@@ -1041,7 +988,7 @@ namespace Parsek
             }
 
             ParsekLog.Verbose(Tag,
-                $"ConvertContractAccepted: {(structured ? "structured" : "legacy")} format " +
+                $"ConvertContractAccepted: " +
                 $"contractId='{evt.key}' title='{title}' type='{contractType ?? ""}' " +
                 $"typeSource={typeSource} deadlineAbsUT={deadlineUT.ToString("R", IC)} " +
                 $"deadlineSource={deadlineSource} advance={advanceFunds} " +

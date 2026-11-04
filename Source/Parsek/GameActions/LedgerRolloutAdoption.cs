@@ -29,7 +29,6 @@ namespace Parsek
             Duplicate,
             // A launch guid unknown on a side; the #710 pid (else name) + site match held.
             DuplicateGuidUnknownFallback,
-            LegacyBareKey,
             GuidDiffers,
             SiteDiffers,
             PidDiffers,
@@ -57,7 +56,6 @@ namespace Parsek
             public string LaunchSiteName;
             // Launch-unique KSP Vessel.id in canonical "N" form; null when unknown.
             public string VesselGuid;
-            public bool IsLegacyBareKey;
         }
 
         internal static void RecordVesselRolloutSpending(
@@ -274,16 +272,11 @@ namespace Parsek
         ///   the #710 match, same persistentId when both are known, else same vessel
         ///   name and site.</description></item>
         /// </list>
-        /// Unlike <see cref="RolloutAdoptionContextsMatch"/>, a legacy bare key never
-        /// matches.
         /// </summary>
         internal static RolloutDuplicateVerdict ClassifyRolloutDuplicate(
             RolloutAdoptionContext existing,
             RolloutAdoptionContext candidate)
         {
-            if (existing.IsLegacyBareKey || candidate.IsLegacyBareKey)
-                return RolloutDuplicateVerdict.LegacyBareKey;
-
             if (!string.IsNullOrEmpty(existing.LaunchSiteName)
                 && !string.IsNullOrEmpty(candidate.LaunchSiteName)
                 && !existing.LaunchSiteName.Equals(candidate.LaunchSiteName, StringComparison.OrdinalIgnoreCase))
@@ -584,7 +577,6 @@ namespace Parsek
             {
                 if (string.IsNullOrEmpty(action.DedupKey)) return false;
                 context = ParseRolloutAdoptionContext(action.DedupKey);
-                if (context.IsLegacyBareKey) return false;
                 return CanMatchRolloutAdoptionContext(context);
             }
 
@@ -842,9 +834,6 @@ namespace Parsek
             RolloutAdoptionContext actionContext,
             RolloutAdoptionContext recordingContext)
         {
-            if (actionContext.IsLegacyBareKey)
-                return true;
-
             // A rollout row of another launch of the same craft shares the baked
             // persistentId; both launch guids known and different means the
             // recording did not fly this rollout. An unknown guid on either side
@@ -885,12 +874,6 @@ namespace Parsek
 
             var context = default(RolloutAdoptionContext);
             string[] parts = dedupKey.Split('|');
-            if (parts.Length == 1)
-            {
-                context.IsLegacyBareKey = true;
-                return context;
-            }
-
             for (int i = 1; i < parts.Length; i++)
             {
                 string part = parts[i];

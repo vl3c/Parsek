@@ -158,11 +158,8 @@ CONTRACT_B_SEQ = "2"
 #
 # THE NUMBERS DID NOT MOVE, only the key: both were already reasoned about as
 # absolute UTs against the walk clock (see below), which is why the pre-fix
-# fixture happened to behave correctly. A pre-fix save spells the key
-# `deadlineUT` and carries a duration; `GameAction.ResolveContractDeadlineUT`
-# migrates that shape on load by adding the row's own `ut`. Leaving this fixture
-# on the legacy key would have migrated B from 100 to 106 and broken the
-# `at deadlineUT=100` token this spec pins.
+# fixture happened to behave correctly. The loader reads only `deadlineAbsUT`;
+# a row on the old `deadlineUT` key would read back as no deadline at all.
 #
 # THE TWO NUMBERS ARE SIZED AGAINST THE SAME CLOCK, the walk's `nowUT`, which
 # `ContractsModule.PrePass` takes from the LAST SURVIVING ACTION's UT when no

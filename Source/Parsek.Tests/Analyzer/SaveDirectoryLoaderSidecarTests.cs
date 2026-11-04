@@ -120,10 +120,10 @@ namespace Parsek.Tests.Analyzer
             Assert.Contains(model.LoadFaults, f => f.FileKind == "trajectory" && f.RecordingId == "trunc0");
         }
 
-        // Guards: a text-format .prec (pre-v0-reset corpus) records the exact
-        // production reject reason (design edge case 2), so triage greps match KSP.log.
+        // Guards: a .prec that does not start with the current magic (a text file
+        // here) records the production reject reason, so triage greps match KSP.log.
         [Fact]
-        public void TextFormatPrec_ReasonTextSidecarUnsupported()
+        public void NonMagicPrec_ReasonMagicMismatch()
         {
             string saveDir = NewSaveDir("textprec");
             var writer = new ScenarioWriter().WithV3Format().AddRecordingAsTree(ValidBuilder("text0"));
@@ -142,29 +142,6 @@ namespace Parsek.Tests.Analyzer
             Assert.Contains(model.LoadFaults, f =>
                 f.FileKind == "trajectory" &&
                 f.RecordingId == "text0" &&
-                f.Reason == "text-sidecar-unsupported");
-        }
-
-        // Guards: a pre-reset binary magic .prec records the pre-reset reject reason
-        // (design edge case 3).
-        [Fact]
-        public void PreResetMagicPrec_ProducesTrajectoryFault()
-        {
-            string saveDir = NewSaveDir("prereset");
-            var writer = new ScenarioWriter().WithV3Format().AddRecordingAsTree(ValidBuilder("pre0"));
-            WriteSave(saveDir, writer);
-            writer.WriteSidecarFiles(saveDir);
-
-            // "PRKB" pre-reset magic tag, then filler.
-            var bytes = new List<byte> { (byte)'P', (byte)'R', (byte)'K', (byte)'B' };
-            bytes.AddRange(new byte[] { 0, 0, 0, 1 });
-            File.WriteAllBytes(PrecPath(saveDir, "pre0"), bytes.ToArray());
-
-            AnalyzerModel model = SaveDirectoryLoader.Load(saveDir, NullResolver);
-
-            Assert.Contains(model.LoadFaults, f =>
-                f.FileKind == "trajectory" &&
-                f.RecordingId == "pre0" &&
                 f.Reason == "magic-mismatch");
         }
 

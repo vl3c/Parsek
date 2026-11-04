@@ -81,7 +81,7 @@ folder = "UI"
 # session lifecycle, revert and unfinished-flight machinery (named in the rewind section of CLAUDE.md); SceneExitInterceptor is a Harmony-driven entry point referenced only from comments
 [[module]]
 name = "Rewind"
-prefix = "^UnfinishedFlightClassifier[.]cs$|^UnfinishedFlightSealHandler[.]cs$|^UnfinishedFlightStashHandler[.]cs$|^PostLoadStripper[.]cs$|^ReconciliationBundle[.]cs$|^MarkerValidator[.]cs$|^RevertDetector[.]cs$|^RevertInterceptor[.]cs$|^SceneExitInterceptor[.]cs$|^QuickloadResumeMatchGuard[.]cs$|^CrashCoalescer[.]cs$|^CheckpointDoubleCoverRetire[.]cs$"
+prefix = "^UnfinishedFlightClassifier[.]cs$|^UnfinishedFlightSealHandler[.]cs$|^UnfinishedFlightStashHandler[.]cs$|^PostLoadStripper[.]cs$|^ReconciliationBundle[.]cs$|^MarkerValidator[.]cs$|^RevertDetector[.]cs$|^RevertInterceptor[.]cs$|^SceneExitInterceptor[.]cs$|^QuickloadResumeMatchGuard[.]cs$|^CrashCoalescer[.]cs$"
 placement = "R0"
 
 # sidecar I/O, recorder policy and classifiers; each referenced only by Recording or by Recording plus one controller

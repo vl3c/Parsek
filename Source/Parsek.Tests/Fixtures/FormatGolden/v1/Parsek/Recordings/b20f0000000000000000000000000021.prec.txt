@@ -1,0 +1,81 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = b20f0000000000000000000000000021
+sidecarEpoch = 1
+sectionAuthoritative = True
+PART_EVENT
+{
+	ut = 505
+	pid = 3200001
+	type = 9
+	part = longAntenna
+	value = 0
+	midx = 0
+}
+TRACK_SECTION
+{
+	env = 3
+	ref = 0
+	startUT = 500
+	endUT = 560
+	sampleRate = 2
+	minAlt = 70
+	maxAlt = 72
+	POINT
+	{
+		ut = 500
+		lat = -0.0972
+		lon = -74.5575
+		alt = 70
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 0
+		velZ = 0
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+	POINT
+	{
+		ut = 530
+		lat = -0.0965
+		lon = -74.556
+		alt = 71
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 0
+		velZ = 0
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+	POINT
+	{
+		ut = 560
+		lat = -0.0958
+		lon = -74.5545
+		alt = 72
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 0
+		velZ = 0
+		funds = 0
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+}

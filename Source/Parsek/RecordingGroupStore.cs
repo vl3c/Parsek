@@ -858,8 +858,7 @@ namespace Parsek
         /// Returns a group name that doesn't collide with existing group names.
         /// If baseName is not already used, returns it unchanged. Otherwise
         /// appends " #2", " #3", etc. until a unique name is found. The hash
-        /// prefix (vs the legacy " (2)" / " (3)" form) keeps the disambiguation
-        /// suffix visually distinct from the trailing " ({memberCount})" the
+        /// prefix keeps the disambiguation suffix visually distinct from the trailing " ({memberCount})" the
         /// recordings table appends to every group button — see the inline
         /// comment on the candidate loop for the full rationale.
         /// </summary>
@@ -889,18 +888,10 @@ namespace Parsek
             // and recording count. The hash prefix is unmistakably a
             // sequence number and keeps debris subgroups readable too
             // ("Kerbal X #2 / Debris (3)").
-            //
-            // Defense in depth: skip a candidate if EITHER the new "#N" form
-            // OR the legacy "(N)" form is already in `existing`. This avoids
-            // double-numbering on saves that still carry pre-fix group names
-            // (e.g. a save with "Kerbal X" + "Kerbal X (2)" should produce
-            // "Kerbal X #3" on the next launch, not "Kerbal X #2", so the
-            // visible sequence stays coherent across the format change).
             for (int n = 2; n < 1000; n++)
             {
                 string candidate = $"{baseName} #{n}";
-                string legacyVariant = $"{baseName} ({n})";
-                if (!existing.Contains(candidate) && !existing.Contains(legacyVariant))
+                if (!existing.Contains(candidate))
                 {
                     ParsekLog.Info("RecordingStore",
                         $"GenerateUniqueGroupName: '{baseName}' already exists, using '{candidate}'");

@@ -160,14 +160,9 @@ namespace Parsek
         /// recording's expected epoch (loaded from .sfs). When true, the caller
         /// should skip trajectory deserialization — the .prec is from a different
         /// save point and its data would be inconsistent with the .sfs metadata.
-        /// Backward compat: if the .sfs epoch is 0 (old save without epoch),
-        /// validation is skipped and the sidecar is always accepted.
         /// </summary>
         internal static bool ShouldSkipStaleSidecar(Recording rec, int fileEpoch)
         {
-            if (rec.SidecarEpoch <= 0)
-                return false;  // old save without epoch — skip validation
-
             if (fileEpoch == rec.SidecarEpoch)
                 return false;  // epochs match — sidecar is valid
 
@@ -371,8 +366,9 @@ namespace Parsek
                     rec.RecordingFormatVersion,
                     rec.RecordingSchemaGeneration,
                     out string metadataSchemaReason)
-                || probe.FormatVersion != rec.RecordingFormatVersion
-                || probe.SchemaGeneration != rec.RecordingSchemaGeneration)
+                || !SidecarStampsAgreeWithMetadata(
+                    probe.FormatVersion, probe.SchemaGeneration,
+                    rec.RecordingFormatVersion, rec.RecordingSchemaGeneration))
             {
                 string reason = metadataSchemaReason
                     ?? (probe.SchemaGeneration != rec.RecordingSchemaGeneration
@@ -531,6 +527,22 @@ namespace Parsek
             if (resolved && !string.IsNullOrEmpty(currentHash))
                 return currentHash;
             return SidecarContentHash.ComputeFile(path);
+        }
+
+        /// <summary>
+        /// Pure: a trajectory sidecar belongs to its metadata when both carry the same stamps, or
+        /// when the metadata was upgraded on read (it now carries current stamps) and the sidecar's
+        /// own stamps pass the gate through the upgrade lane.
+        /// </summary>
+        internal static bool SidecarStampsAgreeWithMetadata(
+            int sidecarFormat, int sidecarGeneration, int metadataFormat, int metadataGeneration)
+        {
+            if (sidecarFormat == metadataFormat && sidecarGeneration == metadataGeneration)
+                return true;
+            return metadataFormat == SaveFormat.RecordingFormat.Current
+                && metadataGeneration == SaveFormat.RecordingSchemaGeneration.Current
+                && RecordingStore.IsRecordingSchemaCompatible(sidecarFormat, sidecarGeneration, out _, out bool upgrade)
+                && upgrade;
         }
 
         internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
@@ -1114,7 +1126,7 @@ namespace Parsek
                 return false;
             }
 
-            // Header probe accepts a .craft / .pcrf with valid magic+version
+            // Header probe accepts a .craft with valid magic+version
             // but a corrupt compressed payload or bad CRC32. Use TryLoad
             // (which decompresses and verifies CRC32 — see
             // SnapshotSidecarCodec.TryLoad) so a payload-corrupt snapshot

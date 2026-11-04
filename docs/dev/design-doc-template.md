@@ -66,7 +66,7 @@ Include each only when its trigger applies. Place it where it reads best (the su
 - **Architecture Overview** (before Data Model): when the feature is a standalone module with its own coupling story. Document the coupling surface to other systems (often "exactly one field"), the cross-system API, and the recalculation or update triggers.
 - **Existing Systems: What Changes vs What's New** (before Data Model): a Component / Current-behavior / Required-change / Complexity table. Maps the redesign onto existing code up front. Essential for refactors and features layered on existing subsystems.
 - **KSP API Surface** (near Data Model or Mental Model): when design decisions depend on verified KSP API behavior (decompiled signatures, gotchas, radians-vs-degrees, event ordering). Put it in the design doc, do not defer it to the inventory, when the design hinges on it.
-- **Backward Compatibility** (after Behavior or near the end): whenever the feature touches saves, the recording schema, or the ledger. State the format-version or schema-generation change, behavior with old saves on the new version and vice versa, and the migration stance. Note: Parsek's standing rule is no legacy migration paths for pre-1.0 recordings; if the contract changes, pick the correct end-to-end contract and reject incompatible old data on load rather than migrating. Say so explicitly.
+- **Backward Compatibility** (after Behavior or near the end): whenever the feature touches saves, the recording schema, or the ledger. State the format-version or schema-generation change, behavior with old saves on the new version and vice versa, and the migration stance. Note: from the 1.0 save format every build loads every 1.0+ save (`docs/dev/design-save-format-policy.md`): an additive change needs no bump; a shape change bumps the format in `SaveFormat.cs`, ships an upgrade step N -> N+1 and adds a golden folder; data newer than the build is held and written back. Pre-1.0 data loads best effort and gets no new repair code. Say which case applies explicitly.
 - **Performance Budget** (near the end): when the feature has per-frame or per-ghost work that scales (cost-that-scales vs cost-that-does-not table, target budgets, profiling guidance).
 - **Error Recovery** (near the end): when I/O, scene changes, or KSP API failures are concerns. Failure-mode tables with recovery and data-loss columns. State the default-safe principle (leave the vessel alone, the quicksave has it).
 - **Implementation Phasing / Status** (near the end): when the feature ships in phases. A phase table (scope, status, test count) and the list of new source files. Mark what is complete and what is deferred.
@@ -203,9 +203,10 @@ Include each only when its trigger applies. Place it where it reads best (the su
 ## 11. Backward Compatibility
 <!-- OPTIONAL: include when touching saves, recording schema, or the ledger. -->
 
-<Format-version / schema-generation change. Behavior with old saves on the new
- version and vice versa. Migration stance (default: no legacy migration; reject
- incompatible old data on load).>
+<Format-version / schema-generation change (additive: none; shape change: the
+ bump, its upgrade step and its golden folder, per
+ docs/dev/design-save-format-policy.md). Behavior with older 1.0+ saves on the new
+ version, and with new saves on an older build (held, never wiped).>
 
 ---
 

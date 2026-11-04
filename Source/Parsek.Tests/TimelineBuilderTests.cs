@@ -758,7 +758,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent { ut = 410.2, eventType = GameStateEventType.BuildingDestroyed, key = building },
@@ -784,7 +783,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent { ut = 300.5, eventType = GameStateEventType.FacilityUpgraded,
@@ -813,7 +811,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent { ut = 900.5, eventType = GameStateEventType.FacilityDowngraded,
@@ -1050,7 +1047,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent
@@ -1115,7 +1111,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent
@@ -1146,7 +1141,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent { ut = 100, eventType = GameStateEventType.MilestoneAchieved, key = "Mun/Flyby" },
@@ -1184,7 +1178,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent
@@ -1288,7 +1281,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent
@@ -1461,7 +1453,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 1,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent
@@ -2514,7 +2505,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent
@@ -2547,7 +2537,6 @@ namespace Parsek.Tests
             var milestone = new Milestone
             {
                 Committed = true,
-                Epoch = 0,
                 Events = new List<GameStateEvent>
                 {
                     new GameStateEvent

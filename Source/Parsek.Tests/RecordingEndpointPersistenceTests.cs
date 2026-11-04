@@ -122,58 +122,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoadRecordingFiles_LegacyRecording_BackfillsEndpointDecisionFromTerminalOrbitAlignedSegment()
-        {
-            RecordingStore.SuppressLogging = true;
-            ParsekLog.SuppressLogging = true;
-            RecordingStore.ResetForTesting();
-
-            string tempDir = Path.Combine(Path.GetTempPath(), "parsek-endpoint-backfill-" + System.Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-
-            try
-            {
-                string precPath = Path.Combine(tempDir, "legacy-endpoint.prec");
-                string vesselPath = Path.Combine(tempDir, "legacy-endpoint_vessel.craft");
-                string ghostPath = Path.Combine(tempDir, "legacy-endpoint_ghost.craft");
-
-                Recording source = BuildExactBoundaryBodyTransitionRecording(
-                    RecordingEndpointPhase.Unknown,
-                    null);
-                source.RecordingId = "legacy-endpoint";
-                RecordingStore.WriteTrajectorySidecar(precPath, source, sidecarEpoch: 1);
-
-                var loaded = new Recording
-                {
-                    RecordingId = "legacy-endpoint",
-                    TerminalStateValue = TerminalState.Orbiting,
-                    TerminalOrbitBody = "Mun",
-                    TerminalOrbitSemiMajorAxis = 250000.0,
-                    TerminalOrbitEccentricity = 0.01,
-                    TerminalOrbitInclination = 1.0,
-                    TerminalOrbitLAN = 2.0,
-                    TerminalOrbitArgumentOfPeriapsis = 3.0,
-                    TerminalOrbitMeanAnomalyAtEpoch = 0.4,
-                    TerminalOrbitEpoch = 150.0
-                };
-
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
-                    loaded, precPath, vesselPath, ghostPath));
-
-                Assert.Equal(RecordingEndpointPhase.OrbitSegment, loaded.EndpointPhase);
-                Assert.Equal("Mun", loaded.EndpointBodyName);
-                Assert.True(RecordingEndpointResolver.ShouldUseOrbitEndpoint(loaded));
-                Assert.True(RecordingEndpointResolver.TryGetPreferredEndpointBodyName(loaded, out string bodyName));
-                Assert.Equal("Mun", bodyName);
-            }
-            finally
-            {
-                if (Directory.Exists(tempDir))
-                    Directory.Delete(tempDir, recursive: true);
-            }
-        }
-
-        [Fact]
         public void LoadRecordingFiles_PersistedEndpointDecision_RemainsAuthoritative()
         {
             RecordingStore.SuppressLogging = true;
@@ -198,6 +146,7 @@ namespace Parsek.Tests
                 var loaded = new Recording
                 {
                     RecordingId = "authoritative-endpoint",
+                    SidecarEpoch = 1,
                     EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
                     EndpointBodyName = "Kerbin",
                     TerminalStateValue = TerminalState.Orbiting,

@@ -114,8 +114,7 @@ presentation pass, `docs/dev/research/mission-presentation-ux-analysis-2026-08-1
 with an include toggle bound to `IncludedForeignDockLinkIds` (the explicit player action
 that engages the cross-tree path; default OFF). When included, the journey's intervals
 render as indented child rows with normal per-interval checkboxes (same
-`ExcludedIntervalKeys` binding + the `SelectionSchemaGeneration` stamp on edit, mirroring
-the existing handler).
+`ExcludedIntervalKeys` binding, mirroring the existing handler).
 
 ## 4. Loop-unit consequence
 

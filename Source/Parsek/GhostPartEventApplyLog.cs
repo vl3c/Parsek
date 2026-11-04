@@ -35,10 +35,6 @@ namespace Parsek
         /// per-frame driver (a blinking light is driven by UpdateBlinkingLights).
         DeferredToDriver,
 
-        /// Recognised but deliberately ignored: the legacy wheel-motor /
-        /// wheel-steering robotic events whose value is derived from the trajectory.
-        LegacyEventIgnored,
-
         /// The ghost carries no dictionary for this family at all.
         NoFamilyState,
 
@@ -145,7 +141,6 @@ namespace Parsek
                 case GhostPartEventOutcome.Applied: return "applied";
                 case GhostPartEventOutcome.AlreadyInState: return "already-in-state";
                 case GhostPartEventOutcome.DeferredToDriver: return "deferred-to-driver";
-                case GhostPartEventOutcome.LegacyEventIgnored: return "legacy-event-ignored";
                 case GhostPartEventOutcome.NoFamilyState: return "no-family-state";
                 case GhostPartEventOutcome.NoInfoForPart: return "no-info-for-part";
                 case GhostPartEventOutcome.NoCabinLightEntry: return "no-cabin-light-entry";

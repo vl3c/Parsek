@@ -261,7 +261,7 @@ namespace Parsek.Tests
             Assert.False(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
             Assert.Contains(logLines, l =>
                 l.Contains("was discarded this session but is restored as before")
-                && l.Contains("reason=member-failed id=root_ql_corrupt reason=text-sidecar-unsupported"));
+                && l.Contains("reason=member-failed id=root_ql_corrupt reason=magic-mismatch"));
             Assert.Contains(logLines, l => l.Contains("TryRestoreActiveTreeNode: dropped entire tree 'ql_corrupt'"));
         }
 

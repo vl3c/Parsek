@@ -1,0 +1,62 @@
+version = 1
+MILESTONE
+{
+	id = ce97d181be9e4262a6a721619676e945
+	startUT = 0
+	endUT = 1200
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 5
+	GAME_STATE_EVENT
+	{
+		ut = 50
+		type = 1
+		key = d40b0000-0000-0000-0000-000000000041
+		detail = title=Golden Orbit;deadline=99999
+		cseq = 1
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 60
+		type = 6
+		key = basicRocketry
+		detail = cost=5
+		valBefore = 5
+		cseq = 2
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 70
+		type = 11
+		key = SpaceCenter/LaunchPad
+		detail = level=1
+		valAfter = 0.5
+		cseq = 3
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 80
+		type = 8
+		key = Bill Kerman
+		detail = trait=Engineer
+		cseq = 4
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 165
+		type = 18
+		key = FirstLaunch
+		detail = funds=800;rep=1;sci=0
+		recordingId = a10e0000000000000000000000000011
+		cseq = 5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 400
+		type = 2
+		key = d40b0000-0000-0000-0000-000000000041
+		detail = funds=6000;rep=5;sci=2
+		recordingId = a10e0000000000000000000000000012
+		cseq = 6
+	}
+}

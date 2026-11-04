@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Saves now have a stable format.** From this version on, later versions of Parsek keep loading
+  your saves, and an older Parsek keeps what it cannot read instead of deleting it. Saves from
+  earlier test versions still load, best effort; the old repair code that only fixed problems in
+  those test saves is gone. (SAVE-FORMAT-1-0-FREEZE)
 - **Parsek windows follow KSP's UI Scale.** Every Parsek window, popup and tooltip now grows or
   shrinks with the UI Scale slider in KSP's settings, like the stock interface, and a window left
   near the screen edge is pulled back on screen when the scale changes. Map markers and ghost name

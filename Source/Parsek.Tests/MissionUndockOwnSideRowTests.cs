@@ -388,23 +388,20 @@ namespace Parsek.Tests
                 || treeId == BdockTreeId);
 
             // Exclusions on every key, both sides of the undock included, on the tree's
-            // default mission; the save codec round-trips them and the generation untouched.
+            // default mission; the save codec round-trips them.
             MissionStore.EnsureDefaultsForTrees(trees);
             Mission m = MissionStore.Missions.Single(x => x.TreeId == treeId);
             foreach (string key in nodes.Keys) m.ExcludedIntervalKeys.Add(key);
-            Assert.Equal(1, Mission.CurrentSelectionSchemaGeneration);
 
             var node = new ConfigNode("MISSION");
             m.Save(node);
             Mission roundTripped = Mission.Load(node);
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, roundTripped.SelectionSchemaGeneration);
             Assert.Equal(m.ExcludedIntervalKeys.OrderBy(k => k, StringComparer.Ordinal),
                 roundTripped.ExcludedIntervalKeys.OrderBy(k => k, StringComparer.Ordinal));
 
             Mission loaded = m;
             Assert.Equal(0, MissionStore.ReconcileSelections(trees));
             Assert.Equal(nodes.Count, loaded.ExcludedIntervalKeys.Count);
-            Assert.Equal(Mission.CurrentSelectionSchemaGeneration, loaded.SelectionSchemaGeneration);
 
             // Each row of the fixed model classifies off the same keys: every row fully
             // excluded, and including the ship's row writes back exactly its own keys.

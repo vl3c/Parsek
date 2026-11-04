@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Text;
 using Parsek.Logistics;
 using Xunit;
 
@@ -31,6 +33,7 @@ namespace Parsek.Tests
         private static readonly int NewerGeneration = RecordingStore.CurrentRecordingSchemaGeneration + 1;
 
         private readonly List<string> logLines = new List<string>();
+        private readonly List<string> tempDirs = new List<string>();
         private readonly GameScenes originalScene;
 
         public InertRecordingTreesTests()
@@ -66,7 +69,12 @@ namespace Parsek.Tests
             RecalculationEngine.ClearModules();
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
+            RecordingPaths.SaveRootOverrideForTesting = null;
             HighLogic.LoadedScene = originalScene;
+            foreach (string dir in tempDirs)
+            {
+                try { Directory.Delete(dir, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
         }
 
         // ---------------------------------------------------------------- fixtures
@@ -418,7 +426,6 @@ namespace Parsek.Tests
             var oldSide = new RecordingRewindRetirement
             {
                 RetirementId = "rrt-inert", RecordingId = RecA1,
-                Reason = RecordingRewindRetirement.RewoundOutOldSideReason,
             };
             var scenario = new ParsekScenario
             {
@@ -449,6 +456,128 @@ namespace Parsek.Tests
             SaveReferences memory = ParsekFileCollector.BuildMemoryReferences(null);
             Assert.Contains(RecA1, memory.RecordingIds);
             Assert.Contains(RecA2, memory.RecordingIds);
+        }
+
+        private static readonly byte[] LaterBuildPayload = Encoding.ASCII.GetBytes("payload written by a later build");
+
+        /// <summary>
+        /// A PSK0 trajectory sidecar as a later build would write it: the header the probe reads
+        /// (magic, format version, schema generation, epoch, recording id), then a body this
+        /// build cannot parse.
+        /// </summary>
+        private static byte[] LaterTrajectoryBytes(int formatVersion, int schemaGeneration, string id)
+        {
+            using (var stream = new MemoryStream())
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8))
+            {
+                writer.Write(Encoding.ASCII.GetBytes("PSK0"));
+                writer.Write(formatVersion);
+                writer.Write(schemaGeneration);
+                writer.Write(7);
+                writer.Write(id);
+                writer.Write(LaterBuildPayload);
+                writer.Flush();
+                return stream.ToArray();
+            }
+        }
+
+        /// <summary>
+        /// A PSN0 snapshot sidecar as a later build would write it: the full header the probe
+        /// reads (magic, format version, schema generation, codec, lengths, checksum), then a
+        /// payload of the declared length this build cannot parse.
+        /// </summary>
+        private static byte[] LaterSnapshotBytes(int formatVersion, int schemaGeneration)
+        {
+            using (var stream = new MemoryStream())
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8))
+            {
+                writer.Write(Encoding.ASCII.GetBytes("PSN0"));
+                writer.Write(formatVersion);
+                writer.Write(schemaGeneration);
+                writer.Write((byte)1);
+                writer.Write(LaterBuildPayload.Length);
+                writer.Write(LaterBuildPayload.Length);
+                writer.Write(0u);
+                writer.Write(LaterBuildPayload);
+                writer.Flush();
+                return stream.ToArray();
+            }
+        }
+
+        // catches: a downgrade (a save written by a build with a newer recording schema
+        // generation, newer PSK0 trajectory and newer PSN0 snapshot sidecars, opened by this
+        // build) losing the newer flight: the tree dropped on the next save, or its sidecars
+        // quarantined by the file collector or rewritten by the save, once the newer build
+        // opens the save again. The on-disk save here does NOT name the tree, so only the
+        // inert holder's memory references keep its files.
+        [Fact]
+        public void NewerGenerationTree_WithNewerSidecars_KeepsItsFilesByteEqual_AndIsReEmittedVerbatim()
+        {
+            string saveDir = Path.Combine(Path.GetTempPath(), "parsek-inert-newer-" + Guid.NewGuid().ToString("N"));
+            tempDirs.Add(saveDir);
+            string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+            Directory.CreateDirectory(recordingsDir);
+            RecordingPaths.SaveRootOverrideForTesting = saveDir;
+            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
+            ParsekFileCollector.SaveDirectoryOverrideForTesting = saveDir;
+            ParsekFileCollector.UtcNowForTesting = () => new DateTime(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
+
+            var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            foreach (string id in new[] { RecA1, RecA2 })
+            {
+                files[RecordingPaths.BuildTrajectoryRelativePath(id)] = LaterTrajectoryBytes(
+                    TrajectorySidecarBinary.CurrentBinaryVersion + 1, NewerGeneration, id);
+                files[RecordingPaths.BuildVesselSnapshotRelativePath(id)] = LaterSnapshotBytes(
+                    SnapshotSidecarCodec.CurrentFormatVersion + 1, NewerGeneration);
+                files[RecordingPaths.BuildGhostSnapshotRelativePath(id)] = LaterSnapshotBytes(
+                    SnapshotSidecarCodec.CurrentFormatVersion + 1, NewerGeneration);
+            }
+            foreach (var f in files)
+                File.WriteAllBytes(Path.Combine(saveDir, f.Key), f.Value);
+            // Control: a head no memory and no save names, so a collector that ran at all moves it.
+            string orphan = Path.Combine(recordingsDir, "inert-orphan.prec");
+            File.WriteAllBytes(orphan, LaterTrajectoryBytes(1, NewerGeneration, "inert-orphan"));
+            File.WriteAllText(Path.Combine(saveDir, "persistent.sfs"), "GAME\n{\n}\n");
+
+            // The readers refuse the newer stamps rather than misreading them.
+            string prec = Path.Combine(saveDir, RecordingPaths.BuildTrajectoryRelativePath(RecA1));
+            Assert.True(TrajectorySidecarBinary.TryProbe(prec, out TrajectorySidecarProbe trajectory),
+                trajectory.FailureReason);
+            Assert.False(trajectory.Supported);
+            Assert.Equal(SaveFormatClass.Newer,
+                SaveFormat.TrajectoryBinary.Classify(trajectory.FormatVersion));
+            Assert.Equal(SaveFormatClass.Newer,
+                SaveFormat.RecordingSchemaGeneration.Classify(trajectory.SchemaGeneration));
+            string craft = Path.Combine(saveDir, RecordingPaths.BuildVesselSnapshotRelativePath(RecA1));
+            Assert.True(SnapshotSidecarCodec.TryProbe(craft, out SnapshotSidecarProbe snapshot),
+                snapshot.FailureReason);
+            Assert.False(snapshot.Supported);
+            Assert.Equal(SaveFormatClass.Newer, SaveFormat.Snapshot.Classify(snapshot.FormatVersion));
+
+            ConfigNode original = BuildTreeNode(TreeA, NewerGeneration, NewerGeneration, RecA1, RecA2);
+            Load(Scenario(original));
+            Assert.Empty(RecordingStore.CommittedTrees);
+            Assert.Equal(1, InertRecordingTrees.Count);
+
+            ParsekFileCollector.Result result = ParsekFileCollector.Run("test", null);
+            Assert.True(result.Ran, result.SkipReason);
+            Assert.Equal(1, result.HeadsQuarantined);
+            Assert.False(File.Exists(orphan), "the control orphan was not collected: the collector did not run");
+
+            ConfigNode saved = Save();
+            Assert.Equal(original.ToString(), Assert.Single(saved.GetNodes("RECORDING_TREE")).ToString());
+
+            foreach (var f in files)
+            {
+                string path = Path.Combine(saveDir, f.Key);
+                Assert.True(File.Exists(path), "inert sidecar removed: " + f.Key);
+                Assert.True(f.Value.SequenceEqual(File.ReadAllBytes(path)), "inert sidecar rewritten: " + f.Key);
+            }
+            string quarantine = Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
+            string[] quarantined = Directory.Exists(quarantine)
+                ? Directory.GetFiles(quarantine, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray()
+                : new string[0];
+            Assert.Equal(new[] { "inert-orphan.prec" }, quarantined);
         }
 
         // ---------------------------------------------------------------- 5. lifetime
@@ -510,46 +639,6 @@ namespace Parsek.Tests
         }
 
         // ---------------------------------------------------------------- 7. active / pending
-
-        // catches: the inert recording ids counting as "committed recordings exist" in
-        // LedgerOrchestrator.OnKspLoad, so a save whose only trees are inert and whose
-        // ledger is empty runs the old-save migration (an interpretation of the inert trees).
-        [Fact]
-        public void SaveOfOnlyInertTrees_DoesNotRunTheOldSaveMigration()
-        {
-            GameStateRecorder.ResetForTesting();
-            GameStateStore.ResetForTesting();
-            LedgerOrchestrator.ResetForTesting();
-            KspStatePatcher.SuppressUnityCallsForTesting = true;
-            try
-            {
-                Load(Scenario(BuildTreeNode(TreeA, OlderGeneration, OlderGeneration, RecA1, RecA2)));
-                var accept = new GameStateEvent
-                {
-                    ut = 500.0,
-                    eventType = GameStateEventType.ContractAccepted,
-                    key = "contract-inert",
-                    detail = "title=Inert Contract;deadline=NaN;type=PartTest;funds=5000;failFunds=1000;failRep=1"
-                };
-                GameStateStore.AddEvent(ref accept);
-                LedgerOrchestrator.SetMigrateOldSaveEventsRanThisLoadForTesting(false);
-
-                HashSet<string> valid = ParsekScenario.BuildValidRecordingIdsForKspLoad();
-                Assert.Contains(RecA1, valid);
-                LedgerOrchestrator.OnKspLoad(valid, 1000.0);
-
-                Assert.False(LedgerOrchestrator.GetMigrateOldSaveEventsRanThisLoadForTesting());
-                Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]")
-                    && l.Contains("old-save migration scope excludes 2 recording id(s) of inert trees"));
-            }
-            finally
-            {
-                LedgerOrchestrator.ResetForTesting();
-                GameStateStore.ResetForTesting();
-                GameStateRecorder.ResetForTesting();
-                KspStatePatcher.ResetForTesting();
-            }
-        }
 
         // catches: RouteStore's load-time candidate sweeps reading only the committed trees,
         // so a dismissed or already-prompted supply-run candidate naming an inert tree is

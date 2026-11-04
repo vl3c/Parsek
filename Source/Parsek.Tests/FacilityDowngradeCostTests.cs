@@ -292,27 +292,6 @@ namespace Parsek.Tests
             Assert.True(rows[1].FacilityDowngrade);
         }
 
-        [Fact]
-        public void LegacyUpgradeCostPasses_LeaveADowngradeRowAlone()
-        {
-            var down = new GameAction
-            {
-                UT = DowngradeUt, Type = GameActionType.FacilityUpgrade, FacilityId = Admin,
-                ToLevel = 1, FacilityCost = 0f, FacilityDowngrade = true,
-            };
-            var rows = new List<GameAction> { down };
-
-            var repair = LedgerLoadMigration.RepairZeroCostFacilityUpgradeActionsOnLoad(
-                new List<GameStateEvent> { StructureConstructionDebit(DowngradeUt, 350000.0, 249950.0) }, rows);
-            Assert.Equal(0, repair.ZeroCostRows);
-
-            var estimate = LedgerLoadMigration.EstimateLegacyFacilityUpgradeCosts(
-                rows, new List<GameStateEvent>(), default(LedgerLoadMigration.FacilityCostTableProbe),
-                default(LedgerLoadMigration.FundsSeedCaptureMoment), 0.0);
-            Assert.Equal(0, estimate.Candidates);
-            Assert.Equal(0f, down.FacilityCost);
-        }
-
         // ================================================================
         // Harmony target: a stock rename must red here, not at runtime
         // ================================================================

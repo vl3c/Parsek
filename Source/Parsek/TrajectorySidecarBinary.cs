@@ -8,7 +8,7 @@ namespace Parsek
 {
     internal enum TrajectorySidecarEncoding
     {
-        TextConfigNode = 0,
+        None = 0,
         BinaryV0 = 1,
         UnknownBinary = 2
     }
@@ -23,14 +23,12 @@ namespace Parsek
         public int SidecarEpoch;
         public string RecordingId;
         public string MagicTag;
-        public ConfigNode LegacyNode;
         public string FailureReason;
     }
 
     internal static class TrajectorySidecarBinary
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PSK0");
-        private static readonly byte[] PreResetMagic = Encoding.ASCII.GetBytes("PRKB");
         internal const int CurrentBinaryVersion = RecordingStore.CurrentRecordingFormatVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;
@@ -47,11 +45,6 @@ namespace Parsek
         internal static bool HasBinaryMagic(string path)
         {
             return HasMagic(path, Magic);
-        }
-
-        internal static bool HasPreResetBinaryMagic(string path)
-        {
-            return HasMagic(path, PreResetMagic);
         }
 
         private static bool HasMagic(string path, byte[] magic)
@@ -75,7 +68,12 @@ namespace Parsek
             return true;
         }
 
-        internal static TrajectorySidecarProbe BuildPreResetMagicProbe()
+        /// <summary>
+        /// Probe result for an existing file that does not start with the current
+        /// <c>PSK0</c> magic: a text file, an older binary layout, or garbage. The file is
+        /// rejected as unsupported with the one reason <c>magic-mismatch</c>.
+        /// </summary>
+        internal static TrajectorySidecarProbe BuildMagicMismatchProbe()
         {
             return new TrajectorySidecarProbe
             {
@@ -85,7 +83,7 @@ namespace Parsek
                 FormatVersion = -1,
                 SchemaGeneration = 0,
                 SidecarEpoch = 0,
-                MagicTag = Encoding.ASCII.GetString(PreResetMagic),
+                MagicTag = null,
                 FailureReason = "magic-mismatch"
             };
         }
@@ -132,9 +130,8 @@ namespace Parsek
                     probe.SidecarEpoch = sidecarEpoch;
                     probe.RecordingId = recordingId;
                     probe.MagicTag = Encoding.ASCII.GetString(Magic);
-                    probe.Supported = IsSupportedBinaryVersion(formatVersion)
-                        && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration;
                     probe.FailureReason = BuildUnsupportedReason(formatVersion, schemaGeneration);
+                    probe.Supported = probe.FailureReason == null;
                     return true;
                 }
             }
@@ -325,21 +322,9 @@ namespace Parsek
                 if (!sectionAuthoritative &&
                     rec.TrackSections.Count > 0)
                 {
-                    // reconcileEmptySections: false — READ path: the empty-shell
-                    // reconcile never mutates a committed recording's sections at load.
-                    // Candidate clipping still applies (it only constrains what promotion
-                    // ADDS), and the pre-existing checkpoint-vs-physical clip of existing
-                    // sections also still runs here (legacy heal seam, predates the gate).
-                    // The overall contract is normalize-on-rewrite: when a sanctioned
-                    // flow (re-fly merge, tail finalizer, this dirty-marking legacy seam,
-                    // ...) marks the recording dirty, the next save rewrites the sidecar
-                    // through the write-path Ensure, which reconciles under the current
-                    // producer contract. Files no flow dirties stay byte-identical.
-                    RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
-                        rec,
-                        markDirty: true,
-                        context: "TrajectorySidecarBinary.Read",
-                        reconcileEmptySections: false);
+                    // No checkpoint-section promotion on READ: Write runs the write-path
+                    // Ensure before every file it writes, so a current file is already
+                    // normalized.
                     // markDirty: false - the heal repairs the DERIVED flat list in memory
                     // (which is what stops anchor-local metres reaching playback and the
                     // maxDist walk); the on-disk sidecar is left byte-identical so its
@@ -480,26 +465,28 @@ namespace Parsek
             return table;
         }
 
+        // Current, or Upgradable with a registered step: a binary layout step is a decode branch
+        // in this reader (keyed on probe.FormatVersion), registered with a null node delegate.
         private static bool IsSupportedBinaryVersion(int version)
         {
-            return version == CurrentBinaryVersion;
+            return SaveFormat.GateReason(SaveFormat.TrajectoryBinary, version, zeroIsMissing: false,
+                "format-version-mismatch", "format-version-mismatch", "format-version-mismatch", out _) == null;
         }
 
         private static TrajectorySidecarEncoding GetBinaryEncoding(int version)
         {
-            return version == CurrentBinaryVersion
+            return IsSupportedBinaryVersion(version)
                 ? TrajectorySidecarEncoding.BinaryV0
                 : TrajectorySidecarEncoding.UnknownBinary;
         }
 
-        private static string BuildUnsupportedReason(int formatVersion, int schemaGeneration)
+        internal static string BuildUnsupportedReason(int formatVersion, int schemaGeneration)
         {
-            if (schemaGeneration == 0)
-                return "generation-missing";
-            if (schemaGeneration < RecordingStore.CurrentRecordingSchemaGeneration)
-                return "generation-older";
-            if (schemaGeneration > RecordingStore.CurrentRecordingSchemaGeneration)
-                return "generation-newer";
+            string reason = SaveFormat.GateReason(
+                SaveFormat.RecordingSchemaGeneration, schemaGeneration, zeroIsMissing: true,
+                "generation-missing", "generation-older", "generation-newer", out _);
+            if (reason != null)
+                return reason;
             if (!IsSupportedBinaryVersion(formatVersion))
                 return "format-version-mismatch";
             return null;

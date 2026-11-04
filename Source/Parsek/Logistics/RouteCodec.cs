@@ -337,10 +337,6 @@ namespace Parsek.Logistics
                     });
                 }
             }
-            // Legacy money keys (kscDispatchFundsCost, pendingRecoveryCreditCycleId,
-            // pendingRecoveryCreditDispatchUT) are ignored: supply routes carry no
-            // money (todo LOGISTICS-WITHOUT-MONEY), and the next save drops them.
-
             TryParseDouble(node.GetValue("transitDuration"), inv, ic, out route.TransitDuration);
             TryParseDouble(node.GetValue("dispatchInterval"), inv, ic, out route.DispatchInterval);
             // Sparse cadence multiplier: absent -> the floor (1). Clamp on read so a
@@ -927,25 +923,10 @@ namespace Parsek.Logistics
         // Enum + primitive parsing helpers
         // -----------------------------------------------------------------
 
-        /// <summary>
-        /// The status name an old save wrote for a Career Space Center route short
-        /// of dispatch funds. Supply routes carry no money any more (todo
-        /// LOGISTICS-WITHOUT-MONEY), so it reads as <see cref="RouteStatus.Active"/>.
-        /// </summary>
-        internal const string LegacyWaitingForFundsStatus = "WaitingForFunds";
-
         private static RouteStatus ParseStatusOrWarn(string raw, string routeIdForLog)
         {
             if (string.IsNullOrEmpty(raw))
                 return RouteStatus.Active;
-
-            if (string.Equals(raw, LegacyWaitingForFundsStatus, StringComparison.Ordinal))
-            {
-                ParsekLog.Info(Tag,
-                    $"DeserializeFrom: legacy status='{raw}' on route id={routeIdForLog ?? "<no-id>"} " +
-                    "reads as Active (supply routes carry no money)");
-                return RouteStatus.Active;
-            }
 
             if (Enum.TryParse(raw, out RouteStatus status)
                 && Enum.IsDefined(typeof(RouteStatus), status))

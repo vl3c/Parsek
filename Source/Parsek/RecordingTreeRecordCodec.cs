@@ -243,13 +243,6 @@ namespace Parsek
                     }
                 }
             }
-
-            // Issue #734: PRE_REFLY_ORIGINAL is no longer written. The in-place
-            // Re-Fly attempt now forks into a separate provisional Recording so
-            // the origin is never mutated, removing the need for a Discard
-            // rollback snapshot. Older saves containing the node are read by the
-            // load path and silently dropped (the fields are gone), which is
-            // safe because the new fork model does not need the rollback.
         }
 
         #region SaveRecordingResourceAndState Block Helpers
@@ -516,6 +509,37 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// The upgrade lane of the recording gate: runs the registered generation and format steps
+        /// on a copy of <paramref name="recNode"/> (the save's own node is never rewritten), then
+        /// stamps <paramref name="rec"/> with the current values so the rest of the read and every
+        /// later write use the current shape. False, with the reason, when a step refuses.
+        /// </summary>
+        internal static bool TryUpgradeRecordingNode(ref ConfigNode recNode, Recording rec, out string reason)
+        {
+            reason = null;
+            ConfigNode copy = recNode.CreateCopy();
+            string context = "recording " + (rec.RecordingId ?? "<no-id>");
+            if (SaveFormat.RecordingSchemaGeneration.Classify(rec.RecordingSchemaGeneration) == SaveFormatClass.Upgradable
+                && !SaveFormat.TryUpgradeNode(SaveFormat.RecordingSchemaGeneration, rec.RecordingSchemaGeneration,
+                    copy, context, out string generationFailure))
+            {
+                reason = "generation-upgrade-failed " + generationFailure;
+                return false;
+            }
+            if (SaveFormat.RecordingFormat.Classify(rec.RecordingFormatVersion) == SaveFormatClass.Upgradable
+                && !SaveFormat.TryUpgradeNode(SaveFormat.RecordingFormat, rec.RecordingFormatVersion,
+                    copy, context, out string formatFailure))
+            {
+                reason = "format-upgrade-failed " + formatFailure;
+                return false;
+            }
+            recNode = copy;
+            rec.RecordingSchemaGeneration = SaveFormat.RecordingSchemaGeneration.Current;
+            rec.RecordingFormatVersion = SaveFormat.RecordingFormat.Current;
+            return true;
+        }
+
         internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
         {
             var inv = NumberStyles.Float;
@@ -550,7 +574,10 @@ namespace Parsek
             if (!RecordingStore.IsRecordingSchemaCompatible(
                     rec.RecordingFormatVersion,
                     rec.RecordingSchemaGeneration,
-                    out string schemaRejectReason))
+                    out string schemaRejectReason,
+                    out bool schemaNeedsUpgrade)
+                || (schemaNeedsUpgrade
+                    && !TryUpgradeRecordingNode(ref recNode, rec, out schemaRejectReason)))
             {
                 ParsekLog.Warn("Codec",
                     $"LoadRecordingFrom: rejecting recording {rec.RecordingId ?? "<no-id>"} with " +

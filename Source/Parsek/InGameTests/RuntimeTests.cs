@@ -21799,8 +21799,7 @@ namespace Parsek.InGameTests
                 eventType = eventType,
                 key = key,
                 detail = detail ?? "",
-                recordingId = recordingId,
-                epoch = 0u
+                recordingId = recordingId
             };
             // The overlays and click-blocks read the committed-future index over the
             // effective ledger, so the fixture is a ledger row of the committed recording,

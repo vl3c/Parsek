@@ -47,7 +47,6 @@ namespace Parsek.Tests
                 MilestoneId = id,
                 StartUT = 0,
                 EndUT = endUT,
-                Epoch = 0,
                 Committed = true,
                 Events = new List<GameStateEvent>
                 {
@@ -126,7 +125,6 @@ namespace Parsek.Tests
                 MilestoneId = "m1",
                 StartUT = 0,
                 EndUT = 100,
-                Epoch = 0,
                 Committed = true,
                 Events = new List<GameStateEvent>
                 {
@@ -173,7 +171,6 @@ namespace Parsek.Tests
                 MilestoneId = "m1",
                 StartUT = 0,
                 EndUT = 100,
-                Epoch = 0,
                 Committed = true,
                 Events = new List<GameStateEvent>
                 {
@@ -246,7 +243,6 @@ namespace Parsek.Tests
                 MilestoneId = "m1",
                 StartUT = 0,
                 EndUT = 300,
-                Epoch = 0,
                 Committed = true,
                 Events = new List<GameStateEvent>
                 {
@@ -308,7 +304,6 @@ namespace Parsek.Tests
                 MilestoneId = "mixed",
                 StartUT = 0,
                 EndUT = 300,
-                Epoch = 0,
                 Committed = true,
                 Events = new List<GameStateEvent>
                 {
@@ -352,7 +347,6 @@ namespace Parsek.Tests
                 MilestoneId = "m1",
                 StartUT = 0,
                 EndUT = 100,
-                Epoch = 0,
                 Committed = true,
                 Events = new List<GameStateEvent>
                 {

@@ -38,27 +38,26 @@ namespace Parsek
         //
         // Supply routes are a real-time system whose events live in the route event log
         // (Logistics.RouteEventLog, persisted with the routes in the PARSEK node; todo
-        // LOGISTICS-WITHOUT-MONEY phase 2). No ledger row of these types is ever written,
-        // and an old save's rows are dropped at ledger load with one Info summary
-        // (LedgerLoadMigration.IsLegacyRouteNode). The ids stay defined so an old row
-        // never reads as type 0 and the numbers are never reused; the route event log's
-        // Logistics.RouteEventType keeps the same names and numbers.
+        // LOGISTICS-WITHOUT-MONEY phase 2). No ledger row of these types is ever written.
+        // The ids stay defined and reserved, never reused: a row of one is kept verbatim
+        // as unreadable (GameAction.ClassifyUnreadableActionNode), never read as type 0.
+        // The route event log's Logistics.RouteEventType keeps the same names and numbers.
 
-        /// <summary>Reserved (legacy supply-route row, dropped at ledger load).</summary>
+        /// <summary>Reserved (supply-route id, never written; never reused).</summary>
         RouteDispatched       = 23,
-        /// <summary>Reserved (legacy supply-route row, dropped at ledger load).</summary>
+        /// <summary>Reserved (supply-route id, never written; never reused).</summary>
         RouteCargoDebited     = 24,
-        /// <summary>Reserved (legacy supply-route row, dropped at ledger load).</summary>
+        /// <summary>Reserved (supply-route id, never written; never reused).</summary>
         RouteCargoDelivered   = 25,
-        /// <summary>Reserved (legacy supply-route row, dropped at ledger load).</summary>
+        /// <summary>Reserved (supply-route id, never written; never reused).</summary>
         RoutePaused           = 26,
-        /// <summary>Reserved (legacy supply-route row, dropped at ledger load).</summary>
+        /// <summary>Reserved (supply-route id, never written; never reused).</summary>
         RouteEndpointLost     = 27,
-        /// <summary>Reserved (legacy supply-route money row, dropped at ledger load).</summary>
+        /// <summary>Reserved (supply-route id, never written; never reused).</summary>
         RouteRecoveryCredited = 28,
-        /// <summary>Reserved (legacy supply-route row, dropped at ledger load).</summary>
+        /// <summary>Reserved (supply-route id, never written; never reused).</summary>
         RouteCargoPickedUp    = 29,
-        /// <summary>Reserved (legacy supply-route row, dropped at ledger load).</summary>
+        /// <summary>Reserved (supply-route id, never written; never reused).</summary>
         RouteResumed          = 30,
 
         /// <summary>
@@ -184,7 +183,7 @@ namespace Parsek
         /// </summary>
         VesselRecovered = 35,
 
-        /// <summary>Reserved (legacy supply-route row, dropped at ledger load).</summary>
+        /// <summary>Reserved (supply-route id, never written; never reused).</summary>
         RouteHeld = 36,
 
         /// <summary>
@@ -306,10 +305,8 @@ namespace Parsek
         Milestone        = 3,
         Other            = 4,
         /// <summary>
-        /// Synthetic earning tag retained for ledger rows that still carry it.
-        /// Tag-only — <see cref="FundsModule"/> treats it as a normal earning via its
-        /// default branch. The on-load injector that once emitted this tag was removed
-        /// with the schema generation 3 reset.
+        /// Reserved: no build writes this source. The slot stays defined so its number is
+        /// never reused.
         /// </summary>
         LegacyMigration  = 5,
         /// <summary>
@@ -526,10 +523,7 @@ namespace Parsek
         /// <summary>
         /// Stable immutable identifier for this action (design doc section 5.6 +
         /// section 9). New actions auto-assign <c>"act_" + Guid.NewGuid("N")</c>
-        /// at construction. Load-time migration re-hydrates a deterministic id
-        /// for pre-feature actions via
-        /// <see cref="ComputeLegacyActionId(double, GameActionType, string, int)"/>.
-        /// Referenced by <see cref="LedgerTombstone.ActionId"/>.
+        /// at construction. Referenced by <see cref="LedgerTombstone.ActionId"/>.
         /// </summary>
         public string ActionId = "act_" + Guid.NewGuid().ToString("N");
 
@@ -1014,17 +1008,12 @@ namespace Parsek
         /// ABSOLUTE expiration UT (stock <c>Contract.DateDeadline</c>). NaN when the
         /// contract carries no deadline (stock <c>DeadlineType.None</c>).
         ///
-        /// <para>CONTRACT-DEADLINE-CAPTURED-AS-DURATION: until 2026-08-29 the capture
-        /// stored stock's <c>Contract.TimeDeadline</c> - a DURATION in seconds - into
-        /// this field, which every consumer reads as an absolute UT. It is a
-        /// <c>double</c> rather than a <c>float</c> because a mid-career UT does not fit
-        /// in a float's ~7 significant digits: the C2Career fixture's row stored
-        /// 8228571.5 for a stock <c>TimeDeadline</c> of 8228571.72775267, already losing
-        /// a quarter second at a value far below a long career's clock.</para>
+        /// <para>Never stock's <c>Contract.TimeDeadline</c>, which is a DURATION: every
+        /// consumer reads this field as an absolute UT. It is a <c>double</c> rather than
+        /// a <c>float</c> because a mid-career UT does not fit in a float's ~7
+        /// significant digits.</para>
         ///
-        /// <para>On disk the absolute form is written under the key
-        /// <c>deadlineAbsUT</c>. The legacy <c>deadlineUT</c> key means a DURATION and is
-        /// migrated to absolute on load by <see cref="DeserializeContractAccept"/>.</para>
+        /// <para>On disk it is written under the key <c>deadlineAbsUT</c>.</para>
         /// </summary>
         public double DeadlineUT = double.NaN;
 
@@ -1276,33 +1265,6 @@ namespace Parsek
         private static readonly NumberStyles NS = NumberStyles.Float;
 
         /// <summary>
-        /// Computes a deterministic legacy <see cref="ActionId"/> for
-        /// pre-Rewind-to-Staging actions that lack a persisted id
-        /// (design doc section 5.6 + 9). The hash input is the concatenation
-        /// <c>UT.ToString("R", InvariantCulture) + "|" + Type + "|" +
-        /// (RecordingId ?? "") + "|" + Sequence</c>; the output is
-        /// <c>"act_legacy_" + first 16 hex chars of SHA1(input)</c>. Idempotent:
-        /// the same inputs always produce the same id, so repeated loads do not
-        /// drift.
-        /// </summary>
-        internal static string ComputeLegacyActionId(double ut, GameActionType type, string recordingId, int sequence)
-        {
-            string input = ut.ToString("R", IC) + "|"
-                + type.ToString() + "|"
-                + (recordingId ?? "") + "|"
-                + sequence.ToString(IC);
-            using (var sha = System.Security.Cryptography.SHA1.Create())
-            {
-                byte[] hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
-                var sb = new System.Text.StringBuilder("act_legacy_", 11 + 16);
-                int take = System.Math.Min(8, hash.Length); // 8 bytes = 16 hex chars
-                for (int i = 0; i < take; i++)
-                    sb.Append(hash[i].ToString("x2"));
-                return sb.ToString();
-            }
-        }
-
-        /// <summary>
         /// Serializes this action into a GAME_ACTION ConfigNode under the given parent.
         /// Only writes fields relevant to the action type — does not write nulls or defaults.
         /// </summary>
@@ -1312,9 +1274,8 @@ namespace Parsek
             node.AddValue("ut", UT.ToString("R", IC));
             node.AddValue("type", ((int)Type).ToString(IC));
 
-            // Rewind-to-Staging (design section 5.6) — every action has an ActionId.
-            // Auto-assigned at construction for new actions; deterministically rehydrated
-            // on load for legacy actions (see DeserializeFrom + ComputeLegacyActionId).
+            // Rewind-to-Staging (design section 5.6) — every action has an ActionId,
+            // auto-assigned at construction.
             if (string.IsNullOrEmpty(ActionId))
                 ActionId = "act_" + Guid.NewGuid().ToString("N");
             node.AddValue("actionId", ActionId);
@@ -1454,6 +1415,7 @@ namespace Parsek
         /// Pure: why this build cannot read a GAME_ACTION node, or null when it can.
         /// <c>type-missing</c> / <c>type-unparseable</c>: no integer <c>type</c>.
         /// <c>type-unknown</c>: an id this build does not define (a row a newer build wrote).
+        /// <see cref="ReservedTypeReason"/>: a reserved supply-route id, which no build writes.
         /// The ledger keeps such a node verbatim instead of reading it as type 0.
         /// </summary>
         internal static string ClassifyUnreadableActionNode(ConfigNode node, out int typeId)
@@ -1466,8 +1428,13 @@ namespace Parsek
                 return "type-unparseable";
             if (!Enum.IsDefined(typeof(GameActionType), typeId))
                 return "type-unknown";
+            if (LedgerLoadMigration.IsReservedRouteActionType((GameActionType)typeId))
+                return ReservedTypeReason;
             return null;
         }
+
+        /// <summary>Unreadable reason of a row of a reserved supply-route type.</summary>
+        internal const string ReservedTypeReason = "type-reserved";
 
         /// <summary>
         /// Deserializes a GameAction from a GAME_ACTION ConfigNode.
@@ -1506,19 +1473,11 @@ namespace Parsek
                 && !double.IsNaN(capturedUt) && !double.IsInfinity(capturedUt))
                 a.CapturedUT = capturedUt;
 
-            // Rewind-to-Staging (design section 5.6 + 9). Legacy actions without
-            // `actionId` get a deterministic hash-based id so tombstones remain
-            // stable across reloads. Counter bumped for the one-shot Info log.
+            // Rewind-to-Staging (design section 5.6): every written row carries its id. A
+            // row without one keeps the fresh id the constructor assigned.
             string actionIdStr = node.GetValue("actionId");
             if (!string.IsNullOrEmpty(actionIdStr))
-            {
                 a.ActionId = actionIdStr;
-            }
-            else
-            {
-                a.ActionId = ComputeLegacyActionId(a.UT, a.Type, a.RecordingId, a.Sequence);
-                Ledger.BumpLegacyActionIdMigrationCounterForTesting();
-            }
 
             // See SerializeInto: read in the common header, same key, same node.
             string insideSeedStr = node.GetValue(InsideReputationSeedKey);
@@ -1856,11 +1815,7 @@ namespace Parsek
             if (ContractType != null) n.AddValue("contractType", ContractType);
             if (ContractTitle != null) n.AddValue("contractTitle", ContractTitle);
             n.AddValue("advanceFunds", AdvanceFunds.ToString("R", IC));
-            // CONTRACT-DEADLINE-CAPTURED-AS-DURATION: the key NAME is the migration
-            // stamp. `deadlineAbsUT` always means an absolute UT; the legacy
-            // `deadlineUT` key always means a duration. Writing only the new key means
-            // a row this build produced can never be re-migrated, and a row an older
-            // build produced can never be mistaken for an absolute one.
+            // An absolute UT; absent means no deadline.
             if (!double.IsNaN(DeadlineUT))
                 n.AddValue(ContractDeadlineAbsoluteKey, DeadlineUT.ToString("R", IC));
             if (FundsPenalty != 0f)
@@ -1873,83 +1828,8 @@ namespace Parsek
                 n.AddValue(ContractGoalKeyKey, ContractGoalKey);
         }
 
-        /// <summary>
-        /// ConfigNode key carrying an ABSOLUTE contract deadline UT. Written by every
-        /// build from 2026-08-29 on.
-        /// </summary>
+        /// <summary>ConfigNode key carrying an ABSOLUTE contract deadline UT.</summary>
         internal const string ContractDeadlineAbsoluteKey = "deadlineAbsUT";
-
-        /// <summary>
-        /// LEGACY ConfigNode key. Its value is a DURATION in seconds (stock
-        /// <c>Contract.TimeDeadline</c>) even though the name says UT - see
-        /// CONTRACT-DEADLINE-CAPTURED-AS-DURATION. Read-only: never written again.
-        /// </summary>
-        internal const string ContractDeadlineLegacyDurationKey = "deadlineUT";
-
-        /// <summary>
-        /// Outcome of resolving a ContractAccept node's deadline. Reported so the
-        /// per-load migration tally can be logged as one batch summary.
-        /// </summary>
-        internal enum ContractDeadlineResolution
-        {
-            /// <summary>Neither key present: the contract has no deadline (NaN).</summary>
-            Absent,
-            /// <summary>The absolute key was present and used verbatim.</summary>
-            Absolute,
-            /// <summary>The legacy duration key was present and converted to absolute.</summary>
-            MigratedFromDuration,
-            /// <summary>A key was present but unparseable; treated as no deadline.</summary>
-            Unparseable
-        }
-
-        /// <summary>
-        /// Pure: resolves a ContractAccept node's deadline to an ABSOLUTE UT.
-        ///
-        /// <para>The absolute key wins outright when present. Otherwise the legacy
-        /// <c>deadlineUT</c> key is a DURATION and the absolute deadline is
-        /// <paramref name="acceptUT"/> + duration - stock assigns
-        /// <c>dateDeadline = dateAccepted + TimeDeadline</c> at accept for a Floating
-        /// contract, and the ledger row's own <c>ut</c> IS <c>dateAccepted</c> (proved
-        /// byte-for-byte against the C2Career fixture's stock CONTRACT node).</para>
-        ///
-        /// <para>Idempotent by construction: the migrated value is re-serialized under
-        /// the absolute key, so a second load takes the <see
-        /// cref="ContractDeadlineResolution.Absolute"/> branch. A non-positive or
-        /// non-finite legacy value is NOT migrated - a zero/NaN duration means "no
-        /// deadline" under the old capture's own convention, and adding it to the accept
-        /// UT would manufacture a deadline that expires the instant it is accepted.</para>
-        /// </summary>
-        internal static ContractDeadlineResolution ResolveContractDeadlineUT(
-            ConfigNode n, double acceptUT, out double deadlineUT)
-        {
-            deadlineUT = double.NaN;
-            if (n == null)
-                return ContractDeadlineResolution.Absent;
-
-            string absStr = n.GetValue(ContractDeadlineAbsoluteKey);
-            if (absStr != null)
-            {
-                double parsed;
-                if (!double.TryParse(absStr, NS, IC, out parsed))
-                    return ContractDeadlineResolution.Unparseable;
-                deadlineUT = parsed;
-                return ContractDeadlineResolution.Absolute;
-            }
-
-            string legacyStr = n.GetValue(ContractDeadlineLegacyDurationKey);
-            if (legacyStr == null)
-                return ContractDeadlineResolution.Absent;
-
-            double duration;
-            if (!double.TryParse(legacyStr, NS, IC, out duration))
-                return ContractDeadlineResolution.Unparseable;
-
-            if (double.IsNaN(duration) || double.IsInfinity(duration) || duration <= 0.0)
-                return ContractDeadlineResolution.Absent;
-
-            deadlineUT = acceptUT + duration;
-            return ContractDeadlineResolution.MigratedFromDuration;
-        }
 
         private static void DeserializeContractAccept(ConfigNode n, GameAction a)
         {
@@ -1958,10 +1838,18 @@ namespace Parsek
             a.ContractTitle = n.GetValue("contractTitle");
             TryParseFloat(n, "advanceFunds", out a.AdvanceFunds);
 
-            // CONTRACT-DEADLINE-CAPTURED-AS-DURATION on-disk migration. `a.UT` is
-            // already parsed by DeserializeFrom before this type-specific branch runs.
-            var resolution = ResolveContractDeadlineUT(n, a.UT, out a.DeadlineUT);
-            Ledger.NoteContractDeadlineResolution(resolution);
+            a.DeadlineUT = double.NaN;
+            string deadlineStr = n.GetValue(ContractDeadlineAbsoluteKey);
+            if (deadlineStr != null)
+            {
+                double parsed;
+                if (double.TryParse(deadlineStr, NS, IC, out parsed))
+                    a.DeadlineUT = parsed;
+                else
+                    ParsekLog.Warn("GameAction",
+                        $"ContractAccept row '{a.ContractId ?? "(none)"}' actionId={a.ActionId ?? "(none)"} " +
+                        $"has unparseable {ContractDeadlineAbsoluteKey}='{deadlineStr}' - reading it as no deadline");
+            }
 
             TryParseFloat(n, "fundsPenalty", out a.FundsPenalty);
             TryParseFloat(n, "repPenalty", out a.RepPenalty);
