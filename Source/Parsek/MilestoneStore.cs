@@ -22,6 +22,9 @@ namespace Parsek
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
 
+        /// <summary>The <c>PARSEK_MILESTONES</c> <c>version</c> this build writes (1.0 baseline: 1).</summary>
+        internal const int CurrentMilestonesVersion = 1;
+
         private static string ShortId(string id)
         {
             if (string.IsNullOrEmpty(id)) return "?";
@@ -334,7 +337,7 @@ namespace Parsek
         internal static ConfigNode BuildMilestonesNode()
         {
             var rootNode = new ConfigNode(MilestonesNodeName);
-            rootNode.AddValue("version", 1);
+            rootNode.AddValue("version", CurrentMilestonesVersion);
 
             for (int i = 0; i < milestones.Count; i++)
             {

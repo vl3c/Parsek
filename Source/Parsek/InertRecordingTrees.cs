@@ -81,7 +81,9 @@ namespace Parsek
         /// Pure: why the recording schema gate rejected <paramref name="treeNode"/> as a whole, or
         /// null when it did not. Two shapes count: the tree-level gate in
         /// <see cref="RecordingTree.Load"/> (the tree's <c>recordingSchemaGeneration</c> is not the
-        /// current one; reason <c>tree-generation-older|newer|missing</c>), and a tree whose
+        /// current one; reason <c>tree-generation-older|newer|missing</c>; or its
+        /// <c>treeFormatVersion</c> is newer than this build's, reason <c>tree-format-newer</c>, see
+        /// <see cref="RecordingTree.TreeFormatRejectReason"/>), and a tree whose
         /// recordings the per-recording gate rejected so that nothing loaded (every recording, or
         /// the root and with it the whole tree; reason <c>recordings-&lt;first reason&gt;</c>).
         /// The per-recording gate is the schema stamps plus
@@ -102,12 +104,14 @@ namespace Parsek
             if (!int.TryParse(treeNode.GetValue("recordingSchemaGeneration"), NumberStyles.Integer, ic,
                     out treeGeneration))
                 treeGeneration = 0;
-            if (treeGeneration != RecordingStore.CurrentRecordingSchemaGeneration)
-            {
-                RecordingStore.IsRecordingSchemaCompatible(
-                    RecordingStore.CurrentRecordingFormatVersion, treeGeneration, out string treeReason);
+            if (!RecordingStore.IsRecordingSchemaCompatible(
+                    RecordingStore.CurrentRecordingFormatVersion, treeGeneration, out string treeReason))
                 return "tree-" + (treeReason ?? "generation-mismatch");
-            }
+
+            string treeFormatReason = RecordingTree.TreeFormatRejectReason(
+                SaveFormat.ParseStored(treeNode.GetValue("treeFormatVersion")), out _);
+            if (treeFormatReason != null)
+                return treeFormatReason;
 
             int recordingCount = CountRejectedRecordings(treeNode, out int rejected, out string firstReason);
             if (rejected == 0)

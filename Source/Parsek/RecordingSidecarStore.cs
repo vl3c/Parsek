@@ -366,8 +366,9 @@ namespace Parsek
                     rec.RecordingFormatVersion,
                     rec.RecordingSchemaGeneration,
                     out string metadataSchemaReason)
-                || probe.FormatVersion != rec.RecordingFormatVersion
-                || probe.SchemaGeneration != rec.RecordingSchemaGeneration)
+                || !SidecarStampsAgreeWithMetadata(
+                    probe.FormatVersion, probe.SchemaGeneration,
+                    rec.RecordingFormatVersion, rec.RecordingSchemaGeneration))
             {
                 string reason = metadataSchemaReason
                     ?? (probe.SchemaGeneration != rec.RecordingSchemaGeneration
@@ -526,6 +527,22 @@ namespace Parsek
             if (resolved && !string.IsNullOrEmpty(currentHash))
                 return currentHash;
             return SidecarContentHash.ComputeFile(path);
+        }
+
+        /// <summary>
+        /// Pure: a trajectory sidecar belongs to its metadata when both carry the same stamps, or
+        /// when the metadata was upgraded on read (it now carries current stamps) and the sidecar's
+        /// own stamps pass the gate through the upgrade lane.
+        /// </summary>
+        internal static bool SidecarStampsAgreeWithMetadata(
+            int sidecarFormat, int sidecarGeneration, int metadataFormat, int metadataGeneration)
+        {
+            if (sidecarFormat == metadataFormat && sidecarGeneration == metadataGeneration)
+                return true;
+            return metadataFormat == SaveFormat.RecordingFormat.Current
+                && metadataGeneration == SaveFormat.RecordingSchemaGeneration.Current
+                && RecordingStore.IsRecordingSchemaCompatible(sidecarFormat, sidecarGeneration, out _, out bool upgrade)
+                && upgrade;
         }
 
         internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)

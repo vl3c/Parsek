@@ -13,6 +13,9 @@ namespace Parsek
         private static Dictionary<string, float> committedScienceSubjects = new Dictionary<string, float>();
         private static Dictionary<string, float> originalScienceValues = new Dictionary<string, float>();
 
+        /// <summary>The <c>PARSEK_GAME_STATE</c> <c>version</c> this build writes (1.0 baseline: 1).</summary>
+        internal const int CurrentEventsVersion = 1;
+
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
 
@@ -1178,7 +1181,7 @@ namespace Parsek
             // and corrupt facility/building cache seeding.
             var build = new EventsNodeBuild();
             var rootNode = new ConfigNode(EventsNodeName);
-            rootNode.AddValue("version", 1);
+            rootNode.AddValue("version", CurrentEventsVersion);
             ConfigNode attemptNode = null;
             if (!string.IsNullOrEmpty(attemptTreeId))
             {

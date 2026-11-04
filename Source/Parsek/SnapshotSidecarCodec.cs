@@ -32,7 +32,7 @@ namespace Parsek
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PSN0");
         private static readonly uint[] Crc32Table = BuildCrc32Table();
-        private const int CurrentFormatVersion = 0;
+        internal const int CurrentFormatVersion = 0;
         private const byte CodecDeflate = 1;
         private const string WrapperNodeName = "SNAPSHOT_SIDECAR";
         private const string FallbackNodeName = "SNAPSHOT";
@@ -310,8 +310,7 @@ namespace Parsek
                 return false;
             }
 
-            bool supported = formatVersion == CurrentFormatVersion
-                && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration
+            bool supported = BuildGateReason(formatVersion, schemaGeneration) == null
                 && codec == CodecDeflate;
             probe = new SnapshotSidecarProbe
             {
@@ -333,16 +332,26 @@ namespace Parsek
             return true;
         }
 
+        // The SaveFormat gate for the header stamps: Current, or Upgradable with a registered step
+        // (a PSN0 layout step is a decode branch here, registered with a null node delegate).
+        internal static string BuildGateReason(int formatVersion, int schemaGeneration)
+        {
+            string reason = SaveFormat.GateReason(
+                SaveFormat.RecordingSchemaGeneration, schemaGeneration, zeroIsMissing: true,
+                "generation-missing", "generation-older", "generation-newer", out _);
+            if (reason != null)
+                return reason;
+            if (SaveFormat.GateReason(SaveFormat.Snapshot, formatVersion, zeroIsMissing: false,
+                    "format", "format", "format", out _) != null)
+                return $"format-version-mismatch version {formatVersion}";
+            return null;
+        }
+
         private static string BuildUnsupportedReason(int formatVersion, int schemaGeneration, byte codec)
         {
-            if (schemaGeneration == 0)
-                return "generation-missing";
-            if (schemaGeneration < RecordingStore.CurrentRecordingSchemaGeneration)
-                return "generation-older";
-            if (schemaGeneration > RecordingStore.CurrentRecordingSchemaGeneration)
-                return "generation-newer";
-            if (formatVersion != CurrentFormatVersion)
-                return $"format-version-mismatch version {formatVersion}";
+            string gate = BuildGateReason(formatVersion, schemaGeneration);
+            if (gate != null)
+                return gate;
             if (codec != CodecDeflate)
                 return $"unsupported snapshot codec {codec}";
             return "unsupported snapshot sidecar";

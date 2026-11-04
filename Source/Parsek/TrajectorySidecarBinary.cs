@@ -130,9 +130,8 @@ namespace Parsek
                     probe.SidecarEpoch = sidecarEpoch;
                     probe.RecordingId = recordingId;
                     probe.MagicTag = Encoding.ASCII.GetString(Magic);
-                    probe.Supported = IsSupportedBinaryVersion(formatVersion)
-                        && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration;
                     probe.FailureReason = BuildUnsupportedReason(formatVersion, schemaGeneration);
+                    probe.Supported = probe.FailureReason == null;
                     return true;
                 }
             }
@@ -466,26 +465,28 @@ namespace Parsek
             return table;
         }
 
+        // Current, or Upgradable with a registered step: a binary layout step is a decode branch
+        // in this reader (keyed on probe.FormatVersion), registered with a null node delegate.
         private static bool IsSupportedBinaryVersion(int version)
         {
-            return version == CurrentBinaryVersion;
+            return SaveFormat.GateReason(SaveFormat.TrajectoryBinary, version, zeroIsMissing: false,
+                "format-version-mismatch", "format-version-mismatch", "format-version-mismatch", out _) == null;
         }
 
         private static TrajectorySidecarEncoding GetBinaryEncoding(int version)
         {
-            return version == CurrentBinaryVersion
+            return IsSupportedBinaryVersion(version)
                 ? TrajectorySidecarEncoding.BinaryV0
                 : TrajectorySidecarEncoding.UnknownBinary;
         }
 
-        private static string BuildUnsupportedReason(int formatVersion, int schemaGeneration)
+        internal static string BuildUnsupportedReason(int formatVersion, int schemaGeneration)
         {
-            if (schemaGeneration == 0)
-                return "generation-missing";
-            if (schemaGeneration < RecordingStore.CurrentRecordingSchemaGeneration)
-                return "generation-older";
-            if (schemaGeneration > RecordingStore.CurrentRecordingSchemaGeneration)
-                return "generation-newer";
+            string reason = SaveFormat.GateReason(
+                SaveFormat.RecordingSchemaGeneration, schemaGeneration, zeroIsMissing: true,
+                "generation-missing", "generation-older", "generation-newer", out _);
+            if (reason != null)
+                return reason;
             if (!IsSupportedBinaryVersion(formatVersion))
                 return "format-version-mismatch";
             return null;

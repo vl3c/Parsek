@@ -71,32 +71,40 @@ namespace Parsek
             int recordingSchemaGeneration,
             out string reason)
         {
-            if (recordingSchemaGeneration == 0)
+            return IsRecordingSchemaCompatible(
+                recordingFormatVersion, recordingSchemaGeneration, out reason, out _);
+        }
+
+        /// <summary>
+        /// The recording schema gate (<see cref="SaveFormat"/> rows recording-schema-generation and
+        /// recording-format). Current stamps pass; an Upgradable stamp (at or after the 1.0
+        /// baseline, below current) passes only when its upgrade steps are registered, and then
+        /// <paramref name="needsUpgrade"/> is true and the reader runs them; everything else is
+        /// rejected with <c>generation-missing</c> / <c>generation-older</c> (pre-baseline, or no
+        /// upgrade path) / <c>generation-newer</c> / <c>format-version-mismatch</c>.
+        /// </summary>
+        internal static bool IsRecordingSchemaCompatible(
+            int recordingFormatVersion,
+            int recordingSchemaGeneration,
+            out string reason,
+            out bool needsUpgrade)
+        {
+            reason = SaveFormat.GateReason(
+                SaveFormat.RecordingSchemaGeneration, recordingSchemaGeneration, zeroIsMissing: true,
+                missingReason: "generation-missing", olderReason: "generation-older",
+                newerReason: "generation-newer", needsUpgrade: out bool generationUpgrade);
+            if (reason != null)
             {
-                reason = "generation-missing";
+                needsUpgrade = false;
                 return false;
             }
 
-            if (recordingSchemaGeneration < CurrentRecordingSchemaGeneration)
-            {
-                reason = "generation-older";
-                return false;
-            }
-
-            if (recordingSchemaGeneration > CurrentRecordingSchemaGeneration)
-            {
-                reason = "generation-newer";
-                return false;
-            }
-
-            if (recordingFormatVersion != CurrentRecordingFormatVersion)
-            {
-                reason = "format-version-mismatch";
-                return false;
-            }
-
-            reason = null;
-            return true;
+            reason = SaveFormat.GateReason(
+                SaveFormat.RecordingFormat, recordingFormatVersion, zeroIsMissing: false,
+                missingReason: "format-version-mismatch", olderReason: "format-version-mismatch",
+                newerReason: "format-version-mismatch", needsUpgrade: out bool formatUpgrade);
+            needsUpgrade = reason == null && (generationUpgrade || formatUpgrade);
+            return reason == null;
         }
 
         // When true, suppresses logging calls (for unit testing outside Unity)

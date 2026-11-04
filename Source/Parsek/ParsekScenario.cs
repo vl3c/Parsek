@@ -1552,6 +1552,9 @@ namespace Parsek
                 // save no stock load announced (the canary, design 4.1).
                 savePhase = "save-stamp";
                 WriteSaveStamp(node);
+                // The save-wide format (SaveFormat.CurrentSaveFormat) and the writer's version.
+                savePhase = "save-format";
+                SaveFormat.StampScenarioNode(node);
 
                 lastOnSaveScene = HighLogic.LoadedScene;
                 RecorderStateLog.RecState("OnSave:post", CaptureScenarioRecorderState());
@@ -3998,6 +4001,11 @@ namespace Parsek
                         "Hidden settings clamped to shipping values (stale save-stored values overridden)");
                 }
                 RecorderStateLog.RecState("OnLoad:settings-applied", CaptureScenarioRecorderState());
+
+                // The save-wide format stamp: log what wrote this save (pre-1.0, current, newer).
+                // Each store's own reader decides what it keeps; this read changes nothing.
+                loadPhase = "save-format";
+                SaveFormat.ClassifyLoadedScenarioNode(node, scenarioNodePopulated);
 
                 var recordings = RecordingStore.CommittedRecordings;
                 loadedRecordingCount = recordings.Count;

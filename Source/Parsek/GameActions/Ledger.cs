@@ -31,7 +31,7 @@ namespace Parsek
     /// </summary>
     internal static class Ledger
     {
-        private const int CurrentLedgerVersion = 0;
+        internal const int CurrentLedgerVersion = 0;
         private const string RootNodeName = "LEDGER";
         private const string ActionNodeName = "GAME_ACTION";
         private const string VersionKey = "version";
