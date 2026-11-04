@@ -37,10 +37,9 @@ namespace Parsek
         public string TreeId;
 
         /// <summary>
-        /// Phase string. v1 only writes <see cref="Phases.Begin"/> while a merge is
-        /// in staged commit (see design doc section 6.6 failure-recovery matrix).
-        /// Additional phase constants are declared for forward-compat so §10 writers
-        /// and §6.9 finishers reference the same strings.
+        /// Phase string: the last checkpoint the staged-commit merge reached (see
+        /// design doc section 6.6 failure-recovery matrix). The §10 writer and the
+        /// §6.9 finisher reference the same <see cref="Phases"/> strings.
         /// </summary>
         public string Phase = Phases.Begin;
 
