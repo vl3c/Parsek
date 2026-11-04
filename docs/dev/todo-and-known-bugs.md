@@ -57,7 +57,11 @@ own `Die()` on a flag (replayed pick-up, failed spawn cleanup, claimed-vessel re
 the pick-up half of `RemovedReplayFlagsTests` (details round trip under de-DE, replay once at its UT,
 moved flag after a rewind ends in one place, catch-up walk never plants, live pick-up is a no-op).
 Not done: the live capture path (Harmony patch, `onVesselWillDestroy` ordering) is proven only by
-the decompile, not by a flight.
+the decompile, not by a flight. Lane authored, never flown: `FLG-1-pickup-rewind` (EVA-1's act on
+`gloops-airshow` with the new `PickUpFlag` seam verb, stock `FlagSite.PickUp`, between the plant and
+the board; commit, Rewind-to-Launch, 1x Space Center time to UT 150 for the replayed plant and
+take-down). Its 1x target is a guess (the pick-up UT is unknown before a flight): re-pin it and the
+4..6 recordings window from the first flight.
 
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 

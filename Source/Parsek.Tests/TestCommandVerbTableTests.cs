@@ -72,6 +72,7 @@ namespace Parsek.Tests
         [InlineData("NewGame")]
         [InlineData("AlarmJump")]
         [InlineData("LaunchSiteProbe")]
+        [InlineData("PickUpFlag")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -222,7 +223,9 @@ namespace Parsek.Tests
             // an obstructed site and stock's launch-site-clear dialog answered (LS-1, GC-9).
             // NewGame is ADDITIVE (58 -> 59; reserved unchanged at 4): a genuine stock new game
             // under the loaded save's name (the scripted campaign program's CS-0 host).
-            Assert.Equal(59, TestCommandVerbs.ImplementedVerbNames.Count);
+            // PickUpFlag is ADDITIVE (59 -> 60; reserved unchanged at 4): the active EVA kerbal
+            // takes down the nearest real flag through stock's own FlagSite.PickUp.
+            Assert.Equal(60, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
