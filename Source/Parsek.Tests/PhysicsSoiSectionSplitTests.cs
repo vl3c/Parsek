@@ -146,6 +146,37 @@ namespace Parsek.Tests
             Assert.Equal(RecordingOptimizer.SplitBoundaryReason.BodyChange, reason);
         }
 
+        [Theory]
+        [InlineData("Mun", "Kerbin")]
+        [InlineData("Kerbin", "Mun")]
+        public void OptimizerSplit_SecondHalfStartsOnTheNewBody_NotOnTheClosingSample(string from, string to)
+        {
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, 100.0);
+            for (double ut = 100.0; ut <= 140.0; ut += 10.0)
+                recorder.CommitRecordedPointForTesting(Pt(ut, from, alt: 2.4e6 + ut));
+            TrajectoryPoint opening = Pt(147.5, to, lat: 5, lon: 6, alt: 1.2e7);
+            Assert.True(recorder.TrySplitSectionAtPhysicsBodyChange(opening, Pt(147.5, from)));
+            recorder.CommitRecordedPointForTesting(opening);
+            for (double ut = 157.5; ut <= 200; ut += 10.0)
+                recorder.CommitRecordedPointForTesting(Pt(ut, to, lat: 5));
+            recorder.CloseCurrentTrackSection(197.5);
+
+            var rec = new Recording
+            {
+                RecordingId = "physics-soi-split-start",
+                StartBodyName = from,
+                Points = new List<TrajectoryPoint>(recorder.Recording),
+                TrackSections = new List<TrackSection>(recorder.TrackSections),
+            };
+            // The flat list opens the second half with the closing sample on the old body.
+            Assert.Contains(rec.Points, p => p.ut == 147.5 && p.bodyName == from);
+            Assert.True(RecordingOptimizer.IsSplittableEnvOrBodyBoundary(rec, 1, out _));
+            Recording second = RecordingOptimizer.SplitAtSection(rec, 1);
+            Assert.Equal(to, second.StartBodyName);
+            Assert.Equal(from, rec.StartBodyName);
+            Assert.Equal(from, rec.Points.Last().bodyName);
+        }
+
         [Fact]
         public void BodyChange_OnACoast_StaysCohesive()
         {

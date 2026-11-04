@@ -37,7 +37,11 @@ on the old body as the old section's closing frame (Absolute only), closes the s
 UT and opens the next one in the same frame (Relative keeps its anchor), then reseeds the atmosphere
 and altitude state and sets the SOI flag like the on-rails path. The flat list carries the
 equal-UT seam, so no interpolation pair spans the two bodies. Detecting at the sample rather than in
-the SOI callback keeps the split right when the callback fires inside a physics step. Tests:
+the SOI callback keeps the split right when the callback fires inside a physics step. Because the
+flat list now opens the optimizer's second half with the first half's closing sample,
+`RecordingOptimizer.SplitAtSection` takes the second half's start body / biome from its first
+section's own first frame (`ResolveSecondHalfStartPoint`; a Relative section's body-fixed shadow),
+not from the flat list. Tests:
 `PhysicsSoiSectionSplitTests` (truth table, bookkeeping, the optimizer reads a burn as
 `BodyChange` and a coast as `SuppressedExoCoastBodyChange`, source wiring).
 

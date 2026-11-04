@@ -133,8 +133,14 @@ namespace Parsek
                 && string.Equals(closingPoint.Value.bodyName, sectionBody, StringComparison.Ordinal)
                 && Math.Abs(closingPoint.Value.ut - ut) <= 1e-9)
             {
+                int countBefore = Recording.Count;
+                TrajectoryPoint lastBefore = countBefore > 0 ? Recording[countBefore - 1] : default(TrajectoryPoint);
                 CommitRecordedPoint(closingPoint.Value, null);
-                closed = true;
+                // A refused commit (Re-Fly settle suppression, a #419 reject) leaves the list as it was.
+                closed = Recording.Count > countBefore
+                    || (Recording.Count > 0 && countBefore > 0
+                        && Recording[Recording.Count - 1].ut == closingPoint.Value.ut
+                        && !lastBefore.Equals(Recording[Recording.Count - 1]));
             }
 
             ParsekLog.Info("Recorder",
@@ -178,6 +184,12 @@ namespace Parsek
             }
 
             TrajectoryPoint? closing = TryBuildSamePositionOnBody(sample, sectionBody);
+            if (closing.HasValue)
+            {
+                TrajectoryPoint canonical = closing.Value;
+                TryCanonicalizeActiveReFlyRecordingPoint(ref canonical, "physics-soi-closing");
+                closing = canonical;
+            }
             if (!TrySplitSectionAtPhysicsBodyChange(sample, closing))
                 return;
 
