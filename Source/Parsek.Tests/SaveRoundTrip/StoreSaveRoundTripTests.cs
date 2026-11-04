@@ -164,7 +164,8 @@ namespace Parsek.Tests.SaveRoundTrip
                 Name = "RemovedReplayFlags", Store = typeof(RemovedReplayFlags),
                 Save = n => RemovedReplayFlags.SaveInto(n), Reset = RemovedReplayFlags.ResetForTesting,
                 Load = n => RemovedReplayFlags.Replace(RemovedReplayFlags.LoadFrom(n), "round-trip test"),
-                Spec = () => new FieldSpec(typeof(RemovedReplayFlags)),
+                Spec = () => new FieldSpec(typeof(RemovedReplayFlags))
+                    .NotPersisted("re-entry guard held only for the length of a Die() call", "parsekRemovalDepth"),
                 NestedSpecs = () => new[] { new FieldSpec(typeof(RemovedReplayFlags.Tombstone)) },
             },
             new StoreCase

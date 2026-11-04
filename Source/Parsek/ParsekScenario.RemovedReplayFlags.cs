@@ -47,7 +47,8 @@ namespace Parsek
             if (!RemovedReplayFlags.ShouldRecordRemoval(
                     v.vesselType == VesselType.Flag,
                     GhostMapPresence.IsGhostMapVessel(v.persistentId),
-                    RewindContext.IsRewinding))
+                    RewindContext.IsRewinding,
+                    RemovedReplayFlags.ParsekRemovalInProgress))
                 return;
             try
             {
@@ -79,7 +80,8 @@ namespace Parsek
             if (!RemovedReplayFlags.ShouldRecordRemoval(
                     pv.vesselType == VesselType.Flag,
                     GhostMapPresence.IsGhostMapVessel(pv.persistentId),
-                    RewindContext.IsRewinding))
+                    RewindContext.IsRewinding,
+                    RemovedReplayFlags.ParsekRemovalInProgress))
                 return;
             try
             {

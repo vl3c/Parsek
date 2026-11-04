@@ -13109,10 +13109,23 @@ namespace Parsek
 
             if (recorder != null && recorder.IsRecording && recorder.RecordingVesselId == pickerPid)
             {
-                recorder.SegmentEvents.Add(evt);
+                // Straight onto the active tree recording when it exists: the mid-flight
+                // serialization flush (FlushRecorderIntoActiveTreeForSerialization) does not move
+                // recorder.SegmentEvents, so an event left there would miss an F5 and be lost on F9.
+                string activeRecId = activeTree?.ActiveRecordingId;
+                if (activeRecId != null
+                    && activeTree.Recordings.TryGetValue(activeRecId, out Recording activeRec)
+                    && activeRec != null)
+                {
+                    AppendSegmentEventToTreeRecording(activeRec, evt);
+                }
+                else
+                {
+                    recorder.SegmentEvents.Add(evt);
+                }
                 ParsekLog.Info("Flight",
-                    $"Flag pick-up captured (foreground recorder pid={pickerPid}): '{flag.vesselName}' on " +
-                    $"{(body != null ? body.name : "?")} ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
+                    $"Flag pick-up captured (foreground recorder pid={pickerPid} rec={activeRecId ?? "(recorder buffer)"}): " +
+                    $"'{flag.vesselName}' on {(body != null ? body.name : "?")} ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
                 return;
             }
 

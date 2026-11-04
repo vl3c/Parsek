@@ -47,9 +47,13 @@ Renames and plaque edits stay unrecorded (cosmetic; stock sets both only in the 
 decompiled `FlagSite` has no rename event). Built: `SegmentEventType.FlagPickedUp = 9` (additive, no
 generation bump), captured by `Patches/FlagPickUpCapturePatch.cs` (prefix + finalizer on
 `FlagSite.PickUp`) and `ParsekFlight.TryCaptureFlagPickUp` from the flag's `onVesselWillDestroy`
-inside the call, onto the picker's recording (foreground or background tree member); replayed by
+inside the call, onto the picker's recording (foreground: the active tree recording directly, so an
+F5 carries it; or a background tree member); replayed by
 `GhostPlaybackLogic.ApplyFlagPickUps` before the plants of each walk (writes the tombstone at the
-pick-up UT, takes down a standing flag at that spot, no-op when the tombstone already exists). Tests:
+pick-up UT, takes down a standing flag at that spot, no-op when the tombstone already exists). Parsek's
+own `Die()` on a flag (replayed pick-up, failed spawn cleanup, claimed-vessel removal) runs inside
+`RemovedReplayFlags.BeginParsekRemoval`, so its synchronous `onVesselWillDestroy` writes no tombstone
+(review finding: a late walk otherwise tombstoned the spot at the walk's UT and blocked a re-plant there). Tests:
 the pick-up half of `RemovedReplayFlagsTests` (details round trip under de-DE, replay once at its UT,
 moved flag after a rewind ends in one place, catch-up walk never plants, live pick-up is a no-op).
 Not done: the live capture path (Harmony patch, `onVesselWillDestroy` ordering) is proven only by

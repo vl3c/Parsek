@@ -71,6 +71,35 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             tombstones.Clear();
+            parsekRemovalDepth = 0;
+        }
+
+        private static int parsekRemovalDepth;
+
+        /// <summary>True while Parsek itself removes a flag vessel (a replayed pick-up, a failed spawn's
+        /// cleanup, a claimed-vessel removal). Stock <c>Vessel.Die()</c> fires <c>onVesselWillDestroy</c>
+        /// synchronously, so without this the removal would read as the player's and tombstone the spot.</summary>
+        internal static bool ParsekRemovalInProgress => parsekRemovalDepth > 0;
+
+        /// <summary>Marks a Parsek-initiated vessel removal for the scope's lifetime (nestable).</summary>
+        internal static ParsekRemovalScope BeginParsekRemoval()
+        {
+            parsekRemovalDepth++;
+            return new ParsekRemovalScope(true);
+        }
+
+        internal struct ParsekRemovalScope : IDisposable
+        {
+            private bool active;
+            internal ParsekRemovalScope(bool active) { this.active = active; }
+            public void Dispose()
+            {
+                if (!active)
+                    return;
+                active = false;
+                if (parsekRemovalDepth > 0)
+                    parsekRemovalDepth--;
+            }
         }
 
         /// <summary>
@@ -130,11 +159,12 @@ namespace Parsek
         /// <summary>
         /// Pure: does a vessel removal count as the player removing a flag? Only a flag vessel,
         /// never a ghost map vessel, and not while a rewind strips its world (that removal is the
-        /// rewind's, and the rewind save's world decides what stands).
+        /// rewind's, and the rewind save's world decides what stands), and never Parsek's own removal
+        /// (<see cref="ParsekRemovalInProgress"/>).
         /// </summary>
-        internal static bool ShouldRecordRemoval(bool isFlag, bool isGhostMapVessel, bool rewinding)
+        internal static bool ShouldRecordRemoval(bool isFlag, bool isGhostMapVessel, bool rewinding, bool parsekRemoving)
         {
-            return isFlag && !isGhostMapVessel && !rewinding;
+            return isFlag && !isGhostMapVessel && !rewinding && !parsekRemoving;
         }
 
         /// <summary>

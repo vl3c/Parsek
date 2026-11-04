@@ -681,7 +681,10 @@ LOOP-REPLAY-REPLANTS-REMOVED-FLAG), against section 12.7's "subsequent loops are
 
 So every removal of a flag vessel leaves a tombstone (`RemovedReplayFlags`: body, position, removal
 UT): a kerbal's pick-up or a crash in flight (`onVesselWillDestroy`), a recovery or termination
-(`onVesselRecovered` / `onVesselTerminated`); never a ghost map vessel and never a rewind's own strip.
+(`onVesselRecovered` / `onVesselTerminated`); never a ghost map vessel, never a rewind's own strip,
+and never Parsek's own removal (a replayed pick-up, a failed spawn's cleanup, a claimed-vessel
+removal run inside `RemovedReplayFlags.BeginParsekRemoval`, since stock `Vessel.Die()` fires
+`onVesselWillDestroy` synchronously).
 A flag event on the same body within 3 m whose plant UT is not after the removal is never planted
 again; a flag planted at that spot after the removal is a new flag and plants. Position, not
 recording identity, is the key: chain splits, Re-Fly HEAD / TIP splits and the optimizer clone an
@@ -695,7 +698,8 @@ removal brings the flag back when replay reaches its moment.
 `FlagSite.PickUp` notes the flag and the active EVA kerbal for the duration of the call; the flag's
 `onVesselWillDestroy` inside it then appends a `FLAG_PICKED_UP` segment event (body, position, name;
 `FlagPickUp`) to the recording of that kerbal, foreground or background tree member, besides the
-tombstone. When replay reaches the event (`GhostPlaybackLogic.ApplyFlagPickUps`, run before the
+tombstone. The foreground case writes the active tree recording directly, because the mid-flight
+serialization flush does not move the recorder's segment events and an F5 would miss it. When replay reaches the event (`GhostPlaybackLogic.ApplyFlagPickUps`, run before the
 plants of the same walk so a catch-up walk never plants a flag it would take down), it writes the
 same tombstone at the pick-up UT and takes down a standing flag at that spot. A walk that finds the
 tombstone already written (the live pick-up itself, an earlier walk, a loop cycle) does nothing. So

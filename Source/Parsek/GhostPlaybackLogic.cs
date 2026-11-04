@@ -3056,9 +3056,13 @@ namespace Parsek
                     continue;
 
                 RemovedReplayFlags.RecordRemoval(t);
-                int removed = removeStandingFlagOverrideForTesting != null
-                    ? removeStandingFlagOverrideForTesting(t)
-                    : RemoveStandingFlagsLive(t);
+                int removed;
+                using (RemovedReplayFlags.BeginParsekRemoval())
+                {
+                    removed = removeStandingFlagOverrideForTesting != null
+                        ? removeStandingFlagOverrideForTesting(t)
+                        : RemoveStandingFlagsLive(t);
+                }
                 applied++;
                 ParsekLog.Info(RemovedReplayFlags.Tag, string.Format(CultureInfo.InvariantCulture,
                     "Flag pick-up replayed: '{0}' on {1} ut={2} rec={3} took down {4} standing flag(s)",

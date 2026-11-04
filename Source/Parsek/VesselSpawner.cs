@@ -831,7 +831,10 @@ namespace Parsek
                 proto =>
                 {
                     if (proto?.vesselRef != null)
-                        proto.vesselRef.Die();
+                    {
+                        using (RemovedReplayFlags.BeginParsekRemoval())
+                            proto.vesselRef.Die();
+                    }
                 });
         }
 

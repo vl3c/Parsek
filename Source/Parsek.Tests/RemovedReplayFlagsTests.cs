@@ -49,12 +49,23 @@ namespace Parsek.Tests
                         at.latitude, at.longitude, at.altitude, t.BodyRadius);
                     if (d <= RemovedReplayFlags.MatchToleranceMeters) { standing.Remove(name); takenDown.Add(name); n++; }
                 }
+                // Stock Vessel.Die() fires onVesselWillDestroy synchronously, so the removal
+                // handler runs here, at the walk's (later) UT, exactly as in game.
+                if (n > 0 && RemovedReplayFlags.ShouldRecordRemoval(true, false, false,
+                        RemovedReplayFlags.ParsekRemovalInProgress))
+                {
+                    var echo = t;
+                    echo.RemovedUT = worldNow;
+                    echo.Source = "destroyed-in-flight";
+                    RemovedReplayFlags.RecordRemoval(echo);
+                }
                 return n;
             });
             FlagPickUp.ResetForTesting();
         }
 
         private readonly Dictionary<string, FlagEvent> plantedAt = new Dictionary<string, FlagEvent>();
+        private double worldNow = 1000.0;
         private readonly List<string> takenDown = new List<string>();
 
         public void Dispose()
@@ -264,13 +275,27 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(true, false, false, true)]
-        [InlineData(false, false, false, false)]
-        [InlineData(true, true, false, false)]
-        [InlineData(true, false, true, false)]
-        public void ShouldRecordRemoval_OnlyAPlayerFlagOutsideARewind(bool isFlag, bool ghost, bool rewinding, bool expected)
+        [InlineData(true, false, false, false, true)]
+        [InlineData(false, false, false, false, false)]
+        [InlineData(true, true, false, false, false)]
+        [InlineData(true, false, true, false, false)]
+        [InlineData(true, false, false, true, false)]
+        public void ShouldRecordRemoval_OnlyAPlayerFlagOutsideARewind(bool isFlag, bool ghost, bool rewinding, bool parsek, bool expected)
         {
-            Assert.Equal(expected, RemovedReplayFlags.ShouldRecordRemoval(isFlag, ghost, rewinding));
+            Assert.Equal(expected, RemovedReplayFlags.ShouldRecordRemoval(isFlag, ghost, rewinding, parsek));
+        }
+
+        [Fact]
+        public void ParsekRemovalScope_IsNestableAndEndsWithTheScope()
+        {
+            Assert.False(RemovedReplayFlags.ParsekRemovalInProgress);
+            using (RemovedReplayFlags.BeginParsekRemoval())
+            {
+                using (RemovedReplayFlags.BeginParsekRemoval())
+                    Assert.True(RemovedReplayFlags.ParsekRemovalInProgress);
+                Assert.True(RemovedReplayFlags.ParsekRemovalInProgress);
+            }
+            Assert.False(RemovedReplayFlags.ParsekRemovalInProgress);
         }
 
         // ---- Time travel ----
@@ -447,6 +472,28 @@ namespace Parsek.Tests
 
             Assert.Equal(new[] { "Moved again" }, standing);
             Assert.Equal(new[] { "Moved", "Moved again" }, spawned);
+        }
+
+        [Fact]
+        public void LateReplayedPickUp_ThenReplantAtTheSameSpot_TheReplantStands()
+        {
+            // Plant at S, pick it up at 100, plant it again at S at 110. After a rewind to 70
+            // the flag stands; the first flight walk lands at 1000, long past both moments.
+            // Parsek's own take-down must not read as a player removal at 1000, which would
+            // block the re-plant at 110 forever.
+            FlagEvent first = Flag("Here", 50.0);
+            FlagEvent again = Flag("Here again", 110.0);
+            standing.Add(first.flagSiteName);
+            plantedAt[first.flagSiteName] = first;
+            Recording rec = WithPickUp("rec-replant", 100.0, first, again);
+            worldNow = 1000.0;
+
+            GhostPlaybackLogic.ApplyFlagEvents(new GhostPlaybackState(), rec, 1000.0);
+
+            Assert.Equal(new[] { "Here" }, takenDown);
+            Assert.Equal(new[] { "Here again" }, standing);
+            Assert.Equal(1, RemovedReplayFlags.Count);
+            Assert.False(RemovedReplayFlags.ParsekRemovalInProgress);
         }
 
         [Fact]
