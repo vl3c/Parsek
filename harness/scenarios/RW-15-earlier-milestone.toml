@@ -135,7 +135,7 @@ allowedAnomalies = []
 [expectations.recordings]
 # The host's 34 recordings plus F and G; EVA-1 measured 4 per pad EVA flight (pod, continuation,
 # kerbal, board merge). Measured on `2026-10-31_0213`.
-count = 42
+count = { min = 42, max = 42 }
 
 [expectations.logContracts]
 required = [

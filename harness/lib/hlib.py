@@ -7483,6 +7483,39 @@ def _validate_mission_params(params: Dict, schema: Optional[Dict]) -> List[str]:
     return errs
 
 
+RECORDINGS_COUNT_KEYS = ("min", "max")
+
+
+def validate_recordings_count_spec(count_spec: Any) -> List[str]:
+    """Shape errors for ``[expectations.recordings] count``. Absent (None) is fine; a
+    declared count must be a table with only ``min`` / ``max``, each a non-negative
+    int, and ``min <= max`` when both are set. An exact pin is ``{ min = N, max = N }``.
+    Pure."""
+    if count_spec is None:
+        return []
+    prefix = "expectations.recordings.count: "
+    if not isinstance(count_spec, dict):
+        return [prefix + "%r must be a { min = N, max = M } window (an exact pin is "
+                "{ min = N, max = N }); a bare value is never evaluated" % (count_spec,)]
+    errors: List[str] = []
+    unknown = sorted(k for k in count_spec if k not in RECORDINGS_COUNT_KEYS)
+    if unknown:
+        errors.append(prefix + "unknown key(s) %s (only min / max)" % (unknown,))
+    if not any(k in count_spec for k in RECORDINGS_COUNT_KEYS):
+        errors.append(prefix + "declares neither min nor max")
+    for key in RECORDINGS_COUNT_KEYS:
+        if key not in count_spec:
+            continue
+        value = count_spec[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            errors.append(prefix + "%s = %r must be a non-negative int" % (key, value))
+    cmin, cmax = count_spec.get("min"), count_spec.get("max")
+    if (isinstance(cmin, int) and isinstance(cmax, int)
+            and not isinstance(cmin, bool) and not isinstance(cmax, bool) and cmin > cmax):
+        errors.append(prefix + "min %d > max %d" % (cmin, cmax))
+    return errors
+
+
 def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] = None,
                   mission_schemas: Optional[Dict] = None) -> SpecValidation:
     """Validate a parsed scenario spec against the design rules + the registry.
@@ -8305,6 +8338,13 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                "" if not declared
                else "; the declared exception(s) %s are INERT where they sit and "
                     "the sweep would run with none allowed" % (list(declared),)))
+
+    # recordings.count is a { min, max } window. A bare int (`count = 35`) is NOT read
+    # as an exact pin: evaluate_expectations skips any non-dict count (the pin never
+    # gated) and run.py's verifier chain crashed on `.get("max")` (13 RW lanes INVALID
+    # in the 2026-11-01 full run). Reject every other shape pre-launch.
+    errors.extend(validate_recordings_count_spec(
+        ((expectations or {}).get("recordings") or {}).get("count")))
 
     # The allowedAnomalies ENTRY shapes (bare token or { token, maxCount } budget).
     # Structural errors reject pre-launch for the same reason the misplaced-key guard

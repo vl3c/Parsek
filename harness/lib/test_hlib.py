@@ -824,6 +824,43 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertFalse(v.ok)
         self.assertTrue(any("D99" in e for e in v.errors))
 
+    # --- [expectations.recordings] count shape ---
+    # The 2026-11-01 full run: 13 RW lanes pinned `count = N` (a bare int), which
+    # evaluate_expectations skips (never gated) and run.py's verifier chain crashed on.
+
+    def _with_count(self, value):
+        def m(s):
+            s.setdefault("expectations", {}).setdefault("recordings", {})["count"] = value
+        return self._reject(m)
+
+    def test_recordings_count_window_shapes_accepted(self):
+        for value in ({"min": 3, "max": 3}, {"min": 1}, {"max": 9}, {"min": 0, "max": 0}):
+            with self.subTest(value=value):
+                v = self._with_count(value)
+                self.assertTrue(v.ok, v.errors)
+
+    def test_recordings_count_bad_shapes_rejected(self):
+        cases = (
+            (35, "must be a { min = N, max = M } window"),
+            ("35", "must be a { min = N, max = M } window"),
+            ([1, 2], "must be a { min = N, max = M } window"),
+            ({}, "declares neither min nor max"),
+            ({"min": 1, "exact": 2}, "unknown key(s)"),
+            ({"min": 1.5}, "min = 1.5 must be a non-negative int"),
+            ({"max": True}, "max = True must be a non-negative int"),
+            ({"min": -1}, "min = -1 must be a non-negative int"),
+            ({"min": 5, "max": 4}, "min 5 > max 4"),
+        )
+        for value, needle in cases:
+            with self.subTest(value=value):
+                v = self._with_count(value)
+                self.assertFalse(v.ok)
+                self.assertTrue(any(e.startswith("expectations.recordings.count: ")
+                                    and needle in e for e in v.errors), v.errors)
+
+    def test_recordings_count_absent_is_fine(self):
+        self.assertEqual([], hlib.validate_recordings_count_spec(None))
+
     def test_autopilot_driver_kind_rejected(self):
         v = self._reject(lambda s: s["driver"].__setitem__("kind", "autopilot"))
         self.assertFalse(v.ok)

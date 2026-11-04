@@ -17,6 +17,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RECORDINGS-COUNT-BARE-INT-CRASHES-VERIFIER: a spec pinning `[expectations.recordings] count = N` as a bare number made its lane INVALID~~ [FILED 2026-11-04 from the full lane run (RW-7 and RW-10..RW-22, 14 lanes INVALID); FIXED 2026-11-04, branch `claude/project-thread-rp1ciy`; harness unit cells; the 14 lanes' re-flight owed; test harness, medium (14 lanes could never pass)]
+
+The fourteen rewind-campaign specs wrote the recording-count window as a bare int (`count = 3`)
+where every reader expects a table (`count = { min = 3, max = 3 }`). `run.py`'s verifier chain
+called `count_spec.get("max")` on the int and crashed the lane INVALID, and hlib's count check
+skipped any non-table silently, so the pin was never enforced either.
+
+Fix: `hlib.validate_recordings_count_spec` (called from `validate_spec`) rejects a non-table
+count, unknown keys, a window with neither bound, a non-int / bool / negative bound and
+`min > max`; `run.py` no longer assumes the table; the 14 specs carry the table form; cells in
+`SpecValidationRejectTests` cover every shape, and every committed spec passes them.
+
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 
 Closed since the audit (each with its own entry or PR): A1 RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP

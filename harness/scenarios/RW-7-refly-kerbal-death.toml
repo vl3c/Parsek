@@ -464,7 +464,7 @@ allowedAnomalies = []
 # breakup creates (alive=False children, committed with the attempt). Attempt 1's recording and
 # its debris are pruned by its discard; the check Flea is unrecorded. Measured 40 on `2026-10-28_1810`
 # (the exploded pod's split leaves one debris recording).
-count = 40
+count = { min = 40, max = 40 }
 
 [expectations.logContracts]
 required = [

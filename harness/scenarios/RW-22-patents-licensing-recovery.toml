@@ -86,7 +86,7 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # Nothing records: auto-record is off and the pad lab's load discards its tree.
-count = 0
+count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
