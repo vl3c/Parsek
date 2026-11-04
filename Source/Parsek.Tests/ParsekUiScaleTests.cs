@@ -56,11 +56,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void InputMouseToScaledRoot_FlipsYAndDividesByTheScale()
+        {
+            // Input.mousePosition is y-up physical pixels: (730, 259) on a 720-high screen
+            // is GUI-space (730, 461), which is (486.7, 307.3) at 1.5x.
+            Vector2 root = ParsekUiScale.InputMouseToScaledRoot(new Vector2(730f, 259f), 720f, 1.5f);
+            Assert.Equal(486.667f, root.x, 0.01f);
+            Assert.Equal(307.333f, root.y, 0.01f);
+            Vector2 same = ParsekUiScale.InputMouseToScaledRoot(new Vector2(730f, 259f), 720f, 1f);
+            Assert.Equal(730f, same.x, 0.001f);
+            Assert.Equal(461f, same.y, 0.001f);
+        }
+
+        [Fact]
         public void UnscalePoint_MapsAPhysicalPointBackToScaledRoot()
         {
             // A window drawn at scaled-root (100, 60) under a 1.5 matrix sits at physical
-            // (150, 90); GUIToScreenPoint returns the physical point, and a popup placed
-            // at it must be drawn at the scaled-root point or it lands 1.5x too far out.
+            // (150, 90); a physical reading (the OS pointer) maps back to (100, 60).
             Vector2 root = ParsekUiScale.UnscalePoint(new Vector2(150f, 90f), 1.5f);
             Assert.Equal(100f, root.x, 0.001f);
             Assert.Equal(60f, root.y, 0.001f);
@@ -271,8 +283,9 @@ namespace Parsek.Tests
         [Fact]
         public void PopupAnchorsUseTheScaledRootConversion()
         {
-            // GUIToScreenPoint returns physical pixels under a scaling matrix; a popup
-            // anchored at it and drawn in the host scope lands scale-times too far out.
+            // One home for the anchor contract: GUIToScreenPoint ignores GUI.matrix (the
+            // in-game UiScale geometry cell measures it), so the seam is the plain call, and a
+            // future Unity that changes that is fixed in one place.
             var offenders = ScanProduction(
                     @"GUIUtility\s*\.\s*GUIToScreenPoint\s*\(\s*Event\s*\.\s*current\s*\.\s*mousePosition\s*\)")
                 .Where(f => f != "UI/ParsekUiScale.cs").ToList();

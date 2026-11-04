@@ -8,10 +8,11 @@ namespace Parsek.InGameTests
     /// Live-IMGUI guards for the UI-scale layer (<see cref="ParsekUiScale"/>, todo S10):
     /// what only a real Unity IMGUI pass can answer. (1) A window drawn through
     /// <see cref="ParsekUiScale.Window"/> inside a scaled host scope really lands at
-    /// scale-times its rect on screen, the IMGUI mouse is mapped back through the matrix,
-    /// and <see cref="ParsekUiScale.GuiPointToScaledRoot"/> undoes
-    /// <c>GUIUtility.GUIToScreenPoint</c> (whose matrix handling the popup anchors rely
-    /// on). (2) The scaled path's own input lock follows the window as DRAWN: the real OS
+    /// scale-times its rect on screen (the callback runs under the scope's matrix), and
+    /// <c>GUIUtility.GUIToScreenPoint</c> / <see cref="ParsekUiScale.GuiPointToScaledRoot"/>
+    /// report the window origin in the rect's own scaled-root units, which is what the
+    /// popup anchors rely on (the conversion ignores <c>GUI.matrix</c>; first measured by
+    /// UIS-1 on 2026-11-04). (2) The scaled path's own input lock follows the window as DRAWN: the real OS
     /// pointer is parked over a spot that is inside the drawn window but outside its
     /// unscaled rect (exactly where ClickThroughBlocker's raw hit test would miss it), and
     /// the lock must be held there, released off the window, and swept once the window
@@ -27,7 +28,7 @@ namespace Parsek.InGameTests
         private const string LogTag = "TestRunner";
 
         [InGameTest(Category = "UiScale",
-            Description = "A window drawn in a 1.5x UI-scale scope lands at 1.5x its rect on screen, the IMGUI mouse maps back through the matrix, and the popup-anchor conversion undoes GUIToScreenPoint")]
+            Description = "A window drawn in a 1.5x UI-scale scope draws under the 1.5x matrix, and GUIToScreenPoint and the popup-anchor conversion report its origin in the rect's own units")]
         public IEnumerator ScaledWindow_DrawsAtTheScale_AndTheConversionsAgree()
         {
             var go = new GameObject("ParsekUiScaleProbe");
@@ -53,38 +54,28 @@ namespace Parsek.InGameTests
                 ParsekLog.Info(LogTag, string.Format(CultureInfo.InvariantCulture,
                     "UiScale_InGame: geometry rect=({0:0.#},{1:0.#},{2:0.#},{3:0.#}) callbackMatrixM00={4:0.###}"
                     + " screenOrigin=({5:0.#},{6:0.#}) scaledRootOrigin=({7:0.#},{8:0.#})"
-                    + " rootMouse=({9:0.#},{10:0.#}) inputMouse=({11:0.#},{12:0.#}) screen={13}x{14}",
+                    + " rootMouse=({9:0.#},{10:0.#}) inputMouse=({11:0.#},{12:0.#}) imguiMouse=({13:0.#},{14:0.#}) screen={15}x{16}",
                     r.x, r.y, r.width, r.height, probe.CallbackMatrixM00,
                     probe.CallbackScreenOrigin.x, probe.CallbackScreenOrigin.y,
                     probe.CallbackScaledRootOrigin.x, probe.CallbackScaledRootOrigin.y,
                     probe.RootMouse.x, probe.RootMouse.y, probe.InputMouse.x, probe.InputMouse.y,
-                    Screen.width, Screen.height));
+                    probe.ImguiMouse.x, probe.ImguiMouse.y, Screen.width, Screen.height));
 
                 // The window callback runs under the scope's matrix: what it draws is scaled.
                 InGameAssert.ApproxEqual(ProbeScale, probe.CallbackMatrixM00, 0.001f,
                     "GUI.matrix inside the window callback is not the scope's scale, so the window content would draw unscaled");
 
-                // GUIToScreenPoint of the window's own origin is the PHYSICAL origin.
-                InGameAssert.ApproxEqual(r.x * ProbeScale, probe.CallbackScreenOrigin.x, 1f,
-                    "GUIToScreenPoint(window origin).x is not scale-times the rect x; the window is not where the scope put it");
-                InGameAssert.ApproxEqual(r.y * ProbeScale, probe.CallbackScreenOrigin.y, 1f,
-                    "GUIToScreenPoint(window origin).y is not scale-times the rect y");
-
-                // ... and the anchor conversion brings it back to the rect's own units, so
-                // a popup opened at a button lands on that button.
+                // GUIToScreenPoint unclips to window space, which is BEFORE the matrix: the
+                // window's own origin reads as the rect's origin, not scale-times it. A popup
+                // drawn back inside the scope at that point lands on the button.
+                InGameAssert.ApproxEqual(r.x, probe.CallbackScreenOrigin.x, 1f,
+                    "GUIToScreenPoint(window origin).x is not the rect x; popup anchors would need a matrix conversion");
+                InGameAssert.ApproxEqual(r.y, probe.CallbackScreenOrigin.y, 1f,
+                    "GUIToScreenPoint(window origin).y is not the rect y");
                 InGameAssert.ApproxEqual(r.x, probe.CallbackScaledRootOrigin.x, 1f,
                     "GuiPointToScaledRoot(window origin).x is not the rect x; popups would open off their button");
                 InGameAssert.ApproxEqual(r.y, probe.CallbackScaledRootOrigin.y, 1f,
                     "GuiPointToScaledRoot(window origin).y is not the rect y");
-
-                // The IMGUI mouse at the scope root is the physical pointer over the scale.
-                // Input.mousePosition is y-up physical pixels.
-                float expectX = probe.InputMouse.x / ProbeScale;
-                float expectY = (Screen.height - probe.InputMouse.y) / ProbeScale;
-                InGameAssert.ApproxEqual(expectX, probe.RootMouse.x, 1.5f,
-                    "IMGUI mouse x inside the scope is not the physical pointer divided by the scale");
-                InGameAssert.ApproxEqual(expectY, probe.RootMouse.y, 1.5f,
-                    "IMGUI mouse y inside the scope is not the physical pointer divided by the scale");
 
                 ParsekLog.Info(LogTag, "UiScale_InGame: PASS geometry scale="
                     + ProbeScale.ToString("0.###", CultureInfo.InvariantCulture));
@@ -156,8 +147,9 @@ namespace Parsek.InGameTests
                             != ControlTypes.None;
                 }
                 ParsekLog.Info(LogTag, string.Format(CultureInfo.InvariantCulture,
-                    "UiScale_InGame: lock inside pointer=({0},{1}) rootMouse=({2:0.#},{3:0.#}) rect=({4:0.#},{5:0.#},{6:0.#},{7:0.#}) held={8}",
+                    "UiScale_InGame: lock inside pointer=({0},{1}) rootMouse=({2:0.#},{3:0.#}) inputMouse=({4:0.#},{5:0.#}) rect=({6:0.#},{7:0.#},{8:0.#},{9:0.#}) held={10}",
                     insideX, insideY, probe.RootMouse.x, probe.RootMouse.y,
+                    probe.InputMouse.x, probe.InputMouse.y,
                     r.x, r.y, r.width, r.height, heldInside));
                 if (!probe.RootMouseInsideRect && !heldInside)
                 {
@@ -255,6 +247,7 @@ namespace Parsek.InGameTests
             internal Vector2 CallbackScaledRootOrigin;
             internal Vector2 RootMouse;
             internal Vector3 InputMouse;
+            internal Vector2 ImguiMouse;
             internal bool RootMouseInsideRect;
 
             private void OnGUI()
@@ -273,8 +266,13 @@ namespace Parsek.InGameTests
                         {
                             DrawnRect = drawn;
                             ResolvedRect = drawn;
-                            RootMouse = Event.current.mousePosition;
+                            // The OS pointer in scaled-root units, the same reading the
+                            // scaled-window lock hit-tests (the IMGUI event's own position
+                            // only moves on a delivered mouse event).
                             InputMouse = Input.mousePosition;
+                            RootMouse = ParsekUiScale.InputMouseToScaledRoot(
+                                new Vector2(InputMouse.x, InputMouse.y), Screen.height, ProbeScale);
+                            ImguiMouse = Event.current.mousePosition;
                             RootMouseInsideRect = drawn.Contains(RootMouse);
                         }
                     }

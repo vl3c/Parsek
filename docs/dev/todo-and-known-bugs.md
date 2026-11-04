@@ -7402,8 +7402,10 @@ Supervisor defaults (not overridden):
   the live `UI_SCALE` (inert at 1). Every window draws through `ParsekUiScale.Window`: at 1 it is
   ClickThroughBlocker; otherwise `GUILayout.Window` plus a Parsek-owned `ALLBUTCAMERAS` lock
   hit-tested in scaled units, because ClickThroughBlocker compares the raw mouse with the scaled
-  rect. Screen clamps read `ScaledScreenWidth/Height`, and popup anchors use
-  `GuiPointToScaledRoot`. A window is pulled on screen on its first draw after a scale change.
+  rect; that lock hit-tests `Input.mousePosition`, because the IMGUI event position only moves
+  on a delivered mouse event. Screen clamps read `ScaledScreenWidth/Height`, and popup anchors use
+  `GuiPointToScaledRoot`, which is plain `GUIToScreenPoint` (first flight `2026-11-04_1905`
+  measured that it ignores `GUI.matrix`). A window is pulled on screen on its first draw after a scale change.
   Gates: `ParsekUiScaleTests` (pure rules plus source gates for the one window entry point, the
   host scopes and the anchor conversion), the in-game `UiScale` category, and lane
   `UIS-1-ui-scale` at `UI_SCALE = 1.5` (harness `kspSettings` gained `UI_SCALE`). Status: NOT YET

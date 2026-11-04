@@ -24,14 +24,18 @@ namespace Parsek
     /// <para><b>The three reads a matrix does not fix.</b> (1) <c>Screen.width</c> /
     /// <c>Screen.height</c> are physical pixels; a clamp inside a scope reads
     /// <see cref="ScaledScreenWidth"/> / <see cref="ScaledScreenHeight"/>. (2)
-    /// <c>GUIUtility.GUIToScreenPoint</c> applies the matrix and returns physical pixels;
-    /// a popup opened at that point and drawn back inside the scope must use
-    /// <see cref="GuiPointToScaledRoot"/>. (3) ClickThroughBlocker's hit test compares
+    /// <c>Input.mousePosition</c> is physical pixels (y up); <see cref="InputMouseToScaledRoot"/>
+    /// brings it into scaled-root units. (3) ClickThroughBlocker's hit test compares
     /// the raw <c>Input.mousePosition</c> with the rect the window call returns, which is
     /// in scaled-root units, so under a scale it would block clicks over the wrong part
     /// of the screen. <see cref="Window"/> therefore keeps ClickThroughBlocker at scale 1
     /// and, under any other scale, draws through <c>GUILayout.Window</c> and holds the
-    /// same <c>ALLBUTCAMERAS</c> lock itself, hit-tested in scaled-root units.</para>
+    /// same <c>ALLBUTCAMERAS</c> lock itself, hit-tested in scaled-root units.
+    /// <c>GUIUtility.GUIToScreenPoint</c> needs no conversion: measured in KSP 1.12.5
+    /// (UIS-1, 2026-11-04) it ignores <c>GUI.matrix</c> and returns the window-space
+    /// point in scaled-root units, which is what a popup drawn back inside the scope
+    /// wants; popup anchors still go through <see cref="GuiPointToScaledRoot"/> so the
+    /// contract has one home.</para>
     ///
     /// <para>Not scaled, by the ruling: map markers and ghost name labels, which are
     /// projected from world positions in physical pixels.</para>
@@ -212,17 +216,30 @@ namespace Parsek
 
         /// <summary>
         /// A point in the current GUI space (window-local inside a window callback) in the
-        /// scaled-root units the host scope draws popups in. <c>GUIToScreenPoint</c>
-        /// applies <c>GUI.matrix</c> and so returns physical pixels; dividing by the
-        /// matrix's own scale brings the point back. The LIVE matrix is read rather than
-        /// <see cref="ActiveScale"/> because Unity runs window callbacks after the host's
-        /// OnGUI code has returned (the scope is already closed there) and restores each
-        /// window's own matrix around its callback. At scale 1 this is exactly
-        /// <c>GUIUtility.GUIToScreenPoint</c>.
+        /// scaled-root units the host scope draws popups in. This is exactly
+        /// <c>GUIUtility.GUIToScreenPoint</c>: Unity's conversion unclips to window space,
+        /// which is the space window rects live in BEFORE <c>GUI.matrix</c> is applied, so
+        /// it is already in scaled-root units at any scale (measured live by the
+        /// <c>UiScale</c> geometry cell: a window at rect x=200 drawn at 1.5x reports 200,
+        /// not 300). Dividing by the matrix scale here would open every popup at 1/scale of
+        /// its button's position.
         /// </summary>
         internal static Vector2 GuiPointToScaledRoot(Vector2 guiPoint)
         {
-            return UnscalePoint(GUIUtility.GUIToScreenPoint(guiPoint), GUI.matrix.m00);
+            return GUIUtility.GUIToScreenPoint(guiPoint);
+        }
+
+        /// <summary>
+        /// <c>Input.mousePosition</c> (physical pixels, origin bottom-left) as a point in
+        /// scaled-root units (origin top-left). The scaled-window lock hit-tests this
+        /// rather than <c>Event.current.mousePosition</c>: the OS pointer is polled every
+        /// frame, while the IMGUI event's position only moves on a delivered mouse event
+        /// (it read (0,0) on every Repaint in an unfocused KSP window, UIS-1 2026-11-04),
+        /// and it is the same source ClickThroughBlocker's own hit test reads.
+        /// </summary>
+        internal static Vector2 InputMouseToScaledRoot(Vector2 inputMouse, float screenHeight, float scale)
+        {
+            return UnscalePoint(new Vector2(inputMouse.x, screenHeight - inputMouse.y), scale);
         }
 
         /// <summary>
@@ -339,7 +356,8 @@ namespace Parsek
             // hands a zero-height rect, so a Layout hit test would release the lock and the
             // next Repaint would set it again, every frame.
             if (!ShouldEvaluateLock(e != null, e != null && e.type == EventType.Repaint)) return;
-            bool over = drawn.Contains(e.mousePosition);
+            Vector3 im = Input.mousePosition;
+            bool over = drawn.Contains(InputMouseToScaledRoot(new Vector2(im.x, im.y), Screen.height, ActiveScale));
             bool rightHeld = Input.GetMouseButton(1);
             switch (DecideLock(state.Held, over, rightHeld))
             {

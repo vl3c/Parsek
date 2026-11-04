@@ -19,8 +19,9 @@ tier = "nightly"
 #     test override - the stock setting reached Parsek through the per-run delta.
 #  2. The screen clamps read scaled units: the Missions window (1355 minimum) is fitted
 #     to an 853x480 screen, not the physical 1280x720 one.
-#  3. The three `UiScale` cells: a probe window drawn in a 1.5x scope lands at 1.5x its
-#     rect and the popup-anchor conversion undoes GUIToScreenPoint; the scaled path's own
+#  3. The three `UiScale` cells: a probe window drawn in a 1.5x scope draws under the
+#     1.5x matrix, and GUIToScreenPoint / the popup-anchor conversion report its origin in
+#     the rect's own units (the conversion ignores GUI.matrix); the scaled path's own
 #     input lock follows the window AS DRAWN (the OS pointer is parked where only the
 #     scaled window is - ClickThroughBlocker's raw hit test misses that spot - then off
 #     it, then the window stops drawing and the sweep frees the lock); and the applied
