@@ -9137,6 +9137,9 @@ columns whose blanks are visible, where the old outline simply said nothing.
   the one line the old path could write (`... skipped: ... reason=orbital-velocity-non-finite`)
   through `FlightRecorder.LogReFlyOrbitSegmentVelocityNonFinite`. The two characterization
   cases of the removed `TryApplyReFlyRecordingFrameOffsetToWorld` went with it (146 remain).
+- `BackgroundRecorder.ShouldRunBackgroundStateDriftCheck`: the time-went-backwards branch's
+  `nextLastCheckUT = double.MinValue` was a dead store (the fall-through always overwrites it
+  with `currentUT`); removed, behavior identical.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
