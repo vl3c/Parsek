@@ -33,7 +33,25 @@ namespace Parsek
 
             /// <summary>Maximum science this subject can yield (scienceCap).</summary>
             public double MaxValue;
+
+            /// <summary>Pool science (subject units times each row's multiplier) credited to
+            /// this subject so far in the walk: what the top-up floor subtracts.</summary>
+            public double CreditedPool;
         }
+
+        /// <summary>One walked earning row of a subject as its own timeline saw it: when it
+        /// was captured, at what UT, and what stock paid it in pool units.</summary>
+        internal struct SubjectCapture
+        {
+            public long CaptureSequence;
+            public double UT;
+            public double Pool;
+        }
+
+        /// <summary>Per subject, the walked earning rows that carry a capture number (only
+        /// once the save has a timeline break): the input of the top-up floor.</summary>
+        private readonly Dictionary<string, List<SubjectCapture>> subjectCaptures =
+            new Dictionary<string, List<SubjectCapture>>(StringComparer.Ordinal);
 
         /// <summary>Per-subject state keyed by subjectId.</summary>
         private readonly Dictionary<string, SubjectState> subjects = new Dictionary<string, SubjectState>();
@@ -84,7 +102,9 @@ namespace Parsek
         /// </summary>
         private bool hasInitialSeed;
 
-        /// <summary>Stock's <c>AllowNegativeCurrency</c>, read once per walk in <see cref="Reset"/>.</summary>
+        /// <summary>Stock's live <c>AllowNegativeCurrency</c>, read once per walk in <see cref="Reset"/>;
+        /// each row is judged under the setting it was captured under
+        /// (<see cref="CareerSettingsLog.AllowNegativeFor"/>), this value only while the log is empty.</summary>
         private bool allowNegativeCurrency;
 
         /// <summary>The part of the walk's non-cost losses below 0 stock forgives (see FundsModule).</summary>
@@ -131,6 +151,7 @@ namespace Parsek
             int subjectCount = subjects.Count;
             subjects.Clear();
             subjectCredits.Clear();
+            subjectCaptures.Clear();
             surveyHolders.Clear();
             producerSlices.Reset();
             runningScience = 0.0;
@@ -287,7 +308,7 @@ namespace Parsek
                 return 0.0;
             double shadowBefore = shadowStart.Before(action.CaptureSequence, before + shadowDivergence);
             double shadowEffect = StockShadowTakeBack.ShadowCurrencyEffect(
-                shadowBefore, effect, takeBack, allowNegativeCurrency);
+                shadowBefore, effect, takeBack, CareerSettingsLog.AllowNegativeFor(action, allowNegativeCurrency));
             double delta = shadowEffect - effect;
             if (delta == 0.0)
                 return 0.0;
@@ -326,7 +347,7 @@ namespace Parsek
             double forgiven = StockCurrencyClamp.ForgivenBelowZero(
                 before, runningScience,
                 IsScienceCostRow(action.Type) || action.Type == GameActionType.StockPoolAdjustment,
-                allowNegativeCurrency);
+                CareerSettingsLog.AllowNegativeFor(action, allowNegativeCurrency));
             if (forgiven <= 0.0)
                 return;
 
@@ -445,8 +466,9 @@ namespace Parsek
         /// <summary>
         /// Processes a ScienceEarning action: applies the subject hard cap in subject units,
         /// scales the capped value by the row's captured <see cref="GameAction.ScienceGainMultiplier"/>
-        /// for the pool, updates the credited total (subject units) and running balance (pool
-        /// units). Sets <see cref="GameAction.EffectiveScience"/> (pool units).
+        /// for the pool, raises it to the top-up floor (<see cref="TopUpFloor"/>), updates the
+        /// credited total (subject units) and running balance (pool units). Sets
+        /// <see cref="GameAction.EffectiveScience"/> (pool units).
         /// </summary>
         internal void ProcessEarning(GameAction action)
         {
@@ -499,14 +521,50 @@ namespace Parsek
             double gainMultiplier = GameAction.NormalizeScienceGainMultiplier(action.ScienceGainMultiplier);
             double effectiveScience = effectiveSubjectScience * gainMultiplier;
 
-            // Take-back (design 3.15 step 5): stock paid the captured value; the part the cap
+            // The top-up (owner ruling 2026-11-04, design 3.15 step 5): the units cap lets the
+            // earliest row win the subject, but a later row whose own timeline earned the
+            // subject at a higher multiplier pays the difference, so a rewind never lowers
+            // the subject's total. Only a save with a timeline break can need it.
+            double toppedUpBy = 0.0;
+            bool tracksCaptures = StockShadowTakeBack.Breaks.Count > 0
+                && !ProducerSliceBook.IsProducerSlice(action);
+            List<SubjectCapture> captures = null;
+            if (tracksCaptures)
+            {
+                if (!subjectCaptures.TryGetValue(subjectId, out captures))
+                {
+                    captures = new List<SubjectCapture>();
+                    subjectCaptures[subjectId] = captures;
+                }
+                double ownPool = (double)action.ScienceAwarded * gainMultiplier;
+                if (action.CaptureSequence != 0)
+                {
+                    double ownCum = OwnTimelinePool(captures, action.CaptureSequence, action.UT, ownPool,
+                        StockShadowTakeBack.BreakList);
+                    double raised = TopUpFloor(effectiveScience, ownCum, state.CreditedPool);
+                    if (raised > effectiveScience)
+                    {
+                        toppedUpBy = raised - effectiveScience;
+                        effectiveScience = raised;
+                    }
+                }
+                captures.Add(new SubjectCapture
+                {
+                    CaptureSequence = action.CaptureSequence,
+                    UT = action.UT,
+                    Pool = ownPool
+                });
+            }
+
+            // Take-back (design 3.15 step 5): stock paid the captured value; the part the walk
             // left out is taken back only as far as it repeats credit a rewind made stock forget.
-            ApplyCapTakeBack(action, subjectId, (double)scienceAwarded - effectiveSubjectScience, gainMultiplier);
+            ApplyCapTakeBack(action, subjectId,
+                (double)scienceAwarded * gainMultiplier - effectiveScience);
             // ...and a producer slice's part stock forgot after a rewind (3.15 step 7).
             ApplyProducerSliceTakeBack(action, slice, gainMultiplier);
             // Witnesses matter only once the save has a timeline break: a career never
             // rewound records none and walks as before.
-            if (effectiveSubjectScience > 0.0 && StockShadowTakeBack.Breaks.Count > 0)
+            if (effectiveScience > 0.0 && StockShadowTakeBack.Breaks.Count > 0)
             {
                 List<KeyValuePair<IdentityWitness, double>> credits;
                 if (!subjectCredits.TryGetValue(subjectId, out credits))
@@ -515,11 +573,12 @@ namespace Parsek
                     subjectCredits[subjectId] = credits;
                 }
                 credits.Add(new KeyValuePair<IdentityWitness, double>(
-                    IdentityWitness.Of(action, "science subject '" + subjectId + "'"), effectiveSubjectScience));
+                    IdentityWitness.Of(action, "science subject '" + subjectId + "'"), effectiveScience));
             }
 
             // Update state
             state.CreditedTotal += effectiveSubjectScience;
+            state.CreditedPool += effectiveScience;
             subjects[subjectId] = state;
             runningScience += effectiveScience;
             totalEffectiveEarnings += effectiveScience;
@@ -532,6 +591,16 @@ namespace Parsek
                 ? $", gainMultiplier={gainMultiplier.ToString("R", IC)}, " +
                   $"subjectEffective={effectiveSubjectScience.ToString("R", IC)}"
                 : "";
+            if (toppedUpBy > 0.0)
+            {
+                ParsekLog.Info("ScienceModule",
+                    $"Earning topped up: subject={subjectId} id={action.ActionId ?? "(none)"} " +
+                    $"ut={action.UT.ToString("R", IC)} cseq={action.CaptureSequence.ToString(IC)} " +
+                    $"capPaid={(effectiveScience - toppedUpBy).ToString("R", IC)} " +
+                    $"topUp={toppedUpBy.ToString("R", IC)} effective={effectiveScience.ToString("R", IC)} " +
+                    $"creditedPool={state.CreditedPool.ToString("R", IC)} (its own timeline earned the " +
+                    "subject at a higher multiplier; the subject total never falls)");
+            }
 
             // Log — always log earnings (bounded by number of science actions, not per-frame)
             bool capHit = effectiveSubjectScience < (double)scienceAwarded;
@@ -555,6 +624,50 @@ namespace Parsek
                     $"runningScience={runningScience.ToString("R", IC)}, " +
                     $"recordingId={action.RecordingId ?? "(none)"}");
             }
+        }
+
+        /// <summary>
+        /// Pure: what a row's own timeline had earned for the subject by the row, itself
+        /// included (pool units): the row's <paramref name="ownPool"/> plus every walked row
+        /// captured before it (capture number at or below its own) at or before its UT whose
+        /// credit stock still held when it paid the row. Those rows were in the past of the
+        /// timeline that captured the row and stock's award of the row already accounts for
+        /// them. A row a rewind made stock forget (<see cref="StockShadowTakeBack.IsWitnessForgotten(IdentityWitness, long, IList{TimelineBreak})"/>)
+        /// is left out: stock paid the row again because it forgot that one, and that repeat
+        /// is the take-back's, never a top-up.
+        /// </summary>
+        internal static double OwnTimelinePool(IList<SubjectCapture> walked, long captureSequence, double ut,
+            double ownPool, IList<TimelineBreak> timelineBreaks)
+        {
+            double sum = ownPool;
+            if (walked == null)
+                return sum;
+            for (int i = 0; i < walked.Count; i++)
+            {
+                SubjectCapture q = walked[i];
+                if (q.CaptureSequence > captureSequence || q.UT > ut)
+                    continue;
+                if (StockShadowTakeBack.IsWitnessForgotten(
+                        IdentityWitness.At(q.UT, q.CaptureSequence, null), captureSequence, timelineBreaks))
+                    continue;
+                sum += q.Pool;
+            }
+            return sum;
+        }
+
+        /// <summary>
+        /// Pure: the top-up floor (owner ruling 2026-11-04). A row pays at least its own
+        /// timeline's earnings for the subject minus what the walk already credited the
+        /// subject, never below what the units cap gave it and never below 0. On one timeline
+        /// the floor never binds (its own earnings are the walk's credit), so a career never
+        /// rewound walks as before; after a rewind the subject total is the larger timeline's.
+        /// </summary>
+        internal static double TopUpFloor(double capPaid, double ownTimelinePool, double creditedPool)
+        {
+            double floor = ownTimelinePool - creditedPool;
+            if (floor < 1e-9) floor = 0.0;
+            double paid = capPaid > floor ? capPaid : floor;
+            return paid > 0.0 ? paid : 0.0;
         }
 
         /// <summary>
@@ -622,15 +735,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure over the walk's subject credits: the cap left <paramref name="cappedSubject"/>
-        /// (subject units) of an eligible row out; of that, the part no greater than what the
-        /// forgotten crediting rows stand for is taken back (pool units, the row's own
-        /// multiplier). A capped row whose earlier credits stock's state still held (or an
-        /// older row) takes nothing back, so a career never rewound walks as before.
+        /// Pure over the walk's subject credits: the walk left <paramref name="cappedPool"/>
+        /// (pool units: what stock paid minus what the walk credits) of an eligible row out;
+        /// of that, the part no greater than what the forgotten crediting rows were credited
+        /// (pool units, each at its own multiplier) is taken back. A capped row whose earlier
+        /// credits stock's state still held (or an older row) takes nothing back, so a career
+        /// never rewound walks as before.
         /// </summary>
-        private void ApplyCapTakeBack(GameAction action, string subjectId, double cappedSubject, double gainMultiplier)
+        private void ApplyCapTakeBack(GameAction action, string subjectId, double cappedPool)
         {
-            if (!(cappedSubject > 0.0) || !StockShadowTakeBack.IsEligibleRow(action))
+            if (!(cappedPool > 1e-9) || !StockShadowTakeBack.IsEligibleRow(action))
                 return;
             List<KeyValuePair<IdentityWitness, double>> credits;
             if (!subjectCredits.TryGetValue(subjectId, out credits) || credits.Count == 0)
@@ -644,14 +758,14 @@ namespace Parsek
                 forgotten += credits[i].Value;
                 witnesses.Add(credits[i].Key.Describe());
             }
-            double subjectTakeBack = Math.Min(cappedSubject, forgotten);
-            if (!(subjectTakeBack > 0.0))
+            double poolTakeBack = Math.Min(cappedPool, forgotten);
+            if (!(poolTakeBack > 0.0))
                 return;
-            action.TakeBackScience = (float)(subjectTakeBack * gainMultiplier);
+            action.TakeBackScience = (float)poolTakeBack;
             action.TakeBackWitness = string.Join("; ", witnesses.ToArray());
             ParsekLog.Verbose("ScienceModule",
                 $"Earning over the cap repeats forgotten credit: subject={subjectId} " +
-                $"actionId={action.ActionId ?? "(none)"} capped={cappedSubject.ToString("R", IC)} " +
+                $"actionId={action.ActionId ?? "(none)"} capped={cappedPool.ToString("R", IC)} " +
                 $"forgottenCredit={forgotten.ToString("R", IC)} " +
                 $"takeBack={action.TakeBackScience.ToString("R", IC)} (pool units)");
         }

@@ -6225,6 +6225,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The stock difficulty dialog closed: when it applied its changes, the live
+        /// allow-negative-currency value is noted for the rows captured from now on
+        /// (<see cref="CareerSettingsLog"/>).
+        /// </summary>
+        private void OnDifficultySettingsDismissed(DifficultyOptionsMenu menu, bool applied)
+        {
+            ParsekLog.Verbose("CareerSettings", $"Difficulty dialog closed: applied={applied}");
+            if (!applied)
+                return;
+            CareerSettingsLog.NoteLive(StockCurrencyClamp.ReadAllowNegativeCurrency(), "difficulty-dialog");
+        }
+
+        /// <summary>
         /// Subscribes to vessel lifecycle events (recovery, termination, switching).
         /// Removes existing subscriptions first to avoid duplicates on revert/scene change.
         /// </summary>
@@ -6242,6 +6255,10 @@ namespace Parsek
             GameEvents.onVesselTerminated.Add(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
             GameEvents.onVesselSwitching.Add(OnVesselSwitching);
+            // Career settings audit 3.4: note an allow-negative-currency change when the stock
+            // difficulty dialog closes with its changes applied.
+            GameEvents.OnDifficultySettingsDismiss.Remove(OnDifficultySettingsDismissed);
+            GameEvents.OnDifficultySettingsDismiss.Add(OnDifficultySettingsDismissed);
             // M4b Phase B2 (plan D11 / OQ7): clear the RAM-only cargo escrow on any
             // within-game scene change. The in-cycle reservation is a within-tick /
             // dispatch-to-window-phase guard recomputed from pending route state on
@@ -9634,6 +9651,7 @@ namespace Parsek
             GameEvents.OnVesselRecoveryRequested.Remove(OnVesselRecoveryRequested);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);
+            GameEvents.OnDifficultySettingsDismiss.Remove(OnDifficultySettingsDismissed);
             // M4b Phase B2: drop the scene-switch escrow-clear subscription on
             // scenario teardown so a re-loaded scenario re-subscribes cleanly.
             GameEvents.onGameSceneSwitchRequested.Remove(OnGameSceneSwitchClearEscrow);

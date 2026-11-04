@@ -24,6 +24,10 @@ namespace Parsek
         private readonly Dictionary<string, IdentityWitness> oneShotWitness =
             new Dictionary<string, IdentityWitness>();
         private readonly Dictionary<string, int> effectiveMilestoneCounts = new Dictionary<string, int>();
+        /// <summary>Per one-shot id credited by a ledger row, the most this walk has paid it
+        /// in each currency so far (the first row's award, raised by every top-up).</summary>
+        private readonly Dictionary<string, MilestoneTopUp.Paid> oneShotPaid =
+            new Dictionary<string, MilestoneTopUp.Paid>();
         private readonly RecordThresholdBook recordBook = new RecordThresholdBook();
         private PreLedgerProgressSeed progressSeed = PreLedgerProgressSeed.NotCaptured;
 
@@ -71,6 +75,7 @@ namespace Parsek
             int previousCount = creditedMilestones.Count;
             creditedMilestones.Clear();
             oneShotWitness.Clear();
+            oneShotPaid.Clear();
             effectiveMilestoneCounts.Clear();
             recordBook.Reset(progressSeed.Captured ? progressSeed.RecordPaidCounts : null);
 
@@ -130,6 +135,7 @@ namespace Parsek
                 action.Effective = true;
                 creditedMilestones.Add(milestoneId);
                 oneShotWitness[milestoneId] = IdentityWitness.Of(action, "milestone '" + milestoneId + "'");
+                oneShotPaid[milestoneId] = MilestoneTopUp.Paid.Of(action);
                 effectiveMilestoneCounts[milestoneId] =
                     (effectiveMilestoneCounts.TryGetValue(milestoneId, out int seededCount)
                         ? seededCount : 0) + 1;
@@ -143,11 +149,13 @@ namespace Parsek
             }
             else
             {
-                action.Effective = false;
-                action.NotCountedReason = GameActionNotCountedReason.MilestoneAlreadyAchieved;
                 IdentityWitness witness;
                 if (!oneShotWitness.TryGetValue(milestoneId, out witness))
                     witness = IdentityWitness.PreLedgerSeed("milestone '" + milestoneId + "'");
+                if (TryTopUpOneShot(action, milestoneId, witness))
+                    return;
+                action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.MilestoneAlreadyAchieved;
                 if (StockShadowTakeBack.ShouldTakeBackWholeRow(action, witness))
                 {
                     action.TakeBackFunds = action.MilestoneFundsAwarded;
@@ -161,6 +169,51 @@ namespace Parsek
                         ? " - achieved before the ledger began (pre-ledger progress seed)"
                         : ""));
             }
+        }
+
+        /// <summary>
+        /// The top-up (owner ruling 2026-11-04): a repeat of a world-first that a ledger row
+        /// already credited pays, in each currency, its own award minus the most the walk has
+        /// paid the milestone so far (never below 0), so a rewind that moved the first payment
+        /// to a cheaper moment (a lower reward setting) never lowers the career total. Only a
+        /// save with a timeline break can need it, so a career never rewound walks as before;
+        /// an id the pre-ledger seed credited has no known amount and stays a plain repeat.
+        /// The row then counts with the difference through the partial-credit channel
+        /// (<see cref="GameAction.RecordPartlyCredited"/>), and the rest stock paid it again
+        /// after forgetting the first row is taken back. Returns false when nothing tops up.
+        /// </summary>
+        private bool TryTopUpOneShot(GameAction action, string milestoneId, IdentityWitness witness)
+        {
+            MilestoneTopUp.Paid paid;
+            if (StockShadowTakeBack.Breaks.Count == 0 || !oneShotPaid.TryGetValue(milestoneId, out paid))
+                return false;
+            MilestoneTopUp.Paid own = MilestoneTopUp.Paid.Of(action);
+            MilestoneTopUp.Paid topUp = MilestoneTopUp.Difference(own, paid);
+            if (!topUp.Any)
+                return false;
+
+            action.Effective = true;
+            action.RecordPartlyCredited = true;
+            action.RecordCreditedFunds = topUp.Funds;
+            action.RecordCreditedRep = topUp.Rep;
+            action.RecordCreditedScience = topUp.Science;
+            oneShotPaid[milestoneId] = MilestoneTopUp.Paid.Max(paid, own);
+            if (StockShadowTakeBack.IsEligibleRow(action)
+                && StockShadowTakeBack.IsWitnessForgotten(witness, action.CaptureSequence))
+            {
+                action.TakeBackFunds = own.Funds - topUp.Funds;
+                action.TakeBackRep = own.Rep - topUp.Rep;
+                action.TakeBackScience = own.Science - topUp.Science;
+                action.TakeBackWitness = witness.Describe();
+            }
+            ParsekLog.Info("Milestones",
+                $"Milestone '{milestoneId}' topped up at UT={action.UT.ToString("F1", IC)}" +
+                $" (actionId={action.ActionId ?? "(none)"}, recording={action.RecordingId ?? "null"}," +
+                $" cseq={action.CaptureSequence.ToString(IC)}): already paid {paid.Describe()}," +
+                $" this row's award {own.Describe()}, pays the difference {topUp.Describe()}" +
+                (action.HasTakeBack ? ", the rest stock paid again is taken back" : "") +
+                " (a reward setting changed across a rewind; the career total never falls)");
+            return true;
         }
 
         /// <summary>
@@ -190,7 +243,7 @@ namespace Parsek
                     action.UT.ToString("R", IC),
                     action.MilestoneFundsAwarded.ToString("R", IC));
 
-            if (credit.NoneNew)
+            if (credit.NoneNew && !credit.HasTopUp)
             {
                 action.Effective = false;
                 action.NotCountedReason = GameActionNotCountedReason.RecordThresholdsAlreadyCredited;
@@ -324,9 +377,10 @@ namespace Parsek
             {
                 RecordThresholdBook.SecondFirstPayment p = credit.SecondFirstPayments[i];
                 float payments = p.Position == top ? folded + 1 : 1;
-                result.Funds += p.Funds / payments;
-                result.Rep += p.Rep / payments;
-                result.Science += p.Science / payments;
+                // A top-up the walk credits for this payment is not taken back.
+                result.Funds += p.Funds / payments - p.TopUp.Funds;
+                result.Rep += p.Rep / payments - p.TopUp.Rep;
+                result.Science += p.Science / payments - p.TopUp.Science;
                 witnesses.Add("threshold " + p.Position.ToString(IC) + " first paid by cseq="
                     + p.HolderCaptureSequence.ToString(IC));
             }

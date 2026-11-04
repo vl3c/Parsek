@@ -250,6 +250,10 @@ namespace Parsek
             internal readonly List<ProcessedRow> Rows = new List<ProcessedRow>();
             internal int Seed;
             internal int CountedFirstPayments;
+            /// <summary>Per position, the most a named first payment of it was paid so far
+            /// in this walk (one stock payment, counted or topped up): the top-up's base.</summary>
+            internal readonly Dictionary<int, MilestoneTopUp.Paid> PaidByPosition =
+                new Dictionary<int, MilestoneTopUp.Paid>();
         }
 
         private struct ProcessedRow
@@ -282,6 +286,9 @@ namespace Parsek
             internal float Rep;
             internal float Science;
             internal long HolderCaptureSequence;
+            /// <summary>The part of this payment the walk credits as a top-up (one payment's
+            /// worth above what the threshold was already paid); not taken back.</summary>
+            internal MilestoneTopUp.Paid TopUp;
         }
 
         /// <summary>What the book decided for one row.</summary>
@@ -298,6 +305,12 @@ namespace Parsek
             internal List<BlockReason> BlockReasons;
             /// <summary>The entries zeroed as a second first payment, ascending.</summary>
             internal List<SecondFirstPayment> SecondFirstPayments;
+            /// <summary>The zeroed positions that pay a top-up (owner ruling 2026-11-04): a
+            /// named first payment priced above what the threshold was already paid.</summary>
+            internal List<int> ToppedUpPositions;
+            /// <summary>What the top-ups add, summed over <see cref="ToppedUpPositions"/>.</summary>
+            internal MilestoneTopUp.Paid TopUp;
+            internal bool HasTopUp => ToppedUpPositions != null && ToppedUpPositions.Count > 0;
             /// <summary>True when the row named its thresholds; false when they were derived.</summary>
             internal bool Named;
             /// <summary>The first derived position minus one (derived rows only).</summary>
@@ -395,7 +408,8 @@ namespace Parsek
                 NewPositions = new List<int>(),
                 RepayPositions = new List<int>(),
                 BlockReasons = new List<BlockReason>(),
-                SecondFirstPayments = new List<SecondFirstPayment>()
+                SecondFirstPayments = new List<SecondFirstPayment>(),
+                ToppedUpPositions = new List<int>()
             };
             if (row == null)
                 return credit;
@@ -455,6 +469,14 @@ namespace Parsek
                 }
             }
 
+            // One stock payment of a named entry: an entry folds every award of its interval,
+            // and only the row's highest interval can hold re-payments (see
+            // MilestonesModule.ResolveRecordTakeBack, which divides the same way).
+            int namedTop = 0;
+            for (int i = 0; i < candidates.Count; i++)
+                if (candidates[i].Position > namedTop) namedTop = candidates[i].Position;
+            int folded = credit.Named ? row.MilestoneRecordThresholds - candidates.Count : 0;
+
             // Decide each entry against what earlier rows booked, then book them all.
             float zeroedFunds = 0f, zeroedRep = 0f, zeroedSci = 0f;
             for (int i = 0; i < candidates.Count; i++)
@@ -466,18 +488,41 @@ namespace Parsek
                 Entry blocker;
                 BlockReason reason = Decide(node, e, out blocker);
                 e.Counted = reason == BlockReason.None;
+                MilestoneTopUp.Paid single = OnePayment(e, namedTop, folded);
                 if (e.Counted)
                 {
                     credit.NewPositions.Add(e.Position);
+                    if (e.Named && !e.Repay)
+                        RaisePaid(node, e.Position, single);
                     continue;
                 }
                 credit.BlockReasons.Add(reason);
+                MilestoneTopUp.Paid topUp = default(MilestoneTopUp.Paid);
+                MilestoneTopUp.Paid paidSoFar;
+                if (e.Named && !e.Repay
+                    && (reason == BlockReason.CapturedLaterWalkedEarlier || reason == BlockReason.SecondFirstPayment)
+                    && node.PaidByPosition.TryGetValue(e.Position, out paidSoFar))
+                {
+                    topUp = MilestoneTopUp.Difference(single, paidSoFar);
+                    if (topUp.Any)
+                    {
+                        credit.ToppedUpPositions.Add(e.Position);
+                        credit.TopUp = new MilestoneTopUp.Paid
+                        {
+                            Funds = credit.TopUp.Funds + topUp.Funds,
+                            Rep = credit.TopUp.Rep + topUp.Rep,
+                            Science = credit.TopUp.Science + topUp.Science,
+                        };
+                        RaisePaid(node, e.Position, single);
+                    }
+                }
                 if (reason == BlockReason.SecondFirstPayment)
                 {
                     credit.SecondFirstPayments.Add(new SecondFirstPayment
                     {
                         Position = e.Position, Funds = e.Funds, Rep = e.Rep, Science = e.Science,
                         HolderCaptureSequence = blocker != null ? blocker.CaptureSequence : 0,
+                        TopUp = topUp,
                     });
                 }
                 if (blocker != null && blocker.Named && !blocker.Repay)
@@ -512,7 +557,7 @@ namespace Parsek
                 credit.Rep = row.MilestoneRepAwarded;
                 credit.Science = row.MilestoneScienceAwarded;
             }
-            else if (credit.NewCount > 0)
+            else if (credit.NewCount > 0 || credit.HasTopUp)
             {
                 if (credit.Named)
                 {
@@ -524,6 +569,9 @@ namespace Parsek
                         credit.Rep += e.Rep;
                         credit.Science += e.Science;
                     }
+                    credit.Funds += credit.TopUp.Funds;
+                    credit.Rep += credit.TopUp.Rep;
+                    credit.Science += credit.TopUp.Science;
                 }
                 else
                 {
@@ -533,6 +581,28 @@ namespace Parsek
                 }
             }
             return credit;
+        }
+
+        /// <summary>One stock payment of a named entry: its amount, or for the row's highest
+        /// interval holding <paramref name="folded"/> re-payments, its share. A derived entry
+        /// is a guess and never tops up, so its value is unused.</summary>
+        private static MilestoneTopUp.Paid OnePayment(Entry e, int top, int folded)
+        {
+            float payments = e.Position == top && folded > 0 ? folded + 1 : 1;
+            return new MilestoneTopUp.Paid
+            {
+                Funds = e.Funds / payments,
+                Rep = e.Rep / payments,
+                Science = e.Science / payments,
+            };
+        }
+
+        private static void RaisePaid(NodeState node, int position, MilestoneTopUp.Paid paid)
+        {
+            MilestoneTopUp.Paid prior;
+            node.PaidByPosition[position] = node.PaidByPosition.TryGetValue(position, out prior)
+                ? MilestoneTopUp.Paid.Max(prior, paid)
+                : paid;
         }
 
         private static float Remainder(float total, float zeroed)
@@ -604,11 +674,15 @@ namespace Parsek
                     reasons.Append(credit.BlockReasons[i].ToString());
                 }
             }
-            return string.Format(IC, "thresholds=[{0}] new=[{1}] source={2}{3}",
+            return string.Format(IC, "thresholds=[{0}] new=[{1}] source={2}{3}{4}",
                 DescribePositions(credit.Positions, credit.RepayPositions),
                 RecordThresholdBand.DescribeIndices(credit.NewPositions),
                 credit.Named ? "named" : "derived(base=" + credit.Base.ToString(IC) + ")",
-                reasons.Length > 0 ? " zeroed=[" + reasons + "]" : "");
+                reasons.Length > 0 ? " zeroed=[" + reasons + "]" : "",
+                credit.HasTopUp
+                    ? " toppedUp=[" + RecordThresholdBand.DescribeIndices(credit.ToppedUpPositions)
+                      + "] topUp(" + credit.TopUp.Describe() + ")"
+                    : "");
         }
 
         private static string DescribePositions(IList<int> positions, IList<int> repays)

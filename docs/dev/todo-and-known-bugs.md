@@ -17,6 +17,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REPLAY-AUDIT-T2-TOP-UP: a reward setting changed across a rewind could lower a once-only reward, and changed career settings re-judged the past~~ [FILED 2026-11-04 from the replay-theory audit (question T2, owner ruling 2026-11-04 11:19Z) and the career settings audit (`analysis/career-settings-audit-2026-11-04.md` in the project files, sections 3.1 to 3.6); FIXED 2026-11-04, branch `claude/project-thread-dxut6r`; xUnit only, no lane (no fixture or lane changes a difficulty value mid-career or across a rewind); product, medium]
+
+**Symptom.** A load restores the save's own difficulty settings, so a rewind can price one
+once-only reward under two reward multipliers. The walk paid the earliest row and zeroed the
+later one, so a committed flight paid at 150% lost the difference when the same reward was
+earned earlier at 100% (science: the subject cap walked raw units; world-firsts and record steps:
+first wins). Separately, `AllowNegativeCurrency` was read live and applied to every past loss, so
+flipping it re-judged the whole history (free money by toggling), and stock killed a Missing
+kerbal whose recorded death was stamped respawn-on when respawn was turned off before his timer
+ran out, while the stamp's timer came from the slider at commit, not from the death.
+
+**Fix.** Owner ruling (V): the earliest still wins the timing, and each later payment pays its own
+value minus what earlier payments paid, never below 0. Science: `ScienceModule.TopUpFloor` over
+`OwnTimelinePool` (the row plus earlier-captured, earlier-UT rows stock still remembered), pool-unit
+take-back. World-firsts: `MilestonesModule.TryTopUpOneShot` through the partial-credit channel,
+the rest stock repaid after forgetting the first row taken back. Record steps:
+`RecordThresholdBook` tops up named re-crossings and second first payments, never taken back.
+Science and world-first top-ups need a timeline break; a record step's needs its own rewind
+evidence (a re-crossing or a second first payment). `CareerSettingsLog` judges each loss under the
+allow-negative value in force at its capture (LEDGER keys `allowNegativeFrom`). The respawn stamp
+reads stock's `UTaR` for a Missing dead kerbal (`TryResolveRespawnStampFromRoster`), and
+`CrewRespawnTimerPatch` respawns a recorded respawn-on death when the setting is now off. Tests:
+`RewindTopUpScienceTests`, `RewindTopUpMilestoneTests`, `CareerSettingsLogTests`,
+`CrewRespawnSettingsTests`. Open: audit Q1 (should a Parsek rewind keep the current sliders).
+
 ## ~~SAVE-GHOST-STRIP-SKIPPED-ON-FAULT: a save phase that throws skips the ghost map ProtoVessel strip~~ [FILED 2026-11-04 from the replay-theory audit (finding R2, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5); FIXED 2026-11-04, branch `claude/project-thread-v6lbwf`; xUnit; product, high impact if hit, rare]
 
 Stock's `Game.Updated` builds `flightState` from every live vessel (ghost map ProtoVessels included) and only then runs the scenario saves (decompiled: `new FlightState()`, then `ScenarioRunner.GetUpdatedProtoModules` -> `ProtoScenarioModule(module)` -> `ScenarioModule.Save` -> `OnSave`, no catch on that path). The strip was phase 15 of 17 inside `OnSave`'s try body, so any earlier phase that threw skipped it: the exception aborts that stock save, but the live `HighLogic.CurrentGame.flightState` kept the ghosts for any later write that serializes it without rebuilding, and nothing on the load side can tell a serialized ghost from a player craft (`GhostMapPresence.GhostVesselNamePrefix` is presentation only by design).
