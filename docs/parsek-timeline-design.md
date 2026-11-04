@@ -84,7 +84,7 @@ Game actions are classified as either **Actions** (deliberate player choices: te
 
 **3. Legacy events** (`MilestoneStore.Milestones`)
 
-Saves started before the ledger system have committed events stored as `GameStateEvent` entries in `MilestoneStore`. These disappear as saves migrate to the ledger system. Uncommitted events are **not** shown.
+Committed `GameStateEvent` entries in `MilestoneStore` that no ledger row duplicates are shown here (`TimelineBuilder.CollectLegacyEntries`); no load-time migration converts them into ledger rows. Uncommitted events are **not** shown.
 
 ---
 

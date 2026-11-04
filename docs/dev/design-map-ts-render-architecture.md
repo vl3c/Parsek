@@ -697,7 +697,7 @@ open in-game probe (dossier).
 
 ## 13. Backward compatibility
 
-Pre-1.0, **no migration** (per the project's no-back-compat rule). But two hard invariants:
+**No migration**: this redesign changes no persisted shape (save-format policy `docs/dev/design-save-format-policy.md`). Two hard invariants:
 
 - **The persisted substrate is untouched.** `Recording`, `TrackSection`, `OrbitSegment`,
   `TrajectoryPoint` keep their current struct shapes and `RecordingStore.CurrentRecordingSchemaGeneration`.

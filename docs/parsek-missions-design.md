@@ -442,7 +442,7 @@ flags).
 
 ## 13. Backward Compatibility
 
-Pre-1.0 development rule: no legacy migration paths. The Mission nodes are additive `.sfs` content; a save without them loads with default Missions auto-created per tree by `EnsureDefaultsForTrees`. There is no recording-format or schema-generation change in this subsystem (it reads the existing tree topology). `Mission.Load` defends every field with TryParse + a field-default fallback, so a partially-written or older `MISSION` node loads to sane defaults rather than failing. Derived read models are recomputed every build, so no derived state can go stale across a version change.
+Save-format policy: `docs/dev/design-save-format-policy.md` (1.0 baseline `selectionSchemaGeneration = 1`; a newer generation is warned once per load and written back as loaded, and a `MISSION` node's unknown keys and child nodes round-trip verbatim). The Mission nodes are additive `.sfs` content; a save without them loads with default Missions auto-created per tree by `EnsureDefaultsForTrees`. There is no recording-format or schema-generation change in this subsystem (it reads the existing tree topology). `Mission.Load` defends every field with TryParse + a field-default fallback, so a partially-written or older `MISSION` node loads to sane defaults rather than failing. Derived read models are recomputed every build, so no derived state can go stale across a version change.
 
 ---
 

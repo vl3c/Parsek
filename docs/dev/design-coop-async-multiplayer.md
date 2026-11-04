@@ -1755,8 +1755,10 @@ bootstrap cost and the folder's growth.
    checkpoints past it. Gaps below the latest checkpoint's marks are normal
    pruning (7.13).
 7. **Schema generation drift.** A peer updates Parsek first; their packets
-   carry generation 5 vs local 4. Hard refuse with the exact reason (existing
-   gate policy, no migration); the merge continues for compatible players.
+   carry generation 5 vs local 4. Hard refuse with the exact reason (a newer
+   generation is never read as current); the merge continues for compatible
+   players. The updated peer reads the older peer's generation-4 packets
+   through the registered upgrade steps.
    The manifest pin is the gate at JOIN time; per-packet gates are
    authoritative afterwards (the manifest then serves as display).
 8. **Missing parts.** Foreign snapshot references parts absent locally: ghost
@@ -2174,13 +2176,12 @@ Cases from the owner rulings of 2026-10-24 (v7):
   becomes 5 with the first data-model task (M2.1), so every recording and
   sidecar that carries the new fields (`OwnerPlayerId`, `Exported`,
   `OrphanedByRetiredRecordingId`, `ContinuesForeignRecordingId`) is
-  generation-5 data. Per the standing rule there is NO migration path:
-  generation-4 recordings are rejected on load (`generation-older`), exactly
-  like every earlier bump. The mod is not public yet, so the cost is
-  re-stamping the committed fixture saves (`Fixtures/C1Career`,
-  `Fixtures/C2CareerPostFix`, the harness fixture saves; the derived
-  `career-earned-pad` harness fixture is rebuilt by its builder script) in
-  the same task. Cross-PLAYER compatibility is enforced at the exchange
+  generation-5 data. Superseded in part by the 1.0 save-format freeze (owner
+  ruling 2026-11-04, `docs/dev/design-save-format-policy.md`): new optional
+  fields are additive and need no bump, and if the task does change a shape
+  the bump to 5 ships a registered 4 -> 5 upgrade step in `SaveFormat.cs` plus
+  a new `FormatGolden` folder, so generation-4 recordings keep loading
+  (upgraded on read) instead of being rejected. Cross-PLAYER compatibility is enforced at the exchange
   boundary on top of that: the packet gate hard-refuses any
   generation/format mismatch (existing `IsRecordingSchemaCompatible`
   policy), and the campaign manifest pins the values as the join gate.

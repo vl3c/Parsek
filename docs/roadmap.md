@@ -19,6 +19,11 @@ have to bring Parsek to a sufficient quality bug-free state so that we can relea
 multiplayer comes later, if we have users". Phase 14 is therefore deferred until after the public
 release, and only if Parsek has users. The co-op design stays as written and is not being implemented.
 
+The next release is also the first stable save format (owner ruling, 2026-11-04): today's version
+numbers become the 1.0 baseline, every later build loads every 1.0+ save, and the alpha-era save
+repair code is gone (older test saves load best effort). Policy:
+[`docs/dev/design-save-format-policy.md`](dev/design-save-format-policy.md).
+
 ---
 
 ## Completed

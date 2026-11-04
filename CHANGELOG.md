@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Saves now have a stable format.** From this version on, later versions of Parsek keep loading
+  your saves, and an older Parsek keeps what it cannot read instead of deleting it. Saves from
+  earlier test versions still load, best effort; the old repair code that only fixed problems in
+  those test saves is gone. (SAVE-FORMAT-1-0-FREEZE)
 - **A Leaves Warp in orbit keeps you beside the ghost.** Pressing Warp on a Real Spawn Control row
   that leaves its orbit now moves your vessel, and the vessels flying with you, to the same spot
   beside the ghost at the new time, so you watch it burn away instead of finding it gone. When
