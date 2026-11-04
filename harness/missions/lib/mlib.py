@@ -32627,7 +32627,11 @@ class MlrParams:
     eva_settle_frames: int = 3
     # The most the lander may lean off vertical when the ascent would engage; past
     # it the ascent's thrust pushes along the ground, so the run flakes at once.
-    ascent_max_tilt_deg: float = 30.0
+    # None (the default) = report-only: the telemetry rows carry pitch= and nothing
+    # gates on it. The first guard flights (CS-7 2026-11-04_1106 / _1126_a2) read a
+    # lean the green 2026-10-31 run could not have had, so the read is not trusted
+    # to gate until a flight shows what an upright boarded lander reads.
+    ascent_max_tilt_deg: Optional[float] = None
     eva_timeout: float = 900.0
     # None = no ragdoll recovery (EVA-EXIT goes straight to EVA-FLAG).
     eva_recover_seconds: Optional[float] = None
@@ -32685,7 +32689,8 @@ def mlr_params_from_dict(params: Dict) -> MlrParams:
         eva_kerbal=str(params.get("evaKerbalName", "") or ""),
         eva_settle_seconds=float(params.get("evaSettleSeconds", 5)),
         eva_settle_frames=int(params.get("evaSettleFrames", 3)),
-        ascent_max_tilt_deg=float(params.get("munAscentMaxTiltDeg", 30)),
+        ascent_max_tilt_deg=(None if params.get("munAscentMaxTiltDeg") is None
+                             else float(params["munAscentMaxTiltDeg"])),
         eva_timeout=float(params.get("evaPhaseTimeoutSeconds", 900)),
         eva_recover_seconds=(None if params.get("evaRagdollRecoverSeconds") is None
                              else float(params["evaRagdollRecoverSeconds"])),
@@ -32728,7 +32733,7 @@ def mlr_params_from_dict(params: Dict) -> MlrParams:
     if p.ascent_engage_frames <= 0 or p.eva_settle_frames <= 0:
         raise ValueError("munAscentEngageConfirmFrames and evaSettleFrames must be "
                          "positive")
-    if not (0.0 < p.ascent_max_tilt_deg <= 90.0):
+    if p.ascent_max_tilt_deg is not None and not (0.0 < p.ascent_max_tilt_deg <= 90.0):
         raise ValueError("munAscentMaxTiltDeg must be in (0, 90], got %r"
                          % (p.ascent_max_tilt_deg,))
     if p.ec_floor > 0.0 and p.ec_debounce <= 0:
@@ -33207,7 +33212,8 @@ def _mlr_eva(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, Li
         if streak < p.eva_settle_frames or not settled:
             return st, []
         tilt = mlr_lander_tilt_deg(snapshot)
-        if _is_finite(tilt) and tilt > p.ascent_max_tilt_deg:
+        if (p.ascent_max_tilt_deg is not None and _is_finite(tilt)
+                and tilt > p.ascent_max_tilt_deg):
             return _mfr_flake(st, "%s: the lander rests %.1f deg off vertical "
                                   "(pitch=%s, limit %.1f) after the boarding; an "
                                   "ascent from there pushes it along the ground"

@@ -917,11 +917,13 @@ class KrpcMissionControl(MissionControl):
             if self._read_landing:
                 landing_ap_enabled, landing_ap_status = \
                     self._read_landing_autopilot()
-                # The lander's lean (mlib.mlr_lander_tilt_deg): Flight.Pitch is
-                # measured against the local horizon whatever the flight's frame.
-                # Own try/except, NaN on a fault (the tilt gate then stands down).
+                # The lander's lean (mlib.mlr_lander_tilt_deg). kRPC's Flight.Pitch is
+                # measured in the FLIGHT's own reference frame, so it must be the
+                # vessel's surface frame (local horizon); in the body frame (flight_srf)
+                # a level lander read -77 on the Mun (CS-7 2026-11-04_1106). Own
+                # try/except, NaN on a fault (the tilt gate then stands down).
                 try:
-                    surface_pitch = float(flight_srf.pitch)
+                    surface_pitch = float(v.flight(v.surface_reference_frame).pitch)
                 except Exception as exc:
                     surface_pitch = float("nan")
                     if not self._warned_surface_pitch_read:

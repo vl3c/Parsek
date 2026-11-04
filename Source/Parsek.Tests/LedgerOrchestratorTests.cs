@@ -2331,6 +2331,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ExtractCrewFromRecording_RecorderMappedSnapshot_DeathFiledUnderTheSeatedStandIn()
+        {
+            // R1 (2026-11-04 flight on the first cut): the recorder's TryBackupSnapshot
+            // reverse-maps the seated stand-in back to the owner BEFORE the crash is read,
+            // so the crew list alone reads 'Jebediah Kerman'. The seat record the reverse
+            // map leaves in the snapshot names who sat there, and it must hold after the
+            // live replacement is gone (a later load re-derives the row).
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", "Tati Kerman");
+            snapshot.AddNode(part);
+            try
+            {
+                CrewReservationManager.SetReplacement("Jebediah Kerman", "Tati Kerman");
+                Assert.Equal(1, KerbalsModule.ReverseMapCrewNamesInSnapshot(
+                    snapshot, CrewReservationManager.CrewReplacements, "test"));
+                // Idempotent: a second pass over the mapped node keeps one seat record.
+                KerbalsModule.ReverseMapCrewNamesInSnapshot(
+                    snapshot, CrewReservationManager.CrewReplacements, "test");
+            }
+            finally
+            {
+                CrewReservationManager.ResetReplacementsForTesting();
+            }
+            Assert.Equal("Jebediah Kerman", snapshot.GetNode("PART").GetValue("crew"));
+            Assert.Single(snapshot.GetNode(KerbalsModule.SeatedStandInNodeName).GetValues("seat"));
+            Assert.Equal("Tati Kerman", KerbalsModule.ReadSeatedStandIn(snapshot, "Jebediah Kerman"));
+            Assert.Null(KerbalsModule.ReadSeatedStandIn(snapshot, "Bill Kerman"));
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-extract-mapped-standin",
+                GhostVisualSnapshot = snapshot,
+                CrewEndStates = new Dictionary<string, KerbalEndState>
+                {
+                    { "Jebediah Kerman", KerbalEndState.Dead },
+                }
+            };
+
+            var dead = LedgerOrchestrator.ExtractCrewFromRecording(rec);
+            Assert.Single(dead);
+            Assert.Equal("Tati Kerman", dead[0].Name);
+            Assert.Equal(KerbalEndState.Dead, dead[0].EndState);
+
+            // Any other end state keeps the slot owner, as #337 wants.
+            rec.CrewEndStates["Jebediah Kerman"] = KerbalEndState.Recovered;
+            var recovered = LedgerOrchestrator.ExtractCrewFromRecording(rec);
+            Assert.Equal("Jebediah Kerman", recovered[0].Name);
+        }
+
+        [Fact]
         public void PopulateUnpopulatedCrewEndStates_EvaOnlyRecording_PopulatesCrewEndStates()
         {
             var rec = new Recording

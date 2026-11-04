@@ -2528,6 +2528,18 @@ namespace Parsek
                 names,
                 CrewReservationManager.CrewReplacements,
                 null);
+            // The recorder's snapshots already carry the owner in a stand-in's seat
+            // (TryBackupSnapshot reverse-maps them), so who sat there is read from the
+            // seat record the reverse map left in the snapshot.
+            for (int i = 0; i < seatedNames.Count; i++)
+            {
+                if (!string.Equals(seatedNames[i], names[i], StringComparison.Ordinal))
+                    continue;
+                string standIn = KerbalsModule.ReadSeatedStandIn(rec.GhostVisualSnapshot, names[i])
+                    ?? KerbalsModule.ReadSeatedStandIn(rec.VesselSnapshot, names[i]);
+                if (!string.IsNullOrEmpty(standIn))
+                    seatedNames[i] = standIn;
+            }
 
             for (int i = 0; i < names.Count; i++)
             {

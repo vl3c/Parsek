@@ -2435,6 +2435,52 @@ namespace Parsek
         /// in-flight <paramref name="replacements"/> dict still covers same-session
         /// swaps even before any commit walk runs.
         /// </summary>
+        /// <summary>
+        /// VESSEL child node that keeps who actually sat in a seat the reverse map renamed:
+        /// one <c>seat = owner|standIn</c> value per renamed seat. The crew rows read it to
+        /// file a stand-in's death under the stand-in (STAND-IN-DEATH-FILED-UNDER-THE-SLOT-OWNER);
+        /// KSP ignores an unknown child node when it loads the snapshot.
+        /// </summary>
+        internal const string SeatedStandInNodeName = "PARSEK_SEATED_STANDINS";
+        private const string SeatedStandInValueName = "seat";
+
+        /// <summary>
+        /// The stand-in the snapshot recorded in <paramref name="ownerName"/>'s seat, or null.
+        /// </summary>
+        internal static string ReadSeatedStandIn(ConfigNode snapshot, string ownerName)
+        {
+            if (snapshot == null || string.IsNullOrEmpty(ownerName))
+                return null;
+            ConfigNode seats = snapshot.GetNode(SeatedStandInNodeName);
+            if (seats == null)
+                return null;
+            string[] values = seats.GetValues(SeatedStandInValueName);
+            if (values == null)
+                return null;
+            for (int i = 0; i < values.Length; i++)
+            {
+                string v = values[i];
+                if (string.IsNullOrEmpty(v)) continue;
+                int bar = v.IndexOf('|');
+                if (bar <= 0 || bar >= v.Length - 1) continue;
+                if (string.Equals(v.Substring(0, bar), ownerName, System.StringComparison.Ordinal))
+                    return v.Substring(bar + 1);
+            }
+            return null;
+        }
+
+        private static void RecordSeatedStandIn(ConfigNode snapshot, string ownerName, string standInName)
+        {
+            ConfigNode seats = snapshot.GetNode(SeatedStandInNodeName) ?? snapshot.AddNode(SeatedStandInNodeName);
+            string entry = ownerName + "|" + standInName;
+            string[] values = seats.GetValues(SeatedStandInValueName);
+            if (values != null)
+                for (int i = 0; i < values.Length; i++)
+                    if (string.Equals(values[i], entry, System.StringComparison.Ordinal))
+                        return;
+            seats.AddValue(SeatedStandInValueName, entry);
+        }
+
         internal static int ReverseMapCrewNamesInSnapshot(
             ConfigNode snapshot,
             IReadOnlyDictionary<string, string> replacements,
@@ -2488,6 +2534,7 @@ namespace Parsek
                     if (original != null && !string.Equals(original, name, System.StringComparison.Ordinal))
                     {
                         rewrittenList.Add(original);
+                        RecordSeatedStandIn(snapshot, original, name);
                         partChanged = true;
                         rewritten++;
                     }

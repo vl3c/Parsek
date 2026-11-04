@@ -405,11 +405,20 @@ class SurfaceVisitTests(unittest.TestCase):
     def test_a_tipped_lander_flakes_instead_of_engaging_the_ascent(self):
         frames = [_lander(50000.0 + t, angular_velocity=0.004, horizontal_speed=0.0,
                           surface_pitch=8.0) for t in (2.0, 4.0, 6.0)]
-        st, actions = self._settle(frames)
+        st, actions = self._settle(frames, params=_params(munAscentMaxTiltDeg=30))
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
         self.assertIn(mlib.MLR_LANDER_TIPPED, st.flake_reason)
         self.assertIn("82.0 deg off vertical", st.flake_reason)
         self.assertEqual([], actions)
+
+    def test_the_tilt_gate_is_report_only_by_default(self):
+        self.assertIsNone(_params().ascent_max_tilt_deg)
+        frames = [_lander(50000.0 + t, angular_velocity=0.004, horizontal_speed=0.0,
+                          surface_pitch=-77.0) for t in (2.0, 4.0, 6.0)]
+        st, actions = self._settle(frames)
+        self.assertFalse(st.done)
+        self.assertEqual(mlib.MLR_ASCENT, st.phase)
+        self.assertTrue(actions)
 
     def test_an_upright_or_unread_lander_engages_the_ascent(self):
         for pitch in (89.5, 65.0, float("nan")):
@@ -417,7 +426,7 @@ class SurfaceVisitTests(unittest.TestCase):
                 frames = [_lander(50000.0 + t, angular_velocity=0.004,
                                   horizontal_speed=0.0, surface_pitch=pitch)
                           for t in (2.0, 4.0, 6.0)]
-                st, actions = self._settle(frames)
+                st, actions = self._settle(frames, params=_params(munAscentMaxTiltDeg=30))
                 self.assertFalse(st.done)
                 self.assertEqual(mlib.MLR_ASCENT, st.phase)
                 self.assertTrue(actions)

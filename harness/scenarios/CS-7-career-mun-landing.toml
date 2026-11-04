@@ -65,8 +65,9 @@ id = "CS-7-career-mun-landing"
 # leaning; MechJeb's engage then pushed it along the ground (hspd 7 -> 44 m/s at alt 0.9,
 # LANDED) until it broke up. Since then EVA-SETTLE counts a frame only with angV under
 # parkMaxAngularVelocityRadPerSec and hspd under landedMaxHorizontalSpeedMps, the
-# telemetry row carries `pitch=` (Flight.Pitch, +90 upright), and a settled lander
-# leaning more than munAscentMaxTiltDeg (default 30) off vertical flakes
+# telemetry row carries `pitch=` (Flight.Pitch in the surface frame, +90 upright; the
+# first guard flight read it in the body frame, -77 on a level lander), and a settled lander
+# leaning more than munAscentMaxTiltDeg (opt-in, unset here: report-only) off vertical flakes
 # `mun-lander-tipped` at once instead of engaging. Re-flight owed.
 #
 # THE ROUTE, mission `b13_mun_landing_return` (mlib.mlr_decide): B5's machine VERBATIM
