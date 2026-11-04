@@ -1,0 +1,42 @@
+ut = 9
+funds = 25000
+science = 5
+reputation = 0
+scienceKnown = True
+reputationKnown = True
+TECH_IDS
+{
+	id = start
+}
+FACILITY_LEVELS
+{
+	SpaceCenter/LaunchPad = 0
+	SpaceCenter/VehicleAssemblyBuilding = 0
+}
+BUILDING_INTACT
+{
+	SpaceCenter/LaunchPad/Facility = True
+}
+ACTIVE_CONTRACTS
+{
+	CONTRACT
+	{
+		guid = d40b0000-0000-0000-0000-000000000041
+		state = Active
+	}
+}
+CREW_ROSTER
+{
+	CREW
+	{
+		name = Jebediah Kerman
+		status = Available
+		trait = Pilot
+	}
+	CREW
+	{
+		name = Bill Kerman
+		status = Available
+		trait = Engineer
+	}
+}

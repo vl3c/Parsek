@@ -1,0 +1,169 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = a10e0000000000000000000000000011
+sidecarEpoch = 1
+sectionAuthoritative = True
+PART_EVENT
+{
+	ut = 101
+	pid = 3100002
+	type = 5
+	part = liquidEngine
+	value = 1
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 130
+	pid = 3100002
+	type = 7
+	part = liquidEngine
+	value = 0.6
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 160
+	pid = 3100001
+	type = 0
+	part = Decoupler.1
+	value = 0
+	midx = 0
+}
+FLAG_EVENT
+{
+	ut = 100
+	name = Golden Pad Flag
+	placedBy = Jebediah Kerman
+	plaqueText = format golden
+	flagURL = Squad/Flags/default
+	lat = -0.0972
+	lon = -74.5575
+	alt = 77
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+}
+SEGMENT_EVENT
+{
+	ut = 120
+	type = 0
+	details = gravity turn
+}
+TRACK_SECTION
+{
+	env = 0
+	ref = 0
+	startUT = 100
+	endUT = 140
+	sampleRate = 10
+	minAlt = 77
+	maxAlt = 22000
+	POINT
+	{
+		ut = 100
+		lat = -0.0972
+		lon = -74.5575
+		alt = 77
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 6
+		velZ = 0
+		funds = 25000
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+	POINT
+	{
+		ut = 120
+		lat = -0.0963
+		lon = -74.555
+		alt = 3200
+		rotX = 0
+		rotY = 0
+		rotZ = 0.1
+		rotW = 0.99
+		body = Kerbin
+		velX = 0
+		velY = 240
+		velZ = 0
+		funds = 25000
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+	POINT
+	{
+		ut = 140
+		lat = -0.0905
+		lon = -74.545
+		alt = 22000
+		rotX = 0
+		rotY = 0
+		rotZ = 0.31
+		rotW = 0.95
+		body = Kerbin
+		velX = 0
+		velY = 610
+		velZ = 0
+		funds = 25000
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+}
+TRACK_SECTION
+{
+	env = 1
+	ref = 0
+	startUT = 140
+	endUT = 160
+	sampleRate = 10
+	minAlt = 22000
+	maxAlt = 71000
+	POINT
+	{
+		ut = 140
+		lat = -0.0905
+		lon = -74.545
+		alt = 22000
+		rotX = 0
+		rotY = 0
+		rotZ = 0.31
+		rotW = 0.95
+		body = Kerbin
+		velX = 0
+		velY = 610
+		velZ = 0
+		funds = 25000
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+	POINT
+	{
+		ut = 160
+		lat = -0.086
+		lon = -74.538
+		alt = 71000
+		rotX = 0
+		rotY = 0
+		rotZ = 0.38
+		rotW = 0.92
+		body = Kerbin
+		velX = 0
+		velY = 1900
+		velZ = 0
+		funds = 25800
+		science = 2.5
+		rep = 0
+		clearance = 0
+	}
+}

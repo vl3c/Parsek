@@ -1,0 +1,176 @@
+version = 0
+recordingSchemaGeneration = 4
+takeBackFromCseq = 168001
+timelineBreak = 168004 68005.25 v68006_Kind
+timelineBreak = 168008 68009.25 v68010_Kind
+allowNegativeLocked = 1
+GAME_ACTION
+{
+	ut = 0
+	type = 20
+	actionId = act_f80e0000000000200000000000000000
+	cseq = 7
+	initialFunds = 25000
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_f80e0000000000210000000000000000
+	cseq = 8
+	initialScience = 5
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_f80e0000000000220000000000000000
+	cseq = 9
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 50
+	type = 5
+	actionId = act_f80e0000050000050000000000000000
+	cseq = 10
+	contractId = d40b0000-0000-0000-0000-000000000041
+	contractType = AchieveOrbit
+	contractTitle = Golden Orbit
+	advanceFunds = 1000
+	deadlineAbsUT = 99999
+}
+GAME_ACTION
+{
+	ut = 60
+	type = 1
+	actionId = act_f80e0000060000010000000000000000
+	cseq = 11
+	nodeId = basicRocketry
+	cost = 5
+}
+GAME_ACTION
+{
+	ut = 70
+	type = 15
+	actionId = act_f80e0000070000150000000000000000
+	cseq = 12
+	facilityId = SpaceCenter/LaunchPad
+	toLevel = 2
+	facilityCost = 2000
+}
+GAME_ACTION
+{
+	ut = 80
+	type = 12
+	actionId = act_f80e0000080000120000000000000000
+	cseq = 13
+	kerbalName = Bill Kerman
+	hireCost = 1500
+}
+GAME_ACTION
+{
+	ut = 99
+	type = 3
+	actionId = act_f80e0000099000030000000000000000
+	recordingId = a10e0000000000000000000000000011
+	cseq = 14
+	fundsSpent = 8000
+	fundsSpendingSource = 0
+	dedupKey = VesselBuild:a10e0000000000000000000000000011
+}
+GAME_ACTION
+{
+	ut = 100
+	type = 11
+	actionId = act_f80e0000100000110000000000000000
+	recordingId = a10e0000000000000000000000000011
+	cseq = 15
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 100
+	endUT = 400
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 130
+	type = 0
+	actionId = act_f80e0000130000000000000000000000
+	recordingId = a10e0000000000000000000000000011
+	cseq = 16
+	subjectId = mysteryGoo@KerbinFlyingLow
+	experimentId = mysteryGoo
+	body = Kerbin
+	situation = FlyingLow
+	scienceAwarded = 3
+	method = 0
+	transmitScalar = 1
+	subjectMaxValue = 13
+}
+GAME_ACTION
+{
+	ut = 165
+	type = 4
+	actionId = act_f80e0000165000040000000000000000
+	recordingId = a10e0000000000000000000000000011
+	cseq = 17
+	milestoneId = FirstLaunch
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 330
+	type = 10
+	actionId = act_c30a0000000000000000000000000034
+	recordingId = a10e0000000000000000000000000012
+	cseq = 18
+	nominalPenalty = 2
+	repPenaltySource = 2
+}
+GAME_ACTION
+{
+	ut = 400
+	type = 6
+	actionId = act_f80e0000400000060000000000000000
+	recordingId = a10e0000000000000000000000000012
+	cseq = 19
+	contractId = d40b0000-0000-0000-0000-000000000041
+	fundsReward = 6000
+	repReward = 5
+	scienceReward = 2
+}
+GAME_ACTION
+{
+	ut = 560
+	type = 2
+	actionId = act_f80e0000560000020000000000000000
+	recordingId = b20f0000000000000000000000000021
+	cseq = 20
+	fundsAwarded = 3000
+	fundsSource = 2
+	dedupKey = VesselRecovery:b20f0000000000000000000000000021
+}
+GAME_ACTION
+{
+	ut = 600
+	type = 9
+	actionId = act_f80e0000600000090000000000000000
+	recordingId = b20f0000000000000000000000000021
+	cseq = 21
+	nominalRep = 3
+	repSource = 2
+}
+PROGRESS_SEED
+{
+	captured = True
+	node = Kerbin/Landing
+	RECORD
+	{
+		id = RecordsAltitude
+		paidCount = 2
+	}
+}

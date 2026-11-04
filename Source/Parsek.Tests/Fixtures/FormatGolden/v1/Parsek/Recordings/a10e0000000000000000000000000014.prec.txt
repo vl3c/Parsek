@@ -1,0 +1,78 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = a10e0000000000000000000000000014
+sidecarEpoch = 1
+sectionAuthoritative = True
+TRACK_SECTION
+{
+	env = 1
+	ref = 0
+	startUT = 160
+	endUT = 175
+	sampleRate = 10
+	minAlt = 71000
+	maxAlt = 78000
+	POINT
+	{
+		ut = 160
+		lat = -0.086
+		lon = -74.538
+		alt = 71000
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 1900
+		velZ = 0
+		funds = 25800
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+	POINT
+	{
+		ut = 175
+		lat = -0.06
+		lon = -73.9
+		alt = 78000
+		rotX = 0
+		rotY = 0
+		rotZ = 0
+		rotW = 1
+		body = Kerbin
+		velX = 0
+		velY = 2260
+		velZ = 0
+		funds = 25800
+		science = 0
+		rep = 0
+		clearance = 0
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 2
+	startUT = 175
+	endUT = 420
+	sampleRate = 0.1
+	src = 2
+	minAlt = 0
+	maxAlt = 0
+	ORBIT_SEGMENT
+	{
+		startUT = 175
+		endUT = 420
+		inc = 28.6
+		ecc = 0.002
+		sma = 710000
+		lan = 92
+		argPe = 47
+		mna = 0.18
+		epoch = 175
+		body = Kerbin
+		isPredicted = False
+	}
+}

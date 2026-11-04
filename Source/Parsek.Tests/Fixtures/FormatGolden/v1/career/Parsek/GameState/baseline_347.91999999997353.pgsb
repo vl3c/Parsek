@@ -1,0 +1,63 @@
+ut = 347.91999999997353
+funds = 531200
+science = 0
+reputation = 0
+TECH_IDS
+{
+}
+FACILITY_LEVELS
+{
+	SpaceCenter/LaunchPad = 0
+	SpaceCenter/Runway = 0
+	SpaceCenter/VehicleAssemblyBuilding = 0
+	SpaceCenter/SpaceplaneHangar = 0
+	SpaceCenter/TrackingStation = 0
+	SpaceCenter/AstronautComplex = 0
+	SpaceCenter/MissionControl = 0
+	SpaceCenter/ResearchAndDevelopment = 0
+	SpaceCenter/Administration = 0
+}
+BUILDING_INTACT
+{
+	SpaceCenter/Administration/Facility/Building = True
+	SpaceCenter/AstronautComplex/Facility/mainBuilding = True
+	SpaceCenter/LaunchPad/Facility/Flag = True
+	SpaceCenter/MissionControl/Facility/mainBuilding = True
+	SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone = True
+	SpaceCenter/ResearchAndDevelopment/Facility/mainBuilding = True
+	SpaceCenter/SpaceplaneHangar/Facility/Building = True
+	SpaceCenter/TrackingStation/Facility/OuterDish = True
+	SpaceCenter/TrackingStation/Facility/building = True
+	SpaceCenter/VehicleAssemblyBuilding/Facility/VAB2 = True
+	SpaceCenter/FlagPole/Facility = True
+}
+ACTIVE_CONTRACTS
+{
+}
+CREW_ROSTER
+{
+	CREW
+	{
+		name = Jebediah Kerman
+		status = Assigned
+		trait = Pilot
+	}
+	CREW
+	{
+		name = Bill Kerman
+		status = Available
+		trait = Engineer
+	}
+	CREW
+	{
+		name = Bob Kerman
+		status = Available
+		trait = Scientist
+	}
+	CREW
+	{
+		name = Valentina Kerman
+		status = Available
+		trait = Pilot
+	}
+}
