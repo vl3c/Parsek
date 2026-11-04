@@ -2839,6 +2839,84 @@ namespace Parsek
         /// </summary>
         internal static CrewRespawnPolicyReader CrewRespawnPolicyProviderForTesting;
 
+        /// <summary>Reads one kerbal's stock roster respawn state: true when the roster holds
+        /// the kerbal as Missing, with stock's respawn instant <c>UTaR</c>.</summary>
+        internal delegate bool MissingRespawnReader(string kerbalName, out double utar);
+
+        /// <summary>Test seam for <see cref="TryReadMissingRespawnUT"/>. Null in production
+        /// (reads <c>HighLogic.CurrentGame.CrewRoster</c>).</summary>
+        internal static MissingRespawnReader MissingRespawnProviderForTesting;
+
+        /// <summary>
+        /// True when stock's roster holds <paramref name="kerbalName"/> as Missing, with its
+        /// respawn instant: stock started the respawn period at the death
+        /// (<c>StartRespawnPeriod</c>, only with respawn on), and <c>UTaR</c> is the death
+        /// plus the timer as it stood then. False with no roster (headless host).
+        /// </summary>
+        internal static bool TryReadMissingRespawnUT(string kerbalName, out double utar)
+        {
+            var provider = MissingRespawnProviderForTesting;
+            if (provider != null)
+                return provider(kerbalName, out utar);
+            try
+            {
+                return ReadMissingRespawnUTCore(kerbalName, out utar);
+            }
+            catch (Exception)
+            {
+                utar = double.NaN;
+                return false;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool ReadMissingRespawnUTCore(string kerbalName, out double utar)
+        {
+            utar = double.NaN;
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null || string.IsNullOrEmpty(kerbalName))
+                return false;
+            ProtoCrewMember pcm = roster[kerbalName];
+            if (pcm == null || pcm.rosterStatus != ProtoCrewMember.RosterStatus.Missing)
+                return false;
+            utar = pcm.UTaR;
+            return !double.IsNaN(utar) && !double.IsInfinity(utar);
+        }
+
+        /// <summary>
+        /// Career settings audit 2026-11-04 section 3.6: the respawn timer a recorded death
+        /// stamps is stock's own decision at the death, read from the roster, never the live
+        /// slider at commit (the difficulty dialog is reachable from the flight pause menu, so
+        /// the timer can change between the death and the commit). Pure over
+        /// <paramref name="readMissing"/>: when any dead kerbal is Missing in the roster the
+        /// death respawns, and the timer is the longest <c>UTaR - deathUT</c> among them
+        /// (never below 0), so the respawn instant is stock's own. False when no dead kerbal
+        /// is Missing: the caller falls back to the live policy.
+        /// </summary>
+        internal static bool TryResolveRespawnStampFromRoster(
+            IEnumerable<string> deadNames, double deathUT, MissingRespawnReader readMissing,
+            out double respawnSeconds, out string evidence)
+        {
+            respawnSeconds = double.NaN;
+            evidence = null;
+            if (deadNames == null || readMissing == null || double.IsNaN(deathUT))
+                return false;
+            foreach (string name in deadNames)
+            {
+                double utar;
+                if (!readMissing(name, out utar))
+                    continue;
+                double seconds = Math.Max(0.0, utar - deathUT);
+                if (double.IsNaN(respawnSeconds) || seconds > respawnSeconds)
+                {
+                    respawnSeconds = seconds;
+                    evidence = name + " Missing until UTaR=" + utar.ToString("R", CultureInfo.InvariantCulture);
+                }
+            }
+            return !double.IsNaN(respawnSeconds);
+        }
+
         /// <summary>
         /// The live stock crew respawn policy: <c>Difficulty.MissingCrewsRespawn</c> and
         /// <c>Difficulty.RespawnTimer</c> (seconds). Stock's crew death (decompiled
@@ -2902,6 +2980,19 @@ namespace Parsek
 
             bool respawns;
             double timerSeconds;
+            string rosterEvidence;
+            if (TryResolveRespawnStampFromRoster(DeadCrewNames(rec), rec.EndUT,
+                    TryReadMissingRespawnUT, out timerSeconds, out rosterEvidence))
+            {
+                rec.CrewDeathRespawns = true;
+                rec.CrewDeathRespawnSeconds = timerSeconds;
+                ParsekLog.Info(Tag,
+                    $"Crew death respawn policy stamped from the roster: recording='{rec.RecordingId}' " +
+                    $"({rec.VesselName}) deadCrew={deadCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"respawn=True timer={timerSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"({rosterEvidence}; stock's own respawn instant, whatever the slider reads now)");
+                return true;
+            }
             if (!TryReadStockCrewRespawnPolicy(out respawns, out timerSeconds))
             {
                 ParsekLog.Verbose(Tag,
@@ -2918,6 +3009,15 @@ namespace Parsek
                 $"({rec.VesselName}) deadCrew={deadCount.ToString(CultureInfo.InvariantCulture)} " +
                 $"respawn={respawns} timer={timerSeconds.ToString("R", CultureInfo.InvariantCulture)}");
             return true;
+        }
+
+        private static IEnumerable<string> DeadCrewNames(Recording rec)
+        {
+            if (rec?.CrewEndStates == null)
+                yield break;
+            foreach (KeyValuePair<string, KerbalEndState> kv in rec.CrewEndStates)
+                if (kv.Value == KerbalEndState.Dead)
+                    yield return kv.Key;
         }
 
         /// <summary>

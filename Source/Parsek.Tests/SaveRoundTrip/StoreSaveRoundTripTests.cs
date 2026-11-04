@@ -27,6 +27,7 @@ namespace Parsek.Tests.SaveRoundTrip
     [SaveRoundTripCovers(typeof(PlaybackScopeTracker))]
     [SaveRoundTripCovers(typeof(RemovedReplayFlags))]
     [SaveRoundTripCovers(typeof(StockShadowTakeBack))]
+    [SaveRoundTripCovers(typeof(CareerSettingsLock))]
     [SaveRoundTripCovers(typeof(StockPoolReference))]
     [SaveRoundTripCovers(typeof(GameStateStore))]
     [SaveRoundTripCovers(typeof(MilestoneStore))]
@@ -56,6 +57,7 @@ namespace Parsek.Tests.SaveRoundTrip
             PlaybackScopeTracker.ResetForTesting();
             RemovedReplayFlags.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
+            CareerSettingsLock.ResetForTesting();
             StockPoolReference.ResetForTesting();
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
@@ -174,6 +176,13 @@ namespace Parsek.Tests.SaveRoundTrip
                 Save = StockShadowTakeBack.SaveInto, Reset = StockShadowTakeBack.ResetForTesting,
                 Load = n => StockShadowTakeBack.LoadFrom(n, "round-trip test"),
                 Spec = () => new FieldSpec(typeof(StockShadowTakeBack)),
+            },
+            new StoreCase
+            {
+                Name = "CareerSettingsLock", Store = typeof(CareerSettingsLock),
+                Save = CareerSettingsLock.SaveInto, Reset = CareerSettingsLock.ResetForTesting,
+                Load = n => CareerSettingsLock.LoadFrom(n, "round-trip test"),
+                Spec = () => new FieldSpec(typeof(CareerSettingsLock)),
             },
             new StoreCase
             {

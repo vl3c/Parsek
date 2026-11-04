@@ -63,6 +63,91 @@ the board; commit, Rewind-to-Launch, 1x Space Center time to UT 150 for the repl
 take-down). Its 1x target is a guess (the pick-up UT is unknown before a flight): re-pin it and the
 4..6 recordings window from the first flight.
 
+## ~~REPLAY-AUDIT-T2-TOP-UP: a reward setting changed across a rewind could lower a once-only reward, and changed career settings re-judged the past~~ [FILED 2026-11-04 from the replay-theory audit (question T2, owner ruling 2026-11-04 11:19Z) and the career settings audit (`analysis/career-settings-audit-2026-11-04.md` in the project files, sections 3.1 to 3.6); FIXED 2026-11-04, branch `claude/project-thread-dxut6r`; xUnit only, no lane (no fixture or lane changes a difficulty value mid-career or across a rewind); product, medium]
+
+**Symptom.** A load restores the save's own difficulty settings, so a rewind can price one
+once-only reward under two reward multipliers. The walk paid the earliest row and zeroed the
+later one, so a committed flight paid at 150% lost the difference when the same reward was
+earned earlier at 100% (science: the subject cap walked raw units; world-firsts and record steps:
+first wins). Separately, `AllowNegativeCurrency` was read live and applied to every past loss, so
+flipping it re-judged the whole history (free money by toggling), and stock killed a Missing
+kerbal whose recorded death was stamped respawn-on when respawn was turned off before his timer
+ran out, while the stamp's timer came from the slider at commit, not from the death.
+
+**Fix.** Owner ruling (V): the earliest still wins the timing, and each later payment pays its own
+value minus what earlier payments paid, never below 0. Science: `ScienceModule.TopUpFloor` over
+`OwnTimelinePool` (the row plus earlier-captured, earlier-UT rows stock still remembered), pool-unit
+take-back. World-firsts: `MilestonesModule.TryTopUpOneShot` through the partial-credit channel,
+the rest stock repaid after forgetting the first row taken back. Record steps:
+`RecordThresholdBook` tops up named re-crossings and second first payments, never taken back.
+Science and world-first top-ups need a timeline break; a record step's needs its own rewind
+evidence (a re-crossing or a second first payment). Allow negative currency (owner ruling
+2026-11-04, "Lock it at career start"): `CareerSettingsLock` keeps the value the career had at its
+first ledger load (LEDGER key `allowNegativeLocked`), every walk and pool write reads it, a load or
+dialog close whose live value differs is set back, and `AllowNegativeCurrencyLockPatch` greys the
+stock switch in the mid-career difficulty dialog with the reason appended to its stock tooltip
+(the per-capture log of the first commit is gone). Audit Q1 (owner ruling 2026-11-04, "Parsek
+rewinds keep them"): `DifficultySettingsCarry` installs the live `PARAMETERS` on the game loaded
+by Rewind to Launch, Warp to game start, Re-Fly and Discard Re-fly; F9, the Load menu and a stock
+revert restore the save as stock does. The respawn stamp reads stock's `UTaR` for a Missing dead
+kerbal (`TryResolveRespawnStampFromRoster`), and `CrewRespawnTimerPatch` respawns a recorded
+respawn-on death when the setting is now off. Tests: `RewindTopUpScienceTests`,
+`RewindTopUpMilestoneTests`, `CareerSettingsLockTests`, `DifficultySettingsCarryTests`,
+`CrewRespawnSettingsTests`.
+
+## ~~SAVE-GHOST-STRIP-SKIPPED-ON-FAULT: a save phase that throws skips the ghost map ProtoVessel strip~~ [FILED 2026-11-04 from the replay-theory audit (finding R2, doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5); FIXED 2026-11-04, branch `claude/project-thread-v6lbwf`; xUnit; product, high impact if hit, rare]
+
+Stock's `Game.Updated` builds `flightState` from every live vessel (ghost map ProtoVessels included) and only then runs the scenario saves (decompiled: `new FlightState()`, then `ScenarioRunner.GetUpdatedProtoModules` -> `ProtoScenarioModule(module)` -> `ScenarioModule.Save` -> `OnSave`, no catch on that path). The strip was phase 15 of 17 inside `OnSave`'s try body, so any earlier phase that threw skipped it: the exception aborts that stock save, but the live `HighLogic.CurrentGame.flightState` kept the ghosts for any later write that serializes it without rebuilding, and nothing on the load side can tell a serialized ghost from a player craft (`GhostMapPresence.GhostVesselNamePrefix` is presentation only by design).
+
+Fix: `ParsekScenario.StripGhostMapVesselsFailClosed` runs from `OnSave`'s `finally` and from the inert-game-mode early return. With a phase fault in flight it logs the strip (`fail-closed ghost strip`) and never masks the original exception; on an otherwise clean save a failing strip rethrows, so the save aborts rather than writing ghosts. Tests: `SavePathHardeningTests` (behaviour of the helper and a comment-stripped wiring gate on `OnSave`, which also pins `GhostMapPresence.StripFromSave(` to the one caller).
+
+## ~~SAVE-DURING-DEFERRED-SPLIT-DROPS-TAIL: a save in the frame of an EVA, undock or decouple writes the active tree without the parent's unflushed data~~ [FILED 2026-11-04 from the replay-theory audit (finding R6); FIXED 2026-11-04, branch `claude/project-thread-v6lbwf`; xUnit; product, medium-low (one-frame window per split; the harness already defers its own saves)]
+
+An EVA, undock or decouple stops the recorder synchronously, parks it in `ParsekFlight.pendingSplitRecorder` and finishes the split a frame later. `SaveActiveTreeIfAny` treated the null live recorder as outsider state (#266) and skipped the flush, so an F5 (or a scene-change save) in that frame wrote the parent recording without the points, events and track sections recorded since the last save.
+
+Fix: `ParkedSplitSaveOverlay` lays the parked recorder's buffers over the active recording for the one write (`ParsekFlight.BeginParkedSplitSaveOverlay`, `SaveActiveTreeIfAny` -> `WriteActiveTreeNode` inside a `finally` that restores), leaving out the stop's own terminal events (the saved recording is mid-flight, as a save one frame earlier would have written it), then restores the recording's lists exactly and marks it dirty. Memory is unchanged, so the deferred split's three exits (branch, fallback commit, false-alarm resume) still append the parked data once. The node's `resumeRewindSave` falls back to the parked recorder's stop capture. Not covered: the branch itself, which exists only once the deferred split runs; a load of such a save has the new vessel in the world but no child recording for it. Skips (logged): parked recorder of another tree or vessel, no active recording. Tests: `SavePathHardeningTests`.
+
+## ~~SCHEMA-PARTIAL-TREE-DROPS-MEMBERS: a committed tree with only some recordings of another schema generation loses them on the next save~~ [FILED 2026-11-04 from the replay-theory audit (tension T6); owner ruling 2026-11-04 "Set the whole mission aside" (decision card in thread "Harden the save path"); FIXED 2026-11-04, branch `claude/project-thread-v6lbwf`; xUnit; product, low (mixed-generation trees need a hand edit, a corrupt write or a future cross-version merge)]
+
+GC-3 kept a committed tree inert only when the schema gate rejected it whole (tree-level generation, or nothing loaded). A current-generation tree with only some recordings of another generation loaded the rest: `RecordingTree.PruneRejectedRecordingReferences` dropped the rejected members and rewrote the branch points, the next save wrote the tree without them, and the file collector quarantined their sidecars.
+
+Fix: `InertRecordingTrees.ClassifyCommittedTreeSchemaRejection` adds reason `some-recordings-<reason>`, and `LoadRecordingTrees` sets such a tree aside whole, node-verbatim, exactly like a fully rejected one (every recording id counts as known, nothing plays). The per-recording gate also counts a record the codec cannot read (`RecordingTreeRecordCodec.ClassifyUnreadableRecordingNode`, REPLAY-AUDIT-CODEC-HYGIENE), so a committed tree with one such record is set aside whole too. Parked active / pending nodes keep the per-recording prune (`ClassifySchemaRejection` is unchanged for them). A tree whose SIDECARS fail to hydrate is still not inert (`DropFailedSidecarHydrationRecordings`). Tests: `InertRecordingTreesTests.TreeWithSomeRejectedRecordings_IsKeptInertWhole_ByteEqual`, `ClassifyCommitted_AddsPartialRejection_KeepsTheWholeTreeReasons`.
+
+## ~~REPLAY-AUDIT-CODEC-HYGIENE: six reader / invariant gaps from the replay-theory audit (R8 to R13)~~ [FILED 2026-11-04 from the replay-theory audit (doc https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5, findings R8-R13, main b2182df); FIXED 2026-11-04, branch `claude/project-thread-dxut6r`; xUnit only, no lane (every case needs a hand-edited, newer-build or crash-damaged save); product, low]
+
+**Symptom.** Each reader defaulted what it could not read instead of rejecting or passing it on.
+R8: a ledger row with an unknown type id loaded as type 0 (`ScienceEarning`) and was saved back
+as one; a row whose parse threw was dropped and the drop saved. R9: a Cold load resolved a named
+sidecar hash from the head and `_versions/` but not from an unfiled `<id><suffix>.incoming.<guid>`
+backup, which the collector files only at the end of the same load, so the ghost was missing for
+one session. R10: an unknown or undefined `mergeState` read as `Immutable` (the most committed
+state), and a RECORDING with no `recordingId` kept the random Guid `new Recording()` assigns.
+R11: nothing checked that one old recording id has one effective supersede target; both walkers
+take the first matching row, so a fork would make the slot tip depend on list order. R12:
+`RecordingStore.RestoreFromSnapshotForTesting` cleared and refilled the committed list with no
+index notifications, in FLIGHT with ghosts alive. R13: `VesselSpawner.PrepareSpawnNodeAtPosition`
+wrote lat / lon / alt with `ToString("R")` and no culture.
+
+**Fix.** R8: `GameAction.ClassifyUnreadableActionNode` (`type-missing` / `type-unparseable` /
+`type-unknown`) runs before deserialization; such a row, and a row whose parse throws, is kept as
+a verbatim node copy in `Ledger.unreadableActionNodes`, never recalculated, and written back by
+`BuildSaveNode`; every load replaces the list, `Clear()` keeps it (like the progress seed). R9:
+`SidecarVersionResolution.Resolve` falls back to `FindIncomingWithHash` (only files that parse as
+this id and kind, read only when the bytes carry the named hash) and reads it as a version
+(`source=incoming` in the resolve line), so the usual single-owner promote applies. R10:
+`RecordingTreeRecordCodec.ClassifyUnreadableRecordingNode` (`recording-id-missing`,
+`merge-state-unknown`, defined members only) rejects the recording through the same `-1` format
+path as the schema gate, and `InertRecordingTrees.ClassifySchemaRejection` counts it, so a tree
+whose every member is unreadable is held inert. Whether a partly rejected tree drops its rejected
+members on the next save stays the audit's open question T6. R11: INV7 family 2c
+(`kind=ambiguous-supersede`, FAIL) reports a second row for an old id only when its walk ends at a
+different tip than the first row's; a redundant A->C beside A->B, B->C is not reported. R12: the
+restore keeps the common reference prefix, removes the rest top-down through
+`RemoveCommittedAtWithNotifications`, then appends the snapshot's tail. R13: InvariantCulture.
+Tests: `CodecReadabilityTests`, `SidecarVersionRetentionTests` (two incoming cells),
+`Inv7TreeTopologyTests` (three supersede cells), `RecordingStoreResetGuardTests` (three restore
+cells), `SpawnRotationContractTests` (de-DE coordinates), and the ledger field round trip.
+
 ## ~~MERGE-BEGIN-ROLLBACK-LEAKS-ATTEMPT: a Re-Fly merge interrupted at its first checkpoint undoes only the re-flown recording~~ [FILED 2026-11-04 from the replay-theory audit (finding R1, thread "Audit design against replay theory"); FIXED 2026-11-04, branch `claude/project-thread-0i7hyx`; xUnit; no lane (the window needs an injected fault, see below); product, high when hit (a paradox: the attempt's EVA kerbals, payloads and their ledger rows stay committed beside the restored origin), rare (a crash or exception between the Begin save and the Split save)]
 
 **Symptom.** `MergeDialog.MergeCommit` commits the attempt's tree (`CommitPendingTree`, the

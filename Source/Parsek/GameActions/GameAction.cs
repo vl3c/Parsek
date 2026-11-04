@@ -1451,6 +1451,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: why this build cannot read a GAME_ACTION node, or null when it can.
+        /// <c>type-missing</c> / <c>type-unparseable</c>: no integer <c>type</c>.
+        /// <c>type-unknown</c>: an id this build does not define (a row a newer build wrote).
+        /// The ledger keeps such a node verbatim instead of reading it as type 0.
+        /// </summary>
+        internal static string ClassifyUnreadableActionNode(ConfigNode node, out int typeId)
+        {
+            typeId = 0;
+            string typeStr = node?.GetValue("type");
+            if (typeStr == null)
+                return "type-missing";
+            if (!int.TryParse(typeStr, NumberStyles.Integer, IC, out typeId))
+                return "type-unparseable";
+            if (!Enum.IsDefined(typeof(GameActionType), typeId))
+                return "type-unknown";
+            return null;
+        }
+
+        /// <summary>
         /// Deserializes a GameAction from a GAME_ACTION ConfigNode.
         /// Unknown fields are silently ignored for forward compatibility.
         /// </summary>

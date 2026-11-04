@@ -440,6 +440,10 @@ reading:
    anywhere, the batch's own rollback included, never consumes a version. Every promoted head
    again matches the save the game is running from, so the offline tools read the right file. A
    promote that fails leaves the recording reading from the version path, logged.
+   An unfiled `_versions/<id><suffix>.incoming.<guid>` (a filing that failed, step 4 above, and
+   that the collector would file only at the end of this same load) counts as that version when
+   its bytes carry the named hash: it is read and promoted the same way (`source=incoming` in the
+   resolve line).
 4. Neither exists: the same failure today's stale or missing sidecar produces
    (`stale-sidecar-epoch` / `trajectory-missing`), with a reason naming the hash.
 

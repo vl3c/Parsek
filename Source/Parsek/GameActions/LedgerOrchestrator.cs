@@ -6209,6 +6209,7 @@ namespace Parsek
             }
             RepairZeroCostFacilityUpgradeActionsOnLoad(GameStateStore.Events, Ledger.Actions);
             SeedKscSequenceCounterFromLoadedLedger(Ledger.Actions);
+            CareerSettingsLock.EnsureAndEnforce(KspStatePatcher.ReadLiveAllowNegativeCurrency(), "ledger-load");
             ParsekLog.Verbose(Tag, $"OnLoad: ledger loaded from {source}");
         }
 

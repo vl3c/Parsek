@@ -409,6 +409,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ColdLoad_VersionLeftAsUnfiledIncoming_IsReadAndPromoted()
+        {
+            // Audit R9: a rewrite whose filing failed leaves the replaced head as
+            // '_versions/<id>.prec.incoming.<guid>'. The collector files it only at the end of
+            // the load, so the load itself must read it, or the ghost is missing for a session.
+            var rec = MakeRecording("ci1", 5);
+            Save(rec);
+            Recording saved = SavedCopy(rec);
+            string f5Hash = rec.PrecHash;
+            rec.Points.Add(new TrajectoryPoint { ut = 900, bodyName = "Kerbin", rotation = new UnityEngine.Quaternion(0, 0, 0, 1) });
+            Save(rec);
+            string filed = Path.Combine(versionsDir, SidecarVersions.VersionFileName("ci1", f5Hash, SidecarKind.Prec));
+            Assert.True(File.Exists(filed));
+            string incoming = Path.Combine(versionsDir, SidecarVersions.IncomingFileName("ci1", SidecarKind.Prec));
+            File.Move(filed, incoming);
+
+            SidecarVersionResolution.BeginForTesting(Owners("ci1", 1));
+            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            SidecarVersionResolution.End("test");
+
+            Assert.Equal(5, saved.Points.Count);
+            Assert.Equal(f5Hash, saved.PrecHash);
+            Assert.Equal(f5Hash, SidecarContentHash.ComputeFile(PrecPath("ci1")));
+            Assert.False(File.Exists(incoming));
+            Assert.Contains(logLines, l => l.Contains("Sidecar version resolved: rec=ci1 kind=prec")
+                && l.Contains("source=incoming") && l.Contains("promoted=True"));
+        }
+
+        [Fact]
+        public void Resolve_IncomingWithOtherBytes_StaysUnresolved()
+        {
+            byte[] head = System.Text.Encoding.ASCII.GetBytes("head bytes");
+            byte[] other = System.Text.Encoding.ASCII.GetBytes("some other replaced head");
+            byte[] named = System.Text.Encoding.ASCII.GetBytes("the bytes the save names");
+            File.WriteAllBytes(PrecPath("ci2"), head);
+            Directory.CreateDirectory(versionsDir);
+            File.WriteAllBytes(Path.Combine(versionsDir, SidecarVersions.IncomingFileName("ci2", SidecarKind.Prec)), other);
+            // Same bytes under another kind's and another id's incoming name are not this sidecar.
+            File.WriteAllBytes(Path.Combine(versionsDir, SidecarVersions.IncomingFileName("ci2", SidecarKind.Vessel)), named);
+            File.WriteAllBytes(Path.Combine(versionsDir, SidecarVersions.IncomingFileName("ci22", SidecarKind.Prec)), named);
+
+            SidecarResolution r = SidecarVersionResolution.Resolve(
+                PrecPath("ci2"), "ci2", SidecarKind.Prec, SidecarContentHash.Compute(named));
+
+            Assert.Equal(SidecarResolveSource.Unresolved, r.Source);
+            Assert.False(r.FromIncoming);
+        }
+
+        [Fact]
         public void ColdLoad_PromoteFailure_ReadsFromVersionPath()
         {
             var rec = MakeRecording("c4", 5);
