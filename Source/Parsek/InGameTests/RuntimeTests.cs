@@ -8702,9 +8702,9 @@ namespace Parsek.InGameTests
             foreach (var kvp in CrewReservationManager.CrewReplacements)
                 savedReplacements[kvp.Key] = kvp.Value;
             var savedVictimStatus = victim.rosterStatus;
-            ulong savedVictimMarkerPid;
-            bool victimWasRescuePlaced = CrewReservationManager.TryGetRescuePlacedVessel(
-                victim.name, out savedVictimMarkerPid);
+            CrewReservationManager.RescuePlacedMarker savedVictimMarker;
+            bool victimWasRescuePlaced = CrewReservationManager.TryGetRescuePlacedMarker(
+                victim.name, out savedVictimMarker);
 
             // P1 review (fourth pass): the marker is pid-scoped. Use a
             // synthetic pid for this in-game test because we are exercising
@@ -8822,7 +8822,8 @@ namespace Parsek.InGameTests
                 using (SuppressionGuard.Crew())
                     victim.rosterStatus = savedVictimStatus;
                 if (victimWasRescuePlaced)
-                    CrewReservationManager.MarkRescuePlaced(victim.name, savedVictimMarkerPid);
+                    CrewReservationManager.MarkRescuePlaced(
+                        victim.name, savedVictimMarker.VesselPid, savedVictimMarker.MarkUT);
                 else
                     CrewReservationManager.ClearRescuePlaced(victim.name);
             }
