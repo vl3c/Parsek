@@ -37,6 +37,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel flying beside yours through an SOI edge is recorded per body too.** When a second
+  vessel in physics range crosses a sphere-of-influence boundary with you, its recording now
+  starts a new section on the new body, so its replay no longer blends the two bodies and the
+  recording can split there. (RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT)
 - **A burn through a moon's boundary is recorded as two legs.** Crossing into or out of a moon's
   sphere of influence at normal speed (a burn, or a coast without warp) now splits the recording
   at the crossing like a warped crossing does, so each body gets its own leg and the ghost does
