@@ -33,6 +33,15 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A failed save step can no longer write ghost vessels into the save.** Ghost map vessels are
+  now removed from every save even when an earlier part of Parsek's save fails, so a later load
+  can never turn a ghost into a real ship. (SAVE-GHOST-STRIP-SKIPPED-ON-FAULT)
+- **A quicksave at the moment of staging keeps the flight's last seconds.** An F5 in the same
+  frame as an EVA, undock or decouple used to save the recording without its newest points; the
+  save now keeps them. (SAVE-DURING-DEFERRED-SPLIT-DROPS-TAIL)
+- **A mission with recordings from another Parsek version is kept whole.** When only some of a
+  mission's recordings come from a different Parsek version, the whole mission is set aside
+  untouched instead of losing those recordings on the next save. (SCHEMA-PARTIAL-TREE-DROPS-MEMBERS)
 - **Revert to Launch no longer records over a committed flight.** After reverting, a vessel that
   already has a committed recording later on the timeline stays unrecorded instead of resuming
   that recording from the past, which left it with a doubled track. (REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END)

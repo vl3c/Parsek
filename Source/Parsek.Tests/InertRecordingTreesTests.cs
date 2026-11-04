@@ -173,6 +173,63 @@ namespace Parsek.Tests
             Assert.Equal("recordings-generation-older", InertRecordingTrees.Entries[0].Reason);
         }
 
+        // catches (audit T6): a committed current-generation tree with only SOME recordings of
+        // another generation loading its readable members, so the rejected ones are pruned, its
+        // branch points rewritten, and the next save drops them (and the collector their files).
+        [Theory]
+        [InlineData(-1, "some-recordings-generation-older")]
+        [InlineData(1, "some-recordings-generation-newer")]
+        public void TreeWithSomeRejectedRecordings_IsKeptInertWhole_ByteEqual(int offset, string reason)
+        {
+            ConfigNode original = BuildTreeNode(TreeA,
+                RecordingStore.CurrentRecordingSchemaGeneration,
+                RecordingStore.CurrentRecordingSchemaGeneration, RecA1, RecA2);
+            original.GetNodes("RECORDING")[1].SetValue("recordingSchemaGeneration",
+                (RecordingStore.CurrentRecordingSchemaGeneration + offset).ToString(CultureInfo.InvariantCulture));
+
+            Load(Scenario(original));
+
+            Assert.Empty(RecordingStore.CommittedTrees);
+            Assert.Empty(RecordingStore.CommittedRecordings);
+            Assert.Equal(1, InertRecordingTrees.Count);
+            Assert.Equal(reason, InertRecordingTrees.Entries[0].Reason);
+            Assert.True(InertRecordingTrees.ContainsRecordingId(RecA1));
+            Assert.True(InertRecordingTrees.ContainsRecordingId(RecA2));
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("(reason=" + reason + "); kept inert, not loaded (loadedRecordings=1)"));
+
+            ConfigNode[] trees = Save().GetNodes("RECORDING_TREE");
+            Assert.Single(trees);
+            Assert.Equal(original.ToString(), trees[0].ToString());
+        }
+
+        [Fact]
+        public void ClassifyCommitted_AddsPartialRejection_KeepsTheWholeTreeReasons()
+        {
+            ConfigNode older = BuildTreeNode(TreeA, OlderGeneration, OlderGeneration, RecA1);
+            Assert.Equal("tree-generation-older",
+                InertRecordingTrees.ClassifyCommittedTreeSchemaRejection(older, RecordingTree.Load(older)));
+
+            ConfigNode allRecs = BuildTreeNode(TreeA,
+                RecordingStore.CurrentRecordingSchemaGeneration, OlderGeneration, RecA1, RecA2);
+            Assert.Equal("recordings-generation-older",
+                InertRecordingTrees.ClassifyCommittedTreeSchemaRejection(allRecs, RecordingTree.Load(allRecs)));
+
+            ConfigNode partial = BuildTreeNode(TreeA,
+                RecordingStore.CurrentRecordingSchemaGeneration,
+                RecordingStore.CurrentRecordingSchemaGeneration, RecA1, RecA2);
+            partial.GetNodes("RECORDING")[1].SetValue("recordingSchemaGeneration",
+                OlderGeneration.ToString(CultureInfo.InvariantCulture));
+            Assert.Equal("some-recordings-generation-older",
+                InertRecordingTrees.ClassifyCommittedTreeSchemaRejection(partial, RecordingTree.Load(partial)));
+
+            ConfigNode clean = BuildTreeNode(TreeA,
+                RecordingStore.CurrentRecordingSchemaGeneration,
+                RecordingStore.CurrentRecordingSchemaGeneration, RecA1, RecA2);
+            Assert.Null(InertRecordingTrees.ClassifyCommittedTreeSchemaRejection(clean, RecordingTree.Load(clean)));
+            Assert.Null(InertRecordingTrees.ClassifyCommittedTreeSchemaRejection(null, null));
+        }
+
         [Fact]
         public void Classify_TreeGate_And_PartialRejection()
         {
@@ -189,7 +246,8 @@ namespace Parsek.Tests
             Assert.Equal("tree-generation-missing",
                 InertRecordingTrees.ClassifySchemaRejection(missing, RecordingTree.Load(missing)));
 
-            // Partial rejection (one leaf of another generation) keeps today's prune: not inert.
+            // Partial rejection (one leaf of another generation) is not a WHOLE-tree rejection (the
+            // parked active / pending nodes keep the prune); committed trees use the T6 classifier.
             ConfigNode partial = BuildTreeNode(TreeA,
                 RecordingStore.CurrentRecordingSchemaGeneration,
                 RecordingStore.CurrentRecordingSchemaGeneration, RecA1, RecA2);
