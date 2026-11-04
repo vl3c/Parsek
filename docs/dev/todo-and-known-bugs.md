@@ -207,7 +207,8 @@ and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5
   ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH, ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS,
   CONTRACT-TWIN-GUID-SEEDED-TYPES, the three 2026-10-31 low ledger fixes
   (STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE, OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY,
-  SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED), RESCUE-PLACED-MARKER-SESSION-ONLY, the drop path of
+  SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED), RESCUE-PLACED-MARKER-SESSION-ONLY,
+  RESCUE-PLACED-MARKER-NEVER-RETIRES, the drop path of
   TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS (B13 passed without reaching it), the RW-9R reading
   variant owed by REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE, and the 2026-10-06 / 10-07
   chain-walk, optimizer, facility and route-cargo fixes whose headers say "not flown".
@@ -513,7 +514,7 @@ Tests: `RescueCompletionGuardTests.RescuePlacedMarker_SurvivesSaveAndLoad` /
 `_LoadsFromAScenarioWriterSave`, `StoreSaveRoundTripTests`. Not flown: the rescue-then-reload
 sequence has no harness lane. Follow-up: RESCUE-PLACED-MARKER-NEVER-RETIRES.
 
-## RESCUE-PLACED-MARKER-NEVER-RETIRES: a saved rescue marker stays in the save for good [OPEN 2026-10-31; low]
+## ~~RESCUE-PLACED-MARKER-NEVER-RETIRES: a saved rescue marker stays in the save for good~~ [FILED 2026-10-31; FIXED 2026-11-04, branch `fix-rescue-marker-retire`; xUnit only; low]
 
 Since RESCUE-PLACED-MARKER-SESSION-ONLY the #615 marker lives for the life of the save instead of
 until the next scene change. Two consequences: stale entries (vessel long gone) pile up in the
@@ -522,6 +523,30 @@ limit (a later, unrelated fresh reservation for a kerbal still aboard the same r
 gets no stand-in, see the comment on `CrewReservationManager.rescuePlacedKerbals`) can now last
 past a scene change. Candidate fix: retire a kerbal's marker when a new reservation for that
 kerbal is created, and prune entries whose pid matches no vessel on save.
+
+**Fix.** Reservations are re-derived from the ledger rows on every walk, so "a new reservation"
+cannot be a creation event: a walk re-deriving the rescue's own reservation must keep the marker
+(the multi-walk regression). The marker now carries the UT of the rescue (`MarkUT`, stamped by
+both `VesselSpawner` rescue sites; saved as an optional `markUT` key, absent reads NaN), and
+`KerbalReservation.LatestRowStartUT` is the latest StartUT of the recordings behind the hold. The
+`ApplyToRoster` guard first calls `CrewReservationManager.TryRetireRescuePlacedForNewReservation`:
+a row from a recording that started strictly after the rescue is a flight flown after it, so the
+marker retires (Info `Retired rescue-placed marker`, summary `retiredForNewReservation=N`) and that
+reservation gets its stand-in like any fresh one. Rows from recordings that started before the
+rescue or in its own frame (the rescued flight; a Re-Fly provisional, which starts at the rewind
+point, no later than a spawn the Re-Fly runs) never retire it, and a marker with no UT (written
+by the 2026-10-31 build) is never retired this way. On save,
+`CollectSavableRescueMarkers` leaves out a marker whose pid matches no vessel in the union of
+`FlightGlobals.Vessels` and `flightState.protoVessels`, in FLIGHT / SPACECENTER / TRACKSTATION /
+EDITOR only; in any other scene, or when neither list is readable or both are empty, the prune is
+skipped (Verbose `Rescue-placed marker prune skipped`). The save leaves memory alone, so a vessel
+restored with its identity later in the session still matches. Known edge: a committed recording
+that holds the kerbal, starts after the rescue and already existed when the rescue ran retires
+the marker on the first walk (that recording is a real future hold, so its stand-in is wanted).
+Tests: `RescueMarkerRetireTests` (multi-walk keep with rescue UT, retire on a later flight, no-UT
+keep, the pure helpers, save prune / skip / markUT round trip, ScenarioWriter `markUT`),
+`RescueCompletionGuardTests`, `StoreSaveRoundTripTests`. Not flown: no harness lane rescues a
+kerbal.
 
 ## ~~RECORDING-VESSEL-SITUATION-NOT-SAVED: a recording's stop-time situation text is lost on every save and load~~ [FILED AND FIXED 2026-10-31 by the field-level save round-trip suite (SAVE-ROUND-TRIP-GATE); xUnit only; product, low (Timeline wording only)]
 
