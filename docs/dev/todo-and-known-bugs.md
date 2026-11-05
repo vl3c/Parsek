@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~FLAG-EVENT-PAST-RECORDING-END: a flag pick-up recorded in the last frame before boarding is never replayed~~ [FILED 2026-11-05 from the pre-cut full run (FLG-1 `2026-11-05_0422`, PARSEK-FAIL logContracts: no `Flag pick-up replayed`, main 02d71afd1); FIXED 2026-11-05, branch `fix-flag-pickup-past-end`; xUnit; product, low (a picked-up flag stands again after a rewind, timing dependent)]
+## ~~FLAG-EVENT-PAST-RECORDING-END: a flag pick-up recorded in the last frame before boarding is never replayed~~ [FILED 2026-11-05 from the pre-cut full run (FLG-1 `2026-11-05_0422`, PARSEK-FAIL logContracts: no `Flag pick-up replayed`, main 02d71afd1); FIXED 2026-11-05, branch `fix-flag-pickup-past-end` (#2384); xUnit; LIVE-PROVEN FLG-1 `2026-11-05_1632` PASS attempt 1 on main ee2e7da8a (the timeline-end walk fired: `Flag events at timeline end` then `Flag pick-up replayed`); product, low (a picked-up flag stands again after a rewind, timing dependent)]
 
 **Symptom.** FLG-1's kerbal picks the flag up and boards before the next 0.2 s sample, so the
 `FlagPickedUp` segment event (ut 34.0999) sits after the recording's last sample (`explicitEndUT`
@@ -35,7 +35,7 @@ Idempotent through the plant cursor and the pick-up tombstones. Not covered: the
 ghost that was never created (warped through), and an anchor-retired debris endpoint. Tests:
 `RemovedReplayFlagsTests` (walk UT, pick-up past the end taken down once, both hosts wired).
 
-## ~~EVA9-SPAWN-ORDER-FOLLOWS-STOCK-RIVET-TIMING: EVA-9's per-member overlap-exemption tokens assume a spawn order~~ [FILED 2026-11-05 from the pre-cut full run (EVA-9 `2026-11-05_0414`, PARSEK-FAIL logContracts, main 02d71afd1); harness spec flake, no product defect]
+## ~~EVA9-SPAWN-ORDER-FOLLOWS-STOCK-RIVET-TIMING: EVA-9's per-member overlap-exemption tokens assume a spawn order~~ [FILED 2026-11-05 from the pre-cut full run (EVA-9 `2026-11-05_0414`, PARSEK-FAIL logContracts, main 02d71afd1); harness spec flake, no product defect; re-pinned in #2384, EVA-9 `2026-11-05_1634` PASS attempt 1 on main ee2e7da8a]
 
 Stock `ModuleCargoPart` riveted the Central Station about 33 s late, so its `DeployableExtended`
 event moved the tail trim and it spawned last; the RTG then spawned first with no sibling standing
@@ -45,7 +45,7 @@ three per-member exemption tokens accept the member on either side of the pair
 (`rec=<member> blocker=` or `siblingRec=<member>`); the spec now matches the red log and the green
 `2026-10-22_1904` / `2026-11-01_0641` logs.
 
-## ~~SPAWN-RESUME-REFUSED-FRAMELESS-SECTION-END: a Real Spawn vessel is refused its own committed recording as "ahead of the clock"~~ [FILED 2026-11-05 from the pre-cut full run (VN-12 `2026-11-05_1050` / `_1052_a2`, INVALID: step 0016 `CommitTree` ERROR `no-active-tree`, main 02d71afd1); FIXED 2026-11-05, branch `fix-vn12-ahead-clock`; xUnit; product, medium (a spawned vessel flown again starts no continuation of its recording)]
+## ~~SPAWN-RESUME-REFUSED-FRAMELESS-SECTION-END: a Real Spawn vessel is refused its own committed recording as "ahead of the clock"~~ [FILED 2026-11-05 from the pre-cut full run (VN-12 `2026-11-05_1050` / `_1052_a2`, INVALID: step 0016 `CommitTree` ERROR `no-active-tree`, main 02d71afd1); FIXED 2026-11-05, branch `fix-vn12-ahead-clock` (#2383); xUnit; LIVE-PROVEN VN-12 `2026-11-05_1631` PASS attempt 1 (no `runs past the live clock` refusal, tree restored) and VN-5 `2026-11-05_1632` PASS (guard intact) on main ee2e7da8a; product, medium (a spawned vessel flown again starts no continuation of its recording)]
 
 **Symptom.** VN-12 Real-Spawns `rsc-target-0001` and flies it to resume and rename it. The load
 had tail-trimmed that recording from 622.2 to 82.2 (trimUT 92.2); its one TrackSection is
@@ -62,7 +62,6 @@ samples of its own (`TrackSectionHoldsRecordedSamples`: frames, body-fixed frame
 checkpoint); a frameless section's data is the flat points, which still count. The VN-5 shape
 (sections with frames) is unchanged. Tests: `CommittedRestoreAheadOfClockTests` (frameless trimmed
 section, the mirror with samples / predicted vs recorded checkpoint, the spawn-at-end match).
-Re-fly VN-12 and VN-5 on the fixed build.
 
 ## ~~SAVE-FORMAT-1-0-FREEZE: the next release is the first stable save format, with no alpha save repair code~~ [RULED 2026-11-04 by the owner (V: "any safe number", "clean, without old baggage"); DONE 2026-11-04, branch `claude/project-thread-8twhvr`; xUnit; product, high (every later save depends on it)]
 
