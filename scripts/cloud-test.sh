@@ -21,10 +21,20 @@ if [ ! -f "$KSPDIR/KSP_x64_Data/Managed/Assembly-CSharp.dll" ]; then
   exit 2
 fi
 
-echo "== Restoring + building (KSPDIR=$KSPDIR)"
-dotnet build "$REPO_ROOT/Source/Parsek.Tests/Parsek.Tests.csproj" -p:SkipKspDeploy=true -v:q -nologo
+# PARSEK_TEST_CONFIGURATION picks the build configuration (default Debug). Release is the
+# configuration the mod ships in: its optimizing JIT inlines small helpers, so a Unity ECall
+# kept out of a testable method only by a helper WITHOUT [MethodImpl(NoInlining)] is pulled
+# back in and the test fails. A Debug-only run cannot see that, so CI runs both.
+CONFIG="${PARSEK_TEST_CONFIGURATION:-Debug}"
+case "$CONFIG" in
+  Debug|Release) ;;
+  *) echo "ERROR: PARSEK_TEST_CONFIGURATION must be Debug or Release, got '$CONFIG'" >&2; exit 2 ;;
+esac
 
-OUT="$REPO_ROOT/Source/Parsek.Tests/bin/Debug/net472"
+echo "== Restoring + building $CONFIG (KSPDIR=$KSPDIR)"
+dotnet build "$REPO_ROOT/Source/Parsek.Tests/Parsek.Tests.csproj" -c "$CONFIG" -p:SkipKspDeploy=true -v:q -nologo
+
+OUT="$REPO_ROOT/Source/Parsek.Tests/bin/$CONFIG/net472"
 
 # The Tests csproj copies only 4 referenced DLLs (CoreModule, IMGUIModule,
 # Assembly-CSharp, 0Harmony). Mono resolves field types eagerly where .NET
@@ -49,7 +59,7 @@ if [ -z "$RUNNER" ]; then
   exit 2
 fi
 
-echo "== Running tests under mono ($RUNNER)"
+echo "== Running $CONFIG tests under mono ($RUNNER)"
 # -parallel none: the suite has [Collection("Sequential")] classes sharing
 # static state; serial execution keeps mono runs deterministic (~30s total).
 cd "$OUT"

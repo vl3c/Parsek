@@ -128,3 +128,13 @@ jobs:
         env:
           KSPDIR: ${{ github.workspace }}/ksp-refs
         run: scripts/cloud-test.sh
+
+      # The same suite built in Release, the configuration the mod ships in. Release turns on
+      # JIT inlining, which can pull a Unity ECall back into a method a test calls when the
+      # helper meant to isolate it lacks [MethodImpl(NoInlining)]; the Debug run above cannot
+      # see that.
+      - name: Build + run xUnit suite (Release)
+        env:
+          KSPDIR: ${{ github.workspace }}/ksp-refs
+          PARSEK_TEST_CONFIGURATION: Release
+        run: scripts/cloud-test.sh
