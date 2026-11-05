@@ -6,7 +6,15 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.7
 
-_(unreleased - entries accumulate here per commit)_
+### Highlights
+
+- **Saves have a stable format, and Parsek windows follow KSP's UI Scale.** From this version on,
+  later versions of Parsek keep loading your saves. Every Parsek window grows and shrinks with the
+  UI Scale slider. Real Spawn Control's Warp keeps you beside the ghost in orbit.
+- **A rewind can no longer cost you career value or double your rewards.** Rewards, purchases and
+  contracts count once across rewinds, a lower reward earned earlier is topped up, a fired kerbal
+  stays fired, and career settings changed later no longer rewrite your past. Replayed flags plant
+  once, and leaving a flight for the main menu no longer asks.
 
 ### Changed
 
