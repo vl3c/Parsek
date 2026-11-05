@@ -427,6 +427,8 @@ namespace Parsek
                 : GetUnityFrameCount();
         }
 
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static int GetUnityFrameCount()
         {
             return Time.frameCount;

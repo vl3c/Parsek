@@ -215,6 +215,8 @@ namespace Parsek
         // Test runs always go through the override above; this method is only
         // ever JIT-compiled when the override is null, which only happens
         // inside the live KSP runtime where the ECall is legal.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static int UnityFrameCount()
         {
             return Time.frameCount;
@@ -226,16 +228,22 @@ namespace Parsek
         // branches. Tests pass playbackState=null, so these helpers are never
         // invoked there; production calls them only when state.ghost is
         // non-null, where the ECall is legal.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static Vector3 ReadGhostPosition(GhostPlaybackState playbackState)
         {
             return playbackState.ghost.transform.position;
         }
 
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static Quaternion ReadGhostRotation(GhostPlaybackState playbackState)
         {
             return playbackState.ghost.transform.rotation;
         }
 
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static bool IsGhostActiveSelf(GhostPlaybackState playbackState)
         {
             return playbackState.ghost.activeSelf;

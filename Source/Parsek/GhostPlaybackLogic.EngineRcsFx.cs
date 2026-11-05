@@ -806,7 +806,7 @@ namespace Parsek
         {
             if (power <= 0f) return 0f;
 
-            float emRate = emissionCurve != null ? emissionCurve.Evaluate(power) : power * 100f;
+            float emRate = emissionCurve != null ? EvaluateFxCurve(emissionCurve, power) : power * 100f;
             emRate *= emissionScale > 0f ? emissionScale : 1f;
             if (emissionScale > 1f)
                 emRate = Math.Max(emRate, 60f);
@@ -819,12 +819,22 @@ namespace Parsek
         {
             if (power <= 0f) return 0f;
 
-            float spd = speedCurve != null ? speedCurve.Evaluate(power) : power * 10f;
+            float spd = speedCurve != null ? EvaluateFxCurve(speedCurve, power) : power * 10f;
             spd *= speedScale > 0f ? speedScale : 1f;
             if (speedScale > 1f)
                 spd = Math.Max(spd, 4f);
 
             return spd;
+        }
+
+        // FloatCurve.Evaluate wraps the AnimationCurve.Evaluate ECall. Kept out of the two
+        // callers above so the optimizing JIT cannot inline the ECall into a method xUnit
+        // calls with a null curve (SecurityException on the .NET Framework test host).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static float EvaluateFxCurve(FloatCurve curve, float time)
+        {
+            return curve.Evaluate(time);
         }
 
         internal static void StopAllRcsEmissions(GhostPlaybackState state)
