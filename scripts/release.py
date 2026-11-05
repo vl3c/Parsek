@@ -1,6 +1,6 @@
 """Parsek release packaging script.
 
-Builds Release, runs tests, and packages the mod zip for distribution.
+Builds Release, runs the tests in Debug and Release, and packages the mod zip for distribution.
 
 Usage: python scripts/release.py
 """
