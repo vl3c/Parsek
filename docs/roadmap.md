@@ -19,7 +19,7 @@ have to bring Parsek to a sufficient quality bug-free state so that we can relea
 multiplayer comes later, if we have users". Phase 14 is therefore deferred until after the public
 release, and only if Parsek has users. The co-op design stays as written and is not being implemented.
 
-The next release is also the first stable save format (owner ruling, 2026-11-04): today's version
+v0.10.7 is the first stable save format (owner ruling, 2026-11-04): today's version
 numbers become the 1.0 baseline, every later build loads every 1.0+ save, and the alpha-era save
 repair code is gone (older test saves load best effort). Policy:
 [`docs/dev/design-save-format-policy.md`](dev/design-save-format-policy.md).
@@ -444,6 +444,15 @@ Point release maturing the re-aim / looping engine and expanding Supply Routes i
 - **Vessels kept for their future flights** - a rewind, a Re-Fly and a Discard Re-fly hold back every vessel a later flight flies, docks with, boards, builds on or moves cargo into, drawing it as a ghost until that flight takes it over; boarding, sitting in a seat and EVA construction or cargo claim another mission's vessel like a dock does.
 - **Switching vessels without a prompt** - a map Switch To no longer asks Merge or Discard: the flight you leave is merged at the switch, or dropped when it changed nothing, as when leaving for the Space Center (outside a Re-Fly).
 - **Fixes** - no more lost recordings or kerbals (orbit starts, crew cabins, seat dismounts, other-version recordings), no double charges or payouts, and ghosts, end spawns and undocked vessels keep their real orbits.
+
+### v0.10.7 - Stable Save Format, UI Scale, Warp Beside the Ghost, Rewind-Proof Career
+
+- **Stable save format** - the 1.0 save format baseline: every later build loads every save from this version on, an older build keeps data it cannot read instead of dropping it, the alpha-era save repair code is gone (older test saves load best effort), and golden saves plus a version-change gate enforce it ([`docs/dev/design-save-format-policy.md`](dev/design-save-format-policy.md)).
+- **UI Scale** - every Parsek window, popup and tooltip follows KSP's UI Scale slider; the VAB and SPH show the same funds Total / Reserved hover as the Space Center and flight.
+- **Warp beside the ghost** - Real Spawn Control's Leaves and Ready Warp in orbit move your vessel and its companions to the same spot beside the ghost at the new time, greyed with a reason when the move is not safe.
+- **Career value across rewinds** - rewards, world-firsts, record steps, contract objectives, purchases and strategy shares count once after a rewind; a once-only reward earned again earlier at a lower setting is topped up to the larger amount; a kerbal fired at the Space Center stays fired until that date; "allow negative funds / science" is fixed at career start and rewinds keep your current difficulty settings.
+- **Flights and exits** - replayed flags plant once and recorded flag pick-ups replay; burns through an SOI edge record a leg per body; EVA construction drops and pick-ups replay after a rewind; leaving for the main menu commits without asking, and Quit without saving drops the flight.
+- **Save safety** - a failed save step can never write ghost vessels, a quicksave at staging keeps the newest points, a Re-Fly merge cut off by a crash completes on the next load, and unreadable save data is kept as written instead of guessed at.
 
 ---
 
