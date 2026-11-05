@@ -45,6 +45,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A flag picked up just before boarding stays picked up after a rewind.** When a kerbal took a
+  flag down in the last moment before climbing back in, the replay of that flight could miss the
+  pick-up, so the flag stood again after a rewind. A replay now applies every flag plant and
+  pick-up its flight recorded when it finishes. (FLAG-EVENT-PAST-RECORDING-END)
 - **A Real Spawn vessel picks up its recording again when you fly it.** A vessel that Real Spawn
   placed at the end of its flight was taken for one sitting behind its own recording, so flying it
   started a separate flight instead of continuing the recorded one, and a rename of it reached the

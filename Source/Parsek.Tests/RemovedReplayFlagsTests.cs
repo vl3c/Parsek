@@ -552,5 +552,72 @@ namespace Parsek.Tests
             Assert.Equal(LoadReconcileAction.ReconcileAtCutoff,
                 LoadReconcilePolicy.DecideEarly(EarlyLoadKind.InSession, LoadStateCategory.RemovedReplayFlags).Action);
         }
+
+        // ---- A flag event past the recording's last sample (FLG-1, 2026-11-05) ----
+
+        private static Recording PickerEndingBeforeItsPickUp(FlagEvent at)
+        {
+            // The kerbal picked the flag up in the frame before boarding: the pick-up is at
+            // 34.0999, the last trajectory sample (the recording's end) at 34.0799.
+            Recording rec = WithPickUp("rec-late-picker", 34.0999, at);
+            rec.ExplicitStartUT = 22.7;
+            rec.ExplicitEndUT = 34.0799;
+            return rec;
+        }
+
+        [Fact]
+        public void TimelineEndWalkUT_CoversAPickUpPastTheEnd()
+        {
+            FlagEvent f = Flag("Pad Flag", 25.0);
+            Recording picker = PickerEndingBeforeItsPickUp(f);
+            Assert.Equal(34.0999, GhostPlaybackLogic.ResolveTimelineEndFlagWalkUT(picker, 34.09), 6);
+            // The clock already past every event, or no events: the clock.
+            Assert.Equal(40.0, GhostPlaybackLogic.ResolveTimelineEndFlagWalkUT(picker, 40.0), 6);
+            Assert.Equal(34.09, GhostPlaybackLogic.ResolveTimelineEndFlagWalkUT(LoopRecording(), 34.09), 6);
+            Assert.Equal(34.09, GhostPlaybackLogic.ResolveTimelineEndFlagWalkUT(null, 34.09), 6);
+            // A plant past the end counts too.
+            Recording planter = LoopRecording(Flag("Late Plant", 50.0));
+            Assert.Equal(50.0, GhostPlaybackLogic.ResolveTimelineEndFlagWalkUT(planter, 34.09), 6);
+        }
+
+        [Fact]
+        public void PickUpPastTheEnd_TakenDownWhenTheTimelineCompletes()
+        {
+            FlagEvent f = Flag("Pad Flag", 25.0);
+            Recording planter = LoopRecording(f);
+            Recording picker = PickerEndingBeforeItsPickUp(f);
+            GhostPlaybackLogic.ApplyFlagEvents(new GhostPlaybackState(), planter, 30.0);
+            Assert.Contains("Pad Flag", standing);
+
+            // The per-frame walk at the first frame past the end does not reach the pick-up.
+            var state = new GhostPlaybackState();
+            GhostPlaybackLogic.ApplyFlagEvents(state, picker, 34.09);
+            Assert.Contains("Pad Flag", standing);
+
+            // The timeline-end walk does, once.
+            GhostPlaybackLogic.ApplyFlagEventsAtTimelineEnd(state, picker, 34.09, "ksc");
+            Assert.DoesNotContain("Pad Flag", standing);
+            Assert.Equal(new[] { "Pad Flag" }, takenDown);
+            Assert.Contains(logLines, l => l.Contains("Flag events at timeline end: rec=rec-late-picker host=ksc")
+                && l.Contains("walkUT=34.0999"));
+            Assert.Contains(logLines, l => l.Contains("Flag pick-up replayed: 'Pad Flag' on Kerbin")
+                && l.Contains("rec=rec-late-picker") && l.Contains("took down 1"));
+
+            GhostPlaybackLogic.ApplyFlagEventsAtTimelineEnd(state, picker, 34.11, "ksc");
+            Assert.Single(takenDown);
+        }
+
+        [Fact]
+        public void TimelineEndWalk_WiredIntoBothCompletionHosts()
+        {
+            string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string ksc = System.IO.File.ReadAllText(System.IO.Path.Combine(root, "Source", "Parsek", "ParsekKSC.cs"));
+            string engine = System.IO.File.ReadAllText(System.IO.Path.Combine(root, "Source", "Parsek", "GhostPlaybackEngine.Completion.cs"));
+            int kscCall = ksc.IndexOf("GhostPlaybackLogic.ApplyFlagEventsAtTimelineEnd(state, rec, currentUT, \"ksc\")", StringComparison.Ordinal);
+            int kscSpawn = ksc.IndexOf("TrySpawnAtRecordingEnd(recIdx, rec);", kscCall < 0 ? 0 : kscCall, StringComparison.Ordinal);
+            Assert.True(kscCall > 0 && kscSpawn > kscCall, "KSC timeline-complete exit must walk the flags before the end spawn");
+            Assert.Contains("GhostPlaybackLogic.ApplyFlagEventsAtTimelineEnd(state, traj, ctx.currentUT, \"flight\")", engine);
+        }
     }
 }

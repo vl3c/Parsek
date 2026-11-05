@@ -867,6 +867,8 @@ namespace Parsek
                     bool endpointPositioned = PositionGhostAtLoopEndpoint(recIdx, rec, state);
                     if (ShouldTriggerKscExplosionAtCurrentPose(state, endpointPositioned, recIdx, rec, "timeline-complete"))
                         TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    // A flag event recorded in the last frame can sit past the final sample.
+                    GhostPlaybackLogic.ApplyFlagEventsAtTimelineEnd(state, rec, currentUT, "ksc");
                     // Spawn real vessel when ghost timeline completes (bug #99)
                     TrySpawnAtRecordingEnd(recIdx, rec);
                     ParsekLog.Verbose("KSCGhost",

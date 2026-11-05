@@ -163,6 +163,9 @@ namespace Parsek
                     return;
                 }
 
+                // A flag event recorded in the last frame can sit past the final sample.
+                GhostPlaybackLogic.ApplyFlagEventsAtTimelineEnd(state, traj, ctx.currentUT, "flight");
+
                 // Trigger explosion if destroyed
                 TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
             }

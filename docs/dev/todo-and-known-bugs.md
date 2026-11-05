@@ -17,6 +17,34 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~FLAG-EVENT-PAST-RECORDING-END: a flag pick-up recorded in the last frame before boarding is never replayed~~ [FILED 2026-11-05 from the pre-cut full run (FLG-1 `2026-11-05_0422`, PARSEK-FAIL logContracts: no `Flag pick-up replayed`, main 02d71afd1); FIXED 2026-11-05, branch `fix-flag-pickup-past-end`; xUnit; product, low (a picked-up flag stands again after a rewind, timing dependent)]
+
+**Symptom.** FLG-1's kerbal picks the flag up and boards before the next 0.2 s sample, so the
+`FlagPickedUp` segment event (ut 34.0999) sits after the recording's last sample (`explicitEndUT`
+34.0799). Replay walks flag events only while the ghost is in range (`currentUT <= EndUT`); the
+KSC timeline-complete exit (`ParsekKSC`, "exited range") and the flight past-end completion
+(`GhostPlaybackEngine.HandlePastEndGhost`) never walked them again, so the pick-up was skipped
+silently and the flag stood after the rewind. The green run (`2026-11-04_1743`) had a sample
+between the pick-up and the board. Not a regression of the 0.10.7 merges.
+
+**Fix.** `GhostPlaybackLogic.ApplyFlagEventsAtTimelineEnd` runs the flag walk to
+`ResolveTimelineEndFlagWalkUT` (the later of the clock and the recording's last flag plant or
+pick-up) when a ghost's timeline completes, in both hosts, before the end spawn; Verbose
+`Flag events at timeline end: rec=... host=ksc|flight walkUT=...` when it reaches past the clock.
+Idempotent through the plant cursor and the pick-up tombstones. Not covered: the KSC branch for a
+ghost that was never created (warped through), and an anchor-retired debris endpoint. Tests:
+`RemovedReplayFlagsTests` (walk UT, pick-up past the end taken down once, both hosts wired).
+
+## ~~EVA9-SPAWN-ORDER-FOLLOWS-STOCK-RIVET-TIMING: EVA-9's per-member overlap-exemption tokens assume a spawn order~~ [FILED 2026-11-05 from the pre-cut full run (EVA-9 `2026-11-05_0414`, PARSEK-FAIL logContracts, main 02d71afd1); harness spec flake, no product defect]
+
+Stock `ModuleCargoPart` riveted the Central Station about 33 s late, so its `DeployableExtended`
+event moved the tail trim and it spawned last; the RTG then spawned first with no sibling standing
+and appears only as `siblingRec=` on the exemption lines, so the RTG token missed. All 15 members
+spawned (`eva9-spawned-count-15`). Same late rivet seen on 2026-10-22 (Seismometer). Fix: the
+three per-member exemption tokens accept the member on either side of the pair
+(`rec=<member> blocker=` or `siblingRec=<member>`); the spec now matches the red log and the green
+`2026-10-22_1904` / `2026-11-01_0641` logs.
+
 ## ~~SPAWN-RESUME-REFUSED-FRAMELESS-SECTION-END: a Real Spawn vessel is refused its own committed recording as "ahead of the clock"~~ [FILED 2026-11-05 from the pre-cut full run (VN-12 `2026-11-05_1050` / `_1052_a2`, INVALID: step 0016 `CommitTree` ERROR `no-active-tree`, main 02d71afd1); FIXED 2026-11-05, branch `fix-vn12-ahead-clock`; xUnit; product, medium (a spawned vessel flown again starts no continuation of its recording)]
 
 **Symptom.** VN-12 Real-Spawns `rsc-target-0001` and flies it to resume and rename it. The load
