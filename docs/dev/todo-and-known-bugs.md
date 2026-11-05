@@ -17,6 +17,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SPAWN-RESUME-REFUSED-FRAMELESS-SECTION-END: a Real Spawn vessel is refused its own committed recording as "ahead of the clock"~~ [FILED 2026-11-05 from the pre-cut full run (VN-12 `2026-11-05_1050` / `_1052_a2`, INVALID: step 0016 `CommitTree` ERROR `no-active-tree`, main 02d71afd1); FIXED 2026-11-05, branch `fix-vn12-ahead-clock`; xUnit; product, medium (a spawned vessel flown again starts no continuation of its recording)]
+
+**Symptom.** VN-12 Real-Spawns `rsc-target-0001` and flies it to resume and rename it. The load
+had tail-trimmed that recording from 622.2 to 82.2 (trimUT 92.2); its one TrackSection is
+frameless (flat-fallback), and `RecordingOptimizer.TailTrim` sets a frameless section's
+`endUT = trimUT` (92.16) while the last flat point is 82.16. The VN-5 guard (#2359,
+REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END) read every section endUT as recorded data, so
+`IsCommittedRecordingAheadOfLiveClock` saw 92.16 against the spawn clock 82.36, logged
+`TryFindCommittedTreeForSpawnedVessel: refused 1 committed recording(s) ... pid=1362411252`, armed
+`committed-recording-ahead-of-clock` suppression, and no tree was ever restored. Last green VN-12
+(`2026-11-01_1310`) predates #2359.
+
+**Fix.** `ParsekFlight.TryGetLatestRecordedUT` counts a section's endUT only when the section holds
+samples of its own (`TrackSectionHoldsRecordedSamples`: frames, body-fixed frames or a non-predicted
+checkpoint); a frameless section's data is the flat points, which still count. The VN-5 shape
+(sections with frames) is unchanged. Tests: `CommittedRestoreAheadOfClockTests` (frameless trimmed
+section, the mirror with samples / predicted vs recorded checkpoint, the spawn-at-end match).
+Re-fly VN-12 and VN-5 on the fixed build.
+
 ## ~~SAVE-FORMAT-1-0-FREEZE: the next release is the first stable save format, with no alpha save repair code~~ [RULED 2026-11-04 by the owner (V: "any safe number", "clean, without old baggage"); DONE 2026-11-04, branch `claude/project-thread-8twhvr`; xUnit; product, high (every later save depends on it)]
 
 **Ruling.** Today's version numbers become the 1.0 baseline; every build from 1.0 loads every 1.0+
