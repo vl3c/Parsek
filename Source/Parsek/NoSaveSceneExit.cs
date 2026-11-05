@@ -258,7 +258,16 @@ namespace Parsek
 
         private static int CurrentFrame()
         {
-            return FrameForTesting != null ? FrameForTesting() : Time.frameCount;
+            return FrameForTesting != null ? FrameForTesting() : UnityFrameCount();
+        }
+
+        // Kept out of CurrentFrame: the .NET Framework JIT refuses a method whose body calls a
+        // Unity ECall outside Unity (SecurityException), so the seam must JIT without it.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int UnityFrameCount()
+        {
+            return Time.frameCount;
         }
     }
 

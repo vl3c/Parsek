@@ -424,12 +424,23 @@ namespace Parsek
         private static double SaveFileLoadIntentRealtime()
             => SaveFileLoadIntentRealtimeForTesting != null
                 ? SaveFileLoadIntentRealtimeForTesting()
-                : UnityEngine.Time.realtimeSinceStartup;
+                : UnityRealtimeSinceStartup();
 
         private static int SaveFileLoadIntentFrame()
             => SaveFileLoadIntentFrameForTesting != null
                 ? SaveFileLoadIntentFrameForTesting()
-                : UnityEngine.Time.frameCount;
+                : UnityFrameCount();
+
+        // The Unity clock reads stay out of the seam bodies: the .NET Framework JIT refuses a
+        // method whose body calls a Unity ECall outside Unity (SecurityException), so each seam
+        // must JIT without one.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double UnityRealtimeSinceStartup() => UnityEngine.Time.realtimeSinceStartup;
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int UnityFrameCount() => UnityEngine.Time.frameCount;
 
         /// <summary>
         /// Bug C helper: resolve the in-memory <see cref="RecordingTree"/>
