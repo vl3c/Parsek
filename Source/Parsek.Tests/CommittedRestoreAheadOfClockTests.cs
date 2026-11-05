@@ -42,9 +42,93 @@ namespace Parsek.Tests
                 },
                 TrackSections = new List<TrackSection>
                 {
-                    new TrackSection { referenceFrame = ReferenceFrame.Absolute, startUT = sectionStart, endUT = sectionEnd },
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = sectionStart,
+                        endUT = sectionEnd,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = sectionStart, bodyName = "Kerbin" },
+                            new TrajectoryPoint { ut = sectionEnd, bodyName = "Kerbin" },
+                        },
+                    },
                 },
             };
+        }
+
+        /// <summary>
+        /// VN-12 (2026-11-05 full run): Real Spawn lands the vessel at the recording's end, but
+        /// the load-time tail trim left the frameless (flat-fallback) section's endUT at the
+        /// trim cut, 10 s past the last flat point. That endUT is metadata, not recorded data,
+        /// so the vessel is not behind its recording and resumes it.
+        /// </summary>
+        private static Recording TrimmedFramelessRecording()
+        {
+            return new Recording
+            {
+                RecordingId = "rsc-target-0001",
+                VesselName = "Spawn Control Target",
+                VesselPersistentId = 1362411252,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 30.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 82.16, bodyName = "Kerbin" },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection { referenceFrame = ReferenceFrame.Absolute, startUT = 30.0, endUT = 92.16 },
+                },
+            };
+        }
+
+        [Fact]
+        public void AheadOfClock_FramelessSectionEndPastLastPoint_NotCounted()
+        {
+            Recording rec = TrimmedFramelessRecording();
+            Assert.True(ParsekFlight.TryGetLatestRecordedUT(rec, out double latest));
+            Assert.Equal(82.16, latest, 6);
+            Assert.False(ParsekFlight.IsCommittedRecordingAheadOfLiveClock(rec, 82.36));
+            // The flat points still count: a clock behind them is behind the recording.
+            Assert.True(ParsekFlight.IsCommittedRecordingAheadOfLiveClock(rec, 50.0));
+        }
+
+        [Fact]
+        public void AheadOfClock_SectionWithSamplesStillCounted()
+        {
+            // Mirror: a section that holds samples (frames, body-fixed frames or a recorded
+            // checkpoint) still extends the recorded data to its endUT.
+            Recording rec = TrimmedFramelessRecording();
+            TrackSection sec = rec.TrackSections[0];
+            sec.bodyFixedFrames = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 92.16, bodyName = "Kerbin" } };
+            rec.TrackSections[0] = sec;
+            Assert.True(ParsekFlight.IsCommittedRecordingAheadOfLiveClock(rec, 82.36));
+
+            sec.bodyFixedFrames = null;
+            sec.checkpoints = new List<OrbitSegment> { new OrbitSegment { startUT = 30.0, endUT = 92.16, bodyName = "Kerbin", isPredicted = true } };
+            rec.TrackSections[0] = sec;
+            Assert.False(ParsekFlight.IsCommittedRecordingAheadOfLiveClock(rec, 82.36));
+
+            sec.checkpoints.Add(new OrbitSegment { startUT = 30.0, endUT = 92.16, bodyName = "Kerbin", isPredicted = false });
+            rec.TrackSections[0] = sec;
+            Assert.True(ParsekFlight.IsCommittedRecordingAheadOfLiveClock(rec, 82.36));
+        }
+
+        [Fact]
+        public void TryFind_RealSpawnAtTrimmedRecordingEnd_Matches()
+        {
+            Recording rec = TrimmedFramelessRecording();
+            var tree = TreeWith(rec);
+
+            Assert.True(ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { tree },
+                activeVesselPid: 1362411252,
+                out RecordingTree matched,
+                out string matchedId,
+                activeVesselGuid: null,
+                liveUT: 82.36));
+            Assert.Same(tree, matched);
+            Assert.Equal("rsc-target-0001", matchedId);
         }
 
         private static RecordingTree TreeWith(Recording rec)

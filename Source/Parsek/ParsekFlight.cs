@@ -17016,6 +17016,11 @@ namespace Parsek
             {
                 for (int i = 0; i < rec.TrackSections.Count; i++)
                 {
+                    // A section with no samples of its own (flat-fallback) is metadata: a
+                    // frameless tail trim leaves its endUT at the trim cut, past the last
+                    // flat point, and the flat points already carry its data.
+                    if (!TrackSectionHoldsRecordedSamples(rec.TrackSections[i]))
+                        continue;
                     double end = rec.TrackSections[i].endUT;
                     if (double.IsNaN(end) || double.IsInfinity(end))
                         continue;
@@ -17037,6 +17042,27 @@ namespace Parsek
                 }
             }
             return found;
+        }
+
+        /// <summary>
+        /// Pure: true when a track section carries recorded samples of its own (frames,
+        /// body-fixed frames or a non-predicted orbit checkpoint).
+        /// </summary>
+        internal static bool TrackSectionHoldsRecordedSamples(TrackSection section)
+        {
+            if (section.frames != null && section.frames.Count > 0)
+                return true;
+            if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+                return true;
+            if (section.checkpoints != null)
+            {
+                for (int i = 0; i < section.checkpoints.Count; i++)
+                {
+                    if (!section.checkpoints[i].isPredicted)
+                        return true;
+                }
+            }
+            return false;
         }
 
         private static void LogRefusedAheadOfClockRestores(uint activeVesselPid, double liveUT, int refused)
