@@ -819,6 +819,8 @@ namespace Parsek
         // runs always go through the override above; this method is only ever
         // JIT-compiled when the override is null, which only happens inside the
         // live KSP runtime where the ECall is legal.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static int UnityFrameCount()
         {
             return Time.frameCount;

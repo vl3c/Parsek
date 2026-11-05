@@ -101,7 +101,11 @@ def main():
 
     check_assembly_version(version)
     run(["dotnet", "build", "Source/Parsek/Parsek.csproj", "-c", "Release"], "Building Release")
-    run(["dotnet", "test", "Source/Parsek.Tests/Parsek.Tests.csproj"], "Running Tests")
+    run(["dotnet", "test", "Source/Parsek.Tests/Parsek.Tests.csproj"], "Running Tests (Debug)")
+    # Release too: it is the configuration the zip ships, and its JIT inlining is what pulls a
+    # Unity ECall back into a tested method when an isolating helper lacks NoInlining.
+    run(["dotnet", "test", "Source/Parsek.Tests/Parsek.Tests.csproj", "-c", "Release"],
+        "Running Tests (Release)")
     package(version)
 
     print(f"\n=== Done ===")

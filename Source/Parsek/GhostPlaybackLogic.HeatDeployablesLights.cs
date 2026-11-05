@@ -383,10 +383,20 @@ namespace Parsek
 
             info.breakSubtreeHidden = broken;
 
-            if (info.breakSubtreeRoot != null)
-                info.breakSubtreeRoot.gameObject.SetActive(!broken);
+            SetBreakSubtreeActive(info.breakSubtreeRoot, !broken);
 
             return GhostPartEventOutcome.Applied;
+        }
+
+        // The Unity null check and SetActive are ECalls. Kept out of the method above so the
+        // optimizing JIT cannot inline them up into ApplySnapshotBaselines, which xUnit calls
+        // (SecurityException on the .NET Framework test host).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void SetBreakSubtreeActive(Transform breakSubtreeRoot, bool active)
+        {
+            if (breakSubtreeRoot != null)
+                breakSubtreeRoot.gameObject.SetActive(active);
         }
 
         /// <summary>
