@@ -1218,6 +1218,61 @@ namespace Parsek
             return (eligibleCount, spawnedCount, alreadyPresentCount, failedCount, removedByPlayerCount);
         }
 
+        /// <summary>
+        /// Pure: the UT a ghost's flag walk runs to when its timeline completes. Every flag plant
+        /// and recorded pick-up the recording holds is history once its replay is over, so this is
+        /// the later of the clock and the recording's last flag event. A pick-up made in the frame
+        /// before an EVA kerbal boards lands after the last trajectory sample (the recording's end),
+        /// and a walk bounded by the clock at the end frame would skip it for good.
+        /// </summary>
+        internal static double ResolveTimelineEndFlagWalkUT(IPlaybackTrajectory rec, double currentUT)
+        {
+            double ut = currentUT;
+            if (rec == null)
+                return ut;
+            List<FlagEvent> flags = rec.FlagEvents;
+            if (flags != null)
+            {
+                for (int i = 0; i < flags.Count; i++)
+                {
+                    if (flags[i].ut > ut)
+                        ut = flags[i].ut;
+                }
+            }
+            List<SegmentEvent> segs = (rec as Recording)?.SegmentEvents;
+            if (segs != null)
+            {
+                for (int i = 0; i < segs.Count; i++)
+                {
+                    if (segs[i].type == SegmentEventType.FlagPickedUp && segs[i].ut > ut)
+                        ut = segs[i].ut;
+                }
+            }
+            return ut;
+        }
+
+        /// <summary>
+        /// Runs the flag walk at a ghost's timeline end (see
+        /// <see cref="ResolveTimelineEndFlagWalkUT"/>). Logs when the walk reaches past the clock.
+        /// </summary>
+        internal static void ApplyFlagEventsAtTimelineEnd(GhostPlaybackState state, IPlaybackTrajectory rec,
+            double currentUT, string host)
+        {
+            if (rec == null)
+                return;
+            double walkUT = ResolveTimelineEndFlagWalkUT(rec, currentUT);
+            if (walkUT > currentUT)
+            {
+                ParsekLog.Verbose(RemovedReplayFlags.Tag, string.Format(CultureInfo.InvariantCulture,
+                    "Flag events at timeline end: rec={0} host={1} walkUT={2} currentUT={3} endUT={4}",
+                    rec.RecordingId ?? "(none)", host ?? "?",
+                    walkUT.ToString("R", CultureInfo.InvariantCulture),
+                    currentUT.ToString("R", CultureInfo.InvariantCulture),
+                    rec.EndUT.ToString("R", CultureInfo.InvariantCulture)));
+            }
+            ApplyFlagEvents(state, rec, walkUT);
+        }
+
         internal static void SetBodyRadiusOverrideForTesting(Func<string, double> lookup)
         {
             bodyRadiusOverrideForTesting = lookup;

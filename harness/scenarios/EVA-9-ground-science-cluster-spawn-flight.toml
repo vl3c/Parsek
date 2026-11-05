@@ -107,8 +107,9 @@ id = "EVA-9-ground-science-cluster-spawn-flight"
 # exemption tokens (never printed), the three later members' `-true-<pid>` read-backs (they
 # read `-false-0`: blocked, never spawned), plus the forbidden `Trajectory walkback
 # EXHAUSTED` and member-row-false tokens (the operator's pre-#1920 log prints the walkback
-# line for ten of eleven parts). The Central Station, placed first, ends first and spawns
-# clear on either DLL; Jeb, who now ends ~13 m from every part beside the (active, skipped)
+# line for ten of eleven parts). The Central Station, placed first, usually ends first and
+# spawns clear on either DLL (stock can rivet a part ~30 s late, which moves its end and its
+# place in the spawn order: 2026-11-05_0414, 2026-10-22_1904); Jeb, who now ends ~13 m from every part beside the (active, skipped)
 # capsule, spawns clear on either DLL too.
 #
 # THE SPACE CENTER TWIN (EVA-10's subject). At the Space Center the spawn does not refuse a
@@ -281,11 +282,12 @@ required = [
   "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-spawned-count-15-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
   # And the kerbal who placed them (the tree root, the rewound recording).
   "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-spawned-count-15-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
-  # The fix's own witness (#1920), once per member placed after the first: each spawned
-  # while an earlier sibling already stood inside its overlap box, and was exempted.
-  "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-rewound-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
-  "Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-rewound-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
-  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-rewound-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
+  # The fix's own witness (#1920), once per member: each takes part in an exempted sibling
+  # pair, as the spawning side or as the standing blocker. Spawn order follows stock's rivet
+  # timing (a part can settle 30 s late and spawn last), so either side counts.
+  "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-rewound-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): [^\\r\\n]*(?:rec=\\1 blocker=|siblingRec=\\1\\b)",
+  "Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-rewound-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): [^\\r\\n]*(?:rec=\\1 blocker=|siblingRec=\\1\\b)",
+  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva9-rewound-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): [^\\r\\n]*(?:rec=\\1 blocker=|siblingRec=\\1\\b)",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

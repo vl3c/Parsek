@@ -45,6 +45,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A flag picked up just before boarding stays picked up after a rewind.** When a kerbal took a
+  flag down in the last moment before climbing back in, the replay of that flight could miss the
+  pick-up, so the flag stood again after a rewind. A replay now applies every flag plant and
+  pick-up its flight recorded when it finishes. (FLAG-EVENT-PAST-RECORDING-END)
 - **A vessel flying beside yours through an SOI edge is recorded per body too.** When a second
   vessel in physics range crosses a sphere-of-influence boundary with you, its recording now
   starts a new section on the new body, so its replay no longer blends the two bodies and the
