@@ -70,7 +70,7 @@ background split line `at SOI boundary ... pid=<wingman>` and one section per bo
 wingman's recording (a wingman that close likely records Relative to the active vessel, so expect
 `closingSample=0` and two Relative sections, not two Absolute ones); not built.
 
-## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; OPEN, needs a steadier lander craft, deferred until after the release bugs (owner ruling 2026-11-04); test harness, low; no Parsek defect]
+## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; craft re-cut 2026-11-06 with an outrigger stance (branch `cs7lander`), re-flight owed; test harness, low; no Parsek defect]
 
 From the run's KSP.log and mission rows: no Parsek line spawns, packs or moves the lander in
 the window (the only spawn lines are the periodic `Spawn suppressed`, as in the green run). Both
@@ -86,6 +86,21 @@ and, when `munAscentMaxTiltDeg` is set, a settled lander leaning more than that 
 flakes `mun-lander-tipped` instead of engaging the ascent. That turns a doomed ascent into a named,
 fast INVALID; it does not make the lane pass. If the re-flight tips again, the `pitch=` rows show
 whether it tipped at the touchdown, the EVA, the flag or the board, which decides the next step.
+
+Fix (2026-11-06, craft re-cut, re-flight owed): the stance, not the mission. A lander tips at atan(e / h), e the
+feet polygon's nearest edge from the axis and h its centre of mass over the feet. Every cut had its legs on the
+1.25 m stack at 0.625 m under a 6.9 m lander (e 0.44 m on four legs, h about 4.4 m: under 6 deg, against the
+7-14 deg slopes measured at the flown site). `build_cs_orbiter_craft.py --variant solar` now builds the lander as
+ONE FL-T400 on the Terrier with three FL-T200 outriggers on its wall (azimuths 90 / 210 / 330, 60 deg or more off
+the hatch, bottoms level with the FL-T400's) and an LT-05 on each outrigger's outer wall: the same 5.0 t of
+propellant on the same tank mass (so the same delta-v, 3843 m/s), 30 parts, the same 0.88 m bell clearance, the
+stack 3.0 m shorter. Feet 1.875 m out (e 0.94 m), landed centre of mass about 2.0 m over the bell: tips at about
+25 deg (`--report` prints both stances; the gate `SOLAR_MIN_TIP_DEG = 20`). The one new assumption is stock
+crossfeed through the surface attachment (outrigger to stack tank, no decoupler); were it wrong the lander would
+run dry near the capture. CS-7 keeps `munAscentMaxTiltDeg = 30`; its rollout pin is a 133xx window (predicted
+13302). No mission change: the touchdown already reads 0.06 m/s, and B5's SAS hold is shared with B13. The
+re-flight should watch the core drop's lander delta-v, the ascent's drag, the settled `pitch=` rows (expect a
+lean up to the site's slope, not a fall) and the surface stay's EC draw (SAS holds the touchdown attitude).
 
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 

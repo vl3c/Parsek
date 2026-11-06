@@ -1662,14 +1662,19 @@ def munsci_report():
 #   - the three Thumper nose cones come off (3 parts free; the cones are drag only;
 #     the open Thumper tops cost an estimated 30-60 m/s of drag over the 70 s boost,
 #     which the Terrier pays out of a 750 m/s margin);
-#   - three OX-STAT panels on the lander's TOP FL-T400 at azimuths 90 / 210 / 330 deg
-#     (each 60 deg or more off the pod's hatch at 270), lander-stage parts, so they
-#     stay with the pod through every Mun phase and leave with the lander at the
-#     pod's separation;
-#   - one Z-100 on the second FL-T400 at azimuth 90 (opposite the hatch).
-# Everything else is CS Mun Lander's derivation unchanged: the same tanks, the same
-# Terrier, the LT-05s at the same place on the FL-T200 (so the same 0.88 m bell
-# clearance), the same core and Thumpers, the same staging. 30 parts.
+#   - the lander's tanks: ONE FL-T400 on the Terrier in the stack, and three FL-T200
+#     outriggers on its wall at azimuths 90 / 210 / 330, one LT-05 on each outrigger's
+#     outer wall (THE STANCE below; the 2026-11-06 re-cut; the first solar cut kept CS
+#     Mun Lander's 2 x FL-T400 + FL-T200 stack with four legs on the FL-T200);
+#   - two OX-STAT panels on that FL-T400 at azimuths 0 / 180 deg (90 deg off the
+#     pod's hatch at 270), lander-stage parts, so they stay with the pod through every
+#     Mun phase and leave with the lander at the pod's separation;
+#   - one Z-100 on the same FL-T400 at azimuth 90 (opposite the hatch), above the
+#     outrigger there.
+# Everything else is CS Mun Lander's derivation unchanged: the same Terrier, the same
+# 5.0 t of lander propellant on the same tank mass, the legs at the same height above
+# the Terrier's top node (so the same 0.88 m bell clearance), the same core and
+# Thumpers, the same staging. 30 parts.
 #
 # DONORS, by stored state: both tails from Kerbal 1 (1.12.0), the stock craft that
 # carries exactly these two parts on an FL-T400 (four OX-STATs and four Z-100s round
@@ -1704,26 +1709,68 @@ def munsci_report():
 #   ~270 EC for the descent and ascent plus ~30 on the surface against 150 stored,
 #   ~150 EC short late in the Mun ascent; the electric-charge watchdog names it.
 #
-# ASSUMPTIONS A FLIGHT CAN FALSIFY: the drag cost of the open Thumper tops, the
-# powered-phase draw on the Mun, the sun's angle at the landing site, and CS Mun
-# Lander's own (the leg reach, MechJeb's Mun ascent).
+# ASSUMPTIONS A FLIGHT CAN FALSIFY: the drag cost of the open Thumper tops and of the
+# three outriggers' flat ends mid-stack (estimated 50-100 m/s more on the Kerbin ascent,
+# out of the lander's ~730 m/s margin), the outriggers' crossfeed (THE STANCE below),
+# the powered-phase draw on the Mun, the sun's angle at the landing site, and CS Mun
+# Lander's own (the leg reach, MechJeb's Mun ascent). The outriggers' srfAttach point is
+# assumed on the tank wall (wall on wall, the TT-38K / LT-05 +X family's yaw); the craft
+# file stores every position, so a different node only moves the joint's anchor.
 # ---------------------------------------------------------------------------
 
 SOLAR_SHIP_NAME = "CS Mun Solar Lander"
 SOLAR_OUT = os.path.join(ROOT, "harness", "fixtures", "saves", "cs-career-mun4",
                          "Ships", "VAB", "CS Mun Solar Lander.craft")
 SOLAR_UID_BASE = 4291000001
-# FOUR LEGS. Three LT-05s stand on a triangle whose nearest edge is half the feet's radius
-# from the axis (about 0.36 m under a centre of mass about 1.7 m up), so the three-legged
-# lander tips at about 12 deg, and the Mun's equatorial band reads 7 to 14 deg at the
-# flown site (kRPC surface_height over 10 m, run 2026-10-31). Runs 2026-10-28_0432 attempt
-# 2 and _0649 attempt 2 fell over on touchdown (the pod from about 4 m to about 1.2 m up),
-# and _0626 was moving at 0.32 m/s at the ascent's engage and lost a tank 0.5 s after
-# ignition.
-# A square's nearest edge is 0.71 of the feet's radius (about 0.51 m, about 17 deg). The
-# level-0 VAB holds 30 parts and the upgrade costs more than the career has, so the fourth
-# leg takes a panel's place: the flown minimum was 141.8 of 150 EC with three panels.
-SOLAR_LEG_AZIMUTHS = (45.0, 135.0, 225.0, 315.0)
+# THE STANCE (the 2026-11-06 re-cut, todo CS7-LANDER-TIPS-AT-BOARD). A lander standing on
+# legs tips over when gravity's line through its centre of mass leaves the polygon of its
+# feet: on flat ground at atan(e / h), e the nearest edge of that polygon from the axis and
+# h the centre of mass above the feet, so on a slope it stands only while the slope is
+# under that angle (less on rough ground and with a kick). CS Mun Lander's three LT-05s and
+# the first solar cut's four all rode the lander's 1.25 m stack at 0.625 m, under a stack
+# 6.9 m tall (pod, two FL-T400, an FL-T200, the Terrier): e 0.31 m (three) or 0.44 m
+# (four) under h about 4.4 m (lander_stance's conservative read; the flown upright lander
+# read alt 4.1), so 4 to 6 deg against the 7 to 14 deg the Mun's equatorial band read at
+# the flown site (kRPC surface_height over 10 m, run 2026-10-31). Every cut
+# fell over on its legs: the three-legged one on touchdown (2026-10-28_0432 attempt 2,
+# _0649 attempt 2), the four-legged one upright at pitch 89.9 and then over at zero
+# throttle, in the settle or mid-EVA (2026-11-04_1803, _1823_a2).
+# THE RE-CUT moves the same propellant out of the stack and onto three outriggers: the
+# stack keeps ONE FL-T400 on the Terrier, and three FL-T200s ride its wall (surface
+# attached, wall on wall, their axes 1.25 m out, bottoms level with the FL-T400's), each
+# with an LT-05 on its outer wall at the old leg height above the bottom. The lander
+# carries the same 5.0 t of propellant on the same 0.625 t of tanks (2 x 0.25 + 0.125
+# before, 0.25 + 3 x 0.125 now), so the delta-v is unchanged; one leg and two stack tanks
+# go, three outriggers and three legs come, so the part count stays 30; the stack is
+# 3.0 m shorter. The feet move from 0.625 m to 1.875 m out (e 0.94 m on the triangle)
+# and the centre of mass drops from about 4.4 m to about 2.0 m over the bell, so the
+# lander tips at about 25 deg instead of 6: `--report` prints both stances.
+# THE ONE NEW ASSUMPTION: the outriggers' propellant reaches the Terrier through the
+# surface attachment (stock crossfeed, KSP 1.2 and later: both parts' fuelCrossFeed on, no
+# decoupler between them). Were it not, the lander would burn only the FL-T400's 2 t,
+# about 1.1 km/s instead of 3.8, and run dry around the Mun capture, never reaching the
+# surface. KSP drains the farther tanks first, so the outriggers likely empty before the
+# stack FL-T400; lander_stance reads the landing with the propellant left in the stack
+# (the higher, worse case) either way.
+SOLAR_UPPER_T400 = 1
+SOLAR_UPPER_T200 = 0
+SOLAR_ARM_NAME = "fuelTankSmall"
+# 90 / 210 / 330: the two nearest the pod's hatch (270) sit 60 deg off it, clear of Jeb's
+# fall from the hatch to the ground.
+SOLAR_ARM_AZIMUTHS = (90.0, 210.0, 330.0)
+# Wall on wall: the outrigger's axis sits two 1.25 m tank radii from the stack axis.
+SOLAR_ARM_RADIUS = 2.0 * LANDER_TANK_RADIUS
+SOLAR_LEG_AZIMUTHS = SOLAR_ARM_AZIMUTHS
+# The first solar cut's legs (four on the stack's FL-T200), kept for the comparison.
+SOLAR_PREVIOUS_LEG_AZIMUTHS = (45.0, 135.0, 225.0, 315.0)
+# The stance model's inputs: Jeb aboard (KSP's kerbal mass), and the lander's delta-v
+# spent from the core drop to the touchdown on the CS-7 budget (the injection 860,
+# corrections up to 300, the capture 280, the descent 700).
+KERBAL_MASS_T = 0.09375
+SOLAR_DV_TO_TOUCHDOWN = 860.0 + 300.0 + 280.0 + 700.0
+# The re-cut's floor: the tip angle with the landing's propellant as high in the lander
+# as it can sit (the conservative read), over the bell's plane.
+SOLAR_MIN_TIP_DEG = 20.0
 SOLAR_PANEL_AZIMUTHS = (0.0, 180.0)
 SOLAR_BATTERY_AZIMUTH = 90.0
 # Kerbal 1 solarPanels5_4293048744 (its +Z panel): attPos0 (1.3e-15 noise dropped) on
@@ -1777,24 +1824,115 @@ def _radial_part(key, name, uid_n, parent, azimuth, radius, dy, psi):
     return p
 
 
+def _wall_leg(key, uid_n, tank, azimuth):
+    """An LT-05 on ``tank``'s wall at ``azimuth``, LANDER_LEG_ABOVE_BOTTOM above the
+    tank's bottom node: lander_layout's leg formula (the +X surface family, yaw 180 -
+    azimuth, the leg's own attach point LANDER_LEG_NODE) about the tank's own axis."""
+    a = math.radians(azimuth)
+    psi = 180.0 - azimuth
+    node_w = _yaw_vec(psi, LANDER_LEG_NODE)
+    surface_y = tank.y + NODE_OFFSET[tank.name]["bottom"] + LANDER_LEG_ABOVE_BOTTOM
+    leg = Part(key, "miniLandingLeg", uid_n, surface_y - node_w[1],
+               istg=LANDER_STAGE_POD_SEPARATION, dstg=4, group="upper")
+    leg.pos = (tank.pos[0] + LANDER_TANK_RADIUS * math.cos(a) - node_w[0],
+               surface_y - node_w[1],
+               tank.pos[2] + LANDER_TANK_RADIUS * math.sin(a) - node_w[2])
+    leg.rot = _quat_y(psi)
+    # A yawed parent (an outrigger) takes the child's attPos0 / attRot0 in its own
+    # frame, as the Thumpers on their TT-38Ks do.
+    _, s, _, c = (float(v) for v in tank.rot.split(","))
+    psi_t = math.degrees(2.0 * math.atan2(s, c))
+    leg.att_pos0 = _yaw_vec(-psi_t, tuple(u - v for u, v in zip(leg.pos, tank.pos)))
+    leg.att_rot0 = _quat_y(psi - psi_t)
+    leg.attm = 1
+    leg.srfn = tank.uid
+    leg.parent = tank
+    tank.links.append(leg.uid)
+    return leg
+
+
 def solar_layout():
     """Every part of CS Mun Solar Lander, root first: CS Mun Lander's layout without
-    the Thumper cones and with four legs, then the two OX-STATs on the top FL-T400 and
-    the Z-100 on the second."""
-    parts = lander_layout(uid_base=SOLAR_UID_BASE, cones=False,
-                          leg_azimuths=SOLAR_LEG_AZIMUTHS)
+    the Thumper cones and with ONE FL-T400 on the Terrier and no legs on it, then the
+    three FL-T200 outriggers on that FL-T400 with an LT-05 each, the two OX-STATs and
+    the Z-100 (all on the FL-T400)."""
+    parts = lander_layout(upper400=SOLAR_UPPER_T400, upper200=SOLAR_UPPER_T200,
+                          uid_base=SOLAR_UID_BASE, cones=False, leg_azimuths=())
     upper = [p for p in parts if p.group == "upper" and p.key.startswith("utank")]
-    top, second = upper[0], upper[1]
+    tank = upper[0]
     uid = iter(range(SOLAR_UID_BASE + 900, SOLAR_UID_BASE + 999))
-    panels = [_radial_part("panel%d" % i, "solarPanels5", next(uid), top, az,
+    # Bottom level with the FL-T400's, so the legs sit where CS Mun Lander's did above
+    # the Terrier's top node (the same bell clearance).
+    arm_dy = NODE_OFFSET["fuelTank"]["bottom"] - NODE_OFFSET[SOLAR_ARM_NAME]["bottom"]
+    arms = [_radial_part("arm%d" % i, SOLAR_ARM_NAME, next(uid), tank, az,
+                         SOLAR_ARM_RADIUS, arm_dy, 180.0 - az)
+            for i, az in enumerate(SOLAR_ARM_AZIMUTHS)]
+    legs = [_wall_leg("leg%d" % i, next(uid), arm, az)
+            for i, (arm, az) in enumerate(zip(arms, SOLAR_LEG_AZIMUTHS))]
+    for group in (arms, legs):
+        for p in group:
+            p.syms = [o.uid for o in group if o is not p]
+    panels = [_radial_part("panel%d" % i, "solarPanels5", next(uid), tank, az,
                            SOLAR_PANEL_RADIUS, SOLAR_PANEL_DY, 90.0 - az)
               for i, az in enumerate(SOLAR_PANEL_AZIMUTHS)]
     for p in panels:
         p.syms = [o.uid for o in panels if o is not p]
-    battery = _radial_part("battery", "batteryPack", next(uid), second,
+    battery = _radial_part("battery", "batteryPack", next(uid), tank,
                            SOLAR_BATTERY_AZIMUTH, SOLAR_BATTERY_RADIUS, SOLAR_BATTERY_DY,
                            270.0 - SOLAR_BATTERY_AZIMUTH)
-    return parts + panels + [battery]
+    return parts + arms + legs + panels + [battery]
+
+
+def solar_previous_layout():
+    """The first solar cut's lander geometry (four LT-05s on the stack's FL-T200, two
+    FL-T400 above it), for the stance comparison only: never written."""
+    return lander_layout(uid_base=SOLAR_UID_BASE, cones=False,
+                         leg_azimuths=SOLAR_PREVIOUS_LEG_AZIMUTHS)
+
+
+def lander_stance(parts, dv_spent=SOLAR_DV_TO_TOUCHDOWN):
+    """The landed lander's stance, from the layout (the lander stage alone: the pod
+    group and the upper group, Jeb aboard):
+      foot_radius  the legs' attach points' smallest distance from the stack axis (the
+                   LT-05's foot sits a little further out: not counted);
+      edge         the feet polygon's nearest edge from the axis;
+      com_height   the centre of mass above the Terrier's bottom node (the bell's
+                   plane; the legs hold it a little higher: not counted), with the
+                   propellant left after ``dv_spent`` m/s of the Terrier placed in the
+                   HIGHEST tanks first (the conservative read; KSP's drain order is
+                   not modelled);
+      tip_deg      atan(edge / com_height): the slope the lander stands on."""
+    lander = [p for p in parts if p.group in ("pod", "upper")]
+    legs = [p for p in lander if p.name == "miniLandingLeg"]
+    terrier = [p for p in lander if p.name == "liquidEngine3.v2"][0]
+    ground = terrier.y + NODE_OFFSET["liquidEngine3.v2"]["bottom"]
+    te = PART_CFG["liquidEngine3.v2"]
+    full = sum(_pmass(p) for p in lander) + KERBAL_MASS_T
+    prop = sum(_pprop(p) for p in lander)
+    left = prop - (full - full * math.exp(-dv_spent / (te["isp_vac"] * G0)))
+    moment = KERBAL_MASS_T * lander[0].y
+    mass = KERBAL_MASS_T
+    for p in sorted(lander, key=lambda q: -q.y):
+        keep = min(_pprop(p), max(left, 0.0))
+        left -= keep
+        m = _pmass(p) - _pprop(p) + keep
+        moment += m * p.y
+        mass += m
+    com_height = moment / mass - ground
+    feet = []
+    for leg in legs:
+        _, s, _, c = (float(v) for v in leg.rot.split(","))
+        node_w = _yaw_vec(math.degrees(2.0 * math.atan2(s, c)), LANDER_LEG_NODE)
+        x, z = leg.pos[0] + node_w[0], leg.pos[2] + node_w[2]
+        feet.append((math.degrees(math.atan2(z, x)) % 360.0, math.hypot(x, z), x, z))
+    feet.sort()
+    edge = float("inf")
+    for i, (_, _, x1, z1) in enumerate(feet):
+        _, _, x2, z2 = feet[(i + 1) % len(feet)]
+        edge = min(edge, abs(x1 * z2 - x2 * z1) / math.hypot(x2 - x1, z2 - z1))
+    return {"legs": len(legs), "foot_radius": min(f[1] for f in feet), "edge": edge,
+            "com_height": com_height, "mass": mass,
+            "tip_deg": math.degrees(math.atan2(edge, com_height))}
 
 
 def solar_hatch_clearances(parts=None):
@@ -1838,10 +1976,10 @@ def solar_build():
         "ship = %s" % SOLAR_SHIP_NAME,
         "version = 1.12.5",
         "description = CS-7 craft (scripted campaign, Career): Mk1 pod, heat shield, "
-        "%d FL-T400 and %d FL-T200 on a Terrier with three LT-05 legs, three OX-STAT "
-        "panels and a Z-100, over %d FL-T400 on a Swivel core, three Thumpers. Built by "
-        "construction by harness/tools/build_cs_orbiter_craft.py --variant solar."
-        % (LANDER_UPPER_T400, LANDER_UPPER_T200, LANDER_CORE_TANKS),
+        "an FL-T400 on a Terrier with three FL-T200 outriggers, an LT-05 leg on each, "
+        "two OX-STAT panels and a Z-100, over %d FL-T400 on a Swivel core, three "
+        "Thumpers. Built by construction by harness/tools/build_cs_orbiter_craft.py "
+        "--variant solar." % LANDER_CORE_TANKS,
         "type = VAB",
         "size = %s" % _vec(max(xs) - min(xs) + 1.25, lander_stack_height(parts),
                            max(zs) - min(zs) + 1.25),
@@ -1861,6 +1999,8 @@ def solar_figures():
     parts = solar_layout()
     f = lander_figures(parts=parts)
     f["ec"] = solar_ec_budget(parts)
+    f["stance"] = lander_stance(parts)
+    f["stance_previous"] = lander_stance(solar_previous_layout())
     return f
 
 
@@ -1903,16 +2043,45 @@ def solar_problems():
         if d < MUNSCI_HATCH_CLEARANCE_DEG:
             out.append("%s sits %.0f deg off the hatch (< %.0f)"
                        % (key, d, MUNSCI_HATCH_CLEARANCE_DEG))
-    # CS Mun Lander's Terrier, to the last digit, and its legs' height on the same tank.
-    if len([p for p in parts if p.name == "miniLandingLeg"]) != len(SOLAR_LEG_AZIMUTHS):
-        out.append("the lander needs %d legs" % len(SOLAR_LEG_AZIMUTHS))
-    want = {p.key: p.pos for p in lander_layout() if p.name == "liquidEngine3.v2"}
-    have = {p.key: p.pos for p in parts if p.name == "liquidEngine3.v2"}
-    if want != have:
-        out.append("the Terrier moved: %r != %r" % (have, want))
+    # The stance: one leg per outrigger, on its outer wall, the outriggers on the one
+    # stack FL-T400 with their bottoms level with its bottom (so the legs keep CS Mun
+    # Lander's height above the Terrier), the same propellant as CS Mun Lander's lander.
+    legs = [p for p in parts if p.name == "miniLandingLeg"]
+    arms = [p for p in parts if p.key.startswith("arm")]
+    stack = [p for p in parts if p.key.startswith("utank")]
+    if len(legs) != len(SOLAR_LEG_AZIMUTHS) or len(arms) != len(SOLAR_ARM_AZIMUTHS):
+        out.append("the lander needs %d outriggers with a leg each"
+                   % len(SOLAR_ARM_AZIMUTHS))
+    if [p.name for p in stack] != ["fuelTank"]:
+        out.append("the stack must be one FL-T400 on the Terrier: %r"
+                   % [p.name for p in stack])
+    for arm in arms:
+        if (arm.name != SOLAR_ARM_NAME or arm.parent is not stack[0] or arm.attm != 1
+                or arm.sidx != -1 or arm.group != "upper"):
+            out.append("%s must be an unstaged FL-T200 on the stack FL-T400" % arm.key)
+        bottom = arm.y + NODE_OFFSET[arm.name]["bottom"]
+        if abs(bottom - (stack[0].y + NODE_OFFSET["fuelTank"]["bottom"])) > 1e-9:
+            out.append("%s's bottom is not level with the FL-T400's" % arm.key)
+    for leg in legs:
+        if leg.parent not in arms:
+            out.append("%s must ride an outrigger" % leg.key)
     if abs(f["leg_clearance"] - lander_leg_clearance()) > 1e-9:
         out.append("leg clearance %.3f != CS Mun Lander's %.3f"
                    % (f["leg_clearance"], lander_leg_clearance()))
+    base = lander_layout()
+    for group in ("upper",):
+        have_prop = sum(_pprop(p) for p in parts if p.group == group)
+        want_prop = sum(_pprop(p) for p in base if p.group == group)
+        if abs(have_prop - want_prop) > 1e-9:
+            out.append("lander propellant %.3f t != CS Mun Lander's %.3f t"
+                       % (have_prop, want_prop))
+    hatch = _azimuth_deg(MUNSCI_HATCH_POS)
+    for az in SOLAR_ARM_AZIMUTHS:
+        if abs((az - hatch + 180.0) % 360.0 - 180.0) < MUNSCI_HATCH_CLEARANCE_DEG:
+            out.append("an outrigger sits under the hatch (azimuth %.0f)" % az)
+    if f["stance"]["tip_deg"] < SOLAR_MIN_TIP_DEG:
+        out.append("tip angle %.1f deg < %.1f" % (f["stance"]["tip_deg"],
+                                                  SOLAR_MIN_TIP_DEG))
     if f["ec"]["capacity"] < SOLAR_MIN_CAPACITY:
         out.append("ElectricCharge capacity %.0f < %.0f"
                    % (f["ec"]["capacity"], SOLAR_MIN_CAPACITY))
@@ -1964,6 +2133,12 @@ def solar_report():
              ec["saturated_hold_s"]))
     print("  hatch clearances (deg): %s" % ", ".join(
         "%s %.0f" % kv for kv in sorted(solar_hatch_clearances().items())))
+    for label, s in (("stance", f["stance"]),
+                     ("first solar cut's stance", f["stance_previous"])):
+        print("  %s: %d legs, feet %.3f m out, nearest edge %.3f m; landed %.3f t, centre "
+              "of mass %.3f m over the bell (%.0f m/s spent, propellant high); tips at "
+              "%.1f deg" % (label, s["legs"], s["foot_radius"], s["edge"], s["mass"],
+                            s["com_height"], SOLAR_DV_TO_TOUCHDOWN, s["tip_deg"]))
 
 
 def main(argv=None):
