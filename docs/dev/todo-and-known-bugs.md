@@ -67,6 +67,15 @@ and a circularization with no node touch nothing. Burns are unchanged (the execu
 align-and-burn). Tests: `harness/missions/lib/test_ascent_autowarp.py`. Owed: one check flight
 (B16 or B7) showing the `(was False)` line and a warped coast.
 
+## ~~CS5-DRY-LANDING-NO-SPLASHDOWN-AWARD: CS-5 required the splashdown milestone the mission does not guarantee~~ [FILED 2026-11-06 from the resumed pre-cut run (CS-5 `2026-11-06_0202`, PARSEK-FAIL logContracts, main 8a6c409af); harness spec flake, no product defect; re-pinned 2026-11-06, branch `cs5-landed-or-splashed`]
+
+The return came down on land (`recover pressed ... situation=LANDED`), which the mission accepts
+(`returnLandedSituations = ["LANDED", "SPLASHED"]`), so stock awarded no `Kerbin/Splashdown` and
+the required `Milestone enriched: 'Kerbin/Splashdown' funds=4800 ...` token missed. Every other
+token, the ledger ground truth (hardFailures=0) and the analyzer passed. The token now accepts the
+splashdown award or the LANDED recover line; it matches the red log and the green `2026-11-04_0157`.
+No other spec requires that award (CS-6 / CS-6c / CS-7 accept both situations and pin no award).
+
 ## ~~FLAG-EVENT-PAST-RECORDING-END: a flag pick-up recorded in the last frame before boarding is never replayed~~ [FILED 2026-11-05 from the pre-cut full run (FLG-1 `2026-11-05_0422`, PARSEK-FAIL logContracts: no `Flag pick-up replayed`, main 02d71afd1); FIXED 2026-11-05, branch `fix-flag-pickup-past-end` (#2384); xUnit; LIVE-PROVEN FLG-1 `2026-11-05_1632` PASS attempt 1 on main ee2e7da8a (the timeline-end walk fired: `Flag events at timeline end` then `Flag pick-up replayed`); product, low (a picked-up flag stands again after a rewind, timing dependent)]
 
 **Symptom.** FLG-1's kerbal picks the flag up and boards before the next 0.2 s sample, so the
