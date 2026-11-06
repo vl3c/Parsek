@@ -474,13 +474,18 @@ deliveries are clamped to the plausible totals and the D8 debit reduction subtra
 resources persist as `Route.HarvestCaps` and the from/to hover names them. Design: logistics
 19.4 M2 "Plausibility cap". In-game: `HarvestCapScanLedgerInGameTests.StockDrillAndIsruRatesAreModeled`
 (lane HV-2) reads every stock drill / ISRU prefab through `FlightRecorder.ReadHarvestConverterRate`;
-writing it found the asteroid drill left every stock mining window unbounded. Still open: lane
-MINE-5 (a live drill) to measure a real window's rates against stock's own production; a delivery that clamps to nothing leaves its stop with an
-empty manifest rather than refusing the route.
+writing it found the asteroid drill left every stock mining window unbounded. The live
+measurement is lane `MINE-5a-rover-live-drill-harvest-cap` (AUTHORED 2026-11-06, branch `mine5`,
+never flown): the four drills on V's rover mine across a rails warp while recording, and the
+in-game cell asserts each window's harvest under its own rate x duration x 1.5, no cap on the
+run's plausible totals, a whole-harvest delivery unchanged by the clamp, and the window's Ore
+equal to stock's tank gain, logging the measured `ratio=` (stock production / rate x duration).
+Still open: record that ratio after the first flight; a delivery that clamps to nothing leaves
+its stop with an empty manifest rather than refusing the route.
 
 ---
 
-## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-0, MINE-4 and MINE-5 (no spec), GS-6 revision 3, the lab lane XS-5, and `HarvestCapture_CatchUpOnLoad` on a host with a drill on ore; harness / fixture]
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 and the route half of MINE-5 (both need a dockable surface craft pair), the lab lane XS-5, and first flights of MINE-5a and S1.9's MINE-0 tokens; harness / fixture]
 
 Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
 from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a
@@ -528,6 +533,35 @@ toggles, Space Center exit, the watched replay to the spawn): first flight `2026
 INVALID, found IDLE-ON-PAD-DISCARDS-A-STATIONARY-MINER, and answered the open question: an ISRU
 toggled during rails warp on the landed rover is recorded at the toggle UT (every edge about
 10 ms after its packed press), so an on-and-off inside one warp is not lost.
+
+Progress 2026-11-06 (branch `mine5`, nothing flown yet):
+- MINE-0: the `Drill Junior`, `Drill-O-Matic` and `ISRU` part showcases nest a
+  ConverterActivated / ConverterDeactivated pair in every deploy span
+  (`BuildPartShowcaseRecording` `innerOnEvent`; xUnit `AssertNestedConverterCycles`), and S1.9
+  pins `apply family=ConverterActivated|ConverterDeactivated surface=converter-loop ...
+  applied=[1-9]` and `Converter loops driven` on one of the three. S1.9 must re-fly.
+- GS-6 revision 3 is CLOSED by MINE-6 rather than by a sweep-craft revision: its live-proven
+  flights (`2026-10-17_1431_a2`, re-pinned `2026-10-24_1006`) gate `apply family=ConverterActivated
+  surface=converter-loop ... applied=[1-9]` and `Converter loops driven` on the miner's ghost,
+  the "converter loop live on a flight ghost" GS6-CONVERTER-LOOP-NEEDS-AN-ANIMATION-GROUP-PART-ABOARD
+  asked for.
+- `HarvestCapture_CatchUpOnLoad`'s body now runs on a drill on ore: it moved into a shared core
+  (`RunCatchUpOnLoad`, the Logistics declaration unchanged so `total=47` holds) that the new
+  isolated `MiningHarvest` category calls on lane `MINE-5a-rover-live-drill-harvest-cap`
+  (`miner-rover-landed`, drills deployed by the lane). Two test-side fixes on the way: the cell
+  picks the `ModuleResourceHarvester` before any `BaseDrill` (each stock drill part also carries a
+  `ModuleAsteroidDrill`, which activates and mines nothing with no asteroid aboard), and its
+  provocation warp goes through the settle + HIGH-mode helper (a bare `SetRate` in LOW mode
+  never packs). The same lane's second cell is the plausibility-cap measurement
+  (HARVEST-ROUTE-PLAUSIBILITY-CAP).
+- MINE-5's ROUTE half (and MINE-4) is blocked on hardware, not on Parsek: a route's delivery is a
+  connection window, produced only by a docking-port or claw couple (`RouteProofCapture`).
+  The miner rover has neither, no fixture has a landed Ore depot it could dock to, and no seam
+  verb or mission docks two landed vessels (`DriveVessel` throttles straight with no steering;
+  the kRPC dock missions are orbital). Needed: a craft pair V builds as he built the rover (the
+  miner with a forward docking port or a claw, and a landed depot with a matching port and an Ore
+  tank, parked in line within a straight drive), then a lane that mines, drives in, docks,
+  transfers, undocks, commits, creates the route (`RouteCommand create`) and dispatches it.
 
 ---
 

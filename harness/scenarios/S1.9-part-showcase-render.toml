@@ -455,6 +455,19 @@ count = { min = 243, max = 243 }
 # `bool.ToString()` (capital True/False); the FX-magnitude `kind` is the literal
 # "engine" or "rcs" and the line is suppressed entirely when nothing was scaled, so a
 # match is proof a real emitter moved. [DERIVED]
+#
+# GROUP 7 - MINE-0, THE CONVERTER LOOP ON THE DRILL / ISRU SHOWCASES (added 2026-11-06,
+# NOT YET FLOWN on this spec). The three rows `Drill Junior` (MiniDrill), `Drill-O-Matic`
+# (RadialDrill) and `ISRU` now nest a ConverterActivated / ConverterDeactivated pair in
+# each deploy span (1.5 s after the deploy, 0.5 s before the retract;
+# `SyntheticRecordingTests.BuildPartShowcaseRecording` `innerOnEvent`), so the ghost's
+# prefab-built running loop (`ModuleAnimationGroup.activeAnimationName`) has an edge to
+# apply. They are the only converter events in the corpus and every showcase event uses
+# pid 100000, so a converter-loop apply line here can only come from those three rows;
+# `applied=[1-9]` says the ghost HAD a loop for the part (a missing one reads
+# `applied=0 ... reason=no-family-state` or `no-info-for-part`). `Converter loops driven`
+# shares one 5 s rate-limit key across every ghost, so it names whichever of the three
+# drove first. [DERIVED]
 required = [
   "SanitizeNonLoopableLoopPlayback: cleared LoopPlayback on 243 non-loopable recording\\(s\\)",
 
@@ -494,6 +507,10 @@ required = [
   "Part pid=[0-9]+: applied heat level (?:Hot|Medium|Cold)",
   "FX magnitude \\(engine\\) pid=[0-9]+ midx=[0-9]+ power=",
   "FX magnitude \\(rcs\\) pid=[0-9]+ midx=[0-9]+ power=",
+
+  "apply family=ConverterActivated surface=converter-loop rec=[0-9]+ pid=100000 applied=[1-9][0-9]* ",
+  "apply family=ConverterDeactivated surface=converter-loop rec=[0-9]+ pid=100000 applied=[1-9][0-9]* ",
+  "Converter loops driven: [1-9][0-9]* \\(vessel='Part Showcase - (?:Drill Junior|Drill-O-Matic|ISRU)'\\)",
 ]
 # The suite-wide ERROR pattern, PLUS the per-part resolution floor (code fact 4). The
 # second is the strongest single expression of "check if the parts get rendered": one

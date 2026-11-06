@@ -5540,6 +5540,11 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         "H65-quickload-resume-isolated": ("QuickloadResume", 3),
         "H66-playback-control-isolated": ("PlaybackControl", 1),
         "H67-automerge-commit-isolated": ("AutoMergeCommit", 1),
+        # The mining category, wholly batch-disabled (both cells record, start the
+        # drills and warp on a live rover), so the ordinary ceiling is zero. Its host is
+        # `miner-rover-landed` with the drills deployed by the lane's own seam steps.
+        # Authored 2026-11-06, never flown, INTERIM.
+        "MINE-5a-rover-live-drill-harvest-cap": ("MiningHarvest", 2),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -6078,7 +6083,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # (H78), both PASS attempt 1, measured exactly those splits, so both specs pin them
     # whole, their `skipped=` values are declared in MEASURED_SKIPPED below, and both
     # ids left this set in the same commit.
-    INTERIM_PIN_IDS: set = set()
+    # NON-EMPTY AGAIN ON 2026-11-06 for `MINE-5a-rover-live-drill-harvest-cap` (the
+    # two MiningHarvest cells on the miner rover, `total=2` literal, the split regexed
+    # with a `passed=` floor of 1). It leaves on its first flight.
+    INTERIM_PIN_IDS: set = {"MINE-5a-rover-live-drill-harvest-cap"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -6794,6 +6802,11 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # pre-existing unloaded LiquidFuel vessel. That is asserted in-cell (the band
         # guard skips with the measured amount named) and argued in the spec's header.
         "RouteEscrowContention": "logistics",
+        # `MiningHarvest` (MINE-5a) needs a LANDED host: both cells record a surface
+        # drill rig mining and drive a rails warp from the ground. The narrower claim,
+        # deployed ModuleResourceHarvester parts on ore, has no predicate here; each
+        # cell skips naming it and the lane deploys the drills before the batch.
+        "MiningHarvest": "landed",
         # --- ROADMAP R6, the isolated half (2026-09-06). Seven rows, and they are NOT
         # a block: each is derived from that category's own bodies, and three different
         # requirements come out of the seven.
