@@ -592,7 +592,6 @@ namespace Parsek
             new Dictionary<string, string>();
 
         // Tooltip state
-        private GUIStyle tooltipLabelStyle;
         private Rect scrollViewRect;
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
         // permanently visible box of constant height. SINGLE line: this window is 1355 px

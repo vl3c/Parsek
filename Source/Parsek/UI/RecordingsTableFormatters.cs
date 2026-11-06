@@ -116,196 +116,114 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Formats a resource manifest for tooltip display.
-        /// If both start and end: "Resources:\n  LiquidFuel: 3600.0 -> 200.0 (-3400.0)"
-        /// If start only: "Resources at start:\n  LiquidFuel: 3600.0 / 3600.0"
-        /// If both null: returns null (no section shown).
+        /// The "what this flight used and carried" clause of a recording row's Status hover,
+        /// as ONE line (the Recordings help strip is single-line, so no hard newlines):
+        /// "Used 3,400 Liquid Fuel, 4,150 Oxidizer; gained 200 Ore; unloaded 4 OX-STAT;
+        /// crew -2 Engineer". Only entries that changed are named, and only when the recording
+        /// has BOTH a start and an end manifest of that kind (a still-open recording has no end
+        /// yet, so there is no change to report). Null when nothing changed. Resources and
+        /// inventory parts are named through <paramref name="resourceTitle"/> /
+        /// <paramref name="partTitle"/> (the live site passes the stock display names); a null
+        /// resolver or a null / empty answer keeps the internal name. Pure for unit testing.
         /// </summary>
-        internal static string FormatResourceManifest(
-            Dictionary<string, ResourceAmount> start,
-            Dictionary<string, ResourceAmount> end)
+        internal static string FormatManifestChangeSummary(
+            Dictionary<string, ResourceAmount> startResources,
+            Dictionary<string, ResourceAmount> endResources,
+            Dictionary<string, InventoryItem> startInventory,
+            Dictionary<string, InventoryItem> endInventory,
+            Dictionary<string, int> startCrew,
+            Dictionary<string, int> endCrew,
+            System.Func<string, string> resourceTitle = null,
+            System.Func<string, string> partTitle = null)
         {
-            if (start == null && end == null)
-                return null;
-
-            // Merge keys from both dictionaries.
-            var keys = new SortedSet<string>();
-            if (start != null)
-                foreach (var k in start.Keys) keys.Add(k);
-            if (end != null)
-                foreach (var k in end.Keys) keys.Add(k);
-
-            if (keys.Count == 0)
-                return null;
-
-            bool hasEnd = end != null;
-            var lines = new List<string>();
-            lines.Add(hasEnd ? "Resources:" : "Resources at start:");
-
-            foreach (var key in keys)
+            var used = new List<string>();
+            var gained = new List<string>();
+            if (startResources != null && endResources != null)
             {
-                if (hasEnd)
+                foreach (var key in MergedKeys(startResources.Keys, endResources.Keys))
                 {
-                    double startAmt = 0;
-                    double endAmt = 0;
-                    if (start != null && start.TryGetValue(key, out var startRa))
-                        startAmt = startRa.amount;
-                    if (end.TryGetValue(key, out var endRa))
-                        endAmt = endRa.amount;
-
+                    double startAmt = startResources.TryGetValue(key, out var sa) ? sa.amount : 0;
+                    double endAmt = endResources.TryGetValue(key, out var ea) ? ea.amount : 0;
                     double delta = endAmt - startAmt;
-                    string sign = delta >= 0 ? "+" : "";
-                    lines.Add(string.Format(CultureInfo.InvariantCulture,
-                        "  {0}: {1:F1} \u2192 {2:F1} ({3}{4:F1})",
-                        key,
-                        startAmt,
-                        endAmt,
-                        sign,
-                        delta));
-                }
-                else
-                {
-                    // Start only - show amount / maxAmount.
-                    double amt = 0;
-                    double max = 0;
-                    if (start.TryGetValue(key, out var ra))
-                    {
-                        amt = ra.amount;
-                        max = ra.maxAmount;
-                    }
-                    lines.Add(string.Format(CultureInfo.InvariantCulture,
-                        "  {0}: {1:F1} / {2:F1}",
-                        key, amt, max));
+                    string amount = FormatManifestAmount(System.Math.Abs(delta));
+                    if (amount == null) continue;
+                    string entry = amount + " " + Resolve(resourceTitle, key);
+                    (delta < 0 ? used : gained).Add(entry);
                 }
             }
 
-            return string.Join("\n", lines);
+            var unloaded = new List<string>();
+            var loaded = new List<string>();
+            if (startInventory != null && endInventory != null)
+            {
+                foreach (var key in MergedKeys(startInventory.Keys, endInventory.Keys))
+                {
+                    int startCount = startInventory.TryGetValue(key, out var si) ? si.count : 0;
+                    int endCount = endInventory.TryGetValue(key, out var ei) ? ei.count : 0;
+                    int delta = endCount - startCount;
+                    if (delta == 0) continue;
+                    string entry = System.Math.Abs(delta).ToString(CultureInfo.InvariantCulture)
+                        + " " + Resolve(partTitle, key);
+                    (delta < 0 ? unloaded : loaded).Add(entry);
+                }
+            }
+
+            var crew = new List<string>();
+            if (startCrew != null && endCrew != null)
+            {
+                foreach (var key in MergedKeys(startCrew.Keys, endCrew.Keys))
+                {
+                    int startCount = startCrew.TryGetValue(key, out var sc) ? sc : 0;
+                    int endCount = endCrew.TryGetValue(key, out var ec) ? ec : 0;
+                    int delta = endCount - startCount;
+                    if (delta == 0) continue;
+                    crew.Add((delta > 0 ? "+" : "-")
+                        + System.Math.Abs(delta).ToString(CultureInfo.InvariantCulture) + " " + key);
+                }
+            }
+
+            var clauses = new List<string>();
+            if (used.Count > 0) clauses.Add("used " + string.Join(", ", used));
+            if (gained.Count > 0) clauses.Add("gained " + string.Join(", ", gained));
+            if (unloaded.Count > 0) clauses.Add("unloaded " + string.Join(", ", unloaded));
+            if (loaded.Count > 0) clauses.Add("loaded " + string.Join(", ", loaded));
+            if (crew.Count > 0) clauses.Add("crew " + string.Join(", ", crew));
+            if (clauses.Count == 0) return null;
+
+            string text = string.Join("; ", clauses);
+            return char.ToUpperInvariant(text[0]) + text.Substring(1);
         }
 
         /// <summary>
-        /// Formats an inventory manifest for tooltip display.
-        /// If both start and end: "Inventory:\n  solarPanels5: 4 -> 0 (-4)"
-        /// If start only: "Inventory at start:\n  solarPanels5: 4"
-        /// If both null: returns null (no section shown).
+        /// A resource amount for the change summary: whole units with thousands separators at
+        /// 100 and above, one decimal from 1, two below. Null when the amount rounds to zero
+        /// at that precision (float noise on a tank that did not really change).
         /// </summary>
-        internal static string FormatInventoryManifest(
-            Dictionary<string, InventoryItem> start,
-            Dictionary<string, InventoryItem> end)
+        internal static string FormatManifestAmount(double amount)
         {
-            if (start == null && end == null)
-                return null;
-
-            // Merge keys from both dictionaries.
-            var keys = new SortedSet<string>();
-            if (start != null)
-                foreach (var k in start.Keys) keys.Add(k);
-            if (end != null)
-                foreach (var k in end.Keys) keys.Add(k);
-
-            if (keys.Count == 0)
-                return null;
-
-            bool hasEnd = end != null;
-            var lines = new List<string>();
-            lines.Add(hasEnd ? "Inventory:" : "Inventory at start:");
-
-            foreach (var key in keys)
-            {
-                if (hasEnd)
-                {
-                    int startCount = 0;
-                    int endCount = 0;
-                    if (start != null && start.TryGetValue(key, out var startItem))
-                        startCount = startItem.count;
-                    if (end.TryGetValue(key, out var endItem))
-                        endCount = endItem.count;
-
-                    int delta = endCount - startCount;
-                    string sign = delta >= 0 ? "+" : "";
-                    lines.Add(string.Format(CultureInfo.InvariantCulture,
-                        "  {0}: {1} \u2192 {2} ({3}{4})",
-                        key,
-                        startCount,
-                        endCount,
-                        sign,
-                        delta));
-                }
-                else
-                {
-                    // Start only - show count.
-                    int count = 0;
-                    if (start.TryGetValue(key, out var item))
-                        count = item.count;
-                    lines.Add(string.Format(CultureInfo.InvariantCulture,
-                        "  {0}: {1}",
-                        key, count));
-                }
-            }
-
-            return string.Join("\n", lines);
+            string text;
+            if (amount >= 100)
+                text = amount.ToString("N0", CultureInfo.InvariantCulture);
+            else if (amount >= 1)
+                text = amount.ToString("0.#", CultureInfo.InvariantCulture);
+            else
+                text = amount.ToString("0.##", CultureInfo.InvariantCulture);
+            return text == "0" ? null : text;
         }
 
-        /// <summary>
-        /// Formats a crew manifest for tooltip display.
-        /// If both start and end: "Crew:\n  Pilot: 1 -> 1 (+0)\n  Engineer: 2 -> 0 (-2)"
-        /// If start only: "Crew at start:\n  Pilot: 1\n  Engineer: 2"
-        /// If both null: returns null (no section shown).
-        /// </summary>
-        internal static string FormatCrewManifest(
-            Dictionary<string, int> start,
-            Dictionary<string, int> end)
+        private static SortedSet<string> MergedKeys(IEnumerable<string> a, IEnumerable<string> b)
         {
-            if (start == null && end == null)
-                return null;
+            var keys = new SortedSet<string>(System.StringComparer.Ordinal);
+            foreach (var k in a) if (k != null) keys.Add(k);
+            foreach (var k in b) if (k != null) keys.Add(k);
+            return keys;
+        }
 
-            // Merge keys from both dictionaries.
-            var keys = new SortedSet<string>();
-            if (start != null)
-                foreach (var k in start.Keys) keys.Add(k);
-            if (end != null)
-                foreach (var k in end.Keys) keys.Add(k);
-
-            if (keys.Count == 0)
-                return null;
-
-            bool hasEnd = end != null;
-            var lines = new List<string>();
-            lines.Add(hasEnd ? "Crew:" : "Crew at start:");
-
-            foreach (var key in keys)
-            {
-                if (hasEnd)
-                {
-                    int startCount = 0;
-                    int endCount = 0;
-                    if (start != null && start.TryGetValue(key, out var sc))
-                        startCount = sc;
-                    if (end.TryGetValue(key, out var ec))
-                        endCount = ec;
-
-                    int delta = endCount - startCount;
-                    string sign = delta >= 0 ? "+" : "";
-                    lines.Add(string.Format(CultureInfo.InvariantCulture,
-                        "  {0}: {1} \u2192 {2} ({3}{4})",
-                        key,
-                        startCount,
-                        endCount,
-                        sign,
-                        delta));
-                }
-                else
-                {
-                    // Start only - show count.
-                    int count = 0;
-                    if (start.TryGetValue(key, out var sc))
-                        count = sc;
-                    lines.Add(string.Format(CultureInfo.InvariantCulture,
-                        "  {0}: {1}",
-                        key, count));
-                }
-            }
-
-            return string.Join("\n", lines);
+        private static string Resolve(System.Func<string, string> title, string key)
+        {
+            if (title == null) return key;
+            string resolved = title(key);
+            return string.IsNullOrEmpty(resolved) ? key : resolved;
         }
 
         /// <summary>

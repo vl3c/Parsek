@@ -453,39 +453,6 @@ namespace Parsek
             => RecordingsTableFormatters.FormatEndPosition(rec, parentVesselName);
 
         /// <summary>
-        /// Formats a resource manifest for tooltip display.
-        /// If both start and end: "Resources:\n  LiquidFuel: 3600.0 → 200.0 (-3400.0)"
-        /// If start only: "Resources at start:\n  LiquidFuel: 3600.0 / 3600.0"
-        /// If both null: returns null (no section shown).
-        /// </summary>
-        internal static string FormatResourceManifest(
-            Dictionary<string, ResourceAmount> start,
-            Dictionary<string, ResourceAmount> end)
-            => RecordingsTableFormatters.FormatResourceManifest(start, end);
-
-        /// <summary>
-        /// Formats an inventory manifest for tooltip display.
-        /// If both start and end: "Inventory:\n  solarPanels5: 4 -> 0 (-4)"
-        /// If start only: "Inventory at start:\n  solarPanels5: 4"
-        /// If both null: returns null (no section shown).
-        /// </summary>
-        internal static string FormatInventoryManifest(
-            Dictionary<string, InventoryItem> start,
-            Dictionary<string, InventoryItem> end)
-            => RecordingsTableFormatters.FormatInventoryManifest(start, end);
-
-        /// <summary>
-        /// Formats a crew manifest for tooltip display.
-        /// If both start and end: "Crew:\n  Pilot: 1 → 1 (+0)\n  Engineer: 2 → 0 (-2)"
-        /// If start only: "Crew at start:\n  Pilot: 1\n  Engineer: 2"
-        /// If both null: returns null (no section shown).
-        /// </summary>
-        internal static string FormatCrewManifest(
-            Dictionary<string, int> start,
-            Dictionary<string, int> end)
-            => RecordingsTableFormatters.FormatCrewManifest(start, end);
-
-        /// <summary>
         /// Computes a sort key for a group based on the current sort column.
         /// Used to interleave groups with recordings in the sorted draw order.
         /// </summary>

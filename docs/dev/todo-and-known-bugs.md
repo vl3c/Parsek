@@ -3209,7 +3209,17 @@ its refusal reasons at about 1 Hz and already owns a disabled-hover echo; the sh
 carry the reason into that echo for the button the player just pressed, not to add 46
 messages. That is one design decision about one window, so it is filed as one item.
 
-## GUI-I-DRAWRECORDINGTOOLTIP-IS-DEAD-CODE-WITH-FULL-TEST-COVERAGE: decide before deleting [FILED 2026-09-11 by the GUI fix batch; the triage explicitly held this one back]
+## ~~GUI-I-DRAWRECORDINGTOOLTIP-IS-DEAD-CODE-WITH-FULL-TEST-COVERAGE: decide before deleting~~ [FILED 2026-09-11 by the GUI fix batch; the triage explicitly held this one back; DONE 2026-11-06, owner ruling: wire it into the row hover]
+
+**Done 2026-11-06 (owner ruling V, thread "Decide the five cleanup leftovers"): wired back as
+hover text, the dead panel deleted.** The Recordings Status hover gains one clause from the pure
+`RecordingsTableFormatters.FormatManifestChangeSummary` ("Used 3,400 Liquid Fuel; unloaded 4
+OX-STAT ...; crew -2 Engineer"): only what changed, only when the recording has both a start and
+an end manifest of that kind, one line (the strip is single-line), stock display names through
+`PartResourceLibrary` / `PartLoader` at the live site, cached per recording by manifest
+reference. `DrawRecordingTooltip`, its unused style and the three multi-line formatters are gone;
+`ManifestChangeSummaryTests` replaces their three test files.
+
 
 **Evidence.** `RecordingsTableUI.DrawRecordingTooltip` (`:5451`) is 78 lines rendering a
 per-recording hover panel: stats, chain status, a storage / efficiency breakdown, and

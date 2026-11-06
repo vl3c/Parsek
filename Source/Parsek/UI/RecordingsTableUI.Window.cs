@@ -540,14 +540,6 @@ namespace Parsek
             DrawRecordingsBottomBar(committed);
         }
 
-        private void EnsureTooltipStyle()
-        {
-            if (tooltipLabelStyle != null) return;
-            tooltipLabelStyle = new GUIStyle(GUI.skin.label);
-            tooltipLabelStyle.wordWrap = false;
-            tooltipLabelStyle.fontSize = 11;
-        }
-
         /// <summary>
         /// Bottom "hovered control help text" strip (shared house helper). Called from
         /// the bottom bar of each tab, AFTER every row has drawn and directly above the

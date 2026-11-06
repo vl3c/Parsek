@@ -4,6 +4,16 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **A recording's hover says what the flight used and carried.** Hovering a recording's Status
+  in the Recordings window now also lists the fuel and other resources it used or gained, the
+  cargo parts it unloaded or loaded, and crew changes. (GUI-I)
+
+---
+
 ## 1.0.0
 
 ### Changed
