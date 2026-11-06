@@ -296,7 +296,7 @@ fixture. Two things about that are worth pinning here rather than only in the sp
    were worked around with VALUES (`ejectionEccFloor` for the evidence; a single scheduled round
    plus the direction-agnostic arrival-quality extras for the spacing), and the two workarounds are
    MUTUALLY EXCLUSIVE without an mlib change. Full account:
-   `docs/dev/todo-and-known-bugs.md` -> B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD.
+   `docs/dev/done/todo-and-known-bugs-v11.md` -> B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD.
    ANY FUTURE P2 LANE TO VALL / TYLO / BOP / POL FROM A CLEARING PARK INHERITS THIS.
 2. **The routing prediction IS NOW MEASURED AT JOOL (2026-08-19).** Section 3.5's claim - one
    constraint, `method=single-orbital`, residual 0, cadence a whole multiple of the moon's period -
@@ -1049,7 +1049,7 @@ un-shifted epoch sits under one moon period from the live clock and the lens ski
 `body-mismatch`; at k = 20 it is 1.06 Ms away, far enough that the recorded position is in a
 DIFFERENT BODY'S SOI and the lens has something to fail on. **A HIGHER k WILL MAKE THIS LOUDER, not
 quieter** - which matters because every future Jool P2 lane will have a large k. Filed report-only as
-`docs/dev/todo-and-known-bugs.md` -> MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME.
+`docs/dev/done/todo-and-known-bugs-v11.md` -> MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME.
 Anyone reading a future `outsideSoi > 0` on a Jool lane must check the `clock=` and `effUT` fields
 before calling it recurrence failure.
 
@@ -1069,7 +1069,7 @@ every future Jool P2 lane:
   extraRounds=1` on both flights.
 - **The two workarounds are mutually exclusive** without an mlib change, because the time-mode
   trigger needs `viaBodyNames` and that key short-circuits the eccentricity branch. Full account:
-  `docs/dev/todo-and-known-bugs.md` -> B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD.
+  `docs/dev/done/todo-and-known-bugs-v11.md` -> B5-INWARD-TRANSFER-EVIDENCE-AND-TRIGGERS-ASSUME-OUTWARD.
 
 A fourth consequence is geometric rather than mechanical and is worth carrying to Vall/Tylo/Bop/Pol
 lanes: the descent crosses every intervening moon's orbital SHELL (this one crossed four), so the

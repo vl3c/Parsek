@@ -474,7 +474,7 @@ namespace Parsek
             // incomplete" for the WHOLE recording; that is how an undock background
             // child persisted a Relative section's anchor-local metres as flat lat/lon
             // points and read maxDist ~735 km for a rover that never left the pad area
-            // (todo UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).
+            // (archived todo UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).
             //
             // Same span threshold as the zero-frame discard this replaces; what widened
             // is the SURFACE it reads (bodyFixedFrames now protects a section from being

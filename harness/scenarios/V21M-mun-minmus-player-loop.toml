@@ -871,7 +871,7 @@ tags = ["V21", "player-loop", "loop-playback", "re-aim", "cross-parent",
 # WHY THE PARSEK-STRIPPED DONOR MATTERS TO **THIS** LANE, one step removed: B30
 # starts from `mun-park-kerbalx` rather than from `mun-orbit-recorded` precisely so
 # its recording is a FRESH STANDALONE TREE and not an append onto a committed one
-# (docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE,
+# (docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE,
 # measured on B23 flight 1). A subject with the wrong topology would make every
 # reading below meaningless in a way no verifier here could see.
 saveTemplate       = "fixtures/saves/mun-minmus-recorded"

@@ -49,7 +49,7 @@ id = "B28-laythe-jool-return"
 # read-only `saveTemplate` and carries no committed tree, so sharing it costs nothing and
 # couples nothing: what the strip buys (a `startrecording ... already=false` that mints a
 # fresh standalone Laythe-rooted tree instead of appending to a committed one) is a property
-# of the BYTES, not of who reads them. See docs/dev/todo-and-known-bugs.md ->
+# of the BYTES, not of who reads them. See docs/dev/done/todo-and-known-bugs-v11.md ->
 # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE for the failure it prevents.
 #
 # =====================================================================================

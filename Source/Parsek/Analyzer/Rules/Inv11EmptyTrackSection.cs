@@ -15,7 +15,7 @@ namespace Parsek.Analyzer.Rules
     // Cartesian METRES in latitude/longitude/altitude by contract - were persisted
     // verbatim as flat POINT lat/lon, and VesselSpawner.BackfillMaxDistance resolved them
     // through body.GetWorldSurfacePosition into maxDist ~735 km for a rover that never
-    // left the pad area (todo UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).
+    // left the pad area (archived todo UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).
     //
     // The producers no longer emit one (TrackSectionCloseClassifier.Classify discards a
     // payload-free section at close in both recorders), so this rule is the durable

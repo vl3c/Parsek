@@ -322,7 +322,7 @@ required = [
 # engage a ghost: RF-8, which drives `EnterWatchMode` (a verb that REJECTs
 # `no-watchable-ghost` when there is none, i.e. it cannot pass vacuously), and RF-7T, whose
 # TS host creates its own proto entries. Filed as RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST in
-# `docs/dev/todo-and-known-bugs.md`.
+# `docs/dev/done/todo-and-known-bugs-v11.md`.
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "excluded 3 below-surface orbit segments from cover rec=8da7c2c2a6d84505b4bc121fdb9f528f",

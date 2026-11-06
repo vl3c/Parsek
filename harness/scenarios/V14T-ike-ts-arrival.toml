@@ -238,7 +238,7 @@ tags = ["V14", "tracking-station", "loop-arrival", "phase-lock", "single-orbital
 # 170,444.391 m, ecc 1.2e-4, inc 11.886 deg). Payload pinned byte-for-byte in
 # `harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`; the
 # one-recording topology is a CONTRACT, not an accident - see V14M's [fixture] note
-# and docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+# and docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
 saveTemplate       = "fixtures/saves/ike-orbit-recorded"
 injectedRecordings = "none"
 craft              = []
@@ -448,7 +448,7 @@ count = { min = 1, max = 1 }
 #       the per-pid parity pass touched the lens, so PRESENCE cannot be produced by a
 #       frame with no resolved ghost. `sampled=[1-9]` is NOT pinned: this lane measured
 #       `sampled=0 skip.reaimed-or-foreign-seed=1`, the SAME blind spot V6M/V6T read
-#       (docs/dev/todo-and-known-bugs.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE), and
+#       (docs/dev/done/todo-and-known-bugs-v11.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE), and
 #       pinning a nonzero count would gate on unresolved behaviour. NOTE THE CONTRAST
 #       WITH V14M, which measured `sampled=1` on the same fixture: the difference is
 #       the drive clock's position inside the coalesced arc window, exactly as V6T's

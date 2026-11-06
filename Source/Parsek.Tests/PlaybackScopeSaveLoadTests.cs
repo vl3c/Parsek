@@ -5,7 +5,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD (owner ruling 2026-11-01: after any load every current
+    /// archived todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD (owner ruling 2026-11-01: after any load every current
     /// ghost is drawn and relays, even mid-flight). The replay-scope latch is saved in the PARSEK
     /// node and a cold load installs the save's copy, so a recording replaying when the save was
     /// written keeps replaying from the loaded UT, while a recording the playhead only ever moved

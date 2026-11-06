@@ -3,7 +3,7 @@ id = "RW-25-refly-recover-pressed"
 # =====================================================================================
 # RW-25: STOCK'S RECOVER BUTTON PRESSED INSIDE A RE-FLY ATTEMPT, CONCLUDED THROUGH THE RE-FLY
 # MERGE DIALOG, CARRIED ACROSS A REWIND-TO-LAUNCH (the rewind ledger campaign; the residue of
-# todo SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY, "Recover pressed inside a Re-Fly", which RW-11 left
+# archived todo SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY, "Recover pressed inside a Re-Fly", which RW-11 left
 # as option B because the seam's Recover refused inside a Re-Fly).
 #
 # THE RULE UNDER TEST: a recovery made inside a Re-Fly attempt is the player's earned value.

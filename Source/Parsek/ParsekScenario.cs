@@ -1544,7 +1544,7 @@ namespace Parsek
                 RewindVesselHold.SaveInto(node);
 
                 // The replay-scope latch (BUG-B), so a load of this save draws and relays every
-                // ghost that replays at its UT (todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD).
+                // ghost that replays at its UT (archived todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD).
                 savePhase = "playback-replay-scope";
                 PlaybackScopeTracker.SaveInto(node);
 

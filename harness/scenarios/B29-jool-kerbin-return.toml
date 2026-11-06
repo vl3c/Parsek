@@ -462,7 +462,7 @@ tags = ["B29", "jool", "kerbin", "interplanetary", "return", "inbound", "capture
 # already=false` that mints a fresh standalone Jool-rooted tree instead of appending
 # to a committed one -- is a property of the BYTES, not of who reads them. VERIFIED
 # 2026-08-26: no `Parsek/` directory, ZERO `RECORDING_TREE` nodes. See
-# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE for the
+# docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE for the
 # failure it prevents, and B25's header for the two-step recipe that produced it.
 #
 # THE WORLD, measured off this save's own bytes: at UT 27,787,319.41951086 the Duna

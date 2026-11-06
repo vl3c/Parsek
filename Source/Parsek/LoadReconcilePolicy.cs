@@ -1144,7 +1144,7 @@ namespace Parsek
             "PlaybackScopeTracker is static memory, kept across the load (the latch only grows in a "
             + "session); the loaded node's PLAYBACK_REPLAY_SCOPE is an earlier copy of the same memory";
 
-        // Todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD (owner ruling 2026-11-01: every current ghost is
+        // archived todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD (owner ruling 2026-11-01: every current ghost is
         // drawn and relays after any load). A cold load takes the save's latch, after the reset
         // cleared memory's; a plain rewind and a Re-Fly start keep memory's and add the copy of
         // the save they land in (a recording replaying when that save was written replays again

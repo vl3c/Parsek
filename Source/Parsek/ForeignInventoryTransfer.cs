@@ -192,7 +192,7 @@ namespace Parsek
 
         /// <summary>
         /// The terminal reason of a foreign vessel whose last part the recorded kerbal picked up in
-        /// EVA construction (todo CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED).
+        /// EVA construction (archived todo CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED).
         /// </summary>
         internal const string ConstructionPickupTerminalReason = "ForeignConstructionPickup";
 

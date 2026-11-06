@@ -59,7 +59,7 @@ id = "V7T-minmus-ts-arrival"
 # 2026-09-27: IT DID. `2026-09-27_1230` PASS attempt 1 (automation DLL built from origin/main
 # 6437750ba), mapRenderTracing armed and the TS tracer writing, zero `icon-off-orbit` raises,
 # every save facet as before. Both save blocks are ARMED off that run. Why the raise stopped
-# is not established (todo MOON-LOOP-FINDINGS, finding 1).
+# is not established (archived todo MOON-LOOP-FINDINGS, finding 1).
 #
 # =====================================================================================
 # READING LEDGER (2026-08-08, two flights): **FLOWN, RED BY FINDING.**
@@ -161,7 +161,7 @@ id = "V7T-minmus-ts-arrival"
 # no re-pinning.
 #
 # THE FINDING IS ALSO FILED OUTSIDE THIS SPEC, as finding (1) of `MOON-LOOP-FINDINGS`
-# in docs/dev/todo-and-known-bugs.md, together with V7M's end-inside-watch teardown
+# in docs/dev/done/todo-and-known-bugs-v11.md, together with V7M's end-inside-watch teardown
 # NRE. That entry is the cross-lane authority for both of the quartet's product
 # observations; keep the two in step when either moves.
 # =====================================================================================
@@ -308,7 +308,7 @@ trees          = { min = 1, max = 2 }
 #   verbatim, measured 0 on all seven).
 #   NOT PINNED: `sampled=[1-9]`, even though this lane measured 1 twice - see V7M's
 #   header for why that 1 is a NOT-FRESH-SEED frame rather than the re-aim gate passing,
-#   and V6M's for the mechanism, filed as docs/dev/todo-and-known-bugs.md ->
+#   and V6M's for the mechanism, filed as docs/dev/done/todo-and-known-bugs-v11.md ->
 #   FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. V7M's own re-flight also showed the probe
 #   token is a rate-limiter RACE rather than flatly unbuyable (its 5.257 s dwell won a
 #   second probe line by 14 ms); this lane's 3.995 s dwell loses it, which is the same

@@ -3,7 +3,7 @@ id = "CN-5-ghost-relay-after-mid-replay-save-load"
 # =====================================================================================
 # CN-5: THE GHOSTS AFTER A SAVE WRITTEN MID-REPLAY IS LOADED (owner ruling 2026-11-01: "when
 # loading at any time, all current ghosts should be rendered, even if mid-flight; same applies
-# to relay function of ghosts"; todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD).
+# to relay function of ghosts"; archived todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD).
 #
 # WHY. A committed recording replays (ghost, map icon, CommNet relay, terminal spawn) only while
 # PlaybackScopeTracker holds it in replay scope, which it latches the first time a scene sees

@@ -56,7 +56,7 @@ id = "S1.9-part-showcase-render"
 #   ghostLifecycle block).
 #   THE STRIPPING ITSELF IS A FINDING about the showcase tooling, not about this lane:
 #   the builders ask for a looping exhibition and do not get one. Recorded in
-#   docs/dev/todo-and-known-bugs.md -> SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD. This lane
+#   docs/dev/done/todo-and-known-bugs-v11.md -> SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD. This lane
 #   does NOT try to fix it; it measures the corpus as the game actually plays it.
 #
 # WHAT THE RUN CONFIRMED (so it is no longer [DERIVED]):

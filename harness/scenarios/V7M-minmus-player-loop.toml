@@ -459,7 +459,7 @@ id = "V7M-minmus-player-loop"
 #   newly-reached code to classify, not a regression of the fix.
 #
 #   ONE REPORT-ONLY PRODUCT FINDING, filed not fixed (and filed as finding (2) of
-#   `MOON-LOOP-FINDINGS` in docs/dev/todo-and-known-bugs.md, which is where the
+#   `MOON-LOOP-FINDINGS` in docs/dev/done/todo-and-known-bugs-v11.md, which is where the
 #   quartet's two product observations live). Run 2 read
 #   `unityExceptions total=1 (NullReferenceException)`, and it is not noise - it is a
 #   deterministic teardown NRE this lane is the first to reach, because it is the first
@@ -815,7 +815,7 @@ trees          = { min = 1, max = 2 }
 #   (sma -32530.7485, ecc 4.02686086) fragmented into four, the seed carries fragment 6's
 #   epoch (267736.679, confirmed by `epoch+shift=1345207.9` against `shift=1077471.3`)
 #   and the raw covering at effUT 276,934.7 is fragment 9 (epoch 276411.273) - written up
-#   in V6M's header and filed as docs/dev/todo-and-known-bugs.md ->
+#   in V6M's header and filed as docs/dev/done/todo-and-known-bugs-v11.md ->
 #   FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. Pinning a nonzero sample count would therefore
 #   gate on a frame-timing coincidence.
 #

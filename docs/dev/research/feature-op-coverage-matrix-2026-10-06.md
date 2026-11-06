@@ -134,7 +134,7 @@ Legend: **L** = green harness lane(s); **IG** = in-game category executed by a g
 - Four in-game categories are run by no spec: DeployedScienceGhost (1), ChainTipBlockedGhost (2),
   GhostReapplyFrame (1), GuiMock (4). The Rewind category executes at most 17 of 39 cells on any
   one host (R7a pin `passed=17 skipped=22`; RF-12* 12-14; R7c 6), and R7-FIXTURE-GAPS
-  (todo R7-FIXTURE-GAPS) records cells no committed fixture can execute.
+  (archived todo R7-FIXTURE-GAPS) records cells no committed fixture can execute.
 
 ## 2. Per-layer density by subsystem
 

@@ -269,7 +269,7 @@ tags = ["V15", "tracking-station", "loop-arrival", "phase-lock", "single-orbital
 # pinned byte-for-byte in
 # `harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`; the
 # one-recording topology is a CONTRACT, not an accident (an 8 would mean
-# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE is back)
+# docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE is back)
 # - see V15M's [fixture] block, which is not restated here so the pair cannot drift.
 saveTemplate       = "fixtures/saves/gilly-orbit-recorded"
 injectedRecordings = "none"
@@ -474,7 +474,7 @@ count = { min = 1, max = 1 }
 #     per-pid parity pass touched the lens, so PRESENCE cannot be produced by a frame
 #     with no resolved ghost. `sampled=[1-9]` is NOT pinned: this lane measured
 #     `sampled=0 skip.reaimed-or-foreign-seed=1`, the SAME blind spot V6T/V14T/V15M read
-#     (docs/dev/todo-and-known-bugs.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE).
+#     (docs/dev/done/todo-and-known-bugs-v11.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE).
 #   "seam-endpoint summary evaluated=\d+ outsideSoi=\d+" (1) - the PRESENCE form, and
 #     deliberately NOT V15M's stricter `evaluated=[1-9]\d* outsideSoi=0`: this lane
 #     measured `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`, the same

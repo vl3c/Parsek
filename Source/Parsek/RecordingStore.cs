@@ -5696,7 +5696,7 @@ namespace Parsek
 
                 // The replay-scope latch the rewind save carries: a recording that replayed when
                 // that save was written replays again from its UT, even after a load since
-                // reset memory's latch (todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD). Memory's is kept.
+                // reset memory's latch (archived todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD). Memory's is kept.
                 // PreProcessRewindSave already merged it before its strip; this covers the
                 // un-preprocessed path and is a no-op otherwise.
                 PlaybackScopeTracker.UnionFromScenarios(game.scenarios, messageLabel);
