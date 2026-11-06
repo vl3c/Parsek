@@ -341,7 +341,7 @@ class CircularizeNodeWaitTests(unittest.TestCase):
         self.assertTrue(mlib.b5_params_from_dict(
             {"circularizeNodeWaitWarp": True}).circularize_node_wait_warp)
 
-    def test_only_b22_opts_in(self):
+    def test_only_b19_to_b22_opt_in(self):
         here = os.path.dirname(os.path.abspath(__file__))
         scen = os.path.join(os.path.dirname(os.path.dirname(here)), "scenarios")
         armed = []
@@ -353,11 +353,14 @@ class CircularizeNodeWaitTests(unittest.TestCase):
             mp = spec.get("driver", {}).get("missionParams", {})
             if "circularizeNodeWaitWarp" in mp:
                 armed.append((name, mp["circularizeNodeWaitWarp"]))
-        self.assertEqual([("B21-eeloo-orbit.toml", True), ("B22-jool-orbit.toml", True)], armed)
+        self.assertEqual([("B19-dres-orbit.toml", True), ("B20-moho-orbit.toml", True),
+                          ("B21-eeloo-orbit.toml", True), ("B22-jool-orbit.toml", True)],
+                         armed)
 
     def test_the_hold_never_covers_a_transfer_node(self):
         """Owner ruling: a held TLI moved B13's landing site. The key adds
-        CIRCULARIZE only; MUTATION: add B5_TRANSFER_BURN to the opt-in."""
+        CIRCULARIZE only (TRANSFER-BURN has its own key, transferNodeWaitWarp);
+        MUTATION: add B5_TRANSFER_BURN to the circularize opt-in."""
         self.assertEqual((mlib.B5_CAPTURE_BURN, mlib.B5_CIRCULARIZE),
                          mlib._b5_node_wait_phases(
                              replace(B15_TRIM_PARAMS, circularize_node_wait_warp=True)))
@@ -507,6 +510,128 @@ def _park_state(**over):
     fields = {**base.__dict__, "phase": mlib.B5_PARK, "phase_entry_ut": 0.0}
     fields.update(over)
     return base.__class__(**fields)
+
+
+# A Mun -> Minmus ejection in the shape of B30's: a 100 km Mun park, the
+# transfer node 3,000 s out, 300 m/s on the 10 t / 250 kN POLICY_INPUTS stack,
+# so the half burn is 300 * 10000 / (2 * 250000) = 6 s.
+XFER_NODE_UT = 9000.0
+XFER_HALF_BURN = 300.0 * 10_000.0 / (2.0 * 250_000.0)
+XFER_TARGET = XFER_NODE_UT - XFER_HALF_BURN - mlib.NODE_WAIT_ORIENT_LEAD_SECONDS
+
+
+def _plan_transfer_state(armed=True, **over):
+    """PLAN-TRANSFER with the transfer node on board, not yet handed over."""
+    base = mlib.b5_initial_state(replace(B11_PARAMS, transfer_node_wait_warp=armed))
+    fields = {**base.__dict__, "phase": mlib.B5_PLAN_TRANSFER,
+              "phase_entry_ut": 5900.0,
+              "phases_reached": base.phases_reached + (mlib.B5_PLAN_TRANSFER,)}
+    fields.update(over)
+    return base.__class__(**fields)
+
+
+def _xfer_frame(**kw):
+    base = dict(ut=6000.0, body="Mun", situation="ORBITING", altitude=100_000.0,
+                apoapsis=101_000.0, periapsis=99_000.0, eccentricity=0.004,
+                node_count=1, node_dv=300.0, node_ut=XFER_NODE_UT,
+                atmosphere_depth=0.0, node_executor_enabled=0)
+    base.update(POLICY_INPUTS)
+    base.update(kw)
+    return snap(**base)
+
+
+def _enter_transfer(state, frame):
+    return mlib._b5_plan_phase(
+        state, frame, None, plan_action=None, burn_phase=mlib.B5_TRANSFER_BURN,
+        on_timeout_phase=None, handoff_action=Action(mlib.ACTION_MJ_EXECUTE_NODES))
+
+
+class TransferNodeWaitTests(unittest.TestCase):
+    """transferNodeWaitWarp (owner ruling 2026-11-06): the CAPTURE node-wait
+    hold, extended to the TRANSFER-BURN hand-off of an opted-in lane, rails
+    only."""
+
+    def test_the_key_arms_the_hold_on_the_transfer_handoff(self):
+        state, actions = _enter_transfer(_plan_transfer_state(), _xfer_frame())
+        self.assertEqual(mlib.B5_TRANSFER_BURN, state.phase)
+        self.assertEqual([mlib.ACTION_WARP_TO_UT], kinds(actions))
+        self.assertAlmostEqual(XFER_TARGET, actions[0].value, places=6)
+        self.assertEqual(actions[0].value, state.node_wait_ut)
+        self.assertEqual(mlib.ACTION_MJ_EXECUTE_NODES, state.node_wait_handoff)
+        self.assertIn("node-wait: nodeUt=9000.0 halfBurn=6.0 lead=120", actions[0].text)
+
+    def test_default_off_is_the_old_handoff(self):
+        """MUTATION: drop the transfer_node_wait_warp test in
+        _b5_node_wait_phases and the bare hand-off becomes a warp."""
+        state, actions = _enter_transfer(_plan_transfer_state(armed=False), _xfer_frame())
+        self.assertEqual([Action(mlib.ACTION_MJ_EXECUTE_NODES)], actions)
+        self.assertIsNone(state.node_wait_ut)
+        self.assertFalse(mlib.B5Params.__dataclass_fields__[
+            "transfer_node_wait_warp"].default)
+        self.assertEqual(mlib._B5_NODE_WAIT_PHASES, mlib._b5_node_wait_phases(B11_PARAMS))
+        self.assertEqual((mlib.B5_CAPTURE_BURN, mlib.B5_TRANSFER_BURN),
+                         mlib._b5_node_wait_phases(
+                             replace(B11_PARAMS, transfer_node_wait_warp=True)))
+
+    def test_the_spec_key_parses_and_defaults_off(self):
+        self.assertFalse(mlib.b5_params_from_dict({}).transfer_node_wait_warp)
+        self.assertTrue(mlib.b5_params_from_dict(
+            {"transferNodeWaitWarp": True}).transfer_node_wait_warp)
+
+    def test_only_b24_b29_b30_opt_in(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        scen = os.path.join(os.path.dirname(os.path.dirname(here)), "scenarios")
+        armed = []
+        for name in sorted(os.listdir(scen)):
+            if not name.endswith(".toml"):
+                continue
+            with open(os.path.join(scen, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            mp = spec.get("driver", {}).get("missionParams", {})
+            if "transferNodeWaitWarp" in mp:
+                armed.append((name, mp["transferNodeWaitWarp"]))
+        self.assertEqual([("B24-gilly-orbit.toml", True),
+                          ("B29-jool-kerbin-return.toml", True),
+                          ("B30-mun-minmus-transfer.toml", True)], armed)
+
+    def test_a_rails_illegal_orbit_declines_to_the_executor(self):
+        """Rails only: below the Mun's factor-1 limit WarpTo would physics-warp.
+        MUTATION: narrow the opt-in refusal block back to CIRCULARIZE only."""
+        state, actions = _enter_transfer(_plan_transfer_state(), _xfer_frame(
+            altitude=60_000.0, periapsis=4_000.0))
+        self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], kinds(actions))
+        self.assertIn("node-wait declined: rails-illegal", actions[0].text)
+        self.assertIsNone(state.node_wait_ut)
+
+    def test_an_engaged_or_unread_executor_is_never_warped_over(self):
+        for value in (1, -1):
+            state, actions = _enter_transfer(_plan_transfer_state(),
+                                             _xfer_frame(node_executor_enabled=value))
+            self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], kinds(actions), value)
+            self.assertIn("executor not observed idle (nodeExec=%d)" % value,
+                          actions[0].text)
+            self.assertIsNone(state.node_wait_ut)
+
+    def test_a_predicted_soi_change_clamps_the_warp(self):
+        state, actions = _enter_transfer(_plan_transfer_state(),
+                                         _xfer_frame(time_to_soi=2_000.0))
+        self.assertEqual([mlib.ACTION_WARP_TO_UT], kinds(actions))
+        self.assertAlmostEqual(6000.0 + 2000.0 - mlib.NODE_WAIT_SOI_MARGIN_SECONDS,
+                               actions[0].value, places=6)
+        self.assertIn("soi-clamped", actions[0].text)
+
+    def test_the_held_transfer_releases_to_the_executor_at_the_lead(self):
+        state, _ = _enter_transfer(_plan_transfer_state(), _xfer_frame())
+        edge = XFER_TARGET - mlib.NODE_WAIT_ARRIVAL_TOLERANCE_SECONDS
+        mid, actions = mlib.b5_decide(state, _xfer_frame(
+            ut=7000.0, warping_to=XFER_TARGET, warp_mode="RAILS", warp_rate=100.0))
+        self.assertEqual([], actions)
+        self.assertEqual(mlib.B5_TRANSFER_BURN, mid.phase)
+        done, actions = mlib.b5_decide(mid, _xfer_frame(ut=edge))
+        self.assertEqual([mlib.ACTION_MJ_EXECUTE_NODES], kinds(actions))
+        self.assertIn("released: arrived", actions[0].text)
+        self.assertIsNone(done.node_wait_ut)
+        self.assertEqual(mlib.B5_TRANSFER_BURN, done.phase)
 
 
 class ParkPhysicsDwellTests(unittest.TestCase):

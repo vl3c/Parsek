@@ -1527,6 +1527,7 @@ class KrpcMissionControl(MissionControl):
                     "REFUSING to engage the AscentAutopilot: %s"
                     % self._mj_config_refusal))
                 return
+            self._force_node_executor_autowarp("ascent engage")
             self._ascent.enabled = True
         elif kind == mlib.ACTION_MJ_REBIND_ASCENT:
             # Re-read the AscentAutopilot handle off the ACTIVE vessel: _ascent was
@@ -1553,6 +1554,7 @@ class KrpcMissionControl(MissionControl):
             # the NORMAL completed case - and ExecuteAllNodes on an empty list
             # is a server-side RPCError (first live B2 run 2026-07-20).
             if len(control.nodes) > 0:
+                self._force_node_executor_autowarp("circularization")
                 self._mechjeb.node_executor.execute_all_nodes()
         elif kind == mlib.ACTION_AP_POINT_RETROGRADE:
             # kRPC's NATIVE AutoPilot (NOT MechJeb SmartASS): point orbital
@@ -3932,6 +3934,39 @@ class KrpcMissionControl(MissionControl):
             "nodes=%d ut=%s dv=%s nextBody=%s nextPe=%s"
             % (want, len(planned or ()), _fmt(node_ut), _fmt(node_dv), next_body,
                _fmt(next_pe))))
+
+    def _force_node_executor_autowarp(self, context: str) -> None:
+        """Set MechJeb's ``node_executor.autowarp`` True and log what it was.
+
+        The flag (``Core.Node.Autowarp``) is SHARED GLOBAL MechJeb state, saved
+        to ``mechjeb_settings_global.cfg`` and so carried across lanes and KSP
+        sessions on one install. The AscentAutopilot gates both its own
+        atmospheric physics warp and the warp of its circularization coast on
+        it, so an ascent engaged with the flag left False by an earlier lane
+        flies the whole coast to apoapsis at 1x (2026-11-05 full run: B7's
+        retry and B16 each coasted ~1,250 game-s at 1x, ~20 wall-min, while
+        the same craft on attempt 1 warped). Setting it here makes the ascent's
+        warp independent of lane order. A failed read or write is logged and
+        never raised: the ascent still flies, only slower."""
+        if self._mechjeb is None:
+            return
+        try:
+            ne = self._mechjeb.node_executor
+            try:
+                before = bool(ne.autowarp)
+            except Exception:
+                before = None
+            ne.autowarp = True
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "MjConfig",
+                "node executor autowarp forced on for %s (was %s)"
+                % (context, "unread" if before is None else before)))
+        except Exception as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "MjConfig",
+                "node executor autowarp=True failed for %s (%s: %s); the "
+                "ascent's coast may run at 1x" % (context, type(exc).__name__,
+                                                  str(exc)[:120])))
 
     def _perform_land_untargeted(self, action: "mlib.Action") -> None:
         """Configure and engage MechJeb's UNTARGETED LandingAutopilot, then READ

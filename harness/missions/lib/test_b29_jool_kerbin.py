@@ -218,16 +218,19 @@ class SchemaTests(unittest.TestCase):
             os.path.basename(SCHEMA_PATH),
             os.path.basename(SHELL_PATH)[:-3] + ".schema.toml")
 
-    def test_the_schema_is_b28s_plus_exactly_one(self):
+    def test_the_schema_is_b28s_plus_two(self):
         """As authored this was 'B28's MINUS the six relay keys plus one'; the
         flight-2 re-scope restored the six (see the schema's bottom block for the
-        re-argument), so the relation is now clean superset-by-one."""
+        re-argument), so the relation is a clean superset; the transfer node-wait
+        key joined captureEllipticalApoapsisMeters on 2026-11-06."""
         mine = set(self.schema["params"])
         theirs = set(self.b28["params"])
         self.assertEqual(theirs - mine, set(),
                          "B29 now declares everything B28 does")
-        self.assertEqual(mine - theirs, {"captureEllipticalApoapsisMeters"},
-                         "B29 must add exactly one key to the shared set")
+        self.assertEqual(mine - theirs, {"captureEllipticalApoapsisMeters",
+                                         "transferNodeWaitWarp"},
+                         "B29 adds exactly these keys to the shared set (the second, "
+                         "the transfer node-wait hold, by owner ruling 2026-11-06)")
 
     def test_all_six_relay_keys_are_declared_with_b28s_shapes(self):
         """The re-scope's declarations are B28's VERBATIM - same type, same

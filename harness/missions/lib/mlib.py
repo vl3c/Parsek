@@ -2290,10 +2290,11 @@ def max_legal_rails_factor(body: str, altitude_m: float) -> int:
 #     warping on, and while it aligns it calls MinimumWarp every tick, so a
 #     second warp writer is cancelled. A vessel that never settles idles the
 #     whole 600 s. The machine therefore HOLDS the CAPTURE hand-off (and, per
-#     lane via circularizeNodeWaitWarp, the CIRCULARIZE park round-out), rails-warps
-#     itself to NODE_WAIT_ORIENT_LEAD_SECONDS before ignition, and only then
-#     engages the executor, which aligns and burns exactly as before (see
-#     _B5_NODE_WAIT_PHASES for why transfers are not held).
+#     lane, the CIRCULARIZE park round-out via circularizeNodeWaitWarp and the
+#     TRANSFER-BURN hand-off via transferNodeWaitWarp), rails-warps itself to
+#     NODE_WAIT_ORIENT_LEAD_SECONDS before ignition, and only then engages the
+#     executor, which aligns and burns exactly as before (see
+#     _B5_NODE_WAIT_PHASES for why transfers are held only per lane).
 #   - VACUUM DESCENT COASTS (rails): MechJeb's untargeted landing never warps
 #     (FinalDescent has no warp call), so the machine rails-warps the coast down
 #     to a floor above the airless body's approach altitude.
@@ -5487,6 +5488,15 @@ class B5Params:
     # burn - NODE_WAIT_ORIENT_LEAD_SECONDS first. False = every lane flown to
     # date, byte for byte. Spec key circularizeNodeWaitWarp.
     circularize_node_wait_warp: bool = False
+    # --- TRANSFER NODE WAIT (wall time; OFF by default) -----------------------
+    # The same hold for the TRANSFER-BURN hand-off (the ejection / transfer
+    # node). Off everywhere by default because a held Mun TLI ended 3.7 s
+    # earlier and moved B13's landing site; owner ruling 2026-11-06 opts in a
+    # lane at a time, rails only, each kept after a check flight shows its
+    # arrival inside the lane's gates. The hold refuses exactly as the
+    # CIRCULARIZE one does (executor not idle, spent budget, rails-illegal).
+    # Spec key transferNodeWaitWarp.
+    transfer_node_wait_warp: bool = False
     # --- APPROACH LATCH NATIVE WARP (wall time; OFF by default) ---------------
     # Once the target-SOI approach clamp has LATCHED, kRPC can stop predicting
     # the encounter for the rest of the approach (time_to_soi nan, next_body
@@ -5888,6 +5898,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         trigger_native_lead=float(params.get("triggerNativeLeadSeconds", 0.0)),
         # Circularize node-wait hold: off unless a spec arms it.
         circularize_node_wait_warp=bool(params.get("circularizeNodeWaitWarp", False)),
+        transfer_node_wait_warp=bool(params.get("transferNodeWaitWarp", False)),
         # Approach-latch native warp: off unless a spec arms it.
         approach_latch_native_warp=bool(params.get("approachLatchNativeWarp", False)),
     )
@@ -13988,15 +13999,28 @@ _B5_NODE_WAIT_PHASES = (B5_CAPTURE_BURN,)
 # round-out parks the craft for the Jool ejection, so its ap / pe / ecc and
 # the arrival downstream are the comparison. Transfer nodes stay un-held.
 _B5_CIRCULARIZE_NODE_WAIT_PHASE = B5_CIRCULARIZE
+# OPT-IN: the TRANSFER-BURN hand-off (spec key transferNodeWaitWarp, owner
+# ruling 2026-11-06: per lane, rails only, after a check flight). The executor
+# idles ~600 s at 1x there on crafts that never settle (2026-11-05 full run:
+# B24 640, B29 893, B30 ~640 wall-s of TRANSFER-BURN). The Mun TLI lesson above
+# is why it is per lane and never a default.
+_B5_TRANSFER_NODE_WAIT_PHASE = B5_TRANSFER_BURN
+# The opt-in phases, which decline on an engaged executor, a spent warp budget
+# or a rails-illegal orbit before planning (_b5_node_wait_begin).
+_B5_OPT_IN_NODE_WAIT_PHASES = (_B5_CIRCULARIZE_NODE_WAIT_PHASE,
+                               _B5_TRANSFER_NODE_WAIT_PHASE)
 
 
 def _b5_node_wait_phases(params: B5Params) -> Tuple[str, ...]:
     """The phases whose executor hand-off the node-wait hold may own:
     _B5_NODE_WAIT_PHASES, plus CIRCULARIZE when circularizeNodeWaitWarp is
-    set."""
+    set and TRANSFER-BURN when transferNodeWaitWarp is set."""
+    phases = _B5_NODE_WAIT_PHASES
     if params.circularize_node_wait_warp:
-        return _B5_NODE_WAIT_PHASES + (_B5_CIRCULARIZE_NODE_WAIT_PHASE,)
-    return _B5_NODE_WAIT_PHASES
+        phases = phases + (_B5_CIRCULARIZE_NODE_WAIT_PHASE,)
+    if params.transfer_node_wait_warp:
+        phases = phases + (_B5_TRANSFER_NODE_WAIT_PHASE,)
+    return phases
 
 
 def _b5_node_wait_begin(state: B5State, snapshot: TelemetrySnapshot,
@@ -14009,16 +14033,16 @@ def _b5_node_wait_begin(state: B5State, snapshot: TelemetrySnapshot,
     vessel mass unread the hand-off is the pre-policy action byte for byte; a
     readable refusal rides the hand-off's text so the action line names it.
 
-    The opt-in CIRCULARIZE hold refuses three more cases before planning, each
-    as a named decline: the executor not OBSERVED idle (an engaged executor
-    already owns the warp, so a machine warp would be a second writer; -1
-    unread fails closed), a spent warp budget from an earlier round-out
-    attempt in the same phase, and a rails-illegal altitude or periapsis
-    (``node_wait_rails_legal``: WarpTo would physics-warp)."""
+    The opt-in CIRCULARIZE and TRANSFER-BURN holds refuse three more cases
+    before planning, each as a named decline: the executor not OBSERVED idle
+    (an engaged executor already owns the warp, so a machine warp would be a
+    second writer; -1 unread fails closed), a spent warp budget from an
+    earlier attempt in the same phase, and a rails-illegal altitude or
+    periapsis (``node_wait_rails_legal``: WarpTo would physics-warp)."""
     if (handoff.kind != ACTION_MJ_EXECUTE_NODES or not state.params.node_wait_warp
             or state.phase not in _b5_node_wait_phases(state.params)):
         return state, [handoff]
-    if state.phase == _B5_CIRCULARIZE_NODE_WAIT_PHASE:
+    if state.phase in _B5_OPT_IN_NODE_WAIT_PHASES:
         refusal = ""
         if snapshot.node_executor_enabled != 0:
             refusal = ("executor not observed idle (nodeExec=%d)"

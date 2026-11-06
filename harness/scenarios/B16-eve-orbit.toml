@@ -478,7 +478,10 @@ parkSituations             = ["ORBITING"]
 # last 15 s; never rails), so it costs ~57 s of wall. PROVISIONAL: raise only if flight 1 shows the
 # committed recording carrying too little in-Eve-SOI coverage to be a useful
 # playback / ghost fixture.
-parkDwellSeconds           = 180
+# 60 game-s since 2026-11-06 (owner ruling, was 180; older notes in this file that say 180
+# describe the flights before then): the dwell still records a stable park under 4x physics
+# warp, about 26 wall-s instead of 57.
+parkDwellSeconds           = 60
 parkDebounceFrames         = 3
 # PARK budget (GAME seconds) = the dwell + 420 s of stabilization slack. At 1x
 # that is a 10-minute wall worst case, so the NAMED park give-ups ("never

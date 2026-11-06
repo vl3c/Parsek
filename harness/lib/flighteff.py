@@ -306,9 +306,10 @@ BY_DESIGN_POLICY: Dict[Tuple[str, str], str] = {
     ("dwell", "HOLD-ARRIVE"): _HOLD_REASON,
     ("dwell", "HOLD-PARK"): _HOLD_REASON,
     ("waiting-for-node", "TRANSFER-BURN"): (
-        "transfer node waits are not held (mlib _B5_NODE_WAIT_PHASES): a held "
-        "TLI ended 3.7 s earlier on every Mun flight, which re-timed the arrival "
-        "and moved B13's landing site"),
+        "transfer node waits are held only on a lane that opts in "
+        "(transferNodeWaitWarp, owner ruling 2026-11-06; mlib "
+        "_B5_NODE_WAIT_PHASES): a held TLI ended 3.7 s earlier on every Mun "
+        "flight, which re-timed the arrival and moved B13's landing site"),
     ("waiting-for-node", "MJ-ASCENT"): _ASCENT_REASON,
     ("coast-to-apoapsis", "MJ-ASCENT"): _ASCENT_REASON,
     # The BDOCK machine engages the same MechJeb ascent on both legs (mlib
@@ -334,10 +335,10 @@ POLICY_PHYSICS_TARGETS: Dict[Tuple[str, str], str] = {
 # seconds stay recoverable; the recommendation is flagged.
 OUTCOME_SENSITIVE: Dict[Tuple[str, str], str] = {
     ("waiting-for-node", "CIRCULARIZE"): (
-        "pending re-fly (B22): circularizeNodeWaitWarp now holds this wait on B22 "
-        "only; the park round-out's resulting orbit may move with the burn timing, "
-        "as the held TLI moved B13's landing site, so the held flight must show an "
-        "unchanged park and Jool arrival before any other lane opts in"),
+        "circularizeNodeWaitWarp holds this wait on B19-B22 only; the park "
+        "round-out's resulting orbit may move with the burn timing, as the held "
+        "TLI moved B13's landing site, so a held flight must show its park and "
+        "arrival inside the lane's gates before another lane opts in"),
 }
 
 
