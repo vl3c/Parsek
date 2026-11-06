@@ -266,6 +266,6 @@ m/s passes, 5 m/s and a phasing ghost refuse), every gate, the group builder, th
   by the first flight; the attitude is encoded against the reference's velocity and up
   directions, so a world-frame rotation cancels).
 - Build order, file map and the review findings it absorbed:
-  `docs/dev/plans/realspawn-time-jump-move-implementation.md`.
+  `docs/dev/done/plans/realspawn-time-jump-move-implementation.md`.
 - Robotics and docking-port drift on the one extra rails cycle (KSPCommunityFixes covers the
   stock bugs; noted, not designed around).
