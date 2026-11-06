@@ -20779,6 +20779,8 @@ namespace Parsek
                     SessionSuppressed = activeReFlyMarker != null
                         && SessionSuppressionState.IsSuppressedRecordingIndex(i),
                     ExternalVesselSuppressed = externalVesselSuppressed,
+                    RealVesselRelays = !externalVesselSuppressed && !rec.IsDebris
+                        && GhostPlaybackLogic.RealVesselRelaysForRecording(rec),
                     HistoricalNeverReplayed = spawnHistoricalNeverReplayed,
                     ActivationStartUT = activationStartUT,
                     EndUT = rec.EndUT,

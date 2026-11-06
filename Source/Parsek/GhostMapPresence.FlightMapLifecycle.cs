@@ -1111,7 +1111,8 @@ namespace Parsek
             if (!IsTerminalStateEligibleForMapPresence(terminal))
             {
                 ParsekLog.VerboseRateLimited("Policy", $"skip-map-terminal-{evt.Index}",
-                    $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory.VesselName}\" — terminal={terminal.Value}");
+                    $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory.VesselName}\" " +
+                    $"rec={evt.Trajectory.RecordingId ?? "(none)"} - terminal={terminal.Value}");
                 return;
             }
 

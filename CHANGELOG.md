@@ -4,6 +4,21 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Recovering a re-flown vessel no longer rewrites the flight it replaced.** After a Re-Fly, a
+  recovery only ends the new flight; the replaced one keeps its own end and is never paid a second
+  time. (RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL)
+- **A vessel no longer relays signal twice in the Tracking Station.** When a real vessel is still
+  in the world, only it relays, not also the ghost of a future flight that carries it.
+  (GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP)
+- **The Missions tab's column headings sit exactly over their columns.** The headings right of
+  the name column were drawn 1 px to the right of the values under them.
+
+---
+
 ## 1.0.0
 
 ### Changed

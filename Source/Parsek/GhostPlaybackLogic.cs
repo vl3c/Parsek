@@ -236,6 +236,24 @@ namespace Parsek
             return VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, rec.VesselPersistentId, liveGuid);
         }
 
+        /// <summary>
+        /// Ghost CommNet one-node rule (design 15.6, scenarios 13 and 15): true when a real
+        /// vessel of the recording's launch is in the world and is NOT chain-ghosted, so its
+        /// own stock node already relays for it. Unlike
+        /// <see cref="ShouldSkipExternalVesselGhost(Recording, bool)"/> there is no tree-owned
+        /// exemption: the visual ghost of a tree's own recording still draws beside the real
+        /// vessel, but a second relay node would count the vessel twice (the Tracking Station
+        /// case of a claimed vessel that was never despawned there).
+        /// </summary>
+        internal static bool RealVesselRelaysForRecording(Recording rec)
+        {
+            if (rec == null || rec.VesselPersistentId == 0)
+                return false;
+            if (IsGhostedByChain(rec.VesselPersistentId))
+                return false;
+            return RealVesselExistsForRecording(rec);
+        }
+
         // Step-2 double-suppression (Logistics route live-anchor bind): a loop member's
         // OWN in-bubble/map ghost is hidden as a live-anchor duplicate ONLY while its
         // launch-matched live vessel is loaded AND it was the LIVE docking anchor of an
