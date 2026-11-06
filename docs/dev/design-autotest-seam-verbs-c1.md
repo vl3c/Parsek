@@ -521,9 +521,11 @@ of two paths:
   BLOCKING the stock scene change (`return false`); the dialog's own button `postChoice`
   re-invokes `LoadScene` to complete the transition. This path is reachable while the
   scene is still FLIGHT.
-- **post-transition:** the deferred non-FLIGHT coroutine (`ParsekScenario.cs`, "Showing
-  deferred tree merge dialog") spawns the 1-arg `ShowTreeDialog` overload in a non-FLIGHT
-  scene, only when the pre-transition catch was missed.
+- **post-transition (RETIRED, todo GUI-D5):** the deferred non-FLIGHT coroutine that
+  spawned the 1-arg `ShowTreeDialog` overload when the pre-transition catch was missed is
+  deleted; a missed catch now auto-commits the pending tree outside flight, so the verb
+  finds no dialog and times out. The `AnyScene` gate below is kept but only the
+  pre-transition dialog is reachable.
 
 So the answerable dialog straddles FLIGHT (pre-transition) and non-FLIGHT
 (post-transition), which is why the scene gate is `AnyScene`, not `RequiresFlight` (the
