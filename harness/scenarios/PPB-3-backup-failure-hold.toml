@@ -1,7 +1,9 @@
 schema = 1
 id = "PPB-3-backup-failure-hold"
-# TIER = operator until its first green flight (PPB-1's cadence; it is the same cheap
-# one-cold-load shape, so `daily` is the likely home once measured).
+# TIER = operator. LIVE-PROVEN 2026-11-06_1331 (PASS attempt 1, 50 s, mismatches=0) on PR
+# #2393's DLL. The first flight 2026-11-06_1317 was INVALID(load-failed) on a seam gap (a
+# FLIGHT LoadGame into an inert game waited for ParsekFlight's onFlightReady), fixed in the
+# seam. PROMOTE to daily is the one open call (PPB-1's cadence, same cheap shape).
 tier = "operator"
 #
 # WHAT THIS SPEC IS FOR (todo PRE-PARSEK-BACKUP-HOLD, owner ruling 2026-11-06: "Pause

@@ -10474,10 +10474,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "split plus a seam channel. No unattended run discharges them.",
         # S4.2-refly-world-preservation DROPPED 2026-08-12 - see DROPPED_2026_08_12.
         "PPB-3-backup-failure-hold.toml":
-                                       "tier=operator: authored 2026-11-06 (todo "
-                                       "PRE-PARSEK-BACKUP-HOLD). Debts: the first flight, "
-                                       "then the operator -> daily promotion call (the "
-                                       "PPB-1 precedent).",
+                                       "tier=operator, FLOWN GREEN 2026-11-06_1331 (PASS "
+                                       "attempt 1, after a seam fix for flight-ready in an "
+                                       "inert game). Debt left: the operator -> daily "
+                                       "promotion call (the PPB-1 precedent).",
         "PPB-1-untouched-career-backup.toml":
                                        "tier=operator, now FLOWN GREEN (2026-08-29_1101, "
                                        "PASS attempt 1). Debt (i), the first flight, is "

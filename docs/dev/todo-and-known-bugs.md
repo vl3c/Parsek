@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~PRE-PARSEK-BACKUP-HOLD: a failed first-time backup was never retried, and Parsek changed the save anyway~~ [FILED 2026-11-06 from the CKAN / 1.0 review (thread "Plan publishing Parsek on CKAN"); FIXED by owner ruling 2026-11-06 ("Pause Parsek on that save")]
+## ~~PRE-PARSEK-BACKUP-HOLD: a failed first-time backup was never retried, and Parsek changed the save anyway~~ [FILED 2026-11-06 from the CKAN / 1.0 review (thread "Plan publishing Parsek on CKAN"); FIXED by owner ruling 2026-11-06 ("Pause Parsek on that save"); LIVE-PROVEN PPB-3 2026-11-06_1331]
 
 The failure path promised a retry on the next load, but that load never retried: Parsek's first
 OnSave stamps its SCENARIO node (`parsekSaveFormat`), so every later cold load read the save as
@@ -32,6 +32,7 @@ which retries the backup. One settled-scene notice per failed attempt (`HoldScre
 flight (`2026-11-06_1317`) was INVALID on a seam gap: a FLIGHT `LoadGame` into an inert game
 waited for `ParsekFlight`'s `onFlightReady`, which an inert game never subscribes. The seam now
 reads its own `onFlightReady` for an inert game (`TestCommandLoadGame.ResolveFlightReady`).
+LIVE-PROVEN: PPB-3 `2026-11-06_1331` PASS attempt 1, mismatches=0.
 
 ---
 

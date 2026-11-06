@@ -2119,7 +2119,7 @@ flight (`2026-11-06_1317`) timed out `load-flight-ready-timeout` on exactly that
 addon therefore observes `GameEvents.onFlightReady` itself (a flag reset at each FLIGHT
 load start), and `TestCommandLoadGame.ResolveFlightReady` reads that flag whenever
 `ParsekGameModeGate.IsInertForCurrentGame` holds (the backup hold or a mission game), and
-`ParsekFlight`'s per-load signal otherwise. The unpacked-vessel half is unchanged.
+`ParsekFlight`'s per-load signal otherwise. The unpacked-vessel half is unchanged. PPB-3's re-flight `2026-11-06_1331` completed both inert loads on it (PASS).
 
 **Parse** (`TestCommandLoadGame.TryParseBackupFault`) is fail-closed and case-sensitive like
 `playerLoad=`: only the lowercase literal `fail`; an empty value or any other spelling is
