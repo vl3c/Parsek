@@ -501,6 +501,15 @@ namespace Parsek.TestCommands
             return flightReadyObserved;
         }
 
+        /// <summary>
+        /// The flight-ready signal a FLIGHT load waits for. In a game Parsek is inert in (a
+        /// mission game, a save under the pre-Parsek backup hold) ParsekFlight destroys itself
+        /// before it subscribes, so the seam's own onFlightReady observation since the load
+        /// began stands in for it; every other game reads ParsekFlight's.
+        /// </summary>
+        internal static bool ResolveFlightReady(bool inertGame, bool parsekFlightReady, bool seamObservedFlightReady)
+            => inertGame ? seamObservedFlightReady : parsekFlightReady;
+
         /// <summary>The one Info line a FLIGHT load writes when its completion waited for
         /// flight readiness (frames and wall seconds after the scene settled).</summary>
         internal static string FormatFlightReadyWaitLine(int frames, double seconds, string save, string vesselName)

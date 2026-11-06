@@ -2112,6 +2112,15 @@ brand-new save, a backup folder), the fault is dropped. A load that makes no att
 in-session load, a held or inert save) drops it too. Every drop logs the Warn `Backup fault
 disarmed unused`, so an armed fault never survives into a later load.
 
+**Flight-ready in an inert game.** A held save is inert, so `ParsekFlight` destroys itself
+in `Start` before it subscribes `onFlightReady`, and the FLIGHT completion's usual signal
+(`ParsekFlight.FlightReadyObserved` on a new instance) can never come true: PPB-3's first
+flight (`2026-11-06_1317`) timed out `load-flight-ready-timeout` on exactly that. The seam
+addon therefore observes `GameEvents.onFlightReady` itself (a flag reset at each FLIGHT
+load start), and `TestCommandLoadGame.ResolveFlightReady` reads that flag whenever
+`ParsekGameModeGate.IsInertForCurrentGame` holds (the backup hold or a mission game), and
+`ParsekFlight`'s per-load signal otherwise. The unpacked-vessel half is unchanged.
+
 **Parse** (`TestCommandLoadGame.TryParseBackupFault`) is fail-closed and case-sensitive like
 `playerLoad=`: only the lowercase literal `fail`; an empty value or any other spelling is
 `REJECTED msg=backup-fault-arg-invalid`, refused in `TestCommandDispatcher.DecideDispatch`

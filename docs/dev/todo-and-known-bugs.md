@@ -28,7 +28,10 @@ down: no recording, ledger patching, stock-control blocks or toolbar button). Th
 verbatim (KSP's empty one), so the save keeps no footprint. `ParsekScenario.OnLoad` checks the hold
 before the game-mode gate. A load after a main-menu round trip clears it and runs the cold path,
 which retries the backup. One settled-scene notice per failed attempt (`HoldScreenMessage`). Unit:
-`PreParsekBackupHoldTests`. Live lane: PPB-3 (forced failure), see autotest-status.
+`PreParsekBackupHoldTests`. Live lane: PPB-3 (forced failure), see autotest-status. Its first
+flight (`2026-11-06_1317`) was INVALID on a seam gap: a FLIGHT `LoadGame` into an inert game
+waited for `ParsekFlight`'s `onFlightReady`, which an inert game never subscribes. The seam now
+reads its own `onFlightReady` for an inert game (`TestCommandLoadGame.ResolveFlightReady`).
 
 ---
 
