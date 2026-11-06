@@ -189,7 +189,7 @@ namespace Parsek.Tests
             {
                 Assert.True(kerbals.Reservations[name].IsPermanent);
                 Assert.Equal(double.PositiveInfinity, kerbals.Reservations[name].ReservedUntilUT);
-                Assert.False(kerbals.IsKerbalAvailable(name));
+                Assert.False(kerbals.IsKerbalAvailableForTesting(name));
                 Assert.Equal(KerbalReservationKind.ReservedActive, kerbals.GetReservationKind(name));
                 Assert.True(kerbals.ShouldFilterFromCrewDialog(name));
                 // A permanent loss exits the chain system: no stand-in is owed.
@@ -254,7 +254,7 @@ namespace Parsek.Tests
 
             // And with every row gone the kerbal is free again.
             Walk(module, new List<GameAction>());
-            Assert.True(module.IsKerbalAvailable("Jeb"));
+            Assert.True(module.IsKerbalAvailableForTesting("Jeb"));
             Assert.Equal(KerbalReservationKind.NotManaged, module.GetReservationKind("Jeb"));
             Assert.Equal("Jeb", module.GetActiveOccupant("Jeb"));
         }
@@ -359,7 +359,7 @@ namespace Parsek.Tests
 
             Assert.False(kerbals.Reservations["Jeb"].IsPermanent);
             Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Jeb"].ReservedUntilUT);
-            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.False(kerbals.IsKerbalAvailableForTesting("Jeb"));
         }
 
         [Fact]
@@ -677,7 +677,7 @@ namespace Parsek.Tests
             // Re-deriving from the same ledger reproduces the same verdict.
             WalkStore(kerbals);
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
-            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.False(kerbals.IsKerbalAvailableForTesting("Jeb"));
         }
 
         [Fact]
@@ -774,7 +774,7 @@ namespace Parsek.Tests
             module.PostWalk();
 
             Assert.Contains("Newbie Kerman", module.LedgerCreatedKerbals);
-            Assert.True(module.IsKerbalAvailable("Newbie Kerman"));
+            Assert.True(module.IsKerbalAvailableForTesting("Newbie Kerman"));
             Assert.False(module.IsManaged("Newbie Kerman"));
         }
 
@@ -828,7 +828,7 @@ namespace Parsek.Tests
 
             Assert.True(kerbals.Reservations.ContainsKey("Jeb"));
             Assert.False(kerbals.Reservations.ContainsKey("Val"));
-            Assert.True(kerbals.IsKerbalAvailable("Val"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Val"));
 
             // The uncut walk sees both.
             RecalculationEngine.Recalculate(actions);
@@ -858,7 +858,7 @@ namespace Parsek.Tests
             KerbalsModule.KerbalSlot jebSlot;
             Assert.False(kerbals.Slots.TryGetValue("Jeb", out jebSlot)
                 && jebSlot.OwnerPermanentlyGone);
-            Assert.True(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Jeb"));
 
             RecalculationEngine.Recalculate(actions);
 
@@ -887,7 +887,7 @@ namespace Parsek.Tests
 
             Assert.True(kerbals.Reservations.ContainsKey("Jeb"));
             Assert.False(kerbals.Reservations.ContainsKey("Ghost Kerman"));
-            Assert.True(kerbals.IsKerbalAvailable("Ghost Kerman"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Ghost Kerman"));
         }
 
         // ========================================================

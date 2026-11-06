@@ -178,7 +178,7 @@ namespace Parsek.Tests
             Assert.Equal(1, CountRows(GameActionType.KerbalRecovered));
             Assert.Equal(RecoveryUT, Kerbals.Reservations[Jeb].ReservedUntilUT);
             Assert.False(Kerbals.IsReservedNow(Jeb));
-            Assert.True(Kerbals.IsKerbalAvailable(Jeb));
+            Assert.True(Kerbals.IsKerbalAvailableForTesting(Jeb));
             Assert.False(Kerbals.ShouldFilterFromCrewDialog(Jeb));
             Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]")
                 && l.Contains("Crew reservation closed by recovery: 'Jebediah Kerman' recoveryUT=347.7 recordingId=rec-l3-tip")
@@ -221,7 +221,7 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(400.0, "rewind-test");
             Assert.False(Kerbals.IsReservedNow(Jeb));
-            Assert.True(Kerbals.IsKerbalAvailable(Jeb));
+            Assert.True(Kerbals.IsKerbalAvailableForTesting(Jeb));
         }
 
         // catches: a recovery shortening the hold of a LATER committed flight (another

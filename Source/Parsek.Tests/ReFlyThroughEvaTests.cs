@@ -703,7 +703,7 @@ namespace Parsek.Tests
                 KerbalEndStateField = KerbalEndState.Dead,
             });
 
-            SupersedeCommit.CommitSupersede(marker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(marker, provisional);
 
             var oldIds = new HashSet<string>(
                 scenario.RecordingSupersedes.Select(r => r.OldRecordingId), StringComparer.Ordinal);

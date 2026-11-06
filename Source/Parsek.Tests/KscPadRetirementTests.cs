@@ -729,7 +729,7 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(250.0, "ksc-retire-test");
             Assert.False(Kerbals.IsReservedNow(Jeb));
-            Assert.True(Kerbals.IsKerbalAvailable(Jeb));
+            Assert.True(Kerbals.IsKerbalAvailableForTesting(Jeb));
 
             Assert.Equal(rowsBefore, Ledger.Actions.Count);
             Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")

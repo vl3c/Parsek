@@ -7,7 +7,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Phase 9 of Rewind-to-Staging: guards the merge-time tombstone step in
-    /// <see cref="SupersedeCommit.CommitSupersede"/>.
+    /// <see cref="SupersedeCommit.CommitSupersedeForTesting"/>.
     ///
     /// <para>
     /// Covers the merge eligibility matrix from the subtree-walk perspective,
@@ -64,6 +64,25 @@ namespace Parsek.Tests
 
         // ---------- Fixture helpers ----------------------------------------
 
+        // The path the game runs: a Re-Fly merge commits through the merge journal, which runs
+        // the decomposed supersede helpers with its durable phases between them (todo GUI-D8:
+        // the key Re-Fly commit cells drive this rather than CommitSupersedeForTesting). The
+        // durable saves are recorded, not written.
+        private static List<string> MergeThroughJournal(ReFlySessionMarker marker, Recording provisional)
+        {
+            var checkpoints = new List<string>();
+            var prior = MergeJournalOrchestrator.DurableSaveForTesting;
+            MergeJournalOrchestrator.DurableSaveForTesting = label => checkpoints.Add(label);
+            try
+            {
+                Assert.True(MergeJournalOrchestrator.RunMerge(marker, provisional));
+            }
+            finally
+            {
+                MergeJournalOrchestrator.DurableSaveForTesting = prior;
+            }
+            return checkpoints;
+        }
         private static Recording Rec(string id, string treeId,
             string parentBranchPointId = null, string childBranchPointId = null,
             MergeState state = MergeState.Immutable,
@@ -305,7 +324,7 @@ namespace Parsek.Tests
             Ledger.AddAction(deathOrigin);
             Ledger.AddAction(deathOutside);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var tombstonedActionIds = new HashSet<string>(
                 scenario.LedgerTombstones.Select(t => t.ActionId));
@@ -331,7 +350,7 @@ namespace Parsek.Tests
             Ledger.AddAction(death);
             Ledger.AddAction(bundled);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var ids = new HashSet<string>(scenario.LedgerTombstones.Select(t => t.ActionId));
             Assert.Contains(death.ActionId, ids);
@@ -349,7 +368,7 @@ namespace Parsek.Tests
             var vesselRep = RepPenalty("rec_origin", 100.0, ReputationPenaltySource.Other);
             Ledger.AddAction(vesselRep);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(scenario.LedgerTombstones,
                 t => t.ActionId == vesselRep.ActionId);
@@ -368,7 +387,7 @@ namespace Parsek.Tests
             var complete = ContractComplete("rec_origin", 100.0);
             Ledger.AddAction(complete);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            MergeThroughJournal(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(scenario.LedgerTombstones,
                 t => t.ActionId == complete.ActionId);
@@ -391,7 +410,7 @@ namespace Parsek.Tests
             Ledger.AddAction(oldBranchComplete);
             Ledger.AddAction(unrelatedComplete);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var contractIds = LedgerOrchestrator.BuildTombstonedContractGuidsForPatch();
             Assert.NotNull(contractIds);
@@ -411,7 +430,7 @@ namespace Parsek.Tests
             var milestone = Milestone("rec_origin", 80.0);
             Ledger.AddAction(milestone);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(scenario.LedgerTombstones,
                 t => t.ActionId == milestone.ActionId);
@@ -436,7 +455,7 @@ namespace Parsek.Tests
             };
             Ledger.AddAction(rollout);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.DoesNotContain(scenario.LedgerTombstones,
                 t => t.ActionId == rollout.ActionId);
@@ -459,7 +478,7 @@ namespace Parsek.Tests
             Ledger.AddAction(oldComplete);
             Ledger.AddAction(retryComplete);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var els = EffectiveState.ComputeELS().ToList();
             Assert.DoesNotContain(els, a => a.ActionId == oldScience.ActionId);
@@ -489,7 +508,7 @@ namespace Parsek.Tests
             Ledger.AddAction(oldScience);
             Ledger.AddAction(retryScience);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(0.0, LedgerOrchestrator.Science.GetSubjectCredited("old-subject"), 3);
             Assert.Equal(10.0, LedgerOrchestrator.Science.GetSubjectCredited("retry-subject"), 3);
@@ -520,7 +539,7 @@ namespace Parsek.Tests
                 "rec_origin", 100.0, Guid.NewGuid().ToString());
             Ledger.AddAction(contract);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
@@ -555,7 +574,7 @@ namespace Parsek.Tests
             Ledger.AddAction(contract);
 
             logLines.Clear();
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(scenario.LedgerTombstones,
                 t => t.ActionId == contract.ActionId);
@@ -586,7 +605,7 @@ namespace Parsek.Tests
             var oldUnlock = ScienceSpending("rec_origin", 100.0, oldBranchTech);
             Ledger.AddAction(oldUnlock);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(scenario.LedgerTombstones,
                 t => t.ActionId == oldUnlock.ActionId);
@@ -612,7 +631,7 @@ namespace Parsek.Tests
             Ledger.AddAction(oldBranchUpgrade);
             Ledger.AddAction(unrelatedUpgrade);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var facilityIds = LedgerOrchestrator.BuildTombstonedFacilityIdsForPatch();
             Assert.NotNull(facilityIds);
@@ -639,7 +658,7 @@ namespace Parsek.Tests
             var nullDeath = KerbalDeath(null, 100.0, kerbalName: "KSCKerbal");
             Ledger.AddAction(nullDeath);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.DoesNotContain(scenario.LedgerTombstones,
                 t => t.ActionId == nullDeath.ActionId);
@@ -663,7 +682,7 @@ namespace Parsek.Tests
             Assert.Contains(elsBefore, a => a.ActionId == oldBranchRescue.ActionId);
             Assert.Contains(elsBefore, a => a.ActionId == outsideRescue.ActionId);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(scenario.LedgerTombstones,
                 t => t.ActionId == oldBranchRescue.ActionId);
@@ -734,7 +753,7 @@ namespace Parsek.Tests
                 CreatedRealTime = DateTime.UtcNow.ToString("o"),
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             // Count must still be 1 — idempotence skip.
             var matching = scenario.LedgerTombstones
@@ -768,7 +787,7 @@ namespace Parsek.Tests
             // Outside — must be ignored entirely by both counters.
             Ledger.AddAction(KerbalDeath("rec_outside", 300.0, kerbalName: "Bob"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerSwap]") &&
@@ -801,7 +820,7 @@ namespace Parsek.Tests
             Ledger.AddAction(death);
             Ledger.AddAction(penalty);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            MergeThroughJournal(scenario.ActiveReFlySessionMarker, provisional);
 
             var tombstonedIds = scenario.LedgerTombstones.Select(t => t.ActionId).ToList();
             Assert.Contains(death.ActionId, tombstonedIds);
@@ -828,8 +847,9 @@ namespace Parsek.Tests
             Ledger.AddAction(KerbalDeath("rec_origin", 1060.0, kerbalName: "Jebediah Kerman"));
             Ledger.AddAction(RepPenalty("rec_origin", 1115.0, ReputationPenaltySource.KerbalDeath));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            List<string> checkpoints = MergeThroughJournal(scenario.ActiveReFlySessionMarker, provisional);
 
+            Assert.Contains("begin", checkpoints);
             Assert.Equal(new[]
             {
                 SupersedeCommit.ReFlyUndoneMessagePrefix + "Jebediah Kerman's death",
@@ -860,7 +880,7 @@ namespace Parsek.Tests
                 CreatedRealTime = DateTime.UtcNow.ToString("o"),
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Empty(shown);
         }
@@ -874,7 +894,7 @@ namespace Parsek.Tests
                 TerminalState.Landed, supersedeTargetId: null);
             var scenario = InstallScenario(Marker("rec_not_in_store", "rec_provisional"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             // Subtree closure for a standalone origin is {origin} itself — one id,
             // but the ledger has zero matching actions. Counter line must still
@@ -892,7 +912,7 @@ namespace Parsek.Tests
             var scenario = InstallScenario(Marker("rec_not_in_store", "rec_provisional"));
             int before = scenario.TombstoneStateVersion;
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.NotEqual(before, scenario.TombstoneStateVersion);
         }
@@ -935,7 +955,7 @@ namespace Parsek.Tests
             var death = KerbalDeath("rec_tip", 100.0, kerbalName: "Magdo");
             Ledger.AddAction(death);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(scenario.LedgerTombstones, t => t.ActionId == death.ActionId);
             Assert.Contains(logLines, l =>
@@ -961,7 +981,7 @@ namespace Parsek.Tests
 
             int versionBefore = scenario.TombstoneStateVersion;
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             int versionAfter = scenario.TombstoneStateVersion;
             Assert.NotEqual(versionBefore, versionAfter);
@@ -1069,7 +1089,7 @@ namespace Parsek.Tests
             Ledger.AddAction(postRewindPayout);
             Ledger.AddAction(atRewindPayout);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var tombstoned = new HashSet<string>(
                 scenario.LedgerTombstones.Select(t => t.ActionId));
@@ -1102,7 +1122,7 @@ namespace Parsek.Tests
             var earlyPayout = FundsEarning("rec_origin", 1.0);
             Ledger.AddAction(earlyPayout);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(scenario.LedgerTombstones, t => t.ActionId == earlyPayout.ActionId);
             Assert.Contains(logLines, l =>
@@ -1126,7 +1146,7 @@ namespace Parsek.Tests
             Ledger.AddAction(death);
             Ledger.AddAction(bundledRep);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var tombstoned = new HashSet<string>(
                 scenario.LedgerTombstones.Select(t => t.ActionId));
@@ -1177,7 +1197,7 @@ namespace Parsek.Tests
             Ledger.AddAction(straddlingAboard);
             Ledger.AddAction(diedBeforeRewind);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var tombstoned = new HashSet<string>(
                 scenario.LedgerTombstones.Select(t => t.ActionId));
@@ -1224,7 +1244,7 @@ namespace Parsek.Tests
             Ledger.AddAction(oldDeath);
             Ledger.AddAction(reFlyDeath);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var tombstoned = new HashSet<string>(
                 scenario.LedgerTombstones.Select(t => t.ActionId));
@@ -1282,7 +1302,7 @@ namespace Parsek.Tests
             Ledger.AddAction(midSessionPayout);
             Ledger.AddAction(replacedTimelinePayout);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var tombstoned = new HashSet<string>(
                 scenario.LedgerTombstones.Select(t => t.ActionId));

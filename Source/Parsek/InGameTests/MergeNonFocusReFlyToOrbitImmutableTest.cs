@@ -90,7 +90,7 @@ namespace Parsek.InGameTests
                 $"provisional={provisionalId} slot={slotListIndex} " +
                 $"focusSlot={rp.FocusSlotIndex} terminal={terminal.Value}");
 
-            SupersedeCommit.CommitSupersede(marker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(marker, provisional);
 
             // The focus override must drive the classifier to
             // stableTerminalFocusSlot, closing the slot and producing

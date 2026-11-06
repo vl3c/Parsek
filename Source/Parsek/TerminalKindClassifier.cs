@@ -20,7 +20,7 @@ namespace Parsek
     /// <summary>
     /// Maps a <see cref="Recording.TerminalStateValue"/> to a coarse
     /// <see cref="TerminalKind"/>. Used by
-    /// <see cref="SupersedeCommit.CommitSupersede"/> to decide whether a
+    /// <see cref="SupersedeCommit.CommitSupersedeForTesting"/> to decide whether a
     /// re-fly provisional commits as <see cref="MergeState.Immutable"/>
     /// (Landed / stable) or <see cref="MergeState.CommittedProvisional"/>
     /// (Crashed / still re-flyable).

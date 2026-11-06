@@ -166,9 +166,9 @@ namespace Parsek.InGameTests
                 $"KerbalRecoveryOnSupersede: found {deathActionIds.Count} kerbal-death action(s) " +
                 $"covering {deadKerbalNames.Count} kerbal(s) in subtree of size {subtreeBefore.Count}");
 
-            // Simulate the merge commit. CommitSupersede runs CommitTombstones
+            // Simulate the merge commit. CommitSupersedeForTesting runs CommitTombstones
             // + CrewReservationManager.RecomputeAfterTombstones internally.
-            SupersedeCommit.CommitSupersede(marker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(marker, provisional);
 
             // Invariant 1: every death action is now tombstoned.
             var tombstonedActionIds = new HashSet<string>();

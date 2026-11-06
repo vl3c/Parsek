@@ -1151,7 +1151,7 @@ namespace Parsek
         /// outcome (design §3.1 <c>TerminalKind in {BGCrash, Crashed}</c>).
         /// Delegates to <see cref="TerminalKindClassifier.Classify"/> so both
         /// the Unfinished-Flight predicate here and the re-fly merge rule in
-        /// <see cref="SupersedeCommit.CommitSupersede"/> share the same
+        /// <see cref="SupersedeCommit.CommitSupersedeForTesting"/> share the same
         /// classifier (design §6.6 step 2).
         /// </summary>
         public static bool IsTerminalCrashed(Recording rec)

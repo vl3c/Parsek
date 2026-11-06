@@ -226,6 +226,26 @@ namespace Parsek.Tests
             yield return new object[] { GameActionType.KerbalDismissal, false, true };
         }
 
+        // The path the game runs: a Re-Fly merge commits through the merge journal, which runs
+        // the decomposed supersede helpers with its durable phases between them (todo GUI-D8:
+        // the key Re-Fly commit cells drive this rather than CommitSupersedeForTesting). The
+        // durable saves are recorded, not written.
+        private static List<string> MergeThroughJournal(ReFlySessionMarker marker, Recording provisional)
+        {
+            var checkpoints = new List<string>();
+            var prior = MergeJournalOrchestrator.DurableSaveForTesting;
+            MergeJournalOrchestrator.DurableSaveForTesting = label => checkpoints.Add(label);
+            try
+            {
+                Assert.True(MergeJournalOrchestrator.RunMerge(marker, provisional));
+            }
+            finally
+            {
+                MergeJournalOrchestrator.DurableSaveForTesting = prior;
+            }
+            return checkpoints;
+        }
+
         [Fact]
         public void RetryBlockingRecordingActionCases_CoverEveryGameActionType()
         {
@@ -402,7 +422,7 @@ namespace Parsek.Tests
                 TerminalState.Landed, supersedeTargetId: "rec_origin");
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            MergeThroughJournal(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -425,7 +445,7 @@ namespace Parsek.Tests
             provisional.PlaybackEnabled = false;
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
-            SupersedeCommit.CommitSupersede(
+            SupersedeCommit.CommitSupersedeForTesting(
                 scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
@@ -448,7 +468,7 @@ namespace Parsek.Tests
             provisional.PlaybackEnabled = true;
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
-            SupersedeCommit.CommitSupersede(
+            SupersedeCommit.CommitSupersedeForTesting(
                 scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.True(provisional.PlaybackEnabled);
@@ -464,7 +484,7 @@ namespace Parsek.Tests
                 TerminalState.Destroyed, supersedeTargetId: "rec_origin");
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            MergeThroughJournal(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -499,7 +519,7 @@ namespace Parsek.Tests
                 ChildSlots = new List<ChildSlot> { originSlot },
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            MergeThroughJournal(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -517,7 +537,7 @@ namespace Parsek.Tests
                 TerminalState.Splashed, supersedeTargetId: "rec_origin");
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
         }
@@ -562,7 +582,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            MergeThroughJournal(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -606,7 +626,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -649,7 +669,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -698,7 +718,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -746,7 +766,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             // Auto-seal fires for stableTerminalFocusSlot regardless of
@@ -798,7 +818,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -846,7 +866,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -908,7 +928,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -1506,7 +1526,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -1561,7 +1581,7 @@ namespace Parsek.Tests
                 "rec_provisional",
                 "act_funds_refly"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -1614,7 +1634,7 @@ namespace Parsek.Tests
             Assert.False(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
                 provisional, out _, out _, out _));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(scenario.RecordingSupersedes,
@@ -1673,7 +1693,7 @@ namespace Parsek.Tests
                 "rec_provisional",
                 "act_funds_refly"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -1942,7 +1962,7 @@ namespace Parsek.Tests
                 "rec_provisional",
                 "act_sci_earn"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -1990,7 +2010,7 @@ namespace Parsek.Tests
                 "rec_provisional",
                 "act_sci_spend"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -2035,7 +2055,7 @@ namespace Parsek.Tests
                 "rec_provisional",
                 "act_sci_earn"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -2084,7 +2104,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -2135,7 +2155,7 @@ namespace Parsek.Tests
                 MilestoneRepAwarded = 1.0f,
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -2194,7 +2214,7 @@ namespace Parsek.Tests
                 NominalPenalty = 2.0f,
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -2235,7 +2255,7 @@ namespace Parsek.Tests
                 }
             });
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
             // Re-Fly target reached stable Orbiting on the static focus
@@ -2275,7 +2295,7 @@ namespace Parsek.Tests
             int tombstoneCountBefore = scenario.LedgerTombstones.Count;
 
             var ex = Assert.Throws<InvalidOperationException>(() =>
-                SupersedeCommit.CommitSupersede(
+                SupersedeCommit.CommitSupersedeForTesting(
                     scenario.ActiveReFlySessionMarker, provisional));
 
             Assert.Contains("Site B-1 slot lookup failed", ex.Message);
@@ -2346,7 +2366,7 @@ namespace Parsek.Tests
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
             // Must not throw.
-            SupersedeCommit.CommitSupersede(
+            SupersedeCommit.CommitSupersedeForTesting(
                 scenario.ActiveReFlySessionMarker, provisional);
 
             // v0.9 fallback (TerminalKindClassifier.Classify(SubOrbital) ==
@@ -2478,7 +2498,7 @@ namespace Parsek.Tests
                 TerminalState.Landed, supersedeTargetId: "rec_origin");
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             var rels = scenario.RecordingSupersedes;
             Assert.Equal(3, rels.Count);
@@ -2520,7 +2540,7 @@ namespace Parsek.Tests
                 TerminalState.Landed, supersedeTargetId: "rec_origin");
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             // Only the origin is superseded; rec_inside is a mixed-parent
             // halt and must NOT be in the relation list.
@@ -2564,7 +2584,7 @@ namespace Parsek.Tests
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
             scenario.RewindPoints = rps;
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
 
@@ -2676,7 +2696,7 @@ namespace Parsek.Tests
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
             Assert.Equal("rec_origin", provisional.SupersedeTargetId);
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
             Assert.Null(provisional.SupersedeTargetId);
         }
 
@@ -2689,7 +2709,7 @@ namespace Parsek.Tests
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
             Assert.Null(scenario.ActiveReFlySessionMarker);
 
             // §10.4 End reason=merged log.
@@ -2707,7 +2727,7 @@ namespace Parsek.Tests
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
 
             int versionBefore = scenario.SupersedeStateVersion;
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
             int versionAfter = scenario.SupersedeStateVersion;
 
             Assert.NotEqual(versionBefore, versionAfter);
@@ -2730,7 +2750,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain("rec_origin", idsBefore);
             Assert.Contains("rec_outside", idsBefore);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             // After commit: origin is superseded (filtered out of ERS by
             // supersede relations), not session-suppressed. The ERS cache
@@ -2765,7 +2785,7 @@ namespace Parsek.Tests
             // (no RouteConnectionWindows / RouteOriginProof => NoRouteProofSentinel
             // on both sides) so the route would only transition if the
             // source-ref recording id drops out of ERS — which is exactly what
-            // CommitSupersede does.
+            // CommitSupersedeForTesting does.
             var rec_origin = RecordingStore.CommittedRecordings.First(r => r.RecordingId == "rec_origin");
             var sourceRef = new RouteSourceRef
             {
@@ -2796,7 +2816,7 @@ namespace Parsek.Tests
             // RouteStore.RevalidateSources or ParsekScenario.OnLoad explicitly
             // — the in-session reactivity hook inside
             // FlipMergeStateAndClearTransient must do it.
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.True(RouteStore.TryGetRoute("route-superseded-origin", out Route postCommit));
             Assert.Equal(RouteStatus.MissingSourceRecording, postCommit.Status);
@@ -2827,14 +2847,14 @@ namespace Parsek.Tests
             var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
             var marker = scenario.ActiveReFlySessionMarker;
 
-            SupersedeCommit.CommitSupersede(marker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(marker, provisional);
             int firstCount = scenario.RecordingSupersedes.Count;
 
             // Reset the marker and call again with the same provisional. Commit
             // must be a no-op for the relations that already exist (defensive
             // idempotence per Phase 8 scope).
             scenario.ActiveReFlySessionMarker = marker;
-            SupersedeCommit.CommitSupersede(marker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(marker, provisional);
             int secondCount = scenario.RecordingSupersedes.Count;
 
             Assert.Equal(firstCount, secondCount);
@@ -2885,7 +2905,7 @@ namespace Parsek.Tests
             InstallScenario(marker: null);
 
             // Direct call with null marker → safe no-op + warn.
-            SupersedeCommit.CommitSupersede(null, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(null, provisional);
 
             Assert.Equal(MergeState.NotCommitted, provisional.MergeState);
             Assert.Contains(logLines, l =>
@@ -2898,7 +2918,7 @@ namespace Parsek.Tests
             InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
             InstallScenario(Marker("rec_origin", "rec_provisional"));
 
-            SupersedeCommit.CommitSupersede(
+            SupersedeCommit.CommitSupersedeForTesting(
                 ParsekScenario.Instance.ActiveReFlySessionMarker, null);
 
             Assert.Contains(logLines, l =>
@@ -3041,7 +3061,7 @@ namespace Parsek.Tests
                 TerminalState.Landed, supersedeTargetId: "rec_head");
             var scenario = InstallScenario(Marker("rec_head", "rec_provisional"));
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             // Both chain segments must have a supersede row pointing at the
             // provisional. Neither row should be missed and the TIP must not
@@ -3248,7 +3268,7 @@ namespace Parsek.Tests
 
         /// <summary>
         /// 3-arg AppendRelations overload (the existing entry point used by
-        /// CommitSupersede + MergeJournalOrchestrator) is unchanged: passes
+        /// CommitSupersedeForTesting + MergeJournalOrchestrator) is unchanged: passes
         /// extraSelfSkipRecordingIds=null and behaves exactly like before.
         /// Pin this so the journaled merge path is not silently affected.
         /// </summary>
@@ -3389,7 +3409,7 @@ namespace Parsek.Tests
         // Fix: `EnqueueDebrisChildren` closure inclusion stays as-is (so
         // PR #858 render carve-out + PR #860 watch/map-presence scoping keep
         // their behavior during active sessions), but `AppendRelations` now
-        // filters its write-set by `IsPreRewindDebris(rec, marker)` and
+        // filters its write-set by `IsPreRewindDebrisForTesting(rec, marker)` and
         // returns the filtered subtree so `CommitTombstones` restricts
         // ledger tombstone scope to the same set.
 
@@ -3736,7 +3756,7 @@ namespace Parsek.Tests
         public void AppendRelations_BothCutoffsUnset_NoFilteringApplied()
         {
             // No usable cutoff: ComputePreRewindCutoff returns NaN and
-            // IsPreRewindDebris fails open. Pre-fix behavior (every debris
+            // IsPreRewindDebrisForTesting fails open. Pre-fix behavior (every debris
             // gets a row) is preserved so a half-populated marker doesn't
             // silently hide debris.
             var (scenario, subtree) = RunAppendForDebrisFixture(
@@ -3823,7 +3843,7 @@ namespace Parsek.Tests
             // no v12 ownership link. The closure walk's
             // EnqueueDebrisChildren refuses to admit such rows in the first
             // place, but if some other path put it in the closure, the
-            // IsPreRewindDebris gate keeps its defensive parent-required
+            // IsPreRewindDebrisForTesting gate keeps its defensive parent-required
             // guard so it follows the unfiltered legacy path.
             var marker = new ReFlySessionMarker
             {
@@ -3838,7 +3858,7 @@ namespace Parsek.Tests
                 // ParentAnchorRecordingId intentionally null
                 ExplicitStartUT = 10.0,
             };
-            Assert.False(SupersedeCommit.IsPreRewindDebris(legacyDebris, marker));
+            Assert.False(SupersedeCommit.IsPreRewindDebrisForTesting(legacyDebris, marker));
         }
 
         [Fact]
@@ -3857,9 +3877,9 @@ namespace Parsek.Tests
                 ExplicitStartUT = 10.0,
             };
 
-            Assert.False(SupersedeCommit.IsPreRewindDebris(null, marker));
-            Assert.False(SupersedeCommit.IsPreRewindDebris(rec, null));
-            Assert.False(SupersedeCommit.IsPreRewindDebris(null, null));
+            Assert.False(SupersedeCommit.IsPreRewindDebrisForTesting(null, marker));
+            Assert.False(SupersedeCommit.IsPreRewindDebrisForTesting(rec, null));
+            Assert.False(SupersedeCommit.IsPreRewindDebrisForTesting(null, null));
         }
 
         [Theory]
@@ -3906,7 +3926,7 @@ namespace Parsek.Tests
         {
             // The user-visible secondary effect: AppendRelations's return
             // value flows directly into CommitTombstones as the subtree set
-            // (see CommitSupersede.cs:96 / MergeJournalOrchestrator.cs:208).
+            // (see CommitSupersedeForTesting.cs:96 / MergeJournalOrchestrator.cs:208).
             // TombstoneAttributionHelper.InSupersedeScope checks
             // action.RecordingId membership in that set, so any ledger
             // action attributed to a pre-rewind debris will be left alone
@@ -3947,7 +3967,7 @@ namespace Parsek.Tests
         }
 
         // ---------- IsPreRewindCarveOut (Task A3) --------------------------
-        // Generalizes the IsPreRewindDebris predicate to also carve out the
+        // Generalizes the IsPreRewindDebrisForTesting predicate to also carve out the
         // post-split chain HEAD a future Task-A4 SplitOriginAtRewindUT
         // orchestrator will produce. The new chain-head case is dormant
         // today (no caller manufactures HEAD with EndUT == rewindUT until
@@ -4851,7 +4871,7 @@ namespace Parsek.Tests
                 ExplicitEndUT = 28.0,
             };
             StampActualBounds(debris, 22.0, 28.0);
-            Assert.True(SupersedeCommit.IsPreRewindDebris(debris, marker));
+            Assert.True(SupersedeCommit.IsPreRewindDebrisForTesting(debris, marker));
 
             var head = new Recording
             {
@@ -4868,7 +4888,7 @@ namespace Parsek.Tests
             // but the wrapper is debris-only and must return false.
             Assert.True(SupersedeCommit.IsPreRewindCarveOut(head, marker, out var reason));
             Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead, reason);
-            Assert.False(SupersedeCommit.IsPreRewindDebris(head, marker));
+            Assert.False(SupersedeCommit.IsPreRewindDebrisForTesting(head, marker));
         }
 
         // ---------- MergeWouldRetireNothing on the leaving-flight dialog's live tree ----

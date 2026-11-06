@@ -3178,7 +3178,24 @@ it. The per-interval model (`ExcludedIntervalKeys`) replaced it.
 synthetic recordings, a look at whether any committed fixture carries the key) rather than
 a grep-and-delete.
 
-## GUI-D8-LEGACY-SURFACES-KEPT-ALIVE-BY-TESTS: cleanup candidates, listed [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-D8-LEGACY-SURFACES-KEPT-ALIVE-BY-TESTS: cleanup candidates, listed~~ [FILED 2026-09-11 by the GUI fix batch; DONE 2026-11-06, owner ruling: allowed, named *ForTesting]
+
+**Done 2026-11-06 (owner ruling V, thread "Decide the five cleanup leftovers"): a test-only seam
+may exist, and its name ends in `ForTesting`** so a grep tells it from game code (the existing
+convention). Renamed: `SupersedeCommit.CommitSupersedeForTesting`,
+`SupersedeCommit.IsPreRewindDebrisForTesting`, `KerbalsModule.IsKerbalAvailableForTesting`, each
+with a doc line naming the path the game runs instead. `ComputeTombstoneRewindCutoffUT` has
+production callers now (the retire set, `ReFlyMergeDominance`), so it is not test-only and keeps
+its name; `FinalizeAutomaticExitForTesting` already conformed. And, per V, the key Re-Fly commit
+cells now drive the real path, `MergeJournalOrchestrator.RunMerge` (durable saves recorded by
+the `DurableSaveForTesting` hook, not written), so they also prove the journal's phase order:
+`SupersedeCommitTests.LandedTerminal_ProducesImmutable`, `CrashedTerminal_ProducesCommittedProvisional`,
+`CrashedTerminal_WithRpSlot_StaysOpenAndDoesNotSeal`, `LandedTerminal_WithRpSlot_AutoSealsViaFocusOverride`,
+and `SupersedeCommitTombstoneTests.CommitTombstones_KerbalDeathAndItsRepPenalty_BothTombstoned`,
+`CommitTombstones_SupersededSubtreeContract_Tombstoned`,
+`CommitTombstones_RetiredDeath_ShowsOneUndoneMessage`. The remaining cells (and the in-game
+merge tests) keep `CommitSupersedeForTesting`.
+
 
 Production-dead symbols whose only callers are tests, so those tests prove something the
 product does not run. Each is safe where it stands; the entry exists so the set is known

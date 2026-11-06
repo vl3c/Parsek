@@ -11,7 +11,7 @@ namespace Parsek.InGameTests
     /// a contract row is a sealing row, so a Re-Fly is never offered for a flight that
     /// accepted, completed, failed or cancelled a contract after its separation, and the
     /// broad contract tombstone the older form of this cell asserted is unreachable. The
-    /// older form also drove the legacy <c>SupersedeCommit.CommitSupersede</c>, which has no
+    /// older form also drove the legacy <c>SupersedeCommit.CommitSupersedeForTesting</c>, which has no
     /// production caller, and skipped on every host because the state it looked for cannot
     /// exist. Runs in FLIGHT during a live session (RF-6, RF-12*), skips without one.
     ///

@@ -165,7 +165,7 @@ namespace Parsek.Tests
             Assert.True(KerbalsModule.IsRespawnPendingHold(r));
             Assert.True(KerbalsModule.IsLossHold(r));
             Assert.True(kerbals.IsReservedNow(Jeb), "not held at clock " + clock);
-            Assert.False(kerbals.IsKerbalAvailable(Jeb));
+            Assert.False(kerbals.IsKerbalAvailableForTesting(Jeb));
             Assert.True(kerbals.ShouldFilterFromCrewDialog(Jeb));
             // Stock leaves a dead / missing kerbal unreplaced: no stand-in slot is demanded.
             Assert.False(kerbals.Slots.ContainsKey(Jeb), "stand-in slot created at clock " + clock);
@@ -175,7 +175,7 @@ namespace Parsek.Tests
         {
             Assert.True(kerbals.Reservations.ContainsKey(Jeb));
             Assert.False(kerbals.IsReservedNow(Jeb), "still held at clock " + clock);
-            Assert.True(kerbals.IsKerbalAvailable(Jeb), "not available at clock " + clock);
+            Assert.True(kerbals.IsKerbalAvailableForTesting(Jeb), "not available at clock " + clock);
             Assert.False(kerbals.ShouldFilterFromCrewDialog(Jeb));
             Assert.Equal(KerbalReservationKind.NotManaged, kerbals.GetReservationKind(Jeb));
         }
@@ -466,7 +466,7 @@ namespace Parsek.Tests
             Assert.True(r.LossAtWalkClock, "walk did not record the loss at clock " + clock);
             Assert.True(KerbalsModule.IsLossHold(r));
             Assert.True(kerbals.IsReservedNow(Jeb));
-            Assert.False(kerbals.IsKerbalAvailable(Jeb));
+            Assert.False(kerbals.IsKerbalAvailableForTesting(Jeb));
             Assert.False(kerbals.Slots.ContainsKey(Jeb), "stand-in slot created at clock " + clock);
             Assert.Equal(KerbalsPresentation.RosterStatus.Lost,
                 KerbalsPresentation.ClassifyStatus(Jeb, false, false, r, null, null));
@@ -742,7 +742,7 @@ namespace Parsek.Tests
                 Assert.Equal(DeathUT + 1000.0, r.DeathRespawnUT);
                 Assert.True(KerbalsModule.IsRespawnPendingHold(r));
                 Assert.True(kerbals.IsReservedNow(Jeb));
-                Assert.False(kerbals.IsKerbalAvailable(Jeb));
+                Assert.False(kerbals.IsKerbalAvailableForTesting(Jeb));
                 // The per-recording commit recalc that ran while only the launch
                 // recording was filed may have left a slot behind (slots persist across
                 // walks); the respawn-pending hold must leave it with no active stand-in.
@@ -787,7 +787,7 @@ namespace Parsek.Tests
 
             KerbalsModule after = Walk(DeathUT + 50.0);
             Assert.False(after.IsReservedNow(Jeb));
-            Assert.True(after.IsKerbalAvailable(Jeb));
+            Assert.True(after.IsKerbalAvailableForTesting(Jeb));
         }
 
         // catches: the handoff close freeing a kerbal who is still aboard the live,

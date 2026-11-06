@@ -213,7 +213,7 @@ namespace Parsek.Tests
             var converted = ConversionRows();
             Assert.Equal(4, converted.Count);
 
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(scenario.LedgerTombstones, t => t.ActionId == complete.ActionId);
             foreach (var row in converted)

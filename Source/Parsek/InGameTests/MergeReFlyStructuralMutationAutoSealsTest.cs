@@ -103,7 +103,7 @@ namespace Parsek.InGameTests
                 $"terminal={(terminal.HasValue ? terminal.Value.ToString() : "<none>")} " +
                 $"structural={detail}");
 
-            SupersedeCommit.CommitSupersede(marker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(marker, provisional);
 
             InGameAssert.AreEqual(MergeState.Immutable, provisional.MergeState,
                 $"Provisional (slot tip) MergeState should be Immutable (slot closed); got {provisional.MergeState}");

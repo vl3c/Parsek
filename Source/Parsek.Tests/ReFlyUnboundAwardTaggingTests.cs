@@ -369,7 +369,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(provisional);
 
             LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
-            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Contains(scenario.LedgerTombstones, t => t.ActionId == originBand.ActionId);
             var paidBands = EffectiveState.ComputeELS()
