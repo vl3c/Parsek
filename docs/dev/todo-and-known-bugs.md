@@ -17,6 +17,27 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~MJ-ASCENT-AUTOWARP-LEFT-OFF: a MechJeb ascent flown after a lane that left the node executor's autowarp off coasts to apoapsis at 1x~~ [FILED 2026-11-06 from the 2026-11-05 full run (B7 `2026-11-05_0240_a2`, B16 `2026-11-06_0613`; both green, about 20 wall-min each lost); FIXED 2026-11-06, branch `claude/project-thread-cmhs13`; Python unit tests, check flight owed; test harness, medium (run time only, no Parsek defect)]
+
+**Symptom.** B7's first attempt (`2026-11-05_0205`) warped its circularization coast; its retry
+(`_0240_a2`, flown after BDOCK-1) coasted about 1,440 game-s to apoapsis at 1x. B11, the run's
+first MechJeb lane, flew its ascent at 1x too, and B16 (`2026-11-06_0613`) did the same, while
+the lanes flown after a transfer burn warped. MechJeb's `Core.Node.Autowarp` is GLOBAL state
+saved in `GameData/MechJeb2/Plugins/PluginData/MechJeb2/mechjeb_settings_global.cfg`; the
+ascent autopilot gates its own physics warp and its circularization-coast warp on it, and the
+runner set it only in `ACTION_MJ_EXECUTE_NODES` (transfers), so an ascent read whatever the last
+lane left (the BDOCK rendezvous hold turns it off for a held node and back on at the next 1x
+frame, so a lane that ends inside a hold leaves it off). Which lane cleared it in this run was not
+pinned down; the fix does not depend on it.
+
+**Fix.** `KrpcMissionControl._force_node_executor_autowarp` sets `node_executor.autowarp = True`
+before `ACTION_MJ_ENGAGE_ASCENT` enables the ascent and before `ACTION_MJ_EXECUTE_CIRCULARIZATION`
+executes the node, logging `[MjConfig] node executor autowarp forced on for <context> (was <v>)`;
+a failed write logs a `[Warn]` and the ascent still engages. A refused engage (autostage limit)
+and a circularization with no node touch nothing. Burns are unchanged (the executor's own 1x
+align-and-burn). Tests: `harness/missions/lib/test_ascent_autowarp.py`. Owed: one check flight
+(B16 or B7) showing the `(was False)` line and a warped coast.
+
 ## ~~FLAG-EVENT-PAST-RECORDING-END: a flag pick-up recorded in the last frame before boarding is never replayed~~ [FILED 2026-11-05 from the pre-cut full run (FLG-1 `2026-11-05_0422`, PARSEK-FAIL logContracts: no `Flag pick-up replayed`, main 02d71afd1); FIXED 2026-11-05, branch `fix-flag-pickup-past-end` (#2384); xUnit; LIVE-PROVEN FLG-1 `2026-11-05_1632` PASS attempt 1 on main ee2e7da8a (the timeline-end walk fired: `Flag events at timeline end` then `Flag pick-up replayed`); product, low (a picked-up flag stands again after a rewind, timing dependent)]
 
 **Symptom.** FLG-1's kerbal picks the flag up and boards before the next 0.2 s sample, so the
