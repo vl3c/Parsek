@@ -821,6 +821,12 @@ namespace Parsek.TestCommands
                             Arg(parsed, TestCommandLoadGame.PlayerLoadKey), out _))
                         return DispatchResult.Reject(
                             TestCommandLoadGame.PlayerLoadArgInvalidReason);
+                    // backupFault= (pre-Parsek backup hold): the same fail-closed spelling
+                    // check, before the state terms. It relaxes no guard.
+                    if (!TestCommandLoadGame.TryParseBackupFault(
+                            Arg(parsed, TestCommandLoadGame.BackupFaultKey), out _))
+                        return DispatchResult.Reject(
+                            TestCommandLoadGame.BackupFaultArgInvalidReason);
                     if (state.Recording
                         && !(allowLiveRecorderReFly && state.ActiveReFlyMarker))
                         return DispatchResult.Reject("recording-active");

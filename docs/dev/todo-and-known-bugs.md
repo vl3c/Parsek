@@ -17,6 +17,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~PRE-PARSEK-BACKUP-HOLD: a failed first-time backup was never retried, and Parsek changed the save anyway~~ [FILED 2026-11-06 from the CKAN / 1.0 review (thread "Plan publishing Parsek on CKAN"); FIXED by owner ruling 2026-11-06 ("Pause Parsek on that save")]
+
+The failure path promised a retry on the next load, but that load never retried: Parsek's first
+OnSave stamps its SCENARIO node (`parsekSaveFormat`), so every later cold load read the save as
+`already-parsek-footprint` and skipped. Meanwhile Parsek ran normally in the unprotected save.
+Fix: a failed attempt (or one that throws) arms `PreParsekBackup`'s hold on that save folder, and
+`ParsekGameModeGate` treats a held save like an inert game mode (every gated entry point stands
+down: no recording, ledger patching, stock-control blocks or toolbar button). The node is saved back
+verbatim (KSP's empty one), so the save keeps no footprint. `ParsekScenario.OnLoad` checks the hold
+before the game-mode gate. A load after a main-menu round trip clears it and runs the cold path,
+which retries the backup. One settled-scene notice per failed attempt (`HoldScreenMessage`). Unit:
+`PreParsekBackupHoldTests`. Live lane: PPB-3 (forced failure), see autotest-status.
+
+---
+
 ## ~~CS5-DRY-LANDING-NO-SPLASHDOWN-AWARD: CS-5 required the splashdown milestone the mission does not guarantee~~ [FILED 2026-11-06 from the resumed pre-cut run (CS-5 `2026-11-06_0202`, PARSEK-FAIL logContracts, main 8a6c409af); harness spec flake, no product defect; re-pinned 2026-11-06, branch `cs5-landed-or-splashed`]
 
 The return came down on land (`recover pressed ... situation=LANDED`), which the mission accepts

@@ -638,6 +638,11 @@ the updates below record how each verb arrived.
 > changes. New refusal `player-load-arg-invalid`. Contract below
 > (`#### LoadGame playerLoad=true`).
 
+> Update (`LoadGame backupFault=fail`, 2026-11-06): no new verb. `LoadGame` gains an OPTIONAL
+> `backupFault=fail` that arms a one-shot fault for the next first-time pre-Parsek backup, so
+> the PPB-3 lane can drive the backup hold (todo PRE-PARSEK-BACKUP-HOLD) without a full disk.
+> New refusal `backup-fault-arg-invalid`. Contract below (`#### LoadGame backupFault=fail`).
+
 > Update (CycleVessel, 2026-10-22): one ADDITIVE verb, taking the table to **54 implemented / 4
 > reserved**, to live-prove GC-4 (PR #2156: inside physics range a ghost map marker is a LOADED
 > vessel, and stock's `[` / `]` vessel cycle switched to it with `ForceSetActiveVessel`).
@@ -2090,6 +2095,32 @@ deterministic); `LoadGamePlayerLoadSourceSyncTests` keeps the key, value and rea
 to the C# and pins the applier's single guarded fire after the load and before every scene
 request. `TestCommandLoadGameTests` pins the parse, `TestCommandDispatchTests` the refusal
 order and that the valid value relaxes no guard.
+
+#### LoadGame backupFault=fail
+
+**Contract.** `LoadGame` gains one more optional argument. ABSENT is the old contract
+verbatim. PRESENT and equal to the literal `fail`, the applier calls
+`PreParsekBackup.ArmAutomationFaultForNextAttempt` before the `loadgame start` line (logged
+`Backup fault armed by the automation seam (LoadGame backupFault=fail): the next backup
+attempt fails`). The next call of `PreParsekBackup.MaybeBackupOnFirstColdContact` consumes
+the fault whatever it decides. When that load needs a backup, `PerformBackup` creates its
+staging directory and then throws an `IOException` inside its own try, so the real failure
+path runs: staging cleaned, the `FAILED to back up` Error, the backup hold armed. When the
+load needs no backup (a footprint, a brand-new save, a backup folder), the fault is dropped
+with the Warn `Backup fault disarmed unused`, so an armed fault never survives into a later
+load.
+
+**Parse** (`TestCommandLoadGame.TryParseBackupFault`) is fail-closed and case-sensitive like
+`playerLoad=`: only the lowercase literal `fail`; an empty value or any other spelling is
+`REJECTED msg=backup-fault-arg-invalid`, refused in `TestCommandDispatcher.DecideDispatch`
+after the `playerLoad=` term and before the recorder and load-in-flight terms.
+
+**Mirrors and coverage.** `hlib.LOADGAME_BACKUP_FAULT_KEY` / `_VALUES` in
+`VERB_SCOPED_CLOSED_ARGS`, a `backup-fault-arg-invalid` row in the refusal class map
+(driver-arg, deterministic); `LoadGameBackupFaultSourceSyncTests` keeps the key, value and
+reason byte-equal to the C#. `TestCommandLoadGameTests` pins the parse,
+`TestCommandDispatchTests` the refusal. The only spec that passes it is
+`PPB-3-backup-failure-hold`. Automation-only: nothing in a player build arms the fault.
 
 #### S4.4 - `RecordingState awaitRecorderLive=refly` (a named-condition wait)
 
@@ -5370,7 +5401,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
 | `RecordingState` | any scene (read-only); with the optional `awaitRecorderLive=refly`, Defer `refly-recorder-not-live` until a recorder AND a re-fly session marker are live (S4.4; a bad value Rejects `await-recorder-live-arg-invalid`) | snapshot recorder/tree state (reuses `RecorderStateLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; with `isolated=true` (R5) the `*IncludingFlightRestore` variant instead, which also admits `RestoreBatchFlightBaselineAfterExecution` tests and restores a flight baseline after each. An `isolated` value other than the exact lowercase `true`/`false` is REJECTED `isolated-arg-invalid` (fail-closed: a silent fallback would run the ordinary filter and print an all-skipped tally that reads like a Parsek defect). Response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
-| `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`, unless `allowLiveRecorder=refly` is passed AND a re-fly session marker is live - RF-3/A1) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null`, Parsek's `onFlightReady` observed by the NEW scene's `ParsekFlight` and the active vessel unpacked -> journal `EXECUTED` + terminal `OK` (the waited frames / seconds logged as `loadgame flight-ready wait:`); a FLIGHT scene that does not become flight-ready and unpacked within 60 s (`TestCommandLoadGame.FlightReadyWaitMaxSeconds`) or the load budget -> `ERROR msg=load-flight-ready-timeout`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save`, `allowLiveRecorder`, `focusPid`, `playerLoad` |
+| `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`, unless `allowLiveRecorder=refly` is passed AND a re-fly session marker is live - RF-3/A1) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null`, Parsek's `onFlightReady` observed by the NEW scene's `ParsekFlight` and the active vessel unpacked -> journal `EXECUTED` + terminal `OK` (the waited frames / seconds logged as `loadgame flight-ready wait:`); a FLIGHT scene that does not become flight-ready and unpacked within 60 s (`TestCommandLoadGame.FlightReadyWaitMaxSeconds`) or the load budget -> `ERROR msg=load-flight-ready-timeout`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save`, `allowLiveRecorder`, `focusPid`, `playerLoad`, `backupFault` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
 | `CaptureScreenshot` | any scene (the `ExportRenderManifest` row; the safe-point gate already excludes LOADING / a transition / the settle window, which is when a capture would photograph a black frame) | pre-delete a colliding target, then the reflectively-resolved `UnityEngine.ScreenCapture.CaptureScreenshot(<KSP root>/Screenshots/<label>.png, superSize)`; TWO-PHASE, holding the head until the file reports the same non-zero size on two consecutive polls | `label`, `path` (relative), `bytes` (settled), `superSize`, `overwrote` |
 | `UiAction` | game loaded, any scene that HOSTS the Parsek UI (FLIGHT / SPACECENTER); a scene with no host is `REJECTED ui-host-unavailable`, never a defer | per `op`: write a window's `IsOpen`, write a tab selector, `ParsekUI.SetUiComplexityMode` + the production `Update` latch, write a window rect (CLAMPED to that window's own resize floor), walk the window table read-only, move the OS cursor (`user32!SetCursorPos` after `ClientToScreen`), capture one in-memory GUI tree and locate a control by text, drive a window's set-of-expanded-keys, call `StructureListWindowUI.OpenForMission`, open `GroupPickerUI` / the Logistics link picker the way a row's button does, or report the live `PopupDialog`. Every op read-back-verified - and every op that changes drawn state TWO-PHASE, holding the head for one DRAWN frame (or, for `find`, for one CAPTURE) so the read-back describes what the game did rather than the value just written | per op: `op window open already` / `op window tab index already` / `op mode already` / `op window rect clamped minW minH` / the describe inventory (`scene complexity count` + seven keys per window) / `op x y park sx sy via` / `op window text ctrl match matches x y w h cx cy` / `op window key state changed expanded total` / `op window target id title steps open` / `op window picker target open` / `op open count name title buttons nbuttons` |

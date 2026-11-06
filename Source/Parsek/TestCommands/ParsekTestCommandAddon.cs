@@ -2196,6 +2196,19 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // backupFault= (pre-Parsek backup hold). Re-parsed for the bool like playerLoad=;
+            // armed only once every refusal above has passed, so a refused load arms nothing.
+            string backupFaultArg = ArgOrNull(cmd, TestCommandLoadGame.BackupFaultKey);
+            if (!TestCommandLoadGame.TryParseBackupFault(backupFaultArg, out bool armBackupFault))
+            {
+                ParsekLog.Warn(Tag,
+                    $"loadgame rejected reason={TestCommandLoadGame.BackupFaultArgInvalidReason} backupFault={backupFaultArg}");
+                SetExecResult("REJECTED", null, TestCommandLoadGame.BackupFaultArgInvalidReason);
+                return;
+            }
+            if (armBackupFault)
+                PreParsekBackup.ArmAutomationFaultForNextAttempt("LoadGame backupFault=fail");
+
             // THE ADMIT SIDE OF RF-3/A1 IS LOGGED HERE, and it has to be: the refusal Warns
             // with its reason, but a load that was ADMITTED past the recording-active guard
             // used to be indistinguishable in KSP.log from a load taken with no recorder at

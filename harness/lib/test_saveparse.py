@@ -914,6 +914,8 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `lib/test_preparsek_fixtures.py`, which re-runs the derivation over the
         # committed bases and asserts byte-identity.
         "preparsek-untouched-career": True,
+        # PPB-3's own copy of the untouched career (same derivation, own leaf).
+        "preparsek-hold-career": True,
         "preparsek-brandnew-career": False,
         "gloops-airshow": True,
         # gloops-airshow-hard is gloops-airshow byte for byte except the preset label

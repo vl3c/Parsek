@@ -1,0 +1,102 @@
+schema = 1
+id = "PPB-3-backup-failure-hold"
+# TIER = operator until its first green flight (PPB-1's cadence; it is the same cheap
+# one-cold-load shape, so `daily` is the likely home once measured).
+tier = "operator"
+#
+# WHAT THIS SPEC IS FOR (todo PRE-PARSEK-BACKUP-HOLD, owner ruling 2026-11-06: "Pause
+# Parsek on that save"). When the first-time pre-Parsek backup of an existing career
+# FAILS, Parsek must change nothing in that save: the backup hold keeps it inert through
+# ParsekGameModeGate, and its SCENARIO node is saved back as KSP's empty one, so the save
+# keeps no Parsek footprint and the next load from the main menu really retries. Before
+# the fix the failure path promised a retry, but Parsek's first OnSave stamped the node
+# and every later load skipped as `already-parsek-footprint`.
+#
+# THE FAULT. `LoadGame backupFault=fail` arms a ONE-SHOT fault the next backup attempt
+# consumes inside PreParsekBackup.PerformBackup's own try, so the real failure path runs
+# (staging cleaned, `FAILED to back up` Error) exactly as a full disk would drive it.
+#
+# THE FIXTURE `preparsek-hold-career` is PPB-1's untouched career under its own leaf (same
+# derivation in tools/build_preparsek_fixtures.py, only the Title differs): a
+# footprint-free career with real progress and one focusable PRELAUNCH craft, so the
+# FLIGHT route boots ParsekScenario and the cold OnLoad reaches the backup (see PPB-1's
+# driver note for why the inert node must stay). No shared craft is declared: the fault
+# fires before the craft copy.
+#
+# WHAT IT CANNOT DRIVE: the retry itself needs a main-menu round trip, and the seam has no
+# verb for one. The retry wiring is pinned headless by PreParsekBackupHoldTests (the hold
+# check runs before the game-mode gate; a fresh load clears the hold and reaches the
+# backup). This lane proves the half a player would lose data on: a held save stays
+# untouched across a save and an in-session reload.
+description = "Force the first-time pre-Parsek backup to fail: Parsek must hold the save inert, write no Parsek data into it, and stay held across a save and an in-session reload."
+instanceProfile = "stock-minimal"
+tags = ["backup", "career", "PPB", "PPB-3", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/preparsek-hold-career"
+# Nothing may be injected: a `Parsek/` directory alone is a footprint and would skip the
+# backup this spec needs to fail.
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# 1. The cold load with the fault armed: the backup fails, the hold is armed, OnLoad
+#    stops before Parsek's first read of its own files.
+# 2. A save: the held OnSave writes the loaded node back (0 entries), never Parsek's
+#    normal save.
+# 3. An in-session reload of the same save: not a fresh load from the main menu, so the
+#    hold stays and OnLoad stays inert (no retry, no `Backup hold cleared`).
+# 4. FlushAndQuit saves once more through the same held path.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", backupFault = "fail" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                                          expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },                      expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+D16 = ["pre-parsek-backup"]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# EXACT ZERO: a held save records nothing, and nothing was injected.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# 1. The attempt ran on the fixture and the seam's fault, not a real disk fault, failed it.
+# 2. The hold is armed for this save and the gate reports it (once per scene).
+# 3. OnLoad stashed the node on BOTH loads (the failed cold one and the in-session reload),
+#    and every save wrote it back with 0 entries.
+# Forbidden: a published backup (the fault did not fire), Parsek's normal save (the hold
+# leaked), a cleared hold (an in-session reload retried), and the format stamp's load line
+# for a Parsek-written save on the reload (the first save stamped the node).
+required = [
+  "Backup fault armed by the automation seam",
+  "First-contact backup: save='preparsek-hold-career' footprint=False brandNew=False",
+  "FAILED to back up save='preparsek-hold-career': IOException:.*automation seam",
+  "Backup hold armed: save='preparsek-hold-career' reason=first-contact-backup-failed",
+  "Parsek inert: save 'preparsek-hold-career' has no pre-Parsek backup",
+  "OnLoad: pre-Parsek backup hold - Parsek node kept verbatim[\\s\\S]*?OnLoad: pre-Parsek backup hold - Parsek node kept verbatim",
+  "OnSave: pre-Parsek backup hold - wrote the loaded Parsek node back verbatim \\(0 entries\\)",
+]
+forbidden = [
+  "Captured pre-Parsek backup",
+  "OnSave: saving [0-9]+ committed recordings",
+  "Backup hold cleared",
+  "Skip: reason=already-parsek-footprint save='preparsek-hold-career'",
+]
+
+[runtime]
+# 300 + 300 (the two LoadGames) plus the save and the quit; 900 clears it with room for
+# the FLIGHT boots.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
