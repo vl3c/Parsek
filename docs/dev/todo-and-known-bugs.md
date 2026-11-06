@@ -107,6 +107,12 @@ and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5
   silently when two slots resolve to one recording.
 - [ ] C1 remainder: no per-resource conservation check (origin debit = delivered + by-design loss)
   in an in-game category or the harness (HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES).
+  Progress 2026-11-06 (branch `routecons`): lane `RCN-1-route-conservation-across-loads` (AUTHORED,
+  never flown) reads both ends of the two-stop relay route on `rover-relay-c-recorded` and gates
+  origin + destination against the equation from the route's own windows (debit 154.4 + transport
+  launch-cargo drawdown 45.6 = credit 200, no by-design loss there) across two F9s and a go-back
+  rewind. Still open: no in-game category, and no host with a nonzero loss term (the relay on
+  `rover-relay-recorded` would show the 73.2 residual, but its endpoints are post-relay, B empty).
 - [ ] B3 / item 3: route render lanes still pin counts and log lines, not where the route ghost or
   its line is (only the SLM lanes read a loop ghost's position).
 - [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode.
@@ -205,7 +211,10 @@ summary gains `counters=N`; each change logs `cycle counters completed A->B skip
 next cycle id cycle-N)`. xUnit: `RouteMultiStopLoadResumeTests` (F9 and go-back between the
 windows resume cycle-0 with one dispatch, and so does a Re-Fly start; control before the cycle; clock changed keeps the
 rebuild; the pure pair restore). A lane is owed: no committed route lane flies a multi-stop route
-across a load.
+across a load. Lane authored 2026-11-06, never flown: `RCN-1-route-conservation-across-loads`
+(the relay route resumed after an F9 and after a go-back rewind to saves written between its
+windows; a second dispatch or origin debit after either is forbidden). Since #2155 an F9 is a cold
+load, so the fix itself only runs on the go-back and Re-Fly exits.
 
 Follow-up (review, 2026-10-25): the two exits that still key their cutoff to the floor alone (a
 go-back to a rewind save written inside an earlier go-back's window, a Re-Fly start from an RP
@@ -439,7 +448,7 @@ with a red test once confirmed.
 
 - [x] ~~STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.~~ Same defect as STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD, fixed 2026-10-16 in PR #2123 (the door tags its rows like the award, `GameStateRecorder.ResolveStrategyConversionRecordingTag`; live-proven by QL-2c `2026-10-16_2239`). Re-checked 2026-10-24 on main f3a22ce: the F9 half is moot since save-file loads are cold (PR #2155; the save's own ledger never held the share, QL-2c reshaped), and the Re-Fly half holds (`TombstoneEligibility.IsSupersedeTombstoneEligible` takes every tagged conversion row type; `StrategyConversionTimelineTests.ReFlyMerge_TombstonesTheConvertedShareOfTheSupersededFlight`).
 - [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1. Traced 2026-10-24 (branch `claude/project-thread-dkcvpn`): rewind / F9 / revert hold through the expiry gate and the patch's future guards; three gaps found and fixed, STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED, STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION, STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT. Lanes authored 2026-10-25 (branch `claude/project-thread-eo3rd8`): STR-1 (Bail-Out Grant + Appreciation Campaign across a Rewind-to-Launch and an F9), STR-2 (an activation crossed inside a Re-Fly), STR-3 (Leadership Initiative's shares taken back by a stock revert); QL-2c already covers the share across an F9, and LedgerGroundTruth now compares the strategy list. Still open: expiry across a timeline operation (stock 1.12.5 durations read 0 without KSPCF, so no stock-only lane can reach an expiry), Aggressive Negotiations and Recovery Transponder.
-- [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked.
+- [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked. Progress 2026-11-06: routes have a lane, `RCN-1-route-conservation-across-loads` (AUTHORED, never flown; origin + destination summed at ten points across two F9s and a go-back rewind).
 - [x] ~~Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run.~~ Roadmap TC-4, GP-1. DONE 2026-10-25: L8 covers repeated rewinds; the harness walked past the clock (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK, fixed), and L13 runs it after a Re-Fly merge and an F9, live-proven `2026-10-25_0228` after its second flight found EDITOR-LOAD-WALKS-PAST-THE-CLOCK.
 - [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
 - [x] ~~EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.~~ Same defect as CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE, fixed 2026-10-16 (live-proven by EVA-11 `2026-10-16_2322`); re-confirmed by code reading 2026-10-23.
@@ -786,6 +795,16 @@ route), then the IR-1..IR-11 pair lanes and the IC-1..IC-4 campaign lanes.
 
 Progress: Phase A rows A2 (ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND) and A5
 (ROUTE-DELIVERY-INTO-DOCKED-VISITOR) landed with their fixes on `fix-route-endpoint-writes`.
+
+Checked 2026-11-06 (branch `routecons`): `H58-route-rewind-to-launch` is NOT IR-7. It rewinds a
+tree the lane records itself (`InvokeRewindToLaunch tree=latest`), never the route's backing tree
+`73e50f1e`, which has no rewind save (C4, ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES).
+IR-9 is not reachable either: no seam verb docks two vessels, and no committed route host has a
+visitor docked at a route endpoint. It needs a harvested fixture: a route host (sealed, route
+candidate) whose destination has a SECOND vessel, not a route transport, hard-docked to it at
+save time, with known fill on both, so a lane can create the route, deliver, and read the visitor
+unchanged and the endpoint's own parts credited. Docking a visitor rover onto `rover-route-recorded`'s
+`rover fuel 0` (its one `dockingPort2`, `Ready` at save time) by hand and harvesting is the shortest path.
 
 ---
 

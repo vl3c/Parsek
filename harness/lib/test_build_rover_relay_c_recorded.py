@@ -482,7 +482,8 @@ class RoverRelayCSpecFixtureSyncTests(unittest.TestCase):
              "RVR-12-rover-relay-c-origin-cargo-missing.toml",
              "RVR-13-rover-relay-c-destination-full.toml",
              "RVR-14-rover-relay-c-destination-partial.toml",
-             "RVR-15-rover-relay-c-destination-empty.toml")
+             "RVR-15-rover-relay-c-destination-empty.toml",
+             "RCN-1-route-conservation-across-loads.toml")
 
     @classmethod
     def setUpClass(cls):
@@ -988,6 +989,104 @@ class RoverRelayCEndpointMatrixTests(unittest.TestCase):
             body = self._required(name) + self._forbidden(name)
             self.assertNotIn("emitted nothing", body, name)
             self.assertNotIn("degenerate -", body, name)
+
+
+class RouteConservationSpecTests(unittest.TestCase):
+    """RCN-1's conservation sums, re-derived from THIS fixture's bytes.
+
+    The lane gates `ReadVesselResources expect=` over origin B + destination A at
+    ten points and the transport C at five. Every expected number comes from two
+    sources only: the staged FLIGHTSTATE tanks and the route's own recorded windows
+    (`ROUTE_WINDOW_RESOURCE_ROWS`). A re-harvest or a builder edit that moves either
+    reds here, naming the number, instead of costing a flight."""
+
+    SPEC = "RCN-1-route-conservation-across-loads.toml"
+    TOL = 0.01
+
+    @classmethod
+    def setUpClass(cls):
+        cls.builder = _load_builder()
+        cls.lines = cls.builder.read_lines(FIXTURE_SFS)
+        with open(os.path.join(SCENARIOS_DIR, cls.SPEC), "rb") as fh:
+            cls.spec = tomllib.load(fh)
+        b = cls.builder
+        records = {r["pid"]: r for r in b.vessel_records(cls.lines)}
+        cls.tank = {}
+        for pid in (b.ENDPOINT_B_LIVE_PID, b.ENDPOINT_A_LIVE_PID, b.TRANSPORT_LIVE_PID):
+            cls.tank[pid] = b._sum_resource(cls.lines, records[pid]["span"], "LiquidFuel")
+        rows = b.ROUTE_WINDOW_RESOURCE_ROWS
+        cls.pickup = (float(rows[0]["UNDOCK_TRANSPORT_RESOURCES"][1])
+                      - float(rows[0]["DOCK_TRANSPORT_RESOURCES"][1]))
+        cls.delivery = (float(rows[1]["UNDOCK_ENDPOINT_RESOURCES"][1])
+                        - float(rows[1]["DOCK_ENDPOINT_RESOURCES"][1]))
+        cls.drawdown = (float(rows[0]["DOCK_TRANSPORT_RESOURCES"][1])
+                        - float(rows[1]["UNDOCK_TRANSPORT_RESOURCES"][1]))
+
+    def _reads(self, pid_arg):
+        out = []
+        for step in self.spec["driver"]["steps"]:
+            if step.get("cmd") != "ReadVesselResources":
+                continue
+            args = step.get("args", {})
+            if args.get("pid") != pid_arg:
+                continue
+            self.assertEqual("LiquidFuel", args.get("resources"))
+            name, _, amount = args["expect"].partition(":")
+            self.assertEqual("LiquidFuel", name)
+            out.append(float(amount))
+        return out
+
+    def test_the_relay_closes_on_the_transport(self):
+        """Flow closure on the transport (design 19.2.4): what it picked up plus
+        what it drew down from its own launch cargo is what it delivered. This is
+        the equation the lane's sums apply to the two endpoints."""
+        self.assertAlmostEqual(154.4, self.pickup, delta=self.TOL)
+        self.assertAlmostEqual(200.0, self.delivery, delta=self.TOL)
+        self.assertAlmostEqual(self.pickup + self.drawdown, self.delivery, delta=self.TOL)
+
+    def test_the_endpoints_admit_exactly_one_cycle(self):
+        """B covers one pickup and not a second (a second would BLOCK, which the lane
+        forbids), and A takes the whole delivery with no clamp."""
+        b = self.builder
+        b_amt, _ = self.tank[b.ENDPOINT_B_LIVE_PID]
+        a_amt, a_cap = self.tank[b.ENDPOINT_A_LIVE_PID]
+        self.assertGreaterEqual(b_amt, self.pickup)
+        self.assertLess(b_amt - self.pickup, self.pickup)
+        self.assertLessEqual(a_amt + self.delivery, a_cap + self.TOL)
+
+    def test_every_endpoint_sum_is_the_equation_at_its_reading_point(self):
+        b = self.builder
+        start = self.tank[b.ENDPOINT_B_LIVE_PID][0] + self.tank[b.ENDPOINT_A_LIVE_PID][0]
+        before, between, after = start, start - self.pickup, start - self.pickup + self.delivery
+        expected = [before, between, after,      # first cycle
+                    between, after,             # F9 to the save between the windows
+                    before, between, after,      # F9 to the save before the cycle
+                    between, after]             # go-back rewind between the windows
+        got = self._reads("%s,%s" % (b.ENDPOINT_B_LIVE_PID, b.ENDPOINT_A_LIVE_PID))
+        self.assertEqual(len(expected), len(got))
+        for i, (want, have) in enumerate(zip(expected, got)):
+            self.assertAlmostEqual(want, have, delta=self.TOL, msg="reading %d" % i)
+
+    def test_the_transport_reading_is_its_staged_tank(self):
+        """Route transports never materialize (design 19.2.3): every C reading is
+        the staged fill, and the lane stops reading C once it records C (a spawn at
+        the recording's end may re-pid it)."""
+        b = self.builder
+        got = self._reads(b.TRANSPORT_LIVE_PID)
+        self.assertEqual(5, len(got))
+        for have in got:
+            self.assertAlmostEqual(self.tank[b.TRANSPORT_LIVE_PID][0], have, delta=self.TOL)
+        cmds = [s.get("cmd") for s in self.spec["driver"]["steps"]]
+        last_c = max(i for i, s in enumerate(self.spec["driver"]["steps"])
+                     if s.get("cmd") == "ReadVesselResources"
+                     and s.get("args", {}).get("pid") == b.TRANSPORT_LIVE_PID)
+        self.assertLess(last_c, cmds.index("StartRecording"))
+
+    def test_the_spec_seals_and_routes_the_relay_tree(self):
+        b = self.builder
+        tree_args = [s["args"]["tree"] for s in self.spec["driver"]["steps"]
+                     if s.get("cmd") in ("SealSlot", "RouteCommand") and "tree" in s.get("args", {})]
+        self.assertEqual([b.RELAY_TREE_ID, b.RELAY_TREE_ID], tree_args)
 
 
 if __name__ == "__main__":
