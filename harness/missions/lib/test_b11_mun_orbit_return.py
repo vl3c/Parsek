@@ -66,9 +66,10 @@ PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 # The mfr_decide trace digest, taken BEFORE the launch gate, the params builder and
 # the tail rows were shared with mor (commit cs6-mun-orbit). A change to mfr's
 # behaviour moves it; re-pin only for a deliberate mfr change.
-# Re-pinned 2026-11-06 for the new B5Params field transfer_node_wait_warp only: the
-# traces with ", transfer_node_wait_warp=False" removed from each repr hash to the old pins.
-MFR_TRACE_DIGEST = "74b65cb3e2958ef5dc45f04972ab45fde767e9d1c97ab1ab948129936cb99739"
+# Re-pinned 2026-11-06 for new fields only (B5Params transfer_node_wait_warp,
+# correction_coarse_throttle, correction_fine_dv; B5State corr_coarse): the traces with
+# those fields' default reprs removed hash to the old pins.
+MFR_TRACE_DIGEST = "02e6fcb930344068e2839cb7c504530365d748a850f50cdd37d3e365d1dcee36"
 
 _PARK_EXIT_UT = 48_200.0
 

@@ -593,3 +593,19 @@ type = "bool"
 [params.circularizeNodeWaitWarp]
 required = false
 type = "bool"
+
+# Coarse DIY correction throttle (owner ruling 2026-11-06): when > 0 the burn
+# starts at this throttle and drops to correctionThrottle once the node's
+# remaining dv reaches correctionFineDvMps. Optional; 0 = off.
+[params.correctionCoarseThrottle]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+# Remaining node dv (m/s) at which a coarse correction burn drops to
+# correctionThrottle. Optional; default 30.
+[params.correctionFineDvMps]
+required = false
+type = "number"
+min = 5.0

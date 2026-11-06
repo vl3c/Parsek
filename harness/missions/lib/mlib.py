@@ -4894,6 +4894,15 @@ class B5Params:
     correction_throttle: float = 0.25      # DIY correction burn throttle (low
                                            # for cut precision; spec key
                                            # correctionThrottle)
+    # COARSE CORRECTION THROTTLE (owner ruling 2026-11-06; 0 = OFF, every lane
+    # flown before it byte for byte). When > 0 the DIY burn starts at this
+    # throttle while the node's remaining dv is above correction_fine_dv, and
+    # drops to correction_throttle once it reaches it, so the cut itself still
+    # runs at the low, precise throttle. A 1,089 m/s B20 correction at 0.25
+    # burned ~990 wall-s at 1x. Spec keys correctionCoarseThrottle /
+    # correctionFineDvMps.
+    correction_coarse_throttle: float = 0.0
+    correction_fine_dv: float = 30.0
     correction_cut_dv: float = 2.0         # cut the DIY burn when the node's
                                            # remaining dv is at/below this m/s
                                            # (spec key correctionCutDvMps)
@@ -5817,6 +5826,8 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         burn_stagnant_seconds=float(params.get("burnStagnantSeconds", 120)),
         burn_nostart_seconds=float(params.get("burnNoStartSeconds", 600)),
         correction_throttle=float(params.get("correctionThrottle", 0.25)),
+        correction_coarse_throttle=float(params.get("correctionCoarseThrottle", 0.0)),
+        correction_fine_dv=float(params.get("correctionFineDvMps", 30.0)),
         correction_cut_dv=float(params.get("correctionCutDvMps", 2.0)),
         correction_settle_seconds=float(params.get("correctionSettleSeconds", 10)),
         max_attitude_error_deg=float(params.get("maxAttitudeErrorDeg", 30.0)),
@@ -12123,6 +12134,9 @@ class B5State:
     # against it -- a RISING remaining dv means the ship is burning past the
     # node vector).
     corr_burn_started: bool = False
+    # True while the DIY burn runs at correction_coarse_throttle (cleared on
+    # the step-down frame and on every round exit).
+    corr_coarse: bool = False
     min_node_dv: Optional[float] = None
     # Consecutive in-gate attitude readings (ALIGNED_DEBOUNCE_FRAMES gate).
     aligned_streak: int = 0
@@ -15993,7 +16007,8 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             entered = _b5_enter(st, B5_COAST_TO_TARGET, snapshot.ut, peak)
             entered = replace(entered,
                               correction_rounds_done=st.correction_rounds_done + 1,
-                              corr_burn_started=False, min_node_dv=None,
+                              corr_burn_started=False, corr_coarse=False,
+                              min_node_dv=None,
                               phys_warp_cmd=0, warp_to_cmd=None,
                               corr_nostart_anchor_ut=None,
                               corr_budget_anchor_ut=None,
@@ -16078,6 +16093,15 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             stayed = _corr_stay_or_flake(state)
             if stayed.done:
                 return stayed, []
+            # COARSE -> FINE: the last correction_fine_dv m/s burn at the low
+            # throttle, so the cut gate above sees the same per-poll dv steps
+            # as a burn that ran low all the way.
+            if (state.corr_coarse and _is_finite(dv)
+                    and dv <= state.params.correction_fine_dv):
+                return (replace(stayed, corr_coarse=False),
+                        [Action(ACTION_SET_THROTTLE, state.params.correction_throttle,
+                                text="correction fine throttle: nodeDv=%.1f <= %.1f"
+                                % (dv, state.params.correction_fine_dv))])
             # Flameout staging AFTER the exit/flake checks (delta-review
             # A1/A3): a dry stage under a commanded throttle pops the next
             # stage and re-stamps the progress anchor instead of idling out
@@ -16207,6 +16231,15 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             started = replace(stayed, corr_burn_started=True,
                               burn_static_since=(snapshot.ut if _is_finite(snapshot.ut)
                                                  else None))
+            coarse = (state.params.correction_coarse_throttle > 0.0
+                      and _is_finite(snapshot.node_dv)
+                      and snapshot.node_dv > state.params.correction_fine_dv)
+            if coarse:
+                return (replace(started, corr_coarse=True),
+                        [Action(ACTION_SET_THROTTLE,
+                                state.params.correction_coarse_throttle,
+                                text="correction coarse throttle: nodeDv=%.1f > %.1f"
+                                % (snapshot.node_dv, state.params.correction_fine_dv))])
             return started, [Action(ACTION_SET_THROTTLE, state.params.correction_throttle)]
         # Still flipping/settling: run the attitude flip under mild PHYSICS
         # warp (default 2x -- MechJeb's own WarpToUT physics cap; the ~340 s
@@ -22519,6 +22552,7 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("park_trim_execs", "parkTrimBurns"),
     ("body_blank_count", "bodyBlank"),
     ("corr_burn_started", "corrBurnStarted"),
+    ("corr_coarse", "corrCoarse"),
     ("aligned_streak", "alignedStreak"),
     # WHY a correction round ended (B12 flight 1). A round exit is otherwise
     # indistinguishable from a clean cut in the log, and the whole B12

@@ -426,6 +426,12 @@ burnStagnantSeconds        = 480
 # grow with the burn.
 burnNoStartSeconds         = 1200
 correctionThrottle         = 0.25
+# COARSE CORRECTION THROTTLE (owner ruling 2026-11-06, kept only after a check flight inside
+# this lane's gates): the DIY correction burn runs at full throttle until the node's remaining
+# dv reaches correctionFineDvMps, then finishes at correctionThrottle, so the cut is unchanged.
+# The 2026-11-06 check flight burned its correction at 0.25 throughout, about 990 wall-s at 1x.
+correctionCoarseThrottle   = 1.0
+correctionFineDvMps        = 30.0
 correctionCutDvMps         = 2.0
 correctionSettleSeconds    = 10
 maxAttitudeErrorDeg        = 30
