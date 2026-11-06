@@ -3202,7 +3202,20 @@ rather than re-discovered.
 should be named `*ForTesting` (as the watch-mode one is) so a grep can tell the two
 populations apart.
 
-## GUI-EXPOSURE-4-THE-CAREER-LEDGER-IS-REWRITTEN-WITH-ONE-MESSAGE-IN-THE-WHOLE-SUBSYSTEM [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-EXPOSURE-4-THE-CAREER-LEDGER-IS-REWRITTEN-WITH-ONE-MESSAGE-IN-THE-WHOLE-SUBSYSTEM~~ [FILED 2026-09-11 by the GUI fix batch; DONE 2026-11-06, owner ruling: one message after the merge]
+
+**Done 2026-11-06 (owner ruling V, thread "Decide the five cleanup leftovers"): one message
+after a Re-Fly merge.** `SupersedeCommit.CommitTombstones` hands the rows it just retired from
+the REPLACED flight (never variant B's attempt rows) to the pure
+`SupersedeCommit.BuildReFlyUndoneMessage`, which names deaths (a death's bundled KerbalDeath
+reputation penalty is not counted again), counts contract failures and other reputation
+penalties, and returns null for a merge that retired only crew bookkeeping or zero-value rows;
+`AnnounceReFlyUndone` shows it once (`ParsekLog.ScreenMessage`, 6 s) and logs
+`Re-Fly undone message shown`. A journal re-run finds the rows already tombstoned and shows
+nothing. No dialog-side preview (the option not picked). Cells: `ReFlyUndoneMessageTests`,
+`SupersedeCommitTombstoneTests.CommitTombstones_RetiredDeath_ShowsOneUndoneMessage` /
+`..._RerunOverAlreadyTombstonedDeath_ShowsNoMessage`.
+
 
 **Evidence.** `GameActions/LedgerOrchestrator.cs:1837`+ (14 call sites) and
 `GameActions/KspStatePatcher.cs:61` rewrite funds, science, reputation, the tech tree,
@@ -3219,7 +3232,19 @@ no-new-surfaces rule means the candidates are the merge dialog's existing body t
 one-shot ScreenMessages for events that actually changed something - which a supersede
 genuinely is.
 
-## GUI-EXPOSURE-46-RATE-LIMITED-REFUSALS-A-PLAYER-CANNOT-SEE [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-EXPOSURE-46-RATE-LIMITED-REFUSALS-A-PLAYER-CANNOT-SEE~~ [FILED 2026-09-11 by the GUI fix batch; CLOSED 2026-11-06: already fixed by the Logistics interact-cell rebuild]
+
+**Closed 2026-11-06 (thread "Decide the five cleanup leftovers"; told V, no ruling needed).**
+Re-checked against the code: the Logistics row's interact cell (`LogisticsWindowUI.DrawRouteInteractCell`)
+draws exactly the button the route's state accepts. Activate is drawn only in the Paused table,
+which holds only `RouteStatus.Paused` routes (`LogisticsRoutePresentation.BelongsInPausedTable`),
+the one state `TryActivate` accepts; Pause only in the Active table, never on a Paused route (the
+one state `TryPause` refuses); Send greys with `SendDisabledReason` through `DisabledHoverEcho`
+in every state `TrySendOneCycleNow` would refuse; the in-flight Delivering / Pausing buttons grey
+with their reason; Create Route opens its confirm, and its one refusal is a null candidate. So a
+click the player can make no longer no-ops silently. The remaining rate-limited sites are standing
+conditions the Status cell already words.
+
 
 **Evidence.** 46 sites mod-wide route a refusal to `InfoRateLimited` / `WarnRateLimited`
 only. The census named these: `Logistics/RouteEndpointResolver.cs:293` (docked-composite

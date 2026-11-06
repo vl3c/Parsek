@@ -2590,6 +2590,9 @@ namespace Parsek
                 }
                 rowsToTombstone.Add(a);
             }
+            // The replaced flight's rows are the head of the list; variant B appends the
+            // re-fly attempt's own rows after them, which the undone message must not name.
+            int replacedFlightRowCount = rowsToTombstone.Count;
             int tombstonedAttemptRepLoss = 0;
             if (variantB)
             {
@@ -2692,6 +2695,8 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Supersede tombstone effects: tombstoned {tombstoned} recording-scoped career actions; " +
                 "contracts/milestones/facilities/strategies/science-spending/science/funds/reputation/kerbals from the old subtree are removed from ELS.");
+
+            AnnounceReFlyUndone(rowsToTombstone.GetRange(0, replacedFlightRowCount), retiringRecordingId);
 
             scenario.BumpTombstoneStateVersion();
 

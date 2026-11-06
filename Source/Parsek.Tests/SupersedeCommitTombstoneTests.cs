@@ -813,6 +813,58 @@ namespace Parsek.Tests
                 l.Contains("Kerbal=1"));
         }
 
+        // catches: GUI-EXPOSURE-4 regressing - a Re-Fly merge that retires the old flight's
+        // losses must say so once (owner ruling 2026-11-06), naming the death, not counting
+        // the death's bundled reputation penalty a second time.
+        [Fact]
+        public void CommitTombstones_RetiredDeath_ShowsOneUndoneMessage()
+        {
+            var shown = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (m, d) => shown.Add(m);
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+            Ledger.AddAction(KerbalDeath("rec_origin", 1060.0, kerbalName: "Jebediah Kerman"));
+            Ledger.AddAction(RepPenalty("rec_origin", 1115.0, ReputationPenaltySource.KerbalDeath));
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(new[]
+            {
+                SupersedeCommit.ReFlyUndoneMessagePrefix + "Jebediah Kerman's death",
+            }, shown);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]") && l.Contains("Re-Fly undone message shown"));
+        }
+
+        // catches: an interrupted merge's re-run (the journal finisher) showing the message a
+        // second time - the rows are already tombstoned, so nothing is retired again.
+        [Fact]
+        public void CommitTombstones_RerunOverAlreadyTombstonedDeath_ShowsNoMessage()
+        {
+            var shown = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (m, d) => shown.Add(m);
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+            var death = KerbalDeath("rec_origin", 100.0);
+            Ledger.AddAction(death);
+            scenario.LedgerTombstones.Add(new LedgerTombstone
+            {
+                TombstoneId = "tomb_existing",
+                ActionId = death.ActionId,
+                RetiringRecordingId = "rec_provisional",
+                UT = 50.0,
+                CreatedRealTime = DateTime.UtcNow.ToString("o"),
+            });
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Empty(shown);
+        }
+
         [Fact]
         public void CommitTombstones_EmptySubtree_LogsZeroes()
         {
