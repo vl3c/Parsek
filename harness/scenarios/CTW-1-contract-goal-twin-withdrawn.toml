@@ -4,7 +4,7 @@ tier = "operator"
 # =====================================================================================
 # CTW-1: A REGENERATED COPY OF A COMMITTED EXPLORATION CONTRACT IS WITHDRAWN AFTER A
 # REWIND, BY ITS GOAL. Todo CONTRACT-TWIN-GUID-SEEDED-TYPES (owner ruling 2026-10-27,
-# "check both IDs and the other identifiers"). AUTHORED 2026-11-06, NEVER FLOWN.
+# "check both IDs and the other identifiers"). AUTHORED 2026-11-06; FIRST FLIGHT 2026-11-06_2339 red on one spec anchor, re-anchored.
 #
 # THE PLAYER'S STORY. A career accepts "reach space" (an exploration contract) at the
 # Space Center, then rewinds to a launch made before that accept. The committed timeline
@@ -37,6 +37,11 @@ tier = "operator"
 #   check  KscAction accept-contract on the copy is refused (the copy is no longer Offered:
 #          `contract-not-offered`, or `unknown-contract` if stock dropped it from the list).
 #
+# FIRST FLIGHT `2026-11-06_2339` (FAIL on one spec anchor, product correct): the copy was
+# withdrawn `matched=goal(ExplorationContract:REACHSPACE@1)` during the rewind's load, after
+# `invokerewindtolaunch invoking` and before its `complete`, which the "nothing withdrawn
+# before the rewind" forbid had anchored on. It now anchors on `invoking`.
+#
 # RED WITH THE FIX REVERTED (id-only matching): no `withdrew offer` line, and the accept
 # of the copy is applied (step 16 expects REJECTED), which is the double payment's first
 # half.
@@ -53,7 +58,7 @@ tier = "operator"
 #     future click block (KB-3's C1), not by this rule; not pinned.
 #   * The rewind lands at L - 15 s with L between 600 and 610.
 # =====================================================================================
-description = "CTW-1, NEVER FLOWN: on career-new-goal-twin (a new Career with the stock 'reach space' exploration offer and a second Offered copy of it under another guid and seed), launch and commit the Jumping Flea at ~600, accept the original at the Space Center at ~700, Rewind-to-Launch. The contract patch must withdraw the copy as a twin of the committed future accept by its goal key (matched=goal(ExplorationContract:REACHSPACE@1)), and Mission Control's Accept on the copy must be refused. Live proof of the CONTRACT-TWIN-GUID-SEEDED-TYPES fix (a duplicate contract payment across a rewind)."
+description = "CTW-1, FLOWN ONCE (spec re-anchored): on career-new-goal-twin (a new Career with the stock 'reach space' exploration offer and a second Offered copy of it under another guid and seed), launch and commit the Jumping Flea at ~600, accept the original at the Space Center at ~700, Rewind-to-Launch. The contract patch must withdraw the copy as a twin of the committed future accept by its goal key (matched=goal(ExplorationContract:REACHSPACE@1)), and Mission Control's Accept on the copy must be refused. Live proof of the CONTRACT-TWIN-GUID-SEEDED-TYPES fix (a duplicate contract payment across a rewind)."
 instanceProfile = "stock-tree"
 tags = ["CTW-1", "career", "contracts", "contract-twin", "rewind-to-launch", "ledger",
         "editor", "derived-fixture"]
@@ -125,7 +130,9 @@ forbidden = [
   # The copy accepted: the double payment's first half.
   "kscaction action=accept-contract target=d7c2a0b4-5e1f-4c3a-9b8e-2f6a1c4d7e90 applied=true",
   # Nothing is withdrawn before the rewind (no committed accept lies in the future then).
-  "(?s)^(?:(?!invokerewindtolaunch complete ).)*PatchContracts: withdrew offer",
+  # (The withdrawal runs inside the rewind's own load, before its `complete` line: first
+  # flight `2026-11-06_2339`.)
+  "(?s)^(?:(?!invokerewindtolaunch invoking ).)*PatchContracts: withdrew offer",
   # The committed accept's own guid is never its own twin.
   "PatchContracts: withdrew offer '[^'\\r\\n]*' \\(guid=31f5240c-4c87-4a98-803b-1e84e1f19ce6",
   # The lane is about the goal half: a stock id match would not prove it.

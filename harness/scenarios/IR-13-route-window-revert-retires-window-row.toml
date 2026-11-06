@@ -5,7 +5,7 @@ tier = "nightly"
 # IR-13: A ROUTE ACTION INSIDE A REWIND'S 15 S LEAD WINDOW, TAKEN BACK BY A REVERT TO A
 # LAUNCH MADE IN THAT WINDOW. Todo ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS (fixed
 # 2026-10-25 for the in-session loads, xUnit only until this lane). AUTHORED 2026-11-06,
-# NEVER FLOWN.
+# LIVE-PROVEN 2026-11-06 on its first flight (`2026-11-06_2342` PASS).
 #
 # THE PLAYER'S STORY. A Rewind-to-Launch puts the clock 15 s before the rewound launch.
 # Inside those 15 s the player launches Kerbal X, re-activates a paused supply route, then
@@ -50,7 +50,7 @@ tier = "nightly"
 #   * The launch state's route log holds the two boot rows (the go-back kept them, the
 #     launch save wrote them), so exactly one row is unheld.
 # =====================================================================================
-description = "IR-13, NEVER FLOWN: on rover-route-recorded create, activate and pause the rover route, jump to 1600, record and commit the focused rover, Rewind-to-Launch (clock ~1585.5, route floor ~1600.5), launch Kerbal X inside that 15 s window, re-activate the route in flight, Revert to Launch. The revert must retire the activation row written after the launch state and before the floor (RetireUnheldWindowRows), so the route is Paused again with one resume row. Live proof of the ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS fix."
+description = "IR-13, LIVE-PROVEN 2026-11-06: on rover-route-recorded create, activate and pause the rover route, jump to 1600, record and commit the focused rover, Rewind-to-Launch (clock ~1585.5, route floor ~1600.5), launch Kerbal X inside that 15 s window, re-activate the route in flight, Revert to Launch. The revert must retire the activation row written after the launch state and before the floor (RetireUnheldWindowRows), so the route is Paused again with one resume row. Live proof of the ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS fix."
 instanceProfile = "stock-minimal"
 tags = ["IR-13", "logistics", "route", "revert", "rewind-to-launch", "route-state-floor",
         "timeline-ops", "recorded-fixture"]
