@@ -11705,7 +11705,10 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
             self.assertEqual((p.soi_lead, "default"),
                              mlib.coast_trigger_native_lead(p), spec)
             self.assertFalse(p.approach_latch_native_warp, spec)
-            self.assertFalse(p.circularize_node_wait_warp, spec)
+            # B20's round-out hold opted in on 2026-11-06 (owner ruling); the
+            # other ruling lanes keep it off.
+            self.assertEqual(spec == "B20-moho-orbit.toml",
+                             p.circularize_node_wait_warp, spec)
 
     def test_b21_arms_a_soi_native_lead_above_its_floor_and_no_trigger_lead(self):
         p = mlib.b5_params_from_dict(_scenario_mission_params("B21-eeloo-orbit.toml"))

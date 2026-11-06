@@ -1196,9 +1196,11 @@ class RunnerRebindTests(unittest.TestCase):
 # B5 over B13's landing fixture, mor over CS-6's full flight, msc over CS-6c's, and the
 # composed mlr machine's ACTION stream over CS-7's with the release off. A change to
 # any of those machines moves its digest; re-pin only for a deliberate change to it.
-B5_LANDING_TRACE_DIGEST = "036dac47a43bbc3e2b7ab676c364ee63406778cad35b41e05a3c687219af88ce"
-MOR_TRACE_DIGEST = "e3881eada1b717c44f211535cc307a348b7fe24fb7a0a63cfa47d213daef0cf7"
-MSC_TRACE_DIGEST = "e14554d19b193a8f0b29f29dd000dbb187d6312bf22340e5b2c1d56c2267cedd"
+# Re-pinned 2026-11-06 for the new B5Params field transfer_node_wait_warp only: the
+# traces with ", transfer_node_wait_warp=False" removed from each repr hash to the old pins.
+B5_LANDING_TRACE_DIGEST = "15e293f8ebc89aac7a500925ea762599e833a2d2526d41edd8bd1951f8980991"
+MOR_TRACE_DIGEST = "698ed861060063eaf2f4577499eef73768a1d330c418f268b833acb52244c788"
+MSC_TRACE_DIGEST = "e3840d0e63c13572e43c46e0a85a2f439173d730b754b0b2a87676343e4cdef2"
 MLR_RELEASE_OFF_ACTIONS_DIGEST = (
     "19c29a559fca2e2e26938935b0eb6d27d4a583846d1ad4f5a5da6609d2d82f67")
 

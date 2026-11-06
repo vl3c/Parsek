@@ -17,6 +17,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## NODE-WAIT-HOLD-TRANSFER-AND-ROUNDOUT: B19 / B20 / B24 / B29 / B30 idle ~600 s at 1x before a burn [FILED 2026-11-06 from the warp audit of the 2026-11-05 full run; owner ruling 2026-11-06 ("yes, if its just on-rails safe warping"); CODE DONE 2026-11-06, branch `claude/project-thread-cmhs13`; OPEN until each lane's check flight; test harness, medium (run time only)]
+
+MechJeb's node executor rails-warps to ignition - 600 s, then holds 1x until the craft is within
+1 deg and turning slower than 0.001 rad/s. These crafts never settle, so each hold idled the whole
+600 s: TRANSFER-BURN on B24 (640 wall-s), B29 (893) and B30 (~640), and the CIRCULARIZE park
+round-out on B19 and B20 (~20 wall-min together). B21 / B22 already held the round-out.
+
+**Fix.** A new per-lane spec key `transferNodeWaitWarp` adds TRANSFER-BURN to the b5 node-wait hold
+(`_b5_node_wait_phases`): the machine rails-warps to node UT - half burn - 120 s, then engages the
+executor, which aligns and burns as before. It declines, as the CIRCULARIZE hold does, on an
+executor not observed idle, a spent warp budget, or an orbit below the rails limit (no physics
+warp). Set on B24, B29, B30; `circularizeNodeWaitWarp` set on B19 and B20 (reversing the
+2026-10-14 off; B19's held run then moved its park ~200 km). Tests: `TransferNodeWaitTests` in
+`test_mission_warp_policy.py`; four trace digests re-pinned for the new params field only (proved by
+hashing the traces with the field stripped).
+
+**Owed.** One check flight per lane. A lane keeps its key only if its park and arrival stay
+inside its gates; the B13 lesson is that a held Mun TLI ended 3.7 s earlier and moved the landing.
+
 ## ~~PARK-DWELL-180-TO-60: the 180 s PARK dwell on 22 orbit lanes is cut to 60 s~~ [FILED 2026-11-06 from the warp audit of the 2026-11-05 full run; owner ruling 2026-11-06 ("yes", decision card in thread "Speed up harness coasts"); DONE 2026-11-06, branch `claude/project-thread-cmhs13`; check flight owed; test harness, low (run time only)]
 
 The PARK dwell (`parkDwellSeconds`) held 180 game-s on B11, B12, B13, B14, B16, B17, B19-B26, B28,

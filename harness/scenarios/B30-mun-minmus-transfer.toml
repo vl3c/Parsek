@@ -718,6 +718,12 @@ planWarpFactor             = 2
 # watchdogs bound BROKEN, and the budget re-anchors on each phase entry so the two
 # passes do not share it.
 transferBurnTimeoutSeconds = 1000000
+# TRANSFER NODE WAIT (owner ruling 2026-11-06, rails only): the transfer hand-off is held and
+# the machine rails-warps to node UT - half burn - 120 s before engaging MechJeb's executor,
+# which otherwise idled ~600 s at 1x waiting for this craft to settle (2026-11-05 full run).
+# Kept only while a check flight's arrival stays inside this lane's gates: a held Mun TLI once
+# ended 3.7 s earlier and moved B13's landing site.
+transferNodeWaitWarp       = true
 # COAST-TO-TARGET budget (GAME s) against a 267,853.4 s Hohmann leg. 3,000,000 is
 # ~11x it, sized to cover a missed first intercept plus the synodic wait for the next
 # window (159,571 + 267,853 = 427,424 per attempt, so this admits ~7).

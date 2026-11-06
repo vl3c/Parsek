@@ -213,6 +213,11 @@ circularizeTimeoutSeconds  = 12000
 # round-out should be a no-op here -- it is armed anyway, because a capture that
 # arrives off-target has no periapsis to circularize at.
 parkTrimEccMax             = 0.02
+# CIRCULARIZE NODE WAIT (owner ruling 2026-11-06, reversing 2026-10-14's off for this lane):
+# the park round-out's executor idled ~600 s at 1x on the 2026-11-05 full run, so the machine
+# rails-warps to the node's orient lead first. Kept only while the check flight's park and
+# arrival stay inside this lane's gates (B19's 2026-10-13 held run moved its park ~200 km).
+circularizeNodeWaitWarp    = true
 
 # --- THE JETTISON (see the header for the full derivation).
 jettisonMaxActivations        = 4
