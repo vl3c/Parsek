@@ -4,6 +4,18 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 1.0.0
+
+### Changed
+
+- **Parsek 1.0 is the first public release.** It keeps the stable save format from 0.10.7, so
+  every save made with 0.10.7 or later keeps loading in this and later versions.
+- **Module Manager is no longer listed as a requirement.** Parsek never shipped Module Manager
+  patches; you still need Harmony, ClickThroughBlocker and ToolbarControl. The release zip now
+  includes the license file. (T3)
+
+---
+
 ## 0.10.7
 
 ### Highlights

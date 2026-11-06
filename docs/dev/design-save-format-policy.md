@@ -8,6 +8,12 @@ format, the 1.0 baseline. Today's version numbers stay as the baseline ("any saf
 the alpha-era migration and repair code is deleted ("clean, without old baggage"). Todo
 `SAVE-FORMAT-1-0-FREEZE` (done). Code authority: `Source/Parsek/SaveFormat.cs`.
 
+**Release numbering:** the 1.0 save format first shipped in Parsek **v0.10.7**; Parsek **v1.0.0**
+is the first public release and writes the same format numbers. "1.0+ save" in this document
+means a save stamped with the 1.0 format (`parsekSaveFormat` present), so a v0.10.7 save is a
+1.0+ save. The mod version (`Parsek.version`, `AssemblyVersion`) and the format numbers are
+independent: a mod version bump changes no format number.
+
 ---
 
 ## 1. The 1.0 baseline

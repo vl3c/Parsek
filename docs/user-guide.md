@@ -20,7 +20,7 @@ Parsek must sit in `GameData/Parsek`. If it is installed wrong, a message on scr
 
 The first time Parsek opens one of your existing saves, it first makes a one-time backup of that save, taken before Parsek changes anything, and says so on screen. The copy is a separate save named `<Name> (pre-Parsek <date>_<time>)` in KSP's Load menu, so you can always go back to your career as it was before Parsek. If the backup fails, an on-screen message asks you to back the save up yourself, and Parsek tries again the next time the save is loaded.
 
-From this version on, Parsek saves have a stable format: later versions of Parsek will keep loading them. If you open a save in an older Parsek, data it does not understand is kept unchanged rather than deleted, but career changes you make in that older version may not be kept, so play a save on the newest version you have used it with. Saves made with earlier test versions of Parsek still load, on a best-effort basis: most of their history comes through, but anything that only an old test version could get wrong is no longer repaired.
+Since version 0.10.7, Parsek saves have a stable format: later versions of Parsek will keep loading them. If you open a save in an older Parsek, data it does not understand is kept unchanged rather than deleted, but career changes you make in that older version may not be kept, so play a save on the newest version you have used it with. Saves made with earlier test versions of Parsek still load, on a best-effort basis: most of their history comes through, but anything that only an old test version could get wrong is no longer repaired.
 
 ## How It Works
 
