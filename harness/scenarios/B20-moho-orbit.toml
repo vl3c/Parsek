@@ -236,6 +236,11 @@ circularizeTimeoutSeconds  = 12000
 # eccentric park under-ejects. B19 measured MechJeb leaving the 700 km park at
 # ecc 0.083, so the round-out really fires on this profile.
 parkTrimEccMax             = 0.02
+# CIRCULARIZE NODE WAIT (owner ruling 2026-11-06, reversing 2026-10-14's off for this lane):
+# the park round-out's executor idled ~600 s at 1x on the 2026-11-05 full run, so the machine
+# rails-warps to the node's orient lead first. Kept only while the check flight's park and
+# arrival stay inside this lane's gates (B19's 2026-10-13 held run moved its park ~200 km).
+circularizeNodeWaitWarp    = true
 
 # --- THE JETTISON. B19's measured values verbatim: the phase is a property of
 # THIS CRAFT (Nerv 60 kN / Skipper 650 kN / Mainsail 1,500 kN), not of the
@@ -471,7 +476,10 @@ parkSituations             = ["ORBITING"]
 # 180 game-s held at 1x, B11/B12/B16/B19's value. This dwell IS the recorded
 # parked-in-foreign-SOI coverage the harvested fixture will carry, so it is
 # deliberately not warped.
-parkDwellSeconds           = 180
+# 60 game-s since 2026-11-06 (owner ruling, was 180; older notes in this file that say 180
+# describe the flights before then): the dwell still records a stable park under 4x physics
+# warp, about 26 wall-s instead of 57.
+parkDwellSeconds           = 60
 parkDebounceFrames         = 3
 parkTimeoutSeconds         = 600
 commitTimeoutSeconds       = 300

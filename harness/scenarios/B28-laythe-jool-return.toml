@@ -1042,7 +1042,10 @@ parkSituations             = ["ORBITING"]
 # 13,661-64,232 s, so this samples 1.32% down to 0.28% of one orbit: a real ARC,
 # unlike B22's 0.0079%-0.0020% point, which is a small bonus for the downstream
 # render lane.
-parkDwellSeconds           = 180
+# 60 game-s since 2026-11-06 (owner ruling, was 180; older notes in this file that say 180
+# describe the flights before then): the dwell still records a stable park under 4x physics
+# warp, about 26 wall-s instead of 57.
+parkDwellSeconds           = 60
 parkDebounceFrames         = 3
 parkTimeoutSeconds         = 600
 commitTimeoutSeconds       = 300

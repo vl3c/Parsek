@@ -492,13 +492,26 @@ every decision closed, which is the pre-policy 1x behaviour.
   predicted SOI change, and only then engages the (autowarping) executor, which
   aligns and burns exactly as before. No burn watchdog runs during the hold (the
   executor was never engaged). The transfer, the ejection and the park round-out
-  are NOT held: there the executor settles inside its own lead, so a hold saves
-  nothing, and a held TLI measurably moved the burn (it ended 3.7 s earlier on
-  all three Mun verification flights, which re-timed the arrival). Nor is the
+  are NOT held by default: there the executor settles inside its own lead, so a
+  hold saves nothing, and a held TLI measurably moved the burn (it ended 3.7 s
+  earlier on all three Mun verification flights, which re-timed the arrival).
+  Two per-lane spec keys extend the hold where a craft never settles (owner
+  rulings 2026-10-14 and 2026-11-06, each lane kept only after a check flight
+  inside its gates): `circularizeNodeWaitWarp` holds the CIRCULARIZE park
+  round-out (B19, B20, B21, B22) and `transferNodeWaitWarp` holds the
+  TRANSFER-BURN hand-off (B24, B29, B30). Both decline, rails only, when the
+  executor is not observed idle, the phase's warp budget is spent or the orbit
+  is below the body's rails limit. Nor is the
   ascent's circularization node: MechJeb's ascent engages the executor
   internally and the 1x there is its align-and-settle, which needs physics. The
   executor's autowarp flag is never turned off: it is MechJeb GLOBAL persistent
-  state and would outlive the run.
+  state and would outlive the run. For the same reason the runner forces it ON
+  each time it engages the ascent or executes the circularization node
+  (`_force_node_executor_autowarp`, one `[MjConfig] node executor autowarp forced
+  on for ...` line naming the value it found): the ascent's physics warp and its
+  coast to apoapsis both read it, so an ascent flown after any lane that left it
+  off coasted at 1x (2026-11-05 full run: B7's retry and B16, about 20 wall-min
+  each).
 - **Vacuum landing coasts (rails).** MechJeb's untargeted landing never warps,
   so DESCENT rails-warps an airless-body impact coast (periapsis below 0,
   descending, orbit static for 2 frames, landing autopilot observed engaged)

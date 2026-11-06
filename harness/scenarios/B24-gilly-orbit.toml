@@ -512,6 +512,12 @@ planWarpFactor             = 2
 # 100,000 is ~3.1 synodics - a SLOW bound; the stagnation / no-start / under-burn
 # watchdogs bound BROKEN.
 transferBurnTimeoutSeconds = 100000
+# TRANSFER NODE WAIT (owner ruling 2026-11-06, rails only): the transfer hand-off is held and
+# the machine rails-warps to node UT - half burn - 120 s before engaging MechJeb's executor,
+# which otherwise idled ~600 s at 1x waiting for this craft to settle (2026-11-05 full run).
+# Kept only while a check flight's arrival stays inside this lane's gates: a held Mun TLI once
+# ended 3.7 s earlier and moved B13's landing site.
+transferNodeWaitWarp       = true
 # COAST-TO-TARGET budget (GAME s) against a transfer coast that is a BAND:
 # 34,391 s (Gilly periapsis intercept) to 156,377 s (apoapsis intercept), 88,108
 # nominal. 800,000 is ~5.1x the WORST case and ~9.1x the nominal, which leaves
@@ -599,7 +605,10 @@ parkSituations             = ["ORBITING"]
 # fraction of a park orbit any capture lane records. Raise it only if a flight
 # shows the committed recording carrying too little Gilly coverage to be a useful
 # loop / playback subject, which is exactly the question V15M/V15T will answer.
-parkDwellSeconds           = 180
+# 60 game-s since 2026-11-06 (owner ruling, was 180; older notes in this file that say 180
+# describe the flights before then): the dwell still records a stable park under 4x physics
+# warp, about 26 wall-s instead of 57.
+parkDwellSeconds           = 60
 parkDebounceFrames         = 3
 parkTimeoutSeconds         = 600
 commitTimeoutSeconds       = 300

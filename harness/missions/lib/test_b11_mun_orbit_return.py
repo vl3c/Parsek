@@ -58,13 +58,17 @@ DEPART_PARAMS = {
     "departSoiLeadSeconds": 30,
 }
 CAREER_PARAMS = {"mjEngageConfirmFrames": 3, "autostageLimit": 2, "ascentType": 0}
-PLAIN_PARAMS = dict(B11_PARAMS, **RETURN_PARAMS, **DEPART_PARAMS)
+# parkDwellSeconds stays 180 here (the B-lane specs moved to 60 on 2026-11-06): the
+# frame fixtures and the pinned trace digests below were built around a 180 s park.
+PLAIN_PARAMS = dict(B11_PARAMS, **RETURN_PARAMS, **DEPART_PARAMS, parkDwellSeconds=180)
 PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 
 # The mfr_decide trace digest, taken BEFORE the launch gate, the params builder and
 # the tail rows were shared with mor (commit cs6-mun-orbit). A change to mfr's
 # behaviour moves it; re-pin only for a deliberate mfr change.
-MFR_TRACE_DIGEST = "c12756e93fc71358884c522de5194372e3dd42b18becadcd657d6dbe11e485c8"
+# Re-pinned 2026-11-06 for the new B5Params field transfer_node_wait_warp only: the
+# traces with ", transfer_node_wait_warp=False" removed from each repr hash to the old pins.
+MFR_TRACE_DIGEST = "74b65cb3e2958ef5dc45f04972ab45fde767e9d1c97ab1ab948129936cb99739"
 
 _PARK_EXIT_UT = 48_200.0
 
