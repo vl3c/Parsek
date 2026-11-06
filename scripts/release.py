@@ -74,6 +74,7 @@ def package(version):
     files = {
         "GameData/Parsek/Plugins/Parsek.dll": dll,
         "GameData/Parsek/Parsek.version": ROOT / "GameData" / "Parsek" / "Parsek.version",
+        "GameData/Parsek/LICENSE.txt": ROOT / "LICENSE",
         "GameData/Parsek/Textures/parsek_32.png": ROOT / "img" / "parsek logo - 32.png",
         "GameData/Parsek/Textures/parsek_64.png": ROOT / "img" / "parsek logo - 64.png",
     }

@@ -27,7 +27,7 @@ dotnet test --filter InjectAllRecordings  # inject the synthetic recordings into
 python scripts/release.py                 # Release build + Debug and Release tests + Parsek-v{version}.zip
 ```
 
-`release.py` validates that `GameData/Parsek/Parsek.version` and `AssemblyInfo.cs` agree, then packages `GameData/Parsek/` (DLL + version file + toolbar textures) into `Parsek-v{version}.zip` at the repo root.
+`release.py` validates that `GameData/Parsek/Parsek.version` and `AssemblyInfo.cs` agree, then packages `GameData/Parsek/` (DLL + version file + LICENSE.txt + toolbar textures) into `Parsek-v{version}.zip` at the repo root.
 
 **KSP deploy is intentional-only.** The post-build copy to `GameData/Parsek/Plugins` runs ONLY when the build starts from the building checkout's own `Source/Parsek` directory, or with `-p:ForceKspDeploy=true`. It works from any worktree (`cd Parsek-<branch>/Source/Parsek && dotnet build` deploys that branch's DLL). What never deploys: `dotnet test` (builds Parsek via ProjectReference), builds started from the repo root or elsewhere, and `release.py`; those print `KSP deploy skipped`. `-p:SkipKspDeploy=true` suppresses the deploy even from the project dir. The copy uses `ContinueOnError="true"`, so a KSP-locked DLL does not fail the build. Rationale: multiple worktrees share one KSP install, and every sibling test run used to clobber the deployed DLL.
 
