@@ -1,0 +1,387 @@
+schema = 1
+id = "RCN-1-route-conservation-across-loads"
+tier = "nightly"
+# =====================================================================================
+# RCN-1: A TWO-STOP SUPPLY ROUTE CHECKED BY RESOURCE CONSERVATION, BOTH ENDS READ, ACROSS
+# TWO F9s AND A GO-BACK REWIND. AUTHORED 2026-11-06 (branch `routecons`), NEVER FLOWN.
+# Todos TEST-GAP-AUDIT-2026-10-31-RESIDUE (C1 remainder: "no per-resource conservation
+# check, origin debit = delivered + by-design loss") and CROSS-SYSTEM-COVERAGE-GAPS-
+# 2026-10-16 ("Resource amounts ... routes are still unchecked"); also the first flight
+# of ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH's fix (xUnit only until now: "a lane is
+# owed: no committed route lane flies a multi-stop route across a load").
+#
+# THE STORY. The player activates a relay route that picks fuel up at depot rover B and
+# delivers it to base rover A. They press F5 before the cycle, warp across the pickup,
+# press F5 again between the two windows, warp across the delivery, then F9 back to the
+# between-windows save, warp again, F9 back to the before-the-cycle save, run the whole
+# cycle again, and finally rewind a fresh recording to its launch (a go-back rewind to a
+# rewind save written between the windows) and let the delivery come round once more.
+# At every one of the ten reading points both endpoints' tanks are read by
+# `ReadVesselResources` (what is really in the tanks, never Parsek's own delivery lines)
+# and the SUM over origin and destination is gated against the conservation equation.
+#
+# THE HOST is RVR-7's `rover-relay-c-recorded` (save clock UT 410.40, staged at
+# start-of-cycle by its builder): three 16-part rovers on the KSC shore. Relay tree
+# 88c012a6... is C's run: dock at B, LOAD 154.4 LiquidFuel (window 0, the pickup), dock at
+# A, UNLOAD 200 LiquidFuel (window 1, the delivery). Live pids, from
+# `build_rover_relay_c_recorded.py`: B (origin) 90564594, A (destination) 4280917262, C
+# (transport, the active vessel) 612987736. Staged tanks: B 200/400, A 200/400, C
+# 154.4/400 LiquidFuel.
+#
+# THE CONSERVATION EQUATION, derived from the design, not measured. Per resource, per
+# completed cycle (design 19.2.4 flow closure, with the transport replayed and never
+# materialized, 19.2.3):
+#     origin debit + transport drawdown = destination credit + by-design loss
+# where every term is read off the route's own recorded windows
+# (`ROUTE_WINDOW_RESOURCE_ROWS` in the builder):
+#   * origin debit       = window 0's transport gain, 354.4 - 200 = 154.4 (the pickup
+#                          writer takes exactly this off B: `Origin debit: requested=`);
+#   * destination credit = window 1's endpoint gain, 400 - 200 = 200 (A's headroom is
+#                          exactly 200, so the all-or-nothing capacity gate passes and
+#                          nothing is clamped);
+#   * transport drawdown = C's fill at the first dock minus at the last undock,
+#                          200 - 154.4 = 45.6: the transport's LAUNCH cargo (design
+#                          19.2.2 item 1). Since LOGISTICS-WITHOUT-MONEY it is not
+#                          priced, so each cycle this relay ADDS 45.6 to B + A. On this
+#                          host the term is a gain; on `rover-relay-recorded` (B -200,
+#                          A +126.8) the same term is a 73.2 LOSS: the residual that stays
+#                          on the transport, which never materializes.
+#   * by-design loss     = 0 here. The only other loss terms the design has are cargo
+#                          picked up and never delivered (an endpoint lost at delivery,
+#                          RS-1; "a crashed disposition still debits", 19.2.5) and the
+#                          partial-destination clamp, which the shipped gate no longer
+#                          takes (RVR-14: a short destination BLOCKS the cycle whole).
+# So 154.4 + 45.6 = 200 + 0, and the gated readings are (B + A):
+#     before the cycle               200   + 200   = 400
+#     between the windows            45.6  + 200   = 245.6   (154.4 in transit on the
+#                                                             replayed transport)
+#     after the delivery             45.6  + 400   = 445.6   (= 400 + 45.6)
+# and C reads 154.4 at every reading in FLIGHT (the pickup writer removes from the
+# SOURCE only and the delivery writer stores into the DESTINATION only; a write into
+# the transport's real tanks would show here). `harness/lib/
+# test_build_rover_relay_c_recorded.py::RouteConservationSpecTests` re-derives every
+# expected sum below from the fixture bytes and the builder's window rows, so a re-harvest
+# that moved a number reds there, not on a flight.
+#
+# THE CLOCK (RS-1's, MEASURED there on the same host): the relay's loop span is 162.74 s,
+# the landed anchors take no PhaseLock (RVR-9), and the anchor is the activation UT, so
+# with the activation at ~1001 the pickup window is crossed at ~1045 and the delivery at
+# ~1164 (RS-1: 1163.66); the next cycle's pickup would be ~1209, past every target here,
+# so the second cycle (which would BLOCK on B's 45.6, RVR-8) is never reached.
+#   create (Paused) at boot ~410; TimeJump 1000; READ before; activate; F5 `rcn-pre`
+#   TimeJump 1075  -> pickup        READ rcn-picked; F5 `rcn-mid` (between the windows)
+#   TimeJump 1175  -> delivery      READ rcn-delivered
+#   F9 `rcn-mid`                    READ rcn-mid-reloaded
+#   TimeJump 1175  -> delivery ONLY READ rcn-mid-redelivered (the cycle resumes)
+#   F9 `rcn-pre`                    READ rcn-pre-reloaded
+#   TimeJump 1075  -> pickup        READ rcn-pre-picked
+#   StartRecording / StopRecording / CommitTree / StopRecording on C (the rewind save,
+#   ~1080, between the windows; H58's exact sequence and its reasons)
+#   TimeJump 1175  -> delivery      READ rcn-pre-redelivered
+#   InvokeRewindToLaunch latest     READ rcn-rewound (Space Center, clock ~1065)
+#   WarpToUT 1175  -> delivery ONLY READ rcn-rewind-redelivered
+#
+# THE THREE LOAD EXITS. Both F9s are Cold save-file loads (design-load-restores-the-save
+# 4.1): `RouteStore.LoadRoutesFrom` puts the save's own route, event log and per-stop
+# cursors back, and the tanks come back from the save. The go-back rewind is the other
+# exit: `RouteLoadReconcile.ReconcileAtGoBackRewind` retires the route rows after the
+# rewind save's UT (the delivery) and puts the save's cursors AND cycle counters back
+# (`RestoreCycleCountersFromSave`, the ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH fix).
+# Without that fix the rebuild counts the half-delivered cycle as completed, the next
+# window fires under a fresh cycle id, `IsDispatchAlreadyLogged` misses and the cycle is
+# DISPATCHED AGAIN: a second `dispatch fired` and a second `Origin debit:` after the
+# `rcn-rewound` mark (forbidden below). Then B + A would read 445.6 - 154.4 = 291.2 at
+# the end, not 445.6.
+#
+# WHAT EACH FAILURE WOULD LOOK LIKE:
+#   * a second pickup on a resume: B cannot cover a second 154.4, so the gate BLOCKs
+#     (`BLOCKED kind=` is forbidden everywhere) and that cycle's delivery never comes;
+#     a partial second debit would leave B + A short of the equation;
+#   * a double delivery: A cannot take a second 200 (it is full at 400): `BLOCKED` or
+#     `written=0`, and the per-segment Delivery-write count forbids;
+#   * a load that kept memory's tanks or route (the pre-#2155 in-session shape): the
+#     post-load readings are 445.6 instead of 245.6 / 400, and the read-back's counters
+#     are memory's (`delivered=1`);
+#   * a write into the transport's or a visitor's tanks (A5): C off 154.4.
+#
+# FAST-LANE CHECKLIST (harness/README.md). 1 (reuse a flight): no committed flight is a
+# prefix. RS-1 shares the create / TimeJump 1000 / activate / pickup prefix but recovers A
+# at the Space Center right after it, and RVR-7 runs a send-once from the boot UT; the F5s
+# must sit between activation and the pickup, so neither host's flight can carry these
+# reads. 2 (no idle waits): every game-time move is an explicit-UT TimeJump or WarpToUT.
+# 3 (dwells): none. 6 (fail fast): the outcome is deterministic, so `[retry] policy =
+# "none"`. 7 (tight windows): `recordings.count` is a 11..12 guess until the first flight
+# (H58 measured exactly one new recording for the same Start/Stop/Commit on its host).
+# 8 / 9: tier and flight_efficiency.py after the first green flight.
+#
+# GUESSES (not measured; read a first red against these):
+#   * read-back tokens after a pickup: `dispatched=1 debited=0 pickedUp=1 delivered=0`
+#     (RS-1 measured exactly that shape on this route) and `stopFired=<n>,-1`;
+#   * `index=0` / `index=1` vessel lines follow the pid order of the selector;
+#   * B's tank prints `45.6000` (200 - 154.3999999999952);
+#   * the go-back cutoff is the rewind save's UT (~1080, H58 re-pin, `cutoffSource=
+#     rewind-save-ut`) and it retires at least the delivery row;
+#   * C's claimed recording is held by the rewind and spawned at its end; nothing reads
+#     C after the StartRecording, because a spawn may re-pid it;
+#   * every Delivery write after the rewind runs at the Space Center (`path=` not pinned).
+#
+# IR-9 (a docked visitor at the destination during a delivery) is NOT in this lane: no
+# seam verb docks two vessels, and no committed route host has a visitor docked at a
+# route's destination. See the todo for the fixture it needs.
+# =====================================================================================
+description = "RCN-1, NEVER FLOWN: on rover-relay-c-recorded, create and activate the two-stop relay route (pickup 154.4 LiquidFuel at rover B, delivery 200 at rover A), F5 before the cycle and F5 between the windows, F9 back to each, and finally a go-back Rewind-to-Launch to a rewind save written between the windows. At ten reading points ReadVesselResources reads BOTH ends and gates the SUM B + A against the conservation equation derived from the route's own windows (origin debit 154.4 + transport launch-cargo drawdown 45.6 = destination credit 200, no by-design loss on this host): 400 before a cycle, 245.6 between the windows, 445.6 after the delivery; the transport C stays at 154.4. Each resume after a load must fire the remaining window exactly once with no second dispatch or origin debit (first flight of ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH's go-back fix)."
+instanceProfile = "stock-minimal"
+tags = ["RCN-1", "logistics", "route", "route-pickup", "route-delivery", "conservation",
+        "quickload", "rewind-to-launch", "timeline-ops", "recorded-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# The kill triple at boot and after each F9, as on IR-1 and every rover-relay-c lane: the
+# committed restore path can resume a promotion-stub recording of the active rover C
+# before the first step runs. After the CommitTree only StopRecording runs (H58's
+# reasoning: a DiscardTree there would reap the tree just committed).
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" },   expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "RCN Relay" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1000" },                               expect = "OK", budget = 300 },
+  # BEFORE: the route exists (Paused), nothing has run. B + A = 400; C = 154.4.
+  { cmd = "MissionMark",  args = { label = "rcn-before" },                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "90564594,4280917262", resources = "LiquidFuel", expect = "LiquidFuel:400", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "612987736", resources = "LiquidFuel", expect = "LiquidFuel:154.4", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "RouteCommand", args = { action = "activate", route = "RCN Relay" },  expect = "OK", budget = 120 },
+  # F5 #1, right after the activation and ~44 s before the pickup window.
+  { cmd = "SaveGame",     args = { name = "rcn-pre" },                          expect = "OK", budget = 120 },
+  # The pickup window (~1045): B -154.4, A unchanged.
+  { cmd = "TimeJump",     args = { ut = "1075" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rcn-picked" },                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "90564594,4280917262", resources = "LiquidFuel", expect = "LiquidFuel:245.6", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "612987736", resources = "LiquidFuel", expect = "LiquidFuel:154.4", tolerance = "0.01" }, expect = "OK" },
+  # F5 #2, between the two windows.
+  { cmd = "SaveGame",     args = { name = "rcn-mid" },                          expect = "OK", budget = 120 },
+  # The delivery window (~1164): A +200.
+  { cmd = "TimeJump",     args = { ut = "1175" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rcn-delivered" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "90564594,4280917262", resources = "LiquidFuel", expect = "LiquidFuel:445.6", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "612987736", resources = "LiquidFuel", expect = "LiquidFuel:154.4", tolerance = "0.01" }, expect = "OK" },
+  # F9 #1: back to the save between the windows (a Cold save-file load).
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "rcn-mid", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "rcn-mid-reloaded" },                expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "90564594,4280917262", resources = "LiquidFuel", expect = "LiquidFuel:245.6", tolerance = "0.01" }, expect = "OK" },
+  # The resumed cycle: the delivery window only, no second pickup.
+  { cmd = "TimeJump",     args = { ut = "1175" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rcn-mid-redelivered" },             expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "90564594,4280917262", resources = "LiquidFuel", expect = "LiquidFuel:445.6", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "612987736", resources = "LiquidFuel", expect = "LiquidFuel:154.4", tolerance = "0.01" }, expect = "OK" },
+  # F9 #2: back to the save before the cycle.
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "rcn-pre", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "rcn-pre-reloaded" },                expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "90564594,4280917262", resources = "LiquidFuel", expect = "LiquidFuel:400", tolerance = "0.01" }, expect = "OK" },
+  # The re-flown cycle, pickup first.
+  { cmd = "TimeJump",     args = { ut = "1075" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rcn-pre-picked" },                  expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "90564594,4280917262", resources = "LiquidFuel", expect = "LiquidFuel:245.6", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "612987736", resources = "LiquidFuel", expect = "LiquidFuel:154.4", tolerance = "0.01" }, expect = "OK" },
+  # The rewind save, written between the windows by recording the transport for a frame
+  # (H58's sequence: StopRecording after CommitTree clears the commit's own auto-resume).
+  { cmd = "StartRecording",                                                     expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "CommitTree",                                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "TimeJump",     args = { ut = "1175" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rcn-pre-redelivered" },             expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "90564594,4280917262", resources = "LiquidFuel", expect = "LiquidFuel:445.6", tolerance = "0.01" }, expect = "OK" },
+  # The go-back rewind back across the delivery, to the rewind save between the windows.
+  # It lands at the Space Center, so the delivery comes round on a WarpToUT.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                   expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rcn-rewound" },                     expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "90564594,4280917262", resources = "LiquidFuel", expect = "LiquidFuel:245.6", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1175", maxRate = "10" },               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rcn-rewind-redelivered" },          expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "90564594,4280917262", resources = "LiquidFuel", expect = "LiquidFuel:445.6", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The relay host's 10 committed recordings (RVR-7) plus the one-frame recording of C the
+# rewind needs (H58 measured exactly one on its host). Tighten after the first flight.
+count = { min = 11, max = 12 }
+
+[expectations.routes]
+# Report-only until the first flight: one Active route whose counters came back from the
+# rewind save (0 completed) and then completed the resumed cycle once.
+count           = { min = 1, max = 1 }
+dormant         = { max = 0 }
+completedCycles = { min = 1, max = 1 }
+skippedCycles   = { max = 0 }
+statuses        = { Active = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='RCN Relay' status=Paused",
+  "routecommand complete action=activate route=.* name='RCN Relay' match=name statusBefore=Paused status=Active",
+  # ---- BEFORE: B 200 + A 200 = 400, C 154.4, nothing run.
+  "(?s)MISSIONMARK label=rcn-before (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RCN Relay' status=Paused completed=0 skipped=0 cursor=-1 [^\\r\\n]* stopFired=-1,-1 dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=rcn-before (?:(?!readvesselresources vessel index=0 ).)*readvesselresources vessel index=0 rec=- found=true pid=90564594 name='B' [^\\r\\n]* LiquidFuel=200\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-before (?:(?!readvesselresources vessel index=1 ).)*readvesselresources vessel index=1 rec=- found=true pid=4280917262 name='A' [^\\r\\n]* LiquidFuel=200\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-before (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=400\\.0000 [^\\r\\n]*match=true",
+  "savegame name=rcn-pre folder=.+ saved=true",
+  # ---- THE PICKUP: one dispatch, one origin debit of exactly the window's 154.4 off B.
+  "(?s)savegame name=rcn-pre (?:(?!MISSIONMARK label=rcn-picked ).)*LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-[0-9]+ cMin=[0-9]+ dispatch fired \\(carrierStopIndex=0\\)",
+  "(?s)savegame name=rcn-pre (?:(?!MISSIONMARK label=rcn-picked ).)*Origin debit: route=\\S+ origin=B pid=90564594 resource=LiquidFuel requested=154\\.(?:4|39999)[0-9]* debited=154\\.(?:4|39999)[0-9]* tankBefore=[0-9.]+ tankAfter=45\\.(?:6|59999)[0-9]*",
+  "(?s)MISSIONMARK label=rcn-picked (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RCN Relay' status=Active completed=0 skipped=0 [^\\r\\n]* stopFired=[0-9]+,-1 dispatched=1 debited=0 pickedUp=1 delivered=0 paused=0 resumed=1 ",
+  "(?s)MISSIONMARK label=rcn-picked (?:(?!readvesselresources vessel index=0 ).)*readvesselresources vessel index=0 rec=- found=true pid=90564594 name='B' [^\\r\\n]* LiquidFuel=45\\.(?:6000|5999)/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-picked (?:(?!readvesselresources vessel index=1 ).)*readvesselresources vessel index=1 rec=- found=true pid=4280917262 name='A' [^\\r\\n]* LiquidFuel=200\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-picked (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=245\\.6000 [^\\r\\n]*match=true",
+  "savegame name=rcn-mid folder=.+ saved=true",
+  # ---- THE DELIVERY: the cycle's own dispatch resumed, 200 written into A.
+  "(?s)savegame name=rcn-mid (?:(?!MISSIONMARK label=rcn-delivered ).)*LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-[0-9]+ cMin=[0-9]+ dispatch already logged - firing only the due window\\(s\\), no re-gate",
+  "(?s)savegame name=rcn-mid (?:(?!MISSIONMARK label=rcn-delivered ).)*Delivery write: route=\\S+ dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=(?:200|199\\.99[0-9]*) tankAfter=(?:400|399\\.99[0-9]*) capacity=400 ",
+  "(?s)MISSIONMARK label=rcn-delivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RCN Relay' status=Active completed=1 skipped=0 [^\\r\\n]* stopFired=[0-9]+,[0-9]+ dispatched=1 debited=0 pickedUp=1 delivered=1 paused=0 resumed=1 ",
+  "(?s)MISSIONMARK label=rcn-delivered (?:(?!readvesselresources vessel index=0 ).)*readvesselresources vessel index=0 rec=- found=true pid=90564594 name='B' [^\\r\\n]* LiquidFuel=45\\.(?:6000|5999)/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-delivered (?:(?!readvesselresources vessel index=1 ).)*readvesselresources vessel index=1 rec=- found=true pid=4280917262 name='A' [^\\r\\n]* LiquidFuel=400\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-delivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=445\\.6000 [^\\r\\n]*match=true",
+  # ---- F9 #1 to the save between the windows: a Cold load of that save's route and tanks.
+  "loadgame start save=\\S+ name=rcn-mid scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rcn-mid (?:(?!Load classified: ).)*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rcn-mid (?:(?!MISSIONMARK label=).)*LoadRoutesFrom: loaded 1 route\\(s\\)",
+  "(?s)MISSIONMARK label=rcn-mid-reloaded (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RCN Relay' status=Active completed=0 skipped=0 [^\\r\\n]* stopFired=[0-9]+,-1 dispatched=1 debited=0 pickedUp=1 delivered=0 paused=0 resumed=1 ",
+  "(?s)MISSIONMARK label=rcn-mid-reloaded (?:(?!readvesselresources vessel index=0 ).)*readvesselresources vessel index=0 rec=- found=true pid=90564594 name='B' [^\\r\\n]* LiquidFuel=45\\.(?:6000|5999)/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-mid-reloaded (?:(?!readvesselresources vessel index=1 ).)*readvesselresources vessel index=1 rec=- found=true pid=4280917262 name='A' [^\\r\\n]* LiquidFuel=200\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-mid-reloaded (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=245\\.6000 [^\\r\\n]*match=true",
+  # The resumed cycle delivers once, under its logged dispatch.
+  "(?s)MISSIONMARK label=rcn-mid-reloaded (?:(?!MISSIONMARK label=rcn-mid-redelivered ).)*LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-[0-9]+ cMin=[0-9]+ dispatch already logged - firing only the due window\\(s\\), no re-gate",
+  "(?s)MISSIONMARK label=rcn-mid-reloaded (?:(?!MISSIONMARK label=rcn-mid-redelivered ).)*Delivery write: route=\\S+ dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=(?:200|199\\.99[0-9]*) tankAfter=(?:400|399\\.99[0-9]*) capacity=400 ",
+  "(?s)MISSIONMARK label=rcn-mid-redelivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RCN Relay' status=Active completed=1 skipped=0 [^\\r\\n]* stopFired=[0-9]+,[0-9]+ dispatched=1 debited=0 pickedUp=1 delivered=1 paused=0 resumed=1 ",
+  "(?s)MISSIONMARK label=rcn-mid-redelivered (?:(?!readvesselresources vessel index=0 ).)*readvesselresources vessel index=0 rec=- found=true pid=90564594 name='B' [^\\r\\n]* LiquidFuel=45\\.(?:6000|5999)/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-mid-redelivered (?:(?!readvesselresources vessel index=1 ).)*readvesselresources vessel index=1 rec=- found=true pid=4280917262 name='A' [^\\r\\n]* LiquidFuel=400\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-mid-redelivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=445\\.6000 [^\\r\\n]*match=true",
+  # ---- F9 #2 to the save before the cycle.
+  "loadgame start save=\\S+ name=rcn-pre scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rcn-pre (?:(?!Load classified: ).)*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rcn-pre (?:(?!MISSIONMARK label=).)*LoadRoutesFrom: loaded 1 route\\(s\\)",
+  "(?s)MISSIONMARK label=rcn-pre-reloaded (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RCN Relay' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* stopFired=-1,-1 dispatched=0 debited=0 pickedUp=0 delivered=0 paused=0 resumed=1 ",
+  "(?s)MISSIONMARK label=rcn-pre-reloaded (?:(?!readvesselresources vessel index=0 ).)*readvesselresources vessel index=0 rec=- found=true pid=90564594 name='B' [^\\r\\n]* LiquidFuel=200\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-pre-reloaded (?:(?!readvesselresources vessel index=1 ).)*readvesselresources vessel index=1 rec=- found=true pid=4280917262 name='A' [^\\r\\n]* LiquidFuel=200\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-pre-reloaded (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=400\\.0000 [^\\r\\n]*match=true",
+  # The re-flown pickup.
+  "(?s)MISSIONMARK label=rcn-pre-reloaded (?:(?!MISSIONMARK label=rcn-pre-picked ).)*Origin debit: route=\\S+ origin=B pid=90564594 resource=LiquidFuel requested=154\\.(?:4|39999)[0-9]* debited=154\\.(?:4|39999)[0-9]* tankBefore=[0-9.]+ tankAfter=45\\.(?:6|59999)[0-9]*",
+  "(?s)MISSIONMARK label=rcn-pre-picked (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RCN Relay' status=Active completed=0 skipped=0 [^\\r\\n]* stopFired=[0-9]+,-1 dispatched=1 debited=0 pickedUp=1 delivered=0 paused=0 resumed=1 ",
+  "(?s)MISSIONMARK label=rcn-pre-picked (?:(?!readvesselresources vessel index=0 ).)*readvesselresources vessel index=0 rec=- found=true pid=90564594 name='B' [^\\r\\n]* LiquidFuel=45\\.(?:6000|5999)/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-pre-picked (?:(?!readvesselresources vessel index=1 ).)*readvesselresources vessel index=1 rec=- found=true pid=4280917262 name='A' [^\\r\\n]* LiquidFuel=200\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-pre-picked (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=245\\.6000 [^\\r\\n]*match=true",
+  # The rewind save, between the windows, and the new tree.
+  "(?s)MISSIONMARK label=rcn-pre-picked (?:(?!MISSIONMARK label=rcn-pre-redelivered ).)*Captured rewind save at UT 10[78][0-9]\\.[0-9]+",
+  "Total committed: 1[12] recordings, 4 trees",
+  "(?s)MISSIONMARK label=rcn-pre-picked (?:(?!MISSIONMARK label=rcn-pre-redelivered ).)*Delivery write: route=\\S+ dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=(?:200|199\\.99[0-9]*) tankAfter=(?:400|399\\.99[0-9]*) capacity=400 ",
+  "(?s)MISSIONMARK label=rcn-pre-redelivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RCN Relay' status=Active completed=1 skipped=0 [^\\r\\n]* stopFired=[0-9]+,[0-9]+ dispatched=1 debited=0 pickedUp=1 delivered=1 paused=0 resumed=1 ",
+  "(?s)MISSIONMARK label=rcn-pre-redelivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=445\\.6000 [^\\r\\n]*match=true",
+  # ---- THE GO-BACK REWIND to the rewind save between the windows.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=4",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=10[67][0-9]\\.[0-9]+ elapsed=",
+  "OnLoad: go-back route reconcile at cutoff=10[78][0-9]\\.[0-9]+ retiredRouteRows=[1-9][0-9]* committedRoutes=1 dormantRoutes=0 cutoffSource=rewind-save-ut ",
+  "OnLoad go-back: loop position restored from the loaded save at cutoff=10[78][0-9]\\.[0-9]+ loadedSaveUT=10[78][0-9]\\.[0-9]+ keptRoutes=1 savedRoutes=1 loopPositionsRestored=1 ",
+  "(?s)MISSIONMARK label=rcn-rewound (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RCN Relay' status=Active completed=0 skipped=0 [^\\r\\n]* stopFired=[0-9]+,-1 dispatched=1 debited=0 pickedUp=1 delivered=0 paused=0 resumed=1 ",
+  "(?s)MISSIONMARK label=rcn-rewound (?:(?!readvesselresources vessel index=0 ).)*readvesselresources vessel index=0 rec=- found=true pid=90564594 name='B' [^\\r\\n]* LiquidFuel=45\\.(?:6000|5999)/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-rewound (?:(?!readvesselresources vessel index=1 ).)*readvesselresources vessel index=1 rec=- found=true pid=4280917262 name='A' [^\\r\\n]* LiquidFuel=200\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-rewound (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=245\\.6000 [^\\r\\n]*match=true",
+  # The resumed cycle delivers once at the Space Center, under its logged dispatch.
+  "(?s)MISSIONMARK label=rcn-rewound (?:(?!MISSIONMARK label=rcn-rewind-redelivered ).)*LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-[0-9]+ cMin=[0-9]+ dispatch already logged - firing only the due window\\(s\\), no re-gate",
+  "(?s)MISSIONMARK label=rcn-rewound (?:(?!MISSIONMARK label=rcn-rewind-redelivered ).)*Delivery write: route=\\S+ dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=(?:200|199\\.99[0-9]*) tankAfter=(?:400|399\\.99[0-9]*) capacity=400 ",
+  "(?s)MISSIONMARK label=rcn-rewind-redelivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RCN Relay' status=Active completed=1 skipped=0 [^\\r\\n]* stopFired=[0-9]+,[0-9]+ dispatched=1 debited=0 pickedUp=1 delivered=1 paused=0 resumed=1 ",
+  "(?s)MISSIONMARK label=rcn-rewind-redelivered (?:(?!readvesselresources vessel index=0 ).)*readvesselresources vessel index=0 rec=- found=true pid=90564594 name='B' [^\\r\\n]* LiquidFuel=45\\.(?:6000|5999)/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-rewind-redelivered (?:(?!readvesselresources vessel index=1 ).)*readvesselresources vessel index=1 rec=- found=true pid=4280917262 name='A' [^\\r\\n]* LiquidFuel=400\\.0000/400\\.0000",
+  "(?s)MISSIONMARK label=rcn-rewind-redelivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=445\\.6000 [^\\r\\n]*match=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "listhandles rejected",
+  "readvesselresources rejected",
+  # The conservation gate itself: any reading off its equation.
+  "readvesselresources expect [^\\r\\n]*match=false",
+  # No cycle may hold: a second pickup would meet B's 45.6, a second delivery A's full tank.
+  "BLOCKED kind=",
+  "reject id=[0-9]+ cmd=InvokeRewindToLaunch reason=recording-active",
+  "invokerewindtolaunch refused: rewind-gate",
+  # Exactly two pickups in the whole run (the first cycle and the re-flown one after
+  # F9 #2) and exactly four deliveries (one per future): a third origin debit or a fifth
+  # delivery is a double fire somewhere.
+  "(?s)Origin debit: (?:.*?Origin debit: ){2}",
+  "(?s)dispatch fired \\(carrierStopIndex=(?:.*?dispatch fired \\(carrierStopIndex=){2}",
+  "(?s)Delivery write: (?:.*?Delivery write: ){4}",
+  # Per segment: no second pickup after a resume, no double delivery in any one future.
+  "(?s)MISSIONMARK label=rcn-picked (?:(?!MISSIONMARK label=rcn-pre-reloaded ).)*Origin debit: ",
+  "(?s)MISSIONMARK label=rcn-mid-reloaded (?:(?!MISSIONMARK label=rcn-pre-reloaded ).)*dispatch fired ",
+  "(?s)MISSIONMARK label=rcn-pre-picked .*Origin debit: ",
+  "(?s)MISSIONMARK label=rcn-rewound (?:(?!MISSIONMARK label=rcn-rewind-redelivered ).)*dispatch fired ",
+  "(?s)MISSIONMARK label=rcn-rewound (?:(?!MISSIONMARK label=rcn-rewind-redelivered ).)*Delivery write: (?:(?!MISSIONMARK label=rcn-rewind-redelivered ).)*Delivery write: ",
+  "(?s)MISSIONMARK label=rcn-mid-reloaded (?:(?!MISSIONMARK label=rcn-mid-redelivered ).)*Delivery write: (?:(?!MISSIONMARK label=rcn-mid-redelivered ).)*Delivery write: ",
+]
+
+[runtime]
+# Three LoadGames, six TimeJumps, a Rewind-to-Launch and a WarpToUT (deferred verbs),
+# plus about 60 short steps; the expected wall is a few minutes.
+budgetSeconds = 3600
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""
