@@ -4,6 +4,17 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 1.0.0
+
+### Changed
+
+- **Parsek is now on CKAN.** You can install and update it with the CKAN mod manager, which also
+  installs its dependencies. Saves from 0.10.7 load unchanged. (T3)
+- **Small packaging updates for CKAN.** Module Manager is no longer listed as a requirement (Parsek
+  never used it), and the release zip now includes the license file.
+
+---
+
 ## 0.10.7
 
 ### Highlights
