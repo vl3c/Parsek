@@ -47,7 +47,7 @@ Time travel paradoxes are avoided by enforcing causality: events are always proc
 
 ## Controls
 
-The Parsek window is available from the toolbar button in Flight and Map view.
+The Parsek window is available from the toolbar button at the Space Center, in Flight and in Map view.
 
 ## Supported Mods
 
