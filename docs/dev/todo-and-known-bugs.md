@@ -3129,7 +3129,20 @@ another pid, a chain claim before any carrier, the gates, the precedence).
 point, so its node is excluded `no-relay-or-control-capability` whatever the hold says. A lane
 needs a claimed vessel that relays.
 
-## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it~~ [FILED 2026-09-11 by the GUI fix batch; DONE 2026-11-06, owner ruling: retire it]
+
+**Done 2026-11-06 (owner ruling V, thread "Decide the five cleanup leftovers"): retired.**
+`ParsekScenario.ShowDeferredMergeDialog` and both `!IsAutoMerge` arming branches in OnLoad are
+gone: a pending tree found outside FLIGHT on a non-revert load always goes through
+`AutoCommitPendingTreeOutsideFlight` (which still reads the setting to pick full-fidelity vs
+ghost-only), so OnLoad never opens a dialog. The pre-transition dialog (SceneExitInterceptor;
+auto-merge OFF in the harness, Re-Fly exit, journal-finishing main-menu exit) is untouched, so
+`H21-scene-exit-merge-isolated` and its two `ExitToSpaceCenter_*` tests (which drive THAT dialog
+despite their names) stay. The one in-game test that reached the coroutine by reflection now opens
+the dialog directly (`TreeMergeDialog_MergeButton_CommitsPendingTree`, same category, same tally),
+and REV-1's forbid on the retired canary line now forbids the post-transition dialog's own
+`Tree merge dialog: tree=` line in the same window.
+
 
 **Evidence.** `MergeDialog.cs:103` via `ParsekScenario.ShowDeferredMergeDialog:6054`, armed
 at `:3971` and `:4377` on the `!IsAutoMerge` branch. `autoMerge` is clamped true for every

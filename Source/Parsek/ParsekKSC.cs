@@ -165,7 +165,7 @@ namespace Parsek
             GameEvents.onGamePause.Add(OnGamePause);
             GameEvents.onGameUnpause.Add(OnGameUnpause);
             // kscGhosts and its side tables are keyed by committed index; a table delete or
-            // a deferred merge dialog can restructure the list while they are populated.
+            // a pending-tree commit can restructure the list while they are populated.
             RecordingStore.CommittedRecordingRemoving += OnCommittedRecordingRemoving;
             RecordingStore.CommittedRecordingRemoved += OnCommittedRecordingRemoved;
             RecordingStore.CommittedRecordingInserted += OnCommittedRecordingInserted;

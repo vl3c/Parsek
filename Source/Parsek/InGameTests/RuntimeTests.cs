@@ -91,9 +91,6 @@ namespace Parsek.InGameTests
         private static readonly MethodInfo DialogGuiButtonOptionSelectedMethod =
             typeof(DialogGUIButton).GetMethod("OptionSelected",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-        private static readonly MethodInfo ParsekScenarioShowDeferredMergeDialogMethod =
-            typeof(ParsekScenario).GetMethod("ShowDeferredMergeDialog",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly MethodInfo ParsekFlightOnVesselSwitchCompleteMethod =
             typeof(ParsekFlight).GetMethod("OnVesselSwitchComplete",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
@@ -5111,9 +5108,9 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "MergeDialog", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
-            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test fabricates a pending tree, drives the deferred FLIGHT merge popup, and commits synthetic timeline state into the current session before cleaning it up. Use Run All + Isolated or the row play button.",
-            Description = "Deferred merge popup commits a pending tree through the real Merge to Timeline path")]
-        public IEnumerator TreeMergeDialog_DeferredMergeButton_CommitsPendingTree()
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test fabricates a pending tree, drives the FLIGHT merge popup, and commits synthetic timeline state into the current session before cleaning it up. Use Run All + Isolated or the row play button.",
+            Description = "Merge popup commits a pending tree through the real Merge to Timeline path")]
+        public IEnumerator TreeMergeDialog_MergeButton_CommitsPendingTree()
         {
             if (RecordingStore.HasPendingTree)
             {
@@ -5125,47 +5122,33 @@ namespace Parsek.InGameTests
                 || MultiOptionDialogTitleField == null
                 || MultiOptionDialogOptionsField == null
                 || DialogGuiButtonTextField == null
-                || DialogGuiButtonOptionSelectedMethod == null
-                || ParsekScenarioShowDeferredMergeDialogMethod == null)
+                || DialogGuiButtonOptionSelectedMethod == null)
             {
                 InGameAssert.Skip("merge dialog reflection helpers are unavailable");
                 yield break;
             }
 
-            ParsekScenario scenario = Object.FindObjectOfType<ParsekScenario>();
-            if (scenario == null)
-            {
-                InGameAssert.Skip("ParsekScenario instance is unavailable in FLIGHT");
-                yield break;
-            }
-
             bool originalMergeDialogPending = ParsekScenario.MergeDialogPending;
-            RecordingTree tree = BuildSyntheticPendingTree("ingame-deferred-merge-commit");
+            RecordingTree tree = BuildSyntheticPendingTree("ingame-merge-commit");
 
             try
             {
-                MergeDialog.DismissAndClearPendingFlag("runtime deferred merge commit setup");
+                MergeDialog.DismissAndClearPendingFlag("runtime merge commit setup");
                 RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-                ParsekScenario.MergeDialogPending = true;
-
-                IEnumerator deferredDialog = ParsekScenarioShowDeferredMergeDialogMethod.Invoke(
-                    scenario, null) as IEnumerator;
-                InGameAssert.IsNotNull(deferredDialog,
-                    "ShowDeferredMergeDialog should return an IEnumerator");
-                scenario.StartCoroutine(deferredDialog);
+                MergeDialog.ShowTreeDialog(tree);
 
                 yield return WaitForPopupDialog("ParsekMerge", 8f);
 
                 PopupDialog popup = FindPopupDialog("ParsekMerge");
                 InGameAssert.IsNotNull(popup,
-                    "ParsekMerge popup should exist after deferred merge dialog starts");
+                    "ParsekMerge popup should exist after the merge dialog is shown");
 
                 MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
                 InGameAssert.AreEqual("Confirm: Merge to Timeline", dialogTitle,
-                    "Deferred merge dialog title should match the production popup");
+                    "Merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
                 DialogGUIButton mergeButton = buttons.FirstOrDefault(
@@ -5184,12 +5167,12 @@ namespace Parsek.InGameTests
                 InGameAssert.IsFalse(RecordingStore.HasPendingTree,
                     "Merge to Timeline should consume the pending tree");
                 InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
-                    "Merge to Timeline should clear the deferred merge-dialog flag");
+                    "Merge to Timeline should clear the merge-dialog-pending flag");
 
                 RecordingTree committedTree = RecordingStore.CommittedTrees.FirstOrDefault(
                     candidate => candidate != null && candidate.Id == tree.Id);
                 InGameAssert.IsNotNull(committedTree,
-                    "Deferred Merge to Timeline should commit the synthetic tree");
+                    "Merge to Timeline should commit the synthetic tree");
 
                 bool recordingCommitted = RecordingStore.CommittedRecordings.Any(
                     rec => rec != null && rec.TreeId == tree.Id && rec.RecordingId == tree.ActiveRecordingId);
@@ -5197,11 +5180,11 @@ namespace Parsek.InGameTests
                     "CommittedRecordings should contain the merged tree's active recording");
 
                 ParsekLog.Info("TestRunner",
-                    $"Deferred merge runtime: committed tree='{tree.TreeName}' id={tree.Id}");
+                    $"Merge dialog runtime: committed tree='{tree.TreeName}' id={tree.Id}");
             }
             finally
             {
-                MergeDialog.DismissAndClearPendingFlag("runtime deferred merge commit cleanup");
+                MergeDialog.DismissAndClearPendingFlag("runtime merge commit cleanup");
                 if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
                     RecordingStore.DiscardPendingTree();
                 RemoveCommittedTreeByIdForRuntimeTest(tree.Id);
@@ -5346,7 +5329,7 @@ namespace Parsek.InGameTests
         // Same disk-blind teardown problem as RemoveCommittedTreeByIdForPlaybackRuntimeTest
         // (see the comment there). Callers of THIS overload reach a real
         // RecordingStore.CommitTree indirectly, through the production merge paths rather
-        // than a direct call: TreeMergeDialog_DeferredMergeButton_CommitsPendingTree
+        // than a direct call: TreeMergeDialog_MergeButton_CommitsPendingTree
         // clicks the real "Merge to Timeline" button on a stashed synthetic tree, and
         // EvaKerbalGhostHasVesselSnapshot runs a real StartRecording + FinalizeTreeRecordings.
         // CommitTree flushes SaveRecordingFiles for every recording in the tree, so the
