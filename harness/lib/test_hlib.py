@@ -10473,6 +10473,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "self-authored RewindPoint needs a multi-controllable "
                                        "split plus a seam channel. No unattended run discharges them.",
         # S4.2-refly-world-preservation DROPPED 2026-08-12 - see DROPPED_2026_08_12.
+        "PPB-3-backup-failure-hold.toml":
+                                       "tier=operator, FLOWN GREEN 2026-11-06_1331 (PASS "
+                                       "attempt 1, after a seam fix for flight-ready in an "
+                                       "inert game). Debt left: the operator -> daily "
+                                       "promotion call (the PPB-1 precedent).",
         "PPB-1-untouched-career-backup.toml":
                                        "tier=operator, now FLOWN GREEN (2026-08-29_1101, "
                                        "PASS attempt 1). Debt (i), the first flight, is "
@@ -17976,6 +17981,40 @@ class LoadGameFocusPidSourceSyncTests(unittest.TestCase):
         loads[1]["args"]["focusPid"] = "0"
         errs = hlib.validate_spec(spec, load_registry()).errors
         self.assertTrue(any("focus-pid-arg-invalid" in e for e in errs), errs)
+
+
+class LoadGameBackupFaultSourceSyncTests(unittest.TestCase):
+    """`LoadGame backupFault=fail` (todo PRE-PARSEK-BACKUP-HOLD). Reads OUTSIDE harness/:
+    the key, the one value and the refusal reason of the comment-stripped
+    TestCommands/TestCommandLoadGame.cs, and the dispatcher's parse."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# LoadGame backupFault tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_key_value_and_reason_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandLoadGame.cs")
+        self.assertIn('internal const string BackupFaultKey = "%s";'
+                      % hlib.LOADGAME_BACKUP_FAULT_KEY, text)
+        self.assertEqual(("fail",), hlib.LOADGAME_BACKUP_FAULT_VALUES)
+        self.assertIn('internal const string BackupFaultFailValue = "%s";'
+                      % hlib.LOADGAME_BACKUP_FAULT_VALUES[0], text)
+        self.assertIn('internal const string BackupFaultArgInvalidReason = "%s";'
+                      % hlib.LOADGAME_BACKUP_FAULT_INVALID_REASON, text)
+        self.assertEqual(("LoadGame", hlib.LOADGAME_BACKUP_FAULT_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.LOADGAME_BACKUP_FAULT_KEY])
+        self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(
+            hlib.LOADGAME_BACKUP_FAULT_INVALID_REASON))
+        self.assertIn(hlib.LOADGAME_BACKUP_FAULT_INVALID_REASON,
+                      hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_dispatcher_refuses_a_bad_spelling(self):
+        text = self._source("TestCommands", "TestCommandDispatcher.cs")
+        self.assertIn("TestCommandLoadGame.TryParseBackupFault(", text)
+        self.assertIn("TestCommandLoadGame.BackupFaultArgInvalidReason", text)
 
 
 class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):

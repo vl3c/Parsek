@@ -106,16 +106,34 @@ namespace Parsek.Tests
             Assert.True(inSessionCall > 0, "timeline-break gate: the in-session call is missing");
             var returns = Regex.Matches(body, @"\breturn\b").Cast<Match>().Select(m => m.Index).ToList();
             Assert.NotEmpty(returns);
+            // The pre-Parsek backup hold's return is reachable only on a COLD load (it sits in
+            // the `if (!initialLoadDone)` backup block, and ClassifyEarly maps !initialLoadDone
+            // to Cold), which is never a time-travel load.
+            int holdReturn = BackupHoldReturnIndex(body);
             foreach (int r in returns)
             {
                 bool beforeClassify = r < early;
                 bool inRewind = r > rewindStart && r < rewindEnd;
                 bool afterInSessionCall = r > inSessionCall;
-                Assert.True(beforeClassify || inRewind || afterInSessionCall,
+                bool coldOnlyBackupHold = r == holdReturn;
+                Assert.True(beforeClassify || inRewind || afterInSessionCall || coldOnlyBackupHold,
                     "timeline-break gate: OnLoad returns at offset " + r + " outside the inert gate and "
                     + "the rewind branch, before the in-session call; a time-travel load could skip "
                     + "the timeline break there");
             }
+        }
+
+        private static int BackupHoldReturnIndex(string body)
+        {
+            int enter = body.IndexOf("EnterBackupHold(node", StringComparison.Ordinal);
+            Assert.True(enter > 0, "timeline-break gate: the backup hold entry is missing");
+            int guard = body.LastIndexOf("if (!initialLoadDone)", enter, StringComparison.Ordinal);
+            int attempt = body.LastIndexOf("PreParsekBackup.MaybeBackupOnFirstColdContact()", enter, StringComparison.Ordinal);
+            Assert.True(guard > 0 && attempt > guard,
+                "timeline-break gate: the backup hold must stay inside the cold-only backup block");
+            int ret = Regex.Match(body.Substring(enter), @"\breturn\b").Index + enter;
+            Assert.True(ret - enter < 200, "timeline-break gate: the backup hold return must follow its entry");
+            return ret;
         }
 
         [Fact]

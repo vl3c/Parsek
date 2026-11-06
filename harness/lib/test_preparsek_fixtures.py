@@ -49,8 +49,10 @@ PARSEK_SRC = os.path.join(_REPO, "Source", "Parsek")
 
 UNTOUCHED = "preparsek-untouched-career"
 BRANDNEW = "preparsek-brandnew-career"
+HOLD = "preparsek-hold-career"
 SPEC_UNTOUCHED = "PPB-1-untouched-career-backup.toml"
 SPEC_BRANDNEW = "PPB-2-brandnew-career-skip.toml"
+SPEC_HOLD = "PPB-3-backup-failure-hold.toml"
 
 
 def _load_builder():
@@ -85,10 +87,10 @@ class PreParsekFixtureDriftTests(unittest.TestCase):
                                                check_only=True)
         self.assertEqual([], problems)
 
-    def test_the_targets_table_is_the_two_this_lane_stages(self):
+    def test_the_targets_table_is_the_three_these_lanes_stage(self):
         # Anti-vacuity: the cell above iterates TARGETS, so an emptied or renamed
         # table would pass it while checking nothing.
-        self.assertEqual([UNTOUCHED, BRANDNEW],
+        self.assertEqual([UNTOUCHED, BRANDNEW, HOLD],
                          [t[0] for t in self.builder.TARGETS])
 
     def test_the_untouched_fixture_keeps_an_INERT_parsek_scenario_node(self):
@@ -153,13 +155,15 @@ class PreParsekFixtureDriftTests(unittest.TestCase):
 
 
 class PreParsekSpecWiringTests(unittest.TestCase):
-    """The two specs must stage the two fixtures, and stage them ALONE."""
+    """The three specs must stage the three fixtures, and stage them ALONE."""
 
     def test_each_spec_stages_its_own_fixture(self):
         self.assertEqual("fixtures/saves/%s" % UNTOUCHED,
                          _spec(SPEC_UNTOUCHED)["fixture"]["saveTemplate"])
         self.assertEqual("fixtures/saves/%s" % BRANDNEW,
                          _spec(SPEC_BRANDNEW)["fixture"]["saveTemplate"])
+        self.assertEqual("fixtures/saves/%s" % HOLD,
+                         _spec(SPEC_HOLD)["fixture"]["saveTemplate"])
 
     def test_no_other_spec_shares_either_leaf(self):
         # THE PRODUCED-SAVE CLOBBER RACE, gated rather than trusted to a comment:
@@ -168,7 +172,8 @@ class PreParsekSpecWiringTests(unittest.TestCase):
         # These two fixtures exist partly BECAUSE of that rule (the brand-new one
         # is a copy of `fresh-career`, which four specs already share), so a later
         # spec quietly adopting one would undo the reason it was built.
-        for leaf, owner in ((UNTOUCHED, SPEC_UNTOUCHED), (BRANDNEW, SPEC_BRANDNEW)):
+        for leaf, owner in ((UNTOUCHED, SPEC_UNTOUCHED), (BRANDNEW, SPEC_BRANDNEW),
+                            (HOLD, SPEC_HOLD)):
             users = []
             for name in sorted(os.listdir(SCENARIOS)):
                 if not name.endswith(".toml"):
@@ -199,7 +204,7 @@ class PreParsekSpecWiringTests(unittest.TestCase):
         # Both ship REPORT-ONLY: every pin is derived, none measured. `saveParse`
         # arming is separately pinned by ARMED_ALLOWLIST in test_hlib; this cell
         # states the lane's own intent at the source.
-        for name in (SPEC_UNTOUCHED, SPEC_BRANDNEW):
+        for name in (SPEC_UNTOUCHED, SPEC_BRANDNEW, SPEC_HOLD):
             exp = _spec(name).get("expectations", {}) or {}
             for block, body in exp.items():
                 if isinstance(body, dict):

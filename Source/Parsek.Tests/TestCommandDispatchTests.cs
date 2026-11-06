@@ -413,6 +413,27 @@ namespace Parsek.Tests
             Assert.Equal("load-in-flight", r.Reason);
         }
 
+        [Fact]
+        public void LoadGame_BackupFaultFail_NoRecorder_Executes()
+        {
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("LoadGame", "backupFault=fail"), Flight());
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Theory]
+        [InlineData("backupFault=Fail")]
+        [InlineData("backupFault=true")]
+        [InlineData("backupFault=")]
+        public void LoadGame_BackupFault_BadValue_Rejects_ArgInvalid_EvenWithLiveRecorder(string argToken)
+        {
+            var st = Flight();
+            st.Recording = true;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("LoadGame", argToken), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal(TestCommandLoadGame.BackupFaultArgInvalidReason, r.Reason);
+        }
+
         [Theory]
         [InlineData("playerLoad=True")]
         [InlineData("playerLoad=false")]

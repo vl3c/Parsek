@@ -12,6 +12,9 @@ All notable changes to Parsek are documented here.
   installs its dependencies. Saves from 0.10.7 load unchanged. (T3)
 - **Small packaging updates for CKAN.** Module Manager is no longer listed as a requirement (Parsek
   never used it), and the release zip now includes the license file.
+- **Parsek never changes a save it could not back up.** If the first-time backup of an existing
+  save fails, Parsek stays switched off for that save and tries again the next time you load it
+  from the main menu. Before, the backup was never retried. (PRE-PARSEK-BACKUP-HOLD)
 
 ---
 

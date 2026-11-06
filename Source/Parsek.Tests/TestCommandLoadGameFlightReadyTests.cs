@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using Parsek.TestCommands;
 using Xunit;
 
@@ -115,6 +117,34 @@ namespace Parsek.Tests
             Assert.Equal(
                 "loadgame flight-ready wait: waited frames=57 seconds=1.23 after the FLIGHT scene settled (onFlightReady observed, active vessel unpacked) save=run1 vessel='Kerbal X'",
                 line);
+        }
+
+        [Fact]
+        public void InertGame_ReadsTheSeamsOwnFlightReady_NotParsekFlights()
+        {
+            // An inert game (mission mode, the pre-Parsek backup hold) has no ParsekFlight:
+            // it destroys itself before subscribing, so its flag can never come true.
+            Assert.True(TestCommandLoadGame.ResolveFlightReady(true, false, true));
+            Assert.False(TestCommandLoadGame.ResolveFlightReady(true, true, false));
+            // Every other game keeps ParsekFlight's per-load signal.
+            Assert.True(TestCommandLoadGame.ResolveFlightReady(false, true, false));
+            Assert.False(TestCommandLoadGame.ResolveFlightReady(false, false, true));
+        }
+
+        [Fact]
+        public void SeamFlightReady_IsSubscribed_AndResetAtEveryFlightLoadStart()
+        {
+            string path = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+                "Source", "Parsek", "TestCommands", "ParsekTestCommandAddon.cs"));
+            string src = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            Assert.Contains("GameEvents.onFlightReady.Add(OnSeamFlightReady)", src);
+            Assert.Contains("GameEvents.onFlightReady.Remove(OnSeamFlightReady)", src);
+            int reset = src.IndexOf("loadSeamFlightReadyObserved = false;", StringComparison.Ordinal);
+            int start = src.IndexOf("FlightDriver.StartAndFocusVessel(game, idx);", StringComparison.Ordinal);
+            Assert.True(reset >= 0 && start > reset,
+                "the seam's flight-ready flag must be reset before the FLIGHT scene request");
+            Assert.Contains("TestCommandLoadGame.ResolveFlightReady(", src);
         }
     }
 }

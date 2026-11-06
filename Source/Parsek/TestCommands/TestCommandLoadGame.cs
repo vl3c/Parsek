@@ -257,6 +257,38 @@ namespace Parsek.TestCommands
             return false;
         }
 
+        /// <summary>The optional <c>backupFault=</c> arg (todo PRE-PARSEK-BACKUP-HOLD): arms a
+        /// one-shot fault in the pre-Parsek backup before the load, so the next backup attempt
+        /// fails the way a full disk does and the save enters the backup hold. Automation-only;
+        /// nothing in a player build arms it.</summary>
+        internal const string BackupFaultKey = "backupFault";
+
+        /// <summary>The ONE accepted <c>backupFault=</c> wire value.</summary>
+        internal const string BackupFaultFailValue = "fail";
+
+        /// <summary>Reject reason for a <c>backupFault=</c> that is not the one accepted value.</summary>
+        internal const string BackupFaultArgInvalidReason = "backup-fault-arg-invalid";
+
+        /// <summary>
+        /// Parses the optional <c>backupFault=</c> arg, fail-closed and case-sensitive like
+        /// <see cref="TryParsePlayerLoad"/>: ABSENT arms nothing, the lowercase literal
+        /// <c>fail</c> arms the fault, and anything else (empty, <c>Fail</c>, <c>true</c>) is
+        /// invalid, so a misspelled opt-in can never fly a normal backup while the spec
+        /// believes it forced a failure.
+        /// </summary>
+        internal static bool TryParseBackupFault(string raw, out bool armFault)
+        {
+            armFault = false;
+            if (raw == null)
+                return true;
+            if (raw == BackupFaultFailValue)
+            {
+                armFault = true;
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>
         /// Parses the optional <c>scene=</c> arg (R12). FAIL-CLOSED and case-sensitive,
         /// exactly like <c>RunTests</c>' <c>isolated=</c>: the value reaches the wire
@@ -468,6 +500,15 @@ namespace Parsek.TestCommands
                 return false;
             return flightReadyObserved;
         }
+
+        /// <summary>
+        /// The flight-ready signal a FLIGHT load waits for. In a game Parsek is inert in (a
+        /// mission game, a save under the pre-Parsek backup hold) ParsekFlight destroys itself
+        /// before it subscribes, so the seam's own onFlightReady observation since the load
+        /// began stands in for it; every other game reads ParsekFlight's.
+        /// </summary>
+        internal static bool ResolveFlightReady(bool inertGame, bool parsekFlightReady, bool seamObservedFlightReady)
+            => inertGame ? seamObservedFlightReady : parsekFlightReady;
 
         /// <summary>The one Info line a FLIGHT load writes when its completion waited for
         /// flight readiness (frames and wall seconds after the scene settled).</summary>

@@ -17,6 +17,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~PRE-PARSEK-BACKUP-HOLD: a failed first-time backup was never retried, and Parsek changed the save anyway~~ [FILED 2026-11-06 from the CKAN / 1.0 review (thread "Plan publishing Parsek on CKAN"); FIXED by owner ruling 2026-11-06 ("Pause Parsek on that save"); LIVE-PROVEN PPB-3 2026-11-06_1331]
+
+The failure path promised a retry on the next load, but that load never retried: Parsek's first
+OnSave stamps its SCENARIO node (`parsekSaveFormat`), so every later cold load read the save as
+`already-parsek-footprint` and skipped. Meanwhile Parsek ran normally in the unprotected save.
+Fix: a failed attempt (or one that throws) arms `PreParsekBackup`'s hold on that save folder, and
+`ParsekGameModeGate` treats a held save like an inert game mode (every gated entry point stands
+down: no recording, ledger patching, stock-control blocks or toolbar button). The node is saved back
+verbatim (KSP's empty one), so the save keeps no footprint. `ParsekScenario.OnLoad` checks the hold
+before the game-mode gate. A load after a main-menu round trip clears it and runs the cold path,
+which retries the backup. One settled-scene notice per failed attempt (`HoldScreenMessage`). Unit:
+`PreParsekBackupHoldTests`. Live lane: PPB-3 (forced failure), see autotest-status. Its first
+flight (`2026-11-06_1317`) was INVALID on a seam gap: a FLIGHT `LoadGame` into an inert game
+waited for `ParsekFlight`'s `onFlightReady`, which an inert game never subscribes. The seam now
+reads its own `onFlightReady` for an inert game (`TestCommandLoadGame.ResolveFlightReady`).
+LIVE-PROVEN: PPB-3 `2026-11-06_1331` PASS attempt 1, mismatches=0.
+
+---
+
 ## ~~CORRECTION-BURN-QUARTER-THROTTLE: B19 / B20 burn their large correction at 0.25 throttle, ~8 / ~16 wall-min at 1x~~ [FILED 2026-11-06 from the 2026-11-06 check flights (B19 `_1120`, B20 `_1200`); owner ruling 2026-11-06 ("Yes, with a check flight"); DONE 2026-11-06, branch `claude/project-thread-cmhs13` (#2394); LIVE-PROVEN B19 `2026-11-06_1334` and B20 `2026-11-06_1408`, PASS attempt 1 each; test harness, medium (run time only)]
 
 The DIY correction burner sets `correctionThrottle` (0.25, chosen for a precise cut) once at
@@ -37,6 +56,8 @@ at a 1.97 m/s residual (1.68 before); CORRECTION-BURN 223 wall-s (was 556); Dres
 (earlier passes 848 to 1,023). B20 `_1408`: a 1,089.5 m/s round stepped down at 28.4 and cut at
 1.74 (1.88 before); CORRECTION-BURN 329 wall-s (was 1,053); Moho park pe 476 km (earlier 460 to
 501). Second rounds (17.6 and 1.7 m/s) stayed fine-only. Every gate held with wide margin.
+
+---
 
 ## ~~NODE-WAIT-HOLD-TRANSFER-AND-ROUNDOUT: B19 / B20 / B24 / B29 / B30 idle ~600 s at 1x before a burn~~ [FILED 2026-11-06 from the warp audit of the 2026-11-05 full run; owner ruling 2026-11-06 ("yes, if its just on-rails safe warping"); DONE 2026-11-06, branch `claude/project-thread-cmhs13` (#2391); LIVE-PROVEN 2026-11-06, all five lanes PASS attempt 1 with every park and arrival inside its gates; test harness, medium (run time only)]
 

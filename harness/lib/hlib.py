@@ -2912,6 +2912,19 @@ LOADGAME_PLAYER_LOAD_KEY = "playerLoad"
 LOADGAME_PLAYER_LOAD_VALUES: Tuple[str, ...] = ("true",)
 LOADGAME_PLAYER_LOAD_INVALID_REASON = "player-load-arg-invalid"
 
+# `LoadGame backupFault=fail` (todo PRE-PARSEK-BACKUP-HOLD): arms a ONE-SHOT fault in the
+# pre-Parsek backup, so the next backup attempt fails the way a full disk does (staging
+# cleaned, `FAILED to back up` Error) and the save enters the backup hold. Consumed by the
+# next attempt whether or not the load reaches one; an attempt that is skipped (footprint,
+# marker, brand-new save) disarms it with a Warn. One value, the playerLoad= grammar:
+# `fail` lowercase only, and nothing else is a spelling - omit the arg. The C# parse is
+# TestCommandLoadGame.TryParseBackupFault, fail-closed and case-sensitive
+# (`backup-fault-arg-invalid`, refused at dispatch before the state terms); mirrored by
+# LoadGameBackupFaultSourceSyncTests. Automation-only: nothing in a player build arms it.
+LOADGAME_BACKUP_FAULT_KEY = "backupFault"
+LOADGAME_BACKUP_FAULT_VALUES: Tuple[str, ...] = ("fail",)
+LOADGAME_BACKUP_FAULT_INVALID_REASON = "backup-fault-arg-invalid"
+
 # S4.4 `RecordingState awaitRecorderLive=`: a named-condition WAIT on the read verb.
 # With `refly` the seam DEFERS the read (`refly-recorder-not-live`) until a recorder is
 # live AND a re-fly session marker is live - the state in which a bare LoadGame refuses
@@ -5585,6 +5598,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     LOADGAME_SCENE_KEY: ("LoadGame", LOADGAME_SCENE_VALUES),
     LOADGAME_ALLOW_LIVE_RECORDER_KEY: ("LoadGame", LOADGAME_ALLOW_LIVE_RECORDER_VALUES),
     LOADGAME_PLAYER_LOAD_KEY: ("LoadGame", LOADGAME_PLAYER_LOAD_VALUES),
+    LOADGAME_BACKUP_FAULT_KEY: ("LoadGame", LOADGAME_BACKUP_FAULT_VALUES),
     RECORDINGSTATE_AWAIT_RECORDER_LIVE_KEY: ("RecordingState",
                                              RECORDINGSTATE_AWAIT_RECORDER_LIVE_VALUES),
     SWITCHCLICK_SITE_KEY: ("SimulateStockSwitchClick", SWITCHCLICK_SITE_VALUES),
@@ -12273,6 +12287,9 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # LoadGame playerLoad= (load restores the save, 4.1): a spelling fault, refused at
     # dispatch before the recorder / load-in-flight terms.
     "player-load-arg-invalid": "driver-arg",
+    # LoadGame backupFault= (pre-Parsek backup hold): a spelling fault, refused at dispatch
+    # before the recorder / load-in-flight terms.
+    "backup-fault-arg-invalid": "driver-arg",
     # LoadGame focusPid= (vessel names): a malformed pid and a scene= beside it are the
     # SPEC's fault, and so are a pid the save does not carry and one it carries twice.
     "focus-pid-arg-invalid": "driver-arg",
@@ -13192,7 +13209,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     # scene that has none; the retry reaches the same scene with the same arg.
     "physics-warp-not-in-flight",
     "allow-live-recorder-arg-invalid", "await-recorder-live-arg-invalid",
-    "player-load-arg-invalid",
+    "player-load-arg-invalid", "backup-fault-arg-invalid",
     "cadence-arg-invalid", "cadence-arg-missing",
     "category-arg-empty", "dialog-arg-invalid",
     "drivevessel-seconds-arg-invalid", "drivevessel-seconds-arg-missing",

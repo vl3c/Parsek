@@ -351,6 +351,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ParseBackupFault_AbsentArmsNothing_FailArms()
+        {
+            Assert.Equal("backupFault", TestCommandLoadGame.BackupFaultKey);
+            Assert.Equal("fail", TestCommandLoadGame.BackupFaultFailValue);
+            Assert.True(TestCommandLoadGame.TryParseBackupFault(null, out bool arm));
+            Assert.False(arm);
+            Assert.True(TestCommandLoadGame.TryParseBackupFault("fail", out arm));
+            Assert.True(arm);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("Fail")]
+        [InlineData("fail ")]
+        [InlineData("true")]
+        [InlineData("1")]
+        public void ParseBackupFault_RejectsEverythingElse(string raw)
+        {
+            Assert.False(TestCommandLoadGame.TryParseBackupFault(raw, out bool arm));
+            Assert.False(arm);
+        }
+
+        [Fact]
         public void Route_RequestedTrackStation_TakesTrackStation_EvenWithFocusableVessel()
         {
             // The whole point: no property of a save says "boot me to the tracking

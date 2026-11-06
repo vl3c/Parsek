@@ -23,6 +23,14 @@ namespace Parsek
     /// The live read is a field read on <c>HighLogic.CurrentGame</c>, cheap enough for the
     /// per-physics-frame patch. No current game (main menu, xUnit) reads as NOT inert, so
     /// behavior there is unchanged.
+    ///
+    /// <para>The same gate also holds Parsek inert in an ACTIVE game mode while the current
+    /// save has no pre-Parsek backup because the first-contact backup failed
+    /// (<see cref="PreParsekBackup"/> backup hold, owner ruling 2026-11-06: Parsek never
+    /// changes a save it could not back up). The hold reuses this whole contract, so every
+    /// entry point that keeps a mission game untouched keeps a held save untouched too, and
+    /// the held save's Parsek node round-trips as the empty node KSP injected, which is what
+    /// lets the next load from the main menu retry the backup.</para>
     /// </summary>
     internal static class ParsekGameModeGate
     {
@@ -33,6 +41,9 @@ namespace Parsek
 
         /// <summary>Test seam: when set, replaces the live <c>HighLogic.LoadedScene</c> read in the log key.</summary>
         internal static GameScenes? SceneOverrideForTesting;
+
+        /// <summary>Test seam: when non-null, replaces the live <c>HighLogic.SaveFolder</c> read.</summary>
+        internal static string SaveFolderOverrideForTesting;
 
         private static bool anyInertLogged;
         private static object lastLoggedGame;
@@ -92,6 +103,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure log-line builder for the one Info line a scene or load writes while the
+        /// backup hold keeps Parsek inert in an active game mode.
+        /// </summary>
+        internal static string FormatBackupHoldLogLine(string saveFolder, GameScenes scene, string site)
+        {
+            return "Parsek inert: save '" + (saveFolder ?? "") + "' has no pre-Parsek backup"
+                + " (the first-time backup failed)"
+                + " scene=" + scene
+                + " site=" + (string.IsNullOrEmpty(site) ? "?" : site)
+                + " - Parsek changes nothing in this save until a backup succeeds"
+                + " (load the save again from the main menu to retry)";
+        }
+
+        /// <summary>
         /// Live gate without logging, for sites that read it more than once per frame
         /// after an entry point already logged. Null current game reads as not inert.
         /// </summary>
@@ -103,8 +128,23 @@ namespace Parsek
                 object gameToken;
                 if (!TryReadCurrentMode(out mode, out gameToken))
                     return false;
-                return !IsActiveMode(mode);
+                if (!IsActiveMode(mode))
+                    return true;
+                return IsBackupHoldActiveForCurrentSave(out _);
             }
+        }
+
+        /// <summary>
+        /// True when the pre-Parsek backup hold names the current save folder. The common
+        /// case (no hold armed) is one null check, so the per-frame callers pay nothing.
+        /// </summary>
+        internal static bool IsBackupHoldActiveForCurrentSave(out string saveFolder)
+        {
+            saveFolder = null;
+            if (!PreParsekBackup.IsAnyHoldArmed)
+                return false;
+            saveFolder = ReadSaveFolder();
+            return PreParsekBackup.IsHoldActiveFor(saveFolder);
         }
 
         /// <summary>
@@ -120,7 +160,7 @@ namespace Parsek
             if (!TryReadCurrentMode(out mode, out gameToken))
                 return false;
             if (IsActiveMode(mode))
-                return false;
+                return CheckBackupHold(site, gameToken);
 
             GameScenes scene = ReadLoadedScene();
             if (!anyInertLogged
@@ -137,10 +177,37 @@ namespace Parsek
             return true;
         }
 
+        private static bool anyHoldLogged;
+        private static object lastHoldLoggedGame;
+        private static GameScenes lastHoldLoggedScene;
+
+        private static bool CheckBackupHold(string site, object gameToken)
+        {
+            string saveFolder;
+            if (!IsBackupHoldActiveForCurrentSave(out saveFolder))
+                return false;
+            GameScenes scene = ReadLoadedScene();
+            if (!anyHoldLogged
+                || !ReferenceEquals(gameToken, lastHoldLoggedGame)
+                || scene != lastHoldLoggedScene)
+            {
+                anyHoldLogged = true;
+                lastHoldLoggedGame = gameToken;
+                lastHoldLoggedScene = scene;
+                ParsekLog.Info(Tag, FormatBackupHoldLogLine(saveFolder, scene, site));
+            }
+            return true;
+        }
+
         internal static void ResetForTesting()
         {
             ModeOverrideForTesting = null;
             SceneOverrideForTesting = null;
+            SaveFolderOverrideForTesting = null;
+            anyHoldLogged = false;
+            lastHoldLoggedGame = null;
+            lastHoldLoggedScene = default(GameScenes);
+            PreParsekBackup.ResetHoldForTesting();
             anyInertLogged = false;
             lastLoggedGame = null;
             lastLoggedMode = default(Game.Modes);
@@ -182,6 +249,26 @@ namespace Parsek
             mode = game.Mode;
             gameToken = game;
             return true;
+        }
+
+        private static string ReadSaveFolder()
+        {
+            if (SaveFolderOverrideForTesting != null)
+                return SaveFolderOverrideForTesting;
+            try
+            {
+                return ReadLiveSaveFolderCore();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string ReadLiveSaveFolderCore()
+        {
+            return HighLogic.SaveFolder;
         }
 
         private static GameScenes ReadLoadedScene()

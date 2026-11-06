@@ -35,6 +35,15 @@ namespace Parsek
     /// <see cref="Directory.Move"/>d into <c>saves/</c> as the final step, so a mid-copy failure
     /// never leaves a visible, half-written save in the Load menu. Orphan staging dirs are swept
     /// on load.</para>
+    ///
+    /// <para><b>Backup hold.</b> When the backup FAILS (or the attempt throws), Parsek arms a
+    /// hold on that save folder and stays inert there (<see cref="ParsekGameModeGate"/>): no
+    /// recording, no ledger patching, no stock-control blocks, and the Parsek node is saved
+    /// back as KSP's empty one. Owner ruling 2026-11-06: Parsek never changes a save it could
+    /// not back up. Writing nothing is also what makes the retry real: Parsek's first OnSave
+    /// would otherwise stamp the node, every later load would read that as
+    /// <c>already-parsek-footprint</c>, and the backup would never be attempted again. The hold
+    /// lasts until the save is loaded again from the main menu, which retries the backup.</para>
     /// </summary>
     internal static class PreParsekBackup
     {
@@ -56,6 +65,110 @@ namespace Parsek
 
         /// <summary>Player-visible name fragment used as a secondary backup-folder heuristic.</summary>
         private const string BackupNameFragment = "(pre-Parsek";
+
+        /// <summary>What one first-contact attempt did.</summary>
+        internal enum BackupAttemptOutcome
+        {
+            /// <summary>No backup was needed (marker, footprint, brand-new save, backup folder, no file).</summary>
+            Skipped,
+            /// <summary>The backup was published.</summary>
+            Published,
+            /// <summary>The backup was needed and did not publish; the caller arms the hold.</summary>
+            Failed,
+        }
+
+        /// <summary>The one screen message a failed backup shows (an event: the attempt failed).</summary>
+        internal const string HoldScreenMessage =
+            "Parsek could not back up this save, so Parsek is switched off for it and changes nothing. "
+            + "Free some disk space (or make the save folder writable), then load the save again "
+            + "from the main menu.";
+
+        // The save folder Parsek holds inert because its backup failed, or null. Process-lifetime
+        // static: a held save stays held across its scene changes, and only the next load of it
+        // from the main menu clears the hold and retries (ParsekScenario.OnLoad).
+        private static string heldSaveFolder;
+
+        /// <summary>True when any save is held (one null check, for the per-frame gate).</summary>
+        internal static bool IsAnyHoldArmed => heldSaveFolder != null;
+
+        /// <summary>The held save folder, or null.</summary>
+        internal static string HeldSaveFolder => heldSaveFolder;
+
+        /// <summary>True when <paramref name="saveFolder"/> is the held save.</summary>
+        internal static bool IsHoldActiveFor(string saveFolder)
+        {
+            return heldSaveFolder != null
+                && !string.IsNullOrEmpty(saveFolder)
+                && string.Equals(heldSaveFolder, saveFolder, StringComparison.Ordinal);
+        }
+
+        /// <summary>Holds Parsek inert on <paramref name="saveFolder"/> (a failed backup).</summary>
+        internal static void ArmHold(string saveFolder, string reason)
+        {
+            if (string.IsNullOrEmpty(saveFolder))
+            {
+                ParsekLog.Warn(Tag, $"Backup hold NOT armed: no save folder (reason={reason})");
+                return;
+            }
+            heldSaveFolder = saveFolder;
+            ParsekLog.Warn(Tag,
+                $"Backup hold armed: save='{saveFolder}' reason={reason} - Parsek stays inert in this save "
+                + "(no recording, no career changes, its node saved back empty) until a load from the main menu retries the backup");
+        }
+
+        /// <summary>Releases the hold so the load that called this retries the backup.</summary>
+        internal static void ClearHold(string reason)
+        {
+            if (heldSaveFolder == null)
+                return;
+            ParsekLog.Info(Tag, $"Backup hold cleared: save='{heldSaveFolder}' reason={reason}");
+            heldSaveFolder = null;
+        }
+
+        internal static void ResetHoldForTesting()
+        {
+            heldSaveFolder = null;
+            automationFaultArmed = false;
+        }
+
+        // One-shot automation fault (LoadGame backupFault=fail), scoped to the next
+        // ParsekScenario.OnLoad. A cold load's attempt consumes it (an attempt that would publish
+        // throws inside PerformBackup's try instead; one that skips disarms it with a Warn), and
+        // a load that makes no attempt (in-session, held or inert) drops it through
+        // DropUnusedAutomationFault, so it can never leak into a later load.
+        private static bool automationFaultArmed;
+
+        /// <summary>Drops an armed automation fault that this load will not consume.</summary>
+        internal static void DropUnusedAutomationFault(string why)
+        {
+            if (!automationFaultArmed)
+                return;
+            automationFaultArmed = false;
+            ParsekLog.Warn(Tag, $"Backup fault disarmed unused: {why}");
+        }
+
+        internal static bool IsAutomationFaultArmedForTesting => automationFaultArmed;
+
+        /// <summary>Arms the one-shot fault the next backup attempt consumes (automation only).</summary>
+        internal static void ArmAutomationFaultForNextAttempt(string source)
+        {
+            automationFaultArmed = true;
+            ParsekLog.Info(Tag, $"Backup fault armed by the automation seam ({source}): the next backup attempt fails");
+        }
+
+        private static bool TakeAutomationFault()
+        {
+            bool armed = automationFaultArmed;
+            automationFaultArmed = false;
+            return armed;
+        }
+
+        private static BackupAttemptOutcome SkippedAttempt(bool injectFault)
+        {
+            if (injectFault)
+                ParsekLog.Warn(Tag, "Backup fault disarmed unused: this load needed no backup");
+            return BackupAttemptOutcome.Skipped;
+        }
 
         /// <summary>Top-level save subdirs copied into the backup (small; the player's craft).</summary>
         private static readonly string[] CopiedCraftDirs = { "Ships", "Subassemblies" };
@@ -357,8 +470,9 @@ namespace Parsek
         /// the cold-load path of <see cref="ParsekScenario.OnLoad"/>. Fail-loud: a failed copy
         /// logs an Error, warns the player on-screen, and writes no marker (retry next cold load).
         /// </summary>
-        internal static void MaybeBackupOnFirstColdContact()
+        internal static BackupAttemptOutcome MaybeBackupOnFirstColdContact()
         {
+            bool injectFault = TakeAutomationFault();
             try
             {
                 // The backup is unconditional since the 2026-08-27 settings simplification
@@ -371,7 +485,7 @@ namespace Parsek
                 {
                     ParsekLog.Verbose(Tag,
                         $"Skip: reason=no-save-context root='{root}' save='{saveName}'");
-                    return;
+                    return SkippedAttempt(injectFault);
                 }
 
                 // Fast path: a prior successful backup wrote the marker. Logged at INFO with the
@@ -384,7 +498,7 @@ namespace Parsek
                 {
                     ParsekLog.Info(Tag,
                         $"Skip: reason=marker-present save='{saveName}' marker='{ResolveDoneMarkerPath()}'");
-                    return;
+                    return SkippedAttempt(injectFault);
                 }
 
                 string savesDir = Path.Combine(root, "saves");
@@ -398,7 +512,7 @@ namespace Parsek
                 {
                     ParsekLog.Info(Tag,
                         $"Skip: reason=no-persistent-sfs save='{saveName}' path='{persistentPath}' (nothing pristine to back up)");
-                    return;
+                    return SkippedAttempt(injectFault);
                 }
 
                 bool isBackupFolder = IsParsekBackupFolder(saveDir, saveName);
@@ -432,16 +546,21 @@ namespace Parsek
                 if (!ShouldBackup(true, false, footprint, isBackupFolder, brandNew, out string reason))
                 {
                     ParsekLog.Info(Tag, $"Skip: reason={reason} save='{saveName}'");
-                    return;
+                    return SkippedAttempt(injectFault);
                 }
 
                 ParsekLog.Info(Tag,
                     $"First-contact backup: save='{saveName}' footprint={footprint} brandNew={brandNew}");
-                PerformBackup(savesDir, saveName, saveDir, persistentPath);
+                return PerformBackup(savesDir, saveName, saveDir, persistentPath, injectFault)
+                    ? BackupAttemptOutcome.Published
+                    : BackupAttemptOutcome.Failed;
             }
             catch (Exception ex)
             {
+                // Fail closed: an attempt that threw before deciding is treated as a failed
+                // backup, so the save is held rather than changed without one.
                 ParsekLog.Error(Tag, $"MaybeBackupOnFirstColdContact failed: {ex.GetType().Name}:{ex.Message}");
+                return BackupAttemptOutcome.Failed;
             }
         }
 
@@ -450,8 +569,8 @@ namespace Parsek
         /// temp dir under <c>Parsek/</c>, then atomically moves it into
         /// <c>saves/&lt;final name&gt;</c>. Writes the done-marker only after the move succeeds.
         /// </summary>
-        private static void PerformBackup(
-            string savesDir, string saveName, string saveDir, string persistentPath)
+        private static bool PerformBackup(
+            string savesDir, string saveName, string saveDir, string persistentPath, bool injectFault)
         {
             string finalName = BuildBackupFolderName(
                 saveName,
@@ -470,6 +589,10 @@ namespace Parsek
             try
             {
                 Directory.CreateDirectory(staging);
+                // The automation fault fails the attempt here, inside the real try, so the
+                // staging cleanup and the Error below run exactly as for a disk fault.
+                if (injectFault)
+                    throw new IOException("backup fault injected by the automation seam (LoadGame backupFault=fail)");
 
                 // persistent.sfs first: locks in the pristine capture.
                 CopyFileInto(persistentPath, staging, ref files, ref bytes);
@@ -528,14 +651,16 @@ namespace Parsek
                 WriteDoneMarker(finalName);
                 ParsekLog.ScreenMessage(
                     $"Parsek backed up your save as '{finalName}' (resume it from the main menu if needed)", 8f);
+                return true;
             }
             catch (Exception ex)
             {
+                // The screen message is the caller's (ParsekScenario.OnLoad arms the hold and
+                // shows HoldScreenMessage once for every failed attempt).
                 ParsekLog.Error(Tag,
                     $"FAILED to back up save='{saveName}': {ex.GetType().Name}:{ex.Message}");
-                ParsekLog.ScreenMessage(
-                    "Parsek could not auto-backup your save; please back it up manually", 8f);
                 TryDeleteDir(staging);
+                return false;
             }
         }
 

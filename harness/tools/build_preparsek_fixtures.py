@@ -128,6 +128,9 @@ PARSEK_SETTINGS_NODE = "ParsekSettings"
 TARGETS: Tuple[Tuple[str, str, bool, bool], ...] = (
     ("preparsek-untouched-career", "career-earned-pad", True, True),
     ("preparsek-brandnew-career", "fresh-career", False, False),
+    # PPB-3 (backup-failure hold): the untouched career again, under its own leaf so no
+    # two specs stage one directory.
+    ("preparsek-hold-career", "career-earned-pad", True, True),
 )
 
 # Files/dirs copied verbatim beside the rewritten persistent.sfs. `Parsek/` is

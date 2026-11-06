@@ -3797,13 +3797,61 @@ namespace Parsek
         // FRESH node for every OnSave, so an inert OnSave that wrote nothing would erase
         // whatever Parsek data the save carried; it writes this copy back instead.
         private ConfigNode inertGameModePassthroughNode;
+        private string inertPassthroughReason = "inert game mode";
+
+        /// <summary>
+        /// The load-time half of the pre-Parsek backup hold. While the hold names this save,
+        /// a load that is NOT a fresh load from the main menu keeps Parsek inert (OnLoad then
+        /// takes the inert game-mode branch: the node is stashed for the verbatim pass-through
+        /// save and the in-session handoff dropped); a fresh load (the main-menu transition nulled the last save folder, so
+        /// <see cref="DetectSaveFolderChange"/> resets <c>initialLoadDone</c>) clears the hold
+        /// and returns false, so OnLoad runs its cold path and retries the backup.
+        /// </summary>
+        private const string BackupHoldInertReason = "pre-Parsek backup hold";
+
+        private bool ShouldKeepBackupHold()
+        {
+            string saveFolder = HighLogic.SaveFolder;
+            if (!PreParsekBackup.IsHoldActiveFor(saveFolder))
+                return false;
+            // The held instance needs the main-menu hook too, or a main-menu round trip
+            // would never reset initialLoadDone and the hold could never clear.
+            RegisterMainMenuHook();
+            string saveFolderBeforeDetect = lastSaveFolder;
+            DetectSaveFolderChange();
+            if (!initialLoadDone)
+            {
+                PreParsekBackup.ClearHold("fresh load from the main menu: retrying the backup");
+                // The cold path's own detect now sees no change; hand it the folder this one
+                // saw, so the retry load classifies with its real cold reason.
+                backupHoldRetrySaveFolderBefore = saveFolderBeforeDetect;
+                backupHoldRetryDetected = true;
+                return false;
+            }
+            return true;
+        }
+
+        private string backupHoldRetrySaveFolderBefore;
+        private bool backupHoldRetryDetected;
+
+        /// <summary>Arms the hold for <paramref name="saveFolder"/> from the failed cold load.</summary>
+        private void EnterBackupHold(ConfigNode node, string saveFolder)
+        {
+            PreParsekBackup.ArmHold(saveFolder, "first-contact-backup-failed");
+            // Later loads of this save in this session are not fresh: they stay held.
+            initialLoadDone = true;
+            StashInertGameModeNode(node, BackupHoldInertReason);
+            // Posted once the scene settles (an OnLoad message can land under the loading screen).
+            ParsekHarmony.QueueNoticeForSettledScene(PreParsekBackup.HoldScreenMessage);
+        }
 
         /// <summary>Inert-game-mode OnLoad body (kept out of OnLoad so it is testable headless).</summary>
-        internal void StashInertGameModeNode(ConfigNode node)
+        internal void StashInertGameModeNode(ConfigNode node, string inertReason = "inert game mode")
         {
             inertGameModePassthroughNode = node != null ? node.CreateCopy() : null;
+            inertPassthroughReason = inertReason;
             ParsekLog.Info("Scenario",
-                "OnLoad: inert game mode - Parsek node kept verbatim for save pass-through ("
+                "OnLoad: " + inertReason + " - Parsek node kept verbatim for save pass-through ("
                 + (inertGameModePassthroughNode != null
                     ? inertGameModePassthroughNode.values.Count + " value(s), "
                       + inertGameModePassthroughNode.nodes.Count + " node(s)"
@@ -3816,7 +3864,7 @@ namespace Parsek
         {
             int copied = CopyInertPassthroughNode(inertGameModePassthroughNode, node);
             ParsekLog.Info("Scenario",
-                "OnSave: inert game mode - wrote the loaded Parsek node back verbatim ("
+                "OnSave: " + inertPassthroughReason + " - wrote the loaded Parsek node back verbatim ("
                 + copied.ToString(CultureInfo.InvariantCulture)
                 + (copied == 1 ? " entry" : " entries") + "); no Parsek state saved");
         }
@@ -3910,13 +3958,19 @@ namespace Parsek
 
         public override void OnLoad(ConfigNode node)
         {
+            // Pre-Parsek backup hold (PreParsekBackup): a save whose first-time backup failed
+            // stays inert until it is loaded again from the main menu, which retries the
+            // backup. Decided ahead of the game-mode gate, which reads the same hold and would
+            // otherwise keep the retry load inert too.
+            bool keepBackupHold = ShouldKeepBackupHold();
             // S9 game-mode gate (ParsekGameModeGate): stock never adds this scenario to a
             // mission / scenario game, but a save that already carries the node still loads
             // it. Keep the node verbatim for the inert OnSave and touch nothing else: no
             // settings, no stores, no subscriptions, no sidecar reads.
-            if (ParsekGameModeGate.CheckInert("ParsekScenario.OnLoad"))
+            if (keepBackupHold || ParsekGameModeGate.CheckInert("ParsekScenario.OnLoad"))
             {
-                StashInertGameModeNode(node);
+                StashInertGameModeNode(node, keepBackupHold ? BackupHoldInertReason : "inert game mode");
+                PreParsekBackup.DropUnusedAutomationFault("an inert load makes no backup attempt");
                 InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropInertGameMode);
                 SaveFileLoadIntent.Clear("inert-game-mode");
                 return;
@@ -4017,7 +4071,11 @@ namespace Parsek
 
                 loadPhase = "hooks";
                 RegisterMainMenuHook();
-                string saveFolderBeforeDetect = lastSaveFolder;
+                string saveFolderBeforeDetect = backupHoldRetryDetected
+                    ? backupHoldRetrySaveFolderBefore
+                    : lastSaveFolder;
+                backupHoldRetryDetected = false;
+                backupHoldRetrySaveFolderBefore = null;
                 DetectSaveFolderChange();
 
                 // Load classification (LoadReconcilePolicy) before the prologue consumes any
@@ -4158,7 +4216,20 @@ namespace Parsek
                 if (!initialLoadDone)
                 {
                     PreParsekBackup.SweepOrphanStagingDirs();
-                    PreParsekBackup.MaybeBackupOnFirstColdContact();
+                    if (PreParsekBackup.MaybeBackupOnFirstColdContact()
+                        == PreParsekBackup.BackupAttemptOutcome.Failed)
+                    {
+                        // Owner ruling 2026-11-06: never change a save Parsek could not back
+                        // up. Everything above only read the (footprint-free) node into empty
+                        // stores; nothing below runs, and the save's node goes back out empty.
+                        EnterBackupHold(node, HighLogic.SaveFolder);
+                        loadStatus = "backup-hold";
+                        return;
+                    }
+                }
+                else
+                {
+                    PreParsekBackup.DropUnusedAutomationFault("an in-session load makes no backup attempt");
                 }
 
                 // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)

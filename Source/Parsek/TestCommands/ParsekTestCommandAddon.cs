@@ -100,6 +100,10 @@ namespace Parsek.TestCommands
         // reload must not count the old scene's onFlightReady), the wall time the FLIGHT
         // scene first settled with a game (< 0 = not yet), and the frames waited since.
         private int loadPrevFlightInstanceId;
+        // onFlightReady as the seam itself saw it since the current LoadGame began. The only
+        // flight-ready signal for a game Parsek is inert in (a mission game, a save under the
+        // pre-Parsek backup hold), where ParsekFlight destroys itself before it subscribes.
+        private bool loadSeamFlightReadyObserved;
         private double loadFlightArrivedAt = -1.0;
         private int loadFlightReadyWaitFrames;
 
@@ -267,6 +271,7 @@ namespace Parsek.TestCommands
                 // own safe-point gating.
                 GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
                 GameEvents.onLevelWasLoaded.Add(OnLevelWasLoaded);
+                GameEvents.onFlightReady.Add(OnSeamFlightReady);
             }
             else
             {
@@ -1225,15 +1230,19 @@ namespace Parsek.TestCommands
             {
                 ParsekFlight flight = ParsekFlight.Instance;
                 int currentFlightId = flight != null ? flight.GetInstanceID() : 0;
-                flightReady = TestCommandLoadGame.IsFlightReadyForThisLoad(
-                    currentFlightId, loadPrevFlightInstanceId, flight != null && flight.FlightReadyObserved);
+                bool inertGame = ParsekGameModeGate.IsInertForCurrentGame;
+                flightReady = TestCommandLoadGame.ResolveFlightReady(
+                    inertGame,
+                    TestCommandLoadGame.IsFlightReadyForThisLoad(
+                        currentFlightId, loadPrevFlightInstanceId, flight != null && flight.FlightReadyObserved),
+                    loadSeamFlightReadyObserved);
                 activeForLoad = FlightGlobals.ActiveVessel;
                 unpacked = activeForLoad != null && activeForLoad.loaded && !activeForLoad.packed;
                 if (loadFlightArrivedAt < 0.0)
                 {
                     loadFlightArrivedAt = now;
                     ParsekLog.Verbose(Tag,
-                        $"loadgame flight scene settled save={loadGameSave ?? string.Empty} flightReady={(flightReady ? "true" : "false")} unpacked={(unpacked ? "true" : "false")} elapsed={elapsed.ToString("F2", CultureInfo.InvariantCulture)}s");
+                        $"loadgame flight scene settled save={loadGameSave ?? string.Empty} inertGame={(inertGame ? "true" : "false")} flightReady={(flightReady ? "true" : "false")} unpacked={(unpacked ? "true" : "false")} elapsed={elapsed.ToString("F2", CultureInfo.InvariantCulture)}s");
                 }
                 flightWait = now - loadFlightArrivedAt;
             }
@@ -2196,6 +2205,16 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // backupFault= (pre-Parsek backup hold). Re-parsed for the bool like playerLoad=;
+            // armed below, after the last refusal, so a refused load arms nothing.
+            string backupFaultArg = ArgOrNull(cmd, TestCommandLoadGame.BackupFaultKey);
+            if (!TestCommandLoadGame.TryParseBackupFault(backupFaultArg, out bool armBackupFault))
+            {
+                ParsekLog.Warn(Tag,
+                    $"loadgame rejected reason={TestCommandLoadGame.BackupFaultArgInvalidReason} backupFault={backupFaultArg}");
+                SetExecResult("REJECTED", null, TestCommandLoadGame.BackupFaultArgInvalidReason);
+                return;
+            }
             // THE ADMIT SIDE OF RF-3/A1 IS LOGGED HERE, and it has to be: the refusal Warns
             // with its reason, but a load that was ADMITTED past the recording-active guard
             // used to be indistinguishable in KSP.log from a load taken with no recorder at
@@ -2263,6 +2282,11 @@ namespace Parsek.TestCommands
                 SetExecResult("ERROR", null, "load-failed");
                 return;
             }
+
+            // Every refusal has passed and the scene request follows, so the very next
+            // ParsekScenario.OnLoad is this load's: it consumes the fault or drops it.
+            if (armBackupFault)
+                PreParsekBackup.ArmAutomationFaultForNextAttempt("LoadGame backupFault=fail");
 
             // playerLoad=true: the player's load of a save file. Stock's player load paths
             // (QuickSaveLoad's F9, the pause-menu and main-menu Load) fire onGameStatePostLoad
@@ -2420,6 +2444,7 @@ namespace Parsek.TestCommands
             // a FLIGHT -> FLIGHT reload is leaving behind (its event already fired).
             ParsekFlight previousFlight = ParsekFlight.Instance;
             loadPrevFlightInstanceId = previousFlight != null ? previousFlight.GetInstanceID() : 0;
+            loadSeamFlightReadyObserved = false;
             loadFlightArrivedAt = -1.0;
             loadFlightReadyWaitFrames = 0;
             FlightDriver.StartAndFocusVessel(game, idx);
@@ -3515,8 +3540,14 @@ namespace Parsek.TestCommands
                 {
                     GameEvents.onGameSceneLoadRequested.Remove(OnSceneChangeRequested);
                     GameEvents.onLevelWasLoaded.Remove(OnLevelWasLoaded);
+                    GameEvents.onFlightReady.Remove(OnSeamFlightReady);
                 }
             }
+        }
+
+        private void OnSeamFlightReady()
+        {
+            loadSeamFlightReadyObserved = true;
         }
 
         // A scene load has been requested: we are leaving the current scene. Gate the
