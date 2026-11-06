@@ -458,7 +458,10 @@ parkSituations             = ["ORBITING"]
 # too little Ike coverage to be a useful loop / playback subject. Flight 1 could
 # not answer that - its committed recording was the wrong subject entirely - so
 # the question is still open for flight 2.
-parkDwellSeconds           = 180
+# 60 game-s since 2026-11-06 (owner ruling, was 180; older notes in this file that say 180
+# describe the flights before then): the dwell still records a stable park under 4x physics
+# warp, about 26 wall-s instead of 57.
+parkDwellSeconds           = 60
 parkDebounceFrames         = 3
 parkTimeoutSeconds         = 600
 commitTimeoutSeconds       = 300

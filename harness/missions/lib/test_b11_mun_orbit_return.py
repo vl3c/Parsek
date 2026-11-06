@@ -58,7 +58,9 @@ DEPART_PARAMS = {
     "departSoiLeadSeconds": 30,
 }
 CAREER_PARAMS = {"mjEngageConfirmFrames": 3, "autostageLimit": 2, "ascentType": 0}
-PLAIN_PARAMS = dict(B11_PARAMS, **RETURN_PARAMS, **DEPART_PARAMS)
+# parkDwellSeconds stays 180 here (the B-lane specs moved to 60 on 2026-11-06): the
+# frame fixtures and the pinned trace digests below were built around a 180 s park.
+PLAIN_PARAMS = dict(B11_PARAMS, **RETURN_PARAMS, **DEPART_PARAMS, parkDwellSeconds=180)
 PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 
 # The mfr_decide trace digest, taken BEFORE the launch gate, the params builder and

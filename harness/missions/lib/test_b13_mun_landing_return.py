@@ -71,7 +71,9 @@ SURFACE_PARAMS = {
     "electricChargeFloor": 0.5,
     "electricChargeDebounceFrames": 4,
 }
-PLAIN_PARAMS = dict(B13_PARAMS, **RETURN_PARAMS, **DEPART_PARAMS, **SURFACE_PARAMS)
+# parkDwellSeconds stays 180 here (the B-lane specs moved to 60 on 2026-11-06): the
+# frame fixtures and the pinned trace digests below were built around a 180 s park.
+PLAIN_PARAMS = dict(B13_PARAMS, **RETURN_PARAMS, **DEPART_PARAMS, **SURFACE_PARAMS, parkDwellSeconds=180)
 PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 
 _SURFACE_UT = 48_200.0 + 200.0 * 6 + 130.0     # B13's landed-dwell exit frame

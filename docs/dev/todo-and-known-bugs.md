@@ -17,6 +17,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~PARK-DWELL-180-TO-60: the 180 s PARK dwell on 22 orbit lanes is cut to 60 s~~ [FILED 2026-11-06 from the warp audit of the 2026-11-05 full run; owner ruling 2026-11-06 ("yes", decision card in thread "Speed up harness coasts"); DONE 2026-11-06, branch `claude/project-thread-cmhs13`; check flight owed; test harness, low (run time only)]
+
+The PARK dwell (`parkDwellSeconds`) held 180 game-s on B11, B12, B13, B14, B16, B17, B19-B26, B28,
+B29, B30, B33, B34, B35, V1 and V3C, about 57 wall-s each under the 4x physics park warp (the last
+15 s at 1x). It is now 60 game-s, about 26 wall-s, so a full run saves about 11 wall-min. The
+dwell still records a stable park in the target SOI and still checks the tumble ceiling; no count,
+structure or log expectation of those specs reads the dwell length. The CS-6 / CS-7 / FORGE lanes
+already held 60 and LABX-1 30. `test_shells`' B11 / B16 dicts follow the specs; the B11-return and
+B13-return frame fixtures keep 180, because their pinned trace digests were built around it.
+
 ## ~~MJ-ASCENT-AUTOWARP-LEFT-OFF: a MechJeb ascent flown after a lane that left the node executor's autowarp off coasts to apoapsis at 1x~~ [FILED 2026-11-06 from the 2026-11-05 full run (B7 `2026-11-05_0240_a2`, B16 `2026-11-06_0613`; both green, about 20 wall-min each lost); FIXED 2026-11-06, branch `claude/project-thread-cmhs13`; Python unit tests, check flight owed; test harness, medium (run time only, no Parsek defect)]
 
 **Symptom.** B7's first attempt (`2026-11-05_0205`) warped its circularization coast; its retry
