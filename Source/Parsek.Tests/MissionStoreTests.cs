@@ -57,7 +57,7 @@ namespace Parsek.Tests
             Assert.Equal(2, MissionStore.Missions.Count);
             Assert.Equal(1, MissionStore.CountForTree("t1"));
             foreach (var m in MissionStore.Missions)
-                Assert.Empty(m.ExcludedThroughLineHeadIds); // default = everything included
+                Assert.Empty(m.ExcludedIntervalKeys); // default = everything included
 
             Assert.Equal(0, MissionStore.EnsureDefaultsForTrees(trees)); // idempotent
             Assert.Equal(2, MissionStore.Missions.Count);
@@ -68,7 +68,7 @@ namespace Parsek.Tests
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
             Mission original = First();
-            original.ExcludedThroughLineHeadIds.Add("legA");
+            original.ExcludedIntervalKeys.Add("legA");
             original.LoopPlayback = true;
             original.LoopIntervalSeconds = 42.5;
             original.LoopTimeUnit = LoopTimeUnit.Min;
@@ -79,7 +79,7 @@ namespace Parsek.Tests
             Assert.Equal("t1", clone.TreeId);
             Assert.Equal(original.Name + " copy", clone.Name);
             Assert.NotEqual(original.Id, clone.Id);
-            Assert.Contains("legA", clone.ExcludedThroughLineHeadIds);
+            Assert.Contains("legA", clone.ExcludedIntervalKeys);
             Assert.Equal(2, MissionStore.CountForTree("t1"));
 
             // Clone copies the loop settings (period, unit, anchor) but starts with its loop OFF:
@@ -90,8 +90,8 @@ namespace Parsek.Tests
             Assert.Equal(LoopTimeUnit.Min, clone.LoopTimeUnit);
             Assert.Equal(9876.5, clone.LoopAnchorUT);
 
-            clone.ExcludedThroughLineHeadIds.Add("legB");
-            Assert.DoesNotContain("legB", original.ExcludedThroughLineHeadIds); // independent sets
+            clone.ExcludedIntervalKeys.Add("legB");
+            Assert.DoesNotContain("legB", original.ExcludedIntervalKeys); // independent sets
         }
 
         // catches: MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE. Cloning a looping
@@ -314,8 +314,8 @@ namespace Parsek.Tests
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
             Mission m = First();
-            m.ExcludedThroughLineHeadIds.Add("legA");
-            m.ExcludedThroughLineHeadIds.Add("legB");
+            m.ExcludedIntervalKeys.Add("legA");
+            m.ExcludedIntervalKeys.Add("legB");
             m.LoopPlayback = true;
             m.LoopIntervalSeconds = 123.75;
             m.LoopTimeUnit = LoopTimeUnit.Hour;
@@ -334,9 +334,9 @@ namespace Parsek.Tests
             Mission loaded = First();
             Assert.Equal(savedId, loaded.Id);
             Assert.Equal("t1", loaded.TreeId);
-            Assert.Equal(2, loaded.ExcludedThroughLineHeadIds.Count);
-            Assert.Contains("legA", loaded.ExcludedThroughLineHeadIds);
-            Assert.Contains("legB", loaded.ExcludedThroughLineHeadIds);
+            Assert.Equal(2, loaded.ExcludedIntervalKeys.Count);
+            Assert.Contains("legA", loaded.ExcludedIntervalKeys);
+            Assert.Contains("legB", loaded.ExcludedIntervalKeys);
 
             // Loop fields round-trip too, including the phase anchor.
             Assert.True(loaded.LoopPlayback);
@@ -581,51 +581,27 @@ namespace Parsek.Tests
             Assert.True(n1.LoopPlayback ^ n2.LoopPlayback);       // exactly one null-tree survivor
         }
 
+        // catches: the retired coarse per-through-line exclusion (todo GUI-D6) coming back. An
+        // old save's "excludedHead" value must load as nothing (no field reads it), and must be
+        // dropped on the next save rather than preserved verbatim as an unknown key.
         [Fact]
-        public void ReconcileSelections_RemovesBogusHead_AndWarns_KeepsValidHead()
+        public void RetiredExcludedHeadKey_IsIgnoredOnLoad_AndDroppedOnSave()
         {
-            // Capture log output to assert on the warn.
-            var logLines = new List<string>();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            MissionStore.SuppressLogging = false;
+            var missionNode = new ConfigNode("MISSION");
+            missionNode.AddValue("id", "m1");
+            missionNode.AddValue("treeId", "t1");
+            missionNode.AddValue("name", "Kerbal X");
+            missionNode.AddValue("excludedHead", "legA");
+            missionNode.AddValue("excludedInterval", "keyB");
 
-            const string headId = "headLeg";
-            var tree = TreeWithThroughLineHead("t1", headId);
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { tree });
-            Mission m = First();
-            m.ExcludedThroughLineHeadIds.Add(headId);     // valid: a current through-line head
-            m.ExcludedThroughLineHeadIds.Add("bogusHead"); // stale: not a head anymore
+            Mission loaded = Mission.Load(missionNode);
 
-            int removed = MissionStore.ReconcileSelections(new List<RecordingTree> { tree });
-
-            Assert.Equal(1, removed);
-            Assert.DoesNotContain("bogusHead", m.ExcludedThroughLineHeadIds); // dropped
-            Assert.Contains(headId, m.ExcludedThroughLineHeadIds);            // survives
-            Assert.Contains(logLines,
-                l => l.Contains("[Mission]") && l.Contains("ReconcileSelections")
-                  && l.Contains("removed 1"));
-        }
-
-        [Fact]
-        public void ReconcileSelections_AllValidHeads_RemovesNothing_AndDoesNotWarn()
-        {
-            var logLines = new List<string>();
-            ParsekLog.SuppressLogging = false;
-            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            MissionStore.SuppressLogging = false;
-
-            const string headId = "headLeg";
-            var tree = TreeWithThroughLineHead("t1", headId);
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { tree });
-            Mission m = First();
-            m.ExcludedThroughLineHeadIds.Add(headId);
-
-            int removed = MissionStore.ReconcileSelections(new List<RecordingTree> { tree });
-
-            Assert.Equal(0, removed);
-            Assert.Contains(headId, m.ExcludedThroughLineHeadIds);
-            Assert.DoesNotContain(logLines, l => l.Contains("ReconcileSelections"));
+            Assert.Contains("keyB", loaded.ExcludedIntervalKeys);
+            Assert.Empty(loaded.UnknownValues);
+            var saved = new ConfigNode("MISSION");
+            loaded.Save(saved);
+            Assert.Null(saved.GetValue("excludedHead"));
+            Assert.Equal("keyB", saved.GetValue("excludedInterval"));
         }
 
         [Fact]

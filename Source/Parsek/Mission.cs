@@ -7,17 +7,14 @@ namespace Parsek
     // A Mission is a saved, named selection over one mission tree (layer 5 of
     // docs/dev/design-mission-abstractions.md). Multiple Missions may target the same
     // tree with different selections. The selection is stored as the set of EXCLUDED
-    // through-line head ids (a through-line head is a leg RecordingId); an empty set
-    // means "everything included" (the default Mission). Unchecking a through-line in
-    // the UI adds its head id here, which drops it and its offshoots from the mission.
+    // composition-interval keys (ExcludedIntervalKeys below) plus the included cross-tree
+    // dock links; empty sets mean "everything included" (the default Mission).
     internal sealed class Mission
     {
         public string Id;
         public string TreeId;
         public string Name;
-        public readonly HashSet<string> ExcludedThroughLineHeadIds = new HashSet<string>();
-
-        // Interval-level start/end trim selection (finer than ExcludedThroughLineHeadIds): the
+        // Interval-level start/end trim selection: the
         // set of EXCLUDED composition-interval keys (a MissionCompositionNode.HeadLegId). Dropping
         // a vessel's leading interval start-trims it (e.g. show the pod only after the decouple,
         // not the launch); dropping a peeled branch's interval drops that branch. Empty = nothing
@@ -80,7 +77,11 @@ namespace Parsek
         internal static readonly HashSet<string> KnownKeys = new HashSet<string>(StringComparer.Ordinal)
         {
             "id", "treeId", "name", "loopPlayback", "loopIntervalSeconds", "loopTimeUnit", "loopAnchorUT",
-            "collapsed", "selectionSchemaGeneration", "excludedHead", "excludedInterval", "foreignDockLink",
+            "collapsed", "selectionSchemaGeneration", "excludedInterval", "foreignDockLink",
+            // Retired 2026-11-06 (todo GUI-D6): the coarse per-through-line exclusion nothing ever
+            // wrote. Listed so an old save's value is consumed and dropped on the next save rather
+            // than preserved verbatim as an unknown key; nothing reads it.
+            "excludedHead",
         };
 
         public Mission() { }
@@ -98,8 +99,6 @@ namespace Parsek
         public Mission Clone(string newId)
         {
             var copy = new Mission(newId, TreeId, (Name ?? "Mission") + " copy");
-            foreach (string h in ExcludedThroughLineHeadIds)
-                copy.ExcludedThroughLineHeadIds.Add(h);
             foreach (string k in ExcludedIntervalKeys)
                 copy.ExcludedIntervalKeys.Add(k);
             foreach (string l in IncludedForeignDockLinkIds)
@@ -126,8 +125,6 @@ namespace Parsek
             node.AddValue("collapsed", Collapsed);
             node.AddValue("selectionSchemaGeneration",
                 (NewerSelectionSchemaGeneration ?? CurrentSelectionSchemaGeneration).ToString(CultureInfo.InvariantCulture));
-            foreach (string h in ExcludedThroughLineHeadIds)
-                node.AddValue("excludedHead", h ?? "");
             foreach (string k in ExcludedIntervalKeys)
                 node.AddValue("excludedInterval", k ?? "");
             // M-MIS-8: SPARSE - written only when a link is included, so every pre-existing
@@ -176,10 +173,6 @@ namespace Parsek
             if (bool.TryParse(node.GetValue("collapsed"), out bool collapsed))
                 m.Collapsed = collapsed;
 
-            string[] heads = node.GetValues("excludedHead");
-            for (int i = 0; i < heads.Length; i++)
-                if (!string.IsNullOrEmpty(heads[i]))
-                    m.ExcludedThroughLineHeadIds.Add(heads[i]);
             string[] intervals = node.GetValues("excludedInterval");
             for (int i = 0; i < intervals.Length; i++)
                 if (!string.IsNullOrEmpty(intervals[i]))

@@ -254,8 +254,7 @@ namespace Parsek
             //      member's own [StartUT, EndUT]; a member entirely outside the window is dropped).
             //      Extracted into ComputeTrimmedMemberWindows so the Missions UI (period-cell span
             //      display + watch target) consumes the IDENTICAL member set + windows this builder
-            //      uses - otherwise the UI (which keyed off the legacy ExcludedThroughLineHeadIds)
-            //      would ignore the interval-level trims the loop actually applies. With no
+            //      uses, so the UI never ignores the interval-level trims the loop actually applies. With no
             //      exclusions every window spans the whole vessel (no behavior change).
             var memberWindowByIndex = ComputeTrimmedMemberWindows(
                 view, compRoots, committed, mission.ExcludedIntervalKeys, indexById,
@@ -1678,7 +1677,7 @@ namespace Parsek
         /// KSC, tracking station) so the allocating, Verbose-logging <see cref="Build"/> only fires on
         /// an actual input change while the cached set is pushed every frame. Mirrors Build's "every
         /// looping mission, in list order" rule: for EACH looping mission it folds in Id, TreeId,
-        /// LoopIntervalSeconds, LoopTimeUnit, LoopAnchorUT, sorted ExcludedThroughLineHeadIds, and its
+        /// LoopIntervalSeconds, LoopTimeUnit, LoopAnchorUT, sorted ExcludedIntervalKeys, and its
         /// tree's BranchPoints.Count + Recordings.Count; then the global
         /// <paramref name="autoLoopIntervalSeconds"/> (which sets an Auto mission's overlap cadence),
         /// the committed-list count, and a rolling RecordingId hash. When <paramref name="bodyInfo"/>
@@ -1728,14 +1727,8 @@ namespace Parsek
                     // anchor must force a rebuild even when nothing else about the mission moved.
                     sb.Append(m.LoopAnchorUT.ToString("R", ic)).Append('|');
                     // Sorted + joined so set order never perturbs the signature. The interval-level
-                    // trim keys (ExcludedIntervalKeys) now drive the unit's members + span, so fold
-                    // those in (a start/end-trim change must rebuild). The legacy through-line-head
-                    // set is folded too so a mixed/old save still rebuilds when it changes.
-                    var excluded = new List<string>(m.ExcludedThroughLineHeadIds);
-                    excluded.Sort(StringComparer.Ordinal);
-                    for (int e = 0; e < excluded.Count; e++)
-                        sb.Append(excluded[e] ?? "").Append(',');
-                    sb.Append('~');
+                    // trim keys (ExcludedIntervalKeys) drive the unit's members + span, so fold
+                    // them in (a start/end-trim change must rebuild).
                     var excludedIntervals = new List<string>(m.ExcludedIntervalKeys);
                     excludedIntervals.Sort(StringComparer.Ordinal);
                     for (int e = 0; e < excludedIntervals.Count; e++)

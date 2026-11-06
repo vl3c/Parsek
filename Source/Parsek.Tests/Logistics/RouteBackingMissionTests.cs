@@ -584,8 +584,7 @@ namespace Parsek.Tests.Logistics
         // -----------------------------------------------------------------
 
         // catches: the route-owned Mission leaking into MissionStore, the excluded
-        // set not being copied, the coarse ExcludedThroughLineHeadIds field being
-        // populated, or the loop schedule not coming from the route.
+        // set not being copied, or the loop schedule not coming from the route.
         [Fact]
         public void BuildMission_CopiesExcludedSet_SetsLoopFields_NeverTouchesStore()
         {
@@ -609,11 +608,10 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("tree-dock", mission.TreeId);
             Assert.Equal("Mun Fuel Run", mission.Name);
 
-            // Excluded set copied into ExcludedIntervalKeys ONLY.
+            // Excluded set copied into ExcludedIntervalKeys.
             Assert.Equal(2, mission.ExcludedIntervalKeys.Count);
             Assert.Contains("launch/seg1", mission.ExcludedIntervalKeys);
             Assert.Contains("payload", mission.ExcludedIntervalKeys);
-            Assert.Empty(mission.ExcludedThroughLineHeadIds);
 
             // Loop fields from the route schedule.
             Assert.True(mission.LoopPlayback);

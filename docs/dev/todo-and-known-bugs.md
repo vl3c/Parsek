@@ -3155,7 +3155,18 @@ GUI-P14 above.)
 the source. Note that it is not simply dead: the two always-ask exits still route through
 `MergeDialog`, so only the deferred ARMING is unreachable.
 
-## GUI-D6-MISSIONSELECTION-IS-PERSISTED-CLONED-AND-NEVER-WRITTEN [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-D6-MISSIONSELECTION-IS-PERSISTED-CLONED-AND-NEVER-WRITTEN~~ [FILED 2026-09-11 by the GUI fix batch; DONE 2026-11-06, owner ruling: delete it]
+
+**Done 2026-11-06 (owner ruling V, thread "Decide the five cleanup leftovers"): deleted.**
+`MissionSelection.cs` (whose cascade only tests called), `Mission.ExcludedThroughLineHeadIds`,
+its clone / save / load, its stale-drop in `MissionStore.ReconcileSelections` and its fold into
+`MissionLoopUnitBuilder.BuildSignature` are gone. No gameplay change: nothing ever wrote the set
+and no production path read it beyond the signature. Save format (policy section "deleting a
+retired feature's keys"): no bump; `excludedHead` stays in `Mission.KnownKeys` so an old save's
+value is consumed and dropped on the next save instead of being kept as an unknown key (pinned by
+`MissionStoreTests.RetiredExcludedHeadKey_IsIgnoredOnLoad_AndDroppedOnSave`). No committed fixture
+carries the key.
+
 
 **Evidence.** `MissionSelection.cs:23`, `:41` and `Mission.ExcludedThroughLineHeadIds`
 (`Mission.cs:18`) are a coarse per-vessel exclusion model that is persisted, cloned,

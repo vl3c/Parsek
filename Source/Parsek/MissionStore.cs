@@ -115,8 +115,6 @@ namespace Parsek
         /// Drops stale selection ids from every Mission's excluded sets when the underlying tree
         /// topology has changed (a branch/segment was edited away, re-flown, or merged out):
         /// <list type="bullet">
-        /// <item><see cref="Mission.ExcludedThroughLineHeadIds"/> ids that are no longer a current
-        /// through-line head; and</item>
         /// <item><see cref="Mission.ExcludedIntervalKeys"/> keys that are no longer a selectable
         /// composition node (the keys are composition node HeadLegIds, including synthetic
         /// <c>&lt;head&gt;/segN</c> sub-segment ids whose N shifts when the structural-peel count
@@ -168,7 +166,6 @@ namespace Parsek
             // an interval exclusion to judge, so a store with no trimmed mission pays nothing.
             DockEventGraph chapterGraph = null;
             int chapterWarnings = 0;
-            int removedHeads = 0;
             int removedIntervals = 0;
             int removedLinks = 0;
             int linkReconcileDeferred = 0;
@@ -240,10 +237,9 @@ namespace Parsek
                     }
                 }
 
-                bool hasHeadExcl = m.ExcludedThroughLineHeadIds.Count > 0;
                 bool hasIntervalExcl = m.ExcludedIntervalKeys.Count > 0;
 
-                if (hasHeadExcl || hasIntervalExcl)
+                if (hasIntervalExcl)
                 {
                     if (!structureCache.TryGetValue(m.TreeId, out MissionStructure structure))
                     {
@@ -251,18 +247,6 @@ namespace Parsek
                         structureCache[m.TreeId] = structure;
                     }
 
-                    if (hasHeadExcl)
-                    {
-                        if (!viewCache.TryGetValue(m.TreeId, out MissionThroughLineView view))
-                        {
-                            view = MissionThroughLineBuilder.Build(structure);
-                            viewCache[m.TreeId] = view;
-                        }
-                        removedHeads += RemoveStale(m.ExcludedThroughLineHeadIds,
-                            id => view.ByHeadId.ContainsKey(id));
-                    }
-
-                    if (hasIntervalExcl)
                     {
                         if (!intervalKeyCache.TryGetValue(m.TreeId, out HashSet<string> validKeys))
                         {
@@ -338,10 +322,10 @@ namespace Parsek
                     "included topology (see the per-chapter warnings above; nothing was written - " +
                     "a new branch inside an excluded chapter defaults to included by contract)");
 
-            int removed = removedHeads + removedIntervals + removedLinks;
+            int removed = removedIntervals + removedLinks;
             if (removed > 0 && !SuppressLogging)
                 ParsekLog.Warn("Mission",
-                    $"ReconcileSelections: removed {removedHeads} stale through-line head id(s) + " +
+                    $"ReconcileSelections: removed " +
                     $"{removedIntervals} stale interval key(s) + {removedLinks} stale cross-tree " +
                     "dock link id(s) (no longer current after a topology change; cleared to avoid " +
                     "silently dropping / mis-targeting segments)");
