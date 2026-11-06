@@ -580,6 +580,24 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// The Missions tab's header reserves the bare scrollbar FOOTPRINT
+        /// (<c>fixedWidth + margin.left</c>, 16 in KSP's skin), not <c>fixedWidth</c> (15):
+        /// the census measured its data columns 1 px right of their cells with 15
+        /// (GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL), and its body box spends no right
+        /// padding, so the shared gutter (20) would walk them 4 px the other way.
+        /// </summary>
+        [Fact]
+        public void TheMissionsTabHeaderReservesTheBareScrollbarFootprint()
+        {
+            string header = MethodBody(
+                ReadPreparedSource(Path.Combine("UI", "MissionsWindowUI.cs")),
+                "DrawColumnHeader", "MissionsWindowUI.cs");
+            Assert.Contains("GUILayout.Space(ParsekUI.VerticalScrollbarFootprintWidth())", header);
+            Assert.DoesNotContain("verticalScrollbar.fixedWidth", header);
+            Assert.DoesNotContain("VerticalScrollbarGutterWidth", header);
+        }
+
+        /// <summary>
         /// The arithmetic the fix rests on, run against the numbers the 2026-09-11
         /// census actually measured, with the header's right padding built the way
         /// <c>EnsureSharedHeaderStyles</c> builds it
