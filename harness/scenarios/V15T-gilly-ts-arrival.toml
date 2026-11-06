@@ -486,7 +486,7 @@ count = { min = 1, max = 1 }
 #     reaches the lens (`evaluated=1 outsideSoi=0`); read V15M header section 2b for
 #     the rate-limiter gap that bounds even that reading.
 required  = [
-  "\\[Mission\\] Loaded 0 mission\\(s\\)\\r?\\n[^\\r\\n]*\\[Mission\\] EnsureDefaultsForTrees: created 1 default mission\\(s\\)",
+  "\\[Mission\\] Loaded 0 mission\\(s\\)[^\\r\\n]*\\r?\\n[^\\r\\n]*\\[Mission\\] EnsureDefaultsForTrees: created 1 default mission\\(s\\)",
   "missionconfig applied: mission='Kerbal X' tree=355840bc81bf45f8868b7d2508ca6de4 loop=True",
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
