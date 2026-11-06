@@ -1249,7 +1249,9 @@ namespace Parsek.Tests
             string companionPartPosition = null,
             string companionPartRotation = null,
             double rowOffsetMeters = 0.0,
-            double distanceOffsetMeters = 0.0)
+            double distanceOffsetMeters = 0.0,
+            PartEventType? innerOnEvent = null,
+            PartEventType? innerOffEvent = null)
         {
             double t = baseUT + 30;
             ShowcasePosition(rowIndex, distanceFromPadMeters, out double lat, out double lon, out double alt,
@@ -1269,9 +1271,17 @@ namespace Parsek.Tests
             double eventOffset = firstEventOffsetSeconds;
             double onStep = onDurationSeconds > 0 ? onDurationSeconds : 3.0;
             double offStep = offDurationSeconds > 0 ? offDurationSeconds : 3.0;
+            // An optional INNER pair nests inside each on-span (MINE-0: a drill or ISRU
+            // starts its converter after it deploys and stops it before it retracts), so
+            // the events stay in UT order: on, inner-on, inner-off, off.
+            bool nested = innerOnEvent.HasValue && innerOffEvent.HasValue
+                && onStep > ShowcaseInnerLeadSeconds + ShowcaseInnerTrailSeconds;
             bool on = true;
             for (int evtIndex = 0; evtIndex < 8; evtIndex++)
             {
+                if (!on && nested)
+                    b.AddPartEvent(t + eventOffset - ShowcaseInnerTrailSeconds, evtPid,
+                        (int)innerOffEvent.Value, partName, 0f, moduleIndex);
                 b.AddPartEvent(
                     t + eventOffset,
                     pid: evtPid,
@@ -1279,6 +1289,9 @@ namespace Parsek.Tests
                     partName: partName,
                     value: on ? eventValue : 0f,
                     moduleIndex: moduleIndex);
+                if (on && nested)
+                    b.AddPartEvent(t + eventOffset + ShowcaseInnerLeadSeconds, evtPid,
+                        (int)innerOnEvent.Value, partName, 0f, moduleIndex);
                 eventOffset += on ? onStep : offStep;
                 on = !on;
             }
@@ -1353,6 +1366,12 @@ namespace Parsek.Tests
             b.WithGhostVisualSnapshot(snap);
             return b;
         }
+
+        /// <summary>Seconds after the deploy that a nested converter pair starts (MINE-0).</summary>
+        private const double ShowcaseInnerLeadSeconds = 1.5;
+
+        /// <summary>Seconds before the retract that a nested converter pair stops (MINE-0).</summary>
+        private const double ShowcaseInnerTrailSeconds = 0.5;
 
         // The first part added by VesselSnapshotBuilder gets persistentId = 100000.
         // Event PIDs must match this so the ghost visual builder can find the part.
@@ -2307,10 +2326,12 @@ namespace Parsek.Tests
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill Junior", "MiniDrill", 57,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DrillShowcasePidBase, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    innerOnEvent: PartEventType.ConverterActivated, innerOffEvent: PartEventType.ConverterDeactivated),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill-O-Matic", "RadialDrill", 58,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DrillShowcasePidBase, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    innerOnEvent: PartEventType.ConverterActivated, innerOffEvent: PartEventType.ConverterDeactivated)
             };
         }
 
@@ -2357,7 +2378,8 @@ namespace Parsek.Tests
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - ISRU", "ISRU", 240,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    innerOnEvent: PartEventType.ConverterActivated, innerOffEvent: PartEventType.ConverterDeactivated),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Orbital Scanner", "OrbitalScanner", 241,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
@@ -4275,11 +4297,11 @@ namespace Parsek.Tests
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Drill Junior", first.GetValue("vesselName"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
-            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
 
-            var events = first.GetNodes("PART_EVENT");
-            Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[0].GetValue("type"));
-            Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[1].GetValue("type"));
+            // MINE-0: each deploy span carries a converter run, so the ghost's drill
+            // loop has an edge to apply: deploy, start, stop, retract, four times.
+            for (int r = 0; r < recordings.Length; r++)
+                AssertNestedConverterCycles(recordings[r].Build());
 
             var names = new[] { "MiniDrill", "RadialDrill" };
             for (int i = 0; i < recordings.Length; i++)
@@ -4345,6 +4367,36 @@ namespace Parsek.Tests
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
                 Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+
+            // MINE-0: only the ISRU row runs a converter; the others keep one pair.
+            AssertNestedConverterCycles(recordings[2].Build());
+            Assert.Equal(8, recordings[1].Build().GetNodes("PART_EVENT").Length);
+            Assert.Equal(8, recordings[3].Build().GetNodes("PART_EVENT").Length);
+        }
+
+        /// <summary>
+        /// A drill / ISRU showcase row (MINE-0): four deploy spans, each holding one
+        /// converter start and stop, in strictly increasing UT and on the row's one part.
+        /// </summary>
+        private static void AssertNestedConverterCycles(ConfigNode recording)
+        {
+            var events = recording.GetNodes("PART_EVENT");
+            Assert.Equal(16, events.Length);
+            var cycle = new[]
+            {
+                PartEventType.DeployableExtended, PartEventType.ConverterActivated,
+                PartEventType.ConverterDeactivated, PartEventType.DeployableRetracted
+            };
+            double previous = double.NegativeInfinity;
+            for (int i = 0; i < events.Length; i++)
+            {
+                Assert.Equal(((int)cycle[i % 4]).ToString(CultureInfo.InvariantCulture),
+                    events[i].GetValue("type"));
+                Assert.Equal(SinglePartPid.ToString(CultureInfo.InvariantCulture), events[i].GetValue("pid"));
+                double ut = double.Parse(events[i].GetValue("ut"), CultureInfo.InvariantCulture);
+                Assert.True(ut > previous, $"event {i} at {ut} is not after {previous}");
+                previous = ut;
             }
         }
 
@@ -4880,8 +4932,11 @@ namespace Parsek.Tests
             {
                 foreach (var rb in category.Recordings)
                 {
+                    // The drill / ISRU rows nest a converter pair inside each deploy span
+                    // (MINE-0, pinned by AssertNestedConverterCycles); the outer deploy
+                    // cadence is what this test pins.
                     AssertAlternatingPartEvents(
-                        rb.Build(),
+                        WithoutConverterEvents(rb.Build()),
                         category.OnEvent,
                         category.OffEvent,
                         firstEventOffsetSeconds: 0.0,
@@ -4890,6 +4945,22 @@ namespace Parsek.Tests
                         expectedOnValue: category.OnValue);
                 }
             }
+        }
+
+        private static ConfigNode WithoutConverterEvents(ConfigNode recording)
+        {
+            ConfigNode copy = recording.CreateCopy();
+            copy.RemoveNodes("PART_EVENT");
+            string activated = ((int)PartEventType.ConverterActivated).ToString(CultureInfo.InvariantCulture);
+            string deactivated = ((int)PartEventType.ConverterDeactivated).ToString(CultureInfo.InvariantCulture);
+            foreach (ConfigNode evt in recording.GetNodes("PART_EVENT"))
+            {
+                string type = evt.GetValue("type");
+                if (type == activated || type == deactivated)
+                    continue;
+                copy.AddNode(evt.CreateCopy());
+            }
+            return copy;
         }
 
         [Fact]
