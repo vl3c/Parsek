@@ -1,4 +1,4 @@
-"""Drift and shape gates for the `career-pad-craft-purchase` fixture (RW-23 / RW-24's host).
+"""Drift and shape gates for the `career-pad-craft-purchase` fixture (RW-23 / RW-24 / STR-4's host).
 
 The fixture is DERIVED from `career-pad-craft` by
 `harness/tools/build_career_pad_craft_purchase.py`: L2's career pad host with entry purchases on
@@ -17,7 +17,8 @@ FIXTURE_DIR = os.path.join(HARNESS_ROOT, "fixtures", "saves", "career-pad-craft-
 SOURCE_DIR = os.path.join(HARNESS_ROOT, "fixtures", "saves", "career-pad-craft")
 SCENARIOS = os.path.join(HARNESS_ROOT, "scenarios")
 HOSTED_SPECS = ("RW-23-strategy-part-purchase-rebuy.toml",
-                "RW-24-strategy-slot-needed-after-rewind.toml")
+                "RW-24-strategy-slot-needed-after-rewind.toml",
+                "STR-4-transponders-and-negotiations-across-rewind.toml")
 
 
 def _load_builder():

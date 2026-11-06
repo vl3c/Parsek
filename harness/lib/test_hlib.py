@@ -4929,6 +4929,12 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # mid-replay is loaded back as the player's load, `total=9` with the split regexed). It
     # leaves on its first flight.
     # CN-5-ghost-relay-after-mid-replay-save-load LEFT on run 2026-11-01_0124 (passed=4 failed=0 skipped=5, CN-1's split, pinned).
+    # STR-4-transponders-and-negotiations-across-rewind ENTERED on 2026-11-06 (todo
+    # CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16: Recovery Transponder Fitting and Aggressive
+    # Negotiations across a Rewind-to-Launch on `career-pad-craft-purchase`, then the
+    # LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the split
+    # regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its `total=`.
+    # It leaves on its first flight.
     INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -11338,6 +11344,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "STR-1-strategies-across-rewind-and-f9.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, LIVE-PROVEN on its first flight 2026-10-25_1151 (career-pad-craft: Bail-Out Grant and Appreciation Campaign activated at the Space Center, Rewind-to-Launch, the activations crossed in flight twice around an F9; the gate switches Appreciation on at its UT both times and never re-pays the one-shot grant, then LedgerGroundTruth after a cold load); pinned whole off that flight, the tier is promoted by its measured p50",
         "STR-2-strategy-crossed-in-refly.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, LIVE-PROVEN on its first flight 2026-10-25_1153 (L13's host and Re-Fly: Appreciation Campaign activated at the Space Center after the separation stays off in stock from the invoke until the session's clock reaches it, the gate switches it on during the re-flown descent, then LedgerGroundTruth after the merge); pinned whole off that flight, the tier is promoted by its measured p50",
         "STR-3-revert-takes-back-strategy-share.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, LIVE-PROVEN on its first flight 2026-10-25_1148 (QL-2c's hop under Leadership Initiative, then Revert to Launch: the strategy's tagged share rows are pruned with the reverted flight and LedgerGroundTruth on the pad finds no divergence); pinned whole off that flight, the tier is promoted by its measured p50",
+        "STR-4-transponders-and-negotiations-across-rewind.toml": "operator by the reading-run discipline; AUTHORED 2026-11-06, NEVER FLOWN (career-pad-craft-purchase, RW-23's shape: Recovery Transponder Fitting activated before a pad Flea V that is recovered under it, then at T1 switched off, Aggressive Negotiations switched on and the Runway upgraded at its discount, a Rewind-to-Launch refusing a second upgrade, the crossing and LedgerGroundTruth with the strategy facet). Promotion by measured p50 after its first green flight.",
         # Crew death in a career across Rewind-to-Launch (owner rules: never retroactively
         # reduce an earned value, never allow a time-travel paradox); operator by the same
         # reading-run discipline.
