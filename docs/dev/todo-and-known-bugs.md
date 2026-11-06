@@ -17984,7 +17984,9 @@ release, `GameData/Parsek/` at the zip root, the KSP-AVC `Parsek.version` inside
 `$kref: '#/ckan/github/vl3c/Parsek'` + `$vref: '#/ckan/ksp-avc'` file with no install stanza, depending on
 the CKAN ids `Harmony2`, `ClickThroughBlocker` and `ToolbarController`. Packaging cleanups done: the zip
 ships `GameData/Parsek/LICENSE.txt`, and Module Manager is no longer listed as a dependency (Parsek ships
-no Module Manager patches; the harness profiles still install it for their tech-tree fixtures). Remaining:
+no Module Manager patches; the harness profiles still install it for their tech-tree fixtures). The version
+file's `URL` now names `releases/latest/download/Parsek.version` (owner pick, 2026-11-06), so each release
+uploads that file as a second asset and the netkan `$kref` needs `asset_match` for the zip. Remaining:
 validate the netkan against the latest release, then the owner submits it from his account (author
 consent) when he picks the moment. Plan: project file `release/ckan-publishing-plan-2026-11-06.md`.
 

@@ -19,11 +19,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
+# Version checkers (KSP-AVC, CKAN's remote-avc) read the URL field. It names the .version file
+# uploaded to the LATEST GitHub release, not the one on main: main is bumped before a release
+# exists, and a checker reading main would announce a version nobody can download yet.
+EXPECTED_VERSION_URL = "https://github.com/vl3c/Parsek/releases/latest/download/Parsek.version"
+VERSION_FILE = ROOT / "GameData" / "Parsek" / "Parsek.version"
+
+
 def read_version():
-    version_file = ROOT / "GameData" / "Parsek" / "Parsek.version"
+    version_file = VERSION_FILE
     if not version_file.exists():
         sys.exit(f"ERROR: {version_file} not found")
     data = json.loads(version_file.read_text())
+    if data.get("URL") != EXPECTED_VERSION_URL:
+        sys.exit(f"ERROR: {version_file} URL is {data.get('URL')!r}, expected {EXPECTED_VERSION_URL!r}")
     v = data["VERSION"]
     return f"{v['MAJOR']}.{v['MINOR']}.{v['PATCH']}"
 
@@ -109,6 +118,12 @@ def main():
         "Running Tests (Release)")
     package(version)
 
+    # The release carries TWO assets: the zip, and the version file on its own, which the URL
+    # field above resolves to. Upload both, e.g.:
+    #   gh release create v<version> Parsek-v<version>.zip GameData/Parsek/Parsek.version ...
+    print(f"\nRelease assets to upload (both):")
+    print(f"  Parsek-v{version}.zip")
+    print(f"  {VERSION_FILE.relative_to(ROOT).as_posix()}")
     print(f"\n=== Done ===")
 
 
