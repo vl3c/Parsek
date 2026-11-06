@@ -16,6 +16,8 @@ Parsek's windows, popups and tooltips follow the **UI Scale** slider in KSP's se
 
 ## Install and First Load
 
+**Parsek changes a lot of KSP's internal systems** (career funds, science and reputation, contracts, research, buildings, crew, saving and loading, time warp and how vessels appear), so **most other mods are not supported**. Only the mods in the README's Supported Mods list are tested with Parsek. Any other mod may conflict with it, especially one that changes careers, crew, contracts, saves, time warp or vessel spawning. Start with a new career, or keep a copy of your save. Other Mods and Rewinds below explains what even a compatible mod cannot get from a rewind.
+
 Parsek must sit in `GameData/Parsek`. If it is installed wrong, a message on screen once the main menu settles says so and how to fix it: when Parsek loads from the wrong place (inside a second `GameData` folder, inside the zip's own folder, loose in `GameData`, or a leftover copy in another folder), and when some of its game patches fail to load (usually another mod or a different KSP version), naming the features that may not work. Each notice shows once per game start and never on a correct install; details are in `KSP.log`.
 
 The first time Parsek opens one of your existing saves, it first makes a one-time backup of that save, taken before Parsek changes anything, and says so on screen. The copy is a separate save named `<Name> (pre-Parsek <date>_<time>)` in KSP's Load menu, so you can always go back to your career as it was before Parsek. If the backup fails, an on-screen message asks you to back the save up yourself, and Parsek tries again the next time the save is loaded.

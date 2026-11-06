@@ -8,6 +8,8 @@
 
 **Time-rewind mission recording for KSP1.** Record missions sequentially, return to an earlier time, and watch them play out in parallel alongside you while you fly new ones.
 
+> **Read this before installing.** Parsek changes a lot of KSP's internal systems: career funds, science and reputation, contracts, research, buildings, crew, saving and loading, time warp and how vessels appear. **Most other mods are not supported.** Only the mods listed under [Supported Mods](#supported-mods) are tested with Parsek; any other mod may conflict with it, especially mods that change careers, crew, contracts, saves, time warp or vessel spawning. Start with a new career, or keep a copy of your save (Parsek also backs up an existing save the first time it opens it).
+
 ## How It Works
 
 1. **Launch a mission** and fly it normally
@@ -45,6 +47,8 @@ Time travel paradoxes are avoided by enforcing causality: events are always proc
 The Parsek window is available from the toolbar button in Flight and Map view.
 
 ## Supported Mods
+
+These are the only mods Parsek is tested with. Any mod not listed here is unsupported: it may work, but it may also conflict with Parsek's changes to careers, saves, crew, time warp or vessels.
 
 | Mod | Integration |
 |-----|-------------|
