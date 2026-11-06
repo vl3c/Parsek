@@ -126,15 +126,6 @@ namespace Parsek
             }
 
             TrajectoryPoint? closing = FlightRecorder.TryBuildSamePositionOnBody(sample, sectionBody);
-            if (closing.HasValue)
-            {
-                TrajectoryPoint canonical = closing.Value;
-                TryCanonicalizeBackgroundReFlyRecordingPoint(
-                    state.recordingId,
-                    ref canonical,
-                    "physics-soi-closing");
-                closing = canonical;
-            }
             if (!TrySplitBackgroundSectionAtPhysicsBodyChange(state, treeRec, sample, closing))
                 return;
 

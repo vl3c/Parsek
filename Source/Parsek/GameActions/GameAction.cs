@@ -1285,7 +1285,7 @@ namespace Parsek
             if (Sequence != 0)
                 node.AddValue("seq", Sequence.ToString(IC));
             if (CaptureSequence != 0)
-                node.AddValue(Parsek.CaptureSequence.Key, CaptureSequence.ToString(IC));
+                node.AddValue(CaptureSequenceCodec.Key, CaptureSequence.ToString(IC));
             if (!double.IsNaN(CapturedUT) && !double.IsInfinity(CapturedUT))
                 node.AddValue(CapturedUTKey, CapturedUT.ToString("R", IC));
 
@@ -1466,7 +1466,7 @@ namespace Parsek
             string seqStr = node.GetValue("seq");
             if (seqStr != null)
                 int.TryParse(seqStr, NumberStyles.Integer, IC, out a.Sequence);
-            a.CaptureSequence = Parsek.CaptureSequence.Parse(node.GetValue(Parsek.CaptureSequence.Key));
+            a.CaptureSequence = CaptureSequenceCodec.Parse(node.GetValue(CaptureSequenceCodec.Key));
             string capturedUtStr = node.GetValue(CapturedUTKey);
             double capturedUt;
             if (capturedUtStr != null && double.TryParse(capturedUtStr, NS, IC, out capturedUt)

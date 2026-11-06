@@ -673,7 +673,6 @@ namespace Parsek
             // closes the section here and becomes the next section's first frame.
             SplitSectionIfPhysicsBodyChanged(v, point);
             ClearPhysicsSoiSamplePending();
-            TryCanonicalizeActiveReFlyRecordingPoint(ref point, "physics-sample");
             TrajectoryPoint absolutePoint = point;
 
             bool relativeApplied = ApplyRelativeOffset(ref point, v);

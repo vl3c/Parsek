@@ -2632,23 +2632,26 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Atlas findings and opportunities re-read (`atlas.toml`, `reviewed = "2026-11-01"`). The
   regenerated page is published at https://claude.ai/artifact/6uSBEKzHEtBHaK5t7bFxjm; the
   link above keeps the 2026-09-22 page. Without graphviz `dot` on PATH the page has no map.
-- On the refactor branch claude/project-thread-bkwmrr only (not on main, they change
-  compiled code): `Recording` is plain data again (knot 584 -> 535; `GhostVisible` reads an
-  installed `Recording.GhostHiddenRule`, `DeepClone` copies the sidecar hashes inline), and
-  `GameAction`'s two real knot calls moved out (the `cseq` key and parse to a leaf
-  `CaptureSequenceCodec`, the per-load tallies from `Ledger` to a nested
-  `GameAction.LoadTally`). The golden `GAME_ACTION` codec test that pins the bytes
-  (`SaveRoundTrip/GameActionCodecGoldenTests.cs`) tests main's codec and is on main too.
+- On this branch (the refactor branch claude/project-thread-bkwmrr, which never merges to
+  main; this code is not on main): `Recording` is plain data again (knot 584 -> 535 on
+  2026-11-01; `GhostVisible` reads an installed `Recording.GhostHiddenRule`, `DeepClone`
+  copies the sidecar hashes inline), and `GameAction`'s real `CaptureSequence` call goes
+  through the leaf `CaptureSequenceCodec` (the `cseq` key and parse). The slice once also
+  moved the per-load legacy-id and deadline tallies from `Ledger` to a nested
+  `GameAction.LoadTally`; main's save-format freeze (#2380) deleted those migrations and
+  `GameAction`'s `Ledger` call, so that half no longer exists. The golden `GAME_ACTION` codec
+  test that pins the bytes (`SaveRoundTrip/GameActionCodecGoldenTests.cs`) is on main too.
 - The scanner now skips member names (ARCH-TOOLING-ROSLYN-AND-CI). The member rule leaves
   object-initializer lines and a property named like its own type (`Treatment Treatment
   { get; }`) as references (review fix). The new 3-type knot is the stock-UI grey trio
-  `ButtonEntry` / `GreyLedger` / `StockUiGreyedButton`. On main's production code the knots
-  are 542, 4 and 3, and the first greedy cuts are `Recording` (542 -> 494: `LaunchSiteOnlyGhost`,
-  `SidecarVersions`) and `GameAction` (455: `CaptureSequence`, `Ledger`); the cut residue is
-  301. On the refactor branch, with both re-cut, the knots were 454, 4 and 3, the first cuts
-  `Route` then `RecordingStore`, the residue 273. `GameAction`'s remaining knot edges there
-  (`CaptureSequence`, `ConversionCause`, `FundsEarningSource`, `ReputationSource`) were
-  scanner false positives: same-named fields, and the enum member `Milestone` read as a type.
+  `ButtonEntry` / `GreyLedger` / `StockUiGreyedButton`. On main's production code (1.0.0,
+  7eb3770e0) the knots are 542, 4 and 3, and the first greedy cuts are `Recording` (542 -> 496:
+  `LaunchSiteOnlyGhost`, `SidecarVersions`) and `GameAction` (456: `CaptureSequence`); the cut
+  residue is 306. On this branch, with both re-cut, the knots are 457, 4 and 3, the first cuts
+  `Route` (457 -> 439) then `ParsekFlight` (424), the residue 282. `GameAction`'s remaining
+  knot edges here (`CaptureSequence`, `ConversionCause`, `FundsEarningSource`,
+  `ReputationSource`) are scanner false positives: same-named fields, and the enum member
+  `Milestone` read as a type.
 - `KspStatePatcher` (6,939 lines, one file) is now a partial class over 11 files (S3, pure
   move by `scripts/refactor/split_kspstatepatcher.py`, which checks the line multiset): the
   main `KspStatePatcher.cs` (330: `PatchAll`, `PatchPools`, the resets and EVERY static field,
@@ -2717,18 +2720,20 @@ columns whose blanks are visible, where the old outline simply said nothing.
   checks red as expected). A name-based scan still finds 85 untested `internal` logic methods
   in those classes (338 counting `private`), most of them Unity-coupled (particle systems,
   audio, transforms) or reachable only through private helpers.
-- On the refactor branch claude/project-thread-bkwmrr only (not on main, it changes
-  compiled code): the dead Re-Fly frame-offset chain is removed (no behavior or log-text
-  change). Its offset resolver always refuses (`display-alignment-removed`), so
-  `TryCanonicalizeReFlyRecordingPoint` / `TryCanonicalizeReFlyRecordingOrbitSegment` never change a point or a segment and every
-  caller ignored the result. The 15 point call sites go; the 8 orbit-segment call sites keep
-  the one line the old path could write (`... skipped: ... reason=orbital-velocity-non-finite`)
+- On this branch only (not on main, it changes compiled code): the dead Re-Fly frame-offset
+  chain is removed (no behavior or log-text change). Its offset resolver always refused
+  (`display-alignment-removed`), so `TryCanonicalizeReFlyRecordingPoint` /
+  `TryCanonicalizeReFlyRecordingOrbitSegment` never changed a point or a segment and every
+  caller ignored the result. The 15 point call sites go, and so do the two closing-sample
+  sites main's physics SOI split added later (`SplitSectionIfPhysicsBodyChanged`,
+  `SplitBackgroundSectionIfPhysicsBodyChanged`); the 8 orbit-segment call sites keep the one
+  line the old path could write (`... skipped: ... reason=orbital-velocity-non-finite`)
   through `FlightRecorder.LogReFlyOrbitSegmentVelocityNonFinite`. The two characterization
-  cases of the removed `TryApplyReFlyRecordingFrameOffsetToWorld` go with it there (on main
+  cases of the removed `TryApplyReFlyRecordingFrameOffsetToWorld` go with it here (on main
   all 148 stay).
-- On the refactor branch only: `BackgroundRecorder.ShouldRunBackgroundStateDriftCheck`'s
-  time-went-backwards branch `nextLastCheckUT = double.MinValue` is a dead store (the
-  fall-through always overwrites it with `currentUT`); removed there, behavior identical.
+- On this branch only: `BackgroundRecorder.ShouldRunBackgroundStateDriftCheck`'s
+  time-went-backwards branch `nextLastCheckUT = double.MinValue` was a dead store (the
+  fall-through always overwrites it with `currentUT`); removed here, behavior identical.
 - Source-gate tightening (test-only): `ReFlyAnchorBypassWiringTests`'s background
   no-bypass gate now scans `UpdateBackgroundAnchorDetection` from its declaration in
   `BackgroundRecorder.RelativeAnchors.cs` (it scanned from the call site in
@@ -2762,6 +2767,16 @@ columns whose blanks are visible, where the old outline simply said nothing.
   single files by the scripts), the test-only changes and the architecture tooling; there the
   knots are 542, 4 and 3 and the cut-residue ratchet is 306 (301 before main's save-format
   freeze #2380 removed `GameAction`'s `Ledger` call; the first two cuts now leave 496 and 456).
+- Re-landed on this branch 2026-11-06: the branch was reset to main 7eb3770e0 (1.0.0, which
+  carries the release branch above) and its revert be69be1f3 was reverted, so the tree is main
+  plus the four compiled-code changes above (the `Recording` and `GameAction` re-cuts, the
+  Re-Fly chain removal, the drift-check dead store). Where main had since deleted the code a
+  slice touched (the ActionId and contract-deadline migrations, `GameAction.LoadTally`), main's
+  deletion stands. The IL differs from main's only in those slices' types. Arch map: knots 457,
+  4 and 3 (one more than main's 542 with the three references cut, because the
+  `RecordingStore` type initialiser that installs `Recording.GhostHiddenRule` keeps
+  `LaunchSiteOnlyGhost` inside), first cuts `Route` (439) and `ParsekFlight` (424), cut-residue
+  ratchet 306 -> 282.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

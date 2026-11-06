@@ -227,6 +227,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GhostVisible_TruthTable_ToggleAndRule()
+        {
+            RecordingTree tree = PadEvaTree();
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            Recording hiddenByRule = tree.Recordings["rocket-root"];
+            Recording shown = tree.Recordings["bill-eva"];
+            var loose = new Recording { RecordingId = "loose-rec" };
+
+            // Toggle on: the rule decides.
+            Assert.False(hiddenByRule.GhostVisible);
+            Assert.True(shown.GhostVisible);
+            Assert.True(loose.GhostVisible);
+            Assert.True(((IPlaybackTrajectory)shown).PlaybackEnabled);
+
+            // Toggle off: hidden whatever the rule says.
+            hiddenByRule.PlaybackEnabled = false;
+            shown.PlaybackEnabled = false;
+            loose.PlaybackEnabled = false;
+            Assert.False(hiddenByRule.GhostVisible);
+            Assert.False(shown.GhostVisible);
+            Assert.False(loose.GhostVisible);
+            Assert.False(((IPlaybackTrajectory)shown).PlaybackEnabled);
+        }
+
+        [Fact]
+        public void GhostHiddenRule_InstalledByItsOwnerAndByTheCommittedStore_NullReadsVisible()
+        {
+            Assert.True(RecordingStore.GhostHiddenRuleInstalledForTesting);
+            Assert.NotNull(Recording.GhostHiddenRule);
+            RecordingTree tree = PadEvaTree();
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            Recording root = tree.Recordings["rocket-root"];
+            try
+            {
+                Recording.GhostHiddenRule = null;
+                Assert.True(root.GhostVisible);
+
+                Assert.True(LaunchSiteOnlyGhost.EnsureGhostHiddenRuleInstalled());
+                Assert.NotNull(Recording.GhostHiddenRule);
+                Assert.False(root.GhostVisible);
+            }
+            finally
+            {
+                LaunchSiteOnlyGhost.EnsureGhostHiddenRuleInstalled();
+            }
+        }
+
+        [Fact]
         public void HiddenRocket_StillCompletesPastEnd_SoRetirementAndCrewRun()
         {
             RecordingTree tree = PadEvaTree();

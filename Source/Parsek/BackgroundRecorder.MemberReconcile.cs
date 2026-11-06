@@ -458,7 +458,7 @@ namespace Parsek
             {
                 if (currentUT < lastCheckUT)
                 {
-                    nextLastCheckUT = double.MinValue;
+                    // Time went backwards (a rewind or a load): check now, whatever the interval.
                 }
                 else if (currentUT - lastCheckUT < BackgroundStateDriftCheckInterval)
                 {

@@ -38,6 +38,26 @@ namespace Parsek
         private static HashSet<string> hiddenRecordingIds = new HashSet<string>(StringComparer.Ordinal);
         private static string lastHiddenSignature = string.Empty;
 
+        /// <summary>
+        /// Installs <see cref="IsHidden"/> as <see cref="Recording.GhostHiddenRule"/> on first
+        /// touch of this type. The committed store's type initialiser also calls
+        /// <see cref="EnsureGhostHiddenRuleInstalled"/>, because the rule reads only the
+        /// committed trees and a ghost host can read <see cref="Recording.GhostVisible"/>
+        /// before anything mentions this type.
+        /// </summary>
+        static LaunchSiteOnlyGhost()
+        {
+            EnsureGhostHiddenRuleInstalled();
+        }
+
+        /// <summary>Idempotent installer for <see cref="Recording.GhostHiddenRule"/>.
+        /// Returns true so a static field initialiser can call it.</summary>
+        internal static bool EnsureGhostHiddenRuleInstalled()
+        {
+            Recording.GhostHiddenRule = IsHidden;
+            return true;
+        }
+
         internal static void ResetForTesting()
         {
             RetirementForTesting = null;

@@ -6,8 +6,8 @@ namespace Parsek.Tests
     /// <summary>
     /// Characterization tests for small pure helpers of <see cref="FlightRecorder"/> that no
     /// test called directly: the deploy / retract event-name keyword classifiers, the
-    /// aero-surface zero-angle veto, the wheel robotic module-name set, the stable UT sort,
-    /// the plausible-rate formatter and the Re-Fly frame-offset application guards.
+    /// aero-surface zero-angle veto, the wheel robotic module-name set, the stable UT sort
+    /// and the plausible-rate formatter.
     /// </summary>
     public class FlightRecorderCharacterizationTests
     {
@@ -174,43 +174,6 @@ namespace Parsek.Tests
                     ["Ore"] = 1.25,
                     ["LiquidFuel"] = 0.5
                 }));
-        }
-
-        // ---------- TryApplyReFlyRecordingFrameOffsetToWorld ---------------------
-
-        private static void AssertSame3(Vector3d expected, Vector3d actual)
-        {
-            Assert.Equal(expected.x, actual.x);
-            Assert.Equal(expected.y, actual.y);
-            Assert.Equal(expected.z, actual.z);
-        }
-
-        [Fact]
-        public void TryApplyReFlyRecordingFrameOffsetToWorld_MissingIdOrNonFiniteRaw_NamedReasons()
-        {
-            var raw = new Vector3d(1.0, 2.0, 3.0);
-            Assert.False(FlightRecorder.TryApplyReFlyRecordingFrameOffsetToWorld(
-                null, 10.0, raw, out Vector3d canonical, out Vector3d offset, out string reason));
-            Assert.Equal("recording-id-missing", reason);
-            AssertSame3(raw, canonical);
-            AssertSame3(Vector3d.zero, offset);
-
-            Assert.False(FlightRecorder.TryApplyReFlyRecordingFrameOffsetToWorld(
-                "rec_a", 10.0, new Vector3d(double.NaN, 0.0, 0.0), out _, out _, out reason));
-            Assert.Equal("raw-world-non-finite", reason);
-        }
-
-        [Fact]
-        public void TryApplyReFlyRecordingFrameOffsetToWorld_ValidInput_RefusedBecauseAlignmentRemoved()
-        {
-            // The offset resolver is retired, so every well-formed request is refused with
-            // the raw position passed through unchanged.
-            var raw = new Vector3d(100.0, -50.0, 25.0);
-            Assert.False(FlightRecorder.TryApplyReFlyRecordingFrameOffsetToWorld(
-                "rec_a", 10.0, raw, out Vector3d canonical, out Vector3d offset, out string reason));
-            Assert.Equal("display-alignment-removed", reason);
-            AssertSame3(raw, canonical);
-            AssertSame3(Vector3d.zero, offset);
         }
     }
 }

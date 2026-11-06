@@ -508,10 +508,6 @@ namespace Parsek
                 ut,
                 currentVelocity,
                 preferRootPartSurfacePose: preferRootPartSurfacePose);
-            TryCanonicalizeBackgroundReFlyRecordingPoint(
-                state.recordingId,
-                ref point,
-                "physics-sample");
             // One section holds one body: a sample on a new body (an SOI change while this
             // vessel is in physics) closes the section here and becomes the next section's
             // first frame.
@@ -1107,11 +1103,10 @@ namespace Parsek
                 if (v.orbit != null)
                 {
                     state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
-                    TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
+                    LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
                         recordingId,
                         v,
                         ut,
-                        ref state.currentOrbitSegment,
                         "soi-change");
                     state.hasOpenOrbitSegment = true;
                 }
@@ -1412,11 +1407,10 @@ namespace Parsek
 
                 // Open a fresh orbit segment with current orbital elements
                 state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
-                TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
+                LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
                     state.recordingId,
                     v,
                     ut,
-                    ref state.currentOrbitSegment,
                     "checkpoint");
                 state.hasOpenOrbitSegment = true;
                 checkpointed++;
