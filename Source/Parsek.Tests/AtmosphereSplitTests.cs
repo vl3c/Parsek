@@ -110,20 +110,20 @@ namespace Parsek.Tests
         public void GetSegmentPhaseLabel_Formats()
         {
             var rec = new Recording();
-            Assert.Equal("", RecordingStore.GetSegmentPhaseLabel(rec));
+            Assert.Equal("", RecordingSegmentLabels.GetSegmentPhaseLabel(rec));
 
             rec.SegmentPhase = "atmo";
-            Assert.Equal("atmo", RecordingStore.GetSegmentPhaseLabel(rec));
+            Assert.Equal("atmo", RecordingSegmentLabels.GetSegmentPhaseLabel(rec));
 
             rec.SegmentBodyName = "Kerbin";
-            Assert.Equal("Kerbin atmo", RecordingStore.GetSegmentPhaseLabel(rec));
+            Assert.Equal("Kerbin atmo", RecordingSegmentLabels.GetSegmentPhaseLabel(rec));
 
             rec.SegmentPhase = "exo";
-            Assert.Equal("Kerbin exo", RecordingStore.GetSegmentPhaseLabel(rec));
+            Assert.Equal("Kerbin exo", RecordingSegmentLabels.GetSegmentPhaseLabel(rec));
 
             rec.SegmentPhase = "space";
             rec.SegmentBodyName = "Mun";
-            Assert.Equal("Mun space", RecordingStore.GetSegmentPhaseLabel(rec));
+            Assert.Equal("Mun space", RecordingSegmentLabels.GetSegmentPhaseLabel(rec));
         }
 
         [Fact]
@@ -151,7 +151,7 @@ namespace Parsek.Tests
                 frames = new System.Collections.Generic.List<TrajectoryPoint>()
             });
 
-            Assert.Equal("Kerbin", RecordingStore.GetSegmentPhaseLabel(rec));
+            Assert.Equal("Kerbin", RecordingSegmentLabels.GetSegmentPhaseLabel(rec));
         }
 
         [Fact]
