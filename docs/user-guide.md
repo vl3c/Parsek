@@ -24,6 +24,15 @@ The first time Parsek opens one of your existing saves, it first makes a one-tim
 
 Since version 0.10.7, Parsek saves have a stable format: later versions of Parsek will keep loading them. If you open a save in an older Parsek, data it does not understand is kept unchanged rather than deleted, but career changes you make in that older version may not be kept, so play a save on the newest version you have used it with. Saves made with earlier test versions of Parsek still load, on a best-effort basis: most of their history comes through, but anything that only an old test version could get wrong is no longer repaired.
 
+### Uninstalling
+
+Removing Parsek (by hand, or with CKAN) runs no clean-up step: only the `GameData/Parsek` folder is deleted, and your saves are not touched. After that:
+
+- **Your saves still open in plain KSP.** Ghosts are never written into a save, so no phantom vessels appear. Vessels Parsek spawned at the end of a recording are ordinary vessels and stay where they are. Funds, science, reputation, research and buildings stay as they were in your last save. Stand-in kerbals Parsek hired stay on your roster as ordinary crew, and Parsek's crew reservations no longer apply.
+- **What stops:** recordings no longer play, and there are no rewinds, Re-Fly, missions, supply routes or reserved resources.
+- **What stays behind:** Parsek's data inside each save, in the `persistent.sfs` file and the `saves/<save>/Parsek/` folder, plus any `<Name> (pre-Parsek ...)` backup saves. KSP ignores this data. Delete the `Parsek` folder inside a save if you want it gone. If you reinstall Parsek, it reads whatever data is still there, but anything you flew in between was not recorded.
+- **To get your career back exactly as it was before Parsek**, load its `<Name> (pre-Parsek <date>_<time>)` backup from KSP's Load menu.
+
 ## How It Works
 
 ### Recording a Mission

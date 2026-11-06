@@ -29,17 +29,20 @@ Time travel paradoxes are avoided by enforcing causality: events are always proc
 - **Visual replay** with original part meshes, textures, and engine FX
 - **Looped playback** - fly missions and loop their recordings - add as many rockets, spaceships or aircraft in the sky as you want - great for in-game video recordings!
 - **Mission loops** - group a recording tree into a mission and loop the whole mission as a unit, not just one recording at a time (in flight, the Space Center, and the Tracking Station). Loop it faster than its length and it overlaps into several staggered replays; orbital and Mun / Minmus missions relaunch at the right window so the replay lines up with the live sky. Each looped or overlapping replay appears on its own orbit in Map view and the Tracking Station, matching flight.
-- **Logistics network** - fly a cargo route once, Parsek records it, then that recording becomes a reusable supply route that replays automatically between bases. The route replays the recorded run on a looped mission and delivers the same cargo to the destination each cycle, charging stock-realistic funds for KSC-origin routes in Career.
+- **Logistics network** - fly a cargo route once, Parsek records it, then that recording becomes a reusable supply route that replays automatically between bases. The route replays the recorded run on a looped mission and delivers the same cargo to the destination each cycle. Routes only move cargo: no run costs or pays funds.
+- **Mining and science labs** - drills, ISRU converters and labs keep working with the timeline: their recordings are kept, a route made from a mining run delivers only what the drills really produced, and lab science counts
 - **Vessel persistence** - recorded vessels spawn with crew, or get recovered for funds
-- **Crew management** - reserved crew get temporary replacements so your roster stays full
+- **Vessel names** - a stock or Parsek rename renames the real vessel, its recordings and its ghost, through rewinds, docking and spawns
+- **Crew management** - reserved crew get temporary replacements so your roster stays full; the Kerbals window shows who can fly right now, and why not
+- **Ghost relays** - a replaying relay or probe counts for CommNet as the vessel it replays, so your committed relay network keeps working
 - **Orbital recording** - time warp segments use analytical Keplerian orbits with attitude preservation (SAS-locked orientations like retrograde, normal, radial hold correctly throughout the orbit)
-- **Part events** - staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and inventory deployables replay on the ghost; docking / undocking are recorded as chain boundaries
+- **Part events** - staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and inventory deployables replay on the ghost; docking and undocking branch the mission's recording
 - **Resource tracking** - game actions related to funds, science, and reputation deltas are recorded and applied at the correct time
 - **Rewind to launch** - go back to any earlier point in your timeline; resources reset to baseline, ghost playback re-applies everything at the correct time
-- **Rewind to separation** - go back to any past staging, undock, or EVA event and fly the sibling vessel you did not originally fly - take a spent booster back down for a self-landing recovery, fly the other half of an undock, or save a poor EVA kerbal that had to jump out; the previously-committed flight plays as a ghost while the new attempt commits additively alongside it
+- **Rewind to separation (Re-Fly)** - go back to any past staging or undock and fly the vessel you did not originally fly - take a spent booster back down for a self-landing recovery, or fly the other half of an undock; the previously-committed flight plays as a ghost while the new attempt commits additively alongside it
 - **Multi-vessel recording** - undocking, EVA, and docking are tracked automatically; all vessels in a mission record as a single tree
-- **Career mode integration** - milestones track tech research, part purchases, facility upgrades, and contracts; resource budgeting prevents paradoxes when rewinding
-- **Recordings manager** - browse, sort, loop, and delete individual recordings
+- **Career mode integration** - milestones track tech research, part purchases, facility upgrades, and contracts; resource budgeting prevents paradoxes when rewinding, and on KSP's own screens anything your timeline has reserved is greyed out with a short reason on hover
+- **Missions and recordings windows** - browse, sort, rename, loop and hide (archive) recordings and whole missions; committed history is never deleted
 - **External recording files** - authoritative trajectory/snapshot sidecars keep saves lightweight, with default-on readable mirror files for storage debugging
 
 ## Controls
@@ -72,6 +75,8 @@ Requires KSP 1.12.x.
 
 Copy the `Parsek` folder into `GameData/`, so the DLL ends up at `GameData/Parsek/Plugins/Parsek.dll`. If Parsek finds itself loading from the wrong folder or unable to load some of its game patches, it says so in a message once the main menu has loaded.
 
+**Uninstalling** deletes only `GameData/Parsek`; no script runs and your saves are not touched. They still open in plain KSP, with no ghost vessels and your career as last saved. Recordings stop playing, and Parsek's own data stays in each save (and its `Parsek/` folder) until you delete it. The `<Name> (pre-Parsek ...)` backup in the Load menu is your career exactly as it was before Parsek. Details: [user guide, Uninstalling](docs/user-guide.md#uninstalling).
+
 ## Building from Source
 
 ```
@@ -92,7 +97,7 @@ See the [roadmap](docs/roadmap.md) for what's planned and what's possible.
 
 ## Save Compatibility
 
-Since version 0.10.7, Parsek saves have a stable format: every later version of Parsek keeps loading them, and an older Parsek keeps data it cannot read instead of deleting it. Saves made with earlier test versions load on a best-effort basis. Parsek 1.0 is still in active development, so features and game logic may change between versions; any change that affects your saves will be in the release notes.
+Since version 0.10.7, Parsek saves have a stable format: every later version of Parsek keeps loading them, and an older Parsek keeps data it cannot read instead of deleting it. Saves made with earlier test versions load on a best-effort basis. Parsek 1.0 is a public beta and still in active development, so features and game logic may change between versions; any change that affects your saves will be in the release notes.
 
 ## License
 
