@@ -305,6 +305,9 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
              # several cycles in three scenes, reading the endpoint tank at every step.
              "IR-3-route-refly-discard-merge.toml",
              "IR-6-route-warp-across-cycles.toml",
+             # IR-13 (2026-11-06) boots H58's route rows and Rewind-to-Launch, then IR-2's
+             # Kerbal X launch and stock revert, inside the go-back's 15 s window.
+             "IR-13-route-window-revert-retires-window-row.toml",
              "RVR-1-rover-route-proof.toml",
              "RVR-2-rover-route-create.toml",
              "RVR-3-route-lifecycle.toml",
