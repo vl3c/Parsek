@@ -138,7 +138,7 @@ id = "V6T-mun-ts-arrival"
 #   THE QUARTET'S PRODUCT FINDINGS LIVE ELSEWHERE. This lane produced none of its own -
 #   it swept clean - but the two the V6/V7 moon quartet did produce (V7T's
 #   deterministic `icon-off-orbit` raise and V7M's end-inside-watch teardown NRE) are
-#   written up together as `MOON-LOOP-FINDINGS` in docs/dev/todo-and-known-bugs.md.
+#   written up together as `MOON-LOOP-FINDINGS` in docs/dev/done/todo-and-known-bugs-v11.md.
 #   This lane's clean sweep is one of the controls that entry rules the obvious
 #   explanations out with, so read the two together.
 # =====================================================================================
@@ -325,7 +325,7 @@ trees          = { min = 1, max = 2 }
 #   rather than from an archive; recorded in the status-doc row.
 #   NOT PINNED: `sampled=[1-9]`. V6M measured `sampled=0 skip.reaimed-or-foreign-seed=1`
 #   on a strictly faithful member and the cause is a real blind spot, not a transient -
-#   docs/dev/todo-and-known-bugs.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. Pinning a
+#   docs/dev/done/todo-and-known-bugs-v11.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. Pinning a
 #   nonzero sample count would gate on that unresolved behaviour. THIS LANE READS THE
 #   SAME SKIP: it shares V6M's fixture, and its own re-flight below lands on the same raw
 #   covering segment 10 that the seed (raw segment 8's epoch) fails to match.

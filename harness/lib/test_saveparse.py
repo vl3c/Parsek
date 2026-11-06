@@ -705,7 +705,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # StartRecording cannot open a standalone tree on a committed tree's own
         # launch - the committed-restore path re-resumes that recording and
         # StartRecording no-ops onto it (measured, B23 flight 1, run
-        # 2026-08-18_2242; see todo-and-known-bugs.md ->
+        # 2026-08-18_2242; see done/todo-and-known-bugs-v11.md ->
         # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). The zero-trees assertions in
         # `test_every_persistent_sfs_parses_with_pinned_counts` are therefore not
         # bookkeeping here: they are the fixture's whole reason to exist.
@@ -1056,7 +1056,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `duna-park-probe` and answered `already=false`, minting the fresh
         # standalone tree pinned here. So `trees`/`committedTrees`/`recordings`
         # = 1/1/1 IS the fixture's contract, not merely its shape: a 2 or 3 here
-        # means that defect is back. See todo-and-known-bugs.md ->
+        # means that defect is back. See done/todo-and-known-bugs-v11.md ->
         # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
         #
         # `branchPoints` is EMPTY and must stay so: one craft, no separation
@@ -1108,7 +1108,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # 355840bc81bf45f8868b7d2508ca6de4. If a future re-harvest reads 2 or 8
         # recordings here that defect is back (8 is the specific number to watch:
         # it is what `eve-orbit-recorded`, the save `eve-park-kerbalx` was
-        # stripped from, carries). See todo-and-known-bugs.md ->
+        # stripped from, carries). See done/todo-and-known-bugs-v11.md ->
         # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
         #
         # `branchPoints` is EMPTY and must stay so: one craft, no separation event
@@ -1170,7 +1170,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # 0ffee6458331466481f5c7aa0212b515. If a future re-harvest reads 2 or FIVE
         # recordings here that defect is back (5 is the specific number to watch:
         # it is what `jool-orbit-recorded`, the save `jool-park-nerv` was stripped
-        # from, carries). See todo-and-known-bugs.md ->
+        # from, carries). See done/todo-and-known-bugs-v11.md ->
         # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
         #
         # `branchPoints` is EMPTY and must stay so: one craft, no separation event

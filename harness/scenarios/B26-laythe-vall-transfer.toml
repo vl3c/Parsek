@@ -707,7 +707,7 @@ tags = ["B26", "vall", "laythe", "jool", "moon-to-moon", "cross-parent", "jool-m
 # COMMITTED TREE for this very vessel, and a seam StartRecording cannot open a
 # standalone tree on a committed tree's own launch - it no-ops onto the recording
 # the committed-restore path re-resumes (MEASURED, B23 flight 1;
-# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). It
+# docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). It
 # also DECOUPLES this lane from V16M/V16T, which read `laythe-orbit-recorded` and
 # whose eight jump UTs are calibrated off its exact bytes: nothing here touches
 # that fixture, its tree id `0ffee6458331466481f5c7aa0212b515`, or any V16 pin.

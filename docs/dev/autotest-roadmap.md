@@ -3341,7 +3341,7 @@ proto regardless of what frame the proto was created in - across three runs, two
 deliberately different jump orders and four long dwells, including a run that
 contained a Kerbin-CREATED flight proto. **That is an instrument/host limitation,
 not a lane defect and not a product bug**, it is filed report-only on
-`docs/dev/todo-and-known-bugs.md` ->
+`docs/dev/done/todo-and-known-bugs-v11.md` ->
 TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS with no
 mechanism claimed, and it would only become answerable if the M-A2 seam grammar
 ever gains a WARP verb (it has none, and inventing one to make a pin reachable is
@@ -4527,7 +4527,7 @@ first spawn frame (hold-then-retry, never a single eager ask).
    (`2026-09-11_0056` and its one allowed re-fly `_0102`, total 0), and the control is
    DISCHARGED OFFLINE on `_0049` (closing round, ruling R3-2: `maxTotal = 3` reds on
    exactly `unityExceptions.total 4 > maxTotal 3 (NullReferenceException=4)` and the
-   committed 4 PASSES the same bytes; todo GS4-UNITY-CEILING-NEGCTL-VACUOUS keeps only
+   committed 4 PASSES the same bytes; archived todo GS4-UNITY-CEILING-NEGCTL-VACUOUS keeps only
    an opportunistic LIVE control). W1 is LEFT REPORT-ONLY: it read 0 and 2, and the second run's two NREs
    come in the stock / MechJeb teardown while watching (the V7M precedent). The class
    census, which is not the scene-change shape this item assumed, is in the status

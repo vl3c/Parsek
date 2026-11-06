@@ -576,7 +576,7 @@ tags = ["V15", "player-loop", "watch-mode", "loop-playback", "phase-lock", "sing
 # Parsek-stripped `eve-park-kerbalx` fixture, and its seam answered `startrecording
 # recordingId=77f724bb1d4844c3b132a1ccc00a7df3 already=false` (KSP.log 11910) -
 # `already=FALSE`, minting this standalone Eve-rooted tree. If a future re-harvest
-# reads 2 or 8 recordings here, that defect is back - docs/dev/todo-and-known-bugs.md
+# reads 2 or 8 recordings here, that defect is back - docs/dev/done/todo-and-known-bugs-v11.md
 # -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE. (8 is the specific number to watch for:
 # it is what `eve-orbit-recorded`, the save `eve-park-kerbalx` was stripped from,
 # carries.) The payload is pinned byte-for-byte in
@@ -857,7 +857,7 @@ count = { min = 1, max = 1 }
 #       produced by a frame with no resolved ghost. `sampled=[1-9]` is DELIBERATELY NOT
 #       pinned: this lane measured `sampled=0 skip.reaimed-or-foreign-seed=1` - the
 #       SAME blind spot V6M/V14T read and DIFFERENT from V14M's `sampled=1` on the same
-#       shape (docs/dev/todo-and-known-bugs.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE).
+#       shape (docs/dev/done/todo-and-known-bugs-v11.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE).
 #       The spec's own pre-flight comment anticipated exactly this skip form, so the
 #       arming pins what these bytes show rather than what V14M's showed. Note the
 #       `overTolerance=0` variant would ALSO match here (count 1) and is deliberately

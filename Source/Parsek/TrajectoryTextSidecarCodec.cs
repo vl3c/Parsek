@@ -686,7 +686,7 @@ namespace Parsek
                 // payload is incomplete": skip it. Bailing on one made the safe
                 // body-fixed substitution unavailable for the whole recording, which is
                 // how a Relative section's anchor-local metres reached the flat POINT
-                // list (todo UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).
+                // list (archived todo UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).
                 // A Relative section that HAS frames but no bodyFixedFrames is a
                 // genuinely incomplete substitution and still returns false below.
                 if (IsPayloadFreeTrackSection(section))

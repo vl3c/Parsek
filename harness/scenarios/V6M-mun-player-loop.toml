@@ -279,7 +279,7 @@ id = "V6M-mun-player-loop"
 #   THE QUARTET'S PRODUCT FINDINGS LIVE ELSEWHERE. This lane produced none of its own,
 #   but the two the V6/V7 moon quartet did produce - the deterministic
 #   `icon-off-orbit` raise on V7T and the end-inside-watch teardown NRE on V7M - are
-#   written up together as `MOON-LOOP-FINDINGS` in docs/dev/todo-and-known-bugs.md.
+#   written up together as `MOON-LOOP-FINDINGS` in docs/dev/done/todo-and-known-bugs-v11.md.
 #   Read that entry before concluding anything about the quartet's render behaviour
 #   from this file alone.
 #
@@ -1130,7 +1130,7 @@ trees          = { min = 1, max = 2 }
 # reachable ONLY with a non-null seed, so that indicator cannot carry the claim.) The
 # conclusion is unchanged - do not pin `sampled=[1-9]` there - but for the fragment
 # geometry, not for a bypassed guard.
-# FILED, NOT SOFTENED: docs/dev/todo-and-known-bugs.md ->
+# FILED, NOT SOFTENED: docs/dev/done/todo-and-known-bugs-v11.md ->
 # FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. Pinning `sampled=[1-9]` here would gate on that
 # unresolved behaviour; pinning PRESENCE does not.
 #

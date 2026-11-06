@@ -467,7 +467,7 @@ tags = ["B30", "mun", "minmus", "kerbin", "moon-to-moon", "cross-parent", "kerbi
 # TREE for this very vessel, and a seam StartRecording cannot open a standalone tree
 # on a committed tree's own launch - it no-ops onto the recording the
 # committed-restore path re-resumes (MEASURED, B23 flight 1;
-# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). It
+# docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). It
 # also DECOUPLES this lane from V6M/V6T, which read `mun-orbit-recorded` and whose
 # jump UTs are calibrated off its exact bytes: nothing here touches that fixture, its
 # tree id `d18969d6121444c1a30e4a55ae87a442`, or any V6 pin.

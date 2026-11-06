@@ -316,7 +316,7 @@ tags = ["B24", "gilly", "eve", "same-parent", "moon", "eccentric-moon", "orbit",
 # COMMITTED TREE (16af6b5e..., 8 recordings) for this very vessel, and a seam
 # StartRecording cannot open a standalone tree on a committed tree's own launch -
 # it no-ops onto the recording the committed-restore path re-resumes (MEASURED,
-# B23 flight 1; docs/dev/todo-and-known-bugs.md ->
+# B23 flight 1; docs/dev/done/todo-and-known-bugs-v11.md ->
 # SEAM-STARTRECORDING-JOINS-COMMITTED-TREE). Stripping Parsek's state leaves
 # nothing to resume. It also DECOUPLES this lane from the V8 family:
 # `eve-orbit-recorded` is a SHARED subject (V8, V8F, V8T and B19 all reference

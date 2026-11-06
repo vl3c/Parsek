@@ -1225,7 +1225,7 @@ ACTION_RECOVER_NAMED_VESSEL = "recover_named_vessel"       # text = vessel name
 # a stock setter must not abort the frame.
 #
 # WHAT HAS NO kRPC PATH, so the family cannot be swept and must be measured as
-# ABSENT rather than driven (see todo GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER):
+# ABSENT rather than driven (see archived todo GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER):
 # DeployableBroken and the ThermalAnimation trio are PHYSICS OUTCOMES (overspeed
 # break, reentry heating) with no verb at all; InventoryPartPlaced /
 # InventoryPartRemoved need EVA construction mode; the Robotic trio is Breaking

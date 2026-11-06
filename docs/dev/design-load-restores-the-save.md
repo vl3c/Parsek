@@ -233,7 +233,7 @@ load Cold, as today. The helper:
   recovery funds and consumed keys, `RecoveryPayoutContextStore`), `KspStatePatcher`'s
   `lastPatched*` and session latches, `PlaybackScopeTracker` (the save's `PLAYBACK_REPLAY_SCOPE`
   copy is installed right after, policy category `PlaybackReplayScope`, so a save written while a
-  ghost replays keeps it replaying; todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD), the route escrow;
+  ghost replays keeps it replaying; archived todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD), the route escrow;
 - clears the `ParsekScenario` session statics `vesselSwitchPending` / frame,
   `currentFlightLaunchUT`, `ScheduleActiveTreeRestoreOnFlightReady`,
   `pendingActiveTreeResumeRewindSave`, `pendingFreshRecordingAfterDiscard`,

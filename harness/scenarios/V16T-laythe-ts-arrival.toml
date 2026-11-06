@@ -30,7 +30,7 @@ id = "V16T-laythe-ts-arrival"
 # and k = 20 is why it became visible here: a 20-period cadence puts the un-shifted epoch
 # 1.06 Ms off the live clock, where at k = 1 subjects the gap is under one moon period and
 # the lens skips on `body-mismatch` instead. Filed as
-# docs/dev/todo-and-known-bugs.md -> MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME,
+# docs/dev/done/todo-and-known-bugs-v11.md -> MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME,
 # cross-linked to the icon entry as one family. The harness classified the unknown reason
 # REPORT-ONLY and said so (`unlistedReasons: ["seam-endpoint-outside-soi"]`), so nothing new
 # gates.
@@ -315,7 +315,7 @@ tags = ["V16", "tracking-station", "loop-arrival", "phase-lock", "single-orbital
 # pair cannot drift: MEASURED ONE committed tree, ONE recording, zero durable
 # rows, terminal Orbiting at Laythe, CREWED subject, and a one-recording topology
 # that is a CONTRACT rather than an accident (a 2 or a FIVE would have meant
-# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE was
+# docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE was
 # back; it read 1).
 saveTemplate       = "fixtures/saves/laythe-orbit-recorded"
 injectedRecordings = "none"
@@ -494,7 +494,7 @@ count = { min = 1, max = 1 }
 #     per-pid parity pass touched the lens, so PRESENCE cannot be produced by a
 #     frame with no resolved ghost. `sampled=[1-9]` is NOT pinned: V6T/V14T/V15M/V15T
 #     all read `sampled=0 skip.reaimed-or-foreign-seed=1`
-#     (docs/dev/todo-and-known-bugs.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE).
+#     (docs/dev/done/todo-and-known-bugs-v11.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE).
 #   "seam-endpoint summary evaluated=\d+ outsideSoi=\d+" - the PRESENCE form, and
 #     deliberately NOT V16M's stricter value form: V6T/V7T/V14T/V15T all measured
 #     the structural `evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1`,

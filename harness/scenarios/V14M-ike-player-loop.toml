@@ -576,7 +576,7 @@ tags = ["V14", "player-loop", "watch-mode", "loop-playback", "phase-lock", "sing
 # re-resumed committed tree). Flight 2 ran against the Parsek-stripped
 # `duna-park-probe` and answered `already=false`, minting this standalone Duna-rooted
 # tree. If a future re-harvest reads 2 or 3 recordings here, that defect is back -
-# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE. The
+# docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE. The
 # payload is pinned byte-for-byte in
 # `harness/lib/test_saveparse.py::CommittedFixtureSweepTests.RECORDED_FIXTURES`.
 #
@@ -841,7 +841,7 @@ count = { min = 1, max = 1 }
 #       the per-pid parity pass touched the lens, so its PRESENCE cannot be produced by
 #       a frame with no resolved ghost. `sampled=[1-9]` is NOT pinned: V6M measured
 #       `sampled=0 skip.reaimed-or-foreign-seed=1` on a strictly faithful member and
-#       the cause is a real blind spot (docs/dev/todo-and-known-bugs.md ->
+#       the cause is a real blind spot (docs/dev/done/todo-and-known-bugs-v11.md ->
 #       FAITHFUL-PARITY-SEED-FRAGMENT-REBASE). THIS lane measured `sampled=1
 #       overTolerance=0` - it does NOT hit that skip - but pinning the count would gate
 #       on unresolved behaviour for no coverage gain.

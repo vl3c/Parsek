@@ -281,7 +281,7 @@ count = { min = 2, max = 2 }
 #       itself, with no guard firing, so both the guard line and a 9000 debit are
 #       forbidden below: a change that lets a synthetic fail reach a pool reds here.
 #       Behavior pin SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD in
-#       `docs/dev/todo-and-known-bugs.md` records it.
+#       `docs/dev/done/todo-and-known-bugs-v11.md` records it.
 #       PREDICTED FROM CODE, NOT YET FLOWN on this revision. The count is not pinned (a
 #       flight's walks may inject other rows); the row is.
 #       THE POOL VALUES ARE DELIBERATELY NOT IN ANY TOKEN: `live=` is this flight's total

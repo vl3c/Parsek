@@ -480,7 +480,7 @@ id = "V17M-laythe-vall-player-loop"
 #   inversion, flown on V17M; not V20M's `2026-08-27_1941`) stays its save-structure
 #   control. The bare renderCompose block read one report-only `RC-COVER [FAIL]`: an
 #   unexplained 3975.99 s dark window against a 199.76 s warp resolution. It gated
-#   nothing (todo RC-COVER-DARK-WINDOWS-READ-ON-BARE-LANES). The fail-closed declaration
+#   nothing (archived todo RC-COVER-DARK-WINDOWS-READ-ON-BARE-LANES). The fail-closed declaration
 #   element was untouched.
 #
 tier = "operator"
@@ -516,7 +516,7 @@ tags = ["V17", "player-loop", "watch-mode", "loop-playback", "re-aim", "cross-pa
 # WHY THE ONE-RECORDING TOPOLOGY MATTERS ANYWAY: B23 flight 1 produced a
 # mechanically green run whose hop was APPENDED to another tree's committed
 # recording. B26 avoids that by pointing at the Parsek-stripped `laythe-park-nerv`.
-# See docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+# See docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
 #
 # Its PARKED stage at Vall will be the OBSERVER for both watch attempts. THE
 # SUBJECT IS CREWED (Valentina Kerman in the mk1pod.v2), the third crewed loop

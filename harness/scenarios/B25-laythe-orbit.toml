@@ -594,7 +594,7 @@ tags = ["B25", "laythe", "jool", "same-parent", "moon", "jool-moon", "inward-tra
 # COMMITTED TREE (5 recordings) for this very vessel, and a seam StartRecording
 # cannot open a standalone tree on a committed tree's own launch - it no-ops onto
 # the recording the committed-restore path re-resumes (MEASURED, B23 flight 1;
-# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE).
+# docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE).
 # Stripping Parsek's state leaves nothing to resume. It also DECOUPLES this lane
 # from the V13 family: `jool-orbit-recorded` is a SHARED subject (V13 and V13A
 # both reference it) and a change to it moves several specs at once, whereas this

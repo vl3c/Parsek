@@ -66,7 +66,7 @@ id = "H59-surface-route-map-lines"
 # 0. THE PIN THIS LANE IS AUTHORED AGAINST
 # -------------------------------------------------------------------------------------
 # `LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE`
-# (docs/dev/todo-and-known-bugs.md, MEASURED 2026-08-24 by the V22/V23 round-2 readings,
+# (docs/dev/done/todo-and-known-bugs-v11.md, MEASURED 2026-08-24 by the V22/V23 round-2 readings,
 # REPORT-ONLY - every mechanism in it is a deliberate product gate, not a defect). Its
 # three findings, restated only as far as this lane depends on them:
 #
@@ -407,7 +407,7 @@ id = "H59-surface-route-map-lines"
 # second-to-last step - which on any two-scene lane forces it into the second scene. That
 # tension is a real one, it is not this package's to resolve, and it is filed as
 # RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION in
-# `docs/dev/todo-and-known-bugs.md` (REPORT-ONLY; the per-scene partition is deliberate,
+# `docs/dev/done/todo-and-known-bugs-v11.md` (REPORT-ONLY; the per-scene partition is deliberate,
 # what is undocumented is the consequence for a multi-scene lane). THAT ENTRY IS THE
 # SECOND FACE OF THE OLDER `M-A7-ONE-MANIFEST-PER-PROCESS`, not a new defect: same root
 # cause (one fixed path, last-flush-wins), and the two cross-reference each other. What

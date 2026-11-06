@@ -1403,7 +1403,7 @@ bearing part:
   across the two, both live-proven) and left B4. The per-test read that sized it,
   the four flights of the abandoned session-live third spec, and the four test
   defects that surfaced are recorded in `todo-and-known-bugs.md`
-  (R7-SESSION-BATCH-ISOLATION, R7-FIXTURE-GAPS).
+  (R7-SESSION-BATCH-ISOLATION) and `done/todo-and-known-bugs-v11.md` (R7-FIXTURE-GAPS).
 - **`GhostLifecycle` is NOT the high-payoff target the old sentence claimed, and
   should not be wired next.** A full-body read of all 17 members (2026-08-04, the
   same wave) measured ~11 of 17 UNREACHABLE on ANY committed fixture, for reasons

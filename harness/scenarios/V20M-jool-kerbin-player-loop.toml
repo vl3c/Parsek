@@ -881,7 +881,7 @@ id = "V20M-jool-kerbin-player-loop"
 #     divergence has no existing anomaly surface.
 #   * BOTH halves are filed REPORT-ONLY as
 #     **TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS** in
-#     `docs/dev/todo-and-known-bugs.md`, citing run `2026-08-27_1828`. NOTHING IN THIS
+#     `docs/dev/done/todo-and-known-bugs-v11.md`, citing run `2026-08-27_1828`. NOTHING IN THIS
 #     FILE GATES ON EITHER, and the rendered-frame Kerbin claim stays OWED (section 5A).
 #
 # **THE THREE UNITY EXCEPTIONS, EXAMINED RATHER THAN DISMISSED.** All three fire at

@@ -14675,7 +14675,7 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     real statement here; the spec's jump staircase deliberately lands
         #     past the window end so the endings happen inside the run rather
         #     than at teardown. See SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD in
-        #     docs/dev/todo-and-known-bugs.md.
+        #     docs/dev/done/todo-and-known-bugs-v11.md.
         "S1.9-part-showcase-render.toml",
         # The ghost-replay Tier A derivatives (2026-09-08), authored REPORT-ONLY
         # with GS-4's window shape and ARMED the same day (see the armed roster):

@@ -466,7 +466,7 @@ trees          = { min = 1, max = 2 }
 #   of `AreSameConicElements`' seven terms match and the two PHASE-REFERENCE terms -
 #   epoch (delta 31,456.7 s) and mna - fail by orders of magnitude. Identical mechanism
 #   to V6M's, which is where it is written up in full; filed as
-#   docs/dev/todo-and-known-bugs.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. Pinning a
+#   docs/dev/done/todo-and-known-bugs-v11.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. Pinning a
 #   nonzero sample count would gate on that unresolved behaviour.
 #
 # RE-FLIGHT `2026-08-09_0927` (PASS attempt 1, wall 64 s), the run that armed this pin:

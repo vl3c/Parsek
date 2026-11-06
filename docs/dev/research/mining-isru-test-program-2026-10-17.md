@@ -68,7 +68,7 @@ and PartAction radiator on / off buttons.
 | MINE-14 | Radiators off through a long rails warp (MINE-2 flight 1's overheat) | pins stock's behaviour and Parsek's handling of a miner losing parts while recording (breakage events, ghost part loss, spawn with the surviving parts) |
 | MINE-4 / MINE-5 | Mining-base docked-origin route across a rewind; live-drill harvest-origin route with a delivery leg | route provenance from a real drill (D10 harvest-provenance from synthetic to live), the plausibility cap against a real catch-up |
 | MINE-15 | Career copy of the rover: recover it carrying ore | stock recovery funds booked once, kept across a rewind |
-| GS-6r3 | Closed by MINE-6 if its ghost converter-loop gate goes green (a real recorded converter on a flight ghost) | todo GS6-CONVERTER-LOOP-NEEDS-AN-ANIMATION-GROUP-PART-ABOARD |
+| GS-6r3 | Closed by MINE-6 if its ghost converter-loop gate goes green (a real recorded converter on a flight ghost) | archived todo GS6-CONVERTER-LOOP-NEEDS-AN-ANIMATION-GROUP-PART-ABOARD |
 
 Needs a new craft (V could build them as he built the rover): an asteroid drill
 (`ModuleAsteroidDrill` on a captured asteroid), an orbital surveyor scan tagged to a recording

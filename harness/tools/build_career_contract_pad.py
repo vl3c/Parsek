@@ -196,7 +196,7 @@ CONTRACT_B_DEADLINE_UT = "100"
 # so stock never debited the pools for B. An earlier revision of this comment
 # predicted the opposite ("these two numbers MOVE TWO REAL POOLS"); the flight
 # refuted it. Full finding: SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD
-# in `docs/dev/todo-and-known-bugs.md`.
+# in `docs/dev/done/todo-and-known-bugs-v11.md`.
 #
 # SIZED TO KEEP BOTH POOLS POSITIVE ON A YOUNG CAREER. No pool pays the pack today;
 # the sizing holds against a future change of policy: if a synthetic fail's penalty

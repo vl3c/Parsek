@@ -217,7 +217,7 @@ id = "V16M-laythe-player-loop"
 #     rendered-vs-recorded parity pass; a nonzero `overTolerance` is a render
 #     drift independent of the moon. NOTE the standing blind spot: V6M, V14T,
 #     V15M and V15T all read `sampled=0 skip.reaimed-or-foreign-seed=1` where
-#     V14M read `sampled=1` (docs/dev/todo-and-known-bugs.md ->
+#     V14M read `sampled=1` (docs/dev/done/todo-and-known-bugs-v11.md ->
 #     FAITHFUL-PARITY-SEED-FRAGMENT-REBASE), so the pin below is the PRESENCE
 #     form on purpose and `sampled=[1-9]` is NOT predicted.
 #
@@ -525,7 +525,7 @@ id = "V16M-laythe-player-loop"
 # purpose. V16T's reading run measured a proto surface being evaluated at the
 # recording's UN-SHIFTED epoch on its creation frame - which places it at the Jool
 # park, 585.8 Mm from Laythe - and filed it as
-# docs/dev/todo-and-known-bugs.md ->
+# docs/dev/done/todo-and-known-bugs-v11.md ->
 # MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME. A ghost drawn
 # at Jool-park distance from a Laythe-parked observer is the same magnitude and
 # plausibly the same family. IT IS NOT ESTABLISHED HERE: this is a WATCH
@@ -671,7 +671,7 @@ tags = ["V16", "player-loop", "watch-mode", "loop-playback", "phase-lock", "sing
 # tree's committed recording (its seam StartRecording answered `already=true`).
 # B25 avoids that by pointing at the Parsek-stripped `jool-park-nerv` fixture. If
 # the harvest read 2 or FIVE recordings here, that defect would be back -
-# docs/dev/todo-and-known-bugs.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
+# docs/dev/done/todo-and-known-bugs-v11.md -> SEAM-STARTRECORDING-JOINS-COMMITTED-TREE.
 # (5 was the specific number to watch for: it is what `jool-orbit-recorded`, the
 # save `jool-park-nerv` was stripped from, carries.) IT READ 1. The strip worked.
 #
@@ -979,7 +979,7 @@ count = { min = 1, max = 1 }
 #       by a frame with no resolved ghost. `sampled=[1-9]` is DELIBERATELY NOT
 #       pinned: V6M/V14T/V15M/V15T all read `sampled=0
 #       skip.reaimed-or-foreign-seed=1` where V14M read `sampled=1`
-#       (docs/dev/todo-and-known-bugs.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE).
+#       (docs/dev/done/todo-and-known-bugs-v11.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE).
 #   "seam-endpoint summary evaluated=\d+ outsideSoi=\d+" - THE LANE'S OWN
 #       INSTRUMENT, and required only in the PRESENCE form on this run. The VALUE
 #       form (`evaluated=[1-9]\d* outsideSoi=0`, V14M/V15M's armed pin) is what
@@ -1046,7 +1046,7 @@ count = { min = 1, max = 1 }
 #     form. `sampled=[1-9]` is DELIBERATELY NOT pinned: this lane measured
 #     `sampled=0 overTolerance=0 skip.reaimed-or-foreign-seed=2` (10859), the
 #     same blind spot V6M/V14T/V15M/V15T read and different from V14M's
-#     `sampled=1` (docs/dev/todo-and-known-bugs.md ->
+#     `sampled=1` (docs/dev/done/todo-and-known-bugs-v11.md ->
 #     FAITHFUL-PARITY-SEED-FRAGMENT-REBASE). The count is 2 rather than V15M's 1
 #     because this lane crosses two arrivals.
 #
@@ -1074,7 +1074,7 @@ count = { min = 1, max = 1 }
 #   STRUCTURALLY EXCLUDES an `outsideSoi=1` reading. V16T measured exactly such a
 #   line and it is a known instrument artifact (the creation-frame lens
 #   mis-binding - see V16T's header and
-#   docs/dev/todo-and-known-bugs.md ->
+#   docs/dev/done/todo-and-known-bugs-v11.md ->
 #   MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME). THIS LANE'S
 #   censuses are taken at STEPPED bracket epochs where the loop shift has bound,
 #   so a nonzero `outsideSoi` HERE would not be that artifact - it would be a REAL
