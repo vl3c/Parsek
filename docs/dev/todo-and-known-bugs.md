@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## NODE-WAIT-HOLD-TRANSFER-AND-ROUNDOUT: B19 / B20 / B24 / B29 / B30 idle ~600 s at 1x before a burn [FILED 2026-11-06 from the warp audit of the 2026-11-05 full run; owner ruling 2026-11-06 ("yes, if its just on-rails safe warping"); CODE DONE 2026-11-06, branch `claude/project-thread-cmhs13`; OPEN until each lane's check flight; test harness, medium (run time only)]
+## ~~NODE-WAIT-HOLD-TRANSFER-AND-ROUNDOUT: B19 / B20 / B24 / B29 / B30 idle ~600 s at 1x before a burn~~ [FILED 2026-11-06 from the warp audit of the 2026-11-05 full run; owner ruling 2026-11-06 ("yes, if its just on-rails safe warping"); DONE 2026-11-06, branch `claude/project-thread-cmhs13` (#2391); LIVE-PROVEN 2026-11-06, all five lanes PASS attempt 1 with every park and arrival inside its gates; test harness, medium (run time only)]
 
 MechJeb's node executor rails-warps to ignition - 600 s, then holds 1x until the craft is within
 1 deg and turning slower than 0.001 rad/s. These crafts never settle, so each hold idled the whole
@@ -33,10 +33,15 @@ warp). Set on B24, B29, B30; `circularizeNodeWaitWarp` set on B19 and B20 (rever
 `test_mission_warp_policy.py`; four trace digests re-pinned for the new params field only (proved by
 hashing the traces with the field stripped).
 
-**Owed.** One check flight per lane. A lane keeps its key only if its park and arrival stay
-inside its gates; the B13 lesson is that a held Mun TLI ended 3.7 s earlier and moved the landing.
+**Check flights (2026-11-06, PASS attempt 1 each, every hold armed and released `arrived`).**
+B30 `_1059` TRANSFER-BURN 153 + 165 wall-s (was 631 + 643), Minmus park 287 x 287 km (was 303).
+B24 `_1111` TRANSFER-BURN 161 (was 640), Gilly park 33.8 x 33.1 km (was 34.3 x 33.5). B19 `_1120`
+CIRCULARIZE 110 (was 626), Dres pe 875 km (prior passes 848 and 1,023 km). B20 `_1200` CIRCULARIZE
+110 (was 626), Moho pe 501 km (was 460). B29 `_1248` second TRANSFER-BURN 438 (was 893), Kerbin pe
+106.9 km (was 105.7). Every value is far inside its gates, and the spreads match earlier passes,
+so every lane keeps its key. Over the six check lanes the mission wall fell from 13,206 to 8,923 s.
 
-## ~~PARK-DWELL-180-TO-60: the 180 s PARK dwell on 22 orbit lanes is cut to 60 s~~ [FILED 2026-11-06 from the warp audit of the 2026-11-05 full run; owner ruling 2026-11-06 ("yes", decision card in thread "Speed up harness coasts"); DONE 2026-11-06, branch `claude/project-thread-cmhs13`; check flight owed; test harness, low (run time only)]
+## ~~PARK-DWELL-180-TO-60: the 180 s PARK dwell on 22 orbit lanes is cut to 60 s~~ [FILED 2026-11-06 from the warp audit of the 2026-11-05 full run; owner ruling 2026-11-06 ("yes", decision card in thread "Speed up harness coasts"); DONE 2026-11-06, branch `claude/project-thread-cmhs13` (#2391); LIVE-PROVEN 2026-11-06 on six lanes (B16 / B19 / B20 / B24 / B29 / B30, all PASS attempt 1, PARK 25-27 wall-s each); test harness, low (run time only)]
 
 The PARK dwell (`parkDwellSeconds`) held 180 game-s on B11, B12, B13, B14, B16, B17, B19-B26, B28,
 B29, B30, B33, B34, B35, V1 and V3C, about 57 wall-s each under the 4x physics park warp (the last
@@ -46,7 +51,7 @@ structure or log expectation of those specs reads the dwell length. The CS-6 / C
 already held 60 and LABX-1 30. `test_shells`' B11 / B16 dicts follow the specs; the B11-return and
 B13-return frame fixtures keep 180, because their pinned trace digests were built around it.
 
-## ~~MJ-ASCENT-AUTOWARP-LEFT-OFF: a MechJeb ascent flown after a lane that left the node executor's autowarp off coasts to apoapsis at 1x~~ [FILED 2026-11-06 from the 2026-11-05 full run (B7 `2026-11-05_0240_a2`, B16 `2026-11-06_0613`; both green, about 20 wall-min each lost); FIXED 2026-11-06, branch `claude/project-thread-cmhs13`; Python unit tests, check flight owed; test harness, medium (run time only, no Parsek defect)]
+## ~~MJ-ASCENT-AUTOWARP-LEFT-OFF: a MechJeb ascent flown after a lane that left the node executor's autowarp off coasts to apoapsis at 1x~~ [FILED 2026-11-06 from the 2026-11-05 full run (B7 `2026-11-05_0240_a2`, B16 `2026-11-06_0613`; both green, about 20 wall-min each lost); FIXED 2026-11-06, branch `claude/project-thread-cmhs13` (#2391); Python unit tests; B16 `2026-11-06_1038` PASS attempt 1 rails-warped the ascent coast (MJ-ASCENT 269 wall-s, was 1,438), but the flag read True before the write, so the cause is not fully pinned; test harness, medium (run time only, no Parsek defect)]
 
 **Symptom.** B7's first attempt (`2026-11-05_0205`) warped its circularization coast; its retry
 (`_0240_a2`, flown after BDOCK-1) coasted about 1,440 game-s to apoapsis at 1x. B11, the run's
@@ -64,8 +69,13 @@ before `ACTION_MJ_ENGAGE_ASCENT` enables the ascent and before `ACTION_MJ_EXECUT
 executes the node, logging `[MjConfig] node executor autowarp forced on for <context> (was <v>)`;
 a failed write logs a `[Warn]` and the ascent still engages. A refused engage (autostage limit)
 and a circularization with no node touch nothing. Burns are unchanged (the executor's own 1x
-align-and-burn). Tests: `harness/missions/lib/test_ascent_autowarp.py`. Owed: one check flight
-(B16 or B7) showing the `(was False)` line and a warped coast.
+align-and-burn). Tests: `harness/missions/lib/test_ascent_autowarp.py`.
+
+**Check flight.** B16 `2026-11-06_1038` (PASS attempt 1) printed `(was True)` and still rails-warped
+its coast to apoapsis at up to 100x (MJ-ASCENT 269 wall-s against 1,438 on `2026-11-06_0613`). So
+the 1x coast is not explained by the flag's read value alone; writing it at engage coincides with
+the warp. Open question, low: whether kRPC's read reflects the instance the ascent consults. Watch
+the next full run's MJ-ASCENT rows.
 
 ## ~~CS5-DRY-LANDING-NO-SPLASHDOWN-AWARD: CS-5 required the splashdown milestone the mission does not guarantee~~ [FILED 2026-11-06 from the resumed pre-cut run (CS-5 `2026-11-06_0202`, PARSEK-FAIL logContracts, main 8a6c409af); harness spec flake, no product defect; re-pinned 2026-11-06, branch `cs5-landed-or-splashed`]
 
