@@ -13,6 +13,7 @@ Older entries archived alongside this file:
 - `done/todo-and-known-bugs-v9.md` - the 0.10.5 cycle through 2026-10-06: the stock-screen reservation layer (R&D, Mission Control, Administration, Astronaut Complex, VAB/SPH crew dialog, facility menus) and the UI refresh (Real Spawn Control, Logistics + Route History, Missions, Mission Log, Kerbals, the Timeline Career view, Recordings, Settings; the Career window and recording deletion removed), the KSP-settings audit fixes, the Re-Fly / rewind / recording correctness closures, the GUI census / mirror / state-gallery buildout, and the harness flight-efficiency and post-flight dialog work. Archived 2026-10-06. It is a full snapshot: every entry still open at archival was carried into this file, together with 16 struck entries whose body still names an open residue.
 - `done/todo-and-known-bugs-v10.md` - the 0.10.6 cycle through 2026-10-24: load restores the save (F9 and the Load menu put Parsek back exactly as the save was), the Re-Fly ledger safety rules and the committed-value rule (reserve, floor and debt for funds, science and reputation; contract outcomes held), logistics without money, the rewind / Re-Fly / Discard vessel holds and foreign board / seat / EVA claims, GC-7 vessel names, the recorded-velocity seed and orbit fixes, the mining / lab / ISRU fixes, and the GUI P-item wording fixes. Archived 2026-10-24. It is a full snapshot: every entry still open at archival was carried into this file, together with 52 struck entries whose body still names an open residue (an owed lane, an unfixed follow-up or a pending ruling).
 - `done/todo-and-known-bugs-v11.md` - the 0.10.7 / 1.0.0 cycle through 2026-11-06: the stable 1.0 save format and its freeze, the ledger event identity (nothing paid twice across rewinds) and the rewind ledger campaign RW-1..RW-24, the scripted campaign to the Mun (CS-0..CS-7), the replay-theory audit and career-settings fixes, Re-Fly / revert / load correctness, the flag timeline, the Real Spawn Control time-jump move, the GUI census tooling closure, the pre-Parsek backup hold and the harness warp and coast speed-ups. Archived 2026-11-06, after the 1.0.0 public beta. It is a full snapshot: every entry still open at archival was carried into this file, together with 32 struck entries whose body still names an open residue (an unbuilt lane, an unfixed follow-up or a deliberately left-open edge). Struck entries whose only residue was a flight of an existing lane were discharged by the 2026-11-06 full run (all 537 lanes on main).
+- Moved out of this file on 2026-11-06 (report-only, accepted, answered or superseded; nothing left to do; the text is in `done/todo-and-known-bugs-v11.md`): REFLY-ATTEMPT-LIVE-POOL-SHOWS-COMMITTED-FUTURE, RULINGS-NEEDED-TIMELINE-OPS-2026-10-06, KB-4-RND-PART-TOOLTIP-LOST, SS1-DUPLICATE-COMPLETION-DELIVERY-IN-WARP, DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST, L2-STOCK-CREWHATCH-TEARDOWN-NRE-UNDER-A-ZERO-GATE, RECORDER-NO-RECORDING-PRELAUNCH-ROLLOUT, FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN, M-A7-SEAM-ENDPOINT-SKIP-REASON-CENSUS, MISSIONS-T2.2-LINEAGE-FAN-NOT-COLLAPSIBLE, DEV-INSTANCE-UNLOCKED, GS-WAVE-DEFERRED, the 2026-07-06 prioritized backlog, and #640 (superseded by STOCK-UI-RESERVATION-OVERLAYS-2026-09-25).
 
 When referencing prior item numbers from source comments or plans, consult the relevant archive file.
 
@@ -202,17 +203,6 @@ copy, after which the restore re-adds it Active. Tests: `ContractCrossedOutcomeA
 produced saves hold it in `CONTRACT_FINISHED` with `state = DeadlineExpired`, not in `CONTRACT`, with
 one penalty. That witnesses the reflection write against the live stock assembly. The Archive UI
 listing the filed contract was not looked at: the lane reads the save, not the screen.
-## REFLY-ATTEMPT-LIVE-POOL-SHOWS-COMMITTED-FUTURE: during a Re-Fly attempt the funds pool includes the committed future [FILED 2026-10-28 from the RW-5 fix's investigation; by-design walk, report only, NOT FIXED; low]
-
-The Re-Fly start walks the whole ledger (`RewindInvoker` ~1525, `RecalculateAndPatch(double.MaxValue)`),
-so RW-5 shows `PatchFunds: 150632.2 -> 191064.2`. Patches are deferred while the recorder runs, so
-for the whole attempt the stock pool, the funds display and the currency tooltip show earnings the
-timeline has not reached. A merge (`MergeJournalOrchestrator.RecalcAfterMarkerCleared`) and a
-discard (#2314) both take it back out. In flight there is almost no stock spending channel. Any path
-that reaches a spending screen during the attempt without one of those walks could spend it, the
-same shape #2309 fixed for reverts. Decide whether the Re-Fly start should patch at the current UT
-and keep the full walk for its bundle restore only.
-
 ## ~~SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY: a vessel recovery worth under 100 funds has no ledger row, so an authoritative patch erases it~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-small-recovery-funds`; LIVE-PROVEN 2026-10-28 by RW-11 (`2026-10-28_1919`); product, medium (a gain lost for good, a reduction of the career total)]
 
 `GameStateRecorder.OnFundsChanged` dropped every funds change under `FundsThreshold = 100`, and
@@ -786,23 +776,6 @@ resources persist as `Route.HarvestCaps` and the from/to hover names them. Desig
 writing it found the asteroid drill left every stock mining window unbounded. Still open: lane
 MINE-5 (a live drill) to measure a real window's rates against stock's own production; a delivery that clamps to nothing leaves its stop with an
 empty manifest rather than refusing the route.
-
----
-
-## RULINGS-NEEDED-TIMELINE-OPS-2026-10-06: owner decisions the coverage-extension research needed [FILED 2026-10-06, branch `ccr-77f23eb2-dbqh6i`. RULED 2026-10-06 (owner interview); each ruling's work item is filed below]
-
-- [x] F9 back into a flight that was Discarded resumes it UNRECORDED today. RULED: the resumed
-  flight records again (QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN; unblocks lane QL-6). FIXED
-  2026-10-07 (branch `fix-quickload-into-discarded`); the trace found it resumed into the deleted
-  ids rather than unrecorded.
-- [x] Tail trim over a resource-changing tail. RULED: keep such tails - a tail where resources
-  change is not boring (TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT).
-- [x] Harvest-origin routes and catch-up bursts. RULED: cap the recorded harvest at what the
-  drills could plausibly produce (HARVEST-ROUTE-PLAUSIBILITY-CAP).
-- [x] Resource-scan unlocks. RULED: record and ledger them like other committed career progress
-  (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED).
-- [x] The Tracking Station's exclusion from the current-UT ledger cutoff. RULED: align the TS with
-  FLIGHT and the Space Center, cold or in-session (TRACKING-STATION-LEDGER-CUTOFF-ALIGN).
 
 ---
 
@@ -2131,26 +2104,6 @@ parts beside the pod, board, `WarpToUT` about 10 game minutes (ten 60 s transmis
 ids with an empty recording tag, and the log line of the untagged route. Estimate: one
 reading flight after the builder; no product change expected.
 
-## KB-4-RND-PART-TOOLTIP-LOST: the R&D part tooltip closed between KB-4's hover and its capture [FILED 2026-09-29 from KB-4 `2026-09-29_1507`, branch `kb4-block-proof`. OPEN, not reproduced on the next flight]
-
-`KB-4-ksc-click-blocks-remaining` `2026-09-29_1507` (automation DLL sha256 `caf7091b...`,
-the post-main-merge head) was PARSEK-FAIL(expectation) on three `logContracts.required`
-tokens, all of the `kb4-rnd-part` capture: no `record ... screen=PartTooltip ... why=`
-and no `control ... screen=PartTooltip name=buttonPurchase` line. The hover itself landed
-(`stockscreen ok screen=rnd act=hover ... part=probeCoreSphere.v2 frames=3
-tooltip=PartListTooltipController/direct/moved`, and `[PartPurchasePatch] Part tooltip
-purchase button disabled for 'probeCoreSphere.v2'` at +49 ms), but 240 ms later the
-capture shows the R&D tree with no tooltip (PNG 133080 bytes against 240273 on the PASS
-`2026-09-28_2031`, whose log order and timing are otherwise identical). Every block in the
-lane still fired and refused with nothing changed (both purchase dialogs present). The
-next flight on the same DLL, `2026-09-29_1514`, PASS attempt 1 with the tooltip in the
-photo. The cursor target (client 1111,490) is the partly clipped third row of the
-Available Parts grid, at the scroll view's bottom edge; an operator mouse move, or the
-pointer sitting on the mask edge, would close the tooltip the same way. Unknown which.
-Next step if it recurs: have the hover verb pick the part icon's visible centre (clipped
-by the viewport mask) and re-read the tooltip's presence at capture time, so a lost
-tooltip reads INVALID(pointer) instead of a missing product token.
-
 ## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): the ruling still matches the code.
@@ -2576,18 +2529,6 @@ response msg token stays the bare `warp-locked`. Still open, and needs a flight 
 cause itself. When the next `warp-locked` refusal appears in a collected KSP.log, read the
 `holders=` value and file the owner (a stock lock names its own subsystem; a Parsek id means a
 Parsek path does take a TIMEWARP lock here after all).
-
-## SS1-DUPLICATE-COMPLETION-DELIVERY-IN-WARP: a non-live ghost's PlaybackCompleted is delivered twice in one warp frame pair [FILED 2026-09-26 from SS-1. OPEN, report-only, harmless today]
-
-SS-1 reading `2026-09-25_2102`, `Situation Hopper` (ghost torn down by distance LOD, so
-`ghostWasActive=False`): `PlaybackCompleted index=0 ... needsSpawn=True` and `Deferred spawn
-during warp: #0 "Situation Hopper"` at 00:02:57.446, then the engine's stale past-end cleanup
-destroys the slot, then the same completion and the same deferral line again at 00:02:57.460.
-Harmless because `pendingSpawnRecordingIds` is a set, but a consumer that counts completions (or a
-future non-idempotent completion handler) would see two. Fix: find why the engine re-raises the
-completion after the stale cleanup destroyed the slot (the completed-state bookkeeping for a
-slot whose ghost was never live), and a headless engine test that crosses EndUT once in warp and
-asserts one delivery.
 
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -4453,34 +4394,6 @@ map-presence resolution never ran for it at all.
 Fix: unknown - needs a reading of which member the map-presence lifecycle pass selects for
 a chain and why the TIP never entered the pending-create queue. Not scheduled.
 
-## DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST: on a save whose committed tree is restorable for a spawned vessel, `StopRecording` + `DiscardTree` frees the recorder for about 7 ms before the restore re-arms and promotes it again, so every in-game cell that guards on an idle recorder skips `recording already active` [MEASURED 2026-09-07 by the second in-game census over `mun-landing-recorded` (scratch CEN-5, and CEN-7 with a 12-step `RecordingState` dwell inserted between `DiscardTree` and `RunTests`): all ten `AutoRecord` cells skipped identically on both. A HOST PROPERTY of the seam, not a product defect - no coverage is lost, so this is filed to be known rather than fixed]
-
-The log line that names the mechanism, from the CEN-7 runlog seven milliseconds after
-`DiscardTree` returned OK: `ArmCommittedTreeRestoreAttempt: replacing stale context ...
-reason=TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write`. The restore is the
-production path that lets a spawned vessel adopt its committed tree; it re-arms on its
-own poll, so the recorder is live again before the seam's next step is written, and a
-longer dwell only spends more wall time inside the same steady state. The CEN-7 dwell
-was added specifically to falsify "the seam moved too fast" and did not.
-
-**Same root cause as HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE, fixed there
-2026-10-02 (live proof owed).** Source confirms the steady state: every frame a tree or
-recorder is live, `HandleMissedVesselSwitchRecovery` zeroes
-`nextCommittedSpawnedRestoreRetryAt`, so the first Update after the discard retries at once
-and `TryTakeCommittedTreeForSpawnedVesselRestore` re-clones the committed original (still in
-committed storage). The `DiscardTree` verb now arms a per-vessel suppression that holds
-until something records, the active vessel changes, or the scene ends, so the kill pair
-should now idle a restorable host too. Until a census re-flies `mun-landing-recorded`, keep
-treating such a host as unproven; H69 still owns the LANDED `AutoRecord` cells.
-
-Needs: nothing. `H69-autorecord-landed` already executes the LANDED `AutoRecord` cells
-on `rover-route-recorded`, whose store does not re-arm this way, so the coverage this
-host would have bought exists. What the finding is FOR is the next lane that reaches
-for a recorded host and assumes the kill pair idles it: the pair idles a host whose
-tree is merely committed, not one whose committed tree is RESTORABLE, and the two look
-identical in a fixture listing. Recorded in the inventory's `AutoRecord` row and its B5
-residue table.
-
 ## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; the GUI-tree dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on 2026-09-11 with one `RunTests` step, so the axis reads 113 of 113 by SPEC COVERAGE again and this cell is once more the only named unreachable one]
 
 The cell EVAs a kerbal and asserts the resulting ghost carries a `VesselSnapshot`, then
@@ -4496,39 +4409,6 @@ Needs: a forged or derived in-flight save sized to that bound. Not worth one on 
 - it buys a single cell - so this is filed as the axis's one named residue rather than
 as work to schedule. Recorded in the inventory's `AutoRecord` row and its B5 residue
 table.
-
-## L2-STOCK-CREWHATCH-TEARDOWN-NRE-UNDER-A-ZERO-GATE: one `CrewHatchController.OnDestroy` NullReferenceException at FlushAndQuit red the strict-armed L2 lane once and did not reproduce [MEASURED 2026-09-06 by the full in-game census: run `2026-09-06_1910` (logs `2026-09-06_2211_L2-ledger-groundtruth-career`) PARSEK-FAIL(unity-exception) `unityExceptions.total 1 > maxTotal 0 (NullReferenceException=1)`; the re-fly `2026-09-06_2009` on the re-provisioned build PASS attempt 1 with total=0. STOCK NOISE, not a Parsek defect; filed as a known flake shape, NOT re-run away - the second reading is a fresh flight on a re-provisioned DLL]
-
-The one exception, verbatim from `logs/2026-09-06_2211_L2-ledger-groundtruth-career/KSP.log:12006`:
-
-```
-NullReferenceException
-  UnityEngine.Component.GetComponent[T] ()
-  DialogCanvasUtil.get_DialogCanvasRect ()
-  CrewHatchController.get_CrewHatchTooltip ()
-  CrewHatchController.HideTooltip ()
-  CrewHatchController.DespawnUIs ()
-  CrewHatchController.OnDestroy ()
-```
-
-Every frame is stock KSP UI teardown during the scene destroy that FlushAndQuit
-triggers; no Parsek frame, no Parsek log line within 200 lines. It is the same
-class MC-1 already records for MechJeb2's `OnDestroy` (mod noise, left unarmed),
-but L2 arms `maxTotal = 0` (B.2, on four flights that all read 0 - now five of six).
-The `unityExceptions` block counts totals only; there is no per-signature allowlist,
-so the honest options are (a) leave the strict zero and accept that a stock teardown
-race can red the lane about one flight in six, or (b) raise L2 to `maxTotal = 1`
-and lose the zero. Neither is taken here: this entry exists so the next red with
-exactly this stack is recognised as the known shape rather than re-triaged, and so
-a second occurrence turns the rate into a measurement worth deciding on.
-
-Second occurrence, a different component: `L2-ledger-groundtruth-career` `2026-10-12_0654`
-PARSEK-FAIL (unity-exception, total 1 over maxTotal 0) on one `NullReferenceException` at
-FlushAndQuit from MechJeb's teardown, `MuMech.MechJebCore.OnDestroy` -> `Vessel.get_isActiveVessel`
--> `FlightGlobals.get_ActiveVessel`. So the zero gate is tripped by third-party and stock
-`OnDestroy` races at scene teardown, not by Parsek. Proposed decision: let the unity-exception
-verifier ignore exceptions whose top frame is an `OnDestroy` and that land after the FlushAndQuit
-request (or allowlist these two stacks), keeping the zero for everything during the flight.
 
 ## V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT: the V26M lane's map-open dwell sometimes holds a painting ghost and sometimes holds none, so its paint-arm reading is not reproducible from the step list [RAISED 2026-09-07 on branch `g10-leg-drop` from reading run 3. LANE/HARNESS item, NOT a product defect. OPEN, low priority]
 
@@ -4555,17 +4435,6 @@ spawn-decision lines rather than guessing, and it is worth doing before anyone t
 a `paintedLegs`-bearing token on this lane. Do NOT widen a pin to absorb it: the two shapes
 are distinguishable on the draw line itself (`ownedLegs=` / `paintedLegs=`), and a lane that
 accepts both without saying which it saw is the vacuous reading this suite refuses.
-
----
-
-## RECORDER-NO-RECORDING-PRELAUNCH-ROLLOUT: a rolled-out craft that never leaves PRELAUNCH produces no recording [RAISED 2026-09-03 while reading `logs/2026-09-03_1955_rover-c-route-created`. NOT A DEFECT - filed so the next reader does not re-investigate]
-
-A craft rolled out to the pad and left sitting in `PRELAUNCH` starts no recording:
-the auto-record gate wants a situation change, and nothing about the craft has
-happened yet. That is by design, not a missed start. The consequence for tooling
-is that the session's `KSP.log` legitimately carries no recording lifecycle at all,
-so `scripts/validate-ksp-log.ps1` must be run with `-NoRecordingRun` against such a
-log or it reds on the absence.
 
 ---
 
@@ -5560,43 +5429,6 @@ ground-science placement is inventory placement). Lane `EVA-5-ground-science-pla
 re-armed 2026-09-26: the placed part is its own tree member (GroundPartPlaced), and EVA-5 claims the D7
 `inventory-place-remove` cell off the member's ghost applying both families `applied=1`.
 
-## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
-
-THE ARITHMETIC, derived from the fixture's own bytes rather than from a delta-v map:
-
-  CRAFT     `DD1 Duna Direct Probe`, type Relay, sit ORBITING, REF 6 (Duna), at
-            UT 9,160,396.7636916172. 14 parts, probe (NOT crewed). Control and
-            comms are FINE - `ctrl = True`, ModuleCommand, ModuleDataTransmitter
-            `canComm = True`, three RA-5 relays, MechJebCore `isEnabled = True` -
-            so the refusal is purely propellant.
-  PARK      SMA 1,038,214.9499945882, ECC 0.0012696218422829151 = a 718.2 km
-            circular Duna orbit, 2.166% of Duna's SOI.
-  AVAILABLE dry 1.6300 t (sum of the PART `mass` fields; `modMass` sums to 0),
-            LiquidFuel 56.214143897950763 + Oxidizer 68.706157991791599 = 124.920
-            units = 0.62460 t, mass ratio 1.38319. The LV-909 reads
-            `maxThrust = 60` and `key = 0 345` in its stock cfg, so
-            345 * 9.80665 * ln(1.38319) = **1,097.5 m/s**.
-  NEEDED    585.0 (ejection from the 718 km park, v_inf 826.1) + 1,060.5 (Kerbin
-            capture AND circularization at 100 km, v_inf 918.3) = **1,645 m/s**,
-            before a single correction round.
-  VERDICT   ~550 m/s short, 50% over budget.
-
-IT IS STRUCTURAL RATHER THAN TUNABLE, which is the part worth keeping: a
-lower-periapsis two-burn Oberth ejection saves 12 m/s (573.0 against 585.0), and
-aerocapture is not a route - the probe carries no heat shield and no aerobrake verb
-exists in the composed verb set. Capturing into a bound ELLIPSE instead of
-circularizing IS affordable on this craft (804 m/s total, a 24% margin), but the
-absolute reserve is 214 m/s, which one mis-planned correction round consumes.
-
-THE ROADMAP ALREADY KNEW AND THIS CONFIRMS IT RATHER THAN DISCOVERING IT: the
-B-range roster said "every committed Duna-parked fixture carries the DD1 probe with
-only ~1,180 m/s - short of a Kerbin capture" and reserved `B31` as the Kerbin -> Duna
-SETUP lane. The 1,097.5 here refines that ~1,180 (7% apart; both far short of 1,645)
-and derives it from the bytes. `B31` remains reserved and is now a when-wanted
-breadth point rather than a blocker - see the roadmap's rewritten roster entry.
-
----
-
 ## TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS: on a 32.6 Ms loop span every ghost proto settles onto the recording's FIRST segment, 36 of 41 of them having been CREATED on a different orbit - and the TRANSITION is now caught in the act [MEASURED 2026-08-27 by `V20M-jool-kerbin-player-loop` reading run 1 (`2026-08-27_1828`, PARSEK-FAIL(expectation) on exactly this - its own destination-frame render pin), **and CORROBORATED THE SAME DAY BY `V20T-jool-kerbin-ts-arrival` reading run 1 (`2026-08-27_1857`, PARSEK-FAIL(anomaly) `icon-teleport x3`), which caught the RE-SEED ITSELF rather than its end state**. REPORT-ONLY, NO MECHANISM CLAIMED, NO product change proposed. Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP, which it sharpens in three ways]
 
 **WHAT WAS MEASURED**, off `logs/2026-08-27_2129_V20M-jool-kerbin-player-loop/KSP.log`, on
@@ -5871,15 +5703,6 @@ It reads GREEN under `analyze-recordings.ps1 -FailOnRed -FreshSaveGate`
 Parsek renders a ghost that sits on a heliocentric parking orbit for 156 days and
 then departs - is unmeasured, and no committed subject other than this one can
 ask it. Until a lane flies, nothing reads these bytes.
-
-## M-A7-SEAM-ENDPOINT-SKIP-REASON-CENSUS: `seam-endpoint-skipped` dominates every renderCompose unevaluable count and DOUBLED between two flights of the same lane with no explanation on record [FOUND 2026-08-25 reading the V14M reading-vs-armed facets (53 vs 106 skips) and the s15 free-play manifest (512 at the cap). IMPROVEMENT, REPORT-ONLY]
-
-Every SEAM_ENDPOINT record carries a `skipReason`, but `observed_composition_facets`
-aggregates them into one opaque `seam-endpoint-skipped` count. A per-reason census
-(the `SeamEndpointOracle.FormatPassSummary` shape, which already exists on the C#
-log side) would explain the run-to-run variance for free and tell an arming pass
-which skips are structural vs incidental. Python-only change in
-`harness/lib/rendercompose.py`; no schema move needed.
 
 ## M-A7-ONE-MANIFEST-PER-PROCESS: two rich scenes in one KSP session still end as last-flush-wins - the auto-flush clobber guard only protects a dwell-bearing manifest from a DWELL-FREE later flush [FOUND 2026-08-25 during the operator's s15 free-play ground-truthing (single-subject sessions, so no data was lost). LIMITATION, REPORT-ONLY]
 
@@ -7883,21 +7706,6 @@ that folder is flight 1, whose ledger loaded `actions=1` and which logged ZERO
 injection lines, so it contradicts rather than supports this entry. It is the correct
 pointer for the Progress-node finding below, and only there.
 
-## MISSIONS-T2.2-LINEAGE-FAN-NOT-COLLAPSIBLE: the flattened per-vessel rows cannot fold a many-child separation fan [ACCEPTED LIMITATION 2026-08-20, from the Stage-2 review of the missions-UI branch]
-
-The T2.2 flattening (one row per physical vessel, lineage-only depth) renders a vessel's
-separated children unconditionally; the vessel-row caret expands/collapses only the interval
-DETAIL (Advanced). The old staircase's caret collapsed the entire child subtree, so an
-asparagus launch with 8 boosters could be folded to one row; the new view always shows the
-~9 vessel rows (still strictly fewer rows than the old EXPANDED default, which added interval
-and roster-atom rows on top). Accepted because a second meaning on the same caret needs a
-three-state affordance; revisit if long missions make the tab scroll-heavy in practice.
-Related deferral: `MissionPresentation.SeparationVerb` / `IsDockEventWord` classify on the
-RENDERED event words rather than `BranchPointType` + cause - re-wording `BranchEventName`
-silently degrades the T1.3/T1.4 phrasing to its fallbacks; the right home is a typed
-classifier beside `BranchEventName` (or a `BranchPointType?` on `MissionCompositionNode`),
-deliberately not done during the review-fix pass.
-
 ## BDOCK-2-SAME-TREE-DOCK-COVERAGE: no harness scenario flies a same-tree cross-session dock
 
 `BDOCK-1-station-interceptor` covers the cross-tree dock recording pipeline; the
@@ -9392,53 +9200,6 @@ disappears is the open design call, not a foregone one.
 
 [2026-08-05] Invocation is now AGENT-DRIVEN ON REQUEST: the operator asks for a tier by type, and an agent flies it via `harness/tools/tier_runner.py --tier {daily|nightly|operator}` following the `run-tier` project skill (`.claude/skills/run-tier/SKILL.md`; mechanics in `harness/README.md` -> "Running a tier on request (agent-driven)"). That is the direction this item's "the invocation model we actually want is agent-driven" line points, and it removes the out-of-band memory for the three per-tier invocations - but it is still only packaging: it adds no `--all`, no smoke selector, no cost or trust-aware selection, and touches neither `TIERS` nor `CADENCE_TIERS`. The taxonomy question above stands unchanged.
 
-## DEV-INSTANCE-UNLOCKED: shared-state races outside the machine lock, accepted as tracked limitations [FOUND 2026-08-02 by the multi-agent exclusivity audit. DELIBERATELY NOT FIXED by the machine-lock PR]
-
-The machine lock (`<umbrella>/automation/.ksp-machine.lock`) serializes `run.py`
-and `provision.py`. It deliberately does NOT cover the DEV instance or routine dev
-commands, because locking those would serialize all parallel dev work behind an
-8h harness hold to protect surfaces where a collision costs a re-run, not a false
-product verdict. Filing them so they stop being invisible:
-
-1. **`dotnet build` races on the shared dev DLL.** Two worktrees building
-   concurrently both copy into `Kerbal Space Program/GameData/Parsek/Plugins/Parsek.dll`
-   (`Source/Parsek/Parsek.csproj`, `ContinueOnError="true"`); last writer wins, and
-   the `SyncAgentInstructionMirrors` target races the same way on the two umbrella
-   `CLAUDE.md` / `AGENTS.md` mirrors. Mitigation today is the hash-verify recipe in
-   `.claude/CLAUDE.md`, which is operator discipline, not a guarantee.
-2. **The `InjectAllRecordings` fixture purges the dev save's recordings.**
-   `SyntheticRecordingTests.InjectAllRecordings` targets the dev KSP install's
-   `saves/test career` and calls `PurgeRecordingSidecars`. It DOES refuse when KSP
-   is live (`ScenarioWriter.TryPurgeRecordingSidecarsForInject` probes `KSP.log`
-   with an exclusive open, and the test raises `SkipException`), and it early-returns
-   when the target save is absent - so the residual hazard is test-vs-test, not
-   test-vs-flight: two sibling worktrees running `dotnet test` at once both purge and
-   re-inject the same save. It carries `[Trait("Category", "Manual")]`, which does not
-   exclude it from a bare `dotnet test`. Cheap fix if it ever bites: an env-var
-   `Skip` gate.
-3. **`collect-logs.py` collides on minute-granularity folder names** in the shared
-   `../logs/` sink and hard-exits, which loses a failing run's only evidence. A
-   `-pid<N>` suffix instead of `sys.exit(1)` would close it. (Note the harness's own
-   `results/` half of this class was closed separately by HARNESS-RUNID-COLLISION
-   below; this is the `../logs/` sink, which still hard-exits.)
-4. **The lock key is the umbrella root, not truly the machine.** Runs given
-   different `--umbrella-root` values, or started from a checkout with a different
-   parent (a nested `.claude/worktrees/<name>` isolation worktree), resolve different
-   lockfiles while still sharing kRPC 50000/50001 and the GPU; `--instance-dir`
-   bypasses umbrella resolution altogether. Deliberate - a machine-global path would
-   serialize the unit suites against real runs - but it means "machine-wide" holds by
-   convention for the documented sibling layout, not by construction.
-
-Related coupling, recorded here because it is easy to miss: **the deferred
-residual R8 "`_ksp_running_against` coarseness"
-(`docs/dev/design-autotest-stack-setup.md:740`) must not narrow the zombie
-preflight without re-reading `harness/README.md` "The machine lock"** - that
-coarse probe is a second, independent guard on kRPC port 50000 and the single
-GPU. Note this is NOT the R8 in `autotest-roadmap.md`, which is an unrelated
-scenario-coverage item.
-
----
-
 ## R7-SESSION-BATCH-ISOLATION: running the `Rewind` category beside a LIVE re-fly session breaks seven of its own tests, and starves nine more [FOUND 2026-08-04 by roadmap R7's abandoned `R7b-rewind-session-live` spec. FOUR defect-items FIXED here across THREE tests ((1)+(2) in `F5MidReFlyResume`, (2b), (3)); the FOUR remaining failing tests in (4) are RECORDED, not fixed. The nine starved are collateral of (2b), explained below - the spec is NOT committed]
 
 R7 set out to drive `Rewind` in both of its precondition modes. R7a (no live
@@ -9540,29 +9301,6 @@ WHAT A FUTURE ATTEMPT SHOULD DO DIFFERENTLY, in order:
    merge ends the session for everyone after it, which is inherent, not a defect.
 
 ---
-
-## GS-WAVE-DEFERRED: two gameplay-scenario-wave decisions recorded only in PR bodies until now [RAISED 2026-08-05, gameplay-scenarios wave 1 (PR #1425) + follow-ups (PR #1427). DECISIONS, NOT DEFECTS - recorded here so the PR bodies are not the only durable trace]
-
-**1. S20 flight variant deferred (uncontrollable booster -> no RewindPoint).**
-Research doc section 8 S20: a booster with parachutes but NO probe core fails the
-controllable-subject gate at the split, so no RP is authored
-(`TryAuthorRewindPointForBreakup` logs `Single-controllable split: no RP`). The
-VERDICT is unit-covered (`SegmentBoundaryLogic.IsMultiControllableSplit` = count
->= 2) and GS-1's spec header documents the mechanism as the reason its booster
-carries a probeCoreOcto2.v2. The deferred piece is only the dedicated FLIGHT: it
-would need a second craft variant (build_gs1_craft.py minus the booster core), a
-second forge run and a committed fixture, for a single logContract token on an
-already-unit-proven negative. Build it only if a wave wants the D9 no-RP cell
-flown live; the craft builder is parameterizable for it.
-
-**2. One unreproduced missions/lib suite failure during wave 1.**
-A single `python -m unittest discover -s missions/lib` run red with failures=1
-mid-wave (between the GS-2 negative-control revert and its commit,
-2026-08-05); the very next run and 4+ consecutive runs after were green
-(1419-1424 OK), the failing cell name was never captured (output tail cut it),
-and it never reproduced. Recorded per the honesty rule: if a missions/lib cell
-ever flakes again, this is the prior sighting; suspect environment (temp seam
-dirs) before code.
 
 ## HARNESS-SHELL-READSET-UNCHECKED: a mission shell can read a telemetry field its own control flags never populate, and nothing catches it until a flight [RAISED 2026-08-05 by GS-2 flight 1, which was lost to exactly this. IDEA, NOT STARTED - recorded with its cost so a future wave can decide rather than rediscover]
 
@@ -10346,48 +10084,6 @@ those files).**
 
 ---
 
-## Backlog - prioritized "what to develop next" (compiled 2026-07-06, v0.10.3; Tiers 1-4 freshness-checked 2026-07-11)
-
-Session-compiled prioritized development backlog (survey of git log / open PRs / roadmap / design docs / this file). Ordering doctrine: correctness-first, land-shipped-work-before-new, gameplay-value-per-effort. Two premises corrected during the survey: (1) `roadmap.md` §19.4 lags - logistics **M1-M4 are all SHIPPED** in 0.10.3 (M5 inter-body + M6 legibility were the last two, both since MERGED - see the Tier 1 CLEARED note below); (2) there is **no CI** on the repo (`get_status` = 0 checks), so "ready" PRs are review-gated only (suite run locally).
-
-### Tier 1 - CLEARED (2026-07-11): merge queue drained
-Every Tier 1 merge-queue item below LANDED on `main` (verified 2026-07-11 via `gh pr view`; `gh pr list --state open` returns 0 open PRs). Kept here for history:
-- **#1242** (logistics Rec-1 rewind-redelivery) - MERGED (gate playtest passed 2026-07-08). Was the one open correctness bug (rewind past a route dispatch charged funds but never re-delivered cargo).
-- **#1237** (M-MIS-11 loop-unit API) - MERGED. Keystone zero-behavior refactor.
-- **#1239** (M-MIS-5 P1 dock-as-interval-boundary) - MERGED.
-- **#1238** (Logistics M5 inter-body) - MERGED (gate passed in-game 2026-07-08). Last logistics "Reach" milestone.
-- **M6 legibility batch** #1232 / #1233 / #1234 / #1235 / #1236 - all MERGED.
-- **#1220 / #1221** - CLOSED as superseded by #1242 (their docs shipped inside it).
-
-### Tier 2 - NEXT: highest value-per-effort new work
-- **Route-timeline events** (branch `logistics-route-timeline`) - SHIPPED: player Pause / Activate now emit free-standing `RoutePaused` / `RouteResumed` (new type 30) ledger rows (armed pause-after-cycle emits `RoutePaused` at the delivery applier with the delivered reason token), Send Once provenance is persisted (`Route.SendOnceArmed`, sparse) and stamped on the dispatched row (`GameAction.RouteSendOnce`, sparse) so the one-shot run is bracketed dispatch-to-pause in the timeline, and `Route.CreatedUT` (sparse) records the creation point at `RouteStore.AddRoute`. All new rows are Rec-1-retired at rewind (types 23-30 in `RouteLedgerRetire.IsRouteActionType`). Auto-flip rows LIFTED 2026-07-19 (branch `logistics-dormant-ui`): a LIVE `RevalidateSources` pass now emits `RoutePaused` (`AutoPause:MissingSourceRecording` / `AutoPause:SourceChanged`) on the into-source-problem edge and `RouteResumed` (`AutoResume:SourcesRestored`) when recovery restores an Active-family status (a restored Paused emits nothing). Emission is caller-gated (`liveEmitUT` param, default -1 = silent). Live player-driven ERS-mutation sites route through `ParsekScenario.BumpSupersedeStateVersionLive` (re-fly merge commit, tree-discard purge + marker clear, Re-Fly discard dialog, revert Retry/Discard handlers, unfinished-flight Seal/Stash), which resolves the UT defensively AND forces -1 while `ParsekScenario.OnLoad` is on the stack (central guard - a scene-change load can see a stale nonzero Planetarium UT). Deliberately silent flips remain: the OnLoad revalidation call sites, `MergeJournalOrchestrator.RunFinisher`'s crash-recovery re-drive of `FlipMergeStateAndClearTransient` (explicit `onLoadContext: true`), and the mid-rewind supersede rollback in `RecordingStore.DropSupersedesRewoundOutOfExistence` (a row stamped there would land in the rewound-out future). Those silenced flips are repaired by the CATCH-UP net: every live pass emits `RouteResumed` (`AutoResume:CatchUp`) for any Active-family route whose latest kept lifecycle row (via ELS) still says paused - idempotent, so pause-history desyncs (e.g. the RouteModule dispatch-on-paused Warn loop) self-heal on the next live pass. Still not built: any UI surfacing of the pause history. The `delivered-replay` idempotency-branch contract hole the markers inherited (review finding 3, PR #1327) is FIXED (branch `route-rewind-status-fidelity`): the replay branch now honors an armed `PauseAfterCurrentCycle` - it consumes both flags, transitions `Paused` (reason `delivered-replay-then-paused`), emits the `RoutePaused` marker at the window's stride slot (+4), flushes the owed recovery credit, and drops held escrow; the delivery/funds dedup semantics are unchanged (the marker is the only new row).
-- **Route rewind-visibility extension (dormant routes)** - SHIPPED (branch `logistics-route-dormant`, plan `docs/dev/done/plans/plan-route-rewind-dormant-visibility.md`). The plan review found the premise everywhere else assumed was FALSE: `RouteStore.LoadRoutesFrom` is cold-start-only, so an in-session rewind never reverted routes at all - post-cutoff routes kept firing before their creation point, and pre-cutoff routes kept abandoned-future loop cursors that silently swallowed re-flown cycles (partially defeating Rec-1). Shipped fix: `ReconciliationBundle.Restore(cutoff)` classifies captured routes via `RouteRewindClassifier` (post-cutoff -> DORMANT_ROUTES list, invisible + non-firing; pre-cutoff -> forward-looking cycle state reconciled), and `RouteStore.MaterializeDueDormantRoutes` (top of orchestrator Tick) re-materializes each dormant route Paused when the timeline reaches its `CreatedUT` (occupied source tree -> dropped, live intent wins; missing sources -> visible MissingSourceRecording; round-trip pairs re-link via LinkRoutes). Residuals: ~~dormant routes have no UI and are undeletable until they materialize~~ LIFTED 2026-07-19 (branch `logistics-dormant-ui`): the Logistics window now shows a collapsed "Dormant Routes (N)" disclosure (name + "appears at date" + Delete via `RouteStore.RemoveDormantRoute`), which also closes the resurrection-surprise corner (the player can see and delete the twin before its CreatedUT). ~~`CompletedCycles`/`SkippedCycles` stay inflated after a rewind~~ FIXED (branch `route-rewind-status-fidelity`): the rewind seam derives each KEPT route's timeline-correct pause state from the kept PLAYER-DRIVEN `RoutePaused`/`RouteResumed` rows (`DeriveTimelineStatus` + `ApplyDerivedTimelineStatus`; AUTO `AutoPause:`/`AutoResume:` rows skipped; a derived Active requires a kept player pause row; validity statuses keep their live status with the verdict landing on `PreMissingStatus`), unconditionally clears the armed one-shot flags, and reconstructs the cycle counters from kept rows (`ReconstructCycleCounters`; dispatched-but-undelivered counts as skipped UNLESS a kept in-flight cycle is retained, where the sum lands ON that cycle's ordinal so a straddling cycle keeps its id and dedups). Still accepted: legacy routes without `CreatedUT` never go dormant. The compat report's axis-A "definition/counters revert via .sfs" claim (risk #9 "sound") carries a correction addendum.
-- **Go-back rewind route reconcile** - FIXED (branch `fix-goback-route-reconcile`, found by the 2026-07-19 preservation-branch forensic audit). The dormant-routes extension above only wired the FIRST in-session OnLoad exit (Re-Fly: `RewindInvoker.ConsumePostLoad` -> `ReconciliationBundle.Restore(cutoff)`); the SECOND exit - the plain go-back rewind / Rewind-to-Launch / warp-back path, `ParsekScenario.HandleRewindOnLoad` - had zero route handling AND no route-row retire (the audit's assumption that `Ledger.PruneOrphanActionsAfterUT` covers it was verified FALSE: that prune sits on the revert branch only, and the go-back path preserves the in-memory static ledger untouched). Consequences before the fix: kept routes carried abandoned-future loop cursors (re-played cycles silently swallowed, "funds spent, no goods" again), and routes created after the rewind target stayed committed, visible, and firing before their own creation point. Fix: the Re-Fly seam's route block was extracted into the shared `RouteRewindClassifier.ReconcileStoreAtRewind` (behavior-identical at the Restore(cutoff) call site; both exits now share one code path and cannot drift), and `HandleRewindOnLoad` now calls `Ledger.RetireFutureRouteActionsAtRewind` (in-place Rec-1-parity retire, cutoff = `RewindContext.RewindAdjustedUT`, the UT the loaded save reverted the world to) followed by the shared reconcile, before the career cutoff walk; no ledger actions are emitted on this OnLoad path. Gated by `RouteGoBackRewindReconcileTests` (both-exits parity fixture + in-place-retire semantics + source-text hookup/ordering gate).
-- **Route-rewind wave automated coverage** (branch `route-rewind-autotests`, stacked on #1330/#1331/#1332/#1333) - BUILT: the manual playtest runbook for the wave is replaced by the in-game `RouteRewindTimeline` category (`Source/Parsek/InGameTests/RouteRewindTimelineRuntimeTests.cs`, 7 scene-agnostic batch-safe tests) plus the unattended harness scenario `H6-route-rewind-timeline` (tier daily; mirrors the H5 RunTests driver). Covered live: lifecycle rows at the real Planetarium UT via `TryPause`/`TryActivate`/`TrySendOneCycleNow`, `ReconciliationBundle.Capture -> Restore(cutoff)` dormanting + kept-route status derivation / armed-flag clears / counter reconstruction + the Rec-1 retire, pending-science cutoff drop (strict-> boundary + blind rollback), dormant re-materialization through the real `RouteOrchestrator.Tick` (one test waits on the production `ParsekScenario.Update` 1 Hz tick itself), live `RevalidateSources` AutoPause/AutoResume/CatchUp rows against real ERS/ELS, and the go-back seam components (`Ledger.RetireFutureRouteActionsAtRewind` in-place + the shared `ReconcileStoreAtRewind`). S1.5/S4.1 (operator tier) gained the Re-Fly Restore-side contracts (`ConsumePostLoad: restoring bundle with route-retire cutoffUT=`, `Restored: ... pendingScience=`). Still genuinely manual (external runbook `../parsek-route-rewind-playtest-runbook.md`): Logistics-window rendering (dormant section, Sending-one-cycle label states, screen messages) and the REAL scene-load exits (`HandleRewindOnLoad` go-back, live `ConsumePostLoad`), which need an operator-piloted rewind.
-- **Rec-3 reverse-on-discard** - RESOLVED (2026-07-06, option C): the observability slice SHIPPED (PR #1243, branch `claude/development-priorities-ftr2ye`, stacked on #1242) and both-persist is RATIFIED as correct; reverse writers are DECLINED, not built. The attribution blocker (ambient route rows carry no RecordingId, so a UT-window reverse would wrongly undo concurrent committed routes) plus the 0.10.2 preserve-live-earned-gameplay doctrine make keeping both funds + cargo the correct behavior. No further code work. See `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4.
-- ~~**Map-view route lines** (M6 gameplay, M) - the one unbuilt M6 gameplay item; draw route paths on the map/TS via the MapRender Director surface. Reuse `GhostTrajectoryPolylineRenderer`.~~ SHIPPED (M6, verified 2026-07-11). `Display/RouteTrajectoryLineRenderer.cs` walks `RouteStore.CommittedRoutes`, reuses `GhostTrajectoryPolylineRenderer.BuildLegsForRecording` + `TryDrawLeg`, clips each route to `RecordedDockUT`, and draws on the flight map + Tracking Station behind the `showRouteLines` setting (default on); same-body routes draw all recorded non-orbital legs, inter-body routes draw the endpoint-body legs. Shipped in commits `008bb30bb` + `7b298582d` (inter-body follow-up), xUnit + in-game covered. Remaining deferred slice (by design, not "unbuilt"): the static orbital-coast overview arc stays head-gated on the stock conic.
-- ~~**M-MIS-5 P2** (L) - lift the undock->undock shuttle mid-recording start-trim limitation (`MidRecordingStartTrimUnsupported=9`); unlocks multi-stop shuttle logistics routes rejected today. Prereq: #1239.~~ **SHIPPED 2026-07-08** via #1251 (P2a detector) + #1254 (P2b start-trim lift). Supported shape accepted, degenerate shapes still rejected (NOT a full removal of status 9): an undock->undock mid-tree docked origin with a committed tree, `>=2` completed connection windows, and a finite non-overlapping origin window is now admitted with origin = the first window's undock UT (`RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin` wired into the analysis gate + stand-downs; `RouteBuilder` mid-tree-origin plumbing; `RouteBackingMission.ComputeStartExcludedIntervalKeys`; `Route.RecordedOriginUndockUT` persisted; updated reject text in `RouteCreationFormatters`). Status `MidRecordingStartTrimUnsupported=9` still fires for the degenerate remainder (null/legacy `AnalyzeRecording` tree, origin window overlapping the next stop, inverted origin window, the mid-tree-origin-proof variant), which stay intentionally out of scope per `docs/dev/done/plans/plan-mmis5-p2b-start-trim.md` section 7.
-
-### Tier 3 - LATER: verification + hygiene
-- **Validation debt (the real bottleneck)** - code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242 gate PASSED in-game 2026-07-08; still open: career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3) - BEHAVIOURAL HALF CLOSED 2026-08-15: the band is now WALKED in flight (three departures accept outside the base band, deepest 0.1550 vs a 0.0600 base), so what remains is only the constant-pinning judgement on `EccGain` / `MaxHalfWidthFraction`, not a validation debt - see M-MIS-3-BAND-COMPUTED-NOT-EXERCISED; (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
-- **M-MIS-10 archetype verification sweep** - constellation deploy / booster flyback / off-Kerbin launch / claw couples / Elcano; cheap verify-and-file, no known break.
-- ~~**Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.~~ DONE 2026-08-29 (release-hygiene, R5 item 1), per the aid's own removal-recipe banner: `Source/Parsek/MapRenderWarpControl.cs` + `Source/Parsek.Tests/MapRenderWarpControlTests.cs` deleted; the sole `RegisterWatchWindow` caller removed from `GhostPlaybackLogic.ResolveTrackingStationSampleUT`; its now-callerless helper `Reaim.DescentTrigger.DescentWindowEndLiveUT` + the two `DescentTriggerTests` cells deleted; the `DebugFlags` class in `ParsekConfig.cs` deleted (`MapRenderWarpEnabled` was its only member); the aid's how-to section removed from `.claude/CLAUDE.md` and `AGENTS.md`. NO CHANGELOG entry, per the banner (never a shipping feature). Nothing in `harness/` or `scripts/` gated on it - the four surviving mentions in LIVE docs are prose only (`autotest-status.md` V3C row, `design-autotest-render-composition.md`, `harness/scenarios/V3C-flight-arrival-companion.toml`, `harness/missions/lib/test_v1_map_dwell.py`), each naming it as the MOLD for a hypothetical future zone-relax aid, so they are kept as historical record rather than rewritten. Four more sit in the ARCHIVED `docs/dev/done/todo-and-known-bugs-v7.md` and are correctly untouched - an archive records what was true when it was written.
-- ~~**Doc hygiene** - flip the stale "In progress - Forward trajectory rendering" header (shipped 0.10.2) + add SHIPPED markers to roadmap §19.4 M3/M4.~~ DONE (verified 2026-07-11): roadmap §19.4 already marks M1-M5 SHIPPED and no "In progress / Forward trajectory rendering" header remains in the roadmap or this file.
-- **Deferred re-aim solver follow-ups** - ~~M-MIS-2 S4 re-stitch (product-decision-gated)~~ SHIPPED (PR #1263 `reaim-s4-restitch` + sign fix #1279); leg-less-chain forward-run gap remains (low-severity polish). (`SolveArrivalWindow` wiring SHIPPED on branch `mmis4-solve-arrival-window` - see the M-MIS-4 entry.)
-
-### Tier 4 - LONG-HORIZON: the strategic arc
-- **Gloops extraction -> Gloops.dll** (XL) - now a standalone-mod code-health track, NOT a multiplayer gateway: the Phase 14 design (2026-09-01) exchanges Parsek-native full-fidelity packets and explicitly decouples from the `.gloop` format (foreign recordings are full citizens: ledger rows, real spawns, interaction - all things `.gloop` strips). Prior caveats stand (engine coupling re-accreted; parallel Gloops recorder #435 to consolidate first). Don't start until logistics/missions are done - every in-flight feature still edits the engine files.
-- **Phase 14 co-op async multiplayer** -> **Phase 15 space race** -> **Phase 16 mod compat**. Phase 14 DESIGN COMPLETE (2026-09-01): `docs/dev/design-coop-async-multiplayer.md` (v2 after 2 adversarial reviews + 3 code verifications) - shared-folder contribution exchange, campaigns/checkpoints, read-only foreign citizenship + ownership fence, arbitration fold + salvage ladder, merged economy (deterministic sort, once-ever spend dedup, debt, earlier-UT credit), crew claims. Implementation phased M1-M6 with a 38-task breakdown in `docs/dev/plans/coop-async-multiplayer-tasks.md` (+ `-inventory.md` verified-mechanics map, `-deferred.md` D1-D16). Design v5 (2026-09-02): any player controls any campaign vessel (foreign-continuation route, no ownership guards), own continuations/recoveries of exported terminals are claims too, covering-link acceptance + fit clause (c), coupling dependents salvaged not deleted, UT-gated foreign tech/hire blocks, schema generation bumps to 5 in M2.1, attribution only with 2+ registered players, all work on integration branch `coop-multiplayer` with task sub-branch PRs (main untouched until complete). Pre-implementation refactors tiered in `docs/dev/plans/coop-async-multiplayer-prerefactor.md` (A1-A6 before M2, B1-B3 before M3, C1-C7 before M4; C3 = the post-commit leaf spawner bypasses the spawn gate today, a real solo gap) Design v6 freshness pass (2026-10-24): aligned with Re-Fly ledger safety, the committed-value rule, load restores the save, the quarantine grace and no-money logistics. Design v7 (owner rulings 2026-10-24): shared stays shared; a losing flight's rows are trimmed and contested earnings are held until final; co-op links only with an allowlisted mod set; any member may mark a silent member away; built mode by mode, Sandbox (v1), Science (v2), Career (v3), and not implemented before base Parsek is release-ready.
-- **Parked mission shapes** - ~~M-MIS-6 (multi-moon, needs a design note)~~ BUILT + MERGED (PR #1256; design note `docs/dev/design-mission-multimoon-alignment.md` done; gated only on an in-game looped-Jool playtest observation) and ~~M-MIS-8 (cross-tree foreign dock, low value)~~ MERGED (PR #1261). Still parked: **M-MIS-7** (intra-SOI re-aim, gated on M-MIS-6 playtest evidence). Hold pending a concrete player ask.
-
-### Open maintainer decisions (surfaced this session)
-- **Rec-3**: RESOLVED 2026-07-06 - ratified both-persist as correct (option C); reverse writers declined. See Tier 2 / plan Phase 4.
-- **Rec-2** (inter-body route hard-block): RESOLVED 2026-07-19 - inter-body routes ratified as supported, no creation gate needed. M5 inter-body synodic-faithful scheduling SHIPPED in 0.10.3 (PR #1238, roadmap 19.4, in-game gate passed 2026-07-08), so the visual-faithfulness concern behind the decision (report risk #12/#13) is resolved; delivery was always functional.
-
-Healthy / no action needed (verified this session): the ledger/economy audit (all 5 recs shipped), the observability plan (landed), the render rewrite (cutover complete, no visible artifacts left). The pure-refactor backlog is low-ROI - ride it along with features.
-
----
-
 ## Dev - Logistics in-game tests: auto-spawn unloaded vessel (no manual second craft)
 
 The 7 logistics FLIGHT in-game tests (origin-debit / pickup / multi-stop delivery,
@@ -10843,49 +10539,6 @@ The map/TS render cutover is COMPLETE (see the DONE entry above): the modular Di
 **4. Architectural / cleanliness (nice-to-have, not needed for function).**
 - Modularize the no-conic fallback as a proper Director "fallback treatment" instead of the kept patch-level path in `GhostOrbitLinePatch` (the icon floor + `ghostsWithSuppressedIcon` + `IsIconSuppressed`). The current kept fallback is correct and working; this is purity, not function.
 - Standalone ghost-mod readiness for the render side (the `IPlaybackTrajectory` boundary).
-
----
-
-## 640. Stock committed-future overlay v2 follow-ups
-
-**Status:** TODO - future investigation / review item from PR #721.
-
-**2026-09-25:** superseded as the planning reference by
-`docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` (the stock-control annotation
-plan, block audit and decision register; tracked by `STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`).
-The v2 items below are all covered there, several with a different recommended mechanism
-(stock disable-with-reason hooks instead of `OverlayBadge`).
-
-PR #721 ships the v1 scope: stock R&D, Astronaut Complex, and Mission
-Control committed-future overlays, plus click-blocks for duplicated tech,
-contract accept, kerbal hire, and facility upgrade actions. The following
-ideas are deliberately out of v1 scope and should be reviewed as separate
-follow-ups after in-game verification:
-
-- KSC facility-upgrade visual overlays in the top-down KSC view. The
-  click-block already exists via `FacilityUpgradePatch`; v2 would add the
-  visual badge and extend the overlay/click-block invariant to facilities.
-- Future-completed / future-failed contract badges in Mission Control, not
-  only future-accepted contract badges.
-- Administration strategy activation overlays, paired with matching
-  click-block behavior if the stock UI has a clickable affordance.
-- Per-row claim / override UI for cases where the player intentionally wants
-  to bypass a committed-future action, instead of using the global setting.
-- Per-user dismissible badges for "hide this warning until next session" style
-  workflows.
-- Non-stock screen integrations, such as Contract Configurator's own Mission
-  Control replacement or other mod-provided building screens.
-- Modded flight-scene building overlays. The current v1 overlays are
-  `SPACECENTER` scene-bound, while the lower-level click-blocks remain
-  scene-agnostic.
-- Tooltip styling polish using KSP's richer
-  `KSP.UI.TooltipTypes.TooltipController_Text` path instead of the v1
-  `GUI.skin.box` fallback.
-
-**Review guidance:** keep the v1 invariant intact for every clickable action:
-if a stock or modded UI exposes a clickable affordance, the overlay candidate
-set and the click-block predicate must share the same `MilestoneStore` source
-helper, with any UI-only suppression kept outside the click-block predicate.
 
 ---
 
