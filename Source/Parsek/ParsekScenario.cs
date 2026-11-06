@@ -3817,14 +3817,22 @@ namespace Parsek
             // The held instance needs the main-menu hook too, or a main-menu round trip
             // would never reset initialLoadDone and the hold could never clear.
             RegisterMainMenuHook();
+            string saveFolderBeforeDetect = lastSaveFolder;
             DetectSaveFolderChange();
             if (!initialLoadDone)
             {
                 PreParsekBackup.ClearHold("fresh load from the main menu: retrying the backup");
+                // The cold path's own detect now sees no change; hand it the folder this one
+                // saw, so the retry load classifies with its real cold reason.
+                backupHoldRetrySaveFolderBefore = saveFolderBeforeDetect;
+                backupHoldRetryDetected = true;
                 return false;
             }
             return true;
         }
+
+        private string backupHoldRetrySaveFolderBefore;
+        private bool backupHoldRetryDetected;
 
         /// <summary>Arms the hold for <paramref name="saveFolder"/> from the failed cold load.</summary>
         private void EnterBackupHold(ConfigNode node, string saveFolder)
@@ -3962,6 +3970,7 @@ namespace Parsek
             if (keepBackupHold || ParsekGameModeGate.CheckInert("ParsekScenario.OnLoad"))
             {
                 StashInertGameModeNode(node, keepBackupHold ? BackupHoldInertReason : "inert game mode");
+                PreParsekBackup.DropUnusedAutomationFault("an inert load makes no backup attempt");
                 InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropInertGameMode);
                 SaveFileLoadIntent.Clear("inert-game-mode");
                 return;
@@ -4062,7 +4071,11 @@ namespace Parsek
 
                 loadPhase = "hooks";
                 RegisterMainMenuHook();
-                string saveFolderBeforeDetect = lastSaveFolder;
+                string saveFolderBeforeDetect = backupHoldRetryDetected
+                    ? backupHoldRetrySaveFolderBefore
+                    : lastSaveFolder;
+                backupHoldRetryDetected = false;
+                backupHoldRetrySaveFolderBefore = null;
                 DetectSaveFolderChange();
 
                 // Load classification (LoadReconcilePolicy) before the prologue consumes any
@@ -4213,6 +4226,10 @@ namespace Parsek
                         loadStatus = "backup-hold";
                         return;
                     }
+                }
+                else
+                {
+                    PreParsekBackup.DropUnusedAutomationFault("an in-session load makes no backup attempt");
                 }
 
                 // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)

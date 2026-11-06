@@ -2197,7 +2197,7 @@ namespace Parsek.TestCommands
             }
 
             // backupFault= (pre-Parsek backup hold). Re-parsed for the bool like playerLoad=;
-            // armed only once every refusal above has passed, so a refused load arms nothing.
+            // armed below, after the last refusal, so a refused load arms nothing.
             string backupFaultArg = ArgOrNull(cmd, TestCommandLoadGame.BackupFaultKey);
             if (!TestCommandLoadGame.TryParseBackupFault(backupFaultArg, out bool armBackupFault))
             {
@@ -2206,9 +2206,6 @@ namespace Parsek.TestCommands
                 SetExecResult("REJECTED", null, TestCommandLoadGame.BackupFaultArgInvalidReason);
                 return;
             }
-            if (armBackupFault)
-                PreParsekBackup.ArmAutomationFaultForNextAttempt("LoadGame backupFault=fail");
-
             // THE ADMIT SIDE OF RF-3/A1 IS LOGGED HERE, and it has to be: the refusal Warns
             // with its reason, but a load that was ADMITTED past the recording-active guard
             // used to be indistinguishable in KSP.log from a load taken with no recorder at
@@ -2276,6 +2273,11 @@ namespace Parsek.TestCommands
                 SetExecResult("ERROR", null, "load-failed");
                 return;
             }
+
+            // Every refusal has passed and the scene request follows, so the very next
+            // ParsekScenario.OnLoad is this load's: it consumes the fault or drops it.
+            if (armBackupFault)
+                PreParsekBackup.ArmAutomationFaultForNextAttempt("LoadGame backupFault=fail");
 
             // playerLoad=true: the player's load of a save file. Stock's player load paths
             // (QuickSaveLoad's F9, the pause-menu and main-menu Load) fire onGameStatePostLoad

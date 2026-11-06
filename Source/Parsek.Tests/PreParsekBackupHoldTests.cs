@@ -198,6 +198,63 @@ namespace Parsek.Tests
                 "the hold must be entered before Parsek's first read of its own files");
         }
 
+        [Fact]
+        public void AutomationFault_ALoadWithNoAttempt_DropsIt_WithAWarn()
+        {
+            PreParsekBackup.ResetHoldForTesting();
+            PreParsekBackup.ArmAutomationFaultForNextAttempt("test");
+            Assert.True(PreParsekBackup.IsAutomationFaultArmedForTesting);
+
+            PreParsekBackup.DropUnusedAutomationFault("an in-session load makes no backup attempt");
+
+            Assert.False(PreParsekBackup.IsAutomationFaultArmedForTesting);
+            Assert.Contains(logLines, l => l.Contains("[Backup]") && l.Contains("[WARN]")
+                && l.Contains("Backup fault disarmed unused: an in-session load makes no backup attempt"));
+        }
+
+        [Fact]
+        public void AutomationFault_DropWhenNotArmed_LogsNothing()
+        {
+            PreParsekBackup.ResetHoldForTesting();
+            PreParsekBackup.DropUnusedAutomationFault("an inert load makes no backup attempt");
+            Assert.DoesNotContain(logLines, l => l.Contains("Backup fault disarmed unused"));
+        }
+
+        [Fact]
+        public void OnLoad_DropsAnUnusedFault_OnTheInertAndInSessionPaths()
+        {
+            string path = Path.Combine(RepoRoot(), "Source", "Parsek", "ParsekScenario.cs");
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            int sig = prepared.IndexOf("public override void OnLoad(ConfigNode node)", StringComparison.Ordinal);
+            string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', sig));
+
+            int gate = body.IndexOf("ParsekGameModeGate.CheckInert(", StringComparison.Ordinal);
+            int stash = body.IndexOf("StashInertGameModeNode(node", StringComparison.Ordinal);
+            int firstDrop = body.IndexOf("PreParsekBackup.DropUnusedAutomationFault(", StringComparison.Ordinal);
+            int firstReturn = body.IndexOf("return;", gate, StringComparison.Ordinal);
+            Assert.True(firstDrop > stash && firstDrop < firstReturn,
+                "the inert / held return must drop an unused fault");
+
+            int attempt = body.IndexOf("PreParsekBackup.MaybeBackupOnFirstColdContact()", StringComparison.Ordinal);
+            int secondDrop = body.IndexOf("PreParsekBackup.DropUnusedAutomationFault(", firstDrop + 1, StringComparison.Ordinal);
+            Assert.True(secondDrop > attempt,
+                "a load that skips the cold backup attempt must drop an unused fault");
+        }
+
+        [Fact]
+        public void SeamArmsTheFault_OnlyAfterEveryRefusal()
+        {
+            string path = Path.Combine(RepoRoot(), "Source", "Parsek", "TestCommands", "ParsekTestCommandAddon.cs");
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            int arm = prepared.IndexOf("PreParsekBackup.ArmAutomationFaultForNextAttempt(", StringComparison.Ordinal);
+            int routeFailed = prepared.IndexOf("route == LoadRoute.Failed", StringComparison.Ordinal);
+            int focusRefusal = prepared.IndexOf("TestCommandLoadGame.DecideFocus(", StringComparison.Ordinal);
+            Assert.True(arm >= 0, "the seam must arm the fault");
+            Assert.True(arm > routeFailed && arm > focusRefusal,
+                "the fault is armed after the last refusal, so a refused load arms nothing");
+            Assert.Equal(arm, prepared.LastIndexOf("PreParsekBackup.ArmAutomationFaultForNextAttempt(", StringComparison.Ordinal));
+        }
+
         private static string RepoRoot()
         {
             return Path.GetFullPath(Path.Combine(

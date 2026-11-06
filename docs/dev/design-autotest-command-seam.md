@@ -2100,15 +2100,17 @@ order and that the valid value relaxes no guard.
 
 **Contract.** `LoadGame` gains one more optional argument. ABSENT is the old contract
 verbatim. PRESENT and equal to the literal `fail`, the applier calls
-`PreParsekBackup.ArmAutomationFaultForNextAttempt` before the `loadgame start` line (logged
-`Backup fault armed by the automation seam (LoadGame backupFault=fail): the next backup
-attempt fails`). The next call of `PreParsekBackup.MaybeBackupOnFirstColdContact` consumes
-the fault whatever it decides. When that load needs a backup, `PerformBackup` creates its
-staging directory and then throws an `IOException` inside its own try, so the real failure
-path runs: staging cleaned, the `FAILED to back up` Error, the backup hold armed. When the
-load needs no backup (a footprint, a brand-new save, a backup folder), the fault is dropped
-with the Warn `Backup fault disarmed unused`, so an armed fault never survives into a later
-load.
+`PreParsekBackup.ArmAutomationFaultForNextAttempt` after the last refusal (`load-failed`,
+the `focusPid=` refusals, a failed route), just before the scene request, so a refused load
+arms nothing (logged `Backup fault armed by the automation seam (LoadGame backupFault=fail):
+the next backup attempt fails`). The fault belongs to the next `ParsekScenario.OnLoad`. On a
+cold load, `PreParsekBackup.MaybeBackupOnFirstColdContact` consumes it whatever it decides:
+when the load needs a backup, `PerformBackup` creates its staging directory and then throws
+an `IOException` inside its own try, so the real failure path runs (staging cleaned, the
+`FAILED to back up` Error, the backup hold armed); when it needs none (a footprint, a
+brand-new save, a backup folder), the fault is dropped. A load that makes no attempt (an
+in-session load, a held or inert save) drops it too. Every drop logs the Warn `Backup fault
+disarmed unused`, so an armed fault never survives into a later load.
 
 **Parse** (`TestCommandLoadGame.TryParseBackupFault`) is fail-closed and case-sensitive like
 `playerLoad=`: only the lowercase literal `fail`; an empty value or any other spelling is

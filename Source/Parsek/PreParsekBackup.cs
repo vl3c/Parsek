@@ -131,10 +131,23 @@ namespace Parsek
             automationFaultArmed = false;
         }
 
-        // One-shot automation fault (LoadGame backupFault=fail). The next attempt consumes it:
-        // an attempt that publishes would have thrown inside PerformBackup's try instead, and an
-        // attempt that skips disarms it with a Warn so it can never leak into a later load.
+        // One-shot automation fault (LoadGame backupFault=fail), scoped to the next
+        // ParsekScenario.OnLoad. A cold load's attempt consumes it (an attempt that would publish
+        // throws inside PerformBackup's try instead; one that skips disarms it with a Warn), and
+        // a load that makes no attempt (in-session, held or inert) drops it through
+        // DropUnusedAutomationFault, so it can never leak into a later load.
         private static bool automationFaultArmed;
+
+        /// <summary>Drops an armed automation fault that this load will not consume.</summary>
+        internal static void DropUnusedAutomationFault(string why)
+        {
+            if (!automationFaultArmed)
+                return;
+            automationFaultArmed = false;
+            ParsekLog.Warn(Tag, $"Backup fault disarmed unused: {why}");
+        }
+
+        internal static bool IsAutomationFaultArmedForTesting => automationFaultArmed;
 
         /// <summary>Arms the one-shot fault the next backup attempt consumes (automation only).</summary>
         internal static void ArmAutomationFaultForNextAttempt(string source)
