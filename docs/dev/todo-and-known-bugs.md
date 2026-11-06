@@ -17,6 +17,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CORRECTION-BURN-QUARTER-THROTTLE: B19 / B20 burn their large correction at 0.25 throttle, ~8 / ~16 wall-min at 1x [FILED 2026-11-06 from the 2026-11-06 check flights (B19 `_1120`, B20 `_1200`); owner ruling 2026-11-06 ("Yes, with a check flight"); CODE DONE 2026-11-06, branch `claude/project-thread-cmhs13`; OPEN until the B19 / B20 check flights; test harness, medium (run time only)]
+
+The DIY correction burner sets `correctionThrottle` (0.25, chosen for a precise cut) once at
+ignition and burns the whole correction there. B20's 1,089 m/s correction took about 990 wall-s at
+1x and B19's about 485.
+
+**Fix.** Two optional spec keys: `correctionCoarseThrottle` (0 = off, every other lane byte for
+byte) starts the burn at that throttle when the node's remaining dv is above `correctionFineDvMps`
+(default 30), and the burner drops to `correctionThrottle` on the first poll at or under it, so the
+cut gate, overshoot and no-progress guards see the same low-throttle tail as before. A poll that
+jumps straight under the cut still exits as a cut. B19 and B20 set 1.0 / 30. New state field
+`corr_coarse` (diff line `corrCoarse`). Tests: `CorrectionCoarseThrottleTests` in `test_mlib.py`;
+the four trace digests re-pinned for the new fields only (traces with the defaults stripped hash to
+the old pins).
+
+**Owed.** A check flight of B19 and B20: the correction's residual and the arrival must stay inside
+the lanes' gates.
+
 ## ~~NODE-WAIT-HOLD-TRANSFER-AND-ROUNDOUT: B19 / B20 / B24 / B29 / B30 idle ~600 s at 1x before a burn~~ [FILED 2026-11-06 from the warp audit of the 2026-11-05 full run; owner ruling 2026-11-06 ("yes, if its just on-rails safe warping"); DONE 2026-11-06, branch `claude/project-thread-cmhs13` (#2391); LIVE-PROVEN 2026-11-06, all five lanes PASS attempt 1 with every park and arrival inside its gates; test harness, medium (run time only)]
 
 MechJeb's node executor rails-warps to ignition - 600 s, then holds 1x until the craft is within

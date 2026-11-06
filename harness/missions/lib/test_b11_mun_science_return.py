@@ -80,9 +80,10 @@ PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 # mor_decide's trace digest, taken on the base commit bdcf4bb07 (before this machine)
 # over the CS-6 full-flight fixture and its rows. A change to the machine moves it;
 # re-pin only for a deliberate change to that machine.
-# Re-pinned 2026-11-06 for the new B5Params field transfer_node_wait_warp only: the
-# traces with ", transfer_node_wait_warp=False" removed from each repr hash to the old pins.
-MOR_TRACE_DIGEST = "698ed861060063eaf2f4577499eef73768a1d330c418f268b833acb52244c788"
+# Re-pinned 2026-11-06 for new fields only (B5Params transfer_node_wait_warp,
+# correction_coarse_throttle, correction_fine_dv; B5State corr_coarse): the traces with
+# those fields' default reprs removed hash to the old pins.
+MOR_TRACE_DIGEST = "5ee53bde1c06949849284d6edc5d58b8fed1aab14f0e331dc999a01d7673c348"
 
 _PARK_EXIT_UT = 48_200.0
 _PARK = dict(body="Mun", situation="ORBITING", periapsis=989_990.0, apoapsis=1_010_010.0,

@@ -8788,6 +8788,88 @@ class CorrectionBudgetTests(unittest.TestCase):
             mlib.CORR_TIMEOUT_INCOMPLETE)
 
 
+class CorrectionCoarseThrottleTests(unittest.TestCase):
+    """correctionCoarseThrottle (owner ruling 2026-11-06): the DIY correction
+    burn starts coarse above correctionFineDvMps and finishes at the low
+    correctionThrottle, so the cut runs exactly as before."""
+
+    def _ready(self, coarse=1.0, **kw):
+        params = replace(B5_PARAMS, correction_coarse_throttle=coarse,
+                         correction_fine_dv=30.0)
+        base = _b5_state(mlib.B5_CORRECTION_BURN,
+                         aligned_streak=mlib.ALIGNED_DEBOUNCE_FRAMES - 1, **kw)
+        return replace(base, params=params)
+
+    def _frame(self, ut, dv, **kw):
+        base = dict(ut=ut, body="Kerbin", node_count=1, node_dv=dv, node_ut=ut,
+                    ap_error=0.0, warp_mode=mlib.WARP_NONE)
+        base.update(kw)
+        return snap(**base)
+
+    def test_default_off_starts_at_the_low_throttle(self):
+        state, actions = mlib.b5_decide(self._ready(coarse=0.0), self._frame(100.0, 500.0))
+        self.assertEqual([Action(mlib.ACTION_SET_THROTTLE, B5_PARAMS.correction_throttle)],
+                         actions)
+        self.assertTrue(state.corr_burn_started)
+        self.assertFalse(state.corr_coarse)
+        self.assertEqual(0.0, mlib.b5_params_from_dict({}).correction_coarse_throttle)
+        self.assertEqual(30.0, mlib.b5_params_from_dict({}).correction_fine_dv)
+
+    def test_coarse_start_then_one_step_down_then_the_same_cut(self):
+        state, actions = mlib.b5_decide(self._ready(), self._frame(100.0, 500.0))
+        self.assertEqual([mlib.ACTION_SET_THROTTLE], [a.kind for a in actions])
+        self.assertEqual(1.0, actions[0].value)
+        self.assertIn("coarse throttle: nodeDv=500.0 > 30.0", actions[0].text)
+        self.assertTrue(state.corr_coarse)
+        # Above the fine band: no throttle change.
+        state, actions = mlib.b5_decide(state, self._frame(101.0, 200.0))
+        self.assertEqual([], [a for a in actions if a.kind == mlib.ACTION_SET_THROTTLE])
+        self.assertTrue(state.corr_coarse)
+        # Into the band: exactly one step down to correctionThrottle.
+        state, actions = mlib.b5_decide(state, self._frame(102.0, 30.0))
+        self.assertEqual([Action(mlib.ACTION_SET_THROTTLE, B5_PARAMS.correction_throttle,
+                                 text="correction fine throttle: nodeDv=30.0 <= 30.0")],
+                         actions)
+        self.assertFalse(state.corr_coarse)
+        self.assertEqual(mlib.B5_CORRECTION_BURN, state.phase)
+        state, actions = mlib.b5_decide(state, self._frame(103.0, 20.0))
+        self.assertEqual([], [a for a in actions if a.kind == mlib.ACTION_SET_THROTTLE])
+        # The cut gate is unchanged.
+        state, _ = mlib.b5_decide(state, self._frame(104.0, 1.5))
+        self.assertEqual(mlib.B5_COAST_TO_TARGET, state.phase)
+        self.assertEqual(mlib.CORR_GIVEUP_CUT, state.corr_giveup)
+        self.assertFalse(state.corr_coarse)
+
+    def test_a_small_correction_never_goes_coarse(self):
+        state, actions = mlib.b5_decide(self._ready(), self._frame(100.0, 25.0))
+        self.assertEqual([Action(mlib.ACTION_SET_THROTTLE, B5_PARAMS.correction_throttle)],
+                         actions)
+        self.assertFalse(state.corr_coarse)
+
+    def test_a_cut_reading_wins_over_the_step_down(self):
+        """A coarse poll that jumps straight under the cut exits the round
+        (the cut runs first), never only throttles down."""
+        state, _ = mlib.b5_decide(self._ready(), self._frame(100.0, 500.0))
+        state, actions = mlib.b5_decide(state, self._frame(101.0, 1.0))
+        self.assertEqual(mlib.B5_COAST_TO_TARGET, state.phase)
+        self.assertEqual(mlib.CORR_GIVEUP_CUT, state.corr_giveup)
+        self.assertIn(mlib.ACTION_CUT_THROTTLE, [a.kind for a in actions])
+
+    def test_only_b19_and_b20_opt_in(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        scen = os.path.join(os.path.dirname(os.path.dirname(here)), "scenarios")
+        armed = []
+        for name in sorted(os.listdir(scen)):
+            if not name.endswith(".toml"):
+                continue
+            with open(os.path.join(scen, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            mp = spec.get("driver", {}).get("missionParams", {})
+            if "correctionCoarseThrottle" in mp:
+                armed.append((name, mp["correctionCoarseThrottle"]))
+        self.assertEqual([("B19-dres-orbit.toml", 1.0), ("B20-moho-orbit.toml", 1.0)], armed)
+
+
 class CorrectionGiveupNamingTests(unittest.TestCase):
     """Every correction ROUND give-up carries its own name on the machine
     state (and the machine-diff line), so a round exit is never again
