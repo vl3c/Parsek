@@ -24,6 +24,12 @@ numbers become the 1.0 baseline, every later build loads every 1.0+ save, and th
 repair code is gone (older test saves load best effort). Policy:
 [`docs/dev/design-save-format-policy.md`](dev/design-save-format-policy.md).
 
+**Next release: v1.0.0, the first public release** (owner plan, 2026-11-04 / 2026-11-06). It is
+the public beta on the 0.10.7 save format baseline, after the owner's manual gameplay tests, and
+the version Parsek is first listed on CKAN with (todo T3). Its dependencies are Harmony,
+ClickThroughBlocker and ToolbarControl; Module Manager is no longer listed, since Parsek ships no
+Module Manager patches.
+
 ---
 
 ## Completed

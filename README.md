@@ -8,6 +8,8 @@
 
 **Time-rewind mission recording for KSP1.** Record missions sequentially, return to an earlier time, and watch them play out in parallel alongside you while you fly new ones.
 
+> **Read this before installing.** Parsek changes a lot of KSP's internal systems: career funds, science and reputation, contracts, research, buildings, crew, saving and loading, time warp and how vessels appear. **Most other mods are not supported.** Only the mods listed under [Supported Mods](#supported-mods) are tested with Parsek; any other mod may conflict with it, especially mods that change careers, crew, contracts, saves, time warp or vessel spawning. Start with a new career, or keep a copy of your save (Parsek also backs up an existing save the first time it opens it).
+
 ## How It Works
 
 1. **Launch a mission** and fly it normally
@@ -46,6 +48,8 @@ The Parsek window is available from the toolbar button in Flight and Map view.
 
 ## Supported Mods
 
+These are the only mods Parsek is tested with. Any mod not listed here is unsupported: it may work, but it may also conflict with Parsek's changes to careers, saves, crew, time warp or vessels.
+
 | Mod | Integration |
 |-----|-------------|
 | [PersistentRotation](https://github.com/MarkusA380/PersistentRotation) | When detected, Parsek records vessel angular velocity at time warp boundaries. Ghost vessels spin during orbital playback, matching what the player saw with PersistentRotation active. Without it, ghosts hold their SAS-locked attitude (the correct behavior for stock KSP, which freezes rotation on rails). |
@@ -62,7 +66,6 @@ Requires KSP 1.12.x.
 
 | Dependency | Author | License | Link |
 |------------|--------|---------|------|
-| Module Manager 4.2.3+ | sarbian | CC-BY-SA 3.0 | [GitHub](https://github.com/sarbian/ModuleManager) |
 | HarmonyKSP 2.2.1+ | KSPModdingLibs (pardeike) | MIT | [GitHub](https://github.com/KSPModdingLibs/HarmonyKSP) |
 | ClickThroughBlocker 2.1.10+ | linuxgurugamer | LGPL-3.0 | [GitHub](https://github.com/linuxgurugamer/ClickThroughBlocker) |
 | ToolbarControl 0.1.9+ | linuxgurugamer | LGPL-3.0 | [GitHub](https://github.com/linuxgurugamer/ToolbarControl) |
@@ -87,11 +90,9 @@ Parsek's infrastructure - looped playback, vessel snapshots, game state tracking
 
 See the [roadmap](docs/roadmap.md) for what's planned and what's possible.
 
-## Beta Disclaimer
+## Save Compatibility
 
-Parsek is currently in active development and has not reached a stable release. During this period, features, recording formats, game logic, and save data structures may change without notice. While I make reasonable efforts to provide migration paths (e.g., automatic format upgrades), **no guarantees of backwards compatibility are made during the beta phase**.
-
-After the first official stable release, I will do my best to preserve backwards compatibility for existing recordings and save data, and will document any breaking changes in the release notes.
+Since version 0.10.7, Parsek saves have a stable format: every later version of Parsek keeps loading them, and an older Parsek keeps data it cannot read instead of deleting it. Saves made with earlier test versions load on a best-effort basis. Parsek 1.0 is still in active development, so features and game logic may change between versions; any change that affects your saves will be in the release notes.
 
 ## License
 
