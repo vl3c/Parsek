@@ -3544,6 +3544,18 @@ compare).
   (file-placement PR 4 deletes `OrbitReseed -> GhostMapPresence`: on the tree it was measured
   on, greedy 285 -> 290, replayed 285). The bound is unchanged by this (287 after RecordingStore
   PR3) and the greedy sequence stays the documented one.
+- 2026-11-07 (refactor branch, W4a): a semantic edge source, behind a flag. Not a Roslyn
+  extractor: `scripts/arch/ilgraph.py` parses the `ikdasm` dump of the built Parsek.dll (stdlib
+  Python, no new package; the DLL is built by every test run) and `semantic.py` measures the
+  same knot and residue over the text model's nodes, with a call to a forwarder credited to the
+  forwarded type. On 088feb067: text residue 283, semantic 258 (knot 477 vs 420); 715 text-only
+  and 637 IL-only edges, all classified (inlined constants, enum members and `nameof`, nested
+  qualifiers, text false positives on the text side; members reached through values, `var`,
+  inferred generics and base lists, which the text scan never reads, on the IL side). CI runs
+  its real-tree cells after the build (`PARSEK_ARCH_IL`). Also: `--check` and
+  `test_atlas_prose_matches_the_tree` now flag literal numbers in undated atlas prose that
+  disagree with the model (`PROSE_NUMBER_CLAIMS`). The ratchet still reads the text scan until
+  W4a2 switches it.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
