@@ -49,7 +49,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.ResetForTesting();
             Ledger.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
-            RecoveredRecordingEvidence.ResetForTesting();
+            RecoveredRecordingLiveIndex.ResetForTesting();
             RewindContext.ResetForTesting();
             GhostMapPresence.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
@@ -60,7 +60,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             GameStateRecorder.SuppressCrewEvents = priorSuppressCrewEvents;
-            RecoveredRecordingEvidence.ResetForTesting();
+            RecoveredRecordingLiveIndex.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             Ledger.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();

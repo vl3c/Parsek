@@ -1131,7 +1131,7 @@ namespace Parsek
                 return false;
             if (!StashedTerminalQualifies(terminalRec.TerminalStateValue.Value))
                 return false;
-            if (RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive(terminalRec))
+            if (RecoveredRecordingLiveIndex.IsRecoveredByLedgerRowLive(terminalRec))
             {
                 ParsekLog.Verbose(Tag,
                     $"Stash terminal rejected: rec={terminalRec.RecordingId} " +
