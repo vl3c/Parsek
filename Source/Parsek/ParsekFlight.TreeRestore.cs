@@ -1474,7 +1474,7 @@ namespace Parsek
         /// window state cannot survive a scene reload cleanly — edge case #4 in the
         /// design doc).</para>
         /// </summary>
-        void StashActiveTreeAsPendingLimbo(double commitUT)
+        internal void StashActiveTreeAsPendingLimbo(double commitUT)
         {
             if (activeTree == null) return;
 
@@ -1584,7 +1584,7 @@ namespace Parsek
         /// safer option (the safety net in <c>OnLoad</c> will finalize, matching
         /// pre-#266 behavior for these edge cases).
         /// </summary>
-        bool CanPreTransitionForVesselSwitch()
+        internal bool CanPreTransitionForVesselSwitch()
         {
             if (activeTree == null) return false;
             if (pendingTreeDockMerge) return false;
@@ -2398,7 +2398,7 @@ namespace Parsek
         /// scene boundary via <see cref="PendingTreeSlot.PendingTree"/> because the
         /// <see cref="ParsekFlight"/> singleton is destroyed on scene reload.</para>
         /// </summary>
-        void StashActiveTreeForVesselSwitch(double commitUT)
+        internal void StashActiveTreeForVesselSwitch(double commitUT)
         {
             if (activeTree == null) return;
 

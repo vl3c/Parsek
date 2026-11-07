@@ -237,10 +237,10 @@ namespace Parsek.Tests
 
             int start = source.IndexOf("internal bool IsActiveTreeIdleOnPad()\n", StringComparison.Ordinal);
             Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
-            int walk = source.IndexOf("foreach (var rec in activeTree.Recordings.Values)", start, StringComparison.Ordinal);
+            int walk = source.IndexOf("foreach (var rec in host.activeTree.Recordings.Values)", start, StringComparison.Ordinal);
             Assert.True(walk > start, "IsActiveTreeIdleOnPad distance walk not found");
             string head = source.Substring(start, walk - start);
-            Assert.Contains("TreeHasPlacedGroundPartsForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", head);
+            Assert.Contains("TreeHasPlacedGroundPartsForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", head);
         }
 
         [Fact]
@@ -258,8 +258,8 @@ namespace Parsek.Tests
             int start = source.IndexOf("internal bool IsActiveTreeIdleOnPad()\n", StringComparison.Ordinal);
             Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
             int flush = source.IndexOf("FlushRecorderIntoActiveTreeForSerialization();", start, StringComparison.Ordinal);
-            int veto = source.IndexOf("TreeHasPlantedFlagsForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", start, StringComparison.Ordinal);
-            int walk = source.IndexOf("foreach (var rec in activeTree.Recordings.Values)", start, StringComparison.Ordinal);
+            int veto = source.IndexOf("TreeHasPlantedFlagsForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", start, StringComparison.Ordinal);
+            int walk = source.IndexOf("foreach (var rec in host.activeTree.Recordings.Values)", start, StringComparison.Ordinal);
             Assert.True(flush > start, "flush not found in IsActiveTreeIdleOnPad");
             Assert.True(veto > flush, "flag veto must run after the recorder flush");
             Assert.True(walk > veto, "flag veto must run before the distance walk");

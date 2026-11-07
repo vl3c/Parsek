@@ -1647,7 +1647,7 @@ namespace Parsek.Tests
 
             Assert.Contains("CopyRewindSaveToRoot(activeTree, recorder,", flightSrc);
             Assert.Contains("ParsekFlight.CopyRewindSaveToRoot(host.activeTree, splitRecorder);", flightSrc);
-            Assert.Contains("CopyRewindSaveToRoot(tree, recorder,", flightSrc);
+            Assert.Contains("CopyRewindSaveToRoot(tree, host.recorder,", flightSrc);
         }
 
         [Fact]

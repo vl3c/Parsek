@@ -728,7 +728,7 @@ namespace Parsek.Tests
         {
             string source = ReadProjectSource("ParsekFlight.cs");
 
-            int coreStart = source.IndexOf("private void AutoDiscardActiveTreeCore(");
+            int coreStart = source.IndexOf("internal void AutoDiscardActiveTreeCore(");
             Assert.True(coreStart > 0, "AutoDiscardActiveTreeCore not found");
             int coreEnd = source.IndexOf("\n        private ", coreStart + 1);
             if (coreEnd < 0)

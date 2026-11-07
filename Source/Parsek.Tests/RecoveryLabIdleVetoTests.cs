@@ -178,11 +178,11 @@ namespace Parsek.Tests
                 root, "Source", "Parsek", "ParsekFlight.cs")).Replace("\r\n", "\n");
             int start = flight.IndexOf("internal bool IsActiveTreeIdleOnPad()\n", StringComparison.Ordinal);
             Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
-            int walk = flight.IndexOf("foreach (var rec in activeTree.Recordings.Values)", start, StringComparison.Ordinal);
+            int walk = flight.IndexOf("foreach (var rec in host.activeTree.Recordings.Values)", start, StringComparison.Ordinal);
             Assert.True(walk > start, "IsActiveTreeIdleOnPad distance walk not found");
             string head = flight.Substring(start, walk - start);
-            Assert.Contains("TreeHasLabPayoutsForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", head);
-            Assert.Contains("TreeHasPendingLabRecoveryForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", head);
+            Assert.Contains("TreeHasLabPayoutsForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", head);
+            Assert.Contains("TreeHasPendingLabRecoveryForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", head);
 
             string scenario = ParsekFlightSourceFiles.ReadText(System.IO.Path.Combine(
                 root, "Source", "Parsek", "ParsekScenario.cs")).Replace("\r\n", "\n");

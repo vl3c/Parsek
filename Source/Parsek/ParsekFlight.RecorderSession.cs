@@ -17,7 +17,7 @@ namespace Parsek
         /// to the tree's Recording object. Sorts part events by UT. Sets IsRecording = false
         /// to prevent dangling recorders. Populates VesselPersistentId on the tree Recording.
         /// </summary>
-        void FlushRecorderToTreeRecording(FlightRecorder rec, RecordingTree tree)
+        internal void FlushRecorderToTreeRecording(FlightRecorder rec, RecordingTree tree)
         {
             if (rec == null || tree == null) return;
 

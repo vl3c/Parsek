@@ -410,6 +410,22 @@ class IlCompareTests(unittest.TestCase):
         self.assertEqual([], widened2)
         self.assertIn("method-only-after", [d[0] for d in il_compare.compare(ta, tb2, widened2)])
 
+    def test_a_non_private_member_moved_behind_a_forwarder_is_told_apart(self):
+        # internal on both sides: the forwarder and the moved original share one key.
+        before = self._cls("Parsek.Host", self._method("assembly", "OnEvent", self.ORIGINAL))
+        moved = self.ORIGINAL.replace("ldarg.0\n", "ldarg.0\n    IL_0000:  ldfld      class Parsek.Host Parsek.HostService::host\n", 1)
+        after = (self._cls("Parsek.Host", self._method("assembly", "OnEvent", self.FORWARDER))
+                 + self._cls("Parsek.HostService", self._method("assembly", "OnEvent", moved)))
+        ta = il_compare.parse_il(il_compare.apply_folds(before, self.FOLD, "host"))
+        tb = il_compare.fold_types(il_compare.parse_il(il_compare.apply_folds(after, self.FOLD, "host")), self.FOLD)
+        self.assertEqual(["method-forwarder"], [d[0] for d in il_compare.compare(ta, tb, [])])
+
+        changed = moved.replace("Parsek.Host::Step()", "Parsek.Host::Other()")
+        after2 = (self._cls("Parsek.Host", self._method("assembly", "OnEvent", self.FORWARDER))
+                  + self._cls("Parsek.HostService", self._method("assembly", "OnEvent", changed)))
+        tb2 = il_compare.fold_types(il_compare.parse_il(il_compare.apply_folds(after2, self.FOLD, "host")), self.FOLD)
+        self.assertEqual(["method-body"], [d[0] for d in il_compare.compare(ta, tb2, [])])
+
     def test_fold_reads_host_start_coroutine_as_this(self):
         call = ("    IL_0000:  ldarg.0\n    IL_0001:  ldnull\n"
                 "    IL_0002:  {op}   instance class [UnityEngine.CoreModule]UnityEngine.Coroutine "

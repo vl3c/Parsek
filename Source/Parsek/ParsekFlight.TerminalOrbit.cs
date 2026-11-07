@@ -7,7 +7,7 @@ namespace Parsek
 {
     public partial class ParsekFlight
     {
-        private struct TerminalOrbitMetadataSnapshot
+        internal struct TerminalOrbitMetadataSnapshot
         {
             public string body;
             public double inclination;

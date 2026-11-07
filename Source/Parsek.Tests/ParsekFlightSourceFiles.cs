@@ -64,6 +64,7 @@ namespace Parsek.Tests
         internal static readonly string[] ServiceFileNames =
         {
             "ParsekFlightGhostPositioner.cs",
+            "ParsekFlightMergeFlow.cs",
             "ParsekFlightPostSwitchAutoRecord.cs",
             "ParsekFlightPlaybackHost.cs",
             "ParsekFlightSpawnHost.cs",

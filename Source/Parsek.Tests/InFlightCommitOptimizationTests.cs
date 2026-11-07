@@ -325,16 +325,18 @@ namespace Parsek.Tests
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
                 ParsekFlightSourceFiles.ReadText(path).Replace(CrLf, Lf));
 
-            const string decl = "public void CommitTreeFlight()";
+            // The body lives on ParsekFlightMergeFlow; ParsekFlight keeps a one-line forwarder of the
+            // same signature, so the declaration is the one a line break follows.
+            const string decl = "public void CommitTreeFlight()\n";
             int declIdx = prepared.IndexOf(decl, StringComparison.Ordinal);
             Assert.True(declIdx >= 0, "CommitTreeFlight declaration not found");
             Assert.Equal(declIdx, prepared.LastIndexOf(decl, StringComparison.Ordinal));
             string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', declIdx));
 
-            int commitIdx = body.IndexOf("TreeCommitService.CommitTree(activeTree);", StringComparison.Ordinal);
+            int commitIdx = body.IndexOf("TreeCommitService.CommitTree(host.activeTree);", StringComparison.Ordinal);
             int passIdx = body.IndexOf("RunInFlightCommitOptimizationPass(activeRec, activeRecId)", StringComparison.Ordinal);
-            int ledgerIdx = body.IndexOf("LedgerOrchestrator.NotifyLedgerTreeCommitted(activeTree);", StringComparison.Ordinal);
-            int spawnIdx = body.IndexOf("SpawnTreeLeaves(activeTree, activeTipId);", StringComparison.Ordinal);
+            int ledgerIdx = body.IndexOf("LedgerOrchestrator.NotifyLedgerTreeCommitted(host.activeTree);", StringComparison.Ordinal);
+            int spawnIdx = body.IndexOf("SpawnTreeLeaves(host.activeTree, activeTipId);", StringComparison.Ordinal);
             Assert.True(commitIdx >= 0, "CommitTreeFlight no longer commits through TreeCommitService.CommitTree");
             Assert.True(passIdx > commitIdx, "CommitTreeFlight does not run the optimization pass after the commit");
             Assert.True(ledgerIdx > passIdx, "the optimization pass must run before the ledger notify (MergeCommit order)");

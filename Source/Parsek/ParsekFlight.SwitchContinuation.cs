@@ -149,7 +149,7 @@ namespace Parsek
         /// </summary>
         internal void AutoDiscardNoOpStandaloneSwitchSegment(string reason)
         {
-            AutoDiscardActiveTreeCore(
+            MergeFlow.AutoDiscardActiveTreeCore(
                 reason: reason,
                 screenMessage: "Recording discarded - vessel unchanged after switch",
                 ledgerRecalcReason: "noop-switch-segment-discard",
