@@ -33,6 +33,12 @@
 #     Fixed in `RouteBackingMission.ComputeStartExcludedIntervalKeys`. Attempt 2 drove 70 ms
 #     after the undock while its push had the rover FLYING (`drivevessel-not-on-surface`);
 #     the lane now waits to UT 96 and settles first.
+#   2026-11-07_1003 (+ _1005_a2), head 3d4c0e6, DLL built from it: INVALID, identical twice.
+#     The undock and the settle were clean, but during the settle the braked miner crept
+#     back down the slope and docked the silo by itself (OnPartCouple at UT 105.74), so the
+#     backwards dock drive found only the front port free and pushed the docked pair 51 m
+#     (`did-not-dock ... activeParts=53`). The lane now waits only to UT 95.6 (on the
+#     ground again) and drives back at once.
 #
 # WHAT IT CLOSES.
 #   * MINE-4 (`docs/dev/research/mining-isru-test-program-2026-10-17.md`, todo
@@ -70,8 +76,8 @@
 #      tank; undock. Ore is read at every step (ReadVesselResources sums).
 #   2. Commit, seal, `RouteCommand create`: eligible with `midTreeOrigin=1` (the depot window
 #      is the origin, the silo window the one stop).
-#   3. IR-9: settle (the silo undock's push leaves the rear port clear), back into the silo
-#      again, `send-once`, TimeJump. The depot is debited 75
+#   3. IR-9: back into the silo again (the silo undock's push leaves the rear port clear),
+#      `send-once`, TimeJump. The depot is debited 75
 #      (path=loaded); the silo is credited 75 through the docked composite; undock and read:
 #      miner Ore 0, silo Ore 150, depot Ore 0.
 #   4. IR-7: `InvokeRewindToLaunch tree=latest` (the route's backing tree, the only commit).
@@ -135,13 +141,14 @@ steps = [
   # flight 2026-11-07_0931 refused the miner's own port `candidates=0`), so the press names
   # no port; the control point set above keeps the focus on the miner.
   { cmd = "PartAction",          args = { button = "undock" }, label = "und1",            expect = "OK" },
-  # Let the undock's push settle before backing into the silo: flight 2026-11-07_0945_a2
-  # drove 70 ms after the undock while the push had the rover FLYING
-  # (`drivevessel-not-on-surface`). The brakes stay on, and the focused miner no longer
-  # rolls the way the unfocused one did in the first flight. The undock lands at about
-  # UT 94.9 (the warp to 95 stops just short), so 96 is always ahead.
-  { cmd = "WarpToUT",            args = { ut = "96", maxRate = "1" },                     expect = "OK", budget = 60 },
-  { cmd = "DriveVessel",         args = { settleBelow = "0.05", seconds = "30" },        expect = "OK" },
+  # A short wait, then straight back into the silo. Driving at once fails: the split leaves
+  # the miner FLYING for a few frames (flight 2026-11-07_0945_a2 drove 70 ms after the
+  # undock: `drivevessel-not-on-surface`; flight `_1003` was back on the ground within
+  # 0.4 s). Waiting longer fails too: brakes on, the miner creeps back down the slope and
+  # docks the silo by itself (`_1003`: undock UT 94.9, settle from 95.8, self-dock at
+  # 105.74, so the dock drive then had nothing to dock). The undock lands at about UT 94.9
+  # (the warp to 95 stops just short), so 95.6 is always ahead.
+  { cmd = "WarpToUT",            args = { ut = "95.6", maxRate = "1" },                   expect = "OK", budget = 60 },
   { cmd = "MissionMark",         args = { label = "mine4-dock-silo" },                    expect = "OK" },
   { cmd = "DriveVessel",         args = { wheelThrottle = "-0.5", seconds = "30", untilDocked = "true", maxSpeed = "0.4" }, label = "dks", expect = "OK" },
   { cmd = "WarpToUT",            args = { ut = "170", maxRate = "1" },                    expect = "OK", budget = 120 },
@@ -167,8 +174,9 @@ steps = [
   { cmd = "SealSlot",            args = { tree = "${c0.rec0tree}" },                      expect = "OK", budget = 120 },
   { cmd = "RouteCommand",        args = { action = "create", tree = "${c0.rec0tree}", name = "MINE4 Ore Shuttle" }, expect = "OK", budget = 120 },
   # 3. IR-9: the miner docks back to the silo as a visitor. The silo undock's push has
-  # rolled it forward clear of the silo (the rear port re-arms); let it settle, then back in.
-  { cmd = "DriveVessel",         args = { settleBelow = "0.05", seconds = "30" },        expect = "OK" },
+  # rolled it forward clear of the silo (the rear port re-arms); back in at once, with no
+  # settle: a braked miner creeps back down the slope and can dock the silo by itself
+  # (flight `_1003`), which would leave this drive nothing to dock.
   { cmd = "MissionMark",         args = { label = "mine4-visitor-dock" },                 expect = "OK" },
   { cmd = "DriveVessel",         args = { wheelThrottle = "-0.5", seconds = "30", untilDocked = "true", maxSpeed = "0.4" }, label = "dkv", expect = "OK" },
   { cmd = "DriveVessel",         args = { settleBelow = "0.05", seconds = "30" },        expect = "OK" },
