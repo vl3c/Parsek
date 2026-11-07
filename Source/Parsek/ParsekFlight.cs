@@ -1056,8 +1056,8 @@ namespace Parsek
 
         // Entry points other types call on the flight instance; the bodies live on PlaybackHost.
         public void DestroyAllTimelineGhosts() => PlaybackHost.DestroyAllTimelineGhosts();
-        internal List<ReFlyInvokeHold.Entry> HoldReFlyInvokeVessels(
-            IList<ReFlyInvokeHold.Entry> entries, out int notLive, out int alreadyHeld) =>
+        internal List<ReFlyHoldEntry> HoldReFlyInvokeVessels(
+            IList<ReFlyHoldEntry> entries, out int notLive, out int alreadyHeld) =>
             PlaybackHost.HoldReFlyInvokeVessels(entries, out notLive, out alreadyHeld);
         internal IEnumerable<RecordingAnchorCandidate> BuildGhostRecordingAnchorCandidatesForRecorder(
             RecordingTree focusTree, string focusedRecordingId, uint focusedVesselPid, double ut) =>

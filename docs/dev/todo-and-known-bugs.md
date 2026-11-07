@@ -2947,6 +2947,9 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `VesselNameStore` and `RecordingSidecarStore` install from their own type initialisers and
   from `RecordingStore`'s, next to `Recording.GhostHiddenRule`. Knot 477 -> 459 (plus a 2-type
   knot `OrbitReseed` / `RecordedTailVelocityResolver`), replayed residue 283 -> 272.
+- Wave 2 W1b (2026-11-07, this branch): the hold decision record `ReFlyInvokeHold.Entry` is the
+  top-level plain type `ReFlyHoldEntry` (same file, same fields), so `RewindVesselHold.Hold`
+  no longer references the classifier. Knot 459 -> 450, replayed residue 272 -> 263.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
