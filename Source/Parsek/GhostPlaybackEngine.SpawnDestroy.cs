@@ -112,6 +112,7 @@ namespace Parsek
             // helpers are idempotent and safe to re-run.
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
             GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
+            GhostPlaybackLogic.RefreshFairingStructureVisibility(state);
 
             // Step 5: rebuild the reentry emission mesh to include the
             // now-active parts. RebuildReentryMeshes uses GetComponentsInChildren

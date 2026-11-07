@@ -4423,19 +4423,17 @@ Remaining high-value work should stay measurement-gated and follow `docs/dev/don
 
 ## TODO — Ghost Visuals
 
-### T25. Fairing internal truss structure after jettison
+### ~~T25. Fairing internal truss structure after jettison~~
 
-After fairing jettison, the ghost currently shows just the payload and base adapter. KSP's real vessel can show an internal truss structure (Cap/Truss meshes controlled by `ModuleStructuralNodeToggle.showMesh`). The prefab meshes are at placeholder scale (2000x10x2000) that only KSP's runtime `ModuleProceduralFairing` can set correctly. A procedural truss mesh was attempted but removed due to insufficient visual quality.
+Root cause (decompiled KSP 1.12.5 + the stock `AutoTruss.mu` / `fairingSize1.cfg`): the "truss" is not procedural. Every stock fairing base carries a fixed AutoTruss model (`Truss1..6`, `Cap1..6` under a `Hider` transform), each piece a stock `ModuleStructuralNode` that `CheckDisplay` shows only when its `visibilityState` (the "Truss Structure" toggle) is on and a part is attached at one of its interstage nodes, and hides again from `DecoupleAction`. The "placeholder 2000x10x2000 scale" read in March was the children's local scale, which `Hider`'s 0.001 / 0.1 scale cancels; stock never rescales these objects, so the ghost's mirrored clone was always the right size. The two home-made lattices replaced something that was never broken.
 
-Latest investigation: a second procedural-truss attempt was tested against fresh collected logs in `logs/2026-04-13_1529_fairing-truss-artifact`. The run correctly detected `FairingJettisoned` and rebuilt the ghost with `showMesh=True`, but the generated truss still looked bad in game: visible dark bars with transparent gaps following the fairing outline from base to tip. This confirms the simplified procedural replacement is still not shippable.
+The same investigation found the ghost shell itself was an approximation: a generated cone with the base's texture, a made-up nose added even to open-top interstage fairings, no panel split, no wall thickness, max 24 sides.
 
-Important constraint: the current ghost snapshot is just a normal `ProtoVessel`/`ConfigNode` capture (`BackupVessel` output copied into `GhostVisualSnapshot`). That preserves fairing state such as `fsm`, `ModuleStructuralNodeToggle.showMesh`, and `XSECTION`, but it does not preserve the live runtime-generated stock Cap/Truss mesh deformation/material state from `ModuleProceduralFairing`. So the ghost cannot reproduce the exact stock truss visual from snapshot data alone.
+**Fix:** `GhostVisualBuilder.Fairings.cs`. (1) Structure: `ParseFairingStructureNodes` reads the stock inputs (config fields from the prefab PART config, `visibilityState` / `spawnState` / `showMesh` and the `attN` rows from the snapshot), `ComputeStructureNodeVisible` transcribes `CheckDisplay`, and `GhostPlaybackLogic.RefreshFairingStructureVisibility` re-applies it against `logicalPartIds` after decouple / destroy events and on spawn / loop reuse. Also fixes a ghost recorded after jettison showing all twelve pieces. (2) Shell: in FLIGHT the shell is built by stock `ProceduralFairings.FairingPanel.SetupPanelArray` + `Spawn` + `BuildMesh` with the snapshot XSECTIONs and the prefab module as host (the player's `nArcs` set on the prefab for the synchronous call and restored in `finally`), with stock's flight materials and variant overrides. Outside FLIGHT stock `BuildMesh` skips the nose-cone ring, so the generated cone stays there. Panels still vanish on jettison instead of tumbling away (owner OK, 2026-11-07). No recording data was added.
 
-To implement properly: prefer a stock-authoritative approach instead of another simplified procedural mesh. Most likely options are either capturing the live stock fairing truss render/mesh state at record time, or spawning/regenerating a hidden stock fairing from the snapshot and cloning the resulting stock truss renderers for the ghost. Only fall back to custom geometry if it can genuinely match stock quality.
+**Status:** Fixed, pending the snapshot lane flight for visual confirmation.
 
-**Status:** Open — do not revive the current simplified procedural-strip truss
-
-**Priority:** Low — cosmetic, only visible briefly after fairing jettison
+**Priority:** Low - cosmetic
 
 ---
 

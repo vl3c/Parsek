@@ -497,7 +497,34 @@ namespace Parsek
     internal class FairingGhostInfo
     {
         public uint partPersistentId;
+        // The fairing shell. In FLIGHT it is a container holding the panels stock's own
+        // ProceduralFairings.FairingPanel builder made from the snapshot's XSECTIONs; in
+        // other scenes (or when that builder declines) it is the legacy generated cone.
+        // Null when the snapshot already shows the fairing deployed.
         public GameObject fairingMeshObject;
+        public bool shellBuiltByStockPanels;
+        // Stock ModuleStructuralNode objects of this part (the interstage truss and cap
+        // plates), driven by the stock visibility rule. Null when the part has none.
+        public List<FairingStructureNodeGhostInfo> structureNodes;
+    }
+
+    /// <summary>
+    /// One stock ModuleStructuralNode of a fairing part on a ghost. Mirrors the inputs of
+    /// ModuleStructuralNode.CheckDisplay: the structure is shown when visibilityState is on
+    /// and (spawnManually ? spawnState : a part is attached at one of attachNodeNames),
+    /// inverted by reverseVisibility. Attachment is read from the snapshot's attN rows and
+    /// re-evaluated against the ghost's logical part set, so a separated stage hides it.
+    /// </summary>
+    internal class FairingStructureNodeGhostInfo
+    {
+        public string rootObject;
+        public GameObject structureObject;
+        public bool visibilityState;
+        public bool spawnManually;
+        public bool spawnState;
+        public bool reverseVisibility;
+        public int[] attachedPartIndices;
+        public uint[] attachedPartPids;
     }
 
     internal struct FireShellMesh

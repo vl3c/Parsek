@@ -246,7 +246,10 @@ namespace Parsek
                         if (lightInfo != null)
                             build.lightInfos.Add(lightInfo);
                         if (fairingInfo != null)
+                        {
+                            ResolveFairingStructureAttachPids(fairingInfo, build.partNodes);
                             build.fairingInfos.Add(fairingInfo);
+                        }
                         if (partRcsInfos != null)
                             build.rcsInfos.AddRange(partRcsInfos);
                         if (partRoboticInfos != null)
@@ -1383,15 +1386,10 @@ namespace Parsek
             colorChangerInfos = BuildColorChangerInfos(
                 partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName);
 
-            // Detect procedural fairings and generate simplified cone mesh
+            // Procedural fairings: stock-built panel shell + stock truss / cap visibility rule
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);
             if (fairingInfo != null)
-            {
                 added = true;
-                // Hide internal truss/cap structure that would poke through the fairing cone
-                HideFairingInternalStructure(fairingInfo, prefab.partInfo?.partConfig,
-                    modelNode.transform, persistentId, partName);
-            }
 
             // Wheel damage swap: resolved LAST, against the fully populated cloneMap, so every
             // cloned busted transform is found and hidden before the ghost is ever shown.
