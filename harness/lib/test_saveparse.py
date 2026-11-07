@@ -859,6 +859,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # (the miner without drills, ports facing) 1.5 m ahead of it
         # (harness/tools/build_miner_rover_depot.py, the MINE-5b host). Inherits the node.
         "miner-rover-depot": True,
+        # `miner-rover-depot` with a second port on the miner's rear, the depot's Ore full,
+        # ballast in the miner's fuel tank and an empty Ore Silo 1.5 m behind it, ports
+        # facing (harness/tools/build_miner_rover_relay.py, the MINE-4 host). Inherits the node.
+        "miner-rover-relay": True,
         "fresh-career": False,
         "fresh-sandbox": False,
         # `fresh-sandbox` plus the HH1 Hitchhiker Drop craft in the VAB (CX-2).
