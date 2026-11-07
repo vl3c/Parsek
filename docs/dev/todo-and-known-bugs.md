@@ -19,7 +19,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED: after a rewind, a route delivers into its own respawned transport~~ [FILED 2026-11-07 from MINE-4 flight `2026-11-07_1139` (+ `_1144_a2`, head 867cd9f, INVALID at the last post-rewind read); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; flight owed: MINE-4; product, high (the cargo lands in the wrong vessel and the route rebinds its stop to it)]
+## ~~ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED: after a rewind, a route delivers into its own respawned transport~~ [FILED 2026-11-07 from MINE-4 flight `2026-11-07_1139` (+ `_1144_a2`, head 867cd9f, INVALID at the last post-rewind read); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; LIVE-PROVEN by MINE-4 `2026-11-07_1209` (PASS attempt 1, head a0b28d8); product, high (the cargo lands in the wrong vessel and the route rebinds its stop to it)]
 
 **Symptom.** After `InvokeRewindToLaunch` of the route's own tree the three tips (depot, miner,
 silo) spawned again, and the materialized route ran one cycle. Both endpoints missed the
@@ -39,7 +39,7 @@ through the link rows (`VesselNameStore.GuidContinuesIdentity`: a spawn, a resum
 undock). Tests: `IsRouteTransport_SpawnLinkedGuid_IsTheTransport`,
 `SurfaceFallback_ExcludesASpawnOfTheTransport` (both fail with the new check removed).
 
-## ~~ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE: a route created right after a commit pauses itself as SourceChanged at the next save~~ [FILED 2026-11-07 from MINE-4 flight `2026-11-07_1041` (+ `_1046_a2`, head c6b22a7, INVALID at the post-rewind `send-once`); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; flight owed: MINE-4; product, high (the route is stuck: design 7.4 never auto-recovers SourceChanged, so it must be deleted and recreated)]
+## ~~ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE: a route created right after a commit pauses itself as SourceChanged at the next save~~ [FILED 2026-11-07 from MINE-4 flight `2026-11-07_1041` (+ `_1046_a2`, head c6b22a7, INVALID at the post-rewind `send-once`); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; LIVE-PROVEN by MINE-4 `2026-11-07_1209` (PASS attempt 1, head a0b28d8); product, high (the route is stuck: design 7.4 never auto-recovers SourceChanged, so it must be deleted and recreated)]
 
 **Symptom.** The route was created in flight right after `CommitTree`, delivered once, then the
 tree was rewound to launch. When the dormant route came back it went straight to SourceChanged:
@@ -62,7 +62,7 @@ longer seen through the epoch; the start / end UT and the route-proof hash still
 `Build_MidTreeOrigin_PendingEpochAdvance_CapturesNextEpoch` (each fails with its site reverted),
 `EffectiveSidecarEpoch_AddsOneWhileAnAdvanceIsPending`.
 
-## ~~ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE: a route from a depot the transport docked to is refused when the depot's recording starts a frame after the undock~~ [FILED 2026-11-07 from MINE-4's first full flight (`2026-11-07_0942`, head 5d25bfe, INVALID at `RouteCommand create`); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; flight owed: MINE-4; product, high (no live docked-origin flight could become a supply route)]
+## ~~ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE: a route from a depot the transport docked to is refused when the depot's recording starts a frame after the undock~~ [FILED 2026-11-07 from MINE-4's first full flight (`2026-11-07_0942`, head 5d25bfe, INVALID at `RouteCommand create`); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; LIVE-PROVEN by MINE-4 `2026-11-07_1209` (PASS attempt 1, head a0b28d8); product, high (no live docked-origin flight could become a supply route)]
 
 **Symptom.** The miner docked to the Ore depot at UT 64.58, loaded, undocked at 94.94, docked to
 the silo at 102.04 and unloaded. The tree passed analysis (`RouteAnalysis eligible: ...
@@ -716,7 +716,7 @@ depot; it now forbids a reported delivery cap.
 
 ---
 
-## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (AUTHORED 2026-11-07 as `MINE-4-rover-docked-origin-route-rewind` on the scripted `miner-rover-relay`; its flights found ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE, ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE and ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED, not yet green); the lab lane XS-5 is covered by LAB-7 / LAB-9a / LAB-9b / LAB-10 / LAB-10b (live-proven 2026-10-19); MINE-0 (S1.9 `2026-11-07_0023`), MINE-5a (`2026-11-07_0022`) and MINE-5b (`2026-11-07_0448`) LIVE-PROVEN; harness / fixture]
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); MINE-4 LIVE-PROVEN 2026-11-07 as `MINE-4-rover-docked-origin-route-rewind` on the scripted `miner-rover-relay` (`2026-11-07_1209`, PASS attempt 1; its flights found and fixed ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE, ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE and ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED); the lab lane XS-5 is covered by LAB-7 / LAB-9a / LAB-9b / LAB-10 / LAB-10b (live-proven 2026-10-19); MINE-0 (S1.9 `2026-11-07_0023`), MINE-5a (`2026-11-07_0022`) and MINE-5b (`2026-11-07_0448`) LIVE-PROVEN; harness / fixture]
 
 Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
 from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a
@@ -819,7 +819,7 @@ built by hand, and MINE-5's route half is lane `MINE-5b-rover-dock-depot-harvest
   branch `harvest-gain-gap`). The drills did not slow on 3 EC/s (3.06 Ore is the full rate over the
   ~1740 s window). Re-flight owed on a DLL carrying the fix.
 
-Progress 2026-11-07 (branch `claude/project-thread-1ckuhv`; MINE-4 authored, never flown):
+Progress 2026-11-07 (branch `claude/project-thread-1ckuhv`; MINE-4 LIVE-PROVEN `2026-11-07_1209`):
 - Fixture `miner-rover-relay` (`harness/tools/build_miner_rover_relay.py`, gated by
   `harness/lib/test_miner_rover_relay.py`): `miner-rover-depot` with a second `dockingPort3` on
   the bottom node of the miner's fuel tank (facing back), the depot's Ore full (150), the
@@ -1095,7 +1095,7 @@ tree the lane records itself (`InvokeRewindToLaunch tree=latest`), never the rou
 IR-9 is not reachable either: no seam verb docks two vessels, and no committed route host has a
 visitor docked at a route endpoint. [Superseded 2026-11-07: `DriveVessel untilDocked=true` docks
 two landed vessels, and both lanes are authored inside `MINE-4-rover-docked-origin-route-rewind`
-(branch `claude/project-thread-1ckuhv`, never flown) on the scripted `miner-rover-relay`: the lane
+(branch `claude/project-thread-1ckuhv`, LIVE-PROVEN `2026-11-07_1209`) on the scripted `miner-rover-relay`: the lane
 records the route's tree itself, so IR-7 rewinds to its own launch quicksave, and IR-9's visitor is
 the miner docked back to the route's silo. The harvest described next is no longer needed.] It needs a harvested fixture: a route host (sealed, route
 candidate) whose destination has a SECOND vessel, not a route transport, hard-docked to it at

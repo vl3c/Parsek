@@ -68,6 +68,10 @@
 #     transport respawned under a new guid was not recognized as the transport). Fixed by
 #     following the spawn link rows. The last read also named the fixture pids, gone after
 #     the rewind; it is removed (the contracts after `ir7-materialized` carry that proof).
+#   2026-11-07_1209, head a0b28d8, rebuilt DLL: PASS attempt 1 (327 s), every verifier PASS /
+#     SKIPPED. LIVE-PROVEN. After the rewind the destination transferred to the respawned silo
+#     (proximity, 2.30 m), the respawned depot was debited 75 -> 0 and the silo written
+#     75 -> 150; the respawned miner was never a candidate.
 #
 # WHAT IT CLOSES.
 #   * MINE-4 (`docs/dev/research/mining-isru-test-program-2026-10-17.md`, todo

@@ -94,4 +94,5 @@ The craft pair is scripted, not hand-built: `harness/tools/build_miner_rover_dep
 drive it: `DriveVessel untilDocked=true maxSpeed=` (drive until stock couples a Ready port) and
 `PartAction button=transfer partPid= resource=` (a docked vessel's tank-to-tank transfer). MINE-5's
 route half is lane `MINE-5b-rover-dock-depot-harvest-route` (never flown). MINE-4 (a docked-origin
-route across a rewind) is unblocked by the same fixture and verbs and not yet written.
+route across a rewind) is lane `MINE-4-rover-docked-origin-route-rewind` on the scripted
+`miner-rover-relay`, LIVE-PROVEN 2026-11-07 (`2026-11-07_1209`).
