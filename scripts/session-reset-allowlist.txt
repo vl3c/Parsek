@@ -14,6 +14,7 @@ RecordingStore.RecordingPlaybackEnabledChanged UI notification event subscriptio
 RecordingStore.committedRecordings cleared by the cold branch's ClearCommittedInternal with notifications, then filled from the save
 RecordingStore.committedTrees cleared by the cold branch (ClearCommittedInternal, LoadRecordingTrees), then filled from the save
 RecordingStore.ghostHiddenRuleInstalled write-once marker of the type initialiser that installs Recording.GhostHiddenRule, not save state
+RecordingStore.launchIdentityRulesInstalled write-once marker of the type initialiser that installs the VesselLaunchIdentity rules, not save state
 RecordingStore.SaveGameForTesting test seam
 RecordingStore.StateVersion monotonic change counter; readers compare it for change, so it never goes back
 RecordingStore.SuppressLogging test logging switch
@@ -83,6 +84,7 @@ ParsekScenario.onLoadInProgress OnLoad's own in-progress flag, true while the re
 ParsekScenario.PersistentSavePathOverrideForTesting test seam
 ParsekScenario.s_instance the live scenario instance (a process object, not save state)
 FacilityStatePatcher.IC constant culture
+RecordingSidecarStore.launchIdentityHydrateRuleInstalled write-once marker of the type initialiser that installs VesselLaunchIdentity.SnapshotHydrateRule, not save state
 RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting test seam
 RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting test seam
 RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting test seam
