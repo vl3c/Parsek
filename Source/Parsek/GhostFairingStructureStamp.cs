@@ -24,6 +24,21 @@ namespace Parsek
         internal const string ModuleName = "ModuleStructuralNode";
 
         /// <summary>
+        /// Pure transcription of stock ModuleStructuralNode.CheckDisplay: hidden while the
+        /// "Truss Structure" toggle is off; otherwise the manual spawn state, or whether a
+        /// part sits on one of its attach nodes, inverted by reverseVisibility. Kept here so
+        /// the recorder side needs no ghost builder.
+        /// </summary>
+        internal static bool StockDisplayRule(
+            bool visibilityState, bool spawnManually, bool spawnState,
+            bool reverseVisibility, bool anyAttached)
+        {
+            if (!visibilityState) return false;
+            bool flag = spawnManually ? spawnState : anyAttached;
+            return reverseVisibility ? !flag : flag;
+        }
+
+        /// <summary>
         /// Pure: writes the display state onto the moduleOrdinal-th ModuleStructuralNode
         /// MODULE of the PART whose persistentId is partPid. Returns false when no such
         /// part or module exists in the snapshot.
@@ -79,7 +94,7 @@ namespace Parsek
                         ModuleStructuralNode node = nodes[n];
                         if (node == null || node.structTransform == null) continue;
                         bool live = node.structTransform.gameObject.activeSelf;
-                        bool rule = GhostVisualBuilder.ComputeStructureNodeVisible(
+                        bool rule = StockDisplayRule(
                             node.visibilityState, node.spawnManually, node.spawnState,
                             node.reverseVisibility, AnyNodeAttached(part, node.attachNodeNames));
                         if (live == rule) continue;

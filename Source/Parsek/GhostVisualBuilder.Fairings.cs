@@ -124,11 +124,8 @@ namespace Parsek
         internal static bool ComputeStructureNodeVisible(
             bool visibilityState, bool spawnManually, bool spawnState,
             bool reverseVisibility, bool anyAttached)
-        {
-            if (!visibilityState) return false;
-            bool flag = spawnManually ? spawnState : anyAttached;
-            return reverseVisibility ? !flag : flag;
-        }
+            => GhostFairingStructureStamp.StockDisplayRule(
+                visibilityState, spawnManually, spawnState, reverseVisibility, anyAttached);
 
         /// <summary>
         /// Pure: what the ghost shows for one structure node. A display state the recorder

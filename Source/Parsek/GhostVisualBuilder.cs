@@ -1244,7 +1244,11 @@ namespace Parsek
 
             // Detect jettison parts (shrouds/fairings) via cloneMap.
             jettisonInfo = ResolveJettisonTransforms(
-                prefab, cloneMap, persistentId, partName);
+                prefab, cloneMap, persistentId, partName, partNode);
+
+            // Engine plates show only the selected mount pattern.
+            ApplyDynamicNodeMeshVisibility(
+                prefab.partInfo?.partConfig, partNode, modelNode.transform, persistentId, partName);
 
             // If the snapshot MODULE data shows the shroud is already jettisoned,
             // hide the transforms immediately. Continuation recordings (tree

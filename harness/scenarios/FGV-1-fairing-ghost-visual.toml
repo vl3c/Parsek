@@ -46,6 +46,18 @@ tier = "operator"
 #   fgv-4-intact / fgv-4-jettisoned   fairingSize1 closed nose in a colour variant
 #                                     (BlackAndWhite / Black / Orange / ... whichever the
 #                                     prefab offers first, logged), OKTO payload.
+# A second cell (engine skirts, owner request 2026-11-07) adds, same framing:
+#   fgv-5-intact / -separated / -separated-branch
+#                                     Making History EnginePlate2 (base variant Long shroud,
+#                                     mount pattern Double = NodeSetIdx 1) with two Terriers
+#                                     on N2_1 / N2_2, an OKTO on top and a flat tank on the
+#                                     bottom node (which shows the shroud). `separated`: the
+#                                     plate's own ModuleDecouple, the ghost's subtree hide +
+#                                     ShroudJettisoned; `separated-branch`: the ghost rebuilt
+#                                     from the post-separation snapshot.
+#   fgv-6-intact / -separated / -separated-branch
+#                                     FL-T400 > LV-T45 > flat tank: the engine shroud shown
+#                                     by the part below, then that part decoupled.
 # The KSP.log `[FairingGhostVisual]` lines say per configuration: the authored XSECTIONs,
 # every real ModuleStructuralNode's rootObject / attach nodes / on-off, the ghost's shell and
 # Truss*/Cap* transforms active per phase, the jettison outcome, and whether each capture
@@ -114,7 +126,7 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=FairingGhostVisual scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=FairingGhostVisual scene=FLIGHT",
   # The ghost of each configuration was built from the real vessel's snapshot.
   "\\[Parsek\\]\\[VERBOSE\\]\\[GhostVisual\\] Ghost built: [0-9]+/[0-9]+ parts with visuals",
   # The ghost keeps the interstage truss after separation, like the real craft, both on the
@@ -133,6 +145,17 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-4-intact path=Screenshots/fgv-4-intact\\.png bytes=[1-9]",
   "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-4-jettisoned path=Screenshots/fgv-4-jettisoned\\.png bytes=[1-9]",
   "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] summary: configs=4 captures=[0-9]+ failures=0",
+  # Engine skirts: the plate's shroud and two-engine mount, and an engine shroud, match the
+  # real part intact, after separation and on the ghost rebuilt after separation.
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] config 5 engine-plate: skirt built real=\\[[A-Za-z0-9_,\\-]+\\] ghost=\\[[A-Za-z0-9_,\\-]+\\] match=True",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] config 5 engine-plate: skirt separated-branch real=\\[[A-Za-z0-9_,\\-]*\\] ghost=\\[[A-Za-z0-9_,\\-]*\\] match=True",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] config 6 engine-shroud: skirt built real=\\[[A-Za-z0-9_,\\-]+\\] ghost=\\[[A-Za-z0-9_,\\-]+\\] match=True",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] config 6 engine-shroud: skirt separated-branch real=\\[[A-Za-z0-9_,\\-]*\\] ghost=\\[[A-Za-z0-9_,\\-]*\\] match=True",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-5-intact path=Screenshots/fgv-5-intact\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-5-separated path=Screenshots/fgv-5-separated\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-6-intact path=Screenshots/fgv-6-intact\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-6-separated path=Screenshots/fgv-6-separated\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] skirts summary: configs=2 captures=[0-9]+ failures=0",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

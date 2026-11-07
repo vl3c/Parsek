@@ -193,6 +193,8 @@ namespace Parsek.InGameTests
 
         private enum NoseShape { Capped, OpenTop }
 
+        private enum SkirtKind { Fairing, EnginePlate, EngineShroud }
+
         private sealed class FairingConfig
         {
             public int Number;
@@ -208,6 +210,7 @@ namespace Parsek.InGameTests
             public bool PayloadOnTop;
             public double AlongTrackMeters;
             public double CameraElevationDeg;
+            public SkirtKind Kind;
         }
 
         private static List<FairingConfig> BuildConfigs()
@@ -440,6 +443,397 @@ namespace Parsek.InGameTests
                 $"failures={failures.Count.ToString(IC)} labels=[{string.Join(",", captured.ToArray())}]");
             if (failures.Count > 0)
                 InGameAssert.Fail("FGV-1: " + failures.Count + " problem(s): " + string.Join("; ", failures.ToArray()));
+        }
+
+        // =====================================================================================
+        // Engine skirts: engine plate shroud + mount pattern, engine shroud
+        // =====================================================================================
+
+        private static readonly string[] PlateCandidates = { "EnginePlate2", "EnginePlate1p5" };
+        private static readonly string[] PlateEngineCandidates = { "liquidEngine3.v2", "liquidEngine3" };
+        private static readonly string[] ShroudEngineCandidates = { "liquidEngine2.v2", "liquidEngine2", "liquidEngine.v2" };
+        private static readonly string[] SkirtTankCandidates = { "fuelTank", "fuelTankSmall" };
+        private static readonly string[] SkirtLowerCandidates = { "fuelTankSmallFlat", "fuelTankSmall" };
+
+        private static List<FairingConfig> BuildSkirtConfigs()
+        {
+            return new List<FairingConfig>
+            {
+                new FairingConfig
+                {
+                    Number = 5, Name = "engine-plate", Kind = SkirtKind.EnginePlate,
+                    AlongTrackMeters = 70.0, CameraElevationDeg = 15.0,
+                },
+                new FairingConfig
+                {
+                    Number = 6, Name = "engine-shroud", Kind = SkirtKind.EngineShroud,
+                    AlongTrackMeters = -70.0, CameraElevationDeg = 12.0,
+                },
+            };
+        }
+
+        [InGameTest(Category = "FairingGhostVisual", Scene = GameScenes.FLIGHT,
+            Description = "Snapshot series: a stock engine plate (shroud + two-engine mount) and an engine shroud beside their Parsek ghosts, intact / separated / rebuilt after separation, written to Screenshots/fgv-5-*.png and fgv-6-*.png")]
+        public IEnumerator EngineSkirtGhostsBesideRealVessels_SnapshotSeries()
+        {
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active == null)
+                InGameAssert.Skip("FlightGlobals.ActiveVessel is null; FGV-1 needs a live vessel in orbit");
+            if (active.Landed || active.Splashed || active.situation == Vessel.Situations.PRELAUNCH)
+                InGameAssert.Skip($"Active vessel '{active.vesselName}' is {active.situation}; FGV-1 needs an orbiting host");
+            if (active.orbit == null || active.orbit.referenceBody == null)
+                InGameAssert.Skip("Active vessel has no orbit");
+            if (FlightCamera.fetch == null)
+                InGameAssert.Skip("FlightCamera.fetch is null");
+
+            var failures = new List<string>();
+            var captured = new List<string>();
+            var configs = BuildSkirtConfigs();
+            ConfigRun run = null;
+            bool uiHidden = false;
+            bool cameraSuspended = false;
+            ParsekLog.Info(Tag, $"skirts start: active='{active.vesselName}' configs={configs.Count.ToString(IC)}");
+            try
+            {
+                GameEvents.onHideUI.Fire();
+                uiHidden = true;
+                for (int ci = 0; ci < configs.Count; ci++)
+                {
+                    FairingConfig cfg = configs[ci];
+                    run = new ConfigRun { Config = cfg };
+                    ConfigNode vesselNode = BuildSkirtVesselNode(cfg, active, run, out string authorFail);
+                    if (vesselNode == null)
+                    {
+                        // Making History's engine plates may be absent on an install: say so, no red.
+                        ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: SKIPPED, vessel not authored: {authorFail}");
+                        if (cfg.Kind != SkirtKind.EnginePlate || !authorFail.StartsWith("no part known", StringComparison.Ordinal))
+                            failures.Add($"config {cfg.Number} {cfg.Name}: vessel not authored ({authorFail})");
+                        run = null;
+                        continue;
+                    }
+                    run.SpawnedPid = SpawnCoOrbital(vesselNode, active, cfg.AlongTrackMeters, cfg.Name);
+                    if (run.SpawnedPid == 0)
+                    {
+                        failures.Add($"config {cfg.Number} {cfg.Name}: SpawnAtPosition returned pid=0");
+                        run = null;
+                        continue;
+                    }
+                    float deadline = Time.realtimeSinceStartup + SpawnLiveTimeoutSeconds;
+                    while (Time.realtimeSinceStartup < deadline)
+                    {
+                        Vessel v = FlightRecorder.FindVesselByPid(run.SpawnedPid);
+                        if (v != null && v.loaded && !v.packed && v.parts != null && v.parts.Count > 0)
+                        {
+                            run.Real = v;
+                            break;
+                        }
+                        yield return null;
+                    }
+                    if (run.Real == null)
+                    {
+                        failures.Add($"config {cfg.Number} {cfg.Name}: spawned pid={run.SpawnedPid} never loaded+unpacked in {SpawnLiveTimeoutSeconds}s");
+                        TearDownConfig(run, "spawn-timeout");
+                        run = null;
+                        continue;
+                    }
+                    yield return WaitRealtime(SettleSeconds);
+                    if (run.Real == null || run.Real.state == Vessel.State.DEAD || run.Real.rootPart == null)
+                    {
+                        failures.Add($"config {cfg.Number} {cfg.Name}: real vessel died while settling");
+                        TearDownConfig(run, "died-settling");
+                        run = null;
+                        continue;
+                    }
+                    ResolveSkirtParts(run);
+                    if (run.FairingPart == null || run.UpperPart == null)
+                    {
+                        failures.Add($"config {cfg.Number} {cfg.Name}: skirt part or the part below it not found on the real vessel");
+                        TearDownConfig(run, "parts-missing");
+                        run = null;
+                        continue;
+                    }
+                    if (!BuildGhostBesideReal(run, out string ghostFail))
+                    {
+                        failures.Add($"config {cfg.Number} {cfg.Name}: ghost not built ({ghostFail})");
+                        TearDownConfig(run, "ghost-build-failed");
+                        run = null;
+                        continue;
+                    }
+                    CompareSkirt(run, "built", failures);
+
+                    ComputeFraming(run);
+                    if (!cameraSuspended)
+                    {
+                        FlightCamera.fetch.DeactivateUpdate();
+                        cameraSuspended = true;
+                    }
+                    yield return HoldCamera(run, FramingSettleSeconds);
+                    yield return CaptureShot(run, "intact", captured, failures);
+
+                    // ---- separation: the part below the skirt leaves ---------------------------
+                    Vessel lowerVessel = null;
+                    try
+                    {
+                        ModuleDecouple plateDecoupler = cfg.Kind == SkirtKind.EnginePlate
+                            ? run.FairingPart.FindModuleImplementing<ModuleDecouple>() : null;
+                        if (plateDecoupler != null)
+                            plateDecoupler.Decouple();
+                        else
+                            run.UpperPart.decouple();
+                        lowerVessel = run.UpperPart.vessel;
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add($"config {cfg.Number} {cfg.Name}: stock separation threw {ex.GetType().Name}: {ex.Message}");
+                    }
+                    yield return null;
+                    ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: real lower part pid={run.UpperPid.ToString(IC)} separated " +
+                        $"newVessel='{(lowerVessel != null ? lowerVessel.vesselName : "<none>")}'");
+                    if (lowerVessel != null && lowerVessel != run.Real)
+                    {
+                        try { lowerVessel.Die(); }
+                        catch (Exception ex)
+                        {
+                            ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: separated lower vessel Die threw {ex.GetType().Name}: {ex.Message}");
+                        }
+                    }
+                    // Ghost, same recording: the subtree hide plus the shroud event the recorder
+                    // writes when stock jettisons it.
+                    GhostPlaybackLogic.HidePartSubtree(run.State.ghost, run.UpperPid, run.State.partTree);
+                    GhostPlaybackLogic.RemovePartSubtreeFromLogicalPresence(
+                        run.State.logicalPartIds, run.UpperPid, run.State.partTree);
+                    GhostPartEventOutcome shroudOutcome = GhostPlaybackLogic.ApplyJettisonPanelStateWithOutcome(
+                        run.State,
+                        new PartEvent { partPersistentId = run.FairingPid, eventType = PartEventType.ShroudJettisoned },
+                        jettisoned: true);
+                    ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: ghost shroud jettison pid={run.FairingPid.ToString(IC)} outcome={shroudOutcome}");
+                    if (shroudOutcome != GhostPartEventOutcome.Applied)
+                        failures.Add($"config {cfg.Number} {cfg.Name}: ghost shroud jettison outcome {shroudOutcome}, expected Applied");
+                    yield return HoldCamera(run, JettisonSettleSeconds);
+                    CompareSkirt(run, "separated", failures);
+                    yield return CaptureShot(run, "separated", captured, failures);
+
+                    // Ghost of the recording that starts at the separation.
+                    if (run.Build != null && run.Build.root != null)
+                    {
+                        run.Build.root.transform.SetParent(null, false);
+                        UnityEngine.Object.Destroy(run.Build.root);
+                        run.Build.root = null;
+                    }
+                    run.Build = null;
+                    run.State = null;
+                    if (!BuildGhostBesideReal(run, out string rebuildFail))
+                    {
+                        failures.Add($"config {cfg.Number} {cfg.Name}: post-separation ghost not built ({rebuildFail})");
+                    }
+                    else
+                    {
+                        yield return HoldCamera(run, SeparationSettleSeconds);
+                        CompareSkirt(run, "separated-branch", failures);
+                        yield return CaptureShot(run, "separated-branch", captured, failures);
+                    }
+
+                    TearDownConfig(run, "config-done");
+                    run = null;
+                    yield return null;
+                    yield return null;
+                }
+            }
+            finally
+            {
+                if (run != null)
+                    TearDownConfig(run, "finally");
+                if (cameraSuspended && FlightCamera.fetch != null)
+                {
+                    FlightCamera.fetch.ActivateUpdate();
+                    if (FlightGlobals.ActiveVessel != null)
+                        FlightCamera.fetch.SetTargetVessel(FlightGlobals.ActiveVessel);
+                }
+                if (uiHidden)
+                    GameEvents.onShowUI.Fire();
+            }
+
+            ParsekLog.Info(Tag, $"skirts summary: configs={configs.Count.ToString(IC)} captures={captured.Count.ToString(IC)} " +
+                $"failures={failures.Count.ToString(IC)} labels=[{string.Join(",", captured.ToArray())}]");
+            if (failures.Count > 0)
+                InGameAssert.Fail("FGV-1 skirts: " + failures.Count + " problem(s): " + string.Join("; ", failures.ToArray()));
+        }
+
+        private static ConfigNode BuildSkirtVesselNode(FairingConfig cfg, Vessel anchor, ConfigRun run, out string failReason)
+        {
+            failReason = null;
+            var parts = new List<ConfigNode>();
+            if (cfg.Kind == SkirtKind.EnginePlate)
+            {
+                AvailablePart plate = FirstKnownPart(PlateCandidates);
+                AvailablePart probe = FirstKnownPart(PayloadProbeCandidates);
+                AvailablePart tank = FirstKnownPart(SkirtLowerCandidates);
+                AvailablePart engine = FirstKnownPart(PlateEngineCandidates);
+                if (plate == null) { failReason = "no part known (" + string.Join(",", PlateCandidates) + ")"; return null; }
+                if (probe == null || tank == null || engine == null) { failReason = "probe, tank or engine part missing"; return null; }
+                Part pp = plate.partPrefab;
+                AttachNode top = pp.FindAttachNode("top"), bottom = pp.FindAttachNode("bottom");
+                AttachNode n1 = pp.FindAttachNode("N2_1"), n2 = pp.FindAttachNode("N2_2");
+                AttachNode probeBottom = probe.partPrefab.FindAttachNode("bottom");
+                AttachNode tankTop = tank.partPrefab.FindAttachNode("top");
+                AttachNode engTop = engine.partPrefab.FindAttachNode("top");
+                if (top == null || bottom == null || n1 == null || n2 == null || probeBottom == null || tankTop == null || engTop == null)
+                {
+                    failReason = "attach nodes missing on plate / probe / tank / engine";
+                    return null;
+                }
+                var ids = UniqueFlightIds(5);
+                parts.Add(AuthorPartNode(plate, ids[0], 0, Vector3.zero,
+                    new Dictionary<string, int> { { "top", 1 }, { "bottom", 2 }, { "N2_1", 3 }, { "N2_2", 4 } }, null,
+                    (module, name) =>
+                    {
+                        if (name == "ModuleDynamicNodes")
+                        {
+                            module.AddValue("setIndex", "1");
+                            module.AddValue("NodeSetIdx", "1");
+                        }
+                    }));
+                parts.Add(AuthorPartNode(probe, ids[1], 0, top.position - probeBottom.position,
+                    new Dictionary<string, int> { { "bottom", 0 } }, null, null));
+                parts.Add(AuthorPartNode(tank, ids[2], 0, bottom.position - tankTop.position,
+                    new Dictionary<string, int> { { "top", 0 } }, null, null));
+                parts.Add(AuthorPartNode(engine, ids[3], 0, n1.position - engTop.position,
+                    new Dictionary<string, int> { { "top", 0 } }, null, null));
+                parts.Add(AuthorPartNode(engine, ids[4], 0, n2.position - engTop.position,
+                    new Dictionary<string, int> { { "top", 0 } }, null, null));
+                run.MaxFairingRadius = 1.4;
+                ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: authored {plate.name} mount=Double (NodeSetIdx 1) " +
+                    $"engines={engine.name}x2 on N2_1/N2_2 below={tank.name} on bottom top={probe.name}");
+            }
+            else
+            {
+                AvailablePart tank = FirstKnownPart(SkirtTankCandidates);
+                AvailablePart engine = FirstKnownPart(ShroudEngineCandidates);
+                AvailablePart lower = FirstKnownPart(SkirtLowerCandidates);
+                if (tank == null || engine == null || lower == null) { failReason = "tank, engine or lower part missing"; return null; }
+                AttachNode tankBottom = tank.partPrefab.FindAttachNode("bottom");
+                AttachNode engTop = engine.partPrefab.FindAttachNode("top");
+                AttachNode engBottom = engine.partPrefab.FindAttachNode("bottom");
+                AttachNode lowerTop = lower.partPrefab.FindAttachNode("top");
+                if (tankBottom == null || engTop == null || engBottom == null || lowerTop == null)
+                {
+                    failReason = "attach nodes missing on tank / engine / lower part";
+                    return null;
+                }
+                var ids = UniqueFlightIds(3);
+                Vector3 enginePos = tankBottom.position - engTop.position;
+                parts.Add(AuthorPartNode(tank, ids[0], 0, Vector3.zero,
+                    new Dictionary<string, int> { { "bottom", 1 } }, null, null));
+                parts.Add(AuthorPartNode(engine, ids[1], 0, enginePos,
+                    new Dictionary<string, int> { { "top", 0 }, { "bottom", 2 } }, null, null));
+                parts.Add(AuthorPartNode(lower, ids[2], 1, enginePos + engBottom.position - lowerTop.position,
+                    new Dictionary<string, int> { { "top", 1 } }, null, null));
+                run.MaxFairingRadius = 0.9;
+                ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: authored {tank.name} > {engine.name} > {lower.name} (shroud shown by the part below)");
+            }
+            Orbit placeholder = new Orbit(
+                anchor.orbit.inclination, anchor.orbit.eccentricity, anchor.orbit.semiMajorAxis,
+                anchor.orbit.LAN, anchor.orbit.argumentOfPeriapsis, anchor.orbit.meanAnomalyAtEpoch,
+                anchor.orbit.epoch, anchor.orbit.referenceBody);
+            return ProtoVessel.CreateVesselNode(
+                "FGV-" + cfg.Number.ToString(IC) + " " + cfg.Name, VesselType.Ship, placeholder, 0, parts.ToArray());
+        }
+
+        private static List<uint> UniqueFlightIds(int count)
+        {
+            var ids = new List<uint>();
+            while (ids.Count < count)
+            {
+                uint id = ShipConstruction.GetUniqueFlightID(HighLogic.CurrentGame.flightState);
+                if (!ids.Contains(id)) ids.Add(id);
+            }
+            return ids;
+        }
+
+        /// <summary>The skirt part (plate or engine) and the part on its bottom node.</summary>
+        private static void ResolveSkirtParts(ConfigRun run)
+        {
+            run.FairingPart = null;
+            run.UpperPart = null;
+            for (int i = 0; i < run.Real.parts.Count; i++)
+            {
+                Part p = run.Real.parts[i];
+                if (p == null) continue;
+                bool isSkirt = run.Config.Kind == SkirtKind.EnginePlate
+                    ? p.FindModuleImplementing<ModuleDynamicNodes>() != null
+                    : p.FindModuleImplementing<ModuleJettison>() != null && p.FindAttachNode("bottom") != null
+                        && p.FindAttachNode("bottom").attachedPart != null;
+                if (!isSkirt) continue;
+                run.FairingPart = p;
+                AttachNode bottom = p.FindAttachNode("bottom");
+                run.UpperPart = bottom != null ? bottom.attachedPart : null;
+                break;
+            }
+            run.FairingPid = run.FairingPart != null ? run.FairingPart.persistentId : 0u;
+            run.UpperPid = run.UpperPart != null ? run.UpperPart.persistentId : 0u;
+            ParsekLog.Info(Tag, $"config {run.Config.Number} {run.Config.Name}: skirt part " +
+                $"'{(run.FairingPart != null ? run.FairingPart.partInfo.name : "<none>")}' pid={run.FairingPid.ToString(IC)} " +
+                $"below='{(run.UpperPart != null ? run.UpperPart.partInfo.name : "<none>")}' pid={run.UpperPid.ToString(IC)}");
+        }
+
+        /// <summary>
+        /// The skirt meshes the real part shows against the ones the ghost shows: every name a
+        /// ModuleJettison lists plus every ModuleDynamicNodes mount pattern, counted as shown
+        /// when the transform is active in the hierarchy and renders something.
+        /// </summary>
+        private static void CompareSkirt(ConfigRun run, string phase, List<string> failures)
+        {
+            var names = new List<string>();
+            List<ModuleJettison> jets = run.FairingPart.FindModulesImplementing<ModuleJettison>();
+            for (int i = 0; i < jets.Count; i++)
+                foreach (string n in GhostVisualBuilder.SelectJettisonNames(jets[i].jettisonName, null))
+                    if (!names.Contains(n)) names.Add(n);
+            List<KeyValuePair<string, bool>> mounts = GhostVisualBuilder.ResolveDynamicNodeMeshStates(
+                run.FairingPart.partInfo != null ? run.FairingPart.partInfo.partConfig : null, null);
+            for (int i = 0; i < mounts.Count; i++)
+                if (!names.Contains(mounts[i].Key)) names.Add(mounts[i].Key);
+
+            Transform ghostPart = run.State != null && run.State.ghost != null
+                ? GhostVisualBuilder.FindGhostPartTransform(run.State.ghost, run.FairingPid) : null;
+            var real = new List<string>();
+            var ghost = new List<string>();
+            for (int i = 0; i < names.Count; i++)
+            {
+                if (IsShown(run.FairingPart.FindModelTransform(names[i]))) real.Add(names[i]);
+                if (ghostPart != null && IsShown(FindDescendant(ghostPart, names[i]))) ghost.Add(names[i]);
+            }
+            string r = string.Join(",", real.ToArray());
+            string g = string.Join(",", ghost.ToArray());
+            bool match = r == g;
+            ParsekLog.Info(Tag, $"config {run.Config.Number} {run.Config.Name}: skirt {phase} " +
+                $"real=[{r}] ghost=[{g}] match={match} candidates={names.Count.ToString(IC)}");
+            if (!match)
+                failures.Add($"config {run.Config.Number} {run.Config.Name}: {phase} skirt real=[{r}] ghost=[{g}]");
+        }
+
+        private static bool IsShown(Transform t)
+        {
+            if (t == null || !t.gameObject.activeInHierarchy) return false;
+            Renderer[] rs = t.GetComponentsInChildren<Renderer>(false);
+            for (int i = 0; i < rs.Length; i++)
+                if (rs[i] != null && rs[i].enabled) return true;
+            return false;
+        }
+
+        private static Transform FindDescendant(Transform root, string name)
+        {
+            if (root == null) return null;
+            if (root.name == name) return root;
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform found = FindDescendant(root.GetChild(i), name);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         // =====================================================================================
