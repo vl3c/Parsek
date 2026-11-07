@@ -255,11 +255,14 @@ reports the references that were dropped. On main's code, `542 -> cut Recording 
 means removing `Recording`'s two references inside the knot
 (`LaunchSiteOnlyGhost`, `SidecarVersions`) splits off 46 members, and the
 second row, `GameAction` (`CaptureSequence`), 40 more; this branch makes both
-cuts in code, so its sequence starts at `459 -> cut Route -> 441`. Some cuts are
+cuts in code, so its sequence starts at `459 -> cut Route -> 441`, then
+`441 -> cut VesselLaunchIdentity -> 424` (its `RecordingSidecarStore` and `VesselNameStore`
+references; the flight controller was second until a 2026-11-07 pure move deleted
+one unrelated reference and reordered the greedy steps). Some cuts are
 cheap inversions like those - one or two references between hubs holding a
 whole region together, and those are the references a refactor should look at
 first - while the rest touch many small references at once (the `RecordingStore`
-cut, third on the current tree, drops 48), and the named
+cut drops 40 on the current tree), and the named
 sink there often needs a new abstraction (an interface, a data boundary) rather
 than moved edges. The table is a research list, not a verdict - the tool never says a
 reference is wrong, only that it holds a cycle together. Nothing in this phase

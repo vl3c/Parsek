@@ -1075,9 +1075,6 @@ namespace Parsek
                 && Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recId);
         }
 
-        internal const string GapGlidePairPointNotFound = "gap-pair-point-not-found";
-        internal const string GapGlidePairSingleSample = "gap-pair-single-sample";
-
         internal const string EnsureOrbitRenderersSkipApplicationQuitting = "application-quitting";
         internal const string EnsureOrbitRenderersSkipRemoveAllInProgress = "remove-all-ghosts-in-progress";
 
