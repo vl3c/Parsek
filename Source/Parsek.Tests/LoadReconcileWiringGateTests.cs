@@ -313,7 +313,7 @@ namespace Parsek.Tests
         {
             string core = PreparedMethodBody("ParsekFlight.cs", "private void FinalizeTreeOnSceneChangeCore(");
             string flat = Collapse(core);
-            Assert.Contains("else if (ShouldStashLiveTreeForSaveFileLoad( scene, "
+            Assert.Contains("else if (ParsekFlight.ShouldStashLiveTreeForSaveFileLoad( scene, "
                 + "SaveFileLoadIntent.IsArmed || NoSaveSceneExit.IsArmedFor(scene), "
                 + "RevertDetector.PendingKind != RevertKind.None))", flat);
             int flight = IndexOrFail(core, "if (scene == GameScenes.FLIGHT)");

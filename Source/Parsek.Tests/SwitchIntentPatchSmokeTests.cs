@@ -654,7 +654,7 @@ namespace Parsek.Tests
             // Locate the shared core and assert it routes the screen
             // message and ledger reason parameters all the way through.
             int coreStart = flightSource.IndexOf(
-                "private void AutoDiscardActiveTreeCore(",
+                "internal void AutoDiscardActiveTreeCore(",
                 StringComparison.Ordinal);
             Assert.True(coreStart > 0,
                 "AutoDiscardActiveTreeCore helper must be defined");

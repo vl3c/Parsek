@@ -316,7 +316,7 @@ namespace Parsek.Tests
         public void DiscardActiveTreeForSuppressedSceneExit_ClearsTheAttemptForTheDroppedTreeBeforeNulling()
         {
             AssertDropSiteClearsBeforeNulling(
-                "void DiscardActiveTreeForSuppressedSceneExit(",
+                "internal void DiscardActiveTreeForSuppressedSceneExit(",
                 "suppressed scene exit dropped the restore clone");
         }
 

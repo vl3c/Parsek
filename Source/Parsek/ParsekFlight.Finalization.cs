@@ -73,7 +73,7 @@ namespace Parsek
             return !GhostPlaybackLogic.IsEffectiveLeafForVessel(activeRec, tree);
         }
 
-        private RecordingFinalizationCache ResolveFinalizationCacheForRecording(
+        internal RecordingFinalizationCache ResolveFinalizationCacheForRecording(
             RecordingTree tree,
             Recording recording)
         {
@@ -82,17 +82,17 @@ namespace Parsek
 
             RecordingFinalizationCache cache = null;
             if (recorder != null
-                && IsActiveRecorderCacheCandidate(tree, recording, recorder))
+                && ParsekFlightMergeFlow.IsActiveRecorderCacheCandidate(tree, recording, recorder))
             {
                 cache = recorder.GetFinalizationCacheForRecording(recording);
-                if (CacheIdentityMatchesRecording(recording, cache))
+                if (ParsekFlightMergeFlow.CacheIdentityMatchesRecording(recording, cache))
                     return cache;
             }
 
             if (backgroundRecorder != null)
             {
                 cache = backgroundRecorder.GetFinalizationCacheForRecording(recording);
-                if (CacheIdentityMatchesRecording(recording, cache))
+                if (ParsekFlightMergeFlow.CacheIdentityMatchesRecording(recording, cache))
                     return cache;
             }
 
@@ -134,7 +134,7 @@ namespace Parsek
             bool sceneExitSuppliedSnapshots = false;
             bool sceneExitSuppliedTerminalOrbit = false;
             bool preserveRestoredSceneExitTerminalState =
-                ShouldPreserveRestoredSceneExitTerminalState(
+                ParsekFlightMergeFlow.ShouldPreserveRestoredSceneExitTerminalState(
                     activeRec,
                     isSceneExit,
                     vesselMissing: v == null,
@@ -156,11 +156,11 @@ namespace Parsek
                     && activeRec.VesselSnapshot != null;
                 sceneExitSuppliedTerminalOrbit =
                     sceneExitLifetimeExtended
-                    && DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, activeRec);
+                    && ParsekFlightMergeFlow.DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, activeRec);
                 if (sceneExitLifetimeExtended)
                 {
                     if (activeRec.TerminalStateValue.HasValue
-                        && UsesTerminalOrbitMetadata(activeRec.TerminalStateValue.Value))
+                        && ParsekFlightMergeFlow.UsesTerminalOrbitMetadata(activeRec.TerminalStateValue.Value))
                     {
                         if (sceneExitSuppliedTerminalOrbit)
                         {
@@ -201,7 +201,7 @@ namespace Parsek
             if (!activeRec.TerminalStateValue.HasValue
                 && !preserveRestoredSceneExitTerminalState
                 && HasFallbackCandidateCache(finalizationCache, v == null)
-                && TryApplyFinalizationCacheFallback(
+                && ParsekFlightMergeFlow.TryApplyFinalizationCacheFallback(
                     activeRec,
                     finalizationCache,
                     "EnsureActiveRecordingTerminalState",
@@ -234,7 +234,7 @@ namespace Parsek
                 bool subOrbitalFallbackOnly =
                     HasOnlySubOrbitalFallbackEvidence(activeRec, out subOrbitalFallbackReason);
                 if (preserveRestoredSceneExitTerminalState
-                    || ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
+                    || ParsekFlightMergeFlow.ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
                         activeRec, out restoredSceneExitReason)
                     || subOrbitalFallbackOnly)
                 {
@@ -263,7 +263,7 @@ namespace Parsek
                 if (inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
                 {
                     PopulateTerminalPositionFromLastPoint(activeRec, inferredState);
-                    TryCaptureTerrainHeightFromLastTrajectoryPoint(activeRec);
+                    ParsekFlightMergeFlow.TryCaptureTerrainHeightFromLastTrajectoryPoint(activeRec);
                 }
                 RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.SceneExitNonLeaf");
                 return false;
@@ -482,7 +482,7 @@ namespace Parsek
             string restoredSceneExitReason = null;
             bool preserveRestoredSceneExitTerminalState =
                 isLeaf
-                && ShouldPreserveRestoredSceneExitTerminalState(
+                && ParsekFlightMergeFlow.ShouldPreserveRestoredSceneExitTerminalState(
                     rec,
                     isSceneExit,
                     vesselMissing: !finalizeVesselFound,
@@ -526,7 +526,7 @@ namespace Parsek
                     && rec.VesselSnapshot != null;
                 sceneExitSuppliedTerminalOrbit =
                     sceneExitLifetimeExtended
-                    && DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, rec);
+                    && ParsekFlightMergeFlow.DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, rec);
             }
 
             if (isLeaf
@@ -535,7 +535,7 @@ namespace Parsek
                     rec,
                     finalizationCache,
                     commitUT)
-                && TryApplyFinalizationCacheFallback(
+                && ParsekFlightMergeFlow.TryApplyFinalizationCacheFallback(
                     rec,
                     finalizationCache,
                     "FinalizeIndividualRecordingRepair",
@@ -576,7 +576,7 @@ namespace Parsek
                     && HasFallbackCandidateCache(
                     finalizationCache,
                     vesselMissing: true)
-                    && TryApplyFinalizationCacheFallback(
+                    && ParsekFlightMergeFlow.TryApplyFinalizationCacheFallback(
                         rec,
                         finalizationCache,
                         "FinalizeIndividualRecording",
@@ -586,7 +586,7 @@ namespace Parsek
                     cacheFinalizationApplied = true;
                     cacheSuppliedTerminalOrbit =
                         rec.TerminalStateValue.HasValue
-                        && UsesTerminalOrbitMetadata(rec.TerminalStateValue.Value)
+                        && ParsekFlightMergeFlow.UsesTerminalOrbitMetadata(rec.TerminalStateValue.Value)
                         && !string.IsNullOrEmpty(rec.TerminalOrbitBody);
                 }
                 else if (isSceneExit)
@@ -617,7 +617,7 @@ namespace Parsek
                     bool subOrbitalFallbackOnly =
                         HasOnlySubOrbitalFallbackEvidence(rec, out subOrbitalFallbackReason);
                     if (preserveRestoredSceneExitTerminalState
-                        || ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
+                        || ParsekFlightMergeFlow.ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
                             rec, out restoredSceneExitReason)
                         || subOrbitalFallbackOnly)
                     {
@@ -653,7 +653,7 @@ namespace Parsek
                         if (inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
                         {
                             PopulateTerminalPositionFromLastPoint(rec, inferredState);
-                            TryCaptureTerrainHeightFromLastTrajectoryPoint(rec);
+                            ParsekFlightMergeFlow.TryCaptureTerrainHeightFromLastTrajectoryPoint(rec);
                         }
                     }
                 }
@@ -713,7 +713,7 @@ namespace Parsek
             // we only preserve cached orbit data when the full tuple already matches the
             // endpoint-aligned last orbit segment. (#475/#484)
             if (isLeaf && rec.TerminalStateValue.HasValue
-                && UsesTerminalOrbitMetadata(rec.TerminalStateValue.Value))
+                && ParsekFlightMergeFlow.UsesTerminalOrbitMetadata(rec.TerminalStateValue.Value))
             {
                 bool preserveSceneExitTerminalOrbit =
                     sceneExitLifetimeExtended && sceneExitSuppliedTerminalOrbit;

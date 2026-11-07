@@ -413,7 +413,14 @@ def compare(a, b, widened=()):
             elif not mb:
                 diffs.append(("method-only-before", path, sig))
             elif ma != mb:
-                diffs.append(("method-body", path, sig))
+                # A non-private member that moved and left a same-named forwarder behind keys
+                # both bodies under one signature: every before body is still there verbatim
+                # and exactly one body was added (the forwarder). Any other change to the list
+                # is a body difference.
+                extra = collections.Counter(mb)
+                extra.subtract(collections.Counter(ma))
+                kept = min(extra.values()) >= 0 and sum(extra.values()) == 1
+                diffs.append(("method-forwarder" if kept else "method-body", path, sig))
     return diffs
 
 
@@ -483,7 +490,7 @@ def main(argv=None):
     for kind, path, detail in diffs[:args.limit]:
         print("  %-18s %s :: %s" % (kind, path, detail[:200]))
     for kind, path, detail in diffs:
-        if kind != "method-body" or not any(s in detail for s in args.show):
+        if kind not in ("method-body", "method-forwarder") or not any(s in detail for s in args.show):
             continue
         ba = [BODIES[h] for h in sorted(a[path].methods[detail])]
         bb = [BODIES[h] for h in sorted(b[path].methods[detail])]

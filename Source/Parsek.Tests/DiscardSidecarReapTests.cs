@@ -602,7 +602,7 @@ namespace Parsek.Tests
         private static string ReadAutoDiscardCoreBody()
         {
             string source = ReadProjectSource("ParsekFlight.cs");
-            int coreStart = source.IndexOf("private void AutoDiscardActiveTreeCore(",
+            int coreStart = source.IndexOf("internal void AutoDiscardActiveTreeCore(",
                 StringComparison.Ordinal);
             Assert.True(coreStart > 0, "AutoDiscardActiveTreeCore not found");
             int coreEnd = source.IndexOf("\n        private ", coreStart + 1, StringComparison.Ordinal);
@@ -618,7 +618,7 @@ namespace Parsek.Tests
         public void AutoDiscardActiveTreeCore_CapturesRecordingsBeforeNullingActiveTree()
         {
             string body = ReadAutoDiscardCoreBody();
-            int capture = body.IndexOf("DiscardSidecarReap.CaptureTreeRecordings(activeTree)",
+            int capture = body.IndexOf("DiscardSidecarReap.CaptureTreeRecordings(host.activeTree)",
                 StringComparison.Ordinal);
             int nulling = body.IndexOf("activeTree = null;", StringComparison.Ordinal);
             Assert.True(capture > 0, "reap capture not found in AutoDiscardActiveTreeCore");
@@ -662,7 +662,7 @@ namespace Parsek.Tests
         public void AutoDiscardActiveTreeCore_PassesTheCapturedTreeIdToTheReap()
         {
             string body = ReadAutoDiscardCoreBody();
-            int capture = body.IndexOf("reapTreeId = activeTree?.Id;", StringComparison.Ordinal);
+            int capture = body.IndexOf("reapTreeId = host.activeTree?.Id;", StringComparison.Ordinal);
             int nulling = body.IndexOf("activeTree = null;", StringComparison.Ordinal);
             Assert.True(capture > 0, "tree id capture not found in AutoDiscardActiveTreeCore");
             Assert.True(capture < nulling, "the tree id must be captured before the teardown");
@@ -739,7 +739,7 @@ namespace Parsek.Tests
         {
             string body = ReadAutoDiscardCoreBody();
             Assert.Matches(new Regex(
-                @"try\s*\{[\s\S]{0,900}?DiscardSidecarReap\.CaptureTreeRecordings\(activeTree\)" +
+                @"try\s*\{[\s\S]{0,900}?DiscardSidecarReap\.CaptureTreeRecordings\(host\.activeTree\)" +
                 @"[\s\S]{0,900}?\}\s*catch[\s\S]{0,400}?reapCapturedRecordings\s*=\s*null;",
                 RegexOptions.Multiline),
                 body);

@@ -2966,6 +2966,25 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   the 11 left are the accessor (field, property, getter), the service's host field and
   constructor and the six forwarders. Knot 474 -> 475, replayed residue 283 unchanged (canaries
   re-pinned).
+- PF8 landed: `ParsekFlightMergeFlow` (1,773 lines, lazy `MergeFlow`) is the merge flow: the
+  scene-exit finalize (commit, stash or discard of the active tree), the in-flight, revert and
+  scene-exit tree commits with the in-flight optimizer pass and crew reservation, the auto-discard
+  of idle or no-op trees, idle-on-pad and the final segment phase and terminal-body resolution
+  the finalize reads: 44 methods (17 instance, the 27 statics no other file names)
+  (`.MergeFlow.cs` 2,569 -> 825 lines; ParsekFlight.cs 2,549). ParsekFlight keeps
+  `OnSceneChangeRequested` (the scene-exit order: it calls `MergeFlow.FinalizeTreeOnSceneChange`
+  where it called the method), the `ShowPostDestructionTreeMergeDialog` coroutine, the commit and
+  terminal-inference statics other files name with their test seams, and ten forwarders: the
+  `MergeDialog.OnTreeCommitted` handler (same delegate for `+=` / `-=`), the entry points
+  `MapFocusObjectOnSelectPatch`, `SceneExitInterceptor`, `ParsekScenario`, the test commands and
+  the split brancher call, and the two private members the in-game tests reflect on by name. 20
+  declarations widened private -> internal (19 methods, 1 nested type). IL (`--fold`): 0
+  moved-body differences; the 15 left are the accessor (field, property, getter), the service's
+  host field and constructor and the ten forwarders. `il_compare.py` now reads a non-private
+  member moved behind a same-named forwarder (both bodies under one key) as `method-forwarder`
+  when the before body is still there verbatim and exactly one body was added; re-run over PF5
+  and PF7 it reads their forwarders the same way. Knot 475 -> 476, replayed residue 283
+  unchanged (canaries re-pinned).
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 

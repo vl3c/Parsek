@@ -174,6 +174,12 @@ Source/Parsek/ParsekFlightPlaybackHost.cs
 # partner with its recorded vessel (is the partner pid known, which endpoint part pids did
 # its recording carry): physical-identity correlation, never visibility.
 Source/Parsek/ParsekFlightSplitBrancher.cs
+# ParsekFlight's merge flow, lifted out of the merge-flow partial with its bodies verbatim
+# (ARCH-PARSEKFLIGHT-CHANGE-HUB PF8). Its in-flight commit reads the committed list it just
+# appended to: the optimizer pass's before / after count, the chain tip of the active
+# recording the pass may have merged, and the spawned leaf tips it counts. Commit-time
+# bookkeeping over the raw list the commit wrote, never visibility.
+Source/Parsek/ParsekFlightMergeFlow.cs
 Source/Parsek/ParsekPlaybackPolicy.cs
 Source/Parsek/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs

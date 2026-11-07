@@ -995,6 +995,37 @@ namespace Parsek
         private void OnDecoupleNewVesselDuringSplitCheck(Vessel originalVessel, Vessel newVessel) =>
             SplitBrancher.OnDecoupleNewVesselDuringSplitCheck(originalVessel, newVessel);
 
+        private ParsekFlightMergeFlow mergeFlow;
+        internal ParsekFlightMergeFlow MergeFlow =>
+            mergeFlow ?? (mergeFlow = new ParsekFlightMergeFlow(this));
+
+        // The MergeDialog.OnTreeCommitted handler (subscribed in Start, removed in OnDestroy) and
+        // the entry points other types call (by name too: the in-game tests reflect on the private
+        // scene-exit discard and finalize); the bodies live on MergeFlow.
+        private void OnTreeCommittedFromMergeDialog(RecordingTree tree) => MergeFlow.OnTreeCommittedFromMergeDialog(tree);
+        public void CommitTreeFlight() => MergeFlow.CommitTreeFlight();
+        internal bool IsActiveTreeIdleOnPad() => MergeFlow.IsActiveTreeIdleOnPad();
+        internal void AutoDiscardIdleActiveTree(string reason) => MergeFlow.AutoDiscardIdleActiveTree(reason);
+        internal void AutoDiscardActiveTreeWithMessage(
+            string reason,
+            string screenMessage,
+            string ledgerRecalcReason,
+            bool reapSidecars = true) =>
+            MergeFlow.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason, reapSidecars);
+        internal string LiveRecordingIdForVessel(uint vesselPid) => MergeFlow.LiveRecordingIdForVessel(vesselPid);
+        internal void FinalizeTreeOnSceneChangeForCallback(GameScenes scene) =>
+            MergeFlow.FinalizeTreeOnSceneChangeForCallback(scene);
+        internal void FinalizeTreeOnSceneChangeForTesting(GameScenes scene, double commitUT) =>
+            MergeFlow.FinalizeTreeOnSceneChangeForTesting(scene, commitUT);
+        private void DiscardActiveTreeForSuppressedSceneExit(
+            GameScenes scene,
+            double commitUT,
+            string suppressReason,
+            bool logRecorderState) =>
+            MergeFlow.DiscardActiveTreeForSuppressedSceneExit(scene, commitUT, suppressReason, logRecorderState);
+        void FinalizeTreeRecordings(RecordingTree tree, double commitUT, bool isSceneExit) =>
+            MergeFlow.FinalizeTreeRecordings(tree, commitUT, isSceneExit);
+
         // UI and test-command entry points; the bodies live on SpawnHost.
         internal void WarpToRecordingEnd(int recordingIndex) => SpawnHost.WarpToRecordingEnd(recordingIndex);
         internal void WarpToDeparture(int recordingIndex, double departureUT) =>
@@ -1642,7 +1673,7 @@ namespace Parsek
             // its data is flushed to the tree recordings.
             if (activeTree != null)
             {
-                FinalizeTreeOnSceneChange(scene);
+                MergeFlow.FinalizeTreeOnSceneChange(scene);
             }
             else if (PendingTreeSlot.TryConsumeNextTreeSceneExitCommitSuppression(
                 scene,
@@ -2070,7 +2101,7 @@ namespace Parsek
         /// Clears all transient dock/undock, merge detection, and split event state
         /// on scene change. Called from OnSceneChangeRequested after continuation finalization.
         /// </summary>
-        private void ClearSceneChangeTransientState()
+        internal void ClearSceneChangeTransientState()
         {
             PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("scene change transient reset");
 

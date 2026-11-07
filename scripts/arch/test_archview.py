@@ -3291,13 +3291,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # scene's IGhostPositioner, which reaches its host), 471 after
         # ParsekFlightPostSwitchAutoRecord (PF3), 472 after ParsekFlightPlaybackHost (PF4),
         # 473 after ParsekFlightSpawnHost (PF5), 474 after ParsekFlightSurfaceCapture (PF6),
-        # 475 after ParsekFlightSplitBrancher (PF7).
+        # 475 after ParsekFlightSplitBrancher (PF7), 476 after ParsekFlightMergeFlow (PF8).
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [475, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [476, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3426,14 +3426,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # flight controller -> 419 before. PF5's ParsekFlightSpawnHost is the same shape
         # (473 before, the cut still lands on 454), and so is PF6's ParsekFlightSurfaceCapture
         # (474 before, still 454 after), and PF7's ParsekFlightSplitBrancher (475 before,
-        # still 454 after).
+        # still 454 after), and PF8's ParsekFlightMergeFlow (476 before, still 454 after).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 475)
+        self.assertEqual(first["sizeBefore"], 476)
         self.assertEqual(first["sizeAfter"], 454)
-        for service in ("ParsekFlightGhostPositioner", "ParsekFlightPlaybackHost",
-                        "ParsekFlightPostSwitchAutoRecord", "ParsekFlightSpawnHost",
-                        "ParsekFlightSplitBrancher", "ParsekFlightSurfaceCapture"):
+        for service in ("ParsekFlightGhostPositioner", "ParsekFlightMergeFlow",
+                        "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
+                        "ParsekFlightSpawnHost", "ParsekFlightSplitBrancher",
+                        "ParsekFlightSurfaceCapture"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "Route")
         self.assertEqual(second["sizeBefore"], 454)
@@ -3498,7 +3499,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # 471 after PF3's ParsekFlightPostSwitchAutoRecord, of 472 after PF4's
         # ParsekFlightPlaybackHost, of 473 after PF5's ParsekFlightSpawnHost and of 474
         # after PF6's ParsekFlightSurfaceCapture and of 475 after PF7's
-        # ParsekFlightSplitBrancher (the same shape).
+        # ParsekFlightSplitBrancher and of 476 after PF8's ParsekFlightMergeFlow (the same
+        # shape).
         # The bound ratchets: it is tightened to the measured replayed residue, 283.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
