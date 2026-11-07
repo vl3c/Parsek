@@ -24,6 +24,10 @@ All notable changes to Parsek are documented here.
   flew is listed under the kerbal it stood in for; the Roster's Last flight cell now adds
   "(flown by <stand-in>)" as the Flights tab already did, instead of reading as the kerbal's own
   flight. (KERBALS-WINDOW-RESIDUE-2026-09-15)
+- **A coast that starts right after a burn no longer counts as part of the burn.** Time warp
+  taken just after cutting the engines left the recorder thinking the engines still ran, so an
+  idle coast at the end of a flight was kept and a loop kept it too. New recordings mark it as a
+  coast. (RECORDER-UNPACK-STUB-KEEPS-COAST-PROPULSIVE)
 - **A crashed flight's ghost looks the same on the map whether it was stored whole or in pieces.**
   The climb part of a crash flight no longer shows as a KSP vessel on an orbit it never flew; in
   the Tracking Station a crash flight's ghost now keeps Parsek's marker along its coast instead of

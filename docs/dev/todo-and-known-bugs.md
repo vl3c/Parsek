@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## RECORDER-UNPACK-STUB-KEEPS-COAST-PROPULSIVE: the first physics section after a warp that began just after a burn opens as a 2-frame ExoPropulsive stub [FILED 2026-11-07 from the 1.0.1 pre-release trim check (archive scan of 2902 runs plus B6-minmus-flyby `2026-11-07_1902`). OPEN; product, low (no visible effect measured)]
+## ~~RECORDER-UNPACK-STUB-KEEPS-COAST-PROPULSIVE: the first physics section after a warp that began just after a burn opens as a 2-frame ExoPropulsive stub~~ [FILED 2026-11-07 from the 1.0.1 pre-release trim check (archive scan of 2902 runs plus B6-minmus-flyby `2026-11-07_1902`). FIXED 2026-11-07 (owner pick: fix before 1.0.1), branch `claude/project-thread-nc9lw9`, xUnit; flight owed (see Fix). product, low]
 
 The environment hysteresis is frozen while the vessel is packed, so when time warp starts inside a
 burn's debounce window it still reads ExoPropulsive at unpack. RECORDER-LABELS-ON-RAILS-CHECKPOINTS-
@@ -31,9 +31,13 @@ such a stub, and no active recording in the archive ever ended on an ExoPropulsi
 the stub exists, the relabel does not change boring-tail trim, the auto loop range or the
 switch-segment no-op check for a coast that follows a burn (the stub is the last "interesting" UT).
 
-**Fix:** reset or re-derive the environment hysteresis on unpack (a packed vessel had no thrust), or
-open the post-unpack section through the same resolver. Needs a flight that ends on an idle coast
-after a warp-at-cutoff to show the trim firing; deferred past 1.0.1.
+**Fix:** `EnvironmentHysteresis.SettleForPackedVessel` settles a confirmed ExoPropulsive to
+ExoBallistic (no debounce, pending flip dropped) and `FlightRecorder` calls it at both rails
+transitions (`OnVesselGoOnRails` before the checkpoint section opens, `OnVesselGoOffRails` before
+the post-unpack Absolute section opens), logging `Environment settled for packed vessel`. A real
+burn after the unpack re-confirms through the usual 1 s thrust debounce. Owed: a flight whose
+recording ends on an idle coast after a warp taken right at engine cutoff, showing
+`TrimBoringTail: trimmed`.
 
 ## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
 
