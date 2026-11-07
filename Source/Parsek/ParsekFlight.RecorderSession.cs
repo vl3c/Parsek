@@ -139,7 +139,7 @@ namespace Parsek
         /// Creates a new FlightRecorder for the promoted vessel, starts recording with
         /// isPromotion=true, updates activeTree state.
         /// </summary>
-        void PromoteRecordingFromBackground(
+        internal void PromoteRecordingFromBackground(
             string backgroundRecordingId,
             Vessel newVessel)
         {
@@ -258,7 +258,7 @@ namespace Parsek
                 lastLandedUT = currentUT;
             }
 
-            var launchDecision = EvaluateAutoRecordLaunchDecision(
+            var launchDecision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: IsRecording,
                 isActiveVessel: data.host == FlightGlobals.ActiveVessel,
                 fromSituation: data.from,
@@ -329,7 +329,7 @@ namespace Parsek
                     Time.frameCount,
                     TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame);
 
-            var stagingDecision = EvaluateAutoRecordStagingDecision(
+            var stagingDecision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordStagingDecision(
                 isRecording: IsRecording,
                 hasActiveVessel: av != null,
                 activeVesselIsPrelaunch: av != null && av.situation == Vessel.Situations.PRELAUNCH,
@@ -1022,7 +1022,7 @@ namespace Parsek
 
         private void PrepareSessionStateForRecorderStart(string reason)
         {
-            DisarmPostSwitchAutoRecord(reason);
+            PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord(reason);
 
             // BUG #2: every recorder start resets the live-resume anchor to NaN; only
             // the no-session resume / promote paths re-arm it (after this call returns)

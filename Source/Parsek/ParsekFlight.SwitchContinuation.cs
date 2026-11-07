@@ -432,7 +432,7 @@ namespace Parsek
 
             if (newVessel == null)
             {
-                DisarmPostSwitchAutoRecord("active vessel became null");
+                PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("active vessel became null");
                 return;
             }
 
@@ -444,14 +444,14 @@ namespace Parsek
             // Dock-induced vessel switches must not arm/start before Update() runs the merge handler.
             if (pendingTreeDockMerge)
             {
-                DisarmPostSwitchAutoRecord("pending tree dock merge");
+                PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("pending tree dock merge");
                 return;
             }
 
             // Don't arm/start during pending board merge — the board handler in Update() owns this.
             if (recorder != null && recorder.ChainToVesselPending)
             {
-                DisarmPostSwitchAutoRecord("pending boarding merge");
+                PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("pending boarding merge");
                 return;
             }
 
@@ -543,7 +543,7 @@ namespace Parsek
             var consumeResult = TryConsumeStockActionIntent(newVessel);
             if (consumeResult.StartedSegment)
             {
-                DisarmPostSwitchAutoRecord("consumed-by-stock-action-segment");
+                PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("consumed-by-stock-action-segment");
                 LogOnVesselSwitchCompleteRecState(
                     "OnVesselSwitchComplete:post",
                     CaptureRecorderState(),
@@ -553,8 +553,8 @@ namespace Parsek
 
             bool trackedInActiveTree = activeTree != null
                 && activeTree.BackgroundMap.ContainsKey(newPid);
-            var armDecision = EvaluatePostSwitchAutoRecordArmDecision(
-                ShouldArmPostSwitchAutoRecord(
+            var armDecision = ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchAutoRecordArmDecision(
+                ParsekFlightPostSwitchAutoRecord.ShouldArmPostSwitchAutoRecord(
                     ParsekSettings.Current?.autoRecordOnFirstModificationAfterSwitch != false,
                     IsRecording,
                     hasNewVessel: true,
@@ -587,7 +587,7 @@ namespace Parsek
             switch (armDecision)
             {
                 case PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember:
-                    ArmPostSwitchAutoRecord(
+                    PostSwitchAutoRecorder.ArmPostSwitchAutoRecord(
                         newVessel,
                         "vessel switch to tracked background member while idle",
                         trackedInActiveTree: true,
@@ -595,7 +595,7 @@ namespace Parsek
                     break;
 
                 case PostSwitchAutoRecordArmDecision.ArmOutsider:
-                    ArmPostSwitchAutoRecord(
+                    PostSwitchAutoRecorder.ArmPostSwitchAutoRecord(
                         newVessel,
                         "vessel switch to outsider while idle",
                         trackedInActiveTree: false,
@@ -2032,7 +2032,7 @@ namespace Parsek
             var consumeResult = TryConsumeStockActionIntent(activeVesselForConsume);
             if (consumeResult.StartedSegment)
             {
-                DisarmPostSwitchAutoRecord("consumed-by-stock-action-segment");
+                PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("consumed-by-stock-action-segment");
             }
         }
 

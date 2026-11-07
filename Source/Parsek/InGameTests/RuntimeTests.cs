@@ -104,7 +104,7 @@ namespace Parsek.InGameTests
             typeof(ParsekFlight).GetMethod("DiscardActiveTreeForSuppressedSceneExit",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly MethodInfo ParsekFlightDisarmPostSwitchAutoRecordMethod =
-            typeof(ParsekFlight).GetMethod("DisarmPostSwitchAutoRecord",
+            typeof(ParsekFlightPostSwitchAutoRecord).GetMethod("DisarmPostSwitchAutoRecord",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly FieldInfo ParsekFlightPostSwitchAutoRecordField =
             typeof(ParsekFlight).GetField("postSwitchAutoRecord",
@@ -4022,7 +4022,8 @@ namespace Parsek.InGameTests
 
             try
             {
-                ParsekFlightDisarmPostSwitchAutoRecordMethod.Invoke(flight, new object[] { reason });
+                ParsekFlightDisarmPostSwitchAutoRecordMethod.Invoke(
+                    flight.PostSwitchAutoRecorder, new object[] { reason });
             }
             catch
             {

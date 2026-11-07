@@ -1421,7 +1421,7 @@ namespace Parsek
                     // is already tracking, but post-switch auto-record now arms and waits
                     // for the first meaningful modification instead of promoting on focus
                     // change alone.
-                    ArmPostSwitchAutoRecord(
+                    PostSwitchAutoRecorder.ArmPostSwitchAutoRecord(
                         newActive,
                         "restore completed on tracked tree member while idle",
                         trackedInActiveTree: true,
@@ -1439,7 +1439,7 @@ namespace Parsek
                         $"RestoreActiveTreeFromPendingForVesselSwitch: tree '{activeTree.TreeName}' reinstalled " +
                         $"as outsider for active vessel '{newActive.vesselName}' (pid={newPid}, not in " +
                         $"BackgroundMap) — recorder stays null until a post-switch trigger starts fresh or a later tracked switch promotes on trigger");
-                    ArmPostSwitchAutoRecord(
+                    PostSwitchAutoRecorder.ArmPostSwitchAutoRecord(
                         newActive,
                         "restore completed on outsider while idle",
                         trackedInActiveTree: false,

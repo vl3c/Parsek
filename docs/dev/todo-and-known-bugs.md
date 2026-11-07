@@ -2889,6 +2889,19 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   moved initializers and the dropped interface. The tool gained the folds this needed (display
   classes, accessor through a local, branch ordinals, widenings listed apart). Knot 469 -> 470,
   replayed residue 283 unchanged (canaries re-pinned).
+- PF3 landed: `ParsekFlightPostSwitchAutoRecord` (1,438 lines, lazy `PostSwitchAutoRecorder`) is
+  the post-switch auto-record watch and the deferred EVA auto-record: all 53 methods of the seam
+  (12 instance, 41 statics; `.PostSwitchPredicates.cs` deleted, `.PostSwitchAutoRecord.cs` 1,213
+  -> 102 lines, its nested types only) and 10 constants. The watch state (`postSwitchAutoRecord`,
+  `pendingAutoRecord`) stays on ParsekFlight, which host members, `PhysicsFramePatch` (through
+  `HasArmedPostSwitchAutoRecordWatch`) and the in-game tests read;
+  `OnPostSwitchAutoRecordPhysicsFrame` stays as a forwarder so the patch is not edited. xUnit
+  callers of the moved statics re-pointed (64 references in 4 files); the in-game
+  `DisarmPostSwitchAutoRecord` reflection reflects on the service. 19 declarations widened private
+  -> internal (11 fields, 7 methods, 1 nested type). IL (`--fold`): 0 moved-body differences; the
+  6 left are the accessor (field, property, getter), the service's host field and constructor and
+  the forwarder. `il_compare.py` reads a short branch as its long form. Knot 470 -> 471, replayed
+  residue 283 unchanged (canaries re-pinned).
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 

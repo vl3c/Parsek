@@ -9,7 +9,7 @@ namespace Parsek.Tests
     /// <summary>
     /// Another mission's vessel the player switched to and flew to a dock joins the tree under
     /// a <see cref="BranchPointType.Launch"/> branch point
-    /// (<c>ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording</c>). The committed
+    /// (<c>ParsekFlightPostSwitchAutoRecord.PrepareActiveTreeForFreshPostSwitchRecording</c>). The committed
     /// <c>interbody-route-recorded</c> fixture carries two such joins: Duna Supply 1 docking
     /// with "Depot Station Duna I" (mission 'Kerbal X #5'), and Kerbal X #4 docking with
     /// "Kerbal X" (mission 'Kerbal X #3') and undocking as "Deliverer Mun 1". Each cell names

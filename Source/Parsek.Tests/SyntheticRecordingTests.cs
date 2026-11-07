@@ -9259,7 +9259,7 @@ namespace Parsek.Tests
         // parent, no branch point, a ghosting-trigger part event. That is the one production
         // shape through which a tree records a vessel that is neither its root lineage nor a
         // split product of it (todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED item 2):
-        // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording starts a parentless
+        // ParsekFlightPostSwitchAutoRecord.PrepareActiveTreeForFreshPostSwitchRecording starts a parentless
         // recording when the switch happened while the tree had no active recording, and
         // StartStandaloneContinuationSegment attaches a parentless segment to a live tree. On
         // the next switch the vessel moves into BackgroundMap and BackgroundRecorder polls its
