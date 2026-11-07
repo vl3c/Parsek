@@ -1163,7 +1163,7 @@ namespace Parsek.Tests
                 ChildRecordingIds = new List<string> { "rec_refly" }
             });
 
-            RecordingStore.StashPendingTree(replacement);
+            PendingTreeSlot.StashPendingTree(replacement);
             RecordingStore.CommitPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
@@ -1219,7 +1219,7 @@ namespace Parsek.Tests
             // Critically: replacement's "root" instance has no rewind save.
             Assert.Null(replacement.Recordings["root"].RewindSaveFileName);
 
-            RecordingStore.StashPendingTree(replacement);
+            PendingTreeSlot.StashPendingTree(replacement);
             RecordingStore.CommitPendingTree();
 
             var rootCommitted = RecordingStore.CommittedRecordings
@@ -1279,7 +1279,7 @@ namespace Parsek.Tests
             replacement.BranchPoints[0].ChildRecordingIds.Add("rec_refly");
             replacement.ActiveRecordingId = "rec_refly";
 
-            RecordingStore.StashPendingTree(replacement);
+            PendingTreeSlot.StashPendingTree(replacement);
             RecordingStore.CommitPendingTree();
 
             var rootCommitted = RecordingStore.CommittedRecordings
@@ -1330,7 +1330,7 @@ namespace Parsek.Tests
             replacement.BranchPoints[0].ChildRecordingIds.Add("rec_refly");
             replacement.ActiveRecordingId = "rec_refly";
 
-            RecordingStore.StashPendingTree(replacement);
+            PendingTreeSlot.StashPendingTree(replacement);
             RecordingStore.CommitPendingTree();
 
             Assert.Single(RecordingStore.CommittedTrees);
@@ -1351,7 +1351,7 @@ namespace Parsek.Tests
         {
             var tree = MakeSimpleTree();
 
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.True(RecordingStore.HasPendingTree);
             Assert.Equal("tree001", RecordingStore.PendingTree.Id);
@@ -1361,7 +1361,7 @@ namespace Parsek.Tests
         public void CommitPendingTree_CommitsAndClears()
         {
             var tree = MakeSimpleTree();
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.CommitPendingTree();
 
@@ -1374,7 +1374,7 @@ namespace Parsek.Tests
         public void DiscardPendingTree_ClearsWithoutCommitting()
         {
             var tree = MakeSimpleTree();
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -1586,7 +1586,7 @@ namespace Parsek.Tests
         {
             var tree = MakeSimpleTree();
             RecordingStore.CommitTree(tree);
-            RecordingStore.StashPendingTree(MakeSimpleTree("pending_tree"));
+            PendingTreeSlot.StashPendingTree(MakeSimpleTree("pending_tree"));
 
             RecordingStore.ResetForTesting();
 

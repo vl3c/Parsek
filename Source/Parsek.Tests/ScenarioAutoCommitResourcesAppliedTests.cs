@@ -152,7 +152,7 @@ namespace Parsek.Tests
             var rec2 = MakeRecording("rec-safety-2", "tree-safety", 150.0, 220.0);
             var tree = MakeTree("tree-safety", "rec-safety-1", rec1, rec2);
 
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             Assert.True(RecordingStore.HasPendingTree);
             foreach (var r in tree.Recordings.Values)
                 Assert.Equal(-1, r.LastAppliedResourceIndex);
@@ -174,7 +174,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("rec-outside", "tree-outside", 100.0, 200.0);
             var tree = MakeTree("tree-outside", "rec-outside", rec);
 
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
             Assert.Equal(2, rec.LastAppliedResourceIndex);
@@ -200,7 +200,7 @@ namespace Parsek.Tests
 
             var rec = MakeRecording("rec-auto-mile", "tree-auto-mile", 200.0, 300.0);
             var tree = MakeTree("tree-auto-mile", "rec-auto-mile", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             var milestonesBefore = MilestoneStore.Milestones;
             var indexesBefore = new List<int>(milestonesBefore.Count);
@@ -225,7 +225,7 @@ namespace Parsek.Tests
             var fullRec = MakeRecording("rec-auto-full", "tree-auto-empty", 100.0, 200.0);
             var emptyRec = MakeRecording("rec-auto-empty", "tree-auto-empty", 0.0, 0.0, emptyPoints: true);
             var tree = MakeTree("tree-auto-empty", "rec-auto-full", fullRec, emptyRec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.Equal(-1, fullRec.LastAppliedResourceIndex);
             Assert.Equal(-1, emptyRec.LastAppliedResourceIndex);
@@ -278,7 +278,7 @@ namespace Parsek.Tests
 
             var rec = MakeRecording("rec-discard-helper", "tree-discard-helper", 100.0, 200.0);
             var tree = MakeTree("tree-discard-helper", "rec-discard-helper", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             ParsekScenario.DiscardPendingTreeAndRecalculate("test helper");
 
@@ -317,7 +317,7 @@ namespace Parsek.Tests
             // the seam body - the only place the order is visible at all.
             var rec = MakeRecording("rec-order", "tree-order", 100.0, 200.0);
             var tree = MakeTree("tree-order", "rec-order", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.True(RecordingStore.HasPendingTree);
             Assert.Same(tree, RecordingStore.PendingTree);

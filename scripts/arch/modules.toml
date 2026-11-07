@@ -251,10 +251,11 @@ placement = "R0"
 # RecordingStore services plan): the scene-entry vessel scope is store state the spawn
 # dedup and the replay bypass read; the committed-list optimizer is the store's
 # optimization pass; the committed-tree restore attempt is store state the commit and
-# discard paths read
+# discard paths read; the pending-tree slot is store state OnSave serializes and OnLoad
+# dispatches
 [[module]]
 name = "Recording"
-prefix = "^SceneEntryVesselScope[.]cs$|^CommittedListOptimizer[.]cs$|^CommittedTreeRestoreAttempt[.]cs$"
+prefix = "^SceneEntryVesselScope[.]cs$|^CommittedListOptimizer[.]cs$|^CommittedTreeRestoreAttempt[.]cs$|^PendingTreeSlot[.]cs$"
 placement = "R0"
 
 # live vessel capture at recorder stop and split time (TryBackupSnapshot, SnapshotVessel),

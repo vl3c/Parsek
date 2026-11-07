@@ -32,7 +32,7 @@ tier = "operator"
 # `Source/Parsek.Tests/AutoMergeGhostOnlyReachabilityTests.cs` pins the save-state
 # half of the chain, deterministically:
 #   - the `isPending` marker really is structurally re-finalized
-#     (`RecordingStore.RestorePendingTreeFromSave` hard-sets `Finalized`), so the
+#     (`PendingTreeSlot.RestorePendingTreeFromSave` hard-sets `Finalized`), so the
 #     entry's own "saved trees restore as Finalized" argument is CORRECT for it;
 #   - but the `isActive` marker is NOT. `TryRestoreActiveTreeNode` stashes `Limbo`
 #     (or `LimboVesselSwitch`), and `SavePendingTreeIfAny`'s Limbo branch WRITES that

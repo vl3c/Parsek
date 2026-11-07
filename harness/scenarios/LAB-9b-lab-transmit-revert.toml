@@ -24,7 +24,7 @@ tier = "operator"
 # 0.50. Then Revert to Launch with the recorder live (no Re-Fly session, so stock's own revert
 # runs: `RevertInterceptor` lets it through). The load classifies StockRevert, the live tree
 # is stashed as Limbo at the scene change and soft-unstashed by the revert branch
-# (`RecordingStore.UnstashPendingTreeOnRevert`: "events stay in-memory and on-disk, filtered by
+# (`PendingTreeSlot.UnstashPendingTreeOnRevert`: "events stay in-memory and on-disk, filtered by
 # recording-id visibility"), so the tagged credit stays a hidden event of a tree that no longer
 # exists and never becomes a ledger row; stock reloads the post-init state, so the lab is back
 # at 12.50 / 204.00 and the pool at 100. The proof of both is the next transmit, made with no

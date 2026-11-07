@@ -133,7 +133,7 @@ namespace Parsek.Tests
             // commits silently (full fidelity) instead of surfacing an approval
             // dialog. See docs/dev/done/plans/silent-full-fidelity-autocommit.md.
             ParsekScenario.SetCachedAutoMergeForTesting(true);
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakePendingTree("pending_landed", TerminalState.Landed),
                 PendingTreeState.Finalized);
 
@@ -153,7 +153,7 @@ namespace Parsek.Tests
                     SessionId = "sess_pending_limbo"
                 }
             });
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakePendingTree("pending_limbo", TerminalState.Destroyed),
                 PendingTreeState.Limbo);
 
@@ -174,7 +174,7 @@ namespace Parsek.Tests
                 capturedScene = scene;
                 capturedVariant = variant;
             };
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakePendingTree("pending_prefix", TerminalState.Destroyed),
                 PendingTreeState.Finalized);
 
@@ -263,7 +263,7 @@ namespace Parsek.Tests
             // This is the common case for a session whose live recorder
             // was torn down mid-segment.
             const string treeId = "session_tree_pending";
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakePendingTree(treeId, TerminalState.Orbiting),
                 PendingTreeState.Finalized);
 

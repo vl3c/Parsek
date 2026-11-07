@@ -515,7 +515,7 @@ namespace Parsek.Tests
         [Fact]
         public void DiscardPendingTree_ColdLoadOverlap_RoutesOverlapIdsToPreserveViaDurableHint()
         {
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakeUnserializableTree("tree-overlap", "Overlap", "rec-overlap"),
                 PendingTreeState.Finalized);
             Assert.Empty(RecordingStore.CommittedTrees); // cold load: trees not loaded yet
@@ -551,7 +551,7 @@ namespace Parsek.Tests
         [Fact]
         public void DiscardPendingTree_ColdLoadOverlap_WithoutHint_TakesTheDeleteBranch()
         {
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakeUnserializableTree("tree-control", "Control", "rec-control"),
                 PendingTreeState.Finalized);
             RecordingStore.ClearDurableCommittedRecordingIdHint();

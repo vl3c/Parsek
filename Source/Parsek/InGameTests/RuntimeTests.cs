@@ -5058,7 +5058,7 @@ namespace Parsek.InGameTests
             try
             {
                 MergeDialog.DismissAndClearPendingFlag("runtime merge discard setup");
-                RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+                PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
                 ParsekScenario.MergeDialogPending = true;
 
                 MergeDialog.ShowTreeDialog(tree);
@@ -5145,7 +5145,7 @@ namespace Parsek.InGameTests
             try
             {
                 MergeDialog.DismissAndClearPendingFlag("runtime deferred merge commit setup");
-                RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+                PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
                 ParsekScenario.MergeDialogPending = true;
 
                 IEnumerator deferredDialog = ParsekScenarioShowDeferredMergeDialogMethod.Invoke(

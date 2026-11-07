@@ -171,7 +171,7 @@ namespace Parsek
                     || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
             {
                 PendingTreeState poppedState = RecordingStore.PendingTreeStateValue;
-                RecordingTree popped = RecordingStore.PopPendingTree();
+                RecordingTree popped = PendingTreeSlot.PopPendingTree();
                 poppedLimbo = $"'{popped?.TreeName ?? "<null>"}' id={popped?.Id ?? "<none>"} state={poppedState}";
             }
 

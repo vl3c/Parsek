@@ -42,6 +42,7 @@ namespace Parsek.Tests
             typeof(RecordingFileJanitor),
             typeof(SceneEntryVesselScope),
             typeof(CommittedTreeRestoreAttempt),
+            typeof(PendingTreeSlot),
         };
 
         private readonly List<string> logLines = new List<string>();
@@ -504,7 +505,7 @@ namespace Parsek.Tests
                 File.WriteAllText(file, "sidecar");
             }
 
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
             var science = new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 1f };
             GameStateRecorder.PendingScienceSubjects.Add(science);
 

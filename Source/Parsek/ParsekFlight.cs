@@ -1750,7 +1750,7 @@ namespace Parsek
             {
                 FinalizeTreeOnSceneChange(scene);
             }
-            else if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+            else if (PendingTreeSlot.TryConsumeNextTreeSceneExitCommitSuppression(
                 scene,
                 out string suppressReason))
             {
@@ -2554,7 +2554,7 @@ namespace Parsek
                 return;
             }
 
-            if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(scene, out string suppressReason))
+            if (PendingTreeSlot.TryConsumeNextTreeSceneExitCommitSuppression(scene, out string suppressReason))
             {
                 DiscardActiveTreeForSuppressedSceneExit(
                     scene,
@@ -2687,7 +2687,7 @@ namespace Parsek
                 // skip replacing the in-memory tree with the stale .sfs version (which was
                 // written before FinalizeTreeRecordings and lacks MaxDistanceFromLaunch,
                 // terminal states, and re-snapshotted vessels). See bug #290d.
-                RecordingStore.StashPendingTree(activeTree);
+                PendingTreeSlot.StashPendingTree(activeTree);
                 ParsekLog.Info("Flight",
                     $"CommitTreeSceneExit (autoMerge off): stashed tree '{activeTree.TreeName}' with snapshots preserved");
             }
@@ -3002,7 +3002,7 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"ShowPostDestructionTreeMergeDialog: finalized tree '{activeTree.TreeName}'");
 
-            RecordingStore.StashPendingTree(activeTree);
+            PendingTreeSlot.StashPendingTree(activeTree);
             ParsekLog.Info("Flight",
                 $"ShowPostDestructionTreeMergeDialog: stashed pending tree '{activeTree.TreeName}'");
 
@@ -14379,7 +14379,7 @@ namespace Parsek
             FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: false);
 
             // Stash as pending tree -- snapshots preserved for merge dialog
-            RecordingStore.StashPendingTree(activeTree);
+            PendingTreeSlot.StashPendingTree(activeTree);
 
             ParsekLog.Info("Flight",
                 $"CommitTreeRevert: stashed pending tree '{activeTree.TreeName}' with snapshots preserved");
@@ -14796,7 +14796,7 @@ namespace Parsek
 
             // Pop the tree out of pending-Limbo (non-destructive — preserves sidecar files)
             // and re-install as the live active tree.
-            activeTree = RecordingStore.PopPendingTree();
+            activeTree = PendingTreeSlot.PopPendingTree();
             if (activeTree == null)
             {
                 ParsekLog.Warn("Flight",
@@ -14805,7 +14805,7 @@ namespace Parsek
             }
             // PopPendingTree just emptied the main pending slot; a saved pending
             // tree from the same save can now move back unless another path filled it.
-            RecordingStore.PromoteSavedPendingTreeAfterActiveRestore(
+            PendingTreeSlot.PromoteSavedPendingTreeAfterActiveRestore(
                 "RestoreActiveTreeFromPending");
 
             // Construct a fresh FlightRecorder pointed at the restored tree.
@@ -15007,7 +15007,7 @@ namespace Parsek
                 {
                     string treeId = pending.Id;
                     int total = pending.Recordings?.Count ?? 0;
-                    bool serialized = RecordingStore.PendingTreeSerializedForSave;
+                    bool serialized = PendingTreeSlot.PendingTreeSerializedForSave;
                     ParsekLog.Info("Flight",
                         $"Fresh-rollout refusal ({site}): discarding resumed copy of committed tree " +
                         $"'{pending.TreeName}' (id={treeId}, state={RecordingStore.PendingTreeStateValue}, " +
@@ -15078,7 +15078,7 @@ namespace Parsek
         /// <summary>
         /// Commits a refused pending tree at the refusal (operator ruling 2026-09-26, todo
         /// FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING) instead of leaving it pending for the next
-        /// <see cref="RecordingStore.StashPendingTree"/> to overwrite. It takes the same route
+        /// <see cref="PendingTreeSlot.StashPendingTree"/> to overwrite. It takes the same route
         /// a Limbo stash takes when FLIGHT is left under autoMerge
         /// (<c>ParsekScenario.AutoCommitPendingTreeOutsideFlight</c>'s Limbo-preserving
         /// full-fidelity branch): <see cref="MergeDialog.BuildDefaultVesselDecisions(RecordingTree)"/>
@@ -15105,7 +15105,7 @@ namespace Parsek
             string treeId = pending.Id ?? "<none>";
             int total = pending.Recordings?.Count ?? 0;
             PendingTreeState stateAtCommit = RecordingStore.PendingTreeStateValue;
-            bool serialized = RecordingStore.PendingTreeSerializedForSave;
+            bool serialized = PendingTreeSlot.PendingTreeSerializedForSave;
             RecordingTree committedTwin = RecordingStore.FindCommittedTreeById(pending.Id);
             int committedTwinRecordings = committedTwin?.Recordings?.Count ?? 0;
             try
@@ -15274,7 +15274,7 @@ namespace Parsek
                     if (TryRevertPreTransitionForVesselSwitch(
                             RecordingStore.PendingTree, out string restoredRecId))
                     {
-                        RecordingStore.ConvertPendingVesselSwitchStashToLimbo(
+                        PendingTreeSlot.ConvertPendingVesselSwitchStashToLimbo(
                             "fresh-rollout refusal restored activeRecId=" + restoredRecId);
                     }
                     else
@@ -15291,7 +15291,7 @@ namespace Parsek
 
             // Pop the tree (non-destructive — preserves sidecar files) and install
             // as the live active tree.
-            activeTree = RecordingStore.PopPendingTree();
+            activeTree = PendingTreeSlot.PopPendingTree();
             if (activeTree == null)
             {
                 ParsekLog.Warn("Flight",
@@ -15301,7 +15301,7 @@ namespace Parsek
             }
             // PopPendingTree just emptied the main pending slot; a saved pending
             // tree from the same save can now move back unless another path filled it.
-            RecordingStore.PromoteSavedPendingTreeAfterActiveRestore(
+            PendingTreeSlot.PromoteSavedPendingTreeAfterActiveRestore(
                 "RestoreActiveTreeFromPendingForVesselSwitch");
 
             // Re-attach the BackgroundRecorder for the tree (the previous instance was
@@ -15486,7 +15486,7 @@ namespace Parsek
 
             // Stash as pending-Limbo. NO FinalizeTreeRecordings — terminal state deferred
             // to OnLoad's dispatch once it knows whether this is a revert or a quickload.
-            RecordingStore.StashPendingTree(activeTree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(activeTree, PendingTreeState.Limbo);
 
             ParsekLog.Info("Flight",
                 $"StashActiveTreeAsPendingLimbo: stashed tree '{activeTree.TreeName}' as Limbo " +
@@ -16449,7 +16449,7 @@ namespace Parsek
 
             // 4. Stash as LimboVesselSwitch. The OnLoad dispatch routes this state to
             //    the vessel-switch restore coroutine.
-            RecordingStore.StashPendingTree(activeTree, PendingTreeState.LimboVesselSwitch);
+            PendingTreeSlot.StashPendingTree(activeTree, PendingTreeState.LimboVesselSwitch);
 
             ParsekLog.Info("Flight",
                 $"StashActiveTreeForVesselSwitch: stashed tree '{activeTree.TreeName}' as " +
@@ -16533,7 +16533,7 @@ namespace Parsek
 
             // Stash as pending tree -- committed by ParsekScenario.OnLoad
             // (full-fidelity MergeCommit when it qualifies, else ghost-only).
-            RecordingStore.StashPendingTree(activeTree);
+            PendingTreeSlot.StashPendingTree(activeTree);
 
             ParsekLog.Info("Flight", $"CommitTreeSceneExit: stashed pending tree '{activeTree.TreeName}'");
             RecorderStateLog.RecState("CommitTreeSceneExit:post", CaptureRecorderState());

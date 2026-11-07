@@ -18,7 +18,7 @@ namespace Parsek.Tests
     ///
     /// <list type="number">
     /// <item>The <c>isPending</c> on-disk marker really is structurally
-    /// re-finalized — <c>RecordingStore.RestorePendingTreeFromSave</c> hard-sets
+    /// re-finalized — <c>PendingTreeSlot.RestorePendingTreeFromSave</c> hard-sets
     /// <see cref="PendingTreeState.Finalized"/>, so a tree that round-trips through
     /// THAT marker can never reach the ghost-only branch.</item>
     /// <item>But it is not the only marker. A Limbo / LimboVesselSwitch pending tree
@@ -171,7 +171,7 @@ namespace Parsek.Tests
             Assert.NotEqual(GameScenes.FLIGHT, HighLogic.LoadedScene);
 
             var tree = MakeTree("tree_limbo_roundtrip", "Limbo Roundtrip", "rec_limbo_roundtrip");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             var saved = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(saved);
@@ -228,7 +228,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree_limbo_fidelity", "Limbo Fidelity", "rec_limbo_fidelity_a");
             tree.Recordings["rec_limbo_fidelity_a"].VesselSnapshot = MakeSnapshotNode("A");
             AddRecording(tree, "rec_limbo_fidelity_b", withSnapshot: true);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             // The route, and then EXACTLY what the site does with it: the dialog's
             // own decisions, applied by the dialog's own ApplyVesselDecisions —
@@ -271,7 +271,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree_limbo_unsafe", "Limbo Unsafe", "rec_limbo_unsafe");
             tree.Recordings["rec_limbo_unsafe"].VesselSnapshot =
                 MakeSnapshotNode("Unspawnable", sit);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
@@ -341,7 +341,7 @@ namespace Parsek.Tests
             var tree = Generators.ScenarioWriter.MaterializeTree(
                 Generators.PendingLimboTreeFixture.BuildBuilders(baseUT: 1000.0),
                 activeRecordingId: Generators.PendingLimboTreeFixture.ChildRecordingId);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,

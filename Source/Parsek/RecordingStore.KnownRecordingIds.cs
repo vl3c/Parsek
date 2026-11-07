@@ -16,8 +16,8 @@ namespace Parsek
             for (int i = 0; i < committedRecordings.Count; i++)
                 AddKnownRecordingId(knownIds, committedRecordings[i]);
 
-            AddKnownTreeRecordingIds(knownIds, pendingTree);
-            AddKnownTreeRecordingIds(knownIds, savedPendingTreeDuringActiveRestore);
+            AddKnownTreeRecordingIds(knownIds, PendingTreeSlot.PendingTree);
+            AddKnownTreeRecordingIds(knownIds, PendingTreeSlot.SavedPendingTreeDuringActiveRestore);
             // GC-3: recordings of committed trees kept inert are known (not orphans).
             InertRecordingTrees.AddRecordingIdsTo(knownIds);
             return knownIds;
@@ -78,9 +78,9 @@ namespace Parsek
             }
 
             pendingTreeIdCount = 0;
-            pendingTreeIdCount += AddKnownTreeRecordingIds(knownIds, pendingTree);
+            pendingTreeIdCount += AddKnownTreeRecordingIds(knownIds, PendingTreeSlot.PendingTree);
             pendingTreeIdCount += AddKnownTreeRecordingIds(
-                knownIds, savedPendingTreeDuringActiveRestore);
+                knownIds, PendingTreeSlot.SavedPendingTreeDuringActiveRestore);
             // GC-3: recordings of committed trees kept inert are known, so the ledger
             // reconcile keeps their rows and the sweeps do not treat them as orphans.
             InertRecordingTrees.AddRecordingIdsTo(knownIds);

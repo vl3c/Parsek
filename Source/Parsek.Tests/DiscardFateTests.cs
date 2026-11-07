@@ -114,7 +114,7 @@ namespace Parsek.Tests
             GameStateRecorder.Emit(ref evt, "test");
 
             var tree = MakeTree("tree001", "rec-A");
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             // CommitPendingTree moves the tree into committed state — our tagged event
             // stays in GameStateStore because commit never calls PurgeEventsForRecordings.
@@ -142,7 +142,7 @@ namespace Parsek.Tests
             GameStateRecorder.Emit(ref evt, "test");
 
             var tree = MakeTree("tree001", "rec-A");
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -186,7 +186,7 @@ namespace Parsek.Tests
             MilestoneStore.AddMilestoneForTesting(milestone);
 
             var pendingTree = MakeTree("tree-pending-overlap", "rec-shared", "rec-pending-only");
-            RecordingStore.StashPendingTree(pendingTree);
+            PendingTreeSlot.StashPendingTree(pendingTree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -228,7 +228,7 @@ namespace Parsek.Tests
 
             // Tree contains ids that don't match the KSC event's (empty) tag.
             var tree = MakeTree("tree001", "rec-A", "rec-B");
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -254,7 +254,7 @@ namespace Parsek.Tests
             GameStateRecorder.Emit(ref evtEva, "eva");
 
             var tree = MakeTree("tree001", "rec-parent", "rec-eva");
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -274,7 +274,7 @@ namespace Parsek.Tests
             GameStateStore.AddEvent(ref legacyEvt);
 
             var tree = MakeTree("tree001", "rec-A", "rec-B");
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -330,7 +330,7 @@ namespace Parsek.Tests
             GameStateRecorder.Emit(ref completeEvt, "flight");
 
             var tree = MakeTree("tree001", "rec-A");
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -367,7 +367,7 @@ namespace Parsek.Tests
             GameStateRecorder.Emit(ref completeEvt, "flight");
 
             var tree = MakeTree("tree001", "rec-A");
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -400,8 +400,8 @@ namespace Parsek.Tests
                 ActiveRecordingId = "rec-outgoing",
                 RootRecordingId = "rec-outgoing",
             };
-            RecordingStore.StashPendingTree(tree);
-            RecordingStore.SetPendingTreeStateForTesting(PendingTreeState.LimboVesselSwitch);
+            PendingTreeSlot.StashPendingTree(tree);
+            PendingTreeSlot.SetPendingTreeStateForTesting(PendingTreeState.LimboVesselSwitch);
             GameStateRecorder.TagResolverForTesting = null; // use the production resolver
             HighLogic.LoadedScene = GameScenes.SPACECENTER; // scene reads SPACECENTER mid-switch
 
@@ -481,7 +481,7 @@ namespace Parsek.Tests
 
             var techEvt = MakeEvent(GameStateEventType.TechResearched, "node", 10.0);
             GameStateRecorder.Emit(ref techEvt, "test");
-            RecordingStore.StashPendingTree(MakeTree("tree-reset", "rec-reset"));
+            PendingTreeSlot.StashPendingTree(MakeTree("tree-reset", "rec-reset"));
             MilestoneStore.AddMilestoneForTesting(new Milestone
             {
                 MilestoneId = "m1",
@@ -529,7 +529,7 @@ namespace Parsek.Tests
             GameStateRecorder.Emit(ref flushEvt, "flight");
 
             var tree = MakeTree("tree001", "rec-flush");
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             // Simulate F5 mid-flight — flush pulls the event into a committed milestone,
             // PruneProcessedEvents then removes it from the live events list.
@@ -617,7 +617,7 @@ namespace Parsek.Tests
             MilestoneStore.AddMilestoneForTesting(milestone);
 
             var tree = MakeTree("tree-mixed", "rec-A");
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 

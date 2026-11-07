@@ -220,7 +220,7 @@ namespace Parsek.Tests
                 sharedId, "tree_test",
                 switchSegmentSessionId: ToSessionString(session.SessionId));
             var pendingTree = MakeTreeWithRecordings("tree_test", pendingCopy);
-            RecordingStore.StashPendingTree(pendingTree);
+            PendingTreeSlot.StashPendingTree(pendingTree);
 
             // Committed-first ordering preserves committed history's
             // non-owned status.
@@ -386,7 +386,7 @@ namespace Parsek.Tests
             attemptTree.AddOrReplaceRecording(pendingOnlyRec);
             // Bypass via StashPendingTree so IsPendingOnlyCommittedTreeRestoreAttemptRecordingId
             // can find it in pendingTree.
-            RecordingStore.StashPendingTree(attemptTree);
+            PendingTreeSlot.StashPendingTree(attemptTree);
 
             var evt = MakeEvent(ut: 250.0, recordingId: "rec_pending_only");
             Assert.True(

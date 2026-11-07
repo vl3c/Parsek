@@ -117,7 +117,7 @@ namespace Parsek.Tests
         [Fact]
         public void SplitParent_OnlyContinuingChildIsStamped()
         {
-            RecordingStore.StashPendingTree(SplitShape(out var parent, out var child, out var half));
+            PendingTreeSlot.StashPendingTree(SplitShape(out var parent, out var child, out var half));
 
             Assert.True(Recover(350.0));
 
@@ -144,7 +144,7 @@ namespace Parsek.Tests
             debris.IsDebris = true;
             var tree = Tree("tree-breakup", live, debris);
             Link(tree, "bp-breakup", BranchPointType.Breakup, new[] { live }, new[] { debris });
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.True(Recover(320.0));
 
@@ -166,7 +166,7 @@ namespace Parsek.Tests
             var tree = Tree("tree-dock", dominant, absorbed, merged);
             Link(tree, "bp-dock", BranchPointType.Dock,
                 new[] { dominant, absorbed }, new[] { merged });
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.True(Recover(340.0));
 
@@ -186,7 +186,7 @@ namespace Parsek.Tests
             var tree = Tree("tree-chain", r0, r1, r2);
             Link(tree, "bp-chain-1", BranchPointType.JointBreak, new[] { r0 }, new[] { r1 });
             Link(tree, "bp-chain-2", BranchPointType.JointBreak, new[] { r1 }, new[] { r2 });
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.True(Recover(330.0));
 
@@ -203,7 +203,7 @@ namespace Parsek.Tests
         [Fact]
         public void Terminate_SplitShape_OnlyContinuingChildIsDestroyed()
         {
-            RecordingStore.StashPendingTree(SplitShape(out var parent, out var child, out _));
+            PendingTreeSlot.StashPendingTree(SplitShape(out var parent, out var child, out _));
 
             Assert.True(Recover(360.0, TerminalState.Destroyed));
 
@@ -218,7 +218,7 @@ namespace Parsek.Tests
         public void TreeCommit_AfterRecovery_BooksExactlyOneRecoveryFundsRow()
         {
             var tree = SplitShape(out var parent, out var child, out var half);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             var evt = new GameStateEvent
             {
@@ -254,7 +254,7 @@ namespace Parsek.Tests
         [Fact]
         public void SkippedEarlierSegments_LogOneSummaryLine()
         {
-            RecordingStore.StashPendingTree(SplitShape(out _, out _, out _));
+            PendingTreeSlot.StashPendingTree(SplitShape(out _, out _, out _));
 
             Assert.True(Recover(350.0));
 

@@ -294,7 +294,7 @@ namespace Parsek.Tests
             // The quickload shape: the F5 save's flight is restored into the pending slot.
             var tree = new RecordingTree { Id = "tree-ql2", TreeName = "Jumping Flea" };
             tree.Recordings[RecA] = new Recording { RecordingId = RecA, VesselName = "Jumping Flea" };
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             AddMilestone("RecordsSpeed", 11.6, RecA, 1f);
             AddMilestone("RecordsAltitude", 15.0, RecA, 1f);

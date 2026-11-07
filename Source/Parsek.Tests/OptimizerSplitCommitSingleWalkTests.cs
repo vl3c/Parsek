@@ -226,7 +226,7 @@ namespace Parsek.Tests
         {
             var rec = BuildFlight("rec_merge", splittable: true);
             var tree = MakeTree(rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             AddMilestone("RecordsSpeed", 12.0, "rec_merge");
             AddMilestone("Kerbin/Science", 40.0, "rec_merge");
 

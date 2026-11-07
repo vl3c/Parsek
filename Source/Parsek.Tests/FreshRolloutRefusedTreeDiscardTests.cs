@@ -359,7 +359,7 @@ namespace Parsek.Tests
             var committedTip = committed.Recordings[TipId];
             int committedTipPoints = committedTip.Points.Count;
 
-            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
             logLines.Clear();
 
             var d = DisposeRefused();
@@ -420,7 +420,7 @@ namespace Parsek.Tests
             var copy = MakeIdleResumedCopy(committed);
             copy.AddOrReplaceRecording(MakeRec(SegmentId, TreeId, 555u, 201.0, 203.0));
             StageSidecars(SegmentId);
-            RecordingStore.StashPendingTree(copy, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(copy, PendingTreeState.Limbo);
             int versionBefore = RecordingStore.StateVersion;
             logLines.Clear();
 
@@ -471,7 +471,7 @@ namespace Parsek.Tests
             var committed = CommitStationTree();
             var copy = RecordingTree.DeepClone(committed);
             copy.ActiveRecordingId = null;
-            RecordingStore.StashPendingTree(copy, PendingTreeState.LimboVesselSwitch);
+            PendingTreeSlot.StashPendingTree(copy, PendingTreeState.LimboVesselSwitch);
             Assert.False(ParsekFlight.TryRevertPreTransitionForVesselSwitch(copy, out _));
 
             var d = DisposeRefused("vessel-switch-restore");
@@ -499,7 +499,7 @@ namespace Parsek.Tests
                 SwitchUT = 201.0,
                 PreSessionBranchPointIds = new List<string>(),
             });
-            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
 
             var d = DisposeRefused();
 
@@ -522,7 +522,7 @@ namespace Parsek.Tests
                 TreeId = "tree_other",
                 PreSessionBranchPointIds = new List<string>(),
             });
-            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
 
             DisposeRefused();
 
@@ -533,8 +533,8 @@ namespace Parsek.Tests
         public void Discard_OfASerializedCopy_RefreshesPersistentOnly()
         {
             var committed = CommitStationTree();
-            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
-            RecordingStore.MarkPendingTreeSerializedForSave("test");
+            PendingTreeSlot.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+            PendingTreeSlot.MarkPendingTreeSerializedForSave("test");
 
             var d = DisposeRefused();
 
@@ -552,7 +552,7 @@ namespace Parsek.Tests
             {
                 JournalId = "journal_refused", SessionId = "sess", Phase = MergeJournal.Phases.Supersede,
             };
-            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
 
             var d = DisposeRefused();
 
@@ -567,9 +567,9 @@ namespace Parsek.Tests
         {
             var committed = CommitStationTree();
             var refused = MakeIdleResumedCopy(committed);
-            RecordingStore.StashPendingTree(refused, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(refused, PendingTreeState.Limbo);
             var replacement = MakeIdleResumedCopy(committed);
-            RecordingStore.StashPendingTree(replacement, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(replacement, PendingTreeState.Limbo);
 
             var d = ParsekFlight.DisposeFreshRolloutRefusedPendingTree("quickload-restore", refused, 7u);
 
@@ -592,7 +592,7 @@ namespace Parsek.Tests
             };
             fresh.AddOrReplaceRecording(MakeRec("rec_new", "tree_new_uncommitted", 99u, 300.0, 310.0));
             StageSidecars("rec_new");
-            RecordingStore.StashPendingTree(fresh, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(fresh, PendingTreeState.Limbo);
             logLines.Clear();
 
             var d = DisposeRefused();
@@ -629,7 +629,7 @@ namespace Parsek.Tests
             var copy = MakeIdleResumedCopy(committed);
             Assert.True(RecordingStore.RemoveCommittedTreeById(TreeId, "test detach"));
             Assert.Empty(RecordingStore.CommittedTrees);
-            RecordingStore.StashPendingTree(copy, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(copy, PendingTreeState.Limbo);
             logLines.Clear();
 
             var d = DisposeRefused();
@@ -661,7 +661,7 @@ namespace Parsek.Tests
             };
             var rec = MakeRec("rec_new", "tree_new_uncommitted", 99u, 300.0, 310.0);
             fresh.AddOrReplaceRecording(rec);
-            RecordingStore.StashPendingTree(fresh, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(fresh, PendingTreeState.Limbo);
             DisposeRefused();
             rec.FilesDirty = false;
 
@@ -679,7 +679,7 @@ namespace Parsek.Tests
         public void ReFlyOwnedResumedCopy_IsKept()
         {
             var committed = CommitStationTree();
-            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
             RewindInvokeContext.Pending = true;
 
             var d = DisposeRefused();
@@ -705,7 +705,7 @@ namespace Parsek.Tests
             var committed = CommitStationTree();
             var copy = MakeIdleResumedCopy(committed);
             copy.Recordings[TipId].FilesDirty = false;
-            RecordingStore.StashPendingTree(copy, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(copy, PendingTreeState.Limbo);
             DisposeRefused();
 
             var node = new ConfigNode("PARSEK_SCENARIO");
@@ -730,7 +730,7 @@ namespace Parsek.Tests
             var committed = CommitStationTree();
             var copy = MakeIdleResumedCopy(committed);
             copy.Recordings[TipId].FilesDirty = false;
-            RecordingStore.StashPendingTree(copy, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(copy, PendingTreeState.Limbo);
 
             var node = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(node);
@@ -742,7 +742,7 @@ namespace Parsek.Tests
         public void LaterStash_AfterDiscard_DoesNotWarnAboutOverwriting()
         {
             var committed = CommitStationTree();
-            RecordingStore.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(MakeIdleResumedCopy(committed), PendingTreeState.Limbo);
             DisposeRefused();
             logLines.Clear();
 
@@ -751,7 +751,7 @@ namespace Parsek.Tests
                 Id = "tree_launch", TreeName = "Interceptor", RootRecordingId = "rec_launch",
             };
             launch.AddOrReplaceRecording(MakeRec("rec_launch", "tree_launch", 99u, 300.0, 400.0));
-            RecordingStore.StashPendingTree(launch, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(launch, PendingTreeState.Finalized);
 
             Assert.Same(launch, RecordingStore.PendingTree);
             Assert.DoesNotContain(logLines, l => l.Contains("overwriting existing pending tree"));
@@ -768,12 +768,12 @@ namespace Parsek.Tests
                 ActiveRecordingId = "rec_new",
             };
             fresh.AddOrReplaceRecording(MakeRec("rec_new", "tree_new_uncommitted", 99u, 300.0, 310.0));
-            RecordingStore.StashPendingTree(fresh, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(fresh, PendingTreeState.Limbo);
             DisposeRefused();
             logLines.Clear();
 
             var launch = new RecordingTree { Id = "tree_launch", TreeName = "Second Launch" };
-            RecordingStore.StashPendingTree(launch, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(launch, PendingTreeState.Finalized);
 
             Assert.DoesNotContain(logLines, l => l.Contains("overwriting existing pending tree"));
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree_new_uncommitted");
@@ -790,13 +790,13 @@ namespace Parsek.Tests
                 ActiveRecordingId = "rec_new",
             };
             fresh.AddOrReplaceRecording(MakeRec("rec_new", "tree_new_uncommitted", 99u, 300.0, 310.0));
-            RecordingStore.StashPendingTree(fresh, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(fresh, PendingTreeState.Limbo);
             RewindInvokeContext.Pending = true;
             Assert.Equal(ParsekFlight.FreshRolloutRefusedTreeDisposition.KeepReFlyOwned, DisposeRefused());
             logLines.Clear();
 
             var launch = new RecordingTree { Id = "tree_launch", TreeName = "Second Launch" };
-            RecordingStore.StashPendingTree(launch, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(launch, PendingTreeState.Finalized);
 
             Assert.Contains(logLines, l => l.Contains("overwriting existing pending tree 'First Launch'"));
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == "tree_new_uncommitted");
@@ -841,7 +841,7 @@ namespace Parsek.Tests
             Assert.True(resolved < dispose, "the resolved test must wrap the dispose call");
             int revert = IndexOrFail(body, "TryRevertPreTransitionForVesselSwitch(", dispose);
             int yieldBreak = IndexOrFail(body, "yield break;", revert);
-            int pop = IndexOrFail(body, "RecordingStore.PopPendingTree()");
+            int pop = IndexOrFail(body, "PendingTreeSlot.PopPendingTree()");
             Assert.True(yieldBreak < pop,
                 "the refusal branch (dispose, then the revert only when not resolved) must " +
                 "yield break before the tree is popped");
@@ -859,7 +859,7 @@ namespace Parsek.Tests
             int dispose = IndexOrFail(body, "DisposeFreshRolloutRefusedPendingTree(", resolved);
             int yieldBreak = IndexOrFail(body, "yield break;", dispose);
             int giveUp = IndexOrFail(body, "EvaluateRestoreGiveUp(", dispose);
-            int pop = IndexOrFail(body, "RecordingStore.PopPendingTree()");
+            int pop = IndexOrFail(body, "PendingTreeSlot.PopPendingTree()");
             Assert.True(yieldBreak < giveUp && giveUp < pop,
                 "the discard / commit must run after the match loop and before the Limbo give-up and the pop");
         }

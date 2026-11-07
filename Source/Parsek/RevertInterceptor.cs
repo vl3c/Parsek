@@ -589,9 +589,9 @@ namespace Parsek
             bool suppressionArmed = false;
             if (DiscardReFlyLoadSceneForTesting == null)
             {
-                RecordingStore.ArmNextTreeSceneExitCommitSuppression(
+                PendingTreeSlot.ArmNextTreeSceneExitCommitSuppression(
                     $"discardReFly sess={sessionId} target={target}{facilityText}");
-                RecordingStore.ArmNextActiveTreeRestoreSuppression(
+                PendingTreeSlot.ArmNextActiveTreeRestoreSuppression(
                     $"discardReFly sess={sessionId} target={target}{facilityText}");
                 suppressionArmed = true;
             }
@@ -612,7 +612,7 @@ namespace Parsek
             }
             if (!dispatched && suppressionArmed)
             {
-                if (RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+                if (PendingTreeSlot.TryConsumeNextTreeSceneExitCommitSuppression(
                     target == RevertTarget.Prelaunch ? GameScenes.EDITOR : GameScenes.SPACECENTER,
                     out string consumedReason))
                 {
@@ -620,7 +620,7 @@ namespace Parsek
                         "DiscardReFly: scene dispatch failed; consumed tree scene-exit " +
                         $"commit suppression to prevent leak reason='{consumedReason}'");
                 }
-                if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
+                if (PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression(
                     "DiscardReFly:scene-dispatch-failed",
                     out string restoreReason))
                 {

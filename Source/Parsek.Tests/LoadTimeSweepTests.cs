@@ -261,7 +261,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(active);
             tree.AddOrReplaceRecording(origin);
             tree.AddOrReplaceRecording(priorTip);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
                 creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
@@ -1179,7 +1179,7 @@ namespace Parsek.Tests
                 treeId: tree.Id);
             tree.AddOrReplaceRecording(oldRec);
             tree.AddOrReplaceRecording(newRec);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
 
             var rel = new RecordingSupersedeRelation
             {

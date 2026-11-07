@@ -255,7 +255,7 @@ namespace Parsek.Tests
             var pending = LandedTip("rec-pending", "tree-pending");
             var tree = new RecordingTree { Id = "tree-pending", TreeName = Name, RootRecordingId = pending.RecordingId };
             tree.AddOrReplaceRecording(pending);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.Equal(0, LedgerOrchestrator.OnRealVesselRecovered(
                 RecoveryUT, CraftPid, LaunchGuid, Name));

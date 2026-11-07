@@ -499,7 +499,7 @@ namespace Parsek.Tests
         public void CanRewind_PendingTree_ReturnsFalse()
         {
             // Create a pending tree to trigger HasPendingTree
-            RecordingStore.StashPendingTree(new RecordingTree());
+            PendingTreeSlot.StashPendingTree(new RecordingTree());
 
             var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
 
@@ -513,7 +513,7 @@ namespace Parsek.Tests
         {
             // Even with pending tree and isRecording, "already rewinding" should win
             RewindContext.BeginRewind(0, default(BudgetSummary), 0, 0, 0);
-            RecordingStore.StashPendingTree(new RecordingTree());
+            PendingTreeSlot.StashPendingTree(new RecordingTree());
 
             var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
 

@@ -319,7 +319,7 @@ namespace Parsek
             for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
                 VisitTreeRecordings(RecordingStore.CommittedTrees[t], visit);
             VisitTreeRecordings(RecordingStore.PendingTree, visit);
-            VisitTreeRecordings(RecordingStore.SavedPendingTreeDuringActiveRestore, visit);
+            VisitTreeRecordings(PendingTreeSlot.SavedPendingTreeDuringActiveRestore, visit);
         }
 
         private static void VisitTreeRecordings(RecordingTree tree, Action<Recording> visit)
