@@ -350,12 +350,15 @@ meaning of Core from here on.
 `VesselSnapshotOps.cs` is the ninth and the newest: the 2026-09-14
 `VesselSpawner` split created it as the pure-over-ConfigNode subset the ledger,
 Logistics, the route proof and the UI all call, and named it in the `Core` rule
-in the same PR. Its R2 evidence reads `externalRefs=8 share=0.50
-top=Logistics(4) second=Recording(2)`, exactly on the R2 bar, so the placement
-report lists it under "Placement rules whose destination does not match the
-current map": the mechanical rule would send it to Logistics, the operator
-decision keeps it in the kernel. That line is the standing note about the
-disagreement, not a defect.
+in the same PR. The 2026-11-07 placement PR 6 moved the crew-in-snapshot and
+situation helpers into it as well (18 declarations; the two crew members that
+read the roster or `CrewReservationManager` stayed in `VesselSpawner`, which
+keeps it out of the type knot). Its R2 evidence then reads `externalRefs=10
+share=0.50 top=Logistics(5) second=Controllers(2)`, exactly on the R2 bar, so
+the placement report lists it under "Placement rules whose destination does not
+match the current map": the mechanical rule would send it to Logistics, the
+operator decision keeps it in the kernel. That line is the standing note about
+the disagreement, not a defect.
 
 ## The atlas
 

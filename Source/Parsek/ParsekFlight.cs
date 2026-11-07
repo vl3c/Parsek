@@ -6350,8 +6350,8 @@ namespace Parsek
             string fallbackKey,
             out double value)
         {
-            return VesselSpawner.TryGetSnapshotDouble(snapshot, primaryKey, out value)
-                || VesselSpawner.TryGetSnapshotDouble(snapshot, fallbackKey, out value);
+            return VesselSnapshotOps.TryGetSnapshotDouble(snapshot, primaryKey, out value)
+                || VesselSnapshotOps.TryGetSnapshotDouble(snapshot, fallbackKey, out value);
         }
 
         private static bool IsRouteEndpointSurfaceSituation(Vessel.Situations situation)

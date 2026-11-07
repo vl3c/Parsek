@@ -2920,6 +2920,17 @@ recover half (Controllers); move the Recording-aware half of the extrapolator in
 move the route structure list into Logistics or read it through an interface Missions owns.
 Update `modules.toml` in the same commits so the placement report stays true.
 
+**Progress, VesselSpawner placement PRs 6-10** of the 2026-11-06 file-placement plan (one
+sub-branch each, merged into the refactor branch in order; each move proven by a per-method IL
+compare).
+- PR 6: the crew-in-snapshot and situation family (18 declarations, 391 lines) moved from
+  `VesselSpawner` to `VesselSnapshotOps`; `ApplySituationToNode` and `IsLandedLikeSnapshot`
+  widened private -> internal. `ExtractCrewManifest` (its default trait lookup reads the
+  roster) and `RemoveDuplicateCrewFromSnapshotCore` (reads crew through
+  `CrewReservationManager`) stay in `VesselSpawner`: moved, they pulled `VesselSnapshotOps`
+  into the type knot (457 -> 459). The one module-level change is Core -> Trajectory +1
+  (`TerminalState`, Trajectory since PR 2); upward edges and knots do not move.
+
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
