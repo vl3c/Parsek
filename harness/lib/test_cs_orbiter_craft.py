@@ -760,7 +760,26 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertEqual(250.0, ec["capacity"])
         self.assertEqual(250.0, ec["pod_capacity"])
         self.assertEqual(0, ec["panels"])
-        self.assertAlmostEqual(595.0, ec["saturated_hold_s"], delta=1.0)
+        # The worst case measured on the panelled cuts' two flights, gross of their
+        # panels (THE ELECTRIC-CHARGE BUDGET): 156 EC, needing 195 with the margin.
+        self.assertAlmostEqual(156.0, ec["worst"], places=6)
+        self.assertAlmostEqual(195.0, ec["need"], places=6)
+        self.assertEqual(0.25, self.b.SOLAR_EC_MARGIN)
+        self.assertGreaterEqual(ec["margin"], self.b.SOLAR_EC_MARGIN)
+        self.assertAlmostEqual(0.599, ec["margin"], delta=0.001)
+        # The lines nearest the watchdog, read off the rows.
+        lines = dict((ph, used) for ph, used, _ in self.b.SOLAR_EC_WORST_CASE)
+        self.assertEqual(9.3, lines["landed settle (SAS on the ground)"])
+        self.assertEqual(42.6, lines["descent"])
+        self.assertEqual(43.1, lines["Mun ascent"])
+        self.assertFalse([m for m in self.b.solar_problems() if "ElectricCharge" in m])
+
+    def test_the_electric_charge_gate_refuses_the_pod_alone(self):
+        # Without the Z-200 the pod's own 50 EC is short of the measured worst case.
+        parts = [p for p in self.b.solar_layout() if p.name != self.b.SOLAR_BATTERY_NAME]
+        ec = self.b.solar_ec_budget(parts)
+        self.assertEqual(50.0, ec["pod_capacity"])
+        self.assertLess(ec["pod_capacity"] - self.b.SOLAR_EC_FLOOR, ec["need"])
 
     def test_the_root_is_the_pod_and_the_ship_is_named_for_the_editor_step(self):
         text = _read(SOLAR_CRAFT)
@@ -807,6 +826,8 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertTrue(params["landingDeployGears"])
         self.assertTrue(params["ascentCoastWheelRelease"])
         self.assertGreater(params["electricChargeFloor"], 0.0)
+        # The EC budget's margin is taken above the watchdog's own floor.
+        self.assertEqual(self.b.SOLAR_EC_FLOOR, params["electricChargeFloor"])
         self.assertEqual(self.b.LANDER_STAGE_POD_SEPARATION,
                          self.b.LANDER_STAGE_CORE_DROP - 1)
         # The rollout debit is the builder's cost plus KSP's +35, as a 100-funds window.

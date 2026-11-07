@@ -57,18 +57,24 @@ id = "CS-7-career-mun-landing"
 # 1000 of its own on the way up); on CS-6's clean 3130 it arrives with 3849, a 47% margin.
 # ELECTRIC CHARGE: 250 EC (the pod's 50 + the Z-200's 200), all of it on the pod, so the
 # return keeps what the Mun phases leave; no panel (the cut's two OX-STATs and the Z-100
-# went for the cones' part count; on the stack's wall they faced a near-zenith sun on the
-# Mun's equatorial band edge-on). Draw: the Kerbin ascent coast 0.42-0.47 EC/s until the
-# wheel release (and the core Swivel's alternator refills on a core burn that now runs to
-# near orbit), the lander-only holds 0.002-0.045 EC/s, nothing on rails, ~20-60 EC for
-# each powered Mun phase and ~15-30 on the surface: ~60-120 EC expected against 250; the
-# worst case (the wheel saturated from the descent to orbit) runs ~50 short late in the
-# Mun ascent, named by the watchdog.
+# went for the cones' part count). The budget is MEASURED: the telemetry rows of the two
+# panelled flights (`2026-10-31_0654_a2`, `2026-11-07_0104_a2`, 150 EC and two OX-STATs
+# each), from the core drop to the departure burn, per phase the worse flight's drop
+# plus the panels' share it no longer gets (each 1x second credited at the phase's
+# steepest 10 s rise plus CS-6c's 0.045 EC/s hold; rails draw nothing). Kerbin ascent
+# finish 27.0, transfer 11.4, corrections 4.7, coasts 0.3, capture 6.0, park 2.7,
+# descent 42.6, landed settle 9.3 (SAS on the ground, 0.32 EC/s on 2026-10-31; the
+# lander stayed flat while the kerbal was out, so its panels made nothing there), EVA 0,
+# Mun ascent 43.1, departure 4.2, the trim (not flown) 4.7 as a correction: 156 EC, x1.25
+# = 195 against 249.5 above the 0.5 floor, a 60% margin (the builder's --report and
+# gate). The reentry, outside the watchdog, keeps ~94. Not covered: a panel square to
+# the sun through every burn with the wheel eating it all (283 EC).
 # RISKS A FLIGHT FALSIFIES: the clean stack's ascent cost (the margin holds to 3516), the
 # Thumpers' fall back along the core at their drop (axial, 0.18 m clear, the gap stock's
 # radial boosters keep), the outriggers' surface joints carrying the Thumpers' thrust
 # (each the load a TT-38K carried before), the lander's low thrust-to-weight (0.57 full)
-# finishing the ascent, and the electric charge above.
+# finishing the ascent, and the electric charge above (the lowest reading in the Mun
+# phases is the one to read: the budget predicts at least ~94 left at the trim).
 #
 # THE 2026-11-04 REDS (full lane run, `2026-11-04_0447_CS-7` and `_a2`, both INVALID
 # vessel-lost in MUN-ASCENT; todo CS7-LANDER-TIPS-AT-BOARD): no Parsek line touches the

@@ -124,6 +124,13 @@ the open-face count, the budget and the flown figures; gates: no open face, brea
 least 1. CS-7's rollout pin moves to a 131xx window (predicted 13127). The re-flight should watch the core drop's
 altitude and apoapsis and the lander's LF at LKO (the budget's claim), the Thumpers' drop past the core (axial,
 0.18 m clear), the lander's finishing burn at TWR 0.57, and the lowest EC reading (no panel now).
+The EC budget is measured, not assumed: the telemetry rows of the two panelled flights (`2026-10-31_0654_a2`,
+`2026-11-07_0104_a2`; lowest 138.7 and 147.2 of 150), core drop to departure burn, per phase the worse flight's
+drop plus the panels' share this cut loses (each 1x second credited at the phase's steepest 10 s rise plus CS-6c's
+0.045 EC/s hold). Worst case 156 EC (descent 42.6, Mun ascent 43.1, the lander's Kerbin ascent finish 27.0, the
+landed SAS settle 9.3, burns and holds the rest); x1.25 = 195 against 249.5 above the 0.5 floor, a 60% margin.
+The builder now gates the pod's charge on 1.25 x that table. Not covered: a panel square to the sun on every
+burning second, all of it eaten by the wheel (283 EC).
 
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 

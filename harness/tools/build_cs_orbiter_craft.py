@@ -1717,19 +1717,26 @@ def munsci_report():
 # carried before), and the electric charge (250 EC, no generation: THE ELECTRIC-CHARGE
 # BUDGET below).
 #
-# THE ELECTRIC-CHARGE BUDGET: 250 EC (the pod's 50 + the Z-200's 200), all on the pod.
-# Draw, by phase: the Kerbin ascent coast on the long stack 0.42-0.47 EC/s while MechJeb
-# holds (measured 2026-10-27), released below the atmosphere's top (mlib.mlr_decide's
-# wheel release), and the core Swivel's alternator (6 EC/s at full throttle) refills
-# it on the core burn, which now runs to near orbit; the lander-only holds after the core
-# drop drew 0.002-0.045 EC/s on CS-6c's upper stage (the same pod) and nothing on rails;
-# the powered Mun phases (the descent ~350 s, the ascent ~300 s) hold on the Terrier's
-# gimbal with the wheel helping, ~20-60 EC; the surface stay holds SAS ~5 min, ~15-30
-# EC. Expected ~60-120 EC used against 250 stored. The flown cuts' lowest reading was
-# 138.7 of 150 (2026-10-31); their panels sat on the stack's wall, edge-on to a sun near
-# the zenith on the Mun's equatorial band, so a landed lander made little. Worst case
-# (the wheel saturated from the descent to orbit): ~300 EC, ~50 short late in the Mun
-# ascent; the electric-charge watchdog names it.
+# THE ELECTRIC-CHARGE BUDGET: 250 EC (the pod's 50 + the Z-200's 200), all on the pod,
+# against a worst case MEASURED on the two flights of the panelled cuts (the telemetry
+# rows of `2026-10-31_0654_a2` and `2026-11-07_0104_a2`, from the core drop to the end of
+# the departure burn; both cuts carried 150 EC and two OX-STATs at azimuths 0 / 180,
+# so at most one panel faced the sun, 0.35 EC/s). This cut has no panel, so each line
+# is the GROSS draw: the phase's EC drop (its deepest drawdown when larger) plus the
+# panels' share, credited over every 1x second of the phase at the steepest rise any
+# 10 s of the phase showed plus CS-6c's top lander hold (0.045 EC/s, the same pod, no
+# panel); rails seconds draw nothing. Per phase the worse of the two flights
+# (SOLAR_EC_WORST_CASE). The surface stay gets no panel credit: the lander's charge
+# stayed flat while the kerbal was out on both flights (the lander is not the active
+# vessel then, so nothing draws), so its panels made nothing there and the settle's
+# drop (9.3 EC in 29 s on 2026-10-31, the SAS hold against the ground) is all draw.
+# The home trim was flown on neither row set and is taken as a correction burn. The
+# total, 156 EC, times 1.25 is 195 against 250 (60% over). The reentry is outside the
+# watchdog (mlib's MLR_EC_BLOCKS end at HOME-TRIM; B4 releases the autopilot at its
+# deorbit cutoff) and keeps the remaining ~94, more than the Mk1's own 50 that CS-5,
+# CS-6 and CS-6c reentered on. Not covered: a panel square to the sun through every
+# burn with the wheel eating all of it (a 0.35 EC/s credit on each burning second,
+# 283 EC); the rows show no sustained rise near that outside the Mun ascent's turn.
 # ---------------------------------------------------------------------------
 
 SOLAR_SHIP_NAME = "CS Mun Solar Lander"
@@ -1798,8 +1805,23 @@ SOLAR_MIN_BREAKEVEN_LKO_COST = 3400.0
 SOLAR_FLOWN_OPEN_FACES = {"launch": 6, "core": 3}
 
 SOLAR_BATTERY_NAME = "batteryBankMini"
-SOLAR_MEASURED_HOLD_DRAW = 0.42
-SOLAR_MIN_CAPACITY = 250.0
+# THE ELECTRIC-CHARGE BUDGET's lines: (phase, gross EC, the flight it was read on).
+SOLAR_EC_WORST_CASE = (
+    ("the lander's Kerbin ascent finish", 27.0, "2026-11-07, 390 s at 1x"),
+    ("transfer burn", 11.4, "2026-10-31, 123 s"),
+    ("two corrections", 4.7, "2026-10-31, 77 s"),
+    ("coasts to the Mun at 1x", 0.3, "2026-11-07, 7 s"),
+    ("capture burn", 6.0, "2026-10-31, 51 s"),
+    ("park", 2.7, "2026-11-07, 60 s"),
+    ("descent", 42.6, "2026-10-31, 366 s"),
+    ("landed settle (SAS on the ground)", 9.3, "2026-10-31, 29 s, no panel credit"),
+    ("EVA (the lander not active)", 0.0, "both, flat"),
+    ("Mun ascent", 43.1, "2026-10-31, 187 s"),
+    ("departure burn", 4.2, "2026-10-31, 49 s"),
+    ("home trim", 4.7, "not flown; a correction burn"),
+)
+SOLAR_EC_MARGIN = 0.25
+SOLAR_EC_FLOOR = 0.5
 SOLAR_PARTS = {"batteryBankMini": 1}
 
 NODE_OFFSET.update({
@@ -2054,16 +2076,19 @@ def solar_ascent_budget(f=None):
 
 
 def solar_ec_budget(parts=None):
-    """The electric-charge figures: capacity (EC, from the tails) and the seconds of a
-    saturated hold it covers."""
+    """The electric-charge figures: capacity (EC, from the tails), the measured worst
+    case (THE ELECTRIC-CHARGE BUDGET), what it needs with the margin, and the margin the
+    capacity above the watchdog's floor keeps."""
     parts = parts or solar_layout()
     capacity = sum(a for p in parts for r, a, _ in tail_resources(p.tail)
                    if r == "ElectricCharge")
     pod_capacity = sum(a for p in parts if p.group == "pod"
                        for r, a, _ in tail_resources(p.tail) if r == "ElectricCharge")
+    worst = sum(ec for _, ec, _ in SOLAR_EC_WORST_CASE)
     return {"capacity": capacity, "pod_capacity": pod_capacity,
             "panels": len([p for p in parts if p.name == "solarPanels5"]),
-            "saturated_hold_s": capacity / SOLAR_MEASURED_HOLD_DRAW}
+            "worst": worst, "need": (1.0 + SOLAR_EC_MARGIN) * worst,
+            "margin": (pod_capacity - SOLAR_EC_FLOOR) / worst - 1.0}
 
 
 def solar_build():
@@ -2199,9 +2224,11 @@ def solar_problems():
     if f["stance"]["tip_deg"] < SOLAR_MIN_TIP_DEG:
         out.append("tip angle %.1f deg < %.1f" % (f["stance"]["tip_deg"],
                                                   SOLAR_MIN_TIP_DEG))
-    if f["ec"]["capacity"] < SOLAR_MIN_CAPACITY:
-        out.append("ElectricCharge capacity %.0f < %.0f"
-                   % (f["ec"]["capacity"], SOLAR_MIN_CAPACITY))
+    if f["ec"]["pod_capacity"] - SOLAR_EC_FLOOR < f["ec"]["need"]:
+        out.append("ElectricCharge on the pod %.0f (floor %.1f) < %.0f (the measured "
+                   "worst case %.1f + %.0f%%)"
+                   % (f["ec"]["pod_capacity"], SOLAR_EC_FLOOR, f["ec"]["need"],
+                      f["ec"]["worst"], 100 * SOLAR_EC_MARGIN))
     uids = [p.uid for p in parts]
     if len(set(uids)) != len(uids):
         out.append("duplicate part uid")
@@ -2261,10 +2288,14 @@ def solar_report():
         print("    at the %s ascent's %.0f: lander at LKO %.0f m/s, margin %.0f%%"
               % (label, a["cost"], a["at_lko"], 100 * a["margin"]))
     ec = f["ec"]
-    print("  ElectricCharge: capacity %.0f EC (%.0f on the pod), %d panels; a saturated "
-          "%.2f EC/s hold empties it in %.0f s"
-          % (ec["capacity"], ec["pod_capacity"], ec["panels"], SOLAR_MEASURED_HOLD_DRAW,
-             ec["saturated_hold_s"]))
+    print("  ElectricCharge: capacity %.0f EC (%.0f on the pod), %d panels; measured "
+          "worst case, gross of the old cuts' panels:"
+          % (ec["capacity"], ec["pod_capacity"], ec["panels"]))
+    for phase, used, basis in SOLAR_EC_WORST_CASE:
+        print("    %-36s %5.1f EC  (%s)" % (phase, used, basis))
+    print("    %-36s %5.1f EC; x%.2f = %.0f against %.1f above the floor, margin %.0f%%"
+          % ("total", ec["worst"], 1.0 + SOLAR_EC_MARGIN, ec["need"],
+             ec["pod_capacity"] - SOLAR_EC_FLOOR, 100 * ec["margin"]))
     print("  outrigger hatch clearances (deg): %s" % ", ".join(
         "%s %.0f" % kv for kv in sorted(solar_hatch_clearances().items())))
     for label, s in (("stance", f["stance"]),
