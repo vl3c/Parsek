@@ -168,7 +168,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TreeCommitReplace_SwapsTheRowInPlaceThroughThePrimitive_RaisingNothing_BumpingOnce()
+        public void TreeCommitReplace_SwapsTheRowInPlaceThroughThePrimitive_RaisingNothing()
         {
             // TreeCommitService.FinalizeTreeCommit replaces an already committed recording of
             // the same id at its own index (ReplaceCommittedAt) and appends the tree's new ones
