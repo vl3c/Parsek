@@ -563,7 +563,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Replicates <see cref="RecordingStore.IsChainMidSegment"/> logic locally
+        /// Replicates <see cref="RecordingChainQueries.IsChainMidSegment"/> logic locally
         /// using the passed-in recording list instead of the static committed list.
         /// Returns true if the recording is a mid-chain segment (not the last in its chain).
         /// </summary>

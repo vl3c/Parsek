@@ -1957,7 +1957,7 @@ namespace Parsek
                 return;
             }
 
-            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainLooping(rec.ChainId))
+            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingChainQueries.IsChainLooping(rec.ChainId))
                 GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
                     "KSCSpawn", "SPACECENTER", recIdx, rec, Planetarium.GetUniversalTime(), true);
 
