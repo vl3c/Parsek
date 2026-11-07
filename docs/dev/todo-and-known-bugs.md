@@ -2949,7 +2949,8 @@ each PR lands on the refactor branch, IL-proven a pure move).
 - `MissionRouteStructureList.cs` references `Logistics.Route` and `RouteStop`: the one declared
   boundary (`[forbidden]` in `scripts/arch/modules.toml`) the checker finds crossed. (Closed
   in #1685. On 2026-11-01 the crossed boundary is `Ghost -> GameActions`: one call,
-  `GhostPlaybackLogic` -> `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`.)
+  `GhostPlaybackLogic` -> `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`; closed on
+  the refactor branch by file-placement PR 5, which moves that index into `EffectiveState`.)
 - File-placement plan of 2026-11-06 (refactor branch claude/project-thread-bkwmrr; PRs 1-5
   here, VesselSpawner PRs 6-10 separately). Measured on the branch tip 53b01b35f before PR 1:
   upward edges 88 (weight 836), Core -> Recording 30, Trajectory -> Recording 10, Trajectory
@@ -2982,6 +2983,19 @@ each PR lands on the refactor branch, IL-proven a pure move).
     replayed residue the ratchet also reads stays 287 (see ARCH-TOOLING-ROSLYN-AND-CI).
     `scripts/refactor/split_ghostmappresence.py` still maps these members to
     `.StateVectors`: a re-split from main's single file must re-apply this move.
+  - PR 5 (pure move): `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`, its ELS-keyed
+    index (`indexLock`, `indexedEls`, `recoveryRowRecordingIds`) and the index reset ->
+    `EffectiveState` (Rewind) as the partial `EffectiveState.RecoveredRecordingIndex.cs`; the
+    reset is renamed `ResetRecoveredIndexForTesting`. The pure row predicates stay in
+    GameActions. The plan named a new type (`RecoveredRecordingLiveIndex`), but a new type in
+    the cycle adds a knot node and loosens the ratchet by one (replayed residue
+    287 -> 288); the partial adds none. IL: 2 moved bodies identical (the reset under its new
+    name), 3 re-pointed call sites; `indexLock`'s initializer moves from
+    RecoveredRecordingEvidence's .cctor (removed) to the end of EffectiveState's. Ghost ->
+    GameActions 1 -> 0 (the `[forbidden]` VIOLATION is gone), Ghost -> Rewind 23 -> 24. Upward
+    edges stay 83 (weight 814 -> 813). Knot stays 461; second greedy cut 443 -> 426 becomes
+    443 -> 425; greedy residue 291 -> 290, replayed 287. The ledger read is still one hop away
+    through Rewind (the graph is one SCC anyway).
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;

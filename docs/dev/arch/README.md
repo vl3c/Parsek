@@ -258,7 +258,7 @@ means removing `Recording`'s two references inside the knot
 (`LaunchSiteOnlyGhost`, `SidecarVersions`) splits off 46 members, and the
 second row, `GameAction` (`CaptureSequence`), 40 more; this branch makes both
 cuts in code, so its sequence starts at `461 -> cut Route -> 443`, then
-`443 -> cut VesselLaunchIdentity -> 426` (its `RecordingSidecarStore` and `VesselNameStore`
+`443 -> cut VesselLaunchIdentity -> 425` (its `RecordingSidecarStore` and `VesselNameStore`
 references; the flight controller was second until a 2026-11-07 pure move deleted
 one unrelated reference and reordered the greedy steps). Some cuts are
 cheap inversions like those - one or two references between hubs holding a
