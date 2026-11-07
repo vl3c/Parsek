@@ -93,7 +93,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = 1600.52\n  VESSEL\n  {\n    name = MyRocket\n  }\n}\n");
             double own = RecordingStore.PreProcessRewindSave(
-                sfs, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "MyRocket" }),
+                sfs, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "MyRocket" }),
                 _ => null, RecordingStore.RewindToLaunchLeadTimeSeconds);
             Assert.Equal(1600.52, own);
             double fileUT = double.Parse(
@@ -102,17 +102,17 @@ namespace Parsek.Tests
 
             string clamped = WriteTempSave("FLIGHTSTATE\n{\n  UT = 5\n}\n");
             Assert.Equal(5.0, RecordingStore.PreProcessRewindSave(
-                clamped, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
+                clamped, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
                 RecordingStore.RewindToLaunchLeadTimeSeconds));
 
             string noUT = WriteTempSave("FLIGHTSTATE\n{\n  VESSEL\n  {\n    name = X\n  }\n}\n");
             Assert.True(double.IsNaN(RecordingStore.PreProcessRewindSave(
-                noUT, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
+                noUT, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
                 RecordingStore.RewindToLaunchLeadTimeSeconds)));
 
             string noFlightState = WriteTempSave("GAME\n{\n  Mode = CAREER\n}\n");
             Assert.True(double.IsNaN(RecordingStore.PreProcessRewindSave(
-                noFlightState, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
+                noFlightState, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
                 RecordingStore.RewindToLaunchLeadTimeSeconds)));
         }
 
