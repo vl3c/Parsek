@@ -143,12 +143,8 @@ namespace Parsek
             }
 
             string sessionIdStr = session.SessionId.ToString("D", CultureInfo.InvariantCulture);
-            bool isCommittedRestoreClone =
-                !string.IsNullOrEmpty(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId)
-                && (string.Equals(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId, session.TreeId,
-                    StringComparison.Ordinal)
-                    || string.Equals(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId, session.CommittedTreeId,
-                        StringComparison.Ordinal));
+            bool isCommittedRestoreClone = IsCommittedRestoreCloneSession(
+                CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId, session);
 
             // Locate the tree the marker-owned recordings actually live in.
             // The session.TreeId may point at the pending tree, the active
@@ -180,18 +176,7 @@ namespace Parsek
             // skipped inside the reporter. Collected here while the subtree is still
             // resolvable, before the purge/removal below.
             {
-                var discardedRecs = new List<Recording>(ownedIds.Count);
-                if (segmentTree.Recordings != null)
-                {
-                    foreach (string oid in ownedIds)
-                    {
-                        Recording drec;
-                        if (!string.IsNullOrEmpty(oid)
-                            && segmentTree.Recordings.TryGetValue(oid, out drec)
-                            && drec != null)
-                            discardedRecs.Add(drec);
-                    }
-                }
+                var discardedRecs = CollectTreeRecordingsForIds(segmentTree, ownedIds);
                 Parsek.Logistics.RouteDiscardObservability.ReportDiscardLeakForRecordings(
                     discardedRecs,
                     Parsek.Logistics.RouteEventLog.Events,
@@ -239,41 +224,15 @@ namespace Parsek
 
             // Repair parent recording's ChildBranchPointId if it now points at
             // a removed BP. Mirrors PruneSessionCreatedBranchPoints.
-            if (segmentTree.Recordings != null && sessionAuthoredBpIds.Count > 0)
-            {
-                foreach (var rec in segmentTree.Recordings.Values)
-                {
-                    if (rec == null) continue;
-                    if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
-                        && sessionAuthoredBpIds.Contains(rec.ParentBranchPointId))
-                    {
-                        rec.ParentBranchPointId = null;
-                        rec.MarkFilesDirty();
-                    }
-                    if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
-                        && sessionAuthoredBpIds.Contains(rec.ChildBranchPointId))
-                    {
-                        string removedBpId = rec.ChildBranchPointId;
-                        rec.ChildBranchPointId = FindOverwrittenContinuingBranchPointId(segmentTree, rec);
-                        rec.MarkFilesDirty();
-                        if (rec.ChildBranchPointId != null)
-                            ParsekLog.Info("SwitchSegment",
-                                $"Discard: restored rec={rec.RecordingId} childBranchPointId={rec.ChildBranchPointId} " +
-                                $"(the removed session branch {removedBpId} had overwritten it)");
-                    }
-                }
-            }
+            RepairBranchPointLinksAfterSegmentDiscard(segmentTree, sessionAuthoredBpIds);
 
             // Repair ActiveRecordingId if it pointed at a removed segment.
             if (!string.IsNullOrEmpty(segmentTree.ActiveRecordingId)
                 && ownedIds.Contains(segmentTree.ActiveRecordingId))
             {
                 string priorActive = segmentTree.ActiveRecordingId;
-                segmentTree.ActiveRecordingId = !string.IsNullOrEmpty(session.ParentRecordingId)
-                    && segmentTree.Recordings != null
-                    && segmentTree.Recordings.ContainsKey(session.ParentRecordingId)
-                        ? session.ParentRecordingId
-                        : null;
+                segmentTree.ActiveRecordingId = ResolveActiveRecordingIdAfterSegmentDiscard(
+                    segmentTree, session.ParentRecordingId);
                 ParsekLog.Info("SwitchSegment",
                     $"TryDiscardActiveSwitchSegmentAttempt: tree.ActiveRecordingId " +
                     $"reset from '{priorActive}' to '{segmentTree.ActiveRecordingId ?? "<null>"}' " +
@@ -334,6 +293,107 @@ namespace Parsek
                 $"prunedTreeId={segmentTree.Id ?? "<null>"} " +
                 $"prunedTreeRemainingRecordings={(segmentTree.Recordings?.Count ?? 0)}");
             return RecordingStore.SwitchSegmentDiscardDisposition.PendingTreePrune;
+        }
+
+        /// <summary>
+        /// True when the session's segment lives in the clone a committed-tree restore attempt
+        /// made: the attempt's tree id (non-empty) names the session's tree or its committed
+        /// tree. Pure.
+        /// </summary>
+        internal static bool IsCommittedRestoreCloneSession(
+            string restoreAttemptTreeId, SwitchSegmentSession session)
+        {
+            return !string.IsNullOrEmpty(restoreAttemptTreeId)
+                && (string.Equals(restoreAttemptTreeId, session.TreeId,
+                        StringComparison.Ordinal)
+                    || string.Equals(restoreAttemptTreeId, session.CommittedTreeId,
+                        StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// The recordings of <paramref name="tree"/> named by <paramref name="ids"/>, in the
+        /// set's enumeration order (empty ids and absent or null entries skipped). Pure.
+        /// </summary>
+        internal static List<Recording> CollectTreeRecordingsForIds(RecordingTree tree, HashSet<string> ids)
+        {
+            var recs = new List<Recording>(ids.Count);
+            if (tree.Recordings != null)
+            {
+                foreach (string oid in ids)
+                {
+                    Recording drec;
+                    if (!string.IsNullOrEmpty(oid)
+                        && tree.Recordings.TryGetValue(oid, out drec)
+                        && drec != null)
+                        recs.Add(drec);
+                }
+            }
+            return recs;
+        }
+
+        /// <summary>
+        /// After a scoped discard removed the session-authored branch points: a surviving
+        /// recording whose parent link names one loses it, and one whose child link names one
+        /// gets back the continuing branch that link had overwritten
+        /// (<see cref="FindOverwrittenContinuingBranchPointId"/>, null when none). Each repaired
+        /// recording is marked dirty.
+        /// </summary>
+        internal static void RepairBranchPointLinksAfterSegmentDiscard(
+            RecordingTree segmentTree, HashSet<string> sessionAuthoredBpIds)
+        {
+            if (segmentTree.Recordings != null && sessionAuthoredBpIds.Count > 0)
+            {
+                foreach (var rec in segmentTree.Recordings.Values)
+                {
+                    if (rec == null) continue;
+                    if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
+                        && sessionAuthoredBpIds.Contains(rec.ParentBranchPointId))
+                    {
+                        rec.ParentBranchPointId = null;
+                        rec.MarkFilesDirty();
+                    }
+                    if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
+                        && sessionAuthoredBpIds.Contains(rec.ChildBranchPointId))
+                    {
+                        string removedBpId = rec.ChildBranchPointId;
+                        rec.ChildBranchPointId = FindOverwrittenContinuingBranchPointId(segmentTree, rec);
+                        rec.MarkFilesDirty();
+                        if (rec.ChildBranchPointId != null)
+                            ParsekLog.Info("SwitchSegment",
+                                $"Discard: restored rec={rec.RecordingId} childBranchPointId={rec.ChildBranchPointId} " +
+                                $"(the removed session branch {removedBpId} had overwritten it)");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The active recording id a tree takes when the discard removed its active segment:
+        /// the session's parent recording when it survives in the tree, null otherwise. Pure.
+        /// </summary>
+        internal static string ResolveActiveRecordingIdAfterSegmentDiscard(
+            RecordingTree segmentTree, string parentRecordingId)
+        {
+            return !string.IsNullOrEmpty(parentRecordingId)
+                && segmentTree.Recordings != null
+                && segmentTree.Recordings.ContainsKey(parentRecordingId)
+                    ? parentRecordingId
+                    : null;
+        }
+
+        /// <summary>
+        /// The scene-exit teardown disposition of a segment: a committed-restore clone first,
+        /// then Standalone when the segment subtree is the whole tree, else a background member
+        /// or mixed tree. Pure.
+        /// </summary>
+        internal static SwitchSegmentDisposition ClassifySwitchSegmentDisposition(
+            bool isCommittedClone, int treeRecordingCount, int subtreeRecordingCount)
+        {
+            if (isCommittedClone)
+                return SwitchSegmentDisposition.CommittedRestoreClone;
+            if (treeRecordingCount == subtreeRecordingCount)
+                return SwitchSegmentDisposition.Standalone;
+            return SwitchSegmentDisposition.BgMemberOrMixed;
         }
 
         /// <summary>
@@ -405,18 +465,10 @@ namespace Parsek
             bool hasDescendants = subtreeIds.Count > 1;
 
             // Disposition for the scene-exit teardown choice.
-            bool isCommittedClone =
-                !string.IsNullOrEmpty(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId)
-                && (string.Equals(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId, session.TreeId,
-                        StringComparison.Ordinal)
-                    || string.Equals(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId, session.CommittedTreeId,
-                        StringComparison.Ordinal));
-            if (isCommittedClone)
-                disposition = SwitchSegmentDisposition.CommittedRestoreClone;
-            else if (tree.Recordings.Count == subtreeIds.Count)
-                disposition = SwitchSegmentDisposition.Standalone;
-            else
-                disposition = SwitchSegmentDisposition.BgMemberOrMixed;
+            bool isCommittedClone = IsCommittedRestoreCloneSession(
+                CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId, session);
+            disposition = ClassifySwitchSegmentDisposition(
+                isCommittedClone, tree.Recordings.Count, subtreeIds.Count);
 
             bool noOp = SwitchSegmentNoOpClassifier.IsNoOpSegment(
                 segment, hasDescendants, out string keepReason);
@@ -653,7 +705,7 @@ namespace Parsek
             }
         }
 
-        private static BranchPoint FindSwitchSegmentBranchPointById(
+        internal static BranchPoint FindSwitchSegmentBranchPointById(
             RecordingTree tree, string bpId)
         {
             if (tree?.BranchPoints == null || string.IsNullOrEmpty(bpId))
@@ -674,7 +726,7 @@ namespace Parsek
         /// baseline is treated as "unknown" and skipped (returns empty), a
         /// present-but-empty baseline means every current BP is session-authored.
         /// </summary>
-        private static HashSet<string> CollectSessionAuthoredBranchPointIds(
+        internal static HashSet<string> CollectSessionAuthoredBranchPointIds(
             RecordingTree tree, SwitchSegmentSession session)
         {
             var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -694,7 +746,7 @@ namespace Parsek
             return ids;
         }
 
-        private static int RemoveRecordingIdsFromTree(
+        internal static int RemoveRecordingIdsFromTree(
             RecordingTree tree, HashSet<string> ids)
         {
             if (tree?.Recordings == null || ids == null || ids.Count == 0)
@@ -721,7 +773,7 @@ namespace Parsek
             return removed;
         }
 
-        private static void ScrubRecordingIdsFromList(
+        internal static void ScrubRecordingIdsFromList(
             List<string> list, HashSet<string> idsToRemove)
         {
             if (list == null || idsToRemove == null || idsToRemove.Count == 0)
@@ -733,7 +785,7 @@ namespace Parsek
             }
         }
 
-        private static int RemoveSessionAuthoredBranchPointsFromTree(
+        internal static int RemoveSessionAuthoredBranchPointsFromTree(
             RecordingTree tree, HashSet<string> sessionAuthoredBpIds)
         {
             if (tree?.BranchPoints == null
