@@ -262,6 +262,50 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("sidecar-epoch"));
         }
 
+        // catches (MINE-4 flight 2026-11-07_1041, ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE): a
+        // route created between a commit's out-of-band flush (epoch preserved, advance
+        // pending) and the next OnSave. That save advances the epoch with no content
+        // change; the route must neither flip before it nor after it.
+        [Fact]
+        public void Revalidate_EpochAdvancePendingAtCapture_SaveAdvanceIsNotDrift()
+        {
+            var rec = BuildRouteSourceRecording("rec-pending-epoch", sidecarEpoch: 2);
+            rec.SidecarEpochAdvancePending = true;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            var sourceRef = BuildMatchingSourceRef(rec);
+            sourceRef.SidecarEpoch = RouteSourceRef.EffectiveSidecarEpoch(
+                rec.SidecarEpoch, rec.SidecarEpochAdvancePending);
+            Assert.Equal(3, sourceRef.SidecarEpoch);
+
+            InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-pending-epoch", RouteStatus.Paused, sourceRef));
+            logLines.Clear();
+
+            // Before the save: still pending, still a match.
+            Assert.Equal(0, RouteStore.RevalidateSources("test-before-save"));
+
+            // The OnSave rewrite: epoch N+1, flag cleared, content unchanged.
+            rec.SidecarEpoch = 3;
+            rec.SidecarEpochAdvancePending = false;
+            RecordingStore.BumpStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            Assert.Equal(0, RouteStore.RevalidateSources("test-after-save"));
+            Assert.True(RouteStore.TryGetRoute("route-pending-epoch", out Route route));
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.DoesNotContain(logLines, l => l.Contains("sidecar-epoch"));
+        }
+
+        [Theory]
+        [InlineData(2, false, 2)]
+        [InlineData(2, true, 3)]
+        [InlineData(0, false, 0)]
+        public void EffectiveSidecarEpoch_AddsOneWhileAnAdvanceIsPending(
+            int epoch, bool pending, int expected)
+        {
+            Assert.Equal(expected, RouteSourceRef.EffectiveSidecarEpoch(epoch, pending));
+        }
+
         // catches: a coarse fingerprint missing route-relevant proof changes.
         // The recording's SidecarEpoch is unchanged but a connection-window
         // UndockUT was rewritten under us — that has to flip the route.

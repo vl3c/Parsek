@@ -25,6 +25,16 @@ All notable changes to Parsek are documented here.
   (GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP)
 - **The Missions tab's column headings sit exactly over their columns.** The headings right of
   the name column were drawn 1 px to the right of the values under them.
+- **After a rewind, a supply route no longer delivers into its own transport.** When the
+  rewound flight's vessels came back, the route could pick the respawned transport, parked next
+  to the destination, and deliver the cargo there instead. (ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED)
+- **A supply route made right after a flight is merged no longer pauses itself.** The next save
+  marked it "source changed", a state it never leaves, so the route had to be deleted and made
+  again. (ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE)
+- **A supply route can now start at a depot the transport docked to.** A flight that docked to
+  a depot, loaded cargo, undocked and delivered it was refused when the route was created, because
+  the depot's recording started one physics frame after the undock.
+  (ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE)
 - **A mining flight can now be turned into a supply route.** A rover that mined Ore and docked
   to deliver it was refused as "cargo of unknown origin", because the drills' first moment of
   production was not counted. The route now accepts it and still delivers only the Ore it saw
