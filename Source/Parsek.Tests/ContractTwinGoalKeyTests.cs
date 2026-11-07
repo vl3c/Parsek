@@ -214,6 +214,39 @@ namespace Parsek.Tests
             Assert.Equal(ContractTwinRule.TwinIdentity.None, matched);
         }
 
+        // catches: an offer that is itself a committed future accept withdrawn early as the twin
+        // of a LATER committed accept of the same goal (a Significant flag accepted, failed at
+        // its deadline, accepted again later; rewind to before the first accept). Its own offer
+        // stays; a regenerated copy of the goal is still caught by both accepts.
+        [Fact]
+        public void FindTwinHolder_AnOfferTheCommittedFutureAccepts_IsNeverAnotherAcceptsTwin()
+        {
+            CommittedFutureIndex index = Index(
+                Accept("g-first", 1000, 4242, MunFlag, "Plant a flag on the Mun"),
+                Accept("g-second", 3000, 5353, MunFlag, "Plant a flag on the Mun"));
+            ContractTwinRule.TwinIdentity matched;
+
+            Assert.Null(ContractTwinRule.FindTwinHolder(index, 4242, MunFlag, "g-first", 500, out matched));
+            Assert.Equal(ContractTwinRule.TwinIdentity.None, matched);
+            Assert.Null(ContractTwinRule.FindTwinHolder(index, 5353, MunFlag, "G-SECOND", 500, out matched));
+            // Past the first accept, the second is still its own committed contract.
+            Assert.Null(ContractTwinRule.FindTwinHolder(index, 5353, MunFlag, "g-second", 2000, out matched));
+
+            CommittedFutureEntry holder = ContractTwinRule.FindTwinHolder(index, 777, MunFlag, "g-copy", 500, out matched);
+            Assert.NotNull(holder);
+            Assert.Equal("g-first", holder.Key);
+            Assert.Equal(ContractTwinRule.TwinIdentity.Goal, matched);
+
+            var offered = new List<ContractTwinRule.OfferedContract>
+            {
+                new ContractTwinRule.OfferedContract { Index = 0, Guid = "g-first", StockContractId = 4242, GoalKey = MunFlag, Offered = true },
+                new ContractTwinRule.OfferedContract { Index = 1, Guid = "g-copy", StockContractId = 777, GoalKey = MunFlag, Offered = true },
+            };
+            var twins = ContractTwinRule.SelectOfferedTwins(offered, index, 500);
+            Assert.Single(twins);
+            Assert.Equal(1, twins[0].Key.Index);
+        }
+
         [Fact]
         public void FindTwinHolder_TheStockIdStillMatches_AndWinsTheLabel()
         {
