@@ -3165,18 +3165,18 @@ class CheckerOutputTests(unittest.TestCase):
 # the greedy sequence on the refactor branch after wave 2 W3b (2026-11-07). Re-pin it only
 # together with a tightened bound, never to loosen one.
 RATCHET_CUT_ORDER = [
+    "GhostPlaybackLogic",
     "ParsekFlight",
     "Route",
     "ParsekScenario",
     "RecordingStore",
     "RecordingTree",
+    "Mission",
     "GameStateRecorder",
+    "EffectiveState",
+    "ParsekUI",
     "RouteOrchestrator",
     "FlightRecorder",
-    "GhostPlaybackLogic",
-    "LedgerOrchestrator",
-    "ParsekUI",
-    "ReFlySessionMarker",
 ]
 
 
@@ -3441,24 +3441,28 @@ class RealTreeSmokeTests(unittest.TestCase):
         # still 454 after), and PF8's ParsekFlightMergeFlow (476 before, still 454 after),
         # and PF9's ParsekFlightSwitchContinuation (477 before, still 454 after).
         # Wave 2 W1a takes VesselLaunchIdentity out of the knot (459 before, 437 after),
-        # W1b the rewind hold record (450 before, 428 after), W3b 18 stock-screen types
-        # (432 before, 410 after; each of the first three cuts lands 18 lower).
+        # W1b the rewind hold record (450 before, 428 after).
+        # W1c (MissionPeriodicity takes the trimmed member windows as an input instead of
+        # calling MissionLoopUnitBuilder) leaves the knot at 450 but reorders the greedy
+        # cuts: the ghost playback logic now ties the flight controller (22 each) and goes
+        # first, the flight controller second, and the route cut third without its
+        # GhostPlaybackLogic and LoopUnit references (the first cut already dropped them).
+        # W3b takes 18 stock-screen types out of the knot (432 before; each of the first
+        # three cuts lands 18 lower).
         first, second, third = self.model["knots"][0]["cuts"][:3]
-        self.assertEqual(first["sink"], "ParsekFlight")
+        self.assertEqual(first["sink"], "GhostPlaybackLogic")
         self.assertEqual(first["sizeBefore"], 432)
         self.assertEqual(first["sizeAfter"], 410)
+        for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
+            self.assertIn(dropped, first["droppedReferences"])
+        self.assertEqual(second["sink"], "ParsekFlight")
+        self.assertEqual(second["sizeBefore"], 410)
+        self.assertEqual(second["sizeAfter"], 388)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
                         "ParsekFlightSpawnHost", "ParsekFlightSplitBrancher",
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
-            self.assertIn(service, first["droppedReferences"])
-        self.assertEqual(second["sink"], "Route")
-        self.assertEqual(second["sizeBefore"], 410)
-        self.assertEqual(second["sizeAfter"], 392)
-        self.assertEqual(
-            second["droppedReferences"],
-            ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
-        )
+            self.assertIn(service, second["droppedReferences"])
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
         # that made the launch-identity cut (dropping its RecordingSidecarStore and
         # VesselNameStore references) beat the flight controller for second
@@ -3474,11 +3478,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # ParsekFlightGhostPositioner (433 before) and PF3's
         # ParsekFlightPostSwitchAutoRecord (434 before); PF4 moved it to third
         # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
-        # no longer a cut; the third cut is the scenario module (419 -> 404 then, 410 -> 395
-        # after W1b, 392 -> 377 after W3b).
-        self.assertEqual(third["sink"], "ParsekScenario")
-        self.assertEqual(third["sizeBefore"], 392)
-        self.assertEqual(third["sizeAfter"], 377)
+        # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
+        # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b).
+        self.assertEqual(third["sink"], "Route")
+        self.assertEqual(third["sizeBefore"], 388)
+        self.assertEqual(third["sizeAfter"], 369)
+        self.assertEqual(
+            third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3524,11 +3530,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # The bound ratchets: it is tightened to the measured replayed residue, 283.
         # Wave 2 W1a (VesselLaunchIdentity's two store calls become installed rules) takes
         # it to 272 of 459 (greedy 272 too); W1b (RewindVesselHold.Hold carries the plain
-        # ReFlyHoldEntry, not ReFlyInvokeHold's nested type) to 263 of 450. Wave 2 W3b
-        # (ReasonColorHex and AppendReason move onto StockUiText) takes 18 stock-screen types
-        # out of the knot; the greedy sequence then cuts ParsekUI at step 11 (273 -> 230) and
-        # ends at 220 of 432, while the earlier 2026-11-07 order replays to 245. The order
-        # above is re-pinned to the new greedy one, which replays to 220, the bound pinned here.
+        # ReFlyHoldEntry, not ReFlyInvokeHold's nested type) to 263 of 450; W1c
+        # (MissionPeriodicity no longer calls MissionLoopUnitBuilder) to 246 of 450 on the
+        # then pinned order, with the greedy sequence reordered (GhostPlaybackLogic first) and
+        # the greedy residue at 201. Wave 2 W3b (ReasonColorHex and AppendReason move onto
+        # StockUiText) takes 18 stock-screen types out of the knot: the greedy sequence ends at
+        # 179 of 432, while the W1c-era order replays to 228. The order above is re-pinned to
+        # the new greedy one, which replays to 179, the bound pinned here.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which
@@ -3545,7 +3553,7 @@ class RealTreeSmokeTests(unittest.TestCase):
         largest = self.model["knots"][0]
         graph = {entry["name"]: entry["referencesTo"] for entry in self.model["types"]}
         replayed = archview.replay_cut_residue(graph, RATCHET_CUT_ORDER)
-        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 220)
+        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 179)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}
