@@ -31,8 +31,9 @@ namespace Parsek
     /// blocked; the rule never keys on type and target alone.</para>
     ///
     /// <para>Positive evidence only: an accept row with neither identity captured (an older
-    /// save) is never a holder, a candidate with id 0 and no goal key is never judged, and the
-    /// committed contract itself (same guid) is never its own twin. The rule only blocks or
+    /// save) is never a holder, a candidate with id 0 and no goal key is never judged, and a
+    /// contract the committed future itself accepts (its guid is a future accept) is never a
+    /// twin, of itself or of a later accept of the same goal. The rule only blocks or
     /// withdraws offers; it never zeroes a ledger row, and with no committed future accept
     /// (a career that never rewinds) it changes nothing.</para>
     /// </summary>
@@ -81,12 +82,11 @@ namespace Parsek
             if (index == null || (stockContractId == 0 && !hasGoal))
                 return null;
             List<CommittedFutureEntry> future = index.FutureEntriesOfKind(CommittedFutureKind.ContractAccept, nowUT);
+            if (IsOwnCommittedFutureAccept(future, contractGuid))
+                return null;
             for (int i = 0; i < future.Count; i++)
             {
                 CommittedFutureEntry e = future[i];
-                if (!string.IsNullOrEmpty(contractGuid)
-                    && string.Equals(e.Key, contractGuid, StringComparison.OrdinalIgnoreCase))
-                    continue;
                 if (stockContractId != 0 && e.StockContractId == stockContractId)
                 {
                     matched = TwinIdentity.StockId;
@@ -99,6 +99,23 @@ namespace Parsek
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// Pure: true when <paramref name="contractGuid"/> is itself one of the committed future
+        /// accepts. Such a contract is the committed timeline's own contract, offered until its
+        /// accept UT, so it is never another accept's twin: two committed accepts of one goal
+        /// (a Significant flag failed at its deadline, then accepted again) each keep their own
+        /// offer, and neither withdraws the other early.
+        /// </summary>
+        internal static bool IsOwnCommittedFutureAccept(List<CommittedFutureEntry> future, string contractGuid)
+        {
+            if (future == null || string.IsNullOrEmpty(contractGuid))
+                return false;
+            for (int i = 0; i < future.Count; i++)
+                if (string.Equals(future[i].Key, contractGuid, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
         }
 
         /// <summary>
