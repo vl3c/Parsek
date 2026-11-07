@@ -19,7 +19,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~HARVEST-WINDOW-EDGE-FRAME: a live mining flight cannot become a harvest route, the window misses the drills' first frame~~ [FILED 2026-11-07 from MINE-5b's first flight (two attempts INVALID at `RouteCommand create`, head e1d07eb), measured by MINE-5a `2026-11-07_0022`; FIXED 2026-11-07, branch `harvest-gain-gap`; xUnit; re-flight of MINE-5a / MINE-5b owed; product, high (no live drill run could become a supply route)]
+## ~~HARVEST-WINDOW-EDGE-FRAME: a live mining flight cannot become a harvest route, the window misses the drills' first frame~~ [FILED 2026-11-07 from MINE-5b's first flight (two attempts INVALID at `RouteCommand create`, head e1d07eb), measured by MINE-5a `2026-11-07_0022`; FIXED 2026-11-07, branch `harvest-gain-gap`; xUnit; LIVE-PROVEN by MINE-5b `2026-11-07_0448` (`uncovered=3.52E-05` inside `edgeSlack=4.23E-04`, route eligible, delivered) and MINE-5a `2026-11-07_0450` (`oreEdgeGap=3.52E-05`); product, high (no live drill run could become a supply route)]
 
 **Symptom.** MINE-5b mined, docked to the depot, moved the Ore across and undocked; the route
 create then refused the tree `candidate-ineligible UntrackedCargoGain`: `RouteAnalysis rejected:
@@ -50,7 +50,7 @@ stops REPORTING a cap inside the slack. Rejected alternative: re-reading the sta
 frame earlier needs a per-frame manifest scan on every recording vessel, against the poll's
 zero-allocation steady state. For MINE-5a's rig the slack is 4.2e-4 Ore. MINE-5a's cap cell now
 asserts the tank gap inside the slack (was 0.05 + 2%, which hid this) and a whole-tank delivery
-credited at the witnessed amount uncapped; MINE-5b is ready to re-fly and forbids a reported cap.
+credited at the witnessed amount uncapped. Both lanes re-flown green on the fix (`2026-11-07_0448`, `_0450`).
 
 ## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
 
@@ -546,13 +546,13 @@ matching stock's tank gain up to the window edge slack. Measured `ratio=1.000` (
 two thirds of the cap. The same flight measured the one-frame window edge gap
 (HARVEST-WINDOW-EDGE-FRAME). Still open: a delivery that clamps to nothing leaves its stop with an
 empty manifest rather than refusing the route. The route itself is lane
-`MINE-5b-rover-dock-depot-harvest-route` (first flown 2026-11-07, INVALID on
-HARVEST-WINDOW-EDGE-FRAME, re-flight owed): a real harvest-origin route from the miner docking a
+`MINE-5b-rover-dock-depot-harvest-route` (LIVE-PROVEN `2026-11-07_0448` on the
+HARVEST-WINDOW-EDGE-FRAME fix, no cap): a real harvest-origin route from the miner docking a
 depot; it now forbids a reported delivery cap.
 
 ---
 
-## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (unblocked 2026-11-07 by the scripted `miner-rover-depot` pair, not written), the lab lane XS-5, MINE-5b's re-flight (its first flight found HARVEST-WINDOW-EDGE-FRAME; MINE-5a LIVE-PROVEN 2026-11-07) and S1.9's MINE-0 tokens; harness / fixture]
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (unblocked 2026-11-07 by the scripted `miner-rover-depot` pair, not written), the lab lane XS-5; MINE-0 (S1.9 `2026-11-07_0023`), MINE-5a (`2026-11-07_0022`) and MINE-5b (`2026-11-07_0448`) LIVE-PROVEN; harness / fixture]
 
 Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
 from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a
@@ -630,7 +630,7 @@ Progress 2026-11-06 (branch `mine5`, nothing flown yet):
   tank, parked in line within a straight drive), then a lane that mines, drives in, docks,
   transfers, undocks, commits, creates the route (`RouteCommand create`) and dispatches it.
 
-Progress 2026-11-07 (branch `mine4`, nothing flown yet): the craft pair is SCRIPTED instead of
+Progress 2026-11-07 (branch `mine4`; MINE-5b LIVE-PROVEN `2026-11-07_0448`): the craft pair is SCRIPTED instead of
 built by hand, and MINE-5's route half is lane `MINE-5b-rover-dock-depot-harvest-route`.
 - Fixture `miner-rover-depot` (`harness/tools/build_miner_rover_depot.py`, gated by
   `harness/lib/test_miner_rover_depot.py`): `miner-rover-landed` with a `dockingPort3` stacked on
