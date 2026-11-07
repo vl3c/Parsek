@@ -372,6 +372,61 @@ class IlCompareTests(unittest.TestCase):
                  + cls("Parsek.HostService", cache("Parsek.HostService", ["2_0"])))
         self.assertEqual([], self.diffs(before, after, self.FOLD))
 
+    @staticmethod
+    def _method(access, name, body):
+        return ("  .method %s hidebysig instance void %s() cil managed\n  {\n%s  }"
+                " // end of method X::%s\n\n" % (access, name, body, name))
+
+    @staticmethod
+    def _cls(name, body):
+        return (".class public auto ansi beforefieldinit %s\n  extends [mscorlib]System.Object\n{\n%s"
+                "} // end of class %s\n" % (name, body, name))
+
+    ORIGINAL = ("    IL_0000:  ldarg.0\n"
+                "    IL_0001:  call       instance void Parsek.Host::Step()\n"
+                "    IL_0006:  ret\n")
+    FORWARDER = ("    IL_0000:  ldarg.0\n"
+                 "    IL_0001:  call       instance class Parsek.HostService Parsek.Host::get_Service()\n"
+                 "    IL_0006:  callvirt   instance void Parsek.HostService::OnEvent()\n"
+                 "    IL_000b:  ret\n")
+
+    def test_fold_pairs_a_moved_handler_with_the_forwarder_it_left(self):
+        before = self._cls("Parsek.Host", self._method("private", "OnEvent", self.ORIGINAL))
+        moved = self.ORIGINAL.replace("ldarg.0\n", "ldarg.0\n    IL_0000:  ldfld      class Parsek.Host Parsek.HostService::host\n", 1)
+        after = (self._cls("Parsek.Host", self._method("private", "OnEvent", self.FORWARDER))
+                 + self._cls("Parsek.HostService", self._method("assembly", "OnEvent", moved)))
+        ta = il_compare.parse_il(il_compare.apply_folds(before, self.FOLD, "host"))
+        tb = il_compare.fold_types(il_compare.parse_il(il_compare.apply_folds(after, self.FOLD, "host")), self.FOLD)
+        widened = il_compare.widenings(ta, tb, ["Parsek.Host"])
+        self.assertEqual(["forwarded"], [w[0] for w in widened])
+        kinds = [d[0] for d in il_compare.compare(ta, tb, widened)]
+        self.assertEqual(["method-body"], kinds)  # the forwarder, never the moved body
+
+        changed = moved.replace("Parsek.Host::Step()", "Parsek.Host::Other()")
+        after2 = (self._cls("Parsek.Host", self._method("private", "OnEvent", self.FORWARDER))
+                  + self._cls("Parsek.HostService", self._method("assembly", "OnEvent", changed)))
+        tb2 = il_compare.fold_types(il_compare.parse_il(il_compare.apply_folds(after2, self.FOLD, "host")), self.FOLD)
+        widened2 = il_compare.widenings(ta, tb2, ["Parsek.Host"])
+        self.assertEqual([], widened2)
+        self.assertIn("method-only-after", [d[0] for d in il_compare.compare(ta, tb2, widened2)])
+
+    def test_fold_reads_host_start_coroutine_as_this(self):
+        call = ("    IL_0000:  ldarg.0\n    IL_0001:  ldnull\n"
+                "    IL_0002:  {op}   instance class [UnityEngine.CoreModule]UnityEngine.Coroutine "
+                "[UnityEngine.CoreModule]UnityEngine.MonoBehaviour::StartCoroutine(class [mscorlib]System.Collections.IEnumerator)\n"
+                "    IL_0007:  pop\n    IL_0008:  ret\n")
+        before = self._cls("Parsek.Host", self._method("assembly", "Go", call.format(op="call")))
+        moved = call.format(op="callvirt").replace(
+            "ldarg.0\n", "ldarg.0\n    IL_0000:  ldfld      class Parsek.Host Parsek.HostService::host\n", 1)
+        after = self._cls("Parsek.Host", "") + self._cls("Parsek.HostService", self._method("assembly", "Go", moved))
+        self.assertEqual([], [d for d in self.diffs(before, after, self.FOLD) if d[0].startswith("method")])
+        virt = call.replace("MonoBehaviour::StartCoroutine", "MonoBehaviour::SomeVirtual")
+        before_v = self._cls("Parsek.Host", self._method("assembly", "Go", virt.format(op="call")))
+        after_v = self._cls("Parsek.Host", "") + self._cls("Parsek.HostService", self._method(
+            "assembly", "Go", virt.format(op="callvirt").replace(
+                "ldarg.0\n", "ldarg.0\n    IL_0000:  ldfld      class Parsek.Host Parsek.HostService::host\n", 1)))
+        self.assertNotEqual([], [d for d in self.diffs(before_v, after_v, self.FOLD) if d[0].startswith("method")])
+
     def test_fold_drops_the_accessor_reached_through_a_local(self):
         before = """\
 .class public auto ansi beforefieldinit Parsek.Host

@@ -71,7 +71,7 @@ namespace Parsek
             // tree as the kerbal's InventoryTransfer member, stamped at once.
             string recordingId;
             if (!activeTree.BackgroundMap.TryGetValue(v.persistentId, out recordingId))
-                return TryAdoptForeignConstructionPickup(v);
+                return SurfaceCapture.TryAdoptForeignConstructionPickup(v);
 
             Recording rec;
             if (string.IsNullOrEmpty(recordingId)
@@ -90,7 +90,7 @@ namespace Parsek
             // kerbal's inventory and then calls vessel.Die() from OnRetractCompleted,
             // with the EVA construction panel closed, so the pocket classifier above
             // answers Destroyed.
-            if (deathKind != VesselDeathKind.Disassembled && IsGroundPartRetrievalDeath(v, rec))
+            if (deathKind != VesselDeathKind.Disassembled && SurfaceCapture.IsGroundPartRetrievalDeath(v, rec))
             {
                 deathKind = VesselDeathKind.Disassembled;
                 stampReason = GroundPartPlacement.RetrievedTerminalReason;

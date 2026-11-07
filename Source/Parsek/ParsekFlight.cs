@@ -968,6 +968,26 @@ namespace Parsek
         private ParsekFlightSpawnHost spawnHost;
         internal ParsekFlightSpawnHost SpawnHost =>
             spawnHost ?? (spawnHost = new ParsekFlightSpawnHost(this));
+        private ParsekFlightSurfaceCapture surfaceCapture;
+        internal ParsekFlightSurfaceCapture SurfaceCapture =>
+            surfaceCapture ?? (surfaceCapture = new ParsekFlightSurfaceCapture(this));
+
+        // GameEvents handlers subscribed in Start / removed in OnDestroy; the bodies live on SurfaceCapture.
+        void OnGroundSciencePartDeployed(ModuleGroundSciencePart deployedPart) =>
+            SurfaceCapture.OnGroundSciencePartDeployed(deployedPart);
+        void OnGroundSciencePartRemoved(ModuleGroundSciencePart removedPart) =>
+            SurfaceCapture.OnGroundSciencePartRemoved(removedPart);
+        void OnNewVesselCreatedForGroundPart(Vessel v) => SurfaceCapture.OnNewVesselCreatedForGroundPart(v);
+        void OnDeployGroundPart(string partName) => SurfaceCapture.OnDeployGroundPart(partName);
+        void OnEditorPartEventForConstructionDrop(ConstructionEventType evt, Part part) =>
+            SurfaceCapture.OnEditorPartEventForConstructionDrop(evt, part);
+        void OnModuleInventorySlotChanged(ModuleInventoryPart module, int slot) =>
+            SurfaceCapture.OnModuleInventorySlotChanged(module, slot);
+        void OnEvaConstructionPartAttached(Vessel vessel, Part part) =>
+            SurfaceCapture.OnEvaConstructionPartAttached(vessel, part);
+        void OnEvaConstructionPartDetached(Vessel vessel, Part part) =>
+            SurfaceCapture.OnEvaConstructionPartDetached(vessel, part);
+        void OnAfterFlagPlanted(FlagSite flagSite) => SurfaceCapture.OnAfterFlagPlanted(flagSite);
 
         // UI and test-command entry points; the bodies live on SpawnHost.
         internal void WarpToRecordingEnd(int recordingIndex) => SpawnHost.WarpToRecordingEnd(recordingIndex);
@@ -1663,7 +1683,7 @@ namespace Parsek
             {
                 bool pickUp = FlagPickUp.IsPendingPickUp(v.persistentId);
                 if (pickUp)
-                    TryCaptureFlagPickUp(v, FlagPickUp.PendingPickerPid);
+                    SurfaceCapture.TryCaptureFlagPickUp(v, FlagPickUp.PendingPickerPid);
                 ParsekScenario.NoteFlagVesselRemoved(v, pickUp ? "picked-up" : "destroyed-in-flight");
             }
 
