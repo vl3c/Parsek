@@ -20,6 +20,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE: the scoped switch-segment Discard leaves three things the committed-tree prune repairs [FILED 2026-11-07 from the review of the discard-service unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2454), by code reading. OPEN; not reproduced in play, low]
+
+**What is true.** `SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt` (pending-tree-prune
+disposition) removes the segment subtree from the tree it lives in, but unlike
+`TreeDiscardService.PruneTaggedRecordingsFromTree` it:
+- never calls `RecordingTree.RebuildBackgroundMap`, so `BackgroundMap` / `RecordedVesselPids` can
+  keep a pid of a removed background-recorded child until something else rebuilds them;
+- repairs a stale `ActiveRecordingId` (to the session parent or null) but never a stale
+  `RootRecordingId`;
+- with a null `PreSessionBranchPointIds` baseline (unknown, treated as "authored nothing") keeps
+  the session's branch points after their child lists were scrubbed empty, and the parent's
+  `ChildBranchPointId` still names them (the committed prune drops a branch point with an empty
+  side).
+
+None is known to reach a player: the pending tree is usually committed or dropped next, and the
+background map is rebuilt on load. The unit tests in `DiscardServicesUnitTests` cover the
+helpers as they are and pin none of the three.
+
+**Fix.** After the removal, rebuild the background map, reset a stale root the way the active id
+is reset, and drop branch points left with an empty side (reuse
+`TreeDiscardService.ScrubBranchPointEndpointsAndDropEmpty` + `ClearRecordingBranchPointRefs`,
+keeping the switch-segment restore of an overwritten continuing link). Each needs a unit cell.
+
 ## ~~LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED: two loop-seam trace dictionaries in ParsekFlight are keyed by committed index and never shift~~ [FILED 2026-11-07 from the ParsekFlight seam inventory (`plan-parsekflight-seams-2026-11-07.md`, refactor branch `claude/project-thread-bkwmrr` at f3400b90a), by code reading. FIXED 2026-11-07, branch `refactor-loopseam-index-shift` (base `claude/project-thread-bkwmrr`); xUnit; diagnostics only, low]
 
 **What is true.**
