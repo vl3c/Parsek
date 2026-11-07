@@ -315,7 +315,7 @@ namespace Parsek
         internal List<string> EnumerateGroupNamesForTesting()
         {
             GroupPickerTreeModel model = GroupPickerPresentation.BuildTreeModel(
-                RecordingStore.GetGroupNames(),
+                RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings),
                 GroupHierarchyStore.GroupParents,
                 parentUI.KnownEmptyGroups,
                 null);
@@ -1073,7 +1073,7 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(newName) || newName == oldName) return;
 
-            if (RecordingStore.IsInvalidGroupName(newName))
+            if (RecordingGroupStore.IsInvalidGroupName(newName))
             {
                 ParsekLog.Warn("UI", $"Group rename rejected: '{newName}' contains invalid characters");
                 return;
@@ -1101,7 +1101,8 @@ namespace Parsek
             }
 
             // Plain group (user group, a subgroup renamed directly, or a chain block): no mission link.
-            if (!RecordingStore.RenameGroup(oldName, newName))
+            if (!RecordingGroupStore.RenameGroup(
+                oldName, newName, RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees))
             {
                 ParsekLog.Warn("UI", $"Group rename rejected: '{newName}' already exists");
                 return;
@@ -1127,7 +1128,7 @@ namespace Parsek
 
         private string GenerateUniqueGroupName()
         {
-            var existing = RecordingStore.GetGroupNames();
+            var existing = RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings);
             for (int i = 0; i < KnownEmptyGroups.Count; i++)
                 if (!existing.Contains(KnownEmptyGroups[i]))
                     existing.Add(KnownEmptyGroups[i]);
@@ -1143,7 +1144,7 @@ namespace Parsek
             HashSet<int> descendants,
             Dictionary<string, List<string>> grpChildren)
         {
-            if (RecordingStore.IsPermanentGroup(groupName))
+            if (RecordingGroupStore.IsPermanentGroup(groupName, RecordingStore.CommittedTrees))
             {
                 ParsekLog.Warn("UI", $"Disband blocked for permanent group '{groupName}'");
                 return;
@@ -1177,7 +1178,8 @@ namespace Parsek
                     "Confirm: Disband Group", HighLogic.UISkin,
                     new DialogGUIButton("Disband Group", () =>
                     {
-                        int updated = RecordingStore.ReplaceGroupOnAll(capturedName, capturedParent);
+                        int updated = RecordingGroupStore.ReplaceGroupOnAll(
+                            capturedName, capturedParent, RecordingStore.CommittedRecordings);
                         GroupHierarchyStore.RemoveGroupFromHierarchy(capturedName);
                         KnownEmptyGroups.Remove(capturedName);
                         expandedGroups.Remove(capturedName);

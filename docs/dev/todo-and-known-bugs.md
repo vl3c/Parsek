@@ -2849,6 +2849,15 @@ each PR lands on the refactor branch, IL-proven a pure move).
   sites re-pointed). `RecordingStore` 10,008 -> 9,768 lines, 340 -> 328 methods; co-change
   with `ParsekScenario.cs` still 163. Knot 457 -> 458 and cut residue 282 -> 284: the new type
   keeps the `RecordingOptimizer` edge the `RecordingStore` cut used to drop.
+- PR2 (service B) landed: the 14 group forwarders are gone (13 group operations plus the
+  `MarkAutoAssignedStandaloneGroupForTesting` seam). Callers use `RecordingGroupStore`
+  directly and pass `RecordingStore.CommittedRecordings` / `.CommittedTrees`; its list
+  parameters widened from `List` to `IReadOnlyList` (they read the list and retag recordings,
+  never change the list). `AutoGroupTreeRecordings` / `AdoptOrphanedRecordingsIntoTreeGroup`
+  stay with tree commit (L). `MissionGroupLink.cs` joins the ERS / ELS allowlist (a group name
+  is a tag on every committed recording). `RecordingStore` 9,768 -> 9,663 lines, 328 -> 314
+  methods; cut residue 284 -> 285 (`GroupPickerPresentation` now reaches the uncut
+  `RecordingGroupStore`).
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -2880,20 +2889,28 @@ each PR lands on the refactor branch, IL-proven a pure move).
     (GameActions -> Recording 37 and Crew -> Recording 6 are now upward; Recording ->
     GameActions 15 and Recording -> Crew 3 stop being). Ordering, not new coupling: upward
     edges stay 85, weight 826 -> 835. Knots unchanged.
-- VesselSpawner placement PRs 6-10 of the same plan (one sub-branch each, merged into the
-  refactor branch in order; pure moves proven by a per-method IL compare).
-  - PR 6: the crew-in-snapshot and situation family (18 declarations, 391 lines) moved from
-    `VesselSpawner` to `VesselSnapshotOps`; `ApplySituationToNode` and `IsLandedLikeSnapshot`
-    widened private -> internal. `ExtractCrewManifest` (its default trait lookup reads the
-    roster) and `RemoveDuplicateCrewFromSnapshotCore` (reads crew through
-    `CrewReservationManager`) stay in `VesselSpawner`: moved, they pulled `VesselSnapshotOps`
-    into the type knot (457 -> 459). With PR 2 in, the only module change is Core ->
-    Trajectory 16 -> 17 (`TerminalState`); upward edges 85, weight 835, knots unchanged.
+  - PR 3 (pure move): `TrajectoryMath.ComputeStats(Recording, Func)` and its private
+    `ApplyTrackSectionAltitudeMetadata` -> new `RecordingStatsCalculator`
+    (`RecordingStatsCalculator.cs`, Recording by the `^Recording` prefix). `RecordingStats` and
+    the pair / frame / segment helpers stay on `TrajectoryMath`; the log tag stays
+    "TrajectoryMath". IL: 2 moved bodies identical, 1 re-pointed call site. Trajectory ->
+    Recording 1 -> 0; upward edges 85 -> 84 (weight 835 -> 834).
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
 move the route structure list into Logistics or read it through an interface Missions owns.
 Update `modules.toml` in the same commits so the placement report stays true.
+
+**Progress, VesselSpawner placement PRs 6-10** of the 2026-11-06 file-placement plan (one
+sub-branch each, merged into the refactor branch in order; each move proven by a per-method IL
+compare).
+- PR 6: the crew-in-snapshot and situation family (18 declarations, 391 lines) moved from
+  `VesselSpawner` to `VesselSnapshotOps`; `ApplySituationToNode` and `IsLandedLikeSnapshot`
+  widened private -> internal. `ExtractCrewManifest` (its default trait lookup reads the
+  roster) and `RemoveDuplicateCrewFromSnapshotCore` (reads crew through
+  `CrewReservationManager`) stay in `VesselSpawner`: moved, they pulled `VesselSnapshotOps`
+  into the type knot (457 -> 459). The one module-level change is Core -> Trajectory +1
+  (`TerminalState`, Trajectory since PR 2); upward edges and knots do not move.
 
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

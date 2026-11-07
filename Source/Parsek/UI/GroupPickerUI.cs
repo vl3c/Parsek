@@ -129,11 +129,12 @@ namespace Parsek
             groupPopupRecIndices = null;
             groupPopupChainId = chainId;
             groupPopupGroup = null;
-            List<int> chainMembers = RecordingStore.GetChainMemberIndices(chainId);
+            List<int> chainMembers = RecordingGroupStore.GetChainMemberIndices(
+                chainId, RecordingStore.CommittedRecordings);
             groupPopupChecked = GroupPickerPresentation.GetCommonGroups(
                 chainMembers,
                 RecordingStore.CommittedRecordings,
-                RecordingStore.GetGroupNames());
+                RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings));
             groupPopupOriginal = new HashSet<string>(groupPopupChecked);
             groupPopupNewName = "";
             groupPopupHeading = GroupPickerPresentation.FormatHeading(
@@ -155,7 +156,7 @@ namespace Parsek
             groupPopupChecked = GroupPickerPresentation.GetCommonGroups(
                 groupPopupRecIndices,
                 RecordingStore.CommittedRecordings,
-                RecordingStore.GetGroupNames());
+                RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings));
             groupPopupOriginal = new HashSet<string>(groupPopupChecked);
             groupPopupNewName = "";
             groupPopupHeading = GroupPickerPresentation.FormatHeading(
@@ -203,7 +204,7 @@ namespace Parsek
             isResizingGroupPopup = false;
             groupPopupExpanded = GroupPickerPresentation.BuildExpandedGroups(
                 GroupHierarchyStore.GroupParents,
-                RecordingStore.GetGroupNames(),
+                RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings),
                 parentUI.KnownEmptyGroups);
             groupPopupScrollPos = Vector2.zero;
         }
@@ -218,7 +219,7 @@ namespace Parsek
             if (!groupPopupOpen) return;
 
             GroupPickerTreeModel treeModel = GroupPickerPresentation.BuildTreeModel(
-                RecordingStore.GetGroupNames(),
+                RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings),
                 GroupHierarchyStore.GroupParents,
                 parentUI.KnownEmptyGroups,
                 groupPopupGroup);
@@ -433,7 +434,8 @@ namespace Parsek
                 // is an Unfinished Flight, the whole add is rejected for that
                 // target group (chains are all-or-nothing for group membership
                 // in this popup). Removes are always allowed.
-                var chainMemberIndices = RecordingStore.GetChainMemberIndices(groupPopupChainId);
+                var chainMemberIndices = RecordingGroupStore.GetChainMemberIndices(
+                    groupPopupChainId, RecordingStore.CommittedRecordings);
                 var rejectedAdds = new HashSet<string>();
                 foreach (var g in delta.Added)
                 {
@@ -461,10 +463,10 @@ namespace Parsek
                 foreach (var g in delta.Added)
                 {
                     if (rejectedAdds.Contains(g)) continue;
-                    RecordingStore.AddChainToGroup(groupPopupChainId, g);
+                    RecordingGroupStore.AddChainToGroup(groupPopupChainId, g, RecordingStore.CommittedRecordings);
                 }
                 foreach (var g in delta.Removed)
-                    RecordingStore.RemoveChainFromGroup(groupPopupChainId, g);
+                    RecordingGroupStore.RemoveChainFromGroup(groupPopupChainId, g, RecordingStore.CommittedRecordings);
                 ParsekLog.Info("UI", $"Chain '{groupPopupChainId}' groups changed: +[{string.Join(", ", delta.Added)}] -[{string.Join(", ", delta.Removed)}] rejected=[{string.Join(", ", rejectedAdds)}]");
             }
             else if (groupPopupRecIndices != null && groupPopupRecIndices.Count > 0)
@@ -487,10 +489,10 @@ namespace Parsek
                             LogAndToastRejectAdd(rec != null ? rec.RecordingId : null, g);
                             continue;
                         }
-                        RecordingStore.AddRecordingToGroup(ri, g);
+                        RecordingGroupStore.AddRecordingToGroup(ri, g, RecordingStore.CommittedRecordings);
                     }
                     foreach (var g in delta.Removed)
-                        RecordingStore.RemoveRecordingFromGroup(ri, g);
+                        RecordingGroupStore.RemoveRecordingFromGroup(ri, g, RecordingStore.CommittedRecordings);
                 }
 
                 ParsekLog.Info("UI",
@@ -511,10 +513,11 @@ namespace Parsek
                         LogAndToastRejectAdd(rec != null ? rec.RecordingId : null, g);
                         continue;
                     }
-                    RecordingStore.AddRecordingToGroup(groupPopupRecIdx, g);
+                    RecordingGroupStore.AddRecordingToGroup(groupPopupRecIdx, g, RecordingStore.CommittedRecordings);
                 }
                 foreach (var g in delta.Removed)
-                    RecordingStore.RemoveRecordingFromGroup(groupPopupRecIdx, g);
+                    RecordingGroupStore.RemoveRecordingFromGroup(
+                        groupPopupRecIdx, g, RecordingStore.CommittedRecordings);
                 ParsekLog.Info("UI", $"Recording [{groupPopupRecIdx}] groups changed: +[{string.Join(", ", delta.Added)}] -[{string.Join(", ", delta.Removed)}] rejected=[{string.Join(", ", rejectedAdds)}]");
             }
         }

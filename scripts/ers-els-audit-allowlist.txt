@@ -143,6 +143,13 @@ Source/Parsek/RecordedRelativeAnchorPoseResolver.cs
 # Documented at the call site with an inline [ERS-exempt] comment.
 Source/Parsek/GroupHierarchyStore.cs
 
+# MissionGroupLink renames a mission's root group and its auto subgroups. A
+# group name is a tag on every committed recording, superseded ones included,
+# so its collision check and rename read the raw committed list, as the
+# RecordingStore group forwarders it used to call did. Documented at the call
+# sites with inline [ERS-exempt] comments; no ledger reads.
+Source/Parsek/MissionGroupLink.cs
+
 # RewindPointDiskUsage builds a Settings-only retained-RP diagnostic line.
 # It resolves each slot's already-walked effective id against the raw committed
 # list so the explicit scenario overload can classify a supplied scenario rather

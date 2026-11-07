@@ -2095,7 +2095,7 @@ namespace Parsek.Tests
             orphanEva.EvaCrewName = "Bob Kerman";
             orphanEva.RecordingGroups = new List<string> { "Bob Kerman" };
             RecordingStore.AddRecordingWithTreeForTesting(orphanEva);
-            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(orphanEva, "Bob Kerman");
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(orphanEva, "Bob Kerman");
 
             var tree = new RecordingTree
             {
@@ -2146,7 +2146,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRec("roundtrip", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
             rec.RecordingGroups = new List<string> { "Bob Kerman" };
-            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(rec, "Bob Kerman");
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(rec, "Bob Kerman");
 
             var node = new ConfigNode("RECORDING");
             RecordingTree.SaveRecordingResourceAndState(node, rec);
@@ -2163,17 +2163,17 @@ namespace Parsek.Tests
             var renameRec = MakeRec("rename", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
             renameRec.RecordingGroups = new List<string> { "Bob Kerman" };
             RecordingStore.AddRecordingWithTreeForTesting(renameRec);
-            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(renameRec, "Bob Kerman");
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(renameRec, "Bob Kerman");
 
-            Assert.True(RecordingStore.RenameGroup("Bob Kerman", "Crew A"));
+            Assert.True(RecordingGroupStore.RenameGroup("Bob Kerman", "Crew A", RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees));
             Assert.Null(renameRec.AutoAssignedStandaloneGroupName);
 
             var replaceRec = MakeRec("replace", "Bill Kerman", pid: 301, startUT: 120, endUT: 180);
             replaceRec.RecordingGroups = new List<string> { "Bill Kerman" };
             RecordingStore.AddRecordingWithTreeForTesting(replaceRec);
-            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(replaceRec, "Bill Kerman");
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(replaceRec, "Bill Kerman");
 
-            Assert.Equal(1, RecordingStore.ReplaceGroupOnAll("Bill Kerman", null));
+            Assert.Equal(1, RecordingGroupStore.ReplaceGroupOnAll("Bill Kerman", null, RecordingStore.CommittedRecordings));
             Assert.Null(replaceRec.AutoAssignedStandaloneGroupName);
         }
 
