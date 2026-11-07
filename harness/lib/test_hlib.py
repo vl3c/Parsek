@@ -4289,7 +4289,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # P8's live half. LIVE-PROVEN 2026-08-12 on the re-fly (`total=5 passed=5 failed=0
         # skipped=0`) after a first flight that red 3/5 on one product defect and one
         # fixture bug; the pin is whole and the id has left INTERIM_PIN_IDS.
-        "H37-part-event-fidelity":   ("PartEventFidelity", 5, "FLIGHT"),
+        # 2026-11-07: a sixth cell (wheel damage mesh swap), unflown while PC flights are paused.
+        "H37-part-event-fidelity":   ("PartEventFidelity", 6, "FLIGHT"),
         # PHASE-4 WAVE 1 (2026-08-29), thirteen lanes from the roster audit. They are
         # NOT a homogeneous block and the table should not be read as one: four boot
         # outside FLIGHT (two TRACKSTATION, two SPACECENTER), four inject the corpus,
