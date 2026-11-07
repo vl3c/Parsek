@@ -585,7 +585,7 @@ namespace Parsek
         ///     scene-exit), then arm the new intent and call
         ///     <c>FlightGlobals.SetActiveVessel(target)</c>.</item>
         /// <item><b>Discard</b>: scoped-discard the prior session via
-        ///     <see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>,
+        ///     <see cref="SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt"/>,
         ///     then arm the new intent and call
         ///     <c>FlightGlobals.SetActiveVessel(target)</c>.</item>
         /// </list>

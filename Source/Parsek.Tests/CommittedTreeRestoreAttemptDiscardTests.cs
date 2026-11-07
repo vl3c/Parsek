@@ -230,8 +230,8 @@ namespace Parsek.Tests
         public void SwitchSegmentScopedDiscard_CommittedRestoreCloneBranch_DiscardsTheAttempt()
         {
             string body = ExtractMethodBody(
-                ReadStrippedParsekSource("RecordingStore.cs"),
-                "internal static SwitchSegmentDiscardDisposition " +
+                ReadStrippedParsekSource("SwitchSegmentAttempts.cs"),
+                "internal static RecordingStore.SwitchSegmentDiscardDisposition " +
                 "TryDiscardActiveSwitchSegmentAttempt(");
             AssertDiscardHelperNotBareClear(body,
                 "TryDiscardActiveSwitchSegmentAttempt",
@@ -245,7 +245,7 @@ namespace Parsek.Tests
             int discard = body.IndexOf(
                 "DiscardCommittedTreeRestoreAttempt(", StringComparison.Ordinal);
             int done = body.IndexOf(
-                "return SwitchSegmentDiscardDisposition.CommittedRestoreClone;",
+                "return RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone;",
                 StringComparison.Ordinal);
             Assert.True(branch >= 0 && discard > branch && done > discard,
                 "TryDiscardActiveSwitchSegmentAttempt must discard the restore attempt " +

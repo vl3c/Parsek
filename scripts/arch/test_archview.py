@@ -3281,12 +3281,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # cycle (TryBackupSnapshot reverse-maps crew names through KerbalsModule),
         # so the knot gains that one type and no reference: 462; 463 after
         # CommittedListOptimizer (services PR8), 464 after CommittedTreeRestoreAttempt
-        # (services PR9), 465 after PendingTreeSlot (services PR10). It was [301, 7, 4, 2, 2] on 2026-09-25,
+        # (services PR9), 465 after PendingTreeSlot (services PR10), 466 after
+        # SwitchSegmentAttempts (services PR11). It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [465, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [466, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3360,7 +3361,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # second two more while main deleted one, and the RecordingStore
         # services plan's SceneEntryVesselScope, CommittedListOptimizer,
         # CommittedTreeRestoreAttempt and PendingTreeSlot, which no family prefix
-        # names, four more, file-placement PR 8's LiveVesselSnapshot one more, and
+        # names, four more (SwitchSegmentAttempts takes the SwitchIntent family
+        # prefix), file-placement PR 8's LiveVesselSnapshot one more, and
         # PR 10's eight VesselSpawner.<Area>.cs partial files eight more); 8 after,
         # the kernel list as it stands today (9 until file-placement PR 9 placed
         # VesselSpawner.cs in Controllers).
@@ -3406,8 +3408,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # second. Same canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
         self.assertEqual(first["sink"], "Route")
-        self.assertEqual(first["sizeBefore"], 465)
-        self.assertEqual(first["sizeAfter"], 447)
+        self.assertEqual(first["sizeBefore"], 466)
+        self.assertEqual(first["sizeAfter"], 448)
         self.assertEqual(
             first["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
@@ -3420,10 +3422,10 @@ class RealTreeSmokeTests(unittest.TestCase):
         # which tightened this cut by one (426 before); PR 8's LiveVesselSnapshot
         # is one more knot member on the uncut side (425 before), and so is
         # services PR8's CommittedListOptimizer (426 before), PR9's
-        # CommittedTreeRestoreAttempt (427 before) and PR10's PendingTreeSlot
-        # (428 before).
+        # CommittedTreeRestoreAttempt (427 before), PR10's PendingTreeSlot
+        # (428 before) and PR11's SwitchSegmentAttempts (429 before).
         self.assertEqual(second["sink"], "VesselLaunchIdentity")
-        self.assertEqual(second["sizeAfter"], 429)
+        self.assertEqual(second["sizeAfter"], 430)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3452,8 +3454,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # the residue as one more node with no new reference: 288 of 462, the
         # value pinned here (still 288 of 463 after services PR8's
         # CommittedListOptimizer, which the RecordingStore cut drops with it,
-        # of 464 after PR9's CommittedTreeRestoreAttempt and of 465 after PR10's
-        # PendingTreeSlot).
+        # of 464 after PR9's CommittedTreeRestoreAttempt, of 465 after PR10's
+        # PendingTreeSlot and of 466 after PR11's SwitchSegmentAttempts).
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which

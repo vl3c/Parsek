@@ -136,7 +136,7 @@ namespace Parsek.Tests
             AddCommitted(rec);
 
             Assert.False(
-                RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId("rec_marker_orphan"));
+                SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId("rec_marker_orphan"));
         }
 
         // Fails if: the predicate returns true for a recording that has
@@ -154,7 +154,7 @@ namespace Parsek.Tests
             AddCommitted(rec);
 
             Assert.False(
-                RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId("rec_plain"));
+                SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId("rec_plain"));
         }
 
         // Fails if: the predicate matches on any session id instead of the
@@ -173,7 +173,7 @@ namespace Parsek.Tests
             AddCommitted(rec);
 
             Assert.False(
-                RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId("rec_other_session"));
+                SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId("rec_other_session"));
         }
 
         // Fails if: the predicate fails to recognize a recording whose
@@ -190,7 +190,7 @@ namespace Parsek.Tests
             AddCommitted(rec);
 
             Assert.True(
-                RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId("rec_segment_owned"));
+                SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId("rec_segment_owned"));
         }
 
         // Fails if: someone reorders the cross-store lookup in
@@ -225,7 +225,7 @@ namespace Parsek.Tests
             // Committed-first ordering preserves committed history's
             // non-owned status.
             Assert.False(
-                RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(sharedId),
+                SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId(sharedId),
                 "Predicate must consult committed storage first; the pending-only " +
                 "stamp must NOT win the lookup");
         }
@@ -508,7 +508,7 @@ namespace Parsek.Tests
             string normalized = source.Replace("\r\n", "\n");
             Assert.Contains(
                 "RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)"
-                + "\n                        && !RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId)",
+                + "\n                        && !SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId)",
                 normalized.Replace("\n                        &&\n",
                                    "\n                        && "));
 

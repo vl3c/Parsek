@@ -320,7 +320,7 @@ namespace Parsek.Tests
 
             PendingTreeSlot.StashPendingTree(tree);
             string discardReason;
-            RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out discardReason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out discardReason);
 
             Assert.Equal(0, GameStateStore.EventCount);
         }

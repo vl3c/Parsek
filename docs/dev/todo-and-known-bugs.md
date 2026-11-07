@@ -3030,6 +3030,21 @@ each PR lands on the refactor branch, IL-proven a pure move).
   clears run a few writes earlier, ahead of resets that never read them.
   `RecordingStore` partials 7,339 -> 6,911 lines, 237 -> 214 IL methods; knot 464 -> 465, cut
   residue 288 unchanged.
+- PR11 (service J) landed: the switch-segment attempts left the store as
+  `SwitchSegmentAttempts`: the scoped Discard (`TryDiscardActiveSwitchSegmentAttempt`), the no-op
+  classification (`TryClassifyActiveSwitchSegmentNoOp`, `CommittedCloneMembersOutsideSegmentUnchanged`),
+  the segment-subtree walks (`CollectSwitchSegmentSubtreeRecordingIds`, its iteration cap,
+  `FindOverwrittenContinuingBranchPointId`, `EnqueueParentedBranchChildren` and five private tree
+  helpers), `FindSegmentTreeForSession`, and the marker-ownership predicate
+  (`IsMarkerOwnedSwitchSegmentRecordingId`, `FindRecordingByIdAcrossStores`), bodies verbatim. No
+  state. The `SwitchSegmentDiscardDisposition` enum stays nested in the store. `ParsekFlight` and
+  `ParsekScenario` call the new type; `MergeDialog`, the map-focus patch and
+  `CommittedTreeRestoreAttempt` stay on store forwarders (`TryDiscardActiveSwitchSegmentAttempt`,
+  `IsMarkerOwnedSwitchSegmentRecordingId`): the service reaches `GameStateStore`, `RouteEventLog` and
+  `LedgerOrchestrator`, and those callers calling it directly close cycles around the
+  `RecordingStore` cut (residue 288 -> 292). Five source gates now read `SwitchSegmentAttempts.cs`
+  (two of them had kept passing on the forwarder's matching signature). `RecordingStore` partials
+  6,911 -> 6,195 lines, 214 -> 202 IL methods; knot 465 -> 466, cut residue 288 unchanged.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

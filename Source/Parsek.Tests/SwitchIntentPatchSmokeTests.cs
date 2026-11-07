@@ -455,7 +455,7 @@ namespace Parsek.Tests
         public void DiscardPriorAndSwitchTo_ClearsSwitchSegmentSession_ViaScopedDiscard()
         {
             // The Discard handler calls
-            // RecordingStore.TryDiscardActiveSwitchSegmentAttempt which
+            // SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt which
             // calls scenario.ClearSwitchSegmentSession("scoped-discard")
             // internally. This test pins both ends of that contract
             // (the Discard handler routes through the helper, and the
@@ -482,7 +482,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string storePath = Path.Combine(projectRoot,
-                "Source", "Parsek", "RecordingStore.cs");
+                "Source", "Parsek", "SwitchSegmentAttempts.cs");
             string storeSource = File.ReadAllText(storePath);
             // TryDiscardActiveSwitchSegmentAttempt's success path always
             // calls ClearSwitchSegmentSession("scoped-discard") before

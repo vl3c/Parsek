@@ -23,7 +23,7 @@ id = "S0.12-switch-noop-discard"
 # (1) THE DISCARD IS SCENE-EXIT PREFIX STEP 3.5. `HighLogic_LoadScene_Patch.Prefix`
 #     calls `SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment` BEFORE the
 #     active-tree commit routing. It classifies through
-#     `RecordingStore.TryClassifyActiveSwitchSegmentNoOp`: disposition `Standalone`
+#     `SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp`: disposition `Standalone`
 #     iff the session tree's recording count equals the segment's subtree count,
 #     `BgMemberOrMixed` otherwise, and ONLY Standalone / CommittedRestoreClone are
 #     discarded - BgMemberOrMixed is DEFERRED to the normal commit.

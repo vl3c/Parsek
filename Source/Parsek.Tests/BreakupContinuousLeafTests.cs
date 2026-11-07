@@ -588,7 +588,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region RecordingStore.CollectSwitchSegmentSubtreeRecordingIds
+        #region SwitchSegmentAttempts.CollectSwitchSegmentSubtreeRecordingIds
 
         [Fact]
         public void CollectSwitchSegmentSubtree_OverwrittenEarlierStaging_StillCollected()
@@ -610,7 +610,7 @@ namespace Parsek.Tests
                 ActiveSegmentRecordingId = "S",
             };
 
-            var ids = RecordingStore.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
+            var ids = SwitchSegmentAttempts.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
 
             Assert.Contains("S", ids);
             Assert.Contains("Q", ids);
@@ -631,8 +631,8 @@ namespace Parsek.Tests
             tree.BranchPoints.Add(ground);
 
             Assert.Equal("bp-stage2",
-                RecordingStore.FindOverwrittenContinuingBranchPointId(tree, tree.Recordings["RA"]));
-            Assert.Null(RecordingStore.FindOverwrittenContinuingBranchPointId(tree, tree.Recordings["RB"]));
+                SwitchSegmentAttempts.FindOverwrittenContinuingBranchPointId(tree, tree.Recordings["RA"]));
+            Assert.Null(SwitchSegmentAttempts.FindOverwrittenContinuingBranchPointId(tree, tree.Recordings["RB"]));
         }
 
         [Fact]
@@ -646,7 +646,7 @@ namespace Parsek.Tests
                 ActiveSegmentRecordingId = "C",
             };
 
-            var ids = RecordingStore.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
+            var ids = SwitchSegmentAttempts.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
 
             Assert.Contains("C", ids);
             Assert.DoesNotContain("P", ids);

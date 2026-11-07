@@ -2026,7 +2026,7 @@ namespace Parsek
         /// classifier reads it. Guards out the restore-coroutine,
         /// Re-Fly-session, and active-merge-journal states (never auto-discard
         /// across those), then delegates resolution + the no-op decision to
-        /// <see cref="RecordingStore.TryClassifyActiveSwitchSegmentNoOp"/>.</para>
+        /// <see cref="SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp"/>.</para>
         /// </summary>
         internal bool TryEvaluateActiveSwitchSegmentNoOp(
             out string reason, out SwitchSegmentDisposition disposition)
@@ -2089,7 +2089,7 @@ namespace Parsek
                     }
                     backgroundRecorder.CheckpointAllVessels(Planetarium.GetUniversalTime());
                 }
-                return RecordingStore.TryClassifyActiveSwitchSegmentNoOp(out reason, out disposition);
+                return SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(out reason, out disposition);
             }
             catch (System.Exception ex)
             {
@@ -2137,7 +2137,7 @@ namespace Parsek
         /// own (already-safe) path.</para>
         ///
         /// <para>The clone tree id is captured BEFORE the scoped discard, because
-        /// <see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>
+        /// <see cref="SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt"/>
         /// clears the restore attempt; the teardown then fires only when the
         /// captured clone is still the live <c>activeTree</c> afterward, so an
         /// unrelated active tree is never nulled. Standalone segments have a null
@@ -2157,7 +2157,7 @@ namespace Parsek
                     ? activeTree.Id
                     : null;
 
-            var disposition = RecordingStore.TryDiscardActiveSwitchSegmentAttempt(
+            var disposition = SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
                 out discardReason);
 
             // In-flight (pre-stash) the committed clone is the live activeTree, not
