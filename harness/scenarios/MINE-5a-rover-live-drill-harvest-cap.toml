@@ -1,5 +1,21 @@
 # =============================================================================
-# MINE-5a: THE PLAUSIBILITY CAP MEASURED ON A LIVE DRILL. AUTHORED 2026-11-06, NEVER FLOWN.
+# MINE-5a: THE PLAUSIBILITY CAP MEASURED ON A LIVE DRILL. AUTHORED 2026-11-06, LIVE-PROVEN
+# 2026-11-07 (run `2026-11-07_0022`, PASS attempt 1, wall 98 s).
+#
+# FIRST FLIGHT. `BATCH_COMPLETE total=2 passed=2 failed=0 skipped=0`, now pinned whole.
+# Catch-up cell: `warped=True windows=1 gainedResources=0 ... plausibility caps=0`. Cap
+# cell: `rate=0.0017610771798682616 seconds=54.26 witnessed=0.0955560455349057 ratio=1.000`
+# (the drills ran at their full rated output, not the cold-start fraction the header
+# predicted) and `PASS windows=1 drills=4 railsWarp=1 oreWitnessed=0.0955560455349057
+# oreTank=0.095591264895251327`. The tanks gained 3.52e-5 Ore MORE than the window
+# witnessed: exactly rate x 0.0200 s, one physics frame produced before the harvest poll
+# read the window's start manifest. The 0.05 + 2% tank tolerance hid it; MINE-5b's first
+# flight hit it as a create-gate reject (todo HARVEST-WINDOW-EDGE-FRAME). The fix grants
+# each rated window a verdict-only edge slack (rate x 1.5 x 0.08 s x 2 edges, 4.2e-4 Ore
+# here), and the cap cell now asserts the gap inside [0, that slack] and a whole-tank
+# delivery credited at the witnessed amount with no cap; its PASS line appends
+# `oreEdgeGap= oreEdgeSlack= tankCredited=` (report-only here; the cell's assert gates
+# through the whole-pinned batch). RE-FLY WATCH: `oreEdgeGap` about 3.5e-5, PASS 2/0/0.
 #
 # WHAT IT CLOSES. HARVEST-ROUTE-PLAUSIBILITY-CAP left "lane MINE-5 (a live drill) to
 # measure a real window's rates against stock's own production" open, and
@@ -33,7 +49,7 @@
 #     resource it logs rate / seconds / witnessed / limit / ratio and asserts witnessed <=
 #     limit; it asserts the window bounded (PlausibleRates not null), Ore mined, no cap,
 #     the whole-harvest delivery unclamped, and the window's Ore equal to what stock put in
-#     the tanks (part resources read in the stop frame; 0.05 + 2% for the first-poll frame).
+#     the tanks (part resources read in the stop frame) up to the window edge slack.
 #   The tanks are read inside the cell, not with ReadVesselResources: the isolated batch
 #   quickloads its baseline after each cell, so a seam read after the batch sees the
 #   fixture's empty tanks.
@@ -49,7 +65,7 @@
 #   * `gainedResources` and `warped` on the catch-up PASS line, and its `caps=` count: a
 #     catch-up burst that lands inside the at-start window is exactly what the cap bounds.
 #   Then pin the BATCH_COMPLETE split whole (`passed=2 failed=0 skipped=0`) and the
-#   measured counts.
+#   measured counts. DONE 2026-11-07 off `2026-11-07_0022`.
 #
 # FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
 #   1. Reuse a flight - CONSIDERED, NOT APPLIED. An isolated batch quickloads its baseline
@@ -69,7 +85,7 @@
 schema = 1
 id = "MINE-5a-rover-live-drill-harvest-cap"
 tier = "nightly"
-description = "MINE-5a: on V's real mining rover with its four drills deployed, the MiningHarvest in-game cells run isolated: the D5 catch-up investigation (HarvestCapture_CatchUpOnLoad's body) finally executes on a drill landed on ore, and a live mining window across a rails warp stays under its own plausible rate x duration x 1.5, so a harvest-origin route built from it would credit and deliver the whole harvest; the window's Ore equals what stock put in the tanks."
+description = "MINE-5a: on V's real mining rover with its four drills deployed, the MiningHarvest in-game cells run isolated: the D5 catch-up investigation (HarvestCapture_CatchUpOnLoad's body) finally executes on a drill landed on ore, and a live mining window across a rails warp stays under its own plausible rate x duration x 1.5, so a harvest-origin route built from it would credit and deliver the whole harvest; the window's Ore matches what stock put in the tanks up to the window edge slack."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "mining", "logistics", "harvest", "MINE-5a"]
 
@@ -111,7 +127,7 @@ required = [
   "partaction applied button=inspect pid=110406740 part='MiniDrill' [^\\r\\n]*deployed=1",
   "runtests start category=MiningHarvest isolated=true",
   "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=MiningHarvest scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MiningHarvest scene=FLIGHT",
   "PASSED: LogisticsHarvestRuntimeTests\\.LiveDrill_CatchUpOnLoad_AttributesInsideWindowOrBridges",
   "PASSED: LogisticsHarvestRuntimeTests\\.LiveDrill_HarvestWindowWithinPlausibilityCap",
   # The catch-up cell: a drill already running opens a BOUNDED window at the start.

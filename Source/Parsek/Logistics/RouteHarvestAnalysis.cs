@@ -55,6 +55,17 @@ namespace Parsek.Logistics
         public Dictionary<string, double> PlausibleHarvestedManifest;
         /// <summary>The resources whose witnessed harvest exceeded the plausible amount (ordinal order).</summary>
         public List<HarvestCapEntry> HarvestCaps;
+        /// <summary>
+        /// Per-resource production the in-span windows can miss at their edges
+        /// (HARVEST-WINDOW-EDGE-FRAME, <see cref="RouteHarvestCapture.ComputeWindowEdgeSlack"/>
+        /// summed). A VERDICT-ONLY tolerance: the gain verdict, the flow closure and
+        /// the refined undocked-start gate add it to their epsilon, and the delivery
+        /// clamp does not report a cap inside it. It never enters
+        /// <see cref="HarvestedManifest"/> or <see cref="PlausibleHarvestedManifest"/>,
+        /// so neither the D8 debit reduction nor the route credit can exceed what was
+        /// witnessed. Empty (never null) once the check engaged.
+        /// </summary>
+        public Dictionary<string, double> HarvestEdgeSlack;
         /// <summary>The gain-anchor lineage leg (diagnostics + logging).</summary>
         public Recording AnchorLeg;
         /// <summary>
@@ -206,15 +217,17 @@ namespace Parsek.Logistics
             Dictionary<string, double> harvested = ComputeHarvestedTotals(
                 lineage, anchorIdx, arrivalIdx, anchorLeg.StartUT, dockUT,
                 out RouteHarvestWindow firstWindow,
-                out Dictionary<string, double> plausible);
+                out Dictionary<string, double> plausible,
+                out Dictionary<string, double> edgeSlack);
 
             Dictionary<string, double> gains =
                 ComputeFullRunGains(anchorLeg.RouteRunManifest, window);
 
             HarvestGainCheckResult result = EvaluateGainVerdict(
                 source, logMode, lineage, anchorLeg, harvested, gains, firstWindow,
-                loadedManifest);
+                loadedManifest, edgeSlack);
             result.PlausibleHarvestedManifest = plausible;
+            result.HarvestEdgeSlack = edgeSlack;
             result.HarvestCaps = ComputeHarvestCaps(harvested, plausible);
             if (result.HarvestCaps.Count > 0)
                 Diag(logMode, "harvest-plausibility-cap",
@@ -255,6 +268,22 @@ namespace Parsek.Logistics
             IList<Dictionary<string, double>> deliveries,
             Dictionary<string, double> plausible)
         {
+            return ClampDeliveriesToPlausibleHarvest(deliveries, plausible, null);
+        }
+
+        /// <summary>
+        /// <see cref="ClampDeliveriesToPlausibleHarvest(IList{Dictionary{string, double}}, Dictionary{string, double})"/>
+        /// with the windows' edge slack (<see cref="HarvestGainCheckResult.HarvestEdgeSlack"/>):
+        /// a resource lowered by no more than its slack is still lowered (the credit
+        /// never exceeds the plausible harvest) but is not REPORTED as capped, since
+        /// the excess is the frame of production the window edges could not witness,
+        /// not a catch-up burst.
+        /// </summary>
+        internal static List<HarvestCapEntry> ClampDeliveriesToPlausibleHarvest(
+            IList<Dictionary<string, double>> deliveries,
+            Dictionary<string, double> plausible,
+            Dictionary<string, double> edgeSlack)
+        {
             var caps = new List<HarvestCapEntry>();
             if (deliveries == null || plausible == null)
                 return caps;
@@ -294,7 +323,9 @@ namespace Parsek.Logistics
             for (int i = 0; i < resources.Count; i++)
             {
                 credited.TryGetValue(resources[i], out double cap);
-                if (recorded[resources[i]] - cap > GainEpsilon)
+                double slack = 0.0;
+                edgeSlack?.TryGetValue(resources[i], out slack);
+                if (recorded[resources[i]] - cap > GainEpsilon + slack)
                     caps.Add(new HarvestCapEntry
                     {
                         Resource = resources[i],
@@ -458,7 +489,8 @@ namespace Parsek.Logistics
             Dictionary<string, double> harvested,
             Dictionary<string, double> gains,
             RouteHarvestWindow firstWindow,
-            Dictionary<string, double> loadedManifest)
+            Dictionary<string, double> loadedManifest,
+            Dictionary<string, double> edgeSlack)
         {
             // M3 composition (plan D3 / item 7): the covered totals are the
             // witnessed HARVEST plus the window's pickup LOAD term. A pickup
@@ -484,6 +516,13 @@ namespace Parsek.Logistics
             // checked like any other (their covered total is 0 because the
             // window/bridge/load sums are admission-direction outputs - D2 fail
             // closed).
+            //
+            // HARVEST-WINDOW-EDGE-FRAME: a gain above the covered total by no more
+            // than the windows' edge slack (one physics frame per edge at the
+            // windows' own plausible rate) is the production the window manifests
+            // could not witness, and passes. It is logged per resource; the slack
+            // never enters the returned manifests.
+            int edgeSlackUsed = 0;
             var names = new List<string>(gains.Keys);
             names.Sort(StringComparer.Ordinal);
             for (int i = 0; i < names.Count; i++)
@@ -494,7 +533,19 @@ namespace Parsek.Logistics
                     continue;
 
                 covered.TryGetValue(name, out double coveredAmount);
-                if (gained - coveredAmount > GainEpsilon)
+                double slack = 0.0;
+                edgeSlack?.TryGetValue(name, out slack);
+                double uncovered = gained - coveredAmount;
+                if (uncovered > GainEpsilon && uncovered <= GainEpsilon + slack)
+                {
+                    edgeSlackUsed++;
+                    Diag(logMode, "harvest-gain-edge-slack",
+                        $"RouteAnalysis harvest: gain within window edge slack source={source.RecordingId ?? "<none>"} " +
+                        $"resource={name} gained={gained.ToString("R", IC)} " +
+                        $"covered={coveredAmount.ToString("R", IC)} uncovered={uncovered.ToString("R", IC)} " +
+                        $"edgeSlack={slack.ToString("R", IC)}");
+                }
+                if (uncovered > GainEpsilon + slack)
                 {
                     harvested.TryGetValue(name, out double harvestedAmount);
                     return new HarvestGainCheckResult
@@ -518,7 +569,8 @@ namespace Parsek.Logistics
                 $"RouteAnalysis harvest: gains covered source={source.RecordingId ?? "<none>"} " +
                 $"anchor={anchorLeg.RecordingId ?? "<none>"} lineage={lineage.Count} " +
                 $"resources={harvested.Count} " +
-                $"harvestedTotal={harvestedTotal.ToString("R", IC)}");
+                $"harvestedTotal={harvestedTotal.ToString("R", IC)} " +
+                $"edgeSlackUsed={edgeSlackUsed.ToString(IC)}");
 
             return new HarvestGainCheckResult
             {
@@ -881,8 +933,29 @@ namespace Parsek.Logistics
             out RouteHarvestWindow firstWindow,
             out Dictionary<string, double> plausible)
         {
+            return ComputeHarvestedTotals(lineage, anchorIdx, arrivalIdx, anchorStartUT, dockUT,
+                out firstWindow, out plausible, out _);
+        }
+
+        /// <summary>
+        /// The totals above plus the windows' summed edge slack
+        /// (HARVEST-WINDOW-EDGE-FRAME, <see cref="RouteHarvestCapture.ComputeWindowEdgeSlack"/>)
+        /// over the same in-span windows. Bridges add none: a bridge credits the
+        /// whole boundary delta already.
+        /// </summary>
+        internal static Dictionary<string, double> ComputeHarvestedTotals(
+            List<LineageLeg> lineage,
+            int anchorIdx,
+            int arrivalIdx,
+            double anchorStartUT,
+            double dockUT,
+            out RouteHarvestWindow firstWindow,
+            out Dictionary<string, double> plausible,
+            out Dictionary<string, double> edgeSlack)
+        {
             var harvested = new Dictionary<string, double>(StringComparer.Ordinal);
             plausible = new Dictionary<string, double>(StringComparer.Ordinal);
+            edgeSlack = new Dictionary<string, double>(StringComparer.Ordinal);
             firstWindow = null;
 
             // Window deltas. Windows live on lineage legs; the span filter is
@@ -919,6 +992,8 @@ namespace Parsek.Logistics
                         RouteHarvestCapture.ComputeWindowPlausibleHarvest(hw);
                     foreach (KeyValuePair<string, double> kvp in windowPlausible)
                         AddTo(plausible, kvp.Key, kvp.Value);
+                    foreach (KeyValuePair<string, double> kvp in RouteHarvestCapture.ComputeWindowEdgeSlack(hw))
+                        AddTo(edgeSlack, kvp.Key, kvp.Value);
                 }
             }
 

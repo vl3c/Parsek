@@ -19,6 +19,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~HARVEST-WINDOW-EDGE-FRAME: a live mining flight cannot become a harvest route, the window misses the drills' first frame~~ [FILED 2026-11-07 from MINE-5b's first flight (two attempts INVALID at `RouteCommand create`, head e1d07eb), measured by MINE-5a `2026-11-07_0022`; FIXED 2026-11-07, branch `harvest-gain-gap`; xUnit; re-flight of MINE-5a / MINE-5b owed; product, high (no live drill run could become a supply route)]
+
+**Symptom.** MINE-5b mined, docked to the depot, moved the Ore across and undocked; the route
+create then refused the tree `candidate-ineligible UntrackedCargoGain`: `RouteAnalysis rejected:
+untracked cargo gain resource=Ore gained=3.0634875677206495 harvested=3.0634523481529912`
+(attempt 2: 3.0639216621163863 / 3.0638864425172376). The 3.52e-5 gap is far above
+`GainEpsilon` (1e-6). MINE-5a measured the same gap on its own window: tanks 0.095591264895251327,
+window 0.0955560455349057, exactly its rate 0.0017610771798682616 x 0.0200 s.
+
+**Cause.** A harvest window's start manifest is read at the harvest poll (the recorder's physics
+frame postfix), which runs after the drills' first `FixedUpdate` has already produced: one physics
+frame of production precedes the window, so the dock gain is one frame above the witnessed harvest.
+The close edge can lose a frame the same way. Rails edges are physics frames too (windows open and
+close only on unpacked polls; a window stays open across rails), so no edge straddles a warp step.
+The stock catch-up burst on unpack lands inside an open window, or across a D5 bridge; a converter
+switched on during a warp whose catch-up lands before the rails-exit poll stays rejected (fail
+closed, a larger amount than any frame bound).
+
+**Fix.** A verdict-only edge slack per harvest window (`RouteHarvestCapture.ComputeWindowEdgeSlack`):
+per rated routable resource, the window's plausible rate x `PlausibilityMargin` (1.5) x 0.08 s (the
+0.02 s step at the top 4x physics warp) x 2 edges, summed over the in-span windows
+(`HarvestGainCheckResult.HarvestEdgeSlack`). The gain verdict, the flow closure and the refined
+undocked-start gate add it to their epsilon (logged: `gain within window edge slack`, and
+`edgeSlackUsed=` on the covered line). A window without rates (an unmodeled converter) gets none:
+one of its frames has no bound. Mirror direction: the slack never enters `HarvestedManifest` or
+`PlausibleHarvestedManifest`, so the D8 debit reduction and the route credit stay at the witnessed
+amount; the harvest-origin delivery clamp still trims a delivery to the plausible harvest and only
+stops REPORTING a cap inside the slack. Rejected alternative: re-reading the start manifest one
+frame earlier needs a per-frame manifest scan on every recording vessel, against the poll's
+zero-allocation steady state. For MINE-5a's rig the slack is 4.2e-4 Ore. MINE-5a's cap cell now
+asserts the tank gap inside the slack (was 0.05 + 2%, which hid this) and a whole-tank delivery
+credited at the witnessed amount uncapped; MINE-5b is ready to re-fly and forbids a reported cap.
+
 ## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
 
 **Symptom.** `FlightRecorder.OnVesselSOIChanged` returned at once unless the vessel was on rails,
@@ -499,20 +532,22 @@ resources persist as `Route.HarvestCaps` and the from/to hover names them. Desig
 19.4 M2 "Plausibility cap". In-game: `HarvestCapScanLedgerInGameTests.StockDrillAndIsruRatesAreModeled`
 (lane HV-2) reads every stock drill / ISRU prefab through `FlightRecorder.ReadHarvestConverterRate`;
 writing it found the asteroid drill left every stock mining window unbounded. The live
-measurement is lane `MINE-5a-rover-live-drill-harvest-cap` (AUTHORED 2026-11-06, branch `mine5`,
-never flown): the four drills on V's rover mine across a rails warp while recording, and the
+measurement is lane `MINE-5a-rover-live-drill-harvest-cap` (LIVE-PROVEN 2026-11-07,
+`2026-11-07_0022`): the four drills on V's rover mine across a rails warp while recording, and the
 in-game cell asserts each window's harvest under its own rate x duration x 1.5, no cap on the
 run's plausible totals, a whole-harvest delivery unchanged by the clamp, and the window's Ore
-equal to stock's tank gain, logging the measured `ratio=` (stock production / rate x duration).
-Still open: record that ratio after the first flight; a delivery that clamps to nothing leaves
-its stop with an empty manifest rather than refusing the route. The route itself is lane
-`MINE-5b-rover-dock-depot-harvest-route` (AUTHORED 2026-11-07, never flown): a real harvest-origin
-route from the miner docking a depot; its first flight reads whether the
-`harvest-origin delivery capped` line fires and the delivered Ore against the run's own.
+matching stock's tank gain up to the window edge slack. Measured `ratio=1.000` (54.26 s at
+0.0017610771798682616 Ore/s): live drills run at their rated output, so honest mining sits at
+two thirds of the cap. The same flight measured the one-frame window edge gap
+(HARVEST-WINDOW-EDGE-FRAME). Still open: a delivery that clamps to nothing leaves its stop with an
+empty manifest rather than refusing the route. The route itself is lane
+`MINE-5b-rover-dock-depot-harvest-route` (first flown 2026-11-07, INVALID on
+HARVEST-WINDOW-EDGE-FRAME, re-flight owed): a real harvest-origin route from the miner docking a
+depot; it now forbids a reported delivery cap.
 
 ---
 
-## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (unblocked 2026-11-07 by the scripted `miner-rover-depot` pair, not written), the lab lane XS-5, and first flights of MINE-5a, MINE-5b and S1.9's MINE-0 tokens; harness / fixture]
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (unblocked 2026-11-07 by the scripted `miner-rover-depot` pair, not written), the lab lane XS-5, MINE-5b's re-flight (its first flight found HARVEST-WINDOW-EDGE-FRAME; MINE-5a LIVE-PROVEN 2026-11-07) and S1.9's MINE-0 tokens; harness / fixture]
 
 Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
 from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a
@@ -610,6 +645,10 @@ built by hand, and MINE-5's route half is lane `MINE-5b-rover-dock-depot-harvest
   create` (gated `eligible=True`, `harvest origin`, `harvestOrigin=1`), `send-once`, a TimeJump,
   and the depot's Ore read above its pre-route amount. First-flight watch items are in the spec
   header (dock geometry, wheel drive direction, the mined amount on 3 EC/s of RTGs, the cap line).
+- First flight 2026-11-07 (two attempts, head e1d07eb): drive, dock, transfer and undock all
+  worked; the route create refused the tree on the product defect HARVEST-WINDOW-EDGE-FRAME (fixed,
+  branch `harvest-gain-gap`). The drills did not slow on 3 EC/s (3.06 Ore is the full rate over the
+  ~1740 s window). Re-flight owed on a DLL carrying the fix.
 
 ---
 

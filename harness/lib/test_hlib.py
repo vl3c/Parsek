@@ -6089,10 +6089,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # (H78), both PASS attempt 1, measured exactly those splits, so both specs pin them
     # whole, their `skipped=` values are declared in MEASURED_SKIPPED below, and both
     # ids left this set in the same commit.
-    # NON-EMPTY AGAIN ON 2026-11-06 for `MINE-5a-rover-live-drill-harvest-cap` (the
-    # two MiningHarvest cells on the miner rover, `total=2` literal, the split regexed
-    # with a `passed=` floor of 1). It leaves on its first flight.
-    INTERIM_PIN_IDS: set = {"MINE-5a-rover-live-drill-harvest-cap"}
+    # BRIEFLY NON-EMPTY AGAIN ON 2026-11-06 for `MINE-5a-rover-live-drill-harvest-cap`
+    # (the two MiningHarvest cells on the miner rover, `total=2` literal, the split
+    # regexed with a `passed=` floor of 1). Its first flight, `2026-11-07_0022` (PASS),
+    # measured 2/0/0, so the spec pins it whole and the id left this set in the same
+    # commit.
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR

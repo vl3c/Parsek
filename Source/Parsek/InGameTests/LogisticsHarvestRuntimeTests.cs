@@ -125,12 +125,6 @@ namespace Parsek.InGameTests
         /// <summary>Real seconds the live-drill measurement holds rails warp (about 50 game s at 10x).</summary>
         private const float LiveDrillRailsHoldSeconds = 5f;
 
-        /// <summary>
-        /// Tank-vs-window match for the live-drill measurement: the window opens on the
-        /// first harvest poll after the toggle, so a frame of production can precede it.
-        /// </summary>
-        private const double TankMatchAbsoluteTolerance = 0.05;
-        private const double TankMatchRelativeTolerance = 0.02;
 
         /// <summary>Rails-warp rate index the warp test requests (10x stock).</summary>
         private const int RailsWarpRateIndex = 2;
@@ -690,7 +684,7 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
-            Description = "HARVEST-ROUTE-PLAUSIBILITY-CAP measured on a live drill: every surface drill is started while recording, mines at 1x and through a rails warp, and the recorded window's harvest stays under its own plausible rate x duration x 1.5, so a harvest-origin route built from the run would credit and deliver all of it; the window delta equals what stock put in the tanks. Skips without a deployed surface drill")]
+            Description = "HARVEST-ROUTE-PLAUSIBILITY-CAP measured on a live drill: every surface drill is started while recording, mines at 1x and through a rails warp, and the recorded window's harvest stays under its own plausible rate x duration x 1.5, so a harvest-origin route built from the run would credit and deliver all of it; the window delta matches what stock put in the tanks within the window edge slack (HARVEST-WINDOW-EDGE-FRAME), and a delivery of the whole tank credits the witnessed amount uncapped. Skips without a deployed surface drill")]
         public IEnumerator LiveDrill_HarvestWindowWithinPlausibilityCap()
         {
             const string label = "LiveDrillHarvestCap";
@@ -850,20 +844,48 @@ namespace Parsek.InGameTests
                     $"{deliveredOre.ToString("R", IC)} of {witnessedOre.ToString("R", IC)} Ore, " +
                     RouteHarvestAnalysis.FormatCapsForLog(deliveryCaps));
 
-                // 7. STOCK'S OWN PRODUCTION: the tanks moved by what the windows witnessed.
+                // 7. STOCK'S OWN PRODUCTION: the tanks moved by what the windows witnessed
+                //    plus at most the production the window edges cannot witness
+                //    (HARVEST-WINDOW-EDGE-FRAME: the start manifest is read at the harvest
+                //    poll, after the drills' first production frame). The gap must sit
+                //    inside the edge slack the route analysis grants, and a delivery of
+                //    the whole tank must clamp to the witnessed amount with no cap.
                 tankBefore.TryGetValue("Ore", out double oreBefore);
                 tankAfter.TryGetValue("Ore", out double oreAfter);
                 double tankOre = oreAfter - oreBefore;
-                double tankTolerance = TankMatchAbsoluteTolerance + TankMatchRelativeTolerance * Math.Abs(tankOre);
-                InGameAssert.IsTrue(Math.Abs(tankOre - witnessedOre) <= tankTolerance,
+                double oreEdgeSlack = 0.0;
+                for (int w = 0; w < windows.Count; w++)
+                {
+                    RouteHarvestCapture.ComputeWindowEdgeSlack(windows[w])
+                        .TryGetValue("Ore", out double windowSlack);
+                    oreEdgeSlack += windowSlack;
+                }
+                double oreEdgeGap = tankOre - witnessedOre;
+                InGameAssert.IsTrue(
+                    oreEdgeGap >= -RouteHarvestAnalysis.GainEpsilon
+                        && oreEdgeGap <= oreEdgeSlack + RouteHarvestAnalysis.GainEpsilon,
                     $"The Ore tanks gained {tankOre.ToString("R", IC)} but the windows witnessed " +
-                    $"{witnessedOre.ToString("R", IC)} (tolerance {tankTolerance.ToString("R", IC)})");
+                    $"{witnessedOre.ToString("R", IC)}: gap {oreEdgeGap.ToString("R", IC)} outside " +
+                    $"[0, edge slack {oreEdgeSlack.ToString("R", IC)}]");
+                var tankDelivery = new Dictionary<string, double>(StringComparer.Ordinal) { ["Ore"] = tankOre };
+                var edgeSlackTotals = new Dictionary<string, double>(StringComparer.Ordinal) { ["Ore"] = oreEdgeSlack };
+                List<HarvestCapEntry> tankCaps = RouteHarvestAnalysis.ClampDeliveriesToPlausibleHarvest(
+                    new List<Dictionary<string, double>> { tankDelivery }, plausibleTotals, edgeSlackTotals);
+                tankDelivery.TryGetValue("Ore", out double tankCredited);
+                InGameAssert.IsTrue(tankCaps.Count == 0
+                        && tankCredited <= witnessedOre + RouteHarvestAnalysis.GainEpsilon
+                        && Math.Abs(tankCredited - witnessedOre) <= ResourceTolerance,
+                    $"A delivery of the whole tank ({tankOre.ToString("R", IC)} Ore) must credit the witnessed " +
+                    $"{witnessedOre.ToString("R", IC)} with no cap reported: credited " +
+                    $"{tankCredited.ToString("R", IC)}, {RouteHarvestAnalysis.FormatCapsForLog(tankCaps)}");
 
                 ParsekLog.Info("TestRunner",
                     $"{label}: PASS windows={windows.Count.ToString(IC)} drills={running.ToString(IC)} " +
                     $"railsWarp={(rails.Packed ? "1" : "0")} oreWitnessed={witnessedOre.ToString("R", IC)} " +
                     $"oreTank={tankOre.ToString("R", IC)} oreDelivered={deliveredOre.ToString("R", IC)} " +
-                    RouteHarvestAnalysis.FormatCapsForLog(caps));
+                    RouteHarvestAnalysis.FormatCapsForLog(caps) +
+                    $" oreEdgeGap={oreEdgeGap.ToString("R", IC)} oreEdgeSlack={oreEdgeSlack.ToString("R", IC)} " +
+                    $"tankCredited={tankCredited.ToString("R", IC)}");
             }
             finally
             {

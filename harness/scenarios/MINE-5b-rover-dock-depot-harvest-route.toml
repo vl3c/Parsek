@@ -1,6 +1,28 @@
 # =============================================================================
 # MINE-5b: A LIVE-DRILL HARVEST-ORIGIN ROUTE, RECORDED BY DRIVING INTO A DEPOT.
-# AUTHORED 2026-11-07, NEVER FLOWN.
+# AUTHORED 2026-11-07. FIRST FLOWN 2026-11-07 (both attempts INVALID at the route create on
+# a Parsek defect, since fixed); READY TO RE-FLY on a DLL carrying HARVEST-WINDOW-EDGE-FRAME.
+#
+# FIRST FLIGHT (two attempts, head e1d07eb). The drive, the dock, the transfer and the undock
+# all worked; `RouteCommand action=create` answered REJECTED `candidate-ineligible
+# UntrackedCargoGain` both times, a driver-gate INVALID: `RouteAnalysis rejected: untracked
+# cargo gain resource=Ore gained=3.0634875677206495 harvested=3.0634523481529912` (attempt
+# 2: 3.0639216621163863 / 3.0638864425172376). The 3.52e-5 gap is one 0.02 s physics frame
+# at the four drills' rate (0.0017610771798682616 Ore/s, MINE-5a's measurement): the drills'
+# first production frame lands before the harvest poll reads the window's start manifest,
+# so the window witnesses one frame less than the dock gain. A PRODUCT defect (todo
+# HARVEST-WINDOW-EDGE-FRAME): no live mining flight could become a harvest route. The fix
+# gives each rated window a verdict-only edge slack (rate x 1.5 x 0.08 s x 2 edges, 4.2e-4
+# Ore here) in the gain verdict, the flow closure and the refined undocked-start gate; the
+# route still credits only the witnessed harvest and reports no cap inside the slack.
+# PREMISES THE FIRST FLIGHT DISPROVED:
+#   * "The batteries run down partway through the half hour and the drills slow": the
+#     mined 3.063 Ore is the full rate x the ~1740 s window (ratio 1.0). They did not slow.
+#   * "Cold drills produce well under rate x duration": MINE-5a measured ratio=1.000 too.
+#     So the cap watch item below now expects the delivery EQUAL to the witnessed harvest,
+#     uncapped, and about 3.06 Ore, never more.
+# RE-FLY WATCH: `gains covered ... edgeSlackUsed=1` and `gain within window edge slack
+# resource=Ore ... uncovered=` about 3.5e-5, then the create gate `eligible=True`.
 #
 # WHAT IT CLOSES. The route half of the roadmap's MINE-5 (MINE-5a measured the cap without
 # it): todo MINING-ISRU-UNTESTED-END-TO-END said a harvest-origin route from a live drill
@@ -43,17 +65,18 @@
 #     drive toward -y and the throttle sign flips).
 #   * THE DOMINANT VESSEL. `activePid=110406740 activeName='Mining Rover RC'` on the end
 #     line; a depot-dominant couple renames the merged vessel and the reads by pid miss.
-#   * THE MINED AMOUNT. rm's Ore: the four drills draw 6 EC/s against 3 EC/s of RTGs, so
-#     the batteries run down partway through the half hour and the drills slow. Anything
-#     above zero carries the lane; zero refuses the transfer (`transfer-nothing-moved`,
-#     driver-gate INVALID) and names the drills, not Parsek.
+#   * THE MINED AMOUNT. rm's Ore: about 3.06 on the first flight (full rate; the predicted
+#     battery slow-down did not happen). Anything above zero carries the lane; zero refuses
+#     the transfer (`transfer-nothing-moved`, driver-gate INVALID) and names the drills.
 #   * THE ROUTE. `routecommand create gate ... eligible=True status=Eligible` with the
 #     harvest-origin and `harvestOrigin=1` analysis lines. An ineligible tree answers
 #     REJECTED candidate-ineligible, which maps to driver-gate: INVALID, not PARSEK-FAIL,
 #     so read its `status=` (the RouteAnalysisStatus) and file it if it is Parsek's.
-#   * THE CAP. Whether `harvest-origin delivery capped to plausible harvest` fires (cold
-#     drills produce well under rate x duration, so it is expected NOT to) and the
-#     delivered diff against rdep's Ore: equal when uncapped.
+#   * THE CAP. `harvest-origin delivery capped to plausible harvest` must NOT fire (the
+#     drills run at rate, far under rate x duration x 1.5, and the one-frame excess of the
+#     tank over the witnessed harvest sits inside the edge slack, which trims it silently).
+#     The delivered diff equals the witnessed harvest, 3.5e-5 under rdep's Ore: inside
+#     every 0.01 tolerance.
 #   * THE TIMING. TimeJump ut=8000 is past two route intervals after creation (interval =
 #     the root-to-undock span, about 1810 s); read the `Delivery write:` UT and tighten.
 #   Then pin the measured numbers whole and decide whether to arm the structure / routes
@@ -197,6 +220,9 @@ forbidden = [
   "routecommand rejected",
   "BLOCKED kind=DestinationFull",
   "Built route .* mode=CAREER",
+  # HARVEST-WINDOW-EDGE-FRAME mirror direction: the tank's one-frame excess over the
+  # witnessed harvest is trimmed inside the edge slack, never reported as a cap.
+  "harvest-origin delivery capped to plausible harvest",
 ]
 
 [runtime]
