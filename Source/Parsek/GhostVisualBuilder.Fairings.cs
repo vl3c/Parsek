@@ -207,8 +207,8 @@ namespace Parsek
         /// Binds the part's stock ModuleStructuralNode objects (the AutoTruss Truss1..6 and
         /// Cap1..6 on stock fairing bases) to their cloned ghost transforms and applies the
         /// stock visibility rule from the snapshot. The clones keep the prefab hierarchy,
-        /// including the "Hider" parent whose 0.001 / 0.1 scale cancels the children's
-        /// 2000 / 10 scale, so a shown structure renders at exactly stock size: stock itself
+        /// including the "Hider" parent whose (0.0005, 0.1, 0.0005) scale cancels the
+        /// children's (2000, 10, 2000) scale, so a shown structure renders at exactly stock size: stock itself
         /// never rescales these objects, it only SetActive's them.
         /// </summary>
         internal static List<FairingStructureNodeGhostInfo> BuildFairingStructureNodes(
@@ -442,9 +442,10 @@ namespace Parsek
 
             var fairingPrefab = prefab.FindModuleImplementing<ModuleProceduralFairing>();
             string declineReason;
+            info.shellMeshes = new List<Mesh>();
             GameObject stockShell = TryBuildStockFairingPanels(
                 fairingModule, fairingPrefab, prefab, partNode, modelNode, sections,
-                persistentId, partName, out declineReason);
+                persistentId, partName, info.shellMeshes, out declineReason);
             if (stockShell != null)
             {
                 info.fairingMeshObject = stockShell;
@@ -461,6 +462,7 @@ namespace Parsek
             Vector3 axis = fairingPrefab != null ? fairingPrefab.axis : Vector3.up;
 
             Mesh mesh = GenerateFairingConeMesh(sections, nSides, pivot, axis);
+            info.shellMeshes.Add(mesh);
 
             GameObject go = new GameObject("fairing_panels");
             go.transform.SetParent(modelNode, false);
@@ -502,9 +504,9 @@ namespace Parsek
         /// CapTextureURL) and ApplyVariantToPanel (the selected variant's FairingsTextureURL,
         /// shaderName and extra info on the non-cap panels).
         ///
-        /// The one persistent field the panel code reads off the host is nArcs (the player's
-        /// panel-count choice). It is set on the prefab module for the duration of this
-        /// synchronous call and restored in a finally block; nothing else runs in between.
+        /// The panel code reads only config fields off the host (the player's persistent nArcs
+        /// reaches it as the nSegments argument; host.nArcs is passed to SetArcPoints but
+        /// unused there), so the prefab is read, never written.
         ///
         /// FLIGHT only: in other scenes stock BuildMesh skips the nose-cone ring setup (it
         /// branches on LoadedSceneIsFlight / LoadedSceneIsEditor), so the caller keeps the
@@ -513,7 +515,7 @@ namespace Parsek
         private static GameObject TryBuildStockFairingPanels(
             ConfigNode fairingModule, ModuleProceduralFairing host, Part prefab, ConfigNode partNode,
             Transform modelNode, List<(float h, float r)> sections,
-            uint persistentId, string partName, out string declineReason)
+            uint persistentId, string partName, List<Mesh> createdMeshes, out string declineReason)
         {
             declineReason = null;
             if (host == null) { declineReason = "no-prefab-module"; return null; }
@@ -535,10 +537,8 @@ namespace Parsek
             xSections[xSections.Count - 1].isLast = true;
 
             GameObject container = null;
-            float savedArcs = host.nArcs;
             try
             {
-                host.nArcs = nArcs;
                 List<ProceduralFairings.FairingPanel> panels =
                     ProceduralFairings.FairingPanel.SetupPanelArray(
                         nSegments, panelMat, coneMat, xSections, host, host.capRadius);
@@ -567,6 +567,7 @@ namespace Parsek
                             UnityEngine.Object.Destroy(instance);
                     }
                     if (panel.isCap) capPanels++;
+                    if (panel.mesh != null) createdMeshes.Add(panel.mesh);
                     panel.CleanUp();
                 }
 
@@ -581,16 +582,32 @@ namespace Parsek
             catch (System.Exception ex)
             {
                 if (container != null) UnityEngine.Object.Destroy(container);
+                DestroyMeshes(createdMeshes);
                 declineReason = "threw:" + ex.GetType().Name;
                 ParsekLog.Warn("GhostVisual",
                     $"Fairing shell: stock panel builder threw for part='{partName}' pid={persistentId}: " +
                     $"{ex.GetType().Name}: {ex.Message}");
                 return null;
             }
-            finally
-            {
-                host.nArcs = savedArcs;
-            }
+        }
+
+        private static void DestroyMeshes(List<Mesh> meshes)
+        {
+            if (meshes == null) return;
+            for (int i = 0; i < meshes.Count; i++)
+                if (meshes[i] != null) UnityEngine.Object.Destroy(meshes[i]);
+            meshes.Clear();
+        }
+
+        /// <summary>
+        /// Destroys the meshes every fairing shell of a ghost created (a GameObject destroy
+        /// leaves its MeshFilter's mesh alive). Called from ghost teardown.
+        /// </summary>
+        internal static void DestroyFairingShellMeshes(Dictionary<uint, FairingGhostInfo> fairingInfos)
+        {
+            if (fairingInfos == null) return;
+            foreach (var kvp in fairingInfos)
+                if (kvp.Value != null) DestroyMeshes(kvp.Value.shellMeshes);
         }
 
         private static PartVariant ResolveFairingVariant(Part prefab, ConfigNode partNode, out string variantName)

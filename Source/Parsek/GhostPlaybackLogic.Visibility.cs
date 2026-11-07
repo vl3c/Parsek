@@ -587,8 +587,9 @@ namespace Parsek
         /// <summary>
         /// Re-applies stock ModuleStructuralNode visibility (the fairing interstage truss and
         /// cap plates) against the ghost's current logical part set: a structure whose only
-        /// attached stage was decoupled or destroyed hides, exactly as stock re-runs
-        /// CheckDisplay from DecoupleAction. Idempotent; returns true when anything changed.
+        /// attached stage was decoupled or destroyed hides (stock re-runs CheckDisplay from
+        /// DecoupleAction; see FairingStructureNodeGhostInfo for the parent-side case where
+        /// stock keeps it). Idempotent; returns true when anything changed.
         /// </summary>
         internal static bool RefreshFairingStructureVisibility(GhostPlaybackState state)
         {
@@ -608,7 +609,8 @@ namespace Parsek
                     if (node.structureObject.activeSelf == visible) continue;
                     node.structureObject.SetActive(visible);
                     changed++;
-                    ParsekLog.Verbose("GhostVisual",
+                    ParsekLog.VerboseRateLimited("GhostVisual",
+                        $"fairing-struct-{info.partPersistentId}-{node.rootObject}",
                         $"Fairing structure '{node.rootObject}' on pid={info.partPersistentId} " +
                         $"now {(visible ? "shown" : "hidden")} (attached stage " +
                         $"{(GhostVisualBuilder.StructureNodeHasAttachedPart(node, state.logicalPartIds) ? "present" : "gone")})");

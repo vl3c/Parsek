@@ -503,6 +503,8 @@ namespace Parsek
         // Null when the snapshot already shows the fairing deployed.
         public GameObject fairingMeshObject;
         public bool shellBuiltByStockPanels;
+        // Meshes the shell created (stock panels or the generated cone); destroyed with the ghost.
+        public List<Mesh> shellMeshes;
         // Stock ModuleStructuralNode objects of this part (the interstage truss and cap
         // plates), driven by the stock visibility rule. Null when the part has none.
         public List<FairingStructureNodeGhostInfo> structureNodes;
@@ -514,6 +516,9 @@ namespace Parsek
     /// and (spawnManually ? spawnState : a part is attached at one of attachNodeNames),
     /// inverted by reverseVisibility. Attachment is read from the snapshot's attN rows and
     /// re-evaluated against the ghost's logical part set, so a separated stage hides it.
+    /// (Stock itself leaves the truss shown when the stage leaves from the fairing's own
+    /// child side or is destroyed, because it re-runs CheckDisplay before clearing the node
+    /// or not at all; the ghost hides it, which is what the next recording's snapshot shows.)
     /// </summary>
     internal class FairingStructureNodeGhostInfo
     {

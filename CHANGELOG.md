@@ -17,9 +17,9 @@ All notable changes to Parsek are documented here.
 - **A Re-Fly merge says what it undid.** When merging a Re-Fly takes the old flight's losses off
   your career, a short message names them: a kerbal's death, contract failures, reputation
   penalties. (GUI-EXPOSURE-4)
-- **Ghost fairings look like the real ones.** A ghost's fairing is now built by KSP's own fairing
-  builder from the shape you drew, with the same panels, nose, paint and colour variant, and an
-  interstage fairing shows KSP's lattice truss inside it until the upper stage separates. (T25)
+- **Ghost fairings look like the real ones.** In flight a ghost's fairing is now built by KSP's own
+  fairing builder from the shape you drew, with the same panels, nose, paint and colour variant,
+  and an interstage fairing shows KSP's lattice truss until the upper stage separates. (T25)
 
 ### Fixed
 
