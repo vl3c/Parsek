@@ -1212,10 +1212,10 @@ namespace Parsek.Tests
         private Recording RoundTripSerialize(Recording rec)
         {
             var node = new ConfigNode("TRAJECTORY");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var result = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, result);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, result);
             return result;
         }
 
@@ -1326,7 +1326,7 @@ namespace Parsek.Tests
             segNode.AddValue("ofrW", "0.321");
 
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
             Assert.Single(rec.OrbitSegments);
             var seg = rec.OrbitSegments[0];

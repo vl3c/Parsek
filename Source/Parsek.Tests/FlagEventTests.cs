@@ -57,11 +57,11 @@ namespace Parsek.Tests
 
             // Serialize
             var targetNode = new ConfigNode("PARSEK_RECORDING");
-            RecordingStore.SerializeTrajectoryInto(targetNode, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(targetNode, rec);
 
             // Deserialize
             var deserialized = new Recording();
-            RecordingStore.DeserializeFlagEvents(targetNode, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeFlagEvents(targetNode, deserialized);
 
             Assert.Equal(2, deserialized.FlagEvents.Count);
 
@@ -92,10 +92,10 @@ namespace Parsek.Tests
             var rec = new Recording();
 
             var targetNode = new ConfigNode("PARSEK_RECORDING");
-            RecordingStore.SerializeTrajectoryInto(targetNode, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(targetNode, rec);
 
             var deserialized = new Recording();
-            RecordingStore.DeserializeFlagEvents(targetNode, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeFlagEvents(targetNode, deserialized);
 
             Assert.Empty(deserialized.FlagEvents);
         }
@@ -119,10 +119,10 @@ namespace Parsek.Tests
             });
 
             var targetNode = new ConfigNode("PARSEK_RECORDING");
-            RecordingStore.SerializeTrajectoryInto(targetNode, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(targetNode, rec);
 
             var deserialized = new Recording();
-            RecordingStore.DeserializeFlagEvents(targetNode, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeFlagEvents(targetNode, deserialized);
 
             Assert.Single(deserialized.FlagEvents);
             Assert.Equal("Flag with \"quotes\"", deserialized.FlagEvents[0].flagSiteName);
@@ -268,10 +268,10 @@ namespace Parsek.Tests
             }
 
             var targetNode = new ConfigNode("PARSEK_RECORDING");
-            RecordingStore.SerializeTrajectoryInto(targetNode, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(targetNode, rec);
 
             var deserialized = new Recording();
-            RecordingStore.DeserializeFlagEvents(targetNode, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeFlagEvents(targetNode, deserialized);
 
             Assert.Equal(5, deserialized.FlagEvents.Count);
             for (int i = 0; i < 5; i++)

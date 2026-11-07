@@ -630,7 +630,7 @@ namespace Parsek
             // Returns false when rejected so state-advancing callers (track-section
             // append, lastRecordedUT bookkeeping) can short-circuit too — otherwise the
             // same rejected point would re-enter treeRec.Points through the track-section
-            // flush path (RecordingStore.AppendPointsFromTrackSections).
+            // flush path (TrajectoryTextSidecarCodec.AppendPointsFromTrackSections).
             if (!FlightRecorder.IsAppendUTMonotonic(treeRec.Points, point.ut))
             {
                 TrajectoryPoint last = treeRec.Points[treeRec.Points.Count - 1];
@@ -657,7 +657,7 @@ namespace Parsek
         /// </summary>
         private void StartCheckpointTrackSection(BackgroundVesselState state, double ut)
         {
-            state.currentTrackSection = RecordingStore.BuildOpenOnRailsCheckpointSection(ut);
+            state.currentTrackSection = OrbitSegmentCheckpointBridge.BuildOpenCheckpointSection(ut);
             state.trackSectionActive = true;
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env=ExoBallistic ref=OrbitalCheckpoint source=Checkpoint " +
@@ -908,8 +908,8 @@ namespace Parsek
                 treeRec.TrackSections.Add(state.trackSections[i]);
             }
             treeRec.MarkFilesDirty();
-            int dedupedPointCopies = RecordingStore.AppendPointsFromTrackSections(state.trackSections, treeRec.Points);
-            int dedupedOrbitCopies = RecordingStore.AppendOrbitSegmentsFromTrackSections(state.trackSections, treeRec.OrbitSegments);
+            int dedupedPointCopies = TrajectoryTextSidecarCodec.AppendPointsFromTrackSections(state.trackSections, treeRec.Points);
+            int dedupedOrbitCopies = TrajectoryTextSidecarCodec.AppendOrbitSegmentsFromTrackSections(state.trackSections, treeRec.OrbitSegments);
             treeRec.CachedStats = null;
             treeRec.CachedStatsPointCount = 0;
             DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(

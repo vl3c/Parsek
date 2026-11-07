@@ -2012,7 +2012,7 @@ namespace Parsek
             // it with no exclusion check at all). After adoption, before any spawn
             // route; the snapshot is re-hydrated first so the decision reads the same
             // position the spawn would use (no-op when already loaded).
-            RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+            RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
             if (VesselSpawner.TryRetireEndedFlightAtKsc(rec, recIdx))
                 return;
 
@@ -2025,7 +2025,7 @@ namespace Parsek
             // The in-memory snapshot is a transient cache that may have been
             // dropped in-session; re-hydrate from the durable _vessel.craft
             // sidecar before consuming it. No-op when already loaded.
-            if (!RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec)
+            if (!RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec)
                 || rec.VesselSnapshot == null)
             {
                 ParsekLog.Warn("KSCSpawn",

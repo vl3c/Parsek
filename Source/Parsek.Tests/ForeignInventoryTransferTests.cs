@@ -548,7 +548,7 @@ namespace Parsek.Tests
 
             // The transfer event is written to the trajectory node and read back.
             var rec = new Recording { RecordingId = "roverRec" };
-            RecordingStore.DeserializeSegmentEvents(rover.BuildTrajectoryNode(), rec.SegmentEvents);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(rover.BuildTrajectoryNode(), rec.SegmentEvents);
             SegmentEvent e = Assert.Single(rec.SegmentEvents);
             Assert.Equal(SegmentEventType.PartRemoved, e.type);
             Assert.Equal(110.0, e.ut);

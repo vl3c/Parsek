@@ -64,7 +64,7 @@ namespace Parsek
                     continue;
 
                 Recording restoredRec = Recording.DeepClone(pendingRec);
-                RecordingStore.ClearSidecarLoadFailure(restoredRec);
+                RecordingSidecarStore.ClearSidecarLoadFailure(restoredRec);
                 restoredRec.MarkFilesDirty();
                 loadedTree.AddOrReplaceRecording(restoredRec);
                 restored++;
@@ -497,7 +497,7 @@ namespace Parsek
                     if (!loadedHasId)
                     {
                         Recording clone = Recording.DeepClone(committedRec);
-                        RecordingStore.ClearSidecarLoadFailure(clone);
+                        RecordingSidecarStore.ClearSidecarLoadFailure(clone);
                         // Mark dirty so the next OnSave rewrites the .sfs with the
                         // spliced shape AND advances the .prec sidecar epoch in
                         // lockstep — otherwise the committed-but-not-loaded recording
@@ -806,7 +806,7 @@ namespace Parsek
             SidecarVersions.CopyHashes(loadedRec, sourceClone);
             loadedRec.SidecarEpochAdvancePending =
                 loadedRec.SidecarEpochAdvancePending || sourceClone.SidecarEpochAdvancePending;
-            RecordingStore.ClearSidecarLoadFailure(loadedRec);
+            RecordingSidecarStore.ClearSidecarLoadFailure(loadedRec);
             // Mark dirty so the next OnSave rewrites the .sfs with the refreshed
             // shape + advances the .prec sidecar epoch in lockstep (same
             // contract as the missing-id splice path above).
@@ -1004,7 +1004,7 @@ namespace Parsek
             target.SidecarEpoch = sourceClone.SidecarEpoch;
             SidecarVersions.CopyHashes(target, sourceClone);
             target.SidecarEpochAdvancePending = sourceClone.SidecarEpochAdvancePending;
-            RecordingStore.ClearSidecarLoadFailure(target);
+            RecordingSidecarStore.ClearSidecarLoadFailure(target);
 
             target.RecordingId = recordingId;
             target.TreeId = treeId;
@@ -1115,7 +1115,7 @@ namespace Parsek
             if (!HasCoherentSnapshotState(loadedRec))
                 return false;
 
-            RecordingStore.ClearSidecarLoadFailure(loadedRec);
+            RecordingSidecarStore.ClearSidecarLoadFailure(loadedRec);
             loadedRec.MarkFilesDirty();
             return true;
         }

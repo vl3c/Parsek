@@ -58,7 +58,7 @@ namespace Parsek.Tests
                 epoch = startUT
             };
 
-            return RecordingStore.BuildClosedOnRailsCheckpointSection(segment);
+            return OrbitSegmentCheckpointBridge.BuildClosedCheckpointSection(segment);
         }
 
         /// <summary>

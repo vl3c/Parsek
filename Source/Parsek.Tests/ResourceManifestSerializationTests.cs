@@ -46,11 +46,11 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeResourceManifest(node, rec);
+            RecordingManifestCodec.SerializeResourceManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-both";
-            RecordingStore.DeserializeResourceManifest(node, loaded);
+            RecordingManifestCodec.DeserializeResourceManifest(node, loaded);
 
             Assert.NotNull(loaded.StartResources);
             Assert.NotNull(loaded.EndResources);
@@ -83,11 +83,11 @@ namespace Parsek.Tests
             rec.EndResources = null;
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeResourceManifest(node, rec);
+            RecordingManifestCodec.SerializeResourceManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-start";
-            RecordingStore.DeserializeResourceManifest(node, loaded);
+            RecordingManifestCodec.DeserializeResourceManifest(node, loaded);
 
             Assert.NotNull(loaded.StartResources);
             Assert.Null(loaded.EndResources);
@@ -106,11 +106,11 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeResourceManifest(node, rec);
+            RecordingManifestCodec.SerializeResourceManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-end";
-            RecordingStore.DeserializeResourceManifest(node, loaded);
+            RecordingManifestCodec.DeserializeResourceManifest(node, loaded);
 
             Assert.Null(loaded.StartResources);
             Assert.NotNull(loaded.EndResources);
@@ -126,7 +126,7 @@ namespace Parsek.Tests
             rec.EndResources = null;
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeResourceManifest(node, rec);
+            RecordingManifestCodec.SerializeResourceManifest(node, rec);
 
             Assert.Null(node.GetNode("RESOURCE_MANIFEST"));
         }
@@ -140,7 +140,7 @@ namespace Parsek.Tests
             rec.EndResources = new Dictionary<string, ResourceAmount>();
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeResourceManifest(node, rec);
+            RecordingManifestCodec.SerializeResourceManifest(node, rec);
 
             Assert.Null(node.GetNode("RESOURCE_MANIFEST"));
         }
@@ -162,11 +162,11 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeResourceManifest(node, rec);
+            RecordingManifestCodec.SerializeResourceManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-asym";
-            RecordingStore.DeserializeResourceManifest(node, loaded);
+            RecordingManifestCodec.DeserializeResourceManifest(node, loaded);
 
             Assert.NotNull(loaded.StartResources);
             Assert.NotNull(loaded.EndResources);
@@ -203,11 +203,11 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeResourceManifest(node, rec);
+            RecordingManifestCodec.SerializeResourceManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-precision";
-            RecordingStore.DeserializeResourceManifest(node, loaded);
+            RecordingManifestCodec.DeserializeResourceManifest(node, loaded);
 
             Assert.Equal(precise, loaded.StartResources["LiquidFuel"].amount);
             Assert.Equal(precise, loaded.StartResources["LiquidFuel"].maxAmount);
@@ -233,7 +233,7 @@ namespace Parsek.Tests
             {
                 // Simulate comma-decimal locale for serialization
                 Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
-                RecordingStore.SerializeResourceManifest(node, rec);
+                RecordingManifestCodec.SerializeResourceManifest(node, rec);
 
                 // Verify the node values use dots, not commas
                 var manifest = node.GetNode("RESOURCE_MANIFEST");
@@ -247,7 +247,7 @@ namespace Parsek.Tests
                 Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
                 var loaded = new Recording();
                 loaded.RecordingId = "test-locale";
-                RecordingStore.DeserializeResourceManifest(node, loaded);
+                RecordingManifestCodec.DeserializeResourceManifest(node, loaded);
 
                 Assert.Equal(1234.5678, loaded.StartResources["LiquidFuel"].amount);
                 Assert.Equal(9999.1234, loaded.StartResources["LiquidFuel"].maxAmount);
@@ -266,7 +266,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-legacy";
-            RecordingStore.DeserializeResourceManifest(node, loaded);
+            RecordingManifestCodec.DeserializeResourceManifest(node, loaded);
 
             Assert.Null(loaded.StartResources);
             Assert.Null(loaded.EndResources);
@@ -296,7 +296,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-malformed";
-            RecordingStore.DeserializeResourceManifest(node, loaded);
+            RecordingManifestCodec.DeserializeResourceManifest(node, loaded);
 
             Assert.NotNull(loaded.StartResources);
             Assert.Single(loaded.StartResources);

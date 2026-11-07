@@ -189,7 +189,7 @@ namespace Parsek.Tests
 
             string recDir = Path.Combine(StockScreenCensusFixture.TargetDir(RepoRoot()), "Parsek", "Recordings");
             var loaded = new Recording { RecordingId = StockScreenCensusFixture.FlightRecordingId };
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loaded,
                 Path.Combine(recDir, StockScreenCensusFixture.FlightRecordingId + ".prec"),
                 Path.Combine(recDir, StockScreenCensusFixture.FlightRecordingId + "_vessel.craft"),

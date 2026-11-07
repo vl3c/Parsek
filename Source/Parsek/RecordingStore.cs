@@ -6383,119 +6383,6 @@ namespace Parsek
 
         #region Trajectory Serialization
 
-        internal static bool HasTrackSectionPayloadMatchingFlatTrajectory(
-            Recording rec,
-            bool allowRelativeSections = false)
-        {
-            return TrajectoryTextSidecarCodec.HasTrackSectionPayloadMatchingFlatTrajectory(
-                rec, allowRelativeSections);
-        }
-
-        internal static bool FlatTrajectoryExtendsTrackSectionPayload(
-            Recording rec,
-            List<TrackSection> tracks,
-            bool allowRelativeSections = false)
-        {
-            return TrajectoryTextSidecarCodec.FlatTrajectoryExtendsTrackSectionPayload(
-                rec, tracks, allowRelativeSections);
-        }
-
-        internal static bool TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
-            Recording target,
-            Recording source,
-            List<TrackSection> tailReferenceTracks,
-            bool allowRelativeSections = false)
-        {
-            return TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
-                target, source, tailReferenceTracks, allowRelativeSections);
-        }
-
-        internal static bool ShouldWriteSectionAuthoritativeTrajectory(Recording rec)
-        {
-            return TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(rec);
-        }
-
-        internal static int RebuildPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
-        {
-            return TrajectoryTextSidecarCodec.RebuildPointsFromTrackSections(tracks, points);
-        }
-
-        internal static int AppendPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
-        {
-            return TrajectoryTextSidecarCodec.AppendPointsFromTrackSections(tracks, points);
-        }
-
-        internal static int DropNonMonotonicTrajectoryPoints(List<TrajectoryPoint> points)
-        {
-            return TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(points);
-        }
-
-        internal static bool ContainsRelativeTrackSections(List<TrackSection> tracks)
-        {
-            return TrajectoryTextSidecarCodec.ContainsRelativeTrackSections(tracks);
-        }
-
-        internal static bool HasCompleteTrackSectionPayloadForFlatSync(
-            List<TrackSection> tracks,
-            bool allowRelativeSections = false)
-        {
-            return TrajectoryTextSidecarCodec.HasCompleteTrackSectionPayloadForFlatSync(
-                tracks, allowRelativeSections);
-        }
-
-        internal static bool TrySyncFlatTrajectoryFromTrackSections(
-            Recording rec,
-            bool allowRelativeSections = false)
-        {
-            return TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(
-                rec, allowRelativeSections);
-        }
-
-        internal static bool TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
-            Recording rec,
-            bool allowRelativeSections = false,
-            bool markDirty = true)
-        {
-            return TrajectoryTextSidecarCodec.TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
-                rec, allowRelativeSections, markDirty);
-        }
-
-        internal static int RebuildOrbitSegmentsFromTrackSections(
-            List<TrackSection> tracks,
-            List<OrbitSegment> orbitSegments)
-        {
-            return TrajectoryTextSidecarCodec.RebuildOrbitSegmentsFromTrackSections(
-                tracks, orbitSegments);
-        }
-
-        internal static int AppendOrbitSegmentsFromTrackSections(
-            List<TrackSection> tracks,
-            List<OrbitSegment> orbitSegments)
-        {
-            return TrajectoryTextSidecarCodec.AppendOrbitSegmentsFromTrackSections(
-                tracks, orbitSegments);
-        }
-
-        internal static TrackSection BuildOpenOnRailsCheckpointSection(double startUT)
-        {
-            return OrbitSegmentCheckpointBridge.BuildOpenCheckpointSection(startUT);
-        }
-
-        internal static TrackSection BuildClosedOnRailsCheckpointSection(OrbitSegment segment)
-        {
-            return OrbitSegmentCheckpointBridge.BuildClosedCheckpointSection(segment);
-        }
-
-        internal static bool TryAppendClosedOnRailsCheckpointSection(
-            Recording rec,
-            OrbitSegment segment,
-            bool markDirty,
-            out string skipReason)
-        {
-            return OrbitSegmentCheckpointBridge.TryAppendClosedCheckpointSection(
-                rec, segment, markDirty, out skipReason);
-        }
-
         internal static OrbitSegmentCheckpointBridgeStats EnsureCheckpointSectionsForTopLevelOrbitSegments(
             Recording rec,
             bool markDirty,
@@ -6529,182 +6416,27 @@ namespace Parsek
             return stats;
         }
 
-        internal static void SerializeTrajectoryInto(ConfigNode targetNode, Recording rec)
-        {
-            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(targetNode, rec);
-        }
-
-        internal static void DeserializeTrajectoryFrom(ConfigNode sourceNode, Recording rec)
-        {
-            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(sourceNode, rec);
-        }
-
-        internal static void DeserializePoints(ConfigNode sourceNode, Recording rec)
-        {
-            TrajectoryTextSidecarCodec.DeserializePoints(sourceNode, rec);
-        }
-
-        internal static void DeserializeOrbitSegments(ConfigNode sourceNode, Recording rec)
-        {
-            TrajectoryTextSidecarCodec.DeserializeOrbitSegments(sourceNode, rec);
-        }
-
-        internal static void DeserializePartEvents(ConfigNode sourceNode, Recording rec)
-        {
-            TrajectoryTextSidecarCodec.DeserializePartEvents(sourceNode, rec);
-        }
-
-        internal static void DeserializeFlagEvents(ConfigNode sourceNode, Recording rec)
-        {
-            TrajectoryTextSidecarCodec.DeserializeFlagEvents(sourceNode, rec);
-        }
-
-        internal static void SerializeSegmentEvents(ConfigNode parent, List<SegmentEvent> events)
-        {
-            TrajectoryTextSidecarCodec.SerializeSegmentEvents(parent, events);
-        }
-
-        internal static void DeserializeSegmentEvents(ConfigNode parent, List<SegmentEvent> events)
-        {
-            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(parent, events);
-        }
-
-        internal static void SerializeTrackSections(ConfigNode parent, List<TrackSection> tracks)
-        {
-            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, tracks);
-        }
-
-        internal static void DeserializeTrackSections(ConfigNode parent, List<TrackSection> tracks)
-        {
-            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, tracks);
-        }
-
         #endregion
 
         #region Crew End States Serialization
-
-        internal static void SerializeCrewEndStates(ConfigNode parent, Recording rec)
-        {
-            RecordingManifestCodec.SerializeCrewEndStates(parent, rec);
-        }
-
-        internal static void DeserializeCrewEndStates(ConfigNode parent, Recording rec)
-        {
-            RecordingManifestCodec.DeserializeCrewEndStates(parent, rec);
-        }
 
         #endregion
 
         #region Resource Manifest Serialization
 
-        internal static void SerializeResourceManifest(ConfigNode parent, Recording rec)
-        {
-            RecordingManifestCodec.SerializeResourceManifest(parent, rec);
-        }
-
-        internal static void DeserializeResourceManifest(ConfigNode parent, Recording rec)
-        {
-            RecordingManifestCodec.DeserializeResourceManifest(parent, rec);
-        }
-
-        internal static void SerializeInventoryManifest(ConfigNode parent, Recording rec)
-        {
-            RecordingManifestCodec.SerializeInventoryManifest(parent, rec);
-        }
-
-        internal static void DeserializeInventoryManifest(ConfigNode parent, Recording rec)
-        {
-            RecordingManifestCodec.DeserializeInventoryManifest(parent, rec);
-        }
-
-        internal static void SerializeCrewManifest(ConfigNode parent, Recording rec)
-        {
-            RecordingManifestCodec.SerializeCrewManifest(parent, rec);
-        }
-
-        internal static void DeserializeCrewManifest(ConfigNode parent, Recording rec)
-        {
-            RecordingManifestCodec.DeserializeCrewManifest(parent, rec);
-        }
-
-        internal static void SerializeRouteProofMetadata(ConfigNode parent, Recording rec)
-        {
-            RouteProofCodec.SerializeRouteProofMetadata(parent, rec);
-        }
-
-        internal static void DeserializeRouteProofMetadata(ConfigNode parent, Recording rec)
-        {
-            RouteProofCodec.DeserializeRouteProofMetadata(parent, rec);
-        }
-
         #endregion
 
         #region Recording File I/O
-
-        // Compatibility wrappers during the sidecar owner split. Delete after
-        // call sites can move to RecordingSidecarStore directly.
-        internal static void ClearSidecarLoadFailure(Recording rec)
-        {
-            RecordingSidecarStore.ClearSidecarLoadFailure(rec);
-        }
-
-        internal static void MarkSidecarLoadFailure(Recording rec, string reason)
-        {
-            RecordingSidecarStore.MarkSidecarLoadFailure(rec, reason);
-        }
 
         private static string FormatPathForSidecarLog(string path)
         {
             return string.IsNullOrEmpty(path) ? "<null>" : path;
         }
 
-        internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
-        {
-            return RecordingSidecarStore.SaveRecordingFiles(rec, incrementEpoch);
-        }
-
-        internal static bool AreRecordingFilesCurrentForSave(Recording rec, out string reason)
-        {
-            return RecordingSidecarStore.AreRecordingFilesCurrentForSave(rec, out reason);
-        }
-
-        internal static bool TrajectoryHeadHoldsNamedBytes(Recording rec, out string reason)
-        {
-            return RecordingSidecarStore.TrajectoryHeadHoldsNamedBytes(rec, out reason);
-        }
-
-        internal static bool AreRecordingFilesCurrentThroughNamedVersions(Recording rec, out string reason)
-        {
-            return RecordingSidecarStore.AreRecordingFilesCurrentThroughNamedVersions(rec, out reason);
-        }
-
-        internal static bool AreRecordingFilesCurrentAtPathsForTesting(
-            Recording rec, string precPath, string vesselPath, string ghostPath, out string reason)
-        {
-            return RecordingSidecarStore.AreRecordingFilesCurrentAtPaths(
-                rec, precPath, vesselPath, ghostPath, out reason);
-        }
-
         internal static void ReconcileReadableSidecarMirrorsForKnownRecordings()
         {
             RecordingSidecarStore.ReconcileReadableSidecarMirrorsForKnownRecordings(
                 committedRecordings, pendingTree);
-        }
-
-        internal static bool LoadRecordingFiles(Recording rec)
-        {
-            return RecordingSidecarStore.LoadRecordingFiles(rec);
-        }
-
-        /// <summary>
-        /// Bug #270: Returns true if the sidecar file's epoch doesn't match the
-        /// recording's expected epoch (loaded from .sfs). When true, the caller
-        /// should skip trajectory deserialization — the .prec is from a different
-        /// save point and its data would be inconsistent with the .sfs metadata.
-        /// </summary>
-        internal static bool ShouldSkipStaleSidecar(Recording rec, int fileEpoch)
-        {
-            return RecordingSidecarStore.ShouldSkipStaleSidecar(rec, fileEpoch);
         }
 
         internal static void WriteTrajectorySidecar(string path, Recording rec, int sidecarEpoch)
@@ -6832,27 +6564,6 @@ namespace Parsek
             return true;
         }
 
-        internal static bool SaveRecordingFilesToPathsForTesting(
-            Recording rec, string precPath, string vesselPath, string ghostPath, bool incrementEpoch = true)
-        {
-            return RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
-                rec, precPath, vesselPath, ghostPath, incrementEpoch);
-        }
-
-        internal static bool ReconcileReadableSidecarMirrorsToPathsForTesting(
-            Recording rec, string precPath, string vesselPath, string ghostPath)
-        {
-            return RecordingSidecarStore.ReconcileReadableSidecarMirrorsToPathsForTesting(
-                rec, precPath, vesselPath, ghostPath);
-        }
-
-        internal static bool LoadRecordingFilesFromPathsForTesting(
-            Recording rec, string precPath, string vesselPath, string ghostPath)
-        {
-            return RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
-                rec, precPath, vesselPath, ghostPath);
-        }
-
         // Kept on RecordingStore while wrappers remain the public test surface.
         // Move with the load owner after codec/call-site ownership settles.
         internal enum SnapshotSidecarLoadState
@@ -6897,15 +6608,10 @@ namespace Parsek
             return probeOk;
         }
 
-        internal static bool TryLoadSnapshotSidecar(string path, out ConfigNode node, out SnapshotSidecarProbe probe)
-        {
-            return SnapshotSidecarCodec.TryLoad(path, out node, out probe);
-        }
-
         internal static bool LoadSnapshotSidecarForTesting(string path, out ConfigNode node)
         {
             SnapshotSidecarProbe probe;
-            if (!TryLoadSnapshotSidecar(path, out node, out probe) || !probe.Supported)
+            if (!SnapshotSidecarCodec.TryLoad(path, out node, out probe) || !probe.Supported)
                 return false;
 
             return node != null;
@@ -6913,70 +6619,12 @@ namespace Parsek
 
         internal static void WriteSnapshotSidecarForTesting(string path, ConfigNode node)
         {
-            WriteSnapshotSidecar(path, node);
+            SnapshotSidecarCodec.Write(path, node);
         }
 
         internal static string GetTrajectorySidecarEncodingLabel(int recordingFormatVersion)
         {
             return "BinaryV0";
-        }
-
-        private static void SafeWriteConfigNode(ConfigNode node, string path)
-        {
-            FileIOUtils.SafeWriteConfigNode(node, path, "RecordingStore");
-        }
-
-        private static void WriteSnapshotSidecar(string path, ConfigNode node)
-        {
-            SnapshotSidecarCodec.Write(path, node);
-        }
-
-        internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
-        {
-            return RecordingSidecarStore.IsAcceptableSidecarVersionLag(probeFormatVersion, recordingFormatVersion);
-        }
-
-        /// <summary>
-        /// Bug #585 follow-up: a recording whose sidecar load failed (most often
-        /// bug #270's stale-sidecar-epoch mitigation on a Re-Fly quicksave) sits
-        /// in memory with empty trajectory + null snapshots, while the on-disk
-        /// .prec still holds the original mission's data. If the recorder never
-        /// rebinds (any non-active recording in the loaded tree), writing the
-        /// empty in-memory state back to disk would clobber the original .prec
-        /// — permanently destroying user data. PR #558 fixed this for the
-        /// active recording (recorder rebind repopulates it) but did nothing
-        /// for siblings; the playtest at <c>logs/2026-04-25_2210_refly-bugs/</c>
-        /// caught a sibling launch recording (22c28f04…) being overwritten with
-        /// <c>points=0 orbitSegments=0 trackSections=0 wroteVessel=False</c> on
-        /// scene exit. This guard returns true when both flags are set and the
-        /// in-memory state has no recorded data: the saver must skip the write
-        /// to preserve the on-disk .prec.
-        /// </summary>
-        internal static bool ShouldSkipSaveToPreserveStaleSidecar(Recording rec)
-        {
-            return RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec);
-        }
-
-        internal static SnapshotSidecarLoadSummary LoadSnapshotSidecarsFromPaths(Recording rec, string vesselPath, string ghostPath)
-        {
-            return RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
-        }
-
-        /// <summary>
-        /// Re-hydrates a recording's vessel snapshot from its <c>_vessel.craft</c>
-        /// sidecar when the transient in-memory copy was dropped. Used by the
-        /// terminal-spawn path so a spawnable leaf (e.g. an orbital payload) can
-        /// still materialize after its snapshot was nulled in-session. No-op when
-        /// already loaded; quiet when the sidecar is absent or unresolvable.
-        /// </summary>
-        internal static bool TryHydrateVesselSnapshotFromSidecar(Recording rec)
-        {
-            return RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
-        }
-
-        internal static bool TryHydrateVesselSnapshotFromPath(Recording rec, string vesselPath)
-        {
-            return RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, vesselPath);
         }
 
         #endregion

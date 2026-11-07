@@ -1148,7 +1148,7 @@ namespace Parsek.Tests
                 Generators.LoopedInterplanetaryFixture.BuildRecording();
             var rec = new Recording();
             RecordingTreeRecordCodec.LoadRecordingFrom(builder.BuildV3Metadata(), rec);
-            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
 
             tree = Tree("t-duna-direct", new[] { rec });
             committed = new List<Recording> { rec };
@@ -1228,7 +1228,7 @@ namespace Parsek.Tests
 
             var rec = new Recording();
             RecordingTreeRecordCodec.LoadRecordingFrom(builder.BuildV3Metadata(), rec);
-            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
             return rec;
         }
 
