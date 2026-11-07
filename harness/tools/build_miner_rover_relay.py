@@ -33,8 +33,12 @@ WHAT IS COPIED AND WHAT IS DERIVED.
 
   THE SILO, index 3, `Ore Silo`. A copy of the depot as `miner-rover-depot` commits it (no
   drills, empty Ore tanks, one front port), with the MINER's `rot` (same heading), placed
-  behind the miner so its front port faces the miner's rear port across `GAP_METERS`: its
-  root sits (rear face distance + `GAP_METERS` + front face distance) behind the miner's root
+  behind the miner so its front port faces the miner's rear port across `SILO_GAP_METERS`
+  (4 m: the first flight showed an undock's push rolling the miner about 2.5 m, so the silo
+  stands far enough back that the push after the silo undock cannot carry the miner into the
+  depot's capture range, and the push after the depot undock cannot dock it to the silo
+  before the lane drives there): its
+  root sits (rear face distance + `SILO_GAP_METERS` + front face distance) behind the miner's root
   along the miner's forward (rot * +y), computed as the depot builder computes the depot.
   `SILO_LAT` / `SILO_LON` / `SILO_ALT` are those numbers, committed as literals and re-derived
   within 1e-9. DERIVED, deterministically (sha256 of `SEED` and the old value): the vessel
@@ -91,11 +95,12 @@ REAR_PORT_ROTATION = "0,0,1,0"
 BALLAST = (("LiquidFuel", "90"), ("Oxidizer", "110"))
 DEPOT_ORE = "75"
 
+SILO_GAP_METERS = 4.0
 SILO_NAME = "Ore Silo"
 SILO_LAUNCH_ID = "5"
-SILO_LAT = "0.02909251319095639"
-SILO_LON = "-74.72473027503361"
-SILO_ALT = "65.7673434818862"
+SILO_LAT = "0.028853994428509343"
+SILO_LON = "-74.72472142699617"
+SILO_ALT = "65.73231076216325"
 COORD_TOLERANCE = 1e-9
 
 
@@ -220,7 +225,7 @@ def silo_coordinates(miner: List[str]) -> Tuple[float, float, float]:
     adapter = miner[blocks[depot.ADAPTER_INDEX][0]:blocks[depot.ADAPTER_INDEX][1]]
     tank_y = float(_part_value(tank, "position").split(",")[1])
     adapter_y = float(_part_value(adapter, "position").split(",")[1])
-    dist = rear_face_offset(tank_y) + depot.GAP_METERS + depot.port_face_offset(adapter_y)
+    dist = rear_face_offset(tank_y) + SILO_GAP_METERS + depot.port_face_offset(adapter_y)
     root = tuple(c * (depot.KERBIN_RADIUS + alt) - dist * f for c, f in zip(n, fwd))
     mag = math.sqrt(sum(c * c for c in root))
     return (math.degrees(math.asin(root[1] / mag)),

@@ -4,7 +4,7 @@ DERIVED by `harness/tools/build_miner_rover_relay.py` from the committed `miner-
 (itself derived from `miner-rover-landed`), so a change to either must re-run the builder.
 These cells pin what lane MINE-4 depends on: the miner is index 0 and active, with a second
 free port on its rear facing -y; index 2 is the full `Ore Depot` ahead, index 3 the empty
-`Ore Silo` behind, its port facing the miner's rear port across `GAP_METERS`; the miner
+`Ore Silo` behind, its port facing the miner's rear port across `SILO_GAP_METERS`; the miner
 outweighs the full depot so it stays the dominant vessel of every dock.
 
 Stdlib only; ASCII only; no em dashes.
@@ -172,9 +172,9 @@ class MinerRoverRelayFixtureTests(unittest.TestCase):
         face_m = tuple(r - rear * f for r, f in zip(rm, fm))
         face_s = tuple(r + front * f for r, f in zip(rs, fm))
         gap = math.sqrt(sum((x - y) ** 2 for x, y in zip(face_m, face_s)))
-        self.assertAlmostEqual(b.GAP_METERS, gap, places=3)
+        self.assertAlmostEqual(self.builder.SILO_GAP_METERS, gap, places=3)
         along = sum((x - y) * f for x, y, f in zip(face_m, face_s, fm))
-        self.assertAlmostEqual(b.GAP_METERS, along, places=3)
+        self.assertAlmostEqual(self.builder.SILO_GAP_METERS, along, places=3)
 
     def test_the_lane_names_the_ids_the_builder_derives(self):
         ids = self.builder.relay_ids()

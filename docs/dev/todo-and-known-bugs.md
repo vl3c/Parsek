@@ -758,7 +758,7 @@ Progress 2026-11-07 (branch `claude/project-thread-1ckuhv`; MINE-4 authored, nev
   `harness/lib/test_miner_rover_relay.py`): `miner-rover-depot` with a second `dockingPort3` on
   the bottom node of the miner's fuel tank (facing back), the depot's Ore full (150), the
   miner's fuel tank full as ballast (it stays the dominant vessel of every dock), and an empty
-  `Ore Silo` (the depot re-identified, same heading as the miner) 1.5 m behind, ports facing.
+  `Ore Silo` (the depot re-identified, same heading as the miner) 4 m behind, ports facing.
 - Lane `MINE-4-rover-docked-origin-route-rewind`: the miner docks the depot, loads 75 Ore,
   undocks, backs into the silo, unloads and undocks; the route created from that run is the
   first live mid-tree docked origin (`midTreeOrigin=1`). The same flight carries IR-9 (the

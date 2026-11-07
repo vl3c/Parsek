@@ -860,7 +860,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # (harness/tools/build_miner_rover_depot.py, the MINE-5b host). Inherits the node.
         "miner-rover-depot": True,
         # `miner-rover-depot` with a second port on the miner's rear, the depot's Ore full,
-        # ballast in the miner's fuel tank and an empty Ore Silo 1.5 m behind it, ports
+        # ballast in the miner's fuel tank and an empty Ore Silo 4 m behind it, ports
         # facing (harness/tools/build_miner_rover_relay.py, the MINE-4 host). Inherits the node.
         "miner-rover-relay": True,
         "fresh-career": False,
