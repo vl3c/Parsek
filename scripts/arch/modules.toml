@@ -238,6 +238,15 @@ name = "Trajectory"
 prefix = "^FlatPointFrameDispatch[.]cs$"
 placement = "R0"
 
+# trajectory data vocabulary, next to TrajectoryPoint / OrbitSegment: a TrackSection
+# (and the ReferenceFrame / SegmentEnvironment / TrackSectionSource it declares)
+# references only TrajectoryPoint and OrbitSegment, and TerminalState references
+# nothing (file-placement PR 2, 2026-11-06)
+[[module]]
+name = "Trajectory"
+prefix = "^TrackSection[.]cs$|^TerminalState[.]cs$"
+placement = "R0"
+
 [[module]]
 name = "Missions"
 prefix = "^Mission"
@@ -415,12 +424,6 @@ placement = "R2"
 [[module]]
 name = "Controllers"
 prefix = '^TerminalOrbitSpawnSafety[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=43 share=0.28 top=Recording(12) second=Controllers(6)
-[[module]]
-name = "Recording"
-prefix = '^TerminalState[.]cs$'
 placement = "R2"
 
 # Core is the kernel vocabulary, not a catch-all: exactly the nine root files
