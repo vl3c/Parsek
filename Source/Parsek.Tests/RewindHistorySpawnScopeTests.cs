@@ -142,7 +142,7 @@ namespace Parsek.Tests
             // Pre-load: the production resolver scopes the PID strip at the save's adjusted UT.
             RecordingStore.PreProcessRewindSave(
                 sfs, new HashSet<string> { "Jebediah Kerman" },
-                RecordingStore.ResolveRewindStripSpawnedPids,
+                RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
@@ -192,7 +192,7 @@ namespace Parsek.Tests
         public void Eva6Shape_ScopeSplitsHistoryFromReplayingTree()
         {
             var shape = BuildEva6Shape();
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), AdjustedUT);
 
             Assert.Contains(CapsulePid, scope.KeptPids);
@@ -213,7 +213,7 @@ namespace Parsek.Tests
             var shape = BuildEva6Shape();
             PlaybackScopeTracker.NotePlayhead(shape.head.RecordingId, 10.0, 35.0);
 
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), AdjustedUT);
 
             Assert.Contains(CapsulePid, scope.StripPids);
@@ -227,11 +227,11 @@ namespace Parsek.Tests
             // The rewind lands between the chain head and the tip: the tip replays and owns the
             // terminal spawn, so the vessel the (historical) head holds must be stripped.
             var shape = BuildEva6Shape();
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), 800.0);
 
             Assert.Contains(CapsulePid, scope.StripPids);
-            Assert.True(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.True(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 shape.head, RecordingStore.CollectAllCommittedRecordings(), 800.0, out string via));
             Assert.StartsWith("chain-member-replays:c108e0a2", via);
         }
@@ -245,7 +245,7 @@ namespace Parsek.Tests
             var continuation = Rec("C1", "Rover Mk2", "treeC", 1300, 1400, 999u);
             var all = new List<Recording> { holder, continuation };
 
-            Assert.True(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.True(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 holder, all, AdjustedUT, out string via));
             Assert.StartsWith("superseding-continuation-replays:C1", via);
         }
@@ -260,7 +260,7 @@ namespace Parsek.Tests
             var flier = Rec("B1", "Lander", "treeB", 1300, 1400, 777u, "bbbb0000bbbb0000bbbb0000bbbb0000");
             var all = new List<Recording> { holder, flier };
 
-            Assert.True(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.True(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 holder, all, AdjustedUT, out string via));
             Assert.StartsWith("same-vessel-recording-replays:B1", via);
         }
@@ -276,9 +276,9 @@ namespace Parsek.Tests
             var relaunch = Rec("B1", "Kerbal X", "treeB", 1300, 1400, 500u, "bbbb0000bbbb0000bbbb0000bbbb0000");
             var all = new List<Recording> { holder, relaunch };
 
-            Assert.False(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.False(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 holder, all, AdjustedUT, out _));
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(all, AdjustedUT);
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(all, AdjustedUT);
             Assert.Contains(500u, scope.KeptPids);
         }
 
@@ -290,7 +290,7 @@ namespace Parsek.Tests
             var sameLaunch = Rec("B1", "Kerbal X", "treeB", 1300, 1400, 500u, "aaaa0000aaaa0000aaaa0000aaaa0000");
             var all = new List<Recording> { holder, sameLaunch };
 
-            Assert.True(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.True(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 holder, all, AdjustedUT, out _));
         }
 
@@ -301,7 +301,7 @@ namespace Parsek.Tests
             historical.SpawnedVesselPersistentId = 4242u;
             var replaying = Rec("B1", "Probe", "treeB", 1300, 1400, 2u);
             replaying.SpawnedVesselPersistentId = 4242u;
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 new List<Recording> { historical, replaying }, AdjustedUT);
 
             Assert.Contains(4242u, scope.StripPids);
@@ -313,7 +313,7 @@ namespace Parsek.Tests
         public void UnknownAdjustedUT_StripsEverything()
         {
             BuildEva6Shape();
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), double.NaN);
 
             Assert.Contains(CapsulePid, scope.StripPids);
@@ -329,7 +329,7 @@ namespace Parsek.Tests
                 "FLIGHTSTATE\n{\n  VESSEL\n  {\n    name = #autoLOC_501232\n    persistentId = " + CapsulePid + "\n  }\n}\n");
             double seen = 0;
             RecordingStore.PreProcessRewindSave(path, new HashSet<string> { "Jebediah Kerman" },
-                ut => { seen = ut; return RecordingStore.ResolveRewindStripSpawnedPids(ut); },
+                ut => { seen = ut; return RewindSpawnScope.ResolveRewindStripSpawnedPids(ut); },
                 RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             Assert.True(double.IsNaN(seen));

@@ -152,8 +152,8 @@ namespace Parsek.Tests
             Recording standalone = BuildStandalone(LanderPid);
             var all = new List<Recording> { holder, standalone };
 
-            RecordingStore.RewindSpawnStripScope scope =
-                RecordingStore.ResolveRewindSpawnStripScope(all, AdjustedUT);
+            RewindSpawnScope.RewindSpawnStripScope scope =
+                RewindSpawnScope.ResolveRewindSpawnStripScope(all, AdjustedUT);
 
             Assert.Contains(LanderPid, scope.StripPids);
             Assert.DoesNotContain(LanderPid, scope.KeptPids);
@@ -171,8 +171,8 @@ namespace Parsek.Tests
             relaunch.RecordedVesselGuid = OtherLaunchGuid;
             var all = new List<Recording> { holder, relaunch };
 
-            RecordingStore.RewindSpawnStripScope scope =
-                RecordingStore.ResolveRewindSpawnStripScope(all, AdjustedUT);
+            RewindSpawnScope.RewindSpawnStripScope scope =
+                RewindSpawnScope.ResolveRewindSpawnStripScope(all, AdjustedUT);
 
             Assert.Contains(LanderPid, scope.KeptPids);
             Assert.Empty(scope.StripPids);

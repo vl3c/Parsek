@@ -4558,30 +4558,10 @@ namespace Parsek
         #region Rewind
 
         /// <summary>
-        /// Returns true if the given vessel situation (as int) represents a stable state
-        /// suitable for Commit Flight or rewind save capture.
-        /// Stable: PRELAUNCH(4), LANDED(1), SPLASHED(2), ORBITING(32).
-        /// Unstable: FLYING(8), SUB_ORBITAL(16), ESCAPING(64).
-        /// </summary>
-        internal static bool IsStableState(int situation)
-        {
-            switch (situation)
-            {
-                case 1:  // LANDED
-                case 2:  // SPLASHED
-                case 4:  // PRELAUNCH
-                case 32: // ORBITING
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        /// <summary>
         /// Resets all playback state on committed recordings.
         /// Called during rewind to prepare all recordings for fresh replay.
         /// <paramref name="keepSpawnStateRecordingIds"/> names recordings whose spawned vessel
-        /// the rewind kept as committed history (<see cref="ResolveRewindSpawnStripScope"/>):
+        /// the rewind kept as committed history (<see cref="RewindSpawnScope.ResolveRewindSpawnStripScope"/>):
         /// their spawn state (VesselSpawned / SpawnedVesselPersistentId and the spawn
         /// bookkeeping) is preserved so the kept vessel stays linked to its recording, the
         /// same way a revert restores an earlier tree's spawn state from the revert target.
@@ -5249,7 +5229,7 @@ namespace Parsek
                     // The owner strip removes the owner's own vessel by name AND launch guid,
                     // so an earlier launch of the same craft still standing in the quicksave
                     // (same name, different guid) is kept as committed history.
-                    var ownerStrip = BuildRewindOwnerStrip(preProcessOwner);
+                    var ownerStrip = RewindSpawnScope.BuildRewindOwnerStrip(preProcessOwner);
                     // Collect spawned vessel PIDs for PID-based stripping (belt-and-suspenders
                     // alongside name matching, catches renamed vessels or debris)
                     // The PID set is scoped to vessels a replaying recording will re-produce:
@@ -5257,8 +5237,8 @@ namespace Parsek
                     // stays in the save and therefore in the quicksave whitelist.
                     RewindContext.SetHistoricalSpawnKeepRecordingIds(null);
                     rewindSaveOwnUT = PreProcessRewindSave(
-                        tempPath, ownerStrip, ResolveRewindStripSpawnedPids,
-                        RewindToLaunchLeadTimeSeconds, ResolveRewindClaimedVesselPids);
+                        tempPath, ownerStrip, RewindSpawnScope.ResolveRewindStripSpawnedPids,
+                        RewindToLaunchLeadTimeSeconds, RewindSpawnScope.ResolveRewindClaimedVesselPids);
                 }
 
                 // Parsek's time travel keeps the current difficulty settings (owner ruling Q1):
@@ -5927,7 +5907,7 @@ namespace Parsek
         /// <summary>
         /// Resolver overload: the PID strip set is resolved from the ADJUSTED (wound-back) UT,
         /// which is only known once the save's own UT is parsed. The plain rewind passes
-        /// <see cref="ResolveRewindStripSpawnedPids"/> so a spawned vessel of committed history
+        /// <see cref="RewindSpawnScope.ResolveRewindStripSpawnedPids"/> so a spawned vessel of committed history
         /// that no replaying recording will re-produce stays in the save (and so in the
         /// quicksave whitelist). The resolver receives NaN when the save's UT is missing or
         /// unparseable.
@@ -5937,24 +5917,24 @@ namespace Parsek
             Func<double, HashSet<uint>> resolveVesselPids, double leadTime)
         {
             PreProcessRewindSave(
-                sfsPath, RewindOwnerStrip.FromNames(vesselNames), resolveVesselPids, leadTime);
+                sfsPath, RewindSpawnScope.RewindOwnerStrip.FromNames(vesselNames), resolveVesselPids, leadTime);
         }
 
         /// <summary>
         /// Owner-strip overload: the name half of the strip is identity-aware
-        /// (<see cref="ClassifyRewindOwnerStripVessel"/>), so a vessel carrying the owner's name
+        /// (<see cref="RewindSpawnScope.ClassifyRewindOwnerStripVessel"/>), so a vessel carrying the owner's name
         /// but a conclusively different launch guid (an earlier launch of the same craft) stays
         /// in the save and in the quicksave whitelist.
         /// Returns the save's own UT as written, before the lead-time windback (the moment every
         /// scenario node in the file describes), or NaN when the save has no parseable UT.
         /// </summary>
         internal static double PreProcessRewindSave(
-            string sfsPath, RewindOwnerStrip ownerStrip,
+            string sfsPath, RewindSpawnScope.RewindOwnerStrip ownerStrip,
             Func<double, HashSet<uint>> resolveVesselPids, double leadTime,
             Func<double, HashSet<uint>> resolveClaimedVesselPids = null)
         {
             if (ownerStrip == null)
-                ownerStrip = new RewindOwnerStrip();
+                ownerStrip = new RewindSpawnScope.RewindOwnerStrip();
             ConfigNode root = ConfigNode.Load(sfsPath);
             if (root == null)
                 return double.NaN;
@@ -6012,24 +5992,24 @@ namespace Parsek
             var vesselGuids = new string[vesselNodes.Length];
             for (int g = 0; g < vesselNodes.Length; g++)
                 vesselGuids[g] = VesselLaunchIdentity.TryReadVesselGuid(vesselNodes[g]);
-            bool ownerAnchored = RewindOwnerStripIsAnchored(ownerStrip, vesselGuids);
+            bool ownerAnchored = RewindSpawnScope.RewindOwnerStripIsAnchored(ownerStrip, vesselGuids);
             for (int i = vesselNodes.Length - 1; i >= 0; i--)
             {
                 string name = Recording.ResolveLocalizedName(vesselNodes[i].GetValue("name"));
-                RewindOwnerStripDecision ownerDecision = ClassifyRewindOwnerStripVessel(
+                RewindSpawnScope.RewindOwnerStripDecision ownerDecision = RewindSpawnScope.ClassifyRewindOwnerStripVessel(
                     name, vesselGuids[i], ownerStrip, ownerAnchored);
-                if (ownerDecision == RewindOwnerStripDecision.StripName
-                    || ownerDecision == RewindOwnerStripDecision.StripOwnerGuid)
+                if (ownerDecision == RewindSpawnScope.RewindOwnerStripDecision.StripName
+                    || ownerDecision == RewindSpawnScope.RewindOwnerStripDecision.StripOwnerGuid)
                 {
                     flightState.RemoveNode(vesselNodes[i]);
-                    if (ownerDecision == RewindOwnerStripDecision.StripName)
+                    if (ownerDecision == RewindSpawnScope.RewindOwnerStripDecision.StripName)
                         removedByName++;
                     else
                         removedByGuid++;
                     continue;
                 }
 
-                if (ownerDecision == RewindOwnerStripDecision.KeepOtherLaunch)
+                if (ownerDecision == RewindSpawnScope.RewindOwnerStripDecision.KeepOtherLaunch)
                 {
                     keptOtherLaunch++;
                     if (!SuppressLogging)

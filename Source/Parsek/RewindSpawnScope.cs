@@ -4,8 +4,34 @@ using System.Globalization;
 
 namespace Parsek
 {
-    public static partial class RecordingStore
+    /// <summary>
+    /// The pure half of a plain rewind's spawn scope (RecordingStore services plan, service M):
+    /// which spawned vessels a rewind strips or keeps, the owner-vessel strip and the
+    /// stable-situation predicate. Reads the committed list through
+    /// <see cref="RecordingStore.CommittedRecordings"/>; logs keep their own tags.
+    /// </summary>
+    internal static partial class RewindSpawnScope
     {
+        /// <summary>
+        /// Returns true if the given vessel situation (as int) represents a stable state
+        /// suitable for Commit Flight or rewind save capture.
+        /// Stable: PRELAUNCH(4), LANDED(1), SPLASHED(2), ORBITING(32).
+        /// Unstable: FLYING(8), SUB_ORBITAL(16), ESCAPING(64).
+        /// </summary>
+        internal static bool IsStableState(int situation)
+        {
+            switch (situation)
+            {
+                case 1:  // LANDED
+                case 2:  // SPLASHED
+                case 4:  // PRELAUNCH
+                case 32: // ORBITING
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>
         /// Result of scoping a plain rewind's spawned-vessel PID strip.
         /// </summary>
@@ -103,7 +129,7 @@ namespace Parsek
                 {
                     if (fliesAdoptedVessel)
                     {
-                        if (!SuppressLogging)
+                        if (!RecordingStore.SuppressLogging)
                             ParsekLog.Verbose("Rewind",
                                 string.Format(CultureInfo.InvariantCulture,
                                     "Rewind strip scope: spawned pid={0} of '{1}' (id={2}) is not re-produced by " +
@@ -172,7 +198,7 @@ namespace Parsek
                     holder, recordings, transferMemberIds);
                 if (adoptedMember != null)
                 {
-                    if (scope.ForeignAdoptedPids.Add(pid) && !SuppressLogging)
+                    if (scope.ForeignAdoptedPids.Add(pid) && !RecordingStore.SuppressLogging)
                         ParsekLog.Verbose("Rewind",
                             string.Format(CultureInfo.InvariantCulture,
                                 "Rewind strip scope: leave spawned pid={0} of '{1}' (id={2}) in the rewind save: " +
@@ -186,7 +212,7 @@ namespace Parsek
                 if (IsSpawnedVesselReproducedByRewindReplay(
                         holder, recordings, adjustedUT, out string via, transferMemberIds))
                 {
-                    if (scope.StripPids.Add(pid) && !SuppressLogging)
+                    if (scope.StripPids.Add(pid) && !RecordingStore.SuppressLogging)
                         ParsekLog.Verbose("Rewind",
                             string.Format(CultureInfo.InvariantCulture,
                                 "Rewind strip scope: strip spawned pid={0} of '{1}' (id={2}) via {3}",
@@ -210,7 +236,7 @@ namespace Parsek
                 scope.KeptPids.Add(pid);
                 if (!string.IsNullOrEmpty(holder.RecordingId))
                     scope.KeptHolderRecordingIds.Add(holder.RecordingId);
-                if (!SuppressLogging)
+                if (!RecordingStore.SuppressLogging)
                     ParsekLog.Verbose("Rewind",
                         string.Format(CultureInfo.InvariantCulture,
                             "Rewind strip scope: keep spawned pid={0} of '{1}' (id={2}) as committed history " +
@@ -220,7 +246,7 @@ namespace Parsek
                             adjustedUT.ToString("F1", CultureInfo.InvariantCulture)));
             }
 
-            if (!SuppressLogging)
+            if (!RecordingStore.SuppressLogging)
                 ParsekLog.Info("Rewind",
                     string.Format(CultureInfo.InvariantCulture,
                         "Rewind strip scope: adjustedUT={0} stripPids={1} keptHistoryPids={2} keptHolders={3} foreignAdoptedPids={4}",
@@ -273,8 +299,8 @@ namespace Parsek
         internal static HashSet<uint> ResolveRewindStripSpawnedPids(double adjustedUT)
         {
             RewindSpawnStripScope scope = ResolveRewindSpawnStripScope(
-                CollectAllCommittedRecordings(), adjustedUT,
-                ForeignInventoryTransfer.CollectForeignAdoptedVesselMemberRecordingIds(CommittedTrees));
+                RecordingStore.CollectAllCommittedRecordings(), adjustedUT,
+                ForeignInventoryTransfer.CollectForeignAdoptedVesselMemberRecordingIds(RecordingStore.CommittedTrees));
             RewindContext.SetHistoricalSpawnKeepRecordingIds(scope.KeptHolderRecordingIds);
             return scope.StripPids;
         }
@@ -287,9 +313,9 @@ namespace Parsek
         /// </summary>
         internal static HashSet<uint> ResolveRewindClaimedVesselPids(double adjustedUT)
         {
-            if (double.IsNaN(adjustedUT) || CommittedTrees == null || CommittedTrees.Count == 0)
+            if (double.IsNaN(adjustedUT) || RecordingStore.CommittedTrees == null || RecordingStore.CommittedTrees.Count == 0)
                 return null;
-            return CollectHeldBackVesselPids(GhostChainWalker.ComputeAllGhostChains(CommittedTrees, adjustedUT));
+            return CollectHeldBackVesselPids(GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, adjustedUT));
         }
 
         /// <summary>Pure: the pid of every vessel the chains hold back.</summary>

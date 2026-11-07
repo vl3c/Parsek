@@ -12,7 +12,7 @@ id = "RR-1-relaunch-rewind-keeps-earlier-launch"
 # removed the FIRST launch still standing in the quicksave. That vessel is committed
 # history (its recording never replays after the rewind), so nothing re-spawned it, and
 # the post-strip reconcile reset its recording's spawn state. The fix
-# (RecordingStore.RewindOwnerStrip.cs) also reads each quicksave VESSEL's `pid` guid
+# (RewindSpawnScope.OwnerStrip.cs) also reads each quicksave VESSEL's `pid` guid
 # against the owner's RecordedVesselGuid: a vessel with the owner's name whose guid
 # conclusively differs is KEPT, provided the owner's own vessel is identified by guid in
 # the same save.

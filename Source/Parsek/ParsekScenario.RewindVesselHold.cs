@@ -69,11 +69,11 @@ namespace Parsek
                 ? GhostChainWalker.ComputeAllGhostChains(trees, rewindUT)
                 : null;
             // A hold is only as good as the replay that ends it: a recording the rewind will not
-            // play (historical, RecordingStore.WillReplayAfterRewind - the strip and spawn gates'
+            // play (historical, RewindSpawnScope.WillReplayAfterRewind - the strip and spawn gates'
             // own predicate) would neither ghost nor spawn the vessel back, so its use holds
             // nothing and the vessel stays live as before.
             Func<string, bool> recordingReplays = id =>
-                RecordingStore.WillReplayAfterRewind(FindEffectiveRecordingById(id), rewindUT);
+                RewindSpawnScope.WillReplayAfterRewind(FindEffectiveRecordingById(id), rewindUT);
             int chainsNotReplayed;
             List<ReFlyInvokeHold.Entry> chainEntries = RewindVesselHold.CollectChainHolds(
                 chains, rewindUT, guidOf, recordingReplays, out chainsNotReplayed);
@@ -88,7 +88,7 @@ namespace Parsek
             int fliesNotReplayed;
             List<ReFlyInvokeHold.Entry> futureEntries = ReFlyInvokeHold.Classify(
                 survivors, null, EffectiveState.ComputeERS(), EffectiveState.ComputeELS(),
-                changeClaims, rewindUT, rec => RecordingStore.WillReplayAfterRewind(rec, rewindUT),
+                changeClaims, rewindUT, rec => RewindSpawnScope.WillReplayAfterRewind(rec, rewindUT),
                 out matchedWithoutFuture, out fliesNotReplayed);
 
             List<ReFlyInvokeHold.Entry> merged = RewindVesselHold.Merge(chainEntries, futureEntries);

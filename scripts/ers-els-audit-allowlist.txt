@@ -24,6 +24,14 @@ Source/Parsek/RecordingStoreTestSnapshot.cs
 # committed-list indices, as they did inside the store. No ledger reads.
 Source/Parsek/RecordingChainQueries.cs
 
+# RewindSpawnScope holds the rewind spawn-scope predicates moved out of the
+# RecordingStore partials verbatim (the RecordingStore services plan, PR5). The
+# owner strip collects EVA child names over every committed recording of the
+# owner's chain, and the strip scope walks every committed recording, as they
+# did inside the store. No ledger reads.
+Source/Parsek/RewindSpawnScope.cs
+Source/Parsek/RewindSpawnScope.OwnerStrip.cs
+
 # --- Serialization (I/O not semantics) ---
 Source/Parsek/ParsekScenario.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.
