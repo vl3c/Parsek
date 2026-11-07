@@ -23,7 +23,7 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             IncompleteBallisticSceneExitFinalizer.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
@@ -42,7 +42,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             RecordingStore.ResetForTesting();
 
             if (Directory.Exists(tempDir))
@@ -209,7 +209,7 @@ namespace Parsek.Tests
                 altitude = 900.0,
                 bodyName = "Kerbin"
             });
-            rec.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
+            rec.GhostSnapshotMode = RecordingSidecarStore.DetermineGhostSnapshotMode(rec);
             return rec;
         }
 

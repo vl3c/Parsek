@@ -39,7 +39,7 @@ namespace Parsek.Tests.Generators
             TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
             rec.VesselSnapshot = builder.GetVesselSnapshot()?.CreateCopy();
             rec.GhostVisualSnapshot = builder.GetGhostVisualSnapshot()?.CreateCopy();
-            rec.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
+            rec.GhostSnapshotMode = RecordingSidecarStore.DetermineGhostSnapshotMode(rec);
             return rec;
         }
 

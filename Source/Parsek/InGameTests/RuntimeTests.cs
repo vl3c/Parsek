@@ -7934,7 +7934,7 @@ namespace Parsek.InGameTests
 
             try
             {
-                RecordingStore.WriteSnapshotSidecarForTesting(vesselPath, snapshot);
+                RecordingSidecarStore.WriteSnapshotSidecarForTesting(vesselPath, snapshot);
                 InGameAssert.IsTrue(System.IO.File.Exists(vesselPath),
                     "Vessel sidecar should exist on disk after write");
 
@@ -8451,7 +8451,7 @@ namespace Parsek.InGameTests
                     $"Current-format recording '{rec.RecordingId}' is missing its .prec sidecar");
 
                 TrajectorySidecarProbe probe;
-                InGameAssert.IsTrue(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe),
+                InGameAssert.IsTrue(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe),
                     $"Could not probe .prec sidecar for current-format recording '{rec.RecordingId}'");
                 InGameAssert.IsTrue(probe.Supported,
                     $"Current-format recording '{rec.RecordingId}' has unsupported sidecar version " +

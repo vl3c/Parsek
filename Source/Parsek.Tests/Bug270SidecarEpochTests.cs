@@ -171,7 +171,7 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(dir, rec.RecordingId + "_ghost.craft"),
                 incrementEpoch));
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(prec, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(prec, out probe));
             return probe.SidecarEpoch;
         }
 

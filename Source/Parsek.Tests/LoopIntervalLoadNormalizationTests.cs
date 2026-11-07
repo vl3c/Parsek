@@ -78,7 +78,7 @@ namespace Parsek.Tests
         private string WriteSidecar(Recording rec, int epoch = 1)
         {
             string path = Path.Combine(tempDir, rec.RecordingId + ".prec");
-            RecordingStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: epoch);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: epoch);
             rec.SidecarEpoch = epoch;
             return path;
         }

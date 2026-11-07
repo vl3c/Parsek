@@ -32,7 +32,7 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -48,7 +48,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             RecordingStore.ResetForTesting();
 
             if (Directory.Exists(tempDir))
@@ -162,7 +162,7 @@ namespace Parsek.Tests
             // (truncation didn't remove the header). The bug exists
             // because the save gate stopped at this probe.
             TrajectorySidecarProbe probe;
-            bool probeOk = RecordingStore.TryProbeTrajectorySidecar(precPath, out probe);
+            bool probeOk = RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe);
             Assert.True(probeOk && probe.Supported,
                 "header probe must still pass on a header-only truncation; this is the bug surface");
 
@@ -188,7 +188,7 @@ namespace Parsek.Tests
             }
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe));
             Assert.True(probe.Supported);
 
             bool ok = TrajectorySidecarBinary.TryValidatePayload(precPath, probe, out string reason);
@@ -242,7 +242,7 @@ namespace Parsek.Tests
             File.WriteAllBytes(precPath, all);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe));
             Assert.True(probe.Supported);
 
             // Contract: TryValidatePayload must NOT throw, even when the
@@ -313,7 +313,7 @@ namespace Parsek.Tests
                 "fixture must be smaller than the corrupted count for the bound to fire");
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe));
             Assert.True(probe.Supported);
 
             // Validate up front: no exception escapes, the gate rejects,
@@ -357,7 +357,7 @@ namespace Parsek.Tests
             File.WriteAllBytes(precPath, all);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe));
 
             bool ok = TrajectorySidecarBinary.TryValidatePayload(precPath, probe, out string reason);
             Assert.False(ok);
@@ -391,7 +391,7 @@ namespace Parsek.Tests
 
             // Sanity: probe still passes (header is intact).
             SnapshotSidecarProbe probe;
-            bool probeOk = RecordingStore.TryProbeSnapshotSidecar(vesselPath, out probe);
+            bool probeOk = RecordingSidecarStore.TryProbeSnapshotSidecar(vesselPath, out probe);
             Assert.True(probeOk && probe.Supported,
                 "header probe must still pass on a payload-only bit flip; this is the bug surface");
 

@@ -1135,12 +1135,12 @@ namespace Parsek
 
             GhostSnapshotMode mode = rec.GhostSnapshotMode != GhostSnapshotMode.Unspecified
                 ? rec.GhostSnapshotMode
-                : RecordingStore.DetermineGhostSnapshotMode(rec);
+                : RecordingSidecarStore.DetermineGhostSnapshotMode(rec);
             if (mode == GhostSnapshotMode.AliasVessel)
             {
                 return rec.VesselSnapshot != null
                     && rec.GhostVisualSnapshot != null
-                    && RecordingStore.ConfigNodesEquivalent(rec.VesselSnapshot, rec.GhostVisualSnapshot);
+                    && RecordingSidecarStore.ConfigNodesEquivalent(rec.VesselSnapshot, rec.GhostVisualSnapshot);
             }
             if (mode == GhostSnapshotMode.Separate)
                 return rec.GhostVisualSnapshot != null;

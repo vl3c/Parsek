@@ -34,7 +34,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             MilestoneStore.ResetForTesting();
             GameStateRecorder.ResetForTesting();
             GameStateStore.ResetForTesting();

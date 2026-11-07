@@ -430,7 +430,7 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = recordingId };
             rec.Points.Add(new TrajectoryPoint { ut = 1.0, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 2.0, bodyName = "Kerbin" });
-            RecordingStore.WriteTrajectorySidecar(path, rec, sidecarEpoch);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, rec, sidecarEpoch);
             return path;
         }
 
