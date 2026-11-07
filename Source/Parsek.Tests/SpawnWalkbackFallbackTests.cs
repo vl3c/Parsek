@@ -178,7 +178,7 @@ namespace Parsek.Tests
         [InlineData(null, false)]
         public void IsLandedLikeSituation_MatchesOnlyLandedAndSplashed(string sit, bool expected)
         {
-            Assert.Equal(expected, VesselSpawner.IsLandedLikeSituation(sit));
+            Assert.Equal(expected, VesselSnapshotOps.IsLandedLikeSituation(sit));
         }
 
         [Fact]

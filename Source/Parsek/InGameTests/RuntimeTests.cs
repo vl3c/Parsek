@@ -12548,7 +12548,7 @@ namespace Parsek.InGameTests
                     InGameAssert.Skip("TryBackupSnapshot of the active vessel returned null");
                     yield break;
                 }
-                Parsek.VesselSpawner.StripAllCrewFromSnapshot(donor);
+                Parsek.VesselSnapshotOps.StripAllCrewFromSnapshot(donor);
 
                 Vector3d targetWorldPos = activeVessel.CoMD;
                 double targetLat = body.GetLatitude(targetWorldPos);
@@ -16399,7 +16399,7 @@ namespace Parsek.InGameTests
                 return minimumClearanceMeters;
 
             double clearance = minimumClearanceMeters;
-            if (VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "alt", out double snapshotAlt))
+            if (VesselSnapshotOps.TryGetSnapshotDouble(vesselSnapshot, "alt", out double snapshotAlt))
                 clearance = System.Math.Max(clearance, snapshotAlt - terrainAlt);
 
             if (!double.IsNaN(activeVessel.altitude) && !double.IsInfinity(activeVessel.altitude))

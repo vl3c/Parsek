@@ -2862,6 +2862,15 @@ calls directly. One service per PR; the co-change with `ParsekScenario.cs` is th
   - PR 1 (measurement): the two nested types the scanner misread renamed
     (`CareerSettingsLock.LockDecision`, `ProducerSliceBook.HeldSlice`; see
     ARCH-TOOLING-ROSLYN-AND-CI). Ghost -> GameActions 17 -> 1; upward edges 85 (weight 826).
+- VesselSpawner placement PRs 6-10 of the same plan (one sub-branch each, merged into the
+  refactor branch in order; pure moves proven by a per-method IL compare).
+  - PR 6: the crew-in-snapshot and situation family (18 declarations, 391 lines) moved from
+    `VesselSpawner` to `VesselSnapshotOps`; `ApplySituationToNode` and `IsLandedLikeSnapshot`
+    widened private -> internal. `ExtractCrewManifest` (its default trait lookup reads the
+    roster) and `RemoveDuplicateCrewFromSnapshotCore` (reads crew through
+    `CrewReservationManager`) stay in `VesselSpawner`: moved, they pulled `VesselSnapshotOps`
+    into the type knot (457 -> 459). Core -> Recording 30 -> 31 (`TerminalState`, until the
+    plan's PR 2 places it in Trajectory).
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
