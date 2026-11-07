@@ -32570,7 +32570,7 @@ def evaluate_mor_assertions(frames, params: MorParams,
 #           any left-over node cleared first.
 #   TRIM / HOME / FALL   mfr's blocks, entered at the home SOI as on CS-5 / CS-6.
 # ELECTRIC CHARGE. The lander's Terrier makes no power, so from the core drop on
-# the craft lives on its batteries (and, on CS-7's re-cut, three OX-STAT panels).
+# the craft lives on its batteries (CS-7's fuel re-cut: 250 EC on the pod, no panel).
 # Outside the EVA block (where the active vessel is the kerbal) a reading under
 # electricChargeFloor for electricChargeDebounceFrames frames ends the flight by name
 # before any phase idles to its budget with an attitude it cannot hold.
