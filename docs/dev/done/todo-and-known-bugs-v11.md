@@ -20939,3 +20939,1595 @@ other no-segment member's tip carries no segments either. Tests:
 and inside its own span, orbit-ending chain unchanged), the veto truth table and
 `ClassifyAtmosphericMarkerSkip_OrbitSegmentVeto_NeverFiresForACrashRecording`. Not flown
 (flights paused); RF-7T is the lane that reads it.
+
+# Moved out 2026-11-07 (coast fix, flown)
+
+## ~~RECORDER-UNPACK-STUB-KEEPS-COAST-PROPULSIVE: the first physics section after a warp that began just after a burn opens as a 2-frame ExoPropulsive stub~~ [FILED 2026-11-07 from the 1.0.1 pre-release trim check (archive scan of 2902 runs plus B6-minmus-flyby `2026-11-07_1902`). FIXED 2026-11-07 (owner pick: fix before 1.0.1), branch `claude/project-thread-nc9lw9`, xUnit; LIVE-PROVEN 2026-11-07 on ed262517: B23-ike-orbit `2026-11-07_2030` and B6-minmus-flyby `_2034` PASS, 3 and 2 `Environment settled for packed vessel` lines, zero post-unpack stubs (the archived runs had 3 and 2), terminals and pins unchanged; neither lane has a tail the stub was blocking, so no trim fired. product, low]
+
+The environment hysteresis is frozen while the vessel is packed, so when time warp starts inside a
+burn's debounce window it still reads ExoPropulsive at unpack. RECORDER-LABELS-ON-RAILS-CHECKPOINTS-
+EXOPROPULSIVE (#2447) relabels the on-rails checkpoint section itself, but the first physics section
+after unpack opens as `env=ExoPropulsive ref=Absolute frames=2 duration=0.02s` before the debounce
+flips it. Measured: all 174 ExoPropulsive/OrbitalCheckpoint sections since 2026-11-04 are followed by
+such a stub, and no active recording in the archive ever ended on an ExoPropulsive checkpoint. While
+the stub exists, the relabel does not change boring-tail trim, the auto loop range or the
+switch-segment no-op check for a coast that follows a burn (the stub is the last "interesting" UT).
+
+**Fix:** `EnvironmentHysteresis.SettleForPackedVessel` settles a confirmed ExoPropulsive to
+ExoBallistic (no debounce, pending flip dropped) and `FlightRecorder` calls it at both rails
+transitions (`OnVesselGoOnRails` before the checkpoint section opens, `OnVesselGoOffRails` before
+the post-unpack Absolute section opens), logging `Environment settled for packed vessel`. A real
+burn after the unpack re-confirms through the usual 1 s thrust debounce. Owed: a flight whose
+recording ends on an idle coast after a warp taken right at engine cutoff, showing
+`TrimBoringTail: trimmed`.
+
+# Moved out 2026-11-07 (finished entries still listed)
+
+Owner 2026-11-07: "mark them as done". Their small open follow-ups are rolled up in the live entry RESIDUALS-OF-ENTRIES-ARCHIVED-2026-11-07.
+
+## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
+
+**Symptom.** `FlightRecorder.OnVesselSOIChanged` returned at once unless the vessel was on rails,
+so a burn through a sphere-of-influence boundary, or a 1x / physics-warp coast across one, made no
+section boundary. One Absolute section then held both bodies' samples: the optimizer's body rule
+(#251) reads a section's body from its first frame and could not split there, the section was
+labelled with the first body, the crossing pair lerped in world space between two body frames
+(each sample still resolves on its own body, so this only shows on a time-shifted replay), the
+finalization cache was not refreshed, and the atmosphere / approach-altitude state stayed seeded for
+the old body (a Kerbin -> Mun crossing left `currentAltitudeThreshold` at 0, so the Mun approach
+boundary never fired for that flight).
+
+**Fix.** Off rails, `OnVesselSOIChanged` arms a forced sample (`ArmPhysicsSoiSample`, Info
+`SOI changed off rails <from> -> <to> ...`). `OnPhysicsFrame` runs `SplitSectionIfPhysicsBodyChanged`
+on every sample before the Relative rewrite and the commit: when the sample's body differs from the
+open section's last frame (`DecidePhysicsBodyChange`, pure), it commits the same position expressed
+on the old body as the old section's closing frame (Absolute only), closes the section at the sample
+UT and opens the next one in the same frame (Relative keeps its anchor), then reseeds the atmosphere
+and altitude state and sets the SOI flag like the on-rails path. The flat list carries the
+equal-UT seam, so no interpolation pair spans the two bodies. Detecting at the sample rather than in
+the SOI callback keeps the split right when the callback fires inside a physics step. Because the
+flat list now opens the optimizer's second half with the first half's closing sample,
+`RecordingOptimizer.SplitAtSection` takes the second half's start body / biome from its first
+section's own first frame (`ResolveSecondHalfStartPoint`; a Relative section's body-fixed shadow),
+not from the flat list. Tests:
+`PhysicsSoiSectionSplitTests` (truth table, bookkeeping, the optimizer reads a burn as
+`BodyChange` and a coast as `SuppressedExoCoastBodyChange`, source wiring).
+
+**Residue (FIXED 2026-11-04, branch `fix-bg-loaded-soi-split`, stacked on #2372; xUnit only).**
+The background recorder's LOADED (physics) vessels had the same gap:
+`BackgroundRecorder.OnBackgroundVesselSOIChanged` handled only on-rails states. Now a loaded state
+arms its own forced sample (`ArmBackgroundPhysicsSoiSample`, Info `SOI changed off rails for
+background vessel: pid=...`), and `OnBackgroundPhysicsFrame` runs
+`SplitBackgroundSectionIfPhysicsBodyChanged` on every sample before the Relative rewrite and the
+append (`BackgroundRecorder.PhysicsSoi.cs`). It reuses the active side's pure pieces
+(`DecidePhysicsBodyChangeForSection`, `IsCommittableSoiClosingPoint`, `TryBuildSamePositionOnBody`,
+the shared split line plus `pid=` / `rec=`): the closing sample goes through the #419 monotonic
+flat append and then the old section (its altitude range and warp flags in lockstep), the section
+closes at the sample UT and the next one opens in the same frame, environment and source (Relative
+keeps its anchor), and the finalization cache is refreshed. Mirror check: the active split also
+reseeds its atmosphere / approach-altitude chain-boundary state and raises `SoiChangePending`; the
+background recorder has neither (its environment classifier reads the current body every tick, and
+background vessels record only inside a tree). The on-rails state is untouched. Tests:
+`BackgroundPhysicsSoiSectionSplitTests` (split bookkeeping, flat-list seam, optimizer burn / coast,
+refused closing samples, Relative anchor, armed flag, active-vs-background parity, source wiring
+and the on-rails state shape). Lane owed: a formation flight through an SOI edge, two vessels
+within physics range (one loaded in the background) crossing together off rails, gating on the
+background split line `at SOI boundary ... pid=<wingman>` and one section per body on the
+wingman's recording (a wingman that close likely records Relative to the active vessel, so expect
+`closingSample=0` and two Relative sections, not two Absolute ones); not built.
+
+## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; LIVE-PROVEN by RW-20 `2026-10-31_0425`; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
+
+In RW-20 contract `1a9762e8` reached its real deadline and stock saved it `DeadlineExpired`. A
+Rewind-to-Launch to before that made it Active again (correct). When a Space Center warp then
+crossed the committed `ContractFail` row, `KspStatePatcher.PatchContracts` took the Active contract
+off stock's list (`removedStale=1`: not in the walk's active set) and put it nowhere, so the produced
+save held it in neither `ContractSystem.Instance.Contracts` nor `ContractsFinished` and it dropped
+out of the Archive. A crossed completion or cancellation took the same path (any Active contract the
+walk holds terminal lands in the stale-Active removal keys).
+
+**Fix.** `PatchContractsCore` plans, before the stale-Active removal, which removed Active contracts
+the walk holds terminal (`PlanRetiredActiveContractMoves`, pure) and files each one into
+`ContractsFinished` after removal (`ArchiveRetiredActiveContracts`). The state is the walk's
+outcome (`TryMapOutcomeToFinishedState`: Completed / Failed / DeadlineExpired / Cancelled;
+requirements lost maps to stock's OfferExpired, which stock's own `ContractSystem.UpdateContracts`
+drops, so it is not filed). No move when a finished copy with the same guid survives the patch (no
+duplicate). No real clock, no move: the full-replay paths (an OnLoad walk with no cutoff, the
+deferred scene-load patch, the cold-load full-replay fallback, the commit walk during OnLoad) carry
+a NaN clock and can hold terminal a contract whose committed outcome is still in the future; a
+filed copy would sit in the finished list while the next cutoff walk restores it Active, putting it
+in both lists. So without a real clock nothing is filed (counted `archiveNoClock`, one Info line),
+matching `DecideContractParameterPatch` (ClockNotReady) and `WithdrawOfferedContractTwins`. Nor
+is it filed when the outcome's end UT is after the patch's real clock (a walk past the clock,
+such as the Re-Fly invoke's whole-ledger walk: the contract is dropped as before rather than shown
+finished before its outcome happens). Residual: a contract either gate leaves unfiled is still
+taken off the active list, as before, and is not filed later when the clock reaches its outcome.
+The RW-20 crossing (a Space Center warp) is expected to patch at a real clock (the walk's cutoff
+or the live clock), so it files; a re-pin reading `archiveNoClock=1` instead names a no-clock path. The write is silent: stock's `Contract.SetState`
+(decompiled KSP 1.12.5) pays the
+completion or penalty and fires `OnStateChange` / `onCompleted` / `onFailed` / `onFinished`, so
+`TryRetireContractSilently` writes the private `state` field by reflection (as `Contract.Load`
+does) and `dateFinished` to the walk's end UT (`ContractsModule.GetTerminalContractUTs`: the
+outcome row's UT, or the deadline for a walk expiry), inside the patch's existing
+`SuppressionGuard.ResourcesAndReplay`. No new ledger row. One Info line per move (`filed ended
+contract <guid> ... as <state> (outcome=...)`), and `archivedToFinished` / `archiveAlreadyFinished`
+/ `archiveNoFinishedState` / `archiveOutcomeLater` / `archiveNoClock` / `archiveFailed` counters on the `PatchContracts: removedStale=` summary.
+The filed copy matches the walk, so the next patch keeps it as a surviving terminal entry and never
+restores it Active; a load rewind reloads stock's lists from the save (the contract comes back Active
+the way it does today), and a tombstoned outcome row removes the filed copy like any stock-finished
+copy, after which the restore re-adds it Active. Tests: `ContractCrossedOutcomeArchiveTests`.
+
+**Live proof.** RW-20 `2026-10-31_0425` (DLL ccdaad30): the crossing patched at a real clock
+(`archiveNoClock=0`, `archivedToFinished=1`) and filed `1a9762e8` as `outcome=DeadlineExpired`; the
+produced saves hold it in `CONTRACT_FINISHED` with `state = DeadlineExpired`, not in `CONTRACT`, with
+one penalty. That witnesses the reflection write against the live stock assembly. The Archive UI
+listing the filed contract was not looked at: the lane reads the save, not the screen.
+
+## ~~CONTRACT-TWIN-GUID-SEEDED-TYPES: a regenerated copy of a guid-seeded contract is offered again after a rewind, and both copies pay~~ [FILED 2026-10-27 from the step 7b review; owner ruling 2026-10-27 ("check both IDs and the other identifiers"); BUILT 2026-10-27 on branch `contract-twin-goal`, unit-tested only; LIVE-PROVEN by lane CTW-1 `2026-11-07_0132`; product, medium (a duplicate contract payment across a rewind)]
+
+LEDGER-EVENT-IDENTITY step 7b keeps a twin of a committed future accept out of the offer pool by stock's own `Contract.ContractID`. That id is a goal identity only for `PartTest` with `ONCEPERPART` or `BODYANDSITUATION` repeatability and for `CollectScience` (plus the Breaking Ground `CollectDeployedScience`, `CollectROCScienceArm` and `CollectROCScienceRetrieval`, which hash subject id and body). Everything else is per copy: `Contract.SetupID` hashes the type name, `GetHashString()` and each top-level parameter's type and `HashString`, after `Contract.Generate` has set a fresh `contractGuid`, and most types hash `SystemUtilities.SuperSeed(this)` (guid + mission seed): `ARMContract`, `BaseContract`, `ISRUContract`, `SatelliteContract`, `StationContract`, `SurveyContract`, `TourismContract`, `CometSampleContract`, `GrandTour`, `PlantFlag`, `RecoverAsset`, `VesselRepairContract`, `OrbitalConstructionContract`, `RoverConstructionContract`. `ExplorationContract`'s `ProgressTrackingParameter` hashes `SuperSeed(Root)` plus its id, and a `PartTest` with `ALWAYS` adds a seeded unique id.
+
+Consequence: after a rewind to before a committed accept of, say, "Explore the Mun" or "Plant a flag on Minmus", stock can generate the same goal under a new guid with a new id. `FindTwinHolder` finds no holder, the offer stays, the player can accept it, and both guids get paid (the committed one on its timeline, the copy when completed). The rule fails open: it never reduces anything wrongly, it just does not catch these.
+
+Owner ruling (2026-10-27): check both IDs and the other identifiers. A contract twins a committed future accept (UT strictly after the clock, another guid) when its stock `ContractID` matches OR its goal identity matches, for the contract types whose goal stock itself offers only once per career. The rest of step 7b is unchanged: never-reduce, the rule only blocks or withdraws offers and never zeroes a ledger row, and a career that never rewinds is offered exactly as before.
+
+Fix (built): `ContractGoalKey` (pure) names the goal key, `Type:token[,token]`, of the three stock types the decompile shows offer one goal at most once per career: `ExplorationContract` (its `ProgressTrackingParameter` milestones, `TYPE@body`; seeds only from incomplete progress nodes, `MeetRequirements` ends an offer once a milestone is complete), `PlantFlag` at Significant prestige (the body; offered only for a body with no manned landing, one current per body), `CometSampleContract` (the comet's persistent id; refused while a current or completed sample names the comet). Keys match within one type on a shared token (an exploration copy may draw another subset of the same body's milestones). No key, repeatable: `GrandTour` (tours bodies already reached), tourism, rescue, satellite, station, base, ISRU, ARM, survey, construction, repair, the Trivial plant flag (offered again on a flagged body once its crew left), `PartTest` `ALWAYS`; no key, id already the goal: `PartTest` `ONCEPERPART` / `BODYANDSITUATION`, `CollectScience`, the Breaking Ground science contracts; no key: Contract Configurator. The comet sample is the one call against the review's first list of repeatables: the type repeats, the same comet does not (decompiled `GetCompletedContracts` check). Capture: the recorder derives the key from the accept's saved contract node (`goal=` in the detail, additive row key `contractGoal`, written only when set, `CommittedFutureEntry.GoalKey`). `ContractTwinRule.FindTwinHolder` matches on the id or the goal key (the id names the match when both do); the three doors read a candidate's key from its public members (`ContractGoalKeyReader`) only when a committed future accept of that type carries one (`AnyFutureGoalHolderOfType`), and each line says `matched=stockId` or `matched=goal(<key>)` (the generation door still rate-limited per holder). Per-type verdicts with decompile evidence: design 3.15 item 8, Scope. Tests: `ContractTwinGoalKeyTests`, `ContractTwinRuleTests`; mutation (goal match dropped) under `logs/mutation/2026-10-27-contract-twin-goal/`. Not done: an accept row from before this build carries no goal key and is judged by id only. Lane `CTW-1-contract-goal-twin-withdrawn` (LIVE-PROVEN `2026-11-07_0132`) flies the withdrawal door on the derived fixture `career-new-goal-twin` (`harness/tools/build_career_new_goal_twin.py`: a new Career with a second Offered copy of the 'reach space' exploration offer): accept the original at the Space Center after a committed launch, Rewind-to-Launch, the copy withdrawn `matched=goal(...)` and Mission Control's Accept on it refused. The generation and auto-accept doors stay xUnit only (stock offers a copy only by chance). Decompiles: `logs/decompile/contract-id/`.
+
+
+Review notes (2026-10-27, non-blocking): (A) ~~the rule skips only the holder with the candidate's own guid, so an Offered contract that is itself a committed future accept can be withdrawn as a twin of a LATER committed accept of the same goal (a Significant flag accepted, failed at its deadline, a second one accepted later; rewind to before the first accept): no money moves, the first is rebuilt Active from its accept snapshot at its UT, but the blocked offer vanishes early; the stock-id types already behave the same.~~ FIXED 2026-11-07 (branch `claude/project-thread-nc9lw9`, xUnit): `FindTwinHolder` returns no holder for a candidate whose own guid is a committed future accept (`ContractTwinRule.IsOwnCommittedFutureAccept`), so each committed accept keeps its own offer and a regenerated copy is still caught; cell `ContractTwinGoalKeyTests.FindTwinHolder_AnOfferTheCommittedFutureAccepts_IsNeverAnotherAcceptsTwin`. Not flown: CTW-1 has one committed accept per goal. B and C are not fixed. (B) In the tutorial exploration chain every seed draws the same milestones, so a hidden committed `{FIRSTLAUNCH}` accept stalls the later tutorial offers until its milestone completes or its accept UT passes; an indirect effect of hiding the committed contract, not of the rule. (C) A Trivial plant flag on the body of a committed Significant flag is not caught (fail-open, documented scope).
+---
+
+## ~~ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH: a load back to a save written between a multi-stop route's windows sends the cycle a second time~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, found while tracing ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS; reproduced in xUnit on main 802f8e4; LIVE-PROVEN by lane IR-12 `2026-11-07_0133`. product, medium]
+
+A multi-stop loop route delivers one cycle in several windows under one cycle id, and its later
+windows resume the cycle's logged dispatch. A load back in time to a save written between two
+windows (an F9, a go-back rewind to a rewind save there, a Re-Fly start from an RP quicksave
+there) ran `RouteRewindClassifier.ReconstructCycleCounters` over the kept rows. A loop route sets no
+`CurrentCycleStartUT`, so the rebuild counted the part-delivered cycle as completed
+(`Completed + Skipped` one past its id) while the loop-position restore put the per-stop cursors
+back as of the save. The next window then fired under a fresh id: `IsDispatchAlreadyLogged` missed,
+and the cycle was dispatched again (for a vessel origin, a second physical origin debit). Probe on
+main: 2-stop route, F9 to a save between the 1150 and 1300 windows, rows read `RouteDispatched
+cycle-0`, `Delivered cycle-0 stop 0`, `RouteDispatched cycle-1`, `Delivered cycle-1 stop 1`.
+
+Fix: `RouteLoadReconcile.RestoreLoopPositionFromSave` now also puts the save's own
+`CompletedCycles` / `SkippedCycles` back with the cursors (`RestoreCycleCountersFromSave`, only
+when `ClockDefinitionMatches`, the same gate as the cursors), the counters a cold load of that save
+reads. The rebuild still stands for a route the save does not carry or whose clock changed after
+it. Shared by all three exits (in-session load, go-back rewind, Re-Fly start). The per-call Verbose
+summary gains `counters=N`; each change logs `cycle counters completed A->B skipped C->D (saved;
+next cycle id cycle-N)`. xUnit: `RouteMultiStopLoadResumeTests` (F9 and go-back between the
+windows resume cycle-0 with one dispatch, and so does a Re-Fly start; control before the cycle; clock changed keeps the
+rebuild; the pure pair restore). Lane `IR-12-multistop-rewind-between-windows` (LIVE-PROVEN `2026-11-07_0133`) flies the go-back half on `rover-relay-c-recorded`: pickup window crossed, a launch of the
+transport rover committed between the windows, the delivery window crossed, Rewind-to-Launch, and
+the delivery window must resume cycle-0 with no second dispatch. An F9 no longer reaches this code
+(a save-file load is Cold and reads the quicksave's routes whole, IR-1).
+The origin-and-destination conservation half is `RCN-1-route-conservation-across-loads` (LIVE-PROVEN
+`2026-11-07_0010`): both ends' tanks read across two F9s and a go-back rewind, the sum exact at every mark.
+
+Follow-up (review, 2026-10-25): the two exits that still key their cutoff to the floor alone (a
+go-back to a rewind save written inside an earlier go-back's window, a Re-Fly start from an RP
+quicksave written inside one) keep rows in (save clock, floor] that were written after the save.
+Restoring the save's counters there reissued such a row's cycle id: a multi-stop route's later
+stop resumed a dispatch the loaded world never paid for (cargo from nothing) and a single-stop
+route lost the crossing to the dedup. A route with a kept row after the save's own clock that the
+save's `ROUTE_EVENT_LOG` does not hold now keeps the rebuilt counters
+(`RouteLoadReconcile.SelectRoutesWithUnheldRowsAfterSaveClock`; the go-back reads the rewind
+save's events with its route copy into `RewindContext`, the Re-Fly start reads the RP
+quicksave's); a row the save holds (the earlier go-back's settled rows) still restores them. Logs:
+Info `... written inside ... go-back window ... N route(s) keep rebuilt cycle counters`, Verbose
+`cycle counters stay rebuilt`, summary `countersKeptRebuilt=N`. xUnit:
+`RouteResidualWindowExitCountersTests` (10: both exits x multi-stop and single-stop, the held-row
+control, the pure selector); without the guard 4 red, matching without the saved log 2 red.
+
+---
+
+## ~~ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9~~ [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. Was open. FIXED 2026-10-21 (the held-back earnings, PR #2164; the trajectory, owner ruling 2026-10-21) on branch `claude/project-thread-hvhou8`. xUnit; lane QL-13 LIVE-PROVEN `2026-10-21_2058`]
+
+When the flight-ready committed-tree restore resumes a committed recording in place (the live
+vessel's parts are covered by the recording's snapshot, so no new segment is made) and the
+recorder has written to it, `PlanActiveTreeSidecarSaves` skips the whole active-tree node at
+every `OnSave` (the #866 committed-restore overlap skip). The save then holds the committed tree,
+the `ATTEMPT_EVENTS` and no active tree. On F9 (a cold load) nothing is restored as active, so the
+attempt is not re-armed and the save's held-back events are dropped
+(`dropped the save's ATTEMPT_EVENTS ... reason=DropAttemptNotArmed`); the flight-ready restore
+then arms a fresh attempt for the spawned vessel. An earning made between the resume and the F5
+never reaches the ledger, while KSP's own funds at the F5 include it. The trajectory flown
+between the resume and the F5 is not in the save either. Fix direction: hold the save's
+`ATTEMPT_EVENTS` past OnLoad when the save has a committed copy and no active node for that tree,
+and restore them when `TryTakeCommittedTreeForSpawnedVesselRestore` arms the same tree id in
+that flight (drop them otherwise), or write the attempt's trajectory into the save so the
+active node is never skipped. Seen in code only; no lane yet.
+
+Fix (the first direction above): when the cold load restores no active tree, no attempt is armed and the save holds the attempt's committed tree, `ParsekScenario.ApplySaveAttemptEventsAfterActiveTreeRestore` holds the save's `ATTEMPT_EVENTS` (`HoldForFlightRestore`, `[Scenario] OnLoad: held the save's ATTEMPT_EVENTS for the flight's committed-tree restore`). `ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` resolves the hold right after it arms the attempt: the same tree id puts back into memory only the events the fresh arm would itself keep off the file (`Restored the held ATTEMPT_EVENTS into memory only on the flight's re-arm ... droppedNotHeldByTheArm=N`; an event of a recording the attempt made after the resume, gone with the missing active tree, is dropped with its accept's contract snapshot, since the next save would otherwise write it outside a merge), any other tree drops them, and the next OnLoad drops a hold no arm took. The #866 rule is kept: the events stay off the save's file and reach the ledger only through the attempt's merge. Cells: `ColdLoadRestoreAttemptRearmTests.ColdLoad_InPlaceAttempt_*` (red with the hold disabled), the two decision tables and the wiring cell.
+
+Fix, the trajectory (owner ruling 2026-10-21, "Switch to versioned files", after a first cut that always resumed in a new segment was reverted: it added a segment to every in-flight commit's re-take, about 40 lane counts, and armed a switch-segment session on every resume, so a later ordinary switch popped the Merge / Discard dialog): the overlap skip is gone. `PlanActiveTreeSidecarSaves` writes a restore-attempt member that shares its id with the committed copy like any other (counted as `committedRestoreOverlap`, Verbose `writing restore-attempt recording`). The write replaces the shared head and keeps the committed bytes as their hashed version under `_versions/` (#2155). The committed copy keeps naming that hash, and `EnsureRecordingFilesCurrentForSave` treats a committed-tree recording whose head moved on as current when every named hash resolves and one resolves to a retained version (`RecordingStore.AreRecordingFilesCurrentThroughNamedVersions`, Verbose `is current through its named sidecar version(s)`), so it is never rewritten and its sidecar epoch does not move before a merge. One save then names two versions of the id; a cold load reads each copy from its own bytes without promoting (`reason=multiple-owners owners=2`) and re-arms the attempt. Discard leaves the head holding the clone's bytes and the committed copy current through its version; the next lone load promotes it back. A lazy vessel-snapshot re-hydration now reads the bytes its recording names whenever a retained version holds them (`ResolveLazyVesselSnapshotPath`), so an in-session committed copy never picks up the clone's snapshot. Because the clone starts at the committed copy's epoch, an attempt member's save also checks that the head holds the hash it names (`TrajectoryHeadHoldsNamedBytes`, `reason=head-holds-other-bytes`), so a committed rewrite at the same epoch is not read as the clone's bytes. Now that every save holds the attempt's active node, an in-session load of one (the save stock makes before leaving flight) keeps the committed original committed and skips the splice while the attempt is armed for that tree (`kept the committed copy ... the live restore attempt's clone`), as the cold re-arm does: otherwise the scene-exit merge of the clone ran as a first commit and a Discard found nothing committed (found in review). The ATTEMPT_EVENTS hold above stays as the fallback for a save written without the active tree. Cells: `InPlaceResumeSidecarVersionTests` (save, cold load, discard over real hashed sidecars; red with the skip restored, with the version rule off, with the old lazy-hydration rule, with the head-hash check off, and with the live-attempt keep or splice skip removed), `SaveActiveTreeSidecarBothOrNeitherTests`, the `ColdLoadRestoreAttemptRearmTests` wiring cell. Residual, not changed: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id, so a pending tree written at the Space Center with unsaved resumed flying is left out of that save. Lane QL-13.
+
+## ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock claim whose claimer absorbed the partner carries no launch guid, so a relaunch of the same craft pools into its ghost chain~~ [FILED 2026-10-15 from the launch-identity audit (gap 3), verified by code read. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-dock-chain-guid` (PR #2106); LIVE-PROVEN 2026-10-15 on the owner's PC before merge: BDOCK-1, CI-4, CI-9 and H50 all PASS. Parsek]
+
+`GhostChainWalker.ScanBranchPointClaims` took a dock claim's launch guid from the claiming tree
+(`ResolveLaunchGuidForPid(tree, targetPid)`). When the claimer's vessel survives the couple
+(`isTarget`, `mergedPid` = the claimer's pid), the merged child carries the claimer's pid, the
+partner is not a parent unless it is in the same tree's `BackgroundMap`, and so no recording in the
+claiming tree carries the partner's pid: the guid was null. The #976 latest-launch filter never
+drops a null-guid link, and `MergeCrossTreeLinks` merged chains on a bare tip pid and moved the
+chain tip (and spawn UT) to the merged chain's tip. Absorption frees the partner's craft-baked pid
+while its parts still fly, so a relaunch (hub / tanker fleet) reuses it: a stale launch's claim
+pooled into the new launch's chain, and the new launch's real continuation could be suppressed as
+an intermediate link (or the tip moved to the wrong launch). `MissionCrossTreeDock.FindLinks`,
+`FindSameTreeDockClaims` and `DockEventGraph`'s cross-tree step had the same pid-only fallback.
+`design-dock-event-graph.md` called it a "marginal enlargement of an existing exposure".
+
+Fix: the dock branch point stamps the partner's launch guid beside its pid
+(`BranchPoint.TargetVesselGuid`, optional key `targetVesselGuid`, absent -> null, no generation
+bump), read from the live couple-event side that carries the stamped pid
+(`ParsekFlight.ResolveDockPartnerGuidFromEvent`, both OnPartCouple paths, logged as
+`partnerGuidStamped=`). `MissionCrossTreeDock.ResolveClaimLaunchGuid` prefers the stamp over the
+tree pid lookup and is shared by the walker, `FindLinks` and the graph; `FindSameTreeDockClaims`
+prefers it too. `MergeCrossTreeLinks` refuses a merge when the linked chain's launch guid and the
+tip recording's guid are both known and conclusively differ (Verbose `Cross-tree link refused`,
+once per change). Unknown guids keep the pid-only behavior. Tests: `DockPartnerLaunchGuidTests`.
+Residual: a stamp is the live `Vessel.id`, like every recording's guid, so a dock into a resumed
+Parsek-spawned vessel (whose resumed recording keeps the pre-spawn guid, a `Resume` identity link)
+reads as a different launch on both the absorbed and the surviving path; the identity links are
+not consulted by `VesselLaunchIdentity`. Older saves stay pid-only until re-recorded.
+
+## ~~VB-1-KSP-HANG-AT-MAIN-MENU: KSP stalled at the main menu before the seam received `LoadGame`, and the watchdog only killed it at 660 s~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: any lane (a healthy boot must log `boot ready via=seam-receipt` and PASS; the hang itself is not reproducible on demand). harness]
+
+`VB-1-ghost-vessel-budget` `2026-10-09_0755` read KILLED (budget) after 674 s: the collected
+`KSP.log` (`logs/2026-10-09_1107_VB-1-ghost-vessel-budget`) ends ~0.5 s after `Scene Change : From
+LOADING to MAINMENU`, with no `recv id=` line at all, so the seam never saw the first `LoadGame`
+and KSP itself stopped writing. The run then sat out the LoadGame step wait (max(300, 600) + 60)
+and was KILLED, which prints nothing to classify and does not retry like an INVALID. Not a Parsek
+defect as far as the log shows (nothing Parsek-side ran after MAINMENU). Proposal: an early
+no-seam-heartbeat check in `run.py` - when the seam has acknowledged nothing (no `recv`, no
+journal CLAIMED) a bounded time after KSP reached MAINMENU (or after the log stops growing), end
+the attempt as a retryable `INVALID` (for example `subkind=boot-stall`) instead of waiting out the
+deferred step budget. 2026-10-12: HARNESS-BOOT-HANG-KILLED-BUDGET added a boot-stall watchdog
+(`INVALID(boot-hang)`), but it covers only the boot BEFORE MAINMENU and is latched off at the
+MAINMENU line, so this post-MAINMENU shape is still open; a follow-up could extend the same
+no-growth rule up to the first seam response.
+
+Fixed (2026-10-25): the watchdog now has a main-menu phase. `BootWatch` keeps tailing this
+launch's KSP.log after MAINMENU until the seam's receipt of the first command
+(`hlib.SEAM_RECEIPT_MARKER`, `[TestCommands] recv id=`, the `TestCommandDiagnostics.Receipt` line)
+or any seam response, and in that phase applies the 90 s no-growth rule alone as rule
+`no-seam-receipt` (`hlib.boot_watch_phase`, `decide_boot_stall(at_mainmenu=True)`). The kill is
+the same retryable `INVALID(boot-hang)`, so VB-1's shape now costs about 90 s plus a retry. It
+stops at the receipt, not at the response: the seam reads commands only outside LOADING, so the
+receipt follows MAINMENU within a second (0.65 s in the collected `flighteff_b11` log), and after
+it the seam owns the command and a LoadGame may sit in a quiet deferral. Cells:
+`BootStallWatchdogTests` (phase table, the no-seam-receipt rule, the receipt scan, the marker
+pinned to the C# receipt literal) and the smoke cell
+`test_a_ksp_wedged_at_the_main_menu_is_killed_invalid_boot_hang_and_retried` (new fake mode
+`menuhang`; mutation-checked: with MAINMENU switching the watchdog off it ends KILLED(budget));
+`slowboot` now logs a receipt and still never trips.
+
+---
+
+## ~~FAST-POLL-SETTLES-STILL-RACE: ZF-1's rollout and CI-6's recorder bind lose the race their one-frame settles were sized for~~ [FILED 2026-10-08 from the PR #2055 regression flights. FIXED 2026-10-09 in the specs, branch `seam-load-waits-flight-ready` (with CN-1, CN-1T and EVA-5 from nightly `2026-10-09`), NOT YET RE-FLOWN; CI-6's wait is a timed interim, see below. harness; LIVE-PROVEN 2026-10-16: EVA-5 `2026-10-16_2208` (main 412d48e), ZF-1 `_2306`, CI-6 `_2307`, CN-1 `_2308`, CN-1T `_2309` (main d478091) PASS attempt 1; CI-6 still waits on a timer]
+
+Two more lanes the HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS audit left on inert-step settles
+read red on the same premise (an inert step is one frame since PR #2017):
+- `ZF-1-zero-funds-career` `2026-10-08_1858`: its four `zf1-rollout-settle` marks (0.12 s)
+  no longer cover stock's rollout debit (~0.2 s after `launchfromeditor complete` on the green
+  `2026-10-03_1542`), so the LedgerGroundTruth batch starts first and the `FundsChanged -300
+  (VesselRollout)` / `VesselRollout spending recorded` / `PatchFunds ... target=3882.0` tokens never
+  print. Fix: a 1x `WarpToUT` a couple of seconds past the launch UT.
+- `CI-6-chain-tip-recover-no-respawn` `2026-10-08_1917`: RealSpawn to Recover took 0.58 s over 17
+  inert steps and the spawned tip's recorder had not bound (`boundRec=(none)`, then `In-flight
+  recovery request dropped unapplied ... reason=scene change requested`); last night's green
+  `2026-10-07_2143` bound it 0.25 s after RealSpawn. This is the CI-6 settle the audit named as open
+  (no UT the spec can name); it needs a named-condition wait like S4.4's
+  `RecordingState awaitRecorderLive=` (a non-re-fly variant).
+
+**Fix (2026-10-09, branch `seam-load-waits-flight-ready`, specs only, not re-flown).** Each
+inert-step settle is now a 1x `WarpToUT maxRate=1` to a UT read off the logs:
+- `ZF-1`: the four marks -> `WarpToUT ut=14` (green `_1542`: launch complete at UT 10.4, the
+  rollout debit at 10.66). The red reading also ran its Recover BEFORE onFlightReady; the
+  seam's `LoadGame` now waits for onFlightReady and the unpack
+  (LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY, fixed in the same branch).
+- `CI-6`: the twelve steps between the switch click and Recover -> `WarpToUT ut=625`. RealSpawn
+  leaves the clock at UT ~622.2 and the switch lands at ~622.34; the switch intent is refused
+  `on-surface-defer-to-trigger`, so the tip's recorder is bound by ParsekFlight's 1 Hz
+  committed-spawned restore retry (real seconds). Green `2026-10-07_2143` won it by luck (the
+  retry fired 4 ms after the switch); `2026-10-09_0200` pressed Recover 0.35 s after it,
+  `boundRec=(none)`. 2.7 s of 1x time covers the retry. STILL OPEN as a follow-up: a
+  named-condition wait (a non-re-fly `awaitRecorderLive=` variant) would replace the timed one.
+- Three more lanes red on nightly `2026-10-09` (build `720d93f09`) with the same shape:
+  `CN-1` / `CN-1T` (eight inert settles before the batch took 0.2 s, the batch started at UT
+  21.6 and `PresetRelayRulings_*` skipped `window has not opened yet (ut=21.6 < 22.2)`) ->
+  `WarpToUT ut=24`; `EVA-5` (twelve `TimeJump deltaSeconds=10` on a 10 s mission loop land on
+  ONE cycle phase, so only the real time between them moves the playhead; at ~0.08 s apart it
+  never reached the placed member's window, cycle offset ~1.8-7.3 s) -> `WarpToUT ut=60`.
+
+---
+
+## ~~ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it~~ [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. FIXED 2026-10-25 on branch `claude/project-thread-re9fpq` for the in-session loads; LIVE-PROVEN by lane IR-13 `2026-11-06_2342`. product, low; by construction, not reproduced in game]
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): release rating low, not a blocker.
+Since LOGISTICS-WITHOUT-MONEY a second in-window crossing no longer charges funds; it can still
+deliver its cargo a second time, inside a 15 s game-time window that needs a save and a route action
+in it. The fix shape below stands.
+
+The go-back rewind keys its route cutoff to the rewind save's own UT, up to 15 s ahead of the
+wound-back clock, and every save written before the clock passes it carries that route state floor;
+a load of such a save keys its route cutoff to the floor, not to its own UT. So a route row written
+after that save but before the floor (a pause or resume row, say; the window's crossings already
+fired) survives a quickload, a revert to a launch made in the window
+(its prune spares route rows up to the floor) and an F9 at the Space Center (which also keeps a Send
+Once or pause-after-this-run armed after the save). A route CREATED in the window after that save
+also survives a load back to it (its CreatedUT is below the floor, and the save does not carry it)
+with a reset cursor, so its in-window crossing can charge a second time; before the floor such a
+route went dormant. Needs a save AND an action inside the same 15 s of game time; the load itself can
+come any time later (an F9 to that quicksave much later hits the same thing).
+Re-checked 2026-10-24 against #2155 / #2167: NOT moot. An in-session load still keys its retire to
+the save's clock raised to the carried floor (`RouteLoadReconcile.ReconcileAtInSessionLoad(kind,
+cutoffUT, loadedSaveUT, ConfigNode)` -> `ApplyRouteStateFloor`), and the dormant split still reads
+`CreatedUT > cutoff`. What changed is the fix's input: since #2167 the save carries its own
+`ROUTE_EVENT_LOG`, so the rows the save kept are readable from the loaded node. A fix would retire
+the rows in (save clock, floor] the saved log does not hold, and send a committed route the saved
+route copy does not hold with `CreatedUT` above the save clock dormant. Left open (low; the
+chain-tip cargo watermark for rows retired below the floor needs its own read first). Same class as the
+UT-only reconcile: an F9 to an in-window save from an abandoned timeline keeps the newer timeline's
+route rows up to the floor. A fix would mark the rows the go-back kept (action ids) instead of a UT.
+Found by the PR #2040 re-review.
+
+Fix (2026-10-25, the entry's first form, not the action-id form): `RouteLoadReconcile.
+ReconcileAtInSessionLoad(kind, cutoffUT, loadedSaveUT, ConfigNode)` builds a `RouteSaveWindow` when
+the loaded save's own clock lies behind the floor it carries (`RouteEventRetire.IsInSaveWindow`),
+from the save's own `ROUTE_EVENT_LOG` (`RouteEventLog.ReadSavedEvents`) and route copy. Before the
+ordinary retire above the floor it retires the events in (save clock, floor] the saved log does not
+hold, matched one to one by type, UT, sequence, route, cycle and stop
+(`RouteEventRetire.SelectUnheldWindowRows` -> `RouteEventLog.RetireUnheldWindowRows`), and sends a
+committed route the saved copy does not hold, with `CreatedUT` after the save clock, dormant
+(`SelectRoutesCreatedAfterTheSave` -> the new `forceDormantRouteIds` of `RouteRewindClassifier.
+Classify` / `ReconcileStoreAtRewind`). Everything else stays keyed to the floor: the cycle-state
+reset, the loop-position restore and the floor kept in memory, so the go-back's settled rows (held
+by the save) and a multi-stop cycle the save holds as dispatched resume as before. On an
+InSessionOther load (an F9 at the Space Center) either finding is evidence
+(`HasWindowStateAfterSave`), so the reconcile runs and clears the one-shots armed after the save.
+Chain-tip cargo read: the watermark is still lowered at the floor (the go-back's held rows in the
+window stay taggable to snapshots captured after them), and the window-retired events are not
+stashed: they were written after the save, so only a snapshot committed inside the same 15 s
+window could hold their cargo, while every older snapshot captured past their UT (a later
+recording of the route's endpoint) would match them by UT and lose cargo it never had. Accepted
+residue of that choice: such a same-window snapshot spawns with that cargo. Logs: one Info
+`save written inside a go-back window saveUT=.. floorUT=.. savedEvents=.. savedRoutes=..
+unheldWindowRows=N routesCreatedAfterTheSave=M`, one `RouteEventLog` Info `RetireUnheldWindowRows:
+removed N route event(s) in (S, F]`, and the summary line gains `windowSaveUT= windowRowsRetired=
+windowRoutesDormant=`. xUnit: `RouteWindowSaveLoadTests` (22: the pause row on F9 in flight and at
+the Space Center, the one-shots, the revert to an in-window launch, the route created after the
+save, a route the save holds, the multi-stop resume, a save outside any window and a cold load
+unchanged, a forward scene change, and the pure rules); mutation-checked (no window: 7 red;
+retiring the whole window regardless of the saved log: 5 red, the multi-stop resume among them).
+Lane `IR-13-route-window-revert-retires-window-row` (LIVE-PROVEN `2026-11-06_2342`) flies the
+revert-to-an-in-window-launch cell: a paused route, Rewind-to-Launch, Kerbal X launched and the route
+re-activated inside the 15 s window, Revert to Launch, and the route must be Paused again
+(`unheldWindowRows=1`, `RetireUnheldWindowRows: removed 1`). Stock F9 now classifies Cold, so the
+revert is the in-session load left on this path.
+Not covered: a go-back rewind to a rewind save written inside an earlier window, and a Re-Fly start
+from an RP quicksave written inside one, still key to the floor alone (both need a launch or a
+separation within 15 s of a go-back, then a route action, then that exact rewind; a route with a
+row there the save does not hold keeps its rebuilt cycle counters, see
+ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH); the UT-only
+class (an F9 into an in-window save from an abandoned timeline) is unchanged. Found with it:
+ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH (fixed first; the multi-stop cell needs it).
+
+---
+
+## ~~HARVEST-ROUTE-PLAUSIBILITY-CAP: cap a harvest-origin route's recorded harvest at what its drills could produce~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-15, branch `claude/harvest-cap-scan-ledger-oo5vxg` (xUnit; in-game lane HV-2 LIVE-PROVEN 2026-10-16, run `2026-10-16_0607`)]
+
+A harvest-origin route replays whatever ore its recorded run gained, including a stock
+catch-up burst recorded inside an open harvest window (see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND).
+Owner ruling 2026-10-06: bound the recorded harvest by drill rate x duration (with a margin) at
+route creation, and say so in the route's explanation text when the cap applies.
+
+Fix: each harvest window stores `PlausibleRates` (units/s of the transport's whole converter set,
+sampled at open, on a part-count change inside the window (an EVA-built drill) and at an in-flight
+close; stock surface / ocean drills, recipe converters and the
+lab are modelled, and so is the `ModuleAsteroidDrill` / `ModuleCometDrill` both stock drills also
+carry - no output on a vessel with no asteroid or comet part, unmodelled with one; anything else
+leaves the window unbounded). The plausible harvest is
+`min(delta, rate x duration x 1.5)` per window and `min(delta, rate x gap x 1.5)` per D5 bridge
+(`RouteHarvestCapture.ComputeWindowPlausibleHarvest`, `RouteHarvestAnalysis.ComputeHarvestedTotals`).
+The gain / flow / harvest-origin gates still read the witnessed totals; a harvest-origin route's
+deliveries are clamped to the plausible totals and the D8 debit reduction subtracts them. Capped
+resources persist as `Route.HarvestCaps` and the from/to hover names them. Design: logistics
+19.4 M2 "Plausibility cap". In-game: `HarvestCapScanLedgerInGameTests.StockDrillAndIsruRatesAreModeled`
+(lane HV-2) reads every stock drill / ISRU prefab through `FlightRecorder.ReadHarvestConverterRate`;
+writing it found the asteroid drill left every stock mining window unbounded. The live
+measurement is lane `MINE-5a-rover-live-drill-harvest-cap` (LIVE-PROVEN 2026-11-07,
+`2026-11-07_0022`): the four drills on V's rover mine across a rails warp while recording, and the
+in-game cell asserts each window's harvest under its own rate x duration x 1.5, no cap on the
+run's plausible totals, a whole-harvest delivery unchanged by the clamp, and the window's Ore
+matching stock's tank gain up to the window edge slack. Measured `ratio=1.000` (54.26 s at
+0.0017610771798682616 Ore/s): live drills run at their rated output, so honest mining sits at
+two thirds of the cap. The same flight measured the one-frame window edge gap
+(HARVEST-WINDOW-EDGE-FRAME). Still open: a delivery that clamps to nothing leaves its stop with an
+empty manifest rather than refusing the route. The route itself is lane
+`MINE-5b-rover-dock-depot-harvest-route` (LIVE-PROVEN `2026-11-07_0448` on the
+HARVEST-WINDOW-EDGE-FRAME fix, no cap): a real harvest-origin route from the miner docking a
+depot; it now forbids a reported delivery cap.
+
+---
+
+## ~~EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded~~ [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. KSC-retirement side note FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. Detach-then-drop half FIXED 2026-10-31, branch `claude/project-thread-ucsdk0`; LIVE-PROVEN by EVA-16 `2026-11-01_0025`]
+
+**Detach-then-drop half FIXED 2026-10-31** (branch `claude/project-thread-ucsdk0`). Decompiled KSP
+1.12.5: a held construction part is set down only by `EVAConstructionModeEditor.DropAttachablePart`
+(the drop click, and `ForceDrop` when the panel closes or construction mode ends with a part held),
+which builds a single-part `DroppedPart` ProtoVessel, loads it through `Game.AddVessel` (firing
+`onNewVesselCreated`) and then fires `onEditorPartEvent(PartDropped, heldPart)` in the same call; no
+other path fires `PartDropped`. The gap was wider than the foreign case: a part dropped from the
+kerbal's own inventory, or detached from his own lander and dropped, was not recorded either. Fix:
+`ParsekFlight.OnEditorPartEventForConstructionDrop` routes `PartDropped` into the inventory ground
+placement's own path (`RecordGroundPartPlacement`, `GroundPartPlacementSource.ConstructionDrop`): the
+same gate, the same `GroundPartPlaced` member one frame later, the same `InventoryPartPlaced` event,
+the source named on the lines (`source=construction-drop`, `via onEditorPartEvent(PartDropped)`). A
+dropped member picked back up in construction mode ends `Disassembled` through the existing pocket
+seam. Cells in `GroundPartPlacementTests` (`IsConstructionDropSignal_*`, `EvaluatePlacement_Construction*`,
+`AttachMember_ConstructionDrop_*`, the detected / skip formats, the subscription wiring). Seam
+`EvaGroundScience action=detach ... then=drop` (`TestCommandEvaConstructionTests`) and lane
+`EVA-16-construction-drop-foreign-part` on `eva-construct-pad` (one panel off the rover, dropped,
+commit, Rewind-to-Launch, flight reload: the rover tip spawns with 15 parts and the panel spawns at
+its own end); live proof owed to its first flight. Not covered, by code read: a loose `DroppedPart`
+vessel of ANOTHER flight picked up in construction mode dies unrecorded (the pocket seam reads only
+this tree's members), so after a rewind the old loose part is back beside whatever the pick-up made
+of it; filed below as CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED.
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): the unfixed half (a part detached
+from a foreign vessel and then dropped) is still real, low: only attach and detach are handled
+(`ParsekFlight.ForeignInventoryTransfer.cs`), and new-vessel adoption exists only for inventory
+ground placement (`ParsekFlight.GroundPartPlacement.cs`), so the dropped part is gone after a rewind
+or replay. Needs a decompile of the construction drop path and a live reading (EVA-11 shape) before
+a fix. The KSC-retirement side note (only `EvaCrewName` exempts) is fixed (2026-10-25, below).
+
+The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
+neighbours of the same defect remain. `EVAConstructionModeEditor` fires
+`OnEVAConstructionModePartAttached(parentVessel, part)` after `AttachPart` and
+`OnEVAConstructionModePartDetached(vessel, part)` after `DetachPart` (decompiled 1.12.5); neither
+is subscribed, and an attach / detach changes no inventory slot of the foreign vessel, so a part
+built onto or taken off a parked rover is lost or duplicated by a rewind exactly as before. And
+`ForeignInventoryTransfer.Evaluate` refuses a transfer with a foreign EVA kerbal
+(`ChangedVesselIsEva`): adopting a kerbal vessel as a plain member would hand crew reservation a
+kerbal it does not own.
+
+Fix: route the two construction events through the same adoption (`InventoryTransfer` member, a
+`PartAdded` / `PartRemoved` event). Open question for the detach: whether the held part is still in
+`vessel.parts` when the event fires (`Part.OnDetachFlight`), which decides whether the snapshot must
+wait a frame. Needs a live reading before it ships.
+
+**Construction half FIXED 2026-10-15.** `ParsekFlight.OnEvaConstructionPartAttached` /
+`OnEvaConstructionPartDetached` run `ForeignInventoryTransfer.Evaluate` and adopt or append exactly
+as the inventory handler does, with a `PartAdded` / `PartRemoved` event built by
+`ForeignInventoryTransfer.BuildConstructionSegmentEvent` (details `construction part=<name>
+action=attach|detach pid=<pid>`). The open question is answered from the decompile (KSP 1.12.5):
+`DetachPart` -> `Part.OnDetachFlight` -> `Decoupling` -> `disconnect` removes the held part from
+`vessel.parts` before stock fires the detached event, so the snapshot is taken at the event with no
+frame wait; the attach event fires after `AttachPart` added it. Cells in
+`ForeignInventoryTransferTests` (`BuildConstructionSegmentEvent_*`, `FormatConstructionSkipLog_*`,
+`ConstructionAttach_ClaimsTheForeignVessel_AndItsOwnRecordingIsTheTip`). Live reading still owed
+(V flies it): attach a part to a parked rover from a recording kerbal, detach one, rewind; check the
+`Foreign inventory transfer: vessel joined the tree ... construction` line, the rover's ghost and
+its spawn form, and that a second detach from the adopted rover (whose `Decoupling` also fires
+`onPartJointBreak` on a background member) leaves no stray split. Still OPEN: a transfer with a
+foreign EVA kerbal (`ChangedVesselIsEva`, crew reservation would gain a kerbal it does not own),
+and a part detached from a foreign vessel then dropped on the ground (a new vessel no recording
+carries).
+
+**Lane EVA-11 authored 2026-10-15, never flown** (branch `wip-eva-construction-lane`):
+`harness/scenarios/EVA-11-construction-foreign-claim.toml` on the derived fixture `eva-construct-pad`
+(`harness/tools/build_eva_construct_pad.py`) is that reading. Bill Kerman (Engineer) steps 4 m from a
+crewless `rover fuel 0` 153 m from the pad, a recording on him attaches a Z-200 to the rover's free
+Clamp-O-Tron top node and detaches two OX-STAT panels into his inventory, through the new seam actions
+`EvaGroundScience action=attach` / `detach` (stock's own `AttachInput` / `DetachInput` with only
+their mouse / pointer / hover reads answered for one armed frame; design-autotest-command-seam.md).
+It gates one join (PartAdded) and two appends (PartRemoved) on one member, no split of the rover,
+and after commit, Rewind-to-Launch and a FLIGHT reload the rover ghosted and its chain tip spawned
+with `parts=15` (the new `parts=` field on VesselGhoster's `Chain tip spawn:` line). Its first
+flight is a reading run; its `WarpToUT ut=240` is a guess to tighten off the measured member EndUT.
+
+**Reading run 2026-10-15_2302 PARSEK-FAIL: the rewind deleted the adopted rover. FIXED same day.**
+The construction recording worked (one join with the attach, two appends, no split, `Chain built:
+vessel=1871615455 links=1 tip=<member>`), but the in-flight commit adoption-stamps the member with
+the rover's own pid, so the Rewind-to-Launch strip scope read it as a vessel the replaying member
+re-spawns (`Rewind strip scope: strip spawned pid=1871615455 of 'rover fuel 0' ... via
+holder-replays`) and the OnLoad strip matched the member's source (`Stripping orphaned spawned
+vessel 'rover fuel 0' ... same-launch recording match`): no real rover for the chain to ghost, and
+the tip spawned out of nowhere. The same holds for an inventory-transfer member (RC-6). Fix: a
+holder whose spawn pid is an InventoryTransfer member of its own tree is left out of the strip
+scope (`leave spawned pid=...`, summary `foreignAdoptedPids=`) and its spawn state resets; a member
+never counts as re-producing another tree's same-pid spawn; the OnLoad launch-identity strip drops
+members and their adoption holders from its match set (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember`
+/ `ExcludeForeignAdoptions`). Cells in `ForeignAdoptionRewindStripTests` (the EVA-11 shape through
+`PreProcessRewindSave`, controls without the member ids and with a tree-born member, the
+no-whitelist OnLoad fallback, an earlier tree that spawned the same pid both ways). EVA-11's
+`WarpToUT` is now `ut=45` (member EndUT 34.96 + 10 s).
+
+**Re-flight 2026-10-15_2326 PARSEK-FAIL on one token, the rewind fix proven.** `leave spawned
+pid=1871615455`, `foreignAdoptedPids=1`, `OnLoad strip: 2 recording(s) ... left out`, `Vessel
+ghosted: pid=1871615455`, and the produced save holds the rover LANDED with 15 parts. But the tip
+never logged `Chain tip spawn: ... parts=`: `SpawnAtChainTip` adopted the despawned rover (`source
+vessel pid=1871615455 already exists - adopting instead of spawning duplicate`), spawn-death fired,
+and `ChainTipStaleVessel` replaced it from the tip snapshot. Cause: `VesselGhoster.GhostLiveVessel`
+removed the claimed vessel with no flight-state list, and in FLIGHT `Vessel.Die()` (decompiled
+1.12.5) leaves the scene's load-time `flightState.protoVessels` entry in place, so
+`VesselSpawner.ProtoVesselExists` still found it. Fix: the ghoster passes
+`HighLogic.CurrentGame.flightState.protoVessels`, as `ChainTipStaleVessel`'s removal already does,
+and `LiveClaimedVesselRemovalTarget.RemoveFlightStateEntries` removes by pid (vessel id not
+conclusively different, never a ghost-map entry) as well as by reference: re-flight
+2026-10-15_2335 showed the reference alone misses, because a loaded vessel's `BackupVessel()` (the
+ghoster's own snapshot capture, or any save) replaces `vessel.protoVessel` with a fresh instance
+while the list keeps the load-time one. Any background-event chain whose tip flies the claimed pid
+took the same detour. Cells in `ClaimedVesselRemovalTests` (`RemoveFlightStateEntries_*`).
+
+**LIVE-PROVEN 2026-10-15: `2026-10-15_2343` PASS attempt 1, 0 mismatches** (automation DLL sha256
+prefix 90964a279107c47f): `Flight-state entries removed: pid=1871615455 removed=1`, `Vessel ghosted`,
+`Chain tip spawn: pid=1871615455 ... parts=15`, no adoption or stale-vessel replace after the rewind,
+the rover LANDED with 15 parts in the produced save.
+
+**Foreign EVA kerbal half FIXED 2026-10-23** (branch `claude/project-thread-y4esmb`). The refusal was
+over-cautious: an adopted kerbal's own kerbal vessel is the member, its snapshot carries him as the
+kerbalEVA part's crew, so `KerbalsModule` already writes his KerbalAssignment row from it (the cargo
+flight does own him from the transfer on, the same way a dock or a boarding claims a crew). The real
+gap was the earlier mission's hold: a kerbal left standing on EVA by a committed flight is held
+open-ended (Aboard / Unknown end), and a cross-tree claim ended that hold only for Dock and Board.
+Fix: `ForeignInventoryTransfer.Evaluate` drops `ChangedVesselIsEva` (another kerbal is a vessel like
+any other), and `KerbalsModule.CollectDockClaims` also reads `InventoryTransfer` branch points, taking
+the claimed vessel's pid / guid from the member recording (the branch point carries none), so the
+open hold ends at the transfer through the existing cross-tree hand-off. Ledger effect: none on
+funds, science or reputation; holds are derived, so a discard or supersede of the cargo flight brings
+the earlier hold back. Seam: `EvaGroundScience take from=<kerbal>` takes from that kerbal's own
+inventory. Cells in `ForeignKerbalCargoHandoffTests`, `ForeignInventoryTransferTests`,
+`TestCommandEvaGroundScienceTests`. Lane `EVA-12-cargo-from-foreign-kerbal-rewind` (RC-6's shape,
+Bob Kerman as the partner): LIVE-PROVEN 2026-10-23 on its first flight, `2026-10-23_2257` PASS attempt 1
+(Bob held through the rewind, spawned with `storedParts=0`; Bill spawned with the kit).
+
+Still OPEN: a part detached from a foreign vessel and then dropped on the ground (a new vessel no
+recording carries). ~~Also noticed (pre-existing): KSC end-of-flight retirement exempts only
+recordings with `EvaCrewName` (`VesselSpawner.EvaluateKscEndOfFlightRetirement`), so a kerbal
+recording without it (an adopted cargo-partner kerbal, or a recording started on an EVA kerbal)
+whose endpoint lies inside the KSC exclusion circle would be retired and not respawn.~~ FIXED
+2026-10-25, branch `claude/project-thread-re9fpq`, xUnit (`KscPadRetirementTests.EvaKerbal_*`,
+`CrewSide_DroppedKerbalSnapshotOnThePad_IsNotRetired_BothSides`): the EVA exemption is now
+`VesselSpawner.IsEvaKerbalRecordingForRetirement`, true for `EvaCrewName` or an END vessel snapshot
+of stock type `EVA` (the precedent of `CoexistingTreeSiblingSpawn.ClassifySpawningMember`, minus
+its start-situation arm: only the spawn form counts, so a recording that ends as a vessel is never
+exempted), re-checked after a dropped snapshot is re-hydrated from its sidecar. EVA-12 parks its
+kerbals 153 m from the pad, so no committed lane exercises the circle with such a kerbal.
+
+
+---
+
+## ~~BG-STRUCTURAL-BREAK-READS-DECOUPLED: a background vessel that breaks apart reads "Decoupled", not "Broke off"~~ [FILED 2026-10-06, branch `bg-undock-cause`. FIXED 2026-10-06, branch `split-cause-followups`, in BOTH recorders]
+
+**Finding: the foreground had the same mislabel, so the filed premise was wrong.** Decompiled
+KSP 1.12.5: a force break runs `PartJoint.OnJointBreak` (fires `onPartJointBreak(joint,
+breakForce)` with the real force) -> `Part.OnPartJointBreak(breakForce)` -> `Part.decouple(breakForce)`,
+which raises `onPartDeCouple` and `onPartDeCoupleNewVesselComplete` exactly like a decoupler.
+`Part.Die` also `decouple()`s its children. So the foreground's decouple signal
+(`decoupleControllerStatus`, the input of `ClassifyForegroundSplitChildCause`) is true for a
+force break too, and noting background `onPartDeCouple` would have changed nothing. Live
+proof: `logs/2026-09-29_2323_EVA-10-mun-ground-science-cluster/KSP.log` line 27907, a
+parachute torn off at `breakForce=8526.6`, then line 27949 `cause=DECOUPLE,
+decoupleCreated=True` for the child. Of 2199 foreground split children in the collected
+logs, 2176 classified `DECOUPLE`. The discriminator KSP does give is the force:
+`PartJoint.DestroyJoint` (called by `Part.decouple` and `Part.Undock`) fires
+`onPartJointBreak(joint, 0f)`, the physics break fires it with the real force, and it fires
+first.
+
+Fix (type-preserving): a structural joint that broke with `breakForce > 0` is a broken-off
+part, persisted as `SplitCause = "BROKE_OFF"` (an additive value, no schema bump). Background:
+`BackgroundRecorder.ClassifyBackgroundJointBreakCause` returns `BROKE_OFF` for it (force
+checked before the undock note). Foreground: `FlightRecorder.OnPartJointBreak` notes the child
+pid, `ClassifyForegroundSplitChildCause` returns `BROKE_OFF` for a decouple-caught child whose
+root part was noted, and `CrashCoalescer` treats `BROKE_OFF` (and `UNDOCK`) as separations
+like `DECOUPLE`: the window still emits a `JointBreak` (`BROKE_OFF` when any child broke off,
+`CombineSeparationCause`), and any `CRASH` child still escalates it to `Breakup`.
+`MissionCompositionBuilder.BranchEventName` maps it to "Broke off", and the structure list's
+debris-only arm (`isStaging = cause == null || cause == "DECOUPLE"`) reads it as a separation,
+"Broke off: 1 piece", not "Staged". A null cause is not reused, so it keeps its old meaning and
+existing saves do not relabel. An older build reading `BROKE_OFF` matches no cause arm and
+falls back to the `JointBreak` type ("Broke off") and a non-staging step. Branch types
+and `Decoupled` part events are unchanged, so every type-keyed reader (route proof and
+Logistics on `Undock`, `EffectiveState` / `UnfinishedFlightClassifier` / `SupersedeCommit` /
+anchors / `GhostingTriggerClassifier` on `JointBreak` / `Breakup`, ghost part hiding on
+`Decoupled` events) behaves as before; `SplitCause` is read only by the Missions labels.
+
+Left open: a part shed because its parent part DIED (`Part.Die` decouples children with
+force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
+needs `onPartWillDie`, which fires before those decouples; not done here.
+
+## ~~D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance~~ [FILED 2026-09-23 off GS-11. FIXED 2026-09-26 on branch fix-promoted-debris]
+
+**FIXED 2026-09-26 on branch fix-promoted-debris.** Source found: not live bookkeeping but
+`VesselSpawner.SnapshotVessel` at recorder stop, which resolved the capture's flat `Points`
+(first point, last point, `ComputeMaxDistance`) through `GetWorldSurfacePosition`; the promoted
+foreground recorder had entered RELATIVE mode near the sibling booster, so the flat list carried
+anchor-local metres. The finalize backfill never corrected it because
+`ClassifyMaxDistanceBackfillRoute` skips a recording whose maxDist is already non-zero. Fix: a pure
+`ClassifySnapshotDistanceRoute` sends any capture with a Relative TrackSection through
+`TryComputeSnapshotDistancesFromBodyFixedSurfaces`, which reuses
+`TryComputeMaxDistanceFromBodyFixedSurfaces` / `CollectBodyFixedSectionSamples` (Absolute `frames`
++ Relative `bodyFixedFrames`, earliest sample as the launch reference) for `MaxDistanceFromLaunch`,
+and measures `DistanceFromLaunch` from the same reference to the live vessel or, when destroyed, to
+the latest body-fixed sample. Mirror site fixed too: the destroyed path's `EndBiome` now resolves
+at the latest body-fixed sample (`TryGetEndBiomeSamplePoint`), not the flat tail. Captures with no
+Relative section keep the flat list. Headless cells: `PromotedDebrisSnapshotDistanceTests`. Not
+re-flown. Residual (not changed): the capture's distance is measured from the promotion point,
+not the booster's own first background sample, and `TryAppendCapturedToTree` keeps the larger of
+the two values; and a capture built on the vessel-switch stop path while a Relative section is
+still OPEN (not yet in the deep-copied `TrackSections`) would still take the flat route.
+
+Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the promoted booster fell
+about 5 km from the pad, yet its death snapshot reads `Vessel was destroyed during recording.
+Distance from launch: 888198m, Max distance: 1205340m` and its finalize line
+`FinalizeTreeRecordings: rec='baa46b97...' vessel='Kerbal X Debris' ... maxDist=1205340m`
+(reproduced on `_2004`: `Max distance: 1206162m`).
+Its five unpromoted siblings read 4-5 km, through `BackfillMaxDistanceFromBodyFixedSurfaces`
+(`reference=relative-body-fixed-frames`). The shape is the CLAUDE.md RELATIVE-frame trap: the
+recording carries parent-anchored Relative sections whose `latitude/longitude/altitude` are
+anchor-local metres, and the foreground recorder's live distance bookkeeping appears to read
+them as body-fixed coordinates once the recording is promoted. Consumers of the distance
+(pad-failure / idle-on-pad classification, the recordings table) would see a wrong value. Not
+gated by GS-11 (report-only). Fix: find the promoted recorder's MaxDistanceFromLaunch source
+and route it through the body-fixed surface (or `TryResolveRelativeWorldPosition`); a headless
+test can build a parent-anchored debris recording with Relative sections, promote it, and
+assert the distance.
+
+## ~~KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL~~: a kerbal whose committed flight ends Aboard stays reserved forever, even after the vessel is recovered - and an ordinary in-flight "Recover" with auto-merge on ends every crewed flight Aboard [FOUND BY READING 2026-09-23 while fixing KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME, then MEASURED the same night on `L3-career-science-recover` run `2026-09-22_2132` (and read back into the 2026-09-02 L3 log). PRODUCT GAP against design 9.3 ("RECOVERED ... available after recovery"; STRANDED "stays open until a future recording rescues the kerbal"). FIXED 2026-09-23 on branch `kerbal-aboard-recovery` (the recovery half; see Residual)]
+
+**Fix (2026-09-23).** A real-vessel recovery now writes a ledger row, and the kerbals walk
+bounds the open-ended hold with it; the ledger stays the single source the reservation is
+derived from, so rewind and recompute stay derivable. New `GameActionType.KerbalRecovered = 34`
+(additive enum member, no schema bump; serialized as `kerbalName` / `kerbalRole` beside the
+common `ut` / `recordingId` / `seq` / `actionId`). Producer: `ParsekScenario.OnVesselRecovered`
+(after the existing terminal-state and funds legs; skipped for a ghost map vessel, during a
+rewind strip, and when `GameStateRecorder.SuppressCrewEvents` marks one of Parsek's own
+programmatic recoveries) reads the crew off the recovered `ProtoVessel` and calls
+`LedgerOrchestrator.OnRealVesselCrewRecovered`. That picks the owner recordings through the
+pure `CrewRecoveryReservationClose` (`GameActions/CrewRecoveryReservationClose.cs`): an ERS
+recording the vessel continues - a POSITIVE launch match
+(`VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch`: pid AND both guids known and
+equal, no pid-only fallback, because closing a hold RELEASES a kerbal and the pre-fix answer
+was to leave it alone) or a GENUINE Parsek spawn (`SpawnedVesselPersistentId` equal to the
+live pid and different from the craft pid) - that ended at or before the recovery, the
+latest-ending one per tree. The recovered names are reverse-mapped to reservation owners
+(`KerbalsModule.ReverseMapCrewNames`, as the assignment rows are), and one row per (owner,
+kerbal) is written only when that kerbal has an open-ended hold in scope (an ELS
+`KerbalAssignment` row, non-tourist, not a loop recording - the walk's own exemption,
+mirrored so the writer never logs a closure that changes nothing; since 2026-09-27 a looped
+segment elsewhere in the chain no longer exempts it - end state Aboard or Unknown). Rows are deduped
+by `GetActionKey` = `recordingId|kerbalName` inside the 0.1 s window, logged once at Info as
+`Crew reservation closed by recovery: '<name>' recoveryUT=<ut> recordingId=<id> vessel='<v>'
+openHolds=<n>`, then `RecalculateAndPatchForLiveTimelineEvent(ut,
+"recovery-crew-reservation-close")` runs. Walk: `KerbalsModule.PrePass` collects the rows
+(`CollectRecoveryClosures`; they sort AFTER the assignment rows they close) and
+`ProcessAction` ends an Aboard / Unknown, non-permanent, non-looping-chain hold at the earliest
+row whose owner is committed and for which the pure `RecoveryClosesHold` answers true: the
+held flight is the owner itself or in the owner's tree, and ended at or before the recovery
+(1 s tolerance). So the L3 shape (Recovered HEAD + Aboard TIP of one launch) becomes UT 0 ->
+recovery UT and #1767's release frees him at once; a flight in ANOTHER tree keeps its hold
+(a kerbal stranded by another mission stays stranded, and a stand-in whose name reverse-maps
+to that owner cannot free him), a later flight keeps the max-end merge, a Dead row stays
+permanent, and a rewind to before the recovery holds him again because the row is a future
+row of the committed timeline (`CrewReservationManager.RecomputeFromEffectiveLedger` now
+feeds the type too). Supersede / tombstone: `TombstoneEligibility.IsSupersedeTombstoneEligible`
+retires the row with its owner recording (a re-fly that deletes the flight the recovered
+vessel continued also drops the closure), and `SupersedeCommit.IsWorldStateChangingRecordingAction`
+lists it as non-blocking. Not resource-impacting (`LedgerLoadMigration`,
+`KscActionExpectationClassifier`); the timeline shows it in the kerbal-assignment bucket as
+`Recovered: <name>`. Tests: `KerbalRecoveryReservationCloseTests` (the L3 shape end to end
+through the real ledger and walk, dedupe, rewind re-reserve, max-end with a later flight,
+another mission's stranding untouched, guid-mismatch and unknown-guid refusals, the spawned
+vessel, the stand-in reverse map, tombstoned-row reopening, and the pure scope / identity /
+row-building / collection decisions, serialization and dedup key), plus the enum-coverage
+tables in `LegacyTreeMigrationTests`, `SupersedeCommitTests`, `RecalculationFuzzer` and
+`LedgerStateFuzzerTests`. `KerbalReservationReleaseTests.AboardFlight_ALaterRecoveredFlightDoesNotShortenTheOpenEndedHold`
+still holds: a later Recovered flight in a different tree is not a recovery of the Aboard
+flight's vessel.
+
+**Live proof (2026-09-23, automation DLL verified to carry the new literals before each
+flight).** `L3-career-science-recover` run `2026-09-22_2325` PASS attempt 1: the commit walk
+still re-reserves Jeb (`Reservation re-reserved: 'Jebediah Kerman' endUT=INDEFINITE
+nowUT=347.2`, `Stand-in generated: 'Valdas Kerman'`), then the recovery writes `Crew
+reservation closed by recovery: 'Jebediah Kerman' recoveryUT=347.3
+recordingId=9dbe6297... vessel='Jumping Flea' openHolds=1`, the walk logs `Reservation
+bounded by recovery` and `Reservation released: 'Jebediah Kerman' endUT=347.3 nowUT=347.3`,
+and `Stand-in 'Valdas Kerman' displaced -> deleted (unused)`. No later walk re-reserves him;
+the produced save has Jeb `state = Available`, the stand-in only as a persisted chain name,
+and the `type = 34` row in `ledger.pgld`. `CL-4-refly-crew-standin` run `2026-09-22_2332`
+PASS attempt 1: the re-fly still generates its required stand-in (`Stand-in generated:
+'Caller Kerman' (Pilot) for slot 'Jebediah Kerman' depth 0`), and no recovery row is written.
+
+**Residual (not fixed).** (1) The spawned-vessel arm (a Parsek-spawned vessel recovered
+from the Tracking Station, or flown home through a switch continuation) is unit-proven
+only: it needs the Aboard flight's `SpawnedVesselPersistentId` to still name the live pid
+at recovery time, and no live lane flies that shape yet. (2) A legacy recording with no
+launch guid is never an owner (positive-match rule), so its crew keep the open-ended hold
+after a recovery; re-flying or deleting that flight still releases them. (3) A recovery
+never replays: after a rewind to before it, Parsek respawns the vessel at the recording's
+end, and the committed row still releases the crew at the ORIGINAL recovery UT whether or
+not the player recovers the respawned vessel again. The same holds for a quickload: the row
+carries a recording id, so `Ledger.Reconcile` keeps it past `maxUT` (the tagged "other"
+branch, `Ledger.cs` ~895-901), and an F9 to a save from before a Tracking Station recovery
+still frees the kerbal once the clock passes the old recovery UT. Impact is the stand-in
+deletion / retirement only; the contract is the one the #444 recovery-funds rows already
+have. (4) A cross-mission rescue is not closed: `RecoveryClosesHold` never reaches across
+trees, so if Jeb ended mission T aboard its vessel (`+inf`) and came home aboard mission U's
+vessel, U's recovery closes U's hold and T's stays open-ended (design 9.3's rescue case; not
+a regression; pinned as current behaviour by
+`CrossMissionRescue_ClosesOnlyTheRecoveredMissionsHold`). Fix idea: when the recovered name
+was NOT reverse-mapped from a stand-in (the kerbal himself is physically aboard), closing his
+held flights from ANY tree that ended by the recovery would be correct; the tree fence only
+exists for the stand-in case. (5) The tree scope is wider than the vessel's lineage: a
+surviving row closes any open-ended hold of the same kerbal in the same tree that ended by the
+recovery UT, including one from a branch the recovered vessel never carried him on. The risky
+shape needs a recovery during an uncommitted re-fly whose later commit adds such a hold to the
+tree; not proven live.
+
+**The common case (measured).** Stock's in-flight Recover requests the Space Center scene
+first and recovers the vessel there. Parsek finalizes the recording at the scene change
+(`FinalizeIndividualRecording ... with stable terminal state Landed (vessel.situation=LANDED,
+isSceneExit=True)`), stashes the pending tree, and with auto-merge on (the shipping value)
+commits it on the Space Center load. Stock's recovery then fires AFTER the commit
+(`[Research & Development]: +1 data on Recovery of a vessel` at 00:39:05.657 against the merge at
+00:39:05.2 on run `2026-09-22_2132`), so `UpdateRecordingsForTerminalEvent` finds no pending
+recording and the committed one keeps `Landed`. The optimizer's surface split then yields a HEAD
+[10..341.8] whose ghost-only chain hand-off reads Recovered and a TIP [341.8..347.7] ending Landed
+with Jebediah in its snapshot, i.e. Aboard. On the fixed DLL the first commit walk logs
+`Reservation released: 'Jebediah Kerman' endUT=341.8 nowUT=347.7`; the TIP's row lands one walk
+later, `Reservation extended: ... endUT->Infinity`, `Reservation re-reserved: 'Jebediah Kerman'
+endUT=INDEFINITE nowUT=347.7`, and `Stand-in generated: 'Rosted Kerman' (Pilot) for slot 'Jebediah
+Kerman' depth 0`. The re-flight on the branch's final DLL, `2026-09-22_2226` (PASS; the spec
+pins none of this), reads the same: `Reservation released: 'Jebediah Kerman' endUT=341.7
+nowUT=347.5`, then `Reservation re-reserved: ... endUT=INDEFINITE` and `Stand-in generated:
+'Kimmin Kerman'`. The 2026-09-02 L3 log shows the identical pair (`21eb7811...` Recovered at 342.3,
+then `8d487dc7...` aboard=1, `Reservation extended ... Infinity`). So the time-based release
+cannot help the everyday recovered flight until this ordering gap is closed.
+
+**What is true (read, and pinned by one xUnit cell).** An Aboard (or Unknown) end state maps to
+`ReservedUntilUT = +inf` (`Source/Parsek/KerbalsModule.cs:626`, `:637`), and reservations for one
+kerbal merge by MAX end (`KerbalsModule.cs:644`), so no later row can shorten an open-ended hold.
+Nothing re-stamps the Aboard row either: `ParsekScenario.OnVesselRecovered`
+(`Source/Parsek/ParsekScenario.cs:7766`) calls `UpdateRecordingsForTerminalEvent`, which only
+touches PENDING-tree recordings - "Committed recordings are never modified by terminal events"
+(`ParsekScenario.cs:7884`) - and the outside-flight recovery path only writes a
+`FundsEarning(Recovery)` row (`LedgerOrchestrator.OnVesselRecoveryFunds`, `LedgerOrchestrator.cs:5269`)
+plus `KerbalExperience` rows (`recovery-kerbal-xp`, `LedgerOrchestrator.cs:4990`), neither of which
+the kerbals walk reads as an end. So recovering the spawned real vessel from the Tracking Station
+returns the kerbal to Available in stock while Parsek keeps him reserved: filtered from the crew
+dialog, mapped to a stand-in in `crewReplacements`, `Reserved: aboard <vessel>` in the Kerbals
+window. Flying the spawned vessel home through a switch continuation does not help either: the
+continuation's Recovered row merges with the parent's `+inf` row by max.
+`KerbalReservationReleaseTests.AboardFlight_ALaterRecoveredFlightDoesNotShortenTheOpenEndedHold`
+pins the merge half.
+
+**Fix direction (as filed; the ledger-row candidate was taken, see Fix above).** For the common case: treat a recovery REQUESTED in flight
+(stock `onVesselRecoveryRequested`, which fires before the scene change) as the recording's
+Recovered terminal, or let `onVesselRecovered` re-stamp the just-committed tree's leaf when the
+guid-matched recording ended at the scene change that recovery caused. More generally, a rescue /
+recovery of the vessel a committed Aboard flight ended on is the design's "rescue recording
+provides endUT". Candidates: let a later Recovered row for
+the same kerbal and the same physical vessel (launch guid, `VesselLaunchIdentity`) close an
+earlier Aboard row instead of merging by max; or write a ledger row at a real-vessel recovery of
+a Parsek-spawned vessel (`SpawnedVesselPersistentId`, guid-gated) that bounds its crew's hold.
+Either changes reservation semantics across rewinds (a rewind to before the recovery must hold
+the kerbal again), so it needs its own design pass and live proof.
+
+## ~~REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE~~ [FILED 2026-09-14 by the guard-retire decision. UPDATED 2026-09-27: the lane exists (RB-1) and found that its designed cause cannot happen in the shipping configuration. CLOSED 2026-09-27 (branch `recovered-after-commit`): with REFLY-RESURRECTED-RECOVERY-STAYS-BANKED fixed, RB-1 `2026-09-27_1423` is the first live `FLAGGED DIVERGENCE` and RB-2 `2026-09-27_1431` its within-range control. The A7 strategy / mod-grant follow-up below stays OPEN]
+
+**2026-09-27 (branch `cap-divergence-lanes`).** The guard, re-derived from source: `RewindInvoker` arms it with eBefore (the live career before the rewind load) and eRp (the live career right after it), and `KspStatePatcher.RunRewindReadbackGuard` warns when the funds recalc target is below min(eBefore, eRp) - 1. Before a rewind the target equals the live pool, so only something the rewind itself retires can put it below eBefore, and the only designed retirement is Step 3b (`RetireResurrectedVesselRecoveryRows`). With R the retired recovery credit, S the post-RP spending and E the other post-RP earnings, it flags exactly when R > 1 and S - E > 1. A recovered SLOT cannot be re-flown (`UnfinishedFlightClassifier` admits no Recovered terminal, stashed or not), so the resurrected vessel has to be one unrelated to the RP's slots. `RB-1-rewind-readback-divergence` flies that (new `rewind-readback` preset: career-science-pad's own Flea is in the RP quicksave, the lane flies and recovers it, hires a kerbal, then re-flies slot 1). Reading `2026-09-27_1249` did not flag: Step 3b retired nothing (see REFLY-RESURRECTED-RECOVERY-STAYS-BANKED), so the guard read `within-expected-range resource=funds eBefore=625645 eRp=548000 floor=548000 target=673645 delta=125645`. The guard itself behaved as written. RB-1 and its control RB-2 are expected-fail witnesses of that defect; they become this entry's live witness when it is fixed. The strategy / mod-grant follow-up below is unchanged.
+
+**Evidence.** The rewind read-back divergence guard is warn-and-proceed by decision (see the
+D7 resolution above), so its only product is the `FLAGGED DIVERGENCE` WARN - and across 665
+collected logs and 57 armed rewinds that line has never been emitted, with all 8 career runs
+reading `delta=0`. The predicate is unit-pinned (`RewindReadbackGuardTests.cs`), but nothing
+drives the DESIGNED flag through a real career.
+
+**Follow-ups.**
+
+- A career harness lane that recovers a vessel, spends funds post-RP, then `InvokeRewind`s,
+  with HARD `[expectations.ledger]` facets on the post-rewind pools and a `logContract`
+  requiring `FLAGGED DIVERGENCE`. That turns the Step-3b retirement arithmetic into a live
+  witness instead of a unit-test argument, and it is the only way to learn what the WARN
+  looks like on real data before any future gate is considered.
+- The modded-compat / strategy rewind lane (coverage-audit row A7): a rewind on a career
+  carrying a strategy conversion or a mod-granted earning channel. That is the only shape
+  where a per-resource floor that EXEMPTS Step-3b resurrected-recovery retirements would be
+  the right gate, so the lane has to exist before such a floor could be designed.
+
+## ~~GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance~~ [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15. DONE 2026-09-26, branch `commnet-followups`; of the two Tracking Station sub-cases below, the double count is FIXED 2026-11-06 and the pre-claim gap stays dark]
+
+Design 15.6 scenario 15 says a real vessel despawned because a committed future recording claims
+it keeps relaying until the claim resolves. What shipped covered only the stretch BEFORE the first
+claim (the despawn snapshot's orbit); from the first claim to the chain tip's spawn the vessel had
+a node only while a committed recording carrying it was in its ghost window.
+
+**What the gap actually was (re-derived 2026-09-26).** The filed cause (chain ghosts are never
+positioned) is true but is not what went dark. Between the first claim and the tip, the vessel is
+always one of three things:
+- inside a committed recording's window (the claiming tree's post-dock merged vessel, the
+  vessel's own background recording, a later tree's recording of it). That recording IS eligible
+  for its own node already: `ShouldSkipExternalVesselGhost` exempts a chain-ghosted pid, and an
+  in-window recording has no spawn gate;
+- docked into another vessel: that vessel's recording carries it (its own snapshot), so the
+  vessel is never counted twice;
+- on rails between two recordings: a recording of the vessel ended (Orbiting / Landed /
+  Splashed) and the next claim or recording of it has not started. THIS was the dark stretch. The
+  ended recording is excluded `window-ended`: its real terminal spawn is owned by a later
+  continuation (an intermediate ghost-chain link, `ShouldSuppressSpawnForChain`, or a terminal
+  spawn superseded by a continuation, `TerminalSpawnSupersededByRecordingId`), so `NeedsSpawn` is
+  false, and it is not an optimizer mid-chain segment, so no hold applied. The committed fixture
+  `bdock-second-dock-recorded` has exactly this shape: mission A's station tip `37d0dc07` ends
+  Orbiting at UT 8950.61, its spawn superseded by mission B's post-dock `30b49a24` at 11794.68,
+  so after a rewind to before 8950.6 the station was dark for 2844 s.
+
+The chain map ProtoVessel (`GhostMapPresence.CreateGhostVessel(chain, tip)`) is not a sound
+position source for that stretch: it sits on the TIP's terminal orbit for the whole window and is
+never re-stamped (`UpdateChainGhostOrbitIfNeeded` runs only when a ghost GO exists).
+`FindBackgroundRecordingForChain` returns only a recording covering the UT, which already has its
+own node.
+
+**Fix.** A continuation gap hold (`GhostCommNetMath.ApplyContinuationHold` /
+`TryResolveContinuationHold` / `ResolveContinuationHoldUntilUT`, reason `continuation-gap-hold`):
+a recording whose real terminal spawn a later continuation owns is held past EndUT at its end
+antenna state and at the position the vessel sits in on rails (the existing held source: the
+recorded terminal surface point, else the spawn path's terminal orbit propagated to now), until
+the earliest takeover: the next ghost-chain claim at or after its end, or the activation of a
+later recording of the same launch (or of the recording its spawn was superseded by). No known
+takeover, or a later recording already running at its end, means no hold (never open-ended).
+Never held when a real vessel of that launch exists (it has its own stock node). Registration
+precedence in `GhostCommNetManager.Tick`: recordings in window or held for a spawn / chain gap,
+then the despawn-snapshot chain node (before the first claim), then continuation holds, each
+later pass yielding to a launch identity already relaying (`RegistrationPass`). FLIGHT and the
+Tracking Station both compute it. Each outcome logs once per change (`Continuation hold: key=...`).
+Unit tests in `GhostCommNetTests` (the bdock-second-dock shape, the dock-merge superseder with
+another pid, a chain claim before any carrier, the gates, the precedence).
+
+**Left dark, deliberately:**
+- Tracking Station, before the first claim: the Tracking Station has no chain-ghosted vessels, so
+  a vessel a flight despawned (and the save therefore no longer holds) has no despawn snapshot to
+  relay from there. It relays again once a recording carrying it starts. A snapshot relay would
+  need the flight's despawn snapshots carried across the scene change; not done.
+- ~~Tracking Station, chain-claimed vessel still real there (no flight ran after the load, so it was
+  never despawned): its stock node relays, and an in-window committed recording of it in the
+  claiming tree also registers a ghost node (`ShouldSkipExternalVesselGhost` lets a tree's own
+  recording through). A narrow pre-existing double count, not introduced here; it needs a save
+  loaded straight into the Space Center or Tracking Station with a claim still ahead.~~ FIXED
+  2026-11-06 (branch `claude/project-thread-esanuo`): a new eligibility input `RealVesselRelays`
+  (`GhostPlaybackLogic.RealVesselRelaysForRecording`: a launch-matched real vessel exists and is
+  not chain-ghosted; no tree-owned exemption, so the VISUAL ghost still draws) excludes the node
+  `real-vessel-relays` in both hosts, per the one-node rule (scenarios 13 and 15). Cells in
+  `GhostCommNetTests` (`RealVesselRelays_*`, the exclusion theory row).
+
+**Live proof: none cheap.** `bdock-second-dock-recorded` has the gap shape, but the station
+(Mk1-3 pods, Communotron 88-88 direct dishes, no RC-L01) has no relay antenna and no probe control
+point, so its node is excluded `no-relay-or-control-capability` whatever the hold says. A lane
+needs a claimed vessel that relays.
+
+## ~~ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: the start-docked proof's transport manifests are scoped to the whole merged vessel~~ [FOUND 2026-09-02 while building the partner rule. FIXED 2026-09-02 for the ORIGIN PROOF by P12, code green, NOT YET FLOWN. `RouteRunCargoManifest` still merged-scoped, see below; LIVE-PROVEN: H57 green 2026-09-06 per its spec, re-flown 2026-10-16 `2026-10-16_2213` PASS attempt 1 on main 412d48e with `RouteOriginProof bound at undock ... transportParts=17`]
+
+**FIXED FOR `RouteOriginProof`.** Capture now walks the merged part tree and CUTS THE SEAM EDGE
+(`RouteProofCapture.TrySplitPartsAcrossSeam`), storing each half's own part-`persistentId` set and
+its own start manifests on the pending pair. At the UNDOCK bind the proof's
+`StartTransportResources` / `StartTransportInventory` are replaced by the TRANSPORT half's
+(whichever half the player kept flying), and the end manifests are re-extracted from the same stop
+snapshot scoped to the same half - so both ends of the run are measured on one part set. Before
+the bind the manifests remain the merged pair's, which is the only honest baseline while both
+halves are one `Vessel`, and an unbound proof is never an origin, so the merged scope is never
+costed. The splitter FAILS CLOSED (a seam that is not a parent/child edge, or a part list that is
+not one tree, yields no part sets and therefore no bind) because a wrong part set would silently
+mis-scope every manifest downstream.
+
+STILL OPEN: `RouteRunCargoManifest` (the M2 full-run manifest) keeps
+`VesselSpawner.CollectPartPersistentIds(snapshot)` over the whole merged vessel. It is a separate
+producer with its own write-once / void lifecycle and its own consumers (the harvest gain check),
+and re-scoping it changes quantities on every leg, not just start-docked ones. Do it as its own
+pass with the delta-vs-today measured. The seam splitter it would need already exists.
+
+ORIGINAL ENTRY BELOW.
+
+
+
+`RouteProofCapture.BuildStartRouteOriginProof` scopes `StartTransportResources` /
+`StartTransportInventory` with `VesselSpawner.CollectPartPersistentIds(snapshot)` over the
+WHOLE merged vessel, so on a start-docked run the DEPOT's own tanks are counted as
+transport cargo at the start of the run. The design doc asks for "transport-scoped
+start/end manifests" (section 7) and means the transport half.
+
+The partner rule now makes the fix possible for the first time: the proof carries
+`StartDockedTransportRootPartUId`, so the transport half's part subtree is identifiable at
+capture (walk the merged part tree from the seam). Not built here because it changes the
+manifest quantities every start-docked route is costed from, and the same scoping question
+applies to `RouteRunCargoManifest`, which is a separate producer with its own
+write-once/void lifecycle. Do it as one deliberate pass over both, with the
+delta-vs-today measured, not as a side effect of the identity change.
+
+## ~~ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE (CONFIRMED 2026-09-02): the start-docked `RouteOriginProof` producer keys on a part-parent condition that a settled dock can never satisfy, so no live recording has ever carried a proof~~ [FOUND BY READING 2026-09-01 while scoping which route flights can be automated, CORROBORATED by the 2026-08-30 rover flight log. CONFIRMED live 2026-09-02 by the H56 probe. FIXED 2026-09-02, code green, NOT YET FLOWN; LIVE-PROVEN: H57 green 2026-09-06 per its spec, re-flown 2026-10-16 `2026-10-16_2213` PASS attempt 1 on main 412d48e with `proofCaptured=True`]
+
+**FIXED 2026-09-02.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` now builds its
+candidate list from TWO producers instead of one. The new one is the settled dock seam:
+for every `ModuleDockingNode` on the active vessel, `RouteProofCapture.IsSettledDockSeam`
+(pure, `[Theory]`-pinned over all eight input shapes) accepts the node when it carries a
+`vesselInfo` (stock creates one ONLY in `ModuleDockingNode.DockToVessel`, i.e. a real
+cross-vessel dock - never for an editor-preattached pair, never in `DockToSameVessel`), a
+non-zero `dockedPartUId`, AND a docked-partner part that still resolves ON THE SAME
+VESSEL. Both those fields round-trip through the node's `DOCKEDVESSEL` / `dockUId` save
+keys, so the seam survives save/load, which the parent-identity reading never could. A
+settled dock is ONE `Vessel`, so the origin partner IS the merged vessel: the candidate
+carries `v.persistentId`, `v.situation` and `v`'s body-fixed coordinates, which makes the
+M1 endpoint descriptor real-coordinate and surface-typed on a landed pair, and leaves the
+pid on the depot half after `Part.Undock` whenever the transport docked INTO the base (the
+undocking subtree gets the fresh `Vessel`; the parent side keeps the pid). The OLD
+external-parent reading is COUNTED BUT NO LONGER EMITS (2026-09-02 review follow-up, F4):
+an earlier draft kept it emitting on the claim that it was "the only reading that could see
+an UNSETTLED coupling", which was a hypothesis with no measurement and no decompile behind
+it. It produced zero candidates on both hosts that have ever measured it. The COUNT stays
+because it is the instrument that proves a captured proof came from the seam and not from
+the retired rule, and two committed lanes pin `externalParentCandidates=0`
+(`RouteOriginProof seam scan: settledDockSeamCandidates=N externalParentCandidates=M ...`).
+The PRELAUNCH short-circuit is untouched: a clamped pad vessel is still not a delivery
+origin. TWO THINGS THIS ENTRY DID NOT CLOSE, both filed above and BOTH SINCE BUILT
+(2026-09-02, not yet flown): ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING (the proof
+died on `CaptureAtStop` in always-tree mode; now a write-once adoption in
+`ParsekFlight.ApplyCapturedLogisticsMetadataToRecording`) and
+ROUTE-ORIGIN-PROOF-PARTNER-IDENTITY (now the depot-typed half of the docking-node pair,
+with no pid stamped at capture). ONE SENTENCE ABOVE IS NOW STALE AND IS CORRECTED HERE
+RATHER THAN REWRITTEN: "the origin partner IS the merged vessel: the candidate carries
+`v.persistentId`" was the pre-ruling reading. The candidate now carries the ORIGIN HALF's
+`rootPartUId` and no pid at all.
+
+The instrument became the gate. `OriginProofProbe_SettledDockLeavesNoExternalParent` was
+renamed `OriginProof_SettledDockCapturesProofFromDockingNode` (same category, same cell id
+`origin-probe`, same `OriginProofProbe:` line and therefore the same lane token - the
+`RouteDockCapture` count stays 6 and no pinned tally moves). It still measures, but now
+asserts three things: `externalParentParts == 0` (the retired predicate must stay dead, so
+the proof cannot be coming from it), and then the producer's verdict HOST-AWARE - on a
+PRELAUNCH host (H55's `logi-cargo-pad`) the `active-vessel-PRELAUNCH` skip, on any other
+host (H56's landed `rover-route-recorded`) `proofCaptured=True outcome=captured`.
+
+ONE CAVEAT, STATED RATHER THAN BURIED. The `RouteDockCapture` cells couple with a RAW
+`Part.Couple` (deliberately - it is what lets the real `onPartCouple` classify a
+port-to-port pair with no docking FSM in the way, and there is no magnetic acquire to
+drive between two parts spawned 15 m apart). Raw `Part.Couple` writes NO docking-node
+bookkeeping, so the cell now stamps it first (`StampStockDockBookkeeping`, the three
+assignments quoted from the decompiled `ModuleDockingNode.DockToVessel` plus the FSM's own
+`dockedPartUId = otherNode.part.flightID`; `otherNode` and the FSM state are deliberately
+NOT written, because arming the node-distance event nulls `vesselInfo` straight back out).
+That makes this half of the gate a stock-contract EMULATION rather than an independent
+measurement. What it still buys is the whole live producer path - walk the parts, find the
+node, resolve the partner ON THIS vessel, build the merged-vessel candidate, run the
+resolver, populate the descriptor and the manifests - which no headless test can drive.
+The non-emulated confirmation is a real player dock, which is what a future manual or
+mission-driven subject would add.
+
+STILL OPEN, and deliberately not done here: `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof`
+(category `Logistics`) is a READ-SIDE cell that self-skips until a committed recording
+carries a proof. It un-skips by itself once a lane produces one - which moves RVR-1's
+whole-pinned `passed=39 skipped=8`, so it is a re-pin that belongs to the commit that
+reads that census off a real flight, not to this one.
+
+**CONFIRMED 2026-09-02 by lane H56 (`2026-09-02_0545`), the probe on a LANDED host:** `OriginProofProbe: externalParentParts=0 proofCaptured=False situation=1 outcome=no-external-coupling partnerPid=2507516556` - the resolver reached its candidate walk (no PRELAUNCH short-circuit) after a settled `Part.Couple` and found ZERO externally-parented parts, and every recording start on the docked vessel logged `RouteOriginProof skipped: no external coupling ... candidates=0`. The producer is dead code on a settled dock. The roadmap's manual B4 flight is retired.
+
+**The condition.** `FlightRecorder.CaptureStartRouteOriginProofIfDocked` builds its partner
+candidates from parts where `p.parent.vessel != null && p.parent.vessel != v`
+(`RouteProofCapture.TryResolveStartDockedOriginPartner` names the same rule). KSP's
+`Part.Couple` reassigns `vessel` across the whole absorbed subtree - `GrappleCaptureInGameTest`
+asserts exactly that after a live couple - so on any settled docked pair, and after any
+save/load of one, every part reads `p.parent.vessel == v` and the candidate list is empty.
+
+**Corroboration.** The rover flight logged `RouteOriginProof skipped: no external coupling ...
+candidates=0` at EVERY recording start, including the one at 10:55:00 for the dock-merged
+child created while B was docked to A (`logs/2026-08-30_1106_rover-route/KSP.log:18547`).
+Zero committed fixtures carry a `ROUTE_ORIGIN_PROOF` node, every Logistics skip roster gives
+the same missing-subject reason for `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof`,
+and the only tests of the resolver (`RouteOriginProofCaptureTests`) feed it hand-built
+candidate lists - they prove the pure resolver and say nothing about whether the live list
+can be non-empty. The design source (`docs/dev/done/logistics-origin-ownership-proposal.md`)
+asserts the cross-vessel parent link without a decompile finding behind it.
+
+**Why it has stayed invisible.** Docked-depot origins are resolved today by the M-MIS-5 P2b
+mid-tree docked-origin window path (`RouteAnalysisEngine.AnalyzeWindows`), which is what the
+`depot-route-recorded` fixture exercises - the start proof was never load-bearing for any
+committed route.
+
+**HISTORICAL, kept for the reasoning trail - the entry is CONFIRMED and FIXED; the
+instrument named here is now the regression gate.** `OriginProofProbe_SettledDockLeavesNoExternalParent`
+(`Source/Parsek/InGameTests/RouteDockCaptureInGameTest.cs`, category `RouteDockCapture`,
+driven by `harness/scenarios/H55-route-dock-capture-isolated.toml`) spawns a `dockingPort2`,
+couples it into the active vessel, lets it settle, counts the parts satisfying the
+producer's OWN predicate through the mirrored pure core
+(`RouteDockCaptureMath.IsExternallyParentedPart`, unit-tested against all four shapes), then
+starts a recording on the docked vessel and reads the production producer's own log branch
+back off the observer channel. It emits one grep-stable line -
+`OriginProofProbe: externalParentParts=N proofCaptured=<bool> situation=S outcome=<branch>
+partnerPid=P` - and asserts NO VERDICT: it is an INSTRUMENT and passes whenever it measured,
+so it cannot pre-judge the question it exists to answer. The lane pins the line with the
+values regexed, so a run can neither omit it nor satisfy the token by producing one
+particular answer.
+
+**How to read it.** `externalParentParts=0 proofCaptured=False` CONFIRMS this entry: fix the
+producer to derive the partner from the docking node's own docked-partner information at
+recording start instead of the parent-vessel identity, pin it with a self-provisioning
+capture cell in the same category, and the roadmap's B4 manual flight is unnecessary.
+Anything else REFUTES it: record the KSP state that yields the link and fly B4 as
+originally planned. Do not fly B4 before reading this line.
+
+**FIRST MEASUREMENT, 2026-09-01 (`harness/results/2026-09-01_2206_H55-route-dock-capture-isolated_shots/KSP.log`).
+The probe was the one cell of six that passed, and it read:**
+
+    OriginProofProbe: externalParentParts=0 proofCaptured=False situation=4
+      outcome=active-vessel-PRELAUNCH partnerPid=108351093
+
+It is HALF an answer, and the halves must not be conflated. `externalParentParts=0` is the
+measurement this instrument exists for and it SUPPORTS the suspicion: after a settled
+`Part.Couple` of a `dockingPort2` partner into the active vessel, not one part on the merged
+vessel satisfies `p.parent != null && p.parent.vessel != null && p.parent.vessel != v`. That
+is the predicate the producer builds its candidate list from, so on this evidence the list is
+empty for exactly the reason the entry names. What the run did NOT do is exercise the producer
+past that point: `situation=4` is PRELAUNCH (the `logi-cargo-pad` host sits clamped on the
+LaunchPad), and `TryResolveStartDockedOriginPartner` returns `ActiveVesselPrelaunch` BEFORE it
+walks candidates at all - so `outcome=active-vessel-PRELAUNCH` is the PRELAUNCH short-circuit,
+not the empty-candidate branch, and the Captured branch remains unexercised. The count is
+evidence; the producer's verdict on this host is not.
+
+**HISTORICAL (written after the first, PRELAUNCH measurement): STATUS STAYS SUSPECTED, and the follow-up is a host change rather than a code change.** A
+LANDED host reaches the candidate walk (the guard excludes PRELAUNCH only), and one is already
+committed: `harness/fixtures/saves/rover-route-recorded`, whose vessels read
+`startSituation = Landed launchSiteName = Runway` - the same fact RVR-1's roster records for a
+different reason. Adding the `RouteDockCapture` probe to a lane on that host would produce
+either `outcome=no-external-coupling candidates=0` (which CONFIRMS this entry outright, since
+the walk ran and found nothing) or a `Captured` line (which refutes it). That lane does not
+exist yet and is the cheapest remaining step here.
+
+## ~~RESOURCE-BUDGET-COST-HELPERS-ARE-PRODUCTION-DEAD: `ResourceBudget`'s per-recording and per-milestone cost helpers now have test callers only~~ [FOUND 2026-08-29 as the residue of the RESOURCE-BUDGET-READOUTS-ARE-DEAD cleanup. Dead weight, not a defect - low priority. **CLOSED 2026-09-26 (branch `fix-resourcebudget-dead`), operator ruling 2026-09-26: delete.**]
+
+With `ComputeTotal` / `ComputeTotalFullCost` deleted, their per-item helpers lost their last
+production caller: `CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,
+`MilestoneCommittedFunds` / `MilestoneCommittedScience`, `FullCommittedFundsCost` /
+`FullCommittedScienceCost` / `FullCommittedReputationCost`, and `ComputeFacilityUpgradeCost`
+(which is itself a documented placeholder returning 0 on every branch). They were kept in that
+cleanup because they are pure, cheap and still exercised - and because the cleanup's scope was
+the aggregator pair, not a transitive sweep. Coverage is uneven, which matters if the next pass
+weighs them by how well they are pinned: the `Full*Cost` trio is exercised from
+`RewindLoggingTests`; `Committed*Cost` and `MilestoneCommitted*` have their own direct cells in
+`ResourceBudgetTests`; `ComputeFacilityUpgradeCost` has NO cell of its own and is reached only
+indirectly, through `MilestoneCommittedFunds_FacilityUpgradedReturnsZero`.
+
+The open question is whether a tested pure-math surface with no production caller earns its
+keep. `ResourceBudget` itself must stay regardless: `ParseCostFromDetail` is live
+(`Patches/TechResearchPatch.cs:53`). Decide in one pass rather than one helper at a time, and
+read `RewindLoggingTests` first - if its two cells re-derive expected values *through* the
+production helpers rather than asserting production behavior, that is a second reason to move
+them out.
+
+**One pin was lost along the way, deliberately, and is recorded here so it can be rebuilt if it
+ever matters.** Among the 31 deleted cells,
+`MixedStoreShape_Invariant_TreeChildAppearsInBothCollections` was doing two jobs. Its stated job
+was to justify `ComputeTotal`'s TreeId-based flat-list skip, which is why it went with the pair.
+Its unstated job was to pin a `FinalizeTreeCommit` SHAPE fact that outlives the pair entirely:
+that a tree child appears in BOTH `CommittedRecordings` and `CommittedTrees[i].Recordings`, and
+carries a non-null `TreeId`. Nothing asserts that directly any more, and a great many cells lean
+on it implicitly - 87 test files call `AddRecordingWithTreeForTesting` or `FinalizeTreeCommit`
+(`grep -rl "AddRecordingWithTreeForTesting|FinalizeTreeCommit" Source/Parsek.Tests`), so a
+regression in that shape would surface as a scatter of unrelated failures rather than as one
+clear red. Not worth a speculative cell today; worth a direct pin in `RecordingStoreTests` the
+first time that shape is touched or suspected.
+
+Fix: operator ruling 2026-09-26, delete. Re-verified from the full caller set (`grep -rn` over
+`Source/Parsek`, tests excluded): every helper above had callers only inside
+`ResourceBudget.cs` itself (`MilestoneCommittedFunds` -> `ComputeFacilityUpgradeCost`) and in
+tests. All nine are deleted, with the 25 `ResourceBudgetTests` cells of the "Recording Cost
+Calculations" and "Milestone Cost Calculations" regions and both `RewindLoggingTests`
+`FullCommittedCost_SignConvention_*` cells: read first, each asserted only the helper's own
+subtraction on a hand-built recording, with no production path underneath to rewrite them
+against. `ParseCostFromDetail` went too, with its 13 cells: its `Patches/TechResearchPatch.cs`
+caller was removed by the Stock-UI overlays PR 1 (`d0ab49701`, 2026-09-25) and its only other
+callers were the two milestone helpers deleted here, so the "delete them" ruling covers it; the
+`ResourceBudget` class is gone and `ResourceBudget.cs` keeps only `BudgetSummary`. The lost
+shape pin is rebuilt as
+`RecordingStoreTests.CommitTree_TreeChildrenLandInBothCommittedCollectionsWithTreeId`, driving
+the real `CommitTree` -> `FinalizeTreeCommit` path on a two-recording tree (mutation-checked:
+dropping the `committedRecordings.Add` in `FinalizeTreeCommit` reds it). `BudgetSummary` stays
+(the struct is live in `RewindContext` / `RecordingStore`).
+
+Residue found on the way, left open deliberately:
+- `Recording.LastAppliedResourceIndex` (`lastResIdx`) and `Milestone.LastReplayedEventIndex`
+  (`lastReplayedIdx`) are now written, copied and serialized but read by no decision. Removing
+  them is a serialized-key change, so it was not folded into this dead-code deletion.
+
+---
+
+## ~~AUTOMERGE-ON-BY-DEFAULT: is any player flow reachable that now auto-commits GHOST-ONLY where the dialog used to ask?~~ - ANSWERED, THEN FIXED; the entry stays live ONLY for four named residuals [RAISED 2026-08-24 by the review panel on the default-flip PR (#1523) as PLAUSIBLE-not-confirmed. OPEN QUESTION, no defect demonstrated. The behaviour itself is by design and predates the flip; what changed is that it is now the DEFAULT answer. **RESTATED 2026-08-28 (branch `ledger-followups`) for the settings-simplification clamp: "on by default" is now "on UNCONDITIONALLY". ADOPTED RESOLUTION: leave the question PINNED, unclosed, awaiting the decisive evidence named below**. **FLOWN 2026-08-29 (branch `automerge-coverage`): the ghost-only commit is DEMONSTRATED LIVE and GREEN-GATED on BOTH the cold and the warm route (`2026-08-29_1025_S0.9` and `2026-08-29_1043_S0.10`, both PASS), with every `VesselSnapshot` destroyed and no dialog, on the warm side through an entrance that requires NO fault at all. The question this entry asks is ANSWERED for reachability; what remains is FREQUENCY. STILL OPEN, because the remedy is a maintainer decision and is deliberately NOT in that branch. **FIXED AND CONFIRMED 2026-08-29 (branch `limbo-fidelity`). A non-re-fly Limbo / LimboVesselSwitch tree now commits at FULL FIDELITY through the dialog's own `MergeDialog.MergeCommit` instead of the snapshot-destroying ghost-only branch. BOTH ROUTES RE-FLOWN GREEN against a hash-verified deploy of the fix's own build — `2026-08-29_1200_S0.9` (cold) and `2026-08-29_1202_S0.10` (warm), both PASS attempt 1, every predicted number exact and the ghost-only token absent from both logs. Everything above and below this bracket is the escalation history the fix was taken against and is left INTACT — see "THE FIX (2026-08-29)" at the end of the entry**. **HEADER STRUCK 2026-09-01 to match the body**, which the 2026-08-29 hygiene trim left unreconciled: the question this header asks was answered by the `automerge-coverage` flights and then REMOVED by PR #1580, so a reader stopping at the header was being told an OPEN QUESTION stood where a fix had shipped and been confirmed. The entry is KEPT LIVE, at full length, for the four residuals under "What is still open, unchanged by the fix" at the very end — (a) FREQUENCY of the resume miss, (b) step 1 still injected rather than produced by either spec, (c) ENTRANCE A still undriven, (d) the dangling limbo dispatch — none of which reopens the ghost-only question. The escalation history below is also archived verbatim at `docs/dev/done/todo-and-known-bugs-v8.md` and at commit `7ab9ae491`]
+
+**The 2026-08-27 settings simplification (#1549) widened this question and invalidated
+half of #1523's scoping argument.** `autoMerge` is now a HIDDEN field with no player-facing
+UI, and `ParsekSettings.ClampHiddenSettingsToShippingValues`
+(`Source/Parsek/ParsekSettings.cs:282`, called from `ParsekScenario.OnLoad` ~:2913) forces
+it back to `true` on EVERY load unless an automation env hook is armed
+(`ParsekSettings.AutomationEnvPresent`) — verified in source, not assumed. Two consequences,
+both load-bearing:
+
+- **"On by default" is now "on unconditionally" for players.** There is no longer any way
+  for a player to be on the OFF path: no toggle to turn it off, and a stored `False` is
+  overwritten on the next load. Whatever flow this entry is asking about, if it exists,
+  every player is on it.
+- **#1523's "the flip reaches NEW saves only" paragraph is INVALIDATED** and is annotated
+  as such at its own entry. That paragraph's mechanism was correct — KSP's
+  `autoPersistance` writes every Parsek setting into every save, so an existing career
+  carries `autoMerge = False` and `Load` only overlays present keys — but the clamp now
+  runs AFTER that overlay and overrides the stored value. Existing careers reach the ON
+  path too, from their next load onward. The harness is unaffected: the clamp stands down
+  under an armed automation env hook, so fixture pins and `SetSetting autoMerge=` keep
+  authority exactly as that paragraph describes.
+
+**Adopted resolution: leave it pinned.** Still no reachable player flow constructed, and
+the widening does not by itself produce one — it changes the population on the path, not
+whether the path exists. Closing it on reasoning would be closing it on the same reasoning
+that has failed to settle it twice.
+
+**Decisive evidence (what would actually close it).** ~~Neither exists today.~~ **BOTH
+NOW EXIST, BUILT 2026-08-29 (branch `automerge-coverage`, R4). NEITHER HAS FLOWN —
+flights are separately authorized. Status: INSTRUMENTED, AWAITING THE DRIVEN RUN.**
+1. ~~The plan-§7 autoMerge-ON FLIGHT in-game cell — the live exercise of the ON path that
+   #1523 recorded as a coverage gap and that still does not exist.~~ **BUILT:**
+   `RuntimeTests.ExitToSpaceCenter_AutoMergeOn_CommitsSilentlyAtFullFidelity`, the new
+   `AutoMergeCommit` category (batch-disabled + restore-backed, mirroring the two
+   `SceneExitMerge` cells that force autoMerge OFF — those two were the whole of the ON
+   path's coverage, i.e. none). It records an ORBITING host, drives the same stock
+   save-and-exit-to-SpaceCenter path, and asserts no `ParsekMerge` popup, a committed leaf
+   whose `VesselSnapshot` SURVIVED and still passes `MergeDialog.CanPersistVessel`, the
+   `Silent full-fidelity auto-commit` line present AND `Ghost-only auto-commit` absent.
+   It skips naming ORBITING when it cannot self-set-up: a pad host is not a weaker
+   fixture but the wrong subject (staging leaves it Ascending, which
+   `CommitTreeSceneExit` nulls the snapshot for BY DESIGN, and a never-moved tree is
+   idle-on-pad-discarded before the commit branch).
+2. ~~A driven harness scenario that COLD-LOADS a fixture save carrying a pending tree and
+   lands OUTSIDE FLIGHT...~~ **BUILT:** `harness/scenarios/S0.9-automerge-pending-limbo-cold-load.toml`
+   (operator tier, reading run, never flown) over the new `pending-limbo-tree` injection
+   preset (`Source/Parsek.Tests/Generators/PendingLimboTreeFixture.cs` +
+   `InjectPendingLimboTree`, four-surface-synced). Vessel-less `fresh-sandbox` routes the
+   load through `DecideLoadRoute`'s NoVesselSpaceCenter branch, so `LoadedScene != FLIGHT`
+   holds by construction. It pins ONLY the structural preconditions and leaves the two
+   branch-discriminating tokens as documented readings — pinning an answer to the question
+   the spec asks would make a green run mean nothing. Nothing armed; `ARMED_ALLOWLIST`
+   untouched. **Its WARM sibling `S0.10-automerge-limbo-warm-exit.toml` was authored
+   alongside it once the warm chain below was assembled — see "THE TWO DRIVEN SCENARIOS".**
+
+**FLIGHT VERDICTS (2026-08-29) — THE GHOST-ONLY BRANCH IS NOT A THEORY. It ran, on both
+routes, and destroyed the snapshots.** Both scenarios flew against a provisioned instance
+carrying this branch's DLL (hash-identical to the building worktree's `bin/Debug`).
+
+- **S0.9 (cold) — `2026-08-29_1025_S0.9-automerge-pending-limbo-cold-load`, PASS attempt 1,
+  58 s, every verifier PASS/SKIPPED, expectations mismatches=0, zero `[Parsek][ERROR]`.**
+  Open item (b) is CLOSED: the load-time guards ALL passed the tree. The one guard that
+  could plausibly have dropped it stood down for exactly the source-predicted reason —
+  `Idle-on-pad auto-discard skipped: pending tree state is Limbo (not Finalized)` — and the
+  site then reported
+  `autocommit-outside-flight (cold-load outside-flight): entry ... autoMerge=True
+  pendingState=Limbo reFlyActive=False`
+  followed by
+  `Ghost-only auto-commit (cold-load outside-flight, reason=state=Limbo): tree='Limbo Stack'
+  recordings=2 snapshotsNulled=2`.
+  **`autoMerge=True` was NOT pinned by that spec** — `fresh-sandbox` carries no `autoMerge`
+  key, so it is the shipping default reached through the field initializer. The ghost-only
+  commit is what a default install does.
+
+- **S0.10 (warm) — LIVE-PROVEN by `2026-08-29_1043_S0.10-automerge-limbo-warm-exit`, PASS
+  attempt 1, 54 s, every verifier PASS/SKIPPED, expectations mismatches=0, zero
+  `[Parsek][ERROR]`, clobber guard silent.** All ten required tokens matched and the warm
+  chain is REPRODUCIBLE, ending in
+  `Ghost-only auto-commit (scene-exit, reason=state=Limbo): tree='Limbo Stack' recordings=2
+  snapshotsNulled=2`.
+  Flight 1 (`2026-08-29_1027`) was PARSEK-FAIL attempt 1, 55 s, mismatches=1 — **the spec's
+  own token, not the product** — and it earned its keep by discovering which entrance the
+  spec actually drives (below). Six of seven matched even then, and the warm chain walked. The
+  `exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false
+  hasPendingTree=true ... activeTreeVariant=None pendingTreeVariant=None` line carries three
+  of the chain's assertions at once: the restore did not install, the Limbo tree survived,
+  and the wedge guard found no dialog required. The dangling dispatch was observed too
+  (`OnLoad: pending-Limbo tree 'Limbo Stack' deferred to OnFlightReady for quickload-resume`,
+  at SPACECENTER, where that restore can never fire).
+
+**THE TWO ENTRANCES, and why flight 1's red made the finding STRONGER.** Step 2 of the chain
+has two of them, and they are not equally demanding:
+
+- **ENTRANCE A — the give-up.** The 3 s match loop runs out and
+  `RestoreActiveTreeFromPending` warns + `yield break`s (`ParsekFlight.cs:14104-14141`).
+- **ENTRANCE B — no fault required.** The player leaves FLIGHT *while the 3 s wait is still
+  running*. `FinalizeTreeOnSceneChangeCore`'s `restoringActiveTree` early return
+  (`ParsekFlight.cs:3029-3035`) correctly declines to finalize — the coroutine owns
+  `activeTree` — and the coroutine is then destroyed with the scene.
+
+S0.10 originally pinned entrance A. The guid gate rejected the active vessel AND the parent walk on the
+coroutine's FIRST iteration (`liveGuid=88a8a8a6… conclusively differs from …
+recordedGuid=ecc6bdc0…`, 13:27:51.448), so the match was already impossible — but the Warn
+only fires once the full 3 s ELAPSES, and `ExitToSpaceCenter` arrived 0.38 s in
+(13:27:51.830). The coroutine was then killed by the scene change
+(`OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)`,
+13:27:52.030). **So the run drove ENTRANCE B rather than the entrance its token named** —
+and entrance B is the more alarming of the two, because it needs no match failure at all:
+only a player who leaves FLIGHT within three seconds of a quickload.
+
+**Resolution (2026-08-29, maintainer adopted option (a)):** token 3 was re-pointed at what
+the spec deterministically drives — the iteration-1 guid-rejection pair, the `#293`
+coroutine-in-progress skip, and `coroutine aborted by destroy` — the spec's subject was
+relabelled to entrance B, and the re-fly `2026-08-29_1043` confirmed it green with
+`not active within 3s` verifiably ABSENT. Reachability therefore rests on two independent
+entrances, and **the one now under a standing gated instrument is the one that requires no
+fault**.
+
+**SEAM VERB GAP (recorded here rather than as its own entry, because it blocks one pin and
+not a product question): ENTRANCE A REMAINS UNDRIVEN.** Driving the give-up needs the exit
+to arrive more than 3 s after FLIGHT entry, i.e. a dwell/wait verb — and the M-C1 seam
+roster has none (`TimeJump` is an epoch shift with frozen relative positions, not a sleep;
+`EvaExit`'s `settleSeconds` is the only spec-authorable dwell and is EVA-only). Both
+entrances end at the same ghost-only commit, so nothing about the finding depends on
+closing this; a future S0.10 run that flips to the give-up Warn is entrance A finally being
+driven and should be REPORTED, never widened into an alternation — the alternation would
+stop distinguishing the two, and which one the spec drives is its subject.
+
+**WHAT IS NOW PROVEN, and what is not.** Proven: a non-`Finalized` pending tree reaches
+`AutoCommitPendingTreeOutsideFlight` outside FLIGHT on both the cold and warm routes, under
+the shipping `autoMerge` default, and every `VesselSnapshot` is nulled with no dialog —
+steps 2/3/4 of the player chain, in the shipped DLL. NOT proven: step 1 (a real quickload
+producing the Limbo stash — both runs inject it) and **how often the resume match misses on
+ordinary flights**, which is the last open question and the only thing between this and a
+routine player experience.
+
+**THE PRODUCT FIX IS NOT IN THAT BRANCH, ON PURPOSE.** The remedy is scoped, not blanket —
+the dialog returns for the NON-re-fly, NON-`Finalized` case specifically, or Limbo trees
+preserve fidelity instead — and choosing between those against
+`silent-full-fidelity-autocommit.md` §4.4 / §10 is a design decision that now has live
+evidence to be taken against, rather than a change to smuggle in beside the instrument that
+found it.
+
+**HEADLESS VERDICT (2026-08-29) — the "saved trees restore as Finalized" argument is
+CORRECT FOR ONE MARKER AND WRONG FOR THE OTHER, so the ghost-only branch is NOT dead
+code.** Pinned by five cells in `Source/Parsek.Tests/AutoMergeGhostOnlyReachabilityTests.cs`:
+
+- **`isPending` — re-finalized, as the entry guessed.** `TryRestorePendingTreeNode` →
+  `RecordingStore.RestorePendingTreeFromSave`, which HARD-SETS
+  `pendingTreeState = Finalized` (`RecordingStore.cs:2297`; the sibling
+  `PromoteSavedPendingTreeAfterActiveRestore` does the same at `:2357`). A tree that
+  round-trips through this marker can only ever take the full-fidelity branch.
+- **`isActive` — NOT re-finalized, and this is the half the argument missed.**
+  `TryRestoreActiveTreeNode` stashes `PendingTreeState.Limbo` when the node carries an
+  `ActiveRecordingId` and `LimboVesselSwitch` when it does not (`ParsekScenario.cs:5737-5740`,
+  the `stashState` ternary).
+  The marker is not exotic: `SavePendingTreeIfAny`'s Limbo branch WRITES it
+  (`ParsekScenario.cs:1843`, the `markerKey` ternary), and — unlike `SaveActiveTreeIfAny`,
+  which opens with `if (HighLogic.LoadedScene != GameScenes.FLIGHT) return;`
+  (`ParsekScenario.cs:2155`) —
+  that branch carries **no scene guard at all**. So a non-`Finalized` pending tree exists
+  on disk, restores non-`Finalized`, and does so at a non-FLIGHT scene.
+- **With that state the predicate routes to ghost-only**, and the cost is measured:
+  `AutoCommitTreeGhostOnly` now returns and logs how many `VesselSnapshot`s it destroyed.
+
+**WHAT HEADLESS COULD NOT SETTLE.** The chain COMPOSES; that is not the same as the
+shipped product WALKING it, and it says nothing about whether a PLAYER produces the state.
+Both gaps are now answered below — the second by the assembled warm chain, the first by
+the two driven scenarios — and the open residue is stated there.
+
+**THE WARM PLAYER CHAIN — ASSEMBLED FROM SOURCE 2026-08-29 (independent review of branch
+`automerge-coverage`), verdict REACHABLE BY PLAYER ACTION. Every step is a cited line, not
+an inference; what is still open is stated at the end, and it is a FREQUENCY question, not
+a reachability one.** Line numbers are as of that review's tree (post-`origin/main`
+7a2f27c01); each step also names its symbol so a drifted line is recoverable.
+
+1. **The player quickloads mid-recording (F5 → F9).** FLIGHT → FLIGHT, so
+   `ParsekFlight.FinalizeTreeOnSceneChangeCore`'s `scene == GameScenes.FLIGHT` arm runs
+   and — when the vessel-switch pre-transition does not apply —
+   `StashActiveTreeAsPendingLimbo(commitUT)` (`ParsekFlight.cs:3094`) →
+   `RecordingStore.StashPendingTree(activeTree, PendingTreeState.Limbo)`
+   (`ParsekFlight.cs:14491`). The tree is now parked NON-`Finalized`, by design, awaiting
+   the resume.
+2. **The resume's 3-second vessel-match loop misses.** `RestoreActiveTreeFromPending`
+   gives up and `yield break`s (`ParsekFlight.cs:14141`) after a Warn whose own
+   parenthetical is the product telling the user what to do next
+   (`ParsekFlight.cs:14104-14106`): *"not active within 3s — leaving tree in Limbo (user
+   can trigger merge dialog via scene exit)"*.
+3. **The player follows that advice and exits to the Space Center.** But the restore never
+   installed anything, so `activeTree` is null and `OnSceneChangeRequested`'s
+   `if (activeTree != null) FinalizeTreeOnSceneChange(scene)` (`ParsekFlight.cs:2311`) is
+   skipped entirely. Nothing re-finalizes the parked tree; it crosses the scene boundary
+   still `Limbo`.
+4. **SPACECENTER `OnLoad`.** The hidden-settings clamp has already forced `IsAutoMerge`
+   true (`ParsekSettings.ClampHiddenSettingsToShippingValues`), so
+   `ShouldSilentFullFidelityCommit` returns false on `Limbo` and
+   `AutoCommitPendingTreeOutsideFlight("scene-exit")` (`ParsekScenario.cs:3889`) takes the
+   ghost-only branch: every `VesselSnapshot` nulled, no dialog.
+
+**The product's documented recovery path IS the silent-destruction path.** Step 2 promises
+the dialog and step 4 is where the flip took it away.
+
+**A second, non-fault entrance to the same state:** leaving FLIGHT while the 3-second wait
+is still running. `FinalizeTreeOnSceneChangeCore`'s `restoringActiveTree` guard
+(`ParsekFlight.cs:3029-3035`) returns early — correctly, the coroutine owns
+`activeTree`/`recorder` — which lands on the same parked-`Limbo`-crosses-the-boundary
+state without any match failure at all.
+
+**Supporting observation, and a defect-adjacent smell in its own right: the limbo dispatch
+schedules a restore that can never fire.** `OnLoad`'s `limbo-dispatch` block
+(`ParsekScenario.cs:3803`, through the two `ScheduleActiveTreeRestoreOnFlightReady`
+assignments at `:3818` / `:3849`) has **no scene gate**: outside FLIGHT it arms a
+`onFlightReady` restore that will never run, and then the `pending-outside-flight` block
+sixty lines later (`ParsekScenario.cs:3863` → `:3889`) consumes the very tree it just
+scheduled. Worth a look independently of this entry.
+
+**WHAT IS STILL OPEN — two things, and neither is "is it reachable".**
+(a) **How often step 2 fires on ordinary flights.** The 3-second match is by vessel name
+    and pid; the give-up Warn is the discriminator, and no run has been read for it. If it
+    is common, this is a routine player experience; if it is rare, it is an edge.
+(b) **Whether the load-time guards pass the tree** — schema gate, sidecar hydration +
+    `DropFailedSidecarHydrationRecordings`, the mission-prune carve-out, the idle-on-pad
+    discard.
+
+**THE TWO DRIVEN SCENARIOS, AND WHY IT TAKES TWO.** S0.9 cold-loads, so it confirms only
+the LOAD-PATH half — open item (b) — and reaches the site with
+`context=cold-load outside-flight`. The warm chain above never cold-loads at all, so it
+needs its own lane: **`harness/scenarios/S0.10-automerge-limbo-warm-exit.toml`** (operator
+tier, reading run, never flown), which drives steps 2 → 3 → 4 in the shipped DLL and
+reaches the site with `context=scene-exit`. That one word is the whole difference between
+the two specs.
+
+How S0.10 forces step 2 — **by fixture, not by timing race**, because a race is exactly
+what a driven run cannot schedule. The `pending-limbo-tree` preset is injected into the
+FOCUSABLE `eva2-lko-crewed` (so `DecideLoadRoute` takes the FLIGHT branch — the only route
+there, since `scene=flight` is not an accepted `LoadGame` argument), and the tree's
+`ActiveRecordingId` names a vessel, "Limbo Upper", that does not exist in that save. The
+3-second match compares name, pid and `recordedVesselGuid`
+(`ParsekFlight.cs:13975` / `:14047`); all three miss, on every run, on any hardware. Then
+`ExitToSpaceCenter` proceeds — `ShouldShowPendingTreeDialogBeforeSceneChangeLive` computes
+`hasFinalizedPendingTree` false for a Limbo tree (`SceneExitInterceptor.cs:238-244`), so
+the wedge guard returns `None` — and the SPACECENTER `OnLoad` does the rest.
+
+**Neither spec proves step 1**, and S0.10 does not measure open item (a) either: it
+manufactures the miss rather than producing one. Frequency stays open.
+
+**COLD (the same end state, reached from disk).** A save whose GAME `scene` is not FLIGHT
+and whose ParsekScenario node carries the `isActive` marker — which
+`SavePendingTreeIfAny`'s own comment already anticipates ("any OnSave that ran in the
+resume window (autosave / scene-exit / exiting KSP before OnFlightReady fired)").
+
+**Escalation trigger, restated now that the chain is named: a repro needs only a
+quickload whose resume match misses.** Not a crash, not a mod interaction, not a
+hand-edited save — F5, F9, a missed match, and the exit the product itself recommends. Any
+run that shows the step-2 Warn followed by a `Ghost-only auto-commit ... reason=state=Limbo`
+with `snapshotsNulled` > 0 IS that repro.
+
+**Escalation trigger:** any repro of a player-recoverable tree silently committing
+ghost-only. At that point the remedy is scoped, not blanket — the dialog returns for the
+NON-re-fly, NON-`Finalized` case specifically. The re-fly ghost-only path stays silent on
+purpose (`silent-full-fidelity-autocommit.md` §10) and the `Finalized` full-fidelity path
+is already correct, so neither is in scope for the remedy.
+
+`ParsekScenario.AutoCommitPendingTreeOutsideFlight` routes through the dialog's own
+`MergeDialog.MergeCommit` + `BuildDefaultVesselDecisions` only when
+`ShouldSilentFullFidelityCommit` qualifies. With a non-`Finalized` pending tree (Limbo
+/ LimboVesselSwitch) or a live re-fly marker it falls to `AutoCommitTreeGhostOnly`,
+which nulls **every** `VesselSnapshot`. Before the flip, that same state under the
+shipped default showed a dialog offering full-fidelity Merge or Discard; now the
+silent ghost-only commit is what a default install does.
+
+The review could not construct a reachable player flow and neither can this entry, so
+nothing is claimed. ~~a saved pending tree restores as `Finalized`
+(`TryRestorePendingTreeNode`)~~ — **that clause is now CORRECTED, not merely annotated:
+it is true of the `isPending` marker and FALSE of the `isActive` one, see the headless
+verdict above; do not reuse it as a whole-question answer.** What survives unchanged: the
+cold-start Limbo restore is written on the assumption that a cold start lands in FLIGHT,
+and the auto-commit block is gated `LoadedScene != FLIGHT`. The path is also deliberate -
+`silent-full-fidelity-autocommit.md` §4.4 keeps resume-flow stashes from being
+heavier-committed, and §10 keeps re-fly ghost-only on purpose.
+
+**What would close it:** ~~either a demonstration that no non-`Finalized` tree can reach
+that site outside FLIGHT (in which case the branch is dead code worth saying so about),
+or one that can~~ **— the first half of that disjunction is now REFUTED at the level of
+save state (a non-`Finalized` tree does come off disk, at a non-FLIGHT scene, via the
+`isActive` marker), so what remains is narrower: (a) S0.9's reading, i.e. whether the
+shipped product actually walks that chain past the load-time guards, and (b) a
+constructed player flow that parks a `Limbo` tree when an OnLoad lands outside FLIGHT.
+(a) closes the "is the branch live" half; only (b) turns it into a defect,** in which
+case the flip made it the default and it wants the dialog back. ~~Related: the in-game
+coverage gap recorded on the default-flip entry below - the cell that would exercise the
+ON path live does not exist~~ **— that cell now exists (`AutoMergeCommit`), so the ON
+path's coverage gap is closed as an ASSET even though neither question yet has a driven
+answer.**
+
+---
+
+**THE FIX (2026-08-29, branch `limbo-fidelity`) — FIDELITY IS PRESERVED, THE DIALOG DOES
+NOT COME BACK.** The remedy the entry left as a maintainer decision was taken against the
+two flight verdicts above, and it is the SECOND of the two options the escalation trigger
+named ("the dialog returns for the NON-re-fly, NON-`Finalized` case specifically, **or
+Limbo trees preserve fidelity instead**").
+
+**The rule, stated once:** a commit that runs with no dialog must never silently DESTROY
+vessel snapshots that exist. `ParsekScenario.ClassifyAutoCommitFidelity` replaces the
+two-way `ShouldSilentFullFidelityCommit` gate with a three-way route, checked in an order
+where each ghost-only justification is a stronger statement than the tree's own state:
+
+| condition (in order) | route | ghost-only reason |
+| --- | --- | --- |
+| `!isAutoMerge` | `GhostOnly` | `not-automerge` |
+| `reFlyActive` | `GhostOnly` | `re-fly-active` |
+| `scene == MAINMENU` | `GhostOnly` | `mainmenu` |
+| `pendingState == Finalized` | `SilentFullFidelity` | — |
+| otherwise (Limbo / LimboVesselSwitch) | `LimboPreservingFullFidelity` | — |
+
+The last row is the change; the three above it are the plan's own carve-outs, untouched.
+**`ShouldSilentFullFidelityCommit` is DELETED**, not kept as a derived helper: it had no
+caller left, and its `false` had become a trap — pre-fix it meant "the ghost-only branch
+runs", post-fix it would mean only "not the FINALIZED route", which is equally true of the
+new fidelity-preserving Limbo route. Every reference to it in this entry and in the two
+spec headers is pre-fix HISTORY; the live question is the classifier's three-way answer.
+Note also that `state=` was RETIRED from the ghost-only reason vocabulary: a tree state can
+no longer send a commit to that branch, so a `reason=state=Limbo` line cannot be emitted
+again.
+
+**Why the same `MergeCommit` rather than a preserve-what-exists variant (the rejected
+alternative).** The conservative shape — run the ghost-only pipeline minus the snapshot
+nulling — was considered and rejected on four counts read out of the code, not preference:
+(1) it forks a THIRD commit implementation against plan P2 ("reuse the dialog's machinery;
+do not fork a second commit"); (2) it would retain snapshots nothing can ever use —
+`ShouldSpawnAtRecordingEnd` rejects a mid-flight `sit=FLYING` capture at spawn time
+regardless — so it buys no fidelity for them, only disk and memory; (3) dropping the null
+pass drops `UnreserveCrewInSnapshot` with it, LEAKING a crew reservation on every
+non-spawnable leaf, and keeping the unreserve while keeping the snapshot is worse still
+(a snapshot whose crew has been released); (4) it does not preserve `GhostVisualSnapshot`
+and does not fire `OnTreeCommitted`, both of which `MergeCommit` does. What made the
+reuse SAFE for un-finalized shapes is that the decision machinery was built for them:
+`ShouldSpawnAtRecordingEnd`'s snapshot-situation check exists for "cases where
+TerminalState is null/Landed but the snapshot was captured mid-flight" (#114) — which is
+exactly a Limbo stash, whose `StashActiveTreeAsPendingLimbo` sets no terminal state and
+captures snapshots deliberately ("belt-and-braces … so the merge dialog can still offer
+respawn"). The two commit cores are already the same call pair
+(`CommitPendingTree` + `MarkTreeAsApplied`), so nothing about the tree's state is newly
+exercised; only its snapshots' disposition changes.
+
+**Why not the dialog.** Dialog-in-`OnLoad` is a known hazard class, and the whole point of
+the `autoMerge` clamp is that commits are silent. Bringing a popup back on this path would
+re-litigate the flip rather than fix the loss.
+
+**New log token, deliberately not a reuse:**
+`Limbo-preserving full-fidelity auto-commit ({context}, state={state}): tree='…'
+recordings=N spawnable=M snapshotsPreserved=P snapshotsReleased=R`. `snapshotsPreserved`
+is the mirror of the ghost-only branch's `snapshotsNulled` — what the commit KEPT where
+the old branch reported what it destroyed. The `Silent full-fidelity auto-commit` line is
+byte-identical to before (the in-game `AutoMergeCommit` cell greps it), and the
+`autocommit-outside-flight … entry` line is untouched.
+
+**Headless proof** (`Source/Parsek.Tests/`): `SilentFullFidelityCommitDecisionTests` now
+enumerates the WHOLE 36-row matrix (autoMerge × 3 states × reFly × 3 scenes) with each
+row's expected route and reason written out rather than checked against an oracle — an
+oracle would be a second copy of the predicate and would agree with it when both are
+wrong. `AutoMergeGhostOnlyReachabilityTests` keeps its ghost-only cost cell as the REPRO
+half (that branch is still reached by the three carve-outs) and adds the fixed behaviour:
+the same disk-restored Limbo tree keeps both snapshots through
+`BuildDefaultVesselDecisions` + `ApplyVesselDecisions`, an unspawnable `sit=FLYING` shape
+is still ghost-only'd WITH its `GhostVisualSnapshot` copied, and a re-fly leak detector
+reds if the fix ever widens into the §10 carve-out. Its cells 2 and 3 FLIPPED: they used
+to assert the ghost-only route for the two non-Finalized states and now assert
+`LimboPreservingFullFidelity`; their reachability claim is unchanged.
+
+**A SECOND GAP THE FIX EXPOSED, and closed with it: null-terminal leaves bypassed the
+spawnable-terminal rejection.** Found in independent review of this branch, and it is a
+consequence of the fix rather than a pre-existing defect anyone could reach — un-finalized
+recordings only became a *committed* population once Limbo stashes started committing at
+fidelity. `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`'s `IsSpawnableTerminal` rejection
+sits INSIDE `if (rec.TerminalStateValue.HasValue …)`, so a recording with no terminal state
+never reaches it, and the only other situation gate (`IsSnapshotSituationUnsafe`) knows
+FLYING and SUB_ORBITAL. That left **`sit=ESCAPING` and `sit=DOCKED` reading as spawnable**
+where the Finalized route ghost-onlys them by design (`DetermineTerminalState` maps them to
+`SubOrbital` and `Docked`). Concretely: an interplanetary probe on an escape trajectory,
+quickloaded, exited via entrance B — snapshot preserved AND spawn-eligible.
+
+The remedy mirrors the Finalized route instead of inventing a second policy:
+`TryMapSituationNameToTerminalState` sits beside `IsSpawnableTerminal` and maps the
+snapshot's `sit` NAME to the terminal the finalize path would have stamped; a null-terminal
+recording whose mirrored terminal is not spawnable is rejected. The two tables cannot drift
+— `SpawnSafetyNetTests.SituationNameMapping_MirrorsDetermineTerminalState` walks KSP's own
+`Vessel.Situations` enum and asserts they agree, so adding a situation to one and not the
+other reds. **This rejects SPAWNING, not the snapshot**: the fix's promise is that a silent
+commit never DESTROYS a snapshot, not that every snapshot spawns.
+
+Two things worth stating plainly. First, **mitigation, which is why this is a refinement
+rather than a crisis**: the common case was already covered downstream by pid+guid
+adoption, so this narrows a window rather than stopping a live catastrophe. Second, a
+**deliberate scope boundary**: an ABSENT or unrecognised `sit` is left on its pre-fix
+answer (allowed) rather than tightened to "reject on no evidence". Every real snapshot
+carries the field (`VesselSpawner.TryBackupSnapshot` -> `ProtoVessel.Save` writes it), so
+the population without one is synthetic test fixtures — 16 cells across 5 files pin the
+current answer, `MergeDialogVesselTests.CanPersistVessel_NullTerminalState_ReturnsTrue` by
+name. Tightening it is separable, has its own blast radius, and has no demonstrated
+reachable case; folding it in here would flip a named contract as a side effect of a
+targeted fix. Pinned as unchanged-by-design by
+`SpawnSafetyNetTests.UnfinalizedRecording_AbsentSit_IsUnchangedByDesign` so it cannot drift
+either way in silence.
+
+**The harness fixture grew two leaves to match** (`PendingLimboTreeFixture`, four leaves
+now). The original two never exercised the null-terminal branch the fidelity fix depends
+on: the spawnable one carried `WithTerminalState(Orbiting)`, a finalized-SHAPED recording
+inside a Limbo tree, where a real `StashActiveTreeAsPendingLimbo` stamps none. A confirm
+flight over that fixture would have proven the fix on a shape a quickload cannot produce.
+The added `coast` (no terminal, ORBITING) and `escape` (no terminal, ESCAPING) leaves are
+the genuine shape, one per outcome — and the escape leaf is the one whose result DIFFERS
+between a build with the situation gate and one without (`snapshotsPreserved=3
+snapshotsReleased=1` with it, `4` / `0` without), which is what makes the confirm flight
+discriminating rather than merely agreeable. Both specs' predicted numbers are
+machine-checked headlessly by
+`AutoMergeGhostOnlyReachabilityTests.PendingLimboTreeFixture_PredictedCommitNumbers_MatchTheSpecs`,
+which materializes the same tree the injector writes. That cell also caught the first
+draft's derivation being WRONG in a way review would not have: the fixture tree carries no
+BranchPoints, so `ParentRecordingId` alone does not make the root a non-leaf and ALL FOUR
+recordings are leaves. Both specs' `recordings.count` went back to a RANGE for the same
+reason — the 2026-08-29 measurement of 2 described the old shape, and re-pinning to 4 by
+argument is the tighten-by-argument their own headers forbid.
+
+**THE ONE REMAINING LOSSY PATH, out of scope by design: the OnSave safety net.**
+`SafetyNetAutoCommitPending` still blanket-nulls, and it is reachable in one narrow way —
+when the commit above throws, the catch leaves the tree stashed, and that retry window runs
+only to the next OnSAVE, not the next load; any OnSave outside FLIGHT hits the safety net
+first. That site stays ghost-only for the reason plan §4.1 gives (routing it through
+`MergeCommit` would run a quicksave inside OnSave — the reentrancy hazard), and it is
+defense-in-depth that is unreachable under normal operation. Both the catch comment and its
+Error message now say this rather than promising a retry the safety net can pre-empt.
+
+**THE CONFIRM FLIGHTS (2026-08-29) — THE FIX IS NOT A HEADLESS CLAIM. Both routes ran
+against a provisioned instance carrying this branch's own build (deployed DLL sha256
+`52faf03dd6158b45…`, hash-IDENTICAL to the building worktree's `bin/Debug`, with both new
+literals grepped present), and every predicted number came back EXACTLY.**
+
+| run | route | verdict | wall | reading |
+| --- | --- | --- | --- | --- |
+| `2026-08-29_1200_S0.9-automerge-pending-limbo-cold-load` | cold-load outside-flight | PASS attempt 1 | 54 s | `recordings=4 spawnable=3 snapshotsPreserved=3 snapshotsReleased=1` |
+| `2026-08-29_1202_S0.10-automerge-limbo-warm-exit` | scene-exit (warm, ENTRANCE B) | PASS attempt 1 | 55 s | identical |
+
+Every verifier PASS/SKIPPED on both, expectations mismatches=0, analyzer RED=0, zero
+`[Parsek][ERROR]`, and S0.10's clobber guard silent. `Ghost-only auto-commit`,
+`Auto-commit tree ghost-only` and `Silent full-fidelity auto-commit` are ALL ABSENT from
+both logs (0 occurrences each) — the first two are the pre-fix outcome these specs were
+built to measure, the third would have meant the tree was re-finalized somewhere. S0.10
+also re-confirmed its ENTRANCE-B subject unchanged: `coroutine aborted by destroy` present,
+`not active within 3s` verifiably absent.
+
+**The per-leaf reading is the un-finalized situation gate measured live**, and it is
+identical on both routes:
+
+```
+leaf='limbo_root_2f7a41c8'   vessel='Limbo Stack'    terminal=null      canPersist=True
+leaf='limbo_child_9b3e05d1'  vessel='Limbo Upper'    terminal=Orbiting  canPersist=True
+leaf='limbo_coast_5d1c73a2'  vessel='Limbo Coaster'  terminal=null      canPersist=True
+leaf='limbo_escape_e40b6cf7' vessel='Limbo Escaper'  terminal=null      canPersist=False
+ApplyVesselDecisions: ghost-only for 'Limbo Escaper' … spawn snapshot nulled, ghostVisual=True
+```
+
+The ESCAPING leaf is the only denial, and its ghost geometry is preserved on the way —
+precisely what a build WITHOUT the gate would not have done (it would have read
+`canPersist=True`, and the commit line would have said `snapshotsPreserved=4
+snapshotsReleased=0`). That one leaf is what makes these runs a MEASUREMENT of the gate
+rather than an agreement with it.
+
+**Durability, from S0.9's produced save** (snapshotted alongside the run artifacts): all
+four recordings committed into one `RECORDING_TREE`, and the escape leaf alone carries a
+`_ghost.craft` sidecar. Its `_vessel.craft` remains on disk but is unreachable —
+re-hydration in `ShouldSpawnAtRecordingEnd` requires a spawnable TERMINAL state and it has
+none — so the denial survives a reload rather than being an in-memory-only effect.
+
+**One wording correction worth making explicit, because the shorthand invites a wrong
+reading.** "The escape leaf keeps its snapshot" is NOT what happens and never was the
+promise. Its `VesselSnapshot` is RELEASED (nulled, `snapshotsReleased=1`) with
+`GhostVisualSnapshot` copied and its crew reservation freed — exactly what the Merge dialog
+does for a non-spawnable leaf. The fix's promise is that a silent commit never destroys a
+snapshot **the dialog would have kept**, not that every snapshot survives.
+
+**What is still open, unchanged by the fix.** (a) FREQUENCY — how often the resume match
+misses on ordinary flights — is untouched; the fix makes the outcome harmless rather than
+making the miss rarer. (b) Step 1 (a REAL quickload producing the Limbo stash) is still
+injected rather than produced by both specs. (c) ENTRANCE A is still undriven (the seam
+verb gap above). (d) The dangling limbo dispatch (`ParsekScenario.cs` limbo-dispatch block
+arming an `onFlightReady` restore outside FLIGHT) is untouched and still worth a look
+independently — the fix consumes the tree at fidelity, it does not stop the dispatch being
+armed where it can never fire.
