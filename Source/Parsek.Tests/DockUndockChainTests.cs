@@ -71,14 +71,14 @@ namespace Parsek.Tests
             rec1.ChainId = "dock-chain";
             rec1.ChainIndex = 0;
             rec1.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
             Assert.NotNull(rec2);
             rec2.ChainId = "dock-chain";
             rec2.ChainIndex = 1;
             rec2.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             Assert.True(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
@@ -91,21 +91,21 @@ namespace Parsek.Tests
             rec1.ChainId = "dock-chain";
             rec1.ChainIndex = 0;
             rec1.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Branch1");
             Assert.NotNull(rec2);
             rec2.ChainId = "dock-chain";
             rec2.ChainIndex = 1;
             rec2.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
             Assert.NotNull(rec3);
             rec3.ChainId = "dock-chain";
             rec3.ChainIndex = 1;
             rec3.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec3);
+            TreeCommitService.CommitRecordingDirect(rec3);
 
             // Branch 1 recording — always returns false (ghost-only, despawns normally)
             Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
@@ -126,14 +126,14 @@ namespace Parsek.Tests
             rec1.ChainId = "end-branch";
             rec1.ChainIndex = 0;
             rec1.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
             Assert.NotNull(rec2);
             rec2.ChainId = "end-branch";
             rec2.ChainIndex = 1;
             rec2.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             // Branch 1 has a much later EndUT — should be ignored
             var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(10, 500), "Branch1");
@@ -141,7 +141,7 @@ namespace Parsek.Tests
             rec3.ChainId = "end-branch";
             rec3.ChainIndex = 1;
             rec3.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(rec3);
+            TreeCommitService.CommitRecordingDirect(rec3);
 
             var seg0 = RecordingStore.CommittedRecordings[0];
             var seg1 = RecordingStore.CommittedRecordings[1];
@@ -163,14 +163,14 @@ namespace Parsek.Tests
             rec1.ChainId = "branch-valid";
             rec1.ChainIndex = 0;
             rec1.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B0-1");
             Assert.NotNull(rec2);
             rec2.ChainId = "branch-valid";
             rec2.ChainIndex = 1;
             rec2.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             // Branch 1: index 1 (forks from branch 0 at index 1)
             var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B1-1");
@@ -178,7 +178,7 @@ namespace Parsek.Tests
             rec3.ChainId = "branch-valid";
             rec3.ChainIndex = 1;
             rec3.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(rec3);
+            TreeCommitService.CommitRecordingDirect(rec3);
 
             RecordingChainQueries.ValidateChains();
 
@@ -198,14 +198,14 @@ namespace Parsek.Tests
             rec1.ChainId = "branch-invalid";
             rec1.ChainIndex = 0;
             rec1.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B0-1");
             Assert.NotNull(rec2);
             rec2.ChainId = "branch-invalid";
             rec2.ChainIndex = 1;
             rec2.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             // Branch 1: invalid — gap (indices 1, 3 with no 2)
             var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B1-1");
@@ -213,14 +213,14 @@ namespace Parsek.Tests
             rec3.ChainId = "branch-invalid";
             rec3.ChainIndex = 1;
             rec3.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(rec3);
+            TreeCommitService.CommitRecordingDirect(rec3);
 
             var rec4 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "B1-3");
             Assert.NotNull(rec4);
             rec4.ChainId = "branch-invalid";
             rec4.ChainIndex = 3;
             rec4.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(rec4);
+            TreeCommitService.CommitRecordingDirect(rec4);
 
             RecordingChainQueries.ValidateChains();
 
@@ -255,7 +255,7 @@ namespace Parsek.Tests
             rec1.ChainIndex = 0;
             rec1.ChainBranch = 0;
             rec1.RecordingId = "seg0";
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Docked");
             Assert.NotNull(rec2);
@@ -263,7 +263,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 1;
             rec2.ChainBranch = 0;
             rec2.RecordingId = "seg1";
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Undocked");
             Assert.NotNull(rec3);
@@ -271,7 +271,7 @@ namespace Parsek.Tests
             rec3.ChainIndex = 2;
             rec3.ChainBranch = 0;
             rec3.RecordingId = "seg2";
-            RecordingStore.CommitRecordingDirect(rec3);
+            TreeCommitService.CommitRecordingDirect(rec3);
 
             // Branch 0: Jeb EVA'd at index 1 and boarded back before the
             // final vessel segment at index 2, so he is not excluded.
@@ -282,7 +282,7 @@ namespace Parsek.Tests
             evaBoarded.ChainBranch = 0;
             evaBoarded.EvaCrewName = "Jebediah Kerman";
             evaBoarded.RecordingId = "seg1-eva";
-            RecordingStore.CommitRecordingDirect(evaBoarded);
+            TreeCommitService.CommitRecordingDirect(evaBoarded);
 
             // Branch 1: station continuation (ghost-only) carrying an EVA
             // kerbal PAST the branch-0 tip. Only the branch > 0 skip keeps
@@ -296,7 +296,7 @@ namespace Parsek.Tests
             rec4.ChainBranch = 1;
             rec4.EvaCrewName = "Bill Kerman";
             rec4.RecordingId = "station";
-            RecordingStore.CommitRecordingDirect(rec4);
+            TreeCommitService.CommitRecordingDirect(rec4);
 
             // Final vessel segment (branch 0, index 2): nobody is excluded.
             var finalSeg = RecordingStore.CommittedRecordings[2];
@@ -313,7 +313,7 @@ namespace Parsek.Tests
             evaStillOut.ChainBranch = 0;
             evaStillOut.EvaCrewName = "Valentina Kerman";
             evaStillOut.RecordingId = "seg3-eva";
-            RecordingStore.CommitRecordingDirect(evaStillOut);
+            TreeCommitService.CommitRecordingDirect(evaStillOut);
 
             var excludeSetWithBranch0Eva = VesselSpawner.BuildExcludeCrewSet(finalSeg);
             Assert.NotNull(excludeSetWithBranch0Eva);
@@ -403,14 +403,14 @@ namespace Parsek.Tests
             approachRec.ChainId = "dock-undock";
             approachRec.ChainIndex = 0;
             approachRec.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(approachRec);
+            TreeCommitService.CommitRecordingDirect(approachRec);
 
             var dockedRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, 200), "Docked");
             Assert.NotNull(dockedRec);
             dockedRec.ChainId = "dock-undock";
             dockedRec.ChainIndex = 1;
             dockedRec.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(dockedRec);
+            TreeCommitService.CommitRecordingDirect(dockedRec);
 
             var undockedRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, 300), "Undocked");
             Assert.NotNull(undockedRec);
@@ -418,14 +418,14 @@ namespace Parsek.Tests
             undockedRec.ChainIndex = 2;
             undockedRec.ChainBranch = 0;
             undockedRec.VesselSnapshot = new ConfigNode("VESSEL");
-            RecordingStore.CommitRecordingDirect(undockedRec);
+            TreeCommitService.CommitRecordingDirect(undockedRec);
 
             var stationRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(10, 300), "Station");
             Assert.NotNull(stationRec);
             stationRec.ChainId = "dock-undock";
             stationRec.ChainIndex = 2;
             stationRec.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(stationRec);
+            TreeCommitService.CommitRecordingDirect(stationRec);
 
             // Validation should pass
             RecordingChainQueries.ValidateChains();
@@ -474,7 +474,7 @@ namespace Parsek.Tests
                 segRec.ChainBranch = 0;
                 if (i == 4)
                     segRec.VesselSnapshot = new ConfigNode("VESSEL");
-                RecordingStore.CommitRecordingDirect(segRec);
+                TreeCommitService.CommitRecordingDirect(segRec);
             }
 
             // Station continuation from first undock (stopped on redock)
@@ -483,7 +483,7 @@ namespace Parsek.Tests
             station1Rec.ChainId = "redock-chain";
             station1Rec.ChainIndex = 2;
             station1Rec.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(station1Rec);
+            TreeCommitService.CommitRecordingDirect(station1Rec);
 
             // Station continuation from second undock
             var station2Rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, 350), "Station-2");
@@ -491,7 +491,7 @@ namespace Parsek.Tests
             station2Rec.ChainId = "redock-chain";
             station2Rec.ChainIndex = 4;
             station2Rec.ChainBranch = 2;
-            RecordingStore.CommitRecordingDirect(station2Rec);
+            TreeCommitService.CommitRecordingDirect(station2Rec);
 
             RecordingChainQueries.ValidateChains();
 
@@ -523,7 +523,7 @@ namespace Parsek.Tests
             rec1.ChainIndex = 0;
             rec1.ChainBranch = 0;
             rec1.RecordingId = "docked";
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "EVA Jeb");
             Assert.NotNull(rec2);
@@ -532,7 +532,7 @@ namespace Parsek.Tests
             rec2.ChainBranch = 0;
             rec2.EvaCrewName = "Jebediah Kerman";
             rec2.RecordingId = "eva-jeb";
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Boarded");
             Assert.NotNull(rec3);
@@ -541,7 +541,7 @@ namespace Parsek.Tests
             rec3.ChainBranch = 0;
             rec3.VesselSnapshot = new ConfigNode("VESSEL");
             rec3.RecordingId = "boarded";
-            RecordingStore.CommitRecordingDirect(rec3);
+            TreeCommitService.CommitRecordingDirect(rec3);
 
             RecordingChainQueries.ValidateChains();
 
@@ -572,7 +572,7 @@ namespace Parsek.Tests
                 segRec.ChainId = "multi-undock";
                 segRec.ChainIndex = i;
                 segRec.ChainBranch = 0;
-                RecordingStore.CommitRecordingDirect(segRec);
+                TreeCommitService.CommitRecordingDirect(segRec);
             }
 
             var stationOldRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "Station-old");
@@ -580,14 +580,14 @@ namespace Parsek.Tests
             stationOldRec.ChainId = "multi-undock";
             stationOldRec.ChainIndex = 1;
             stationOldRec.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(stationOldRec);
+            TreeCommitService.CommitRecordingDirect(stationOldRec);
 
             var stationNewRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Station-new");
             Assert.NotNull(stationNewRec);
             stationNewRec.ChainId = "multi-undock";
             stationNewRec.ChainIndex = 3;
             stationNewRec.ChainBranch = 2;
-            RecordingStore.CommitRecordingDirect(stationNewRec);
+            TreeCommitService.CommitRecordingDirect(stationNewRec);
 
             RecordingChainQueries.ValidateChains();
 
@@ -610,14 +610,14 @@ namespace Parsek.Tests
             rec1.ChainId = "reset-branch";
             rec1.ChainIndex = 0;
             rec1.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B1");
             Assert.NotNull(rec2);
             rec2.ChainId = "reset-branch";
             rec2.ChainIndex = 1;
             rec2.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             // Gap: branch 1 jumps to index 3 (missing index 2)
             var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "B1-gap");
@@ -625,7 +625,7 @@ namespace Parsek.Tests
             rec3.ChainId = "reset-branch";
             rec3.ChainIndex = 3;
             rec3.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(rec3);
+            TreeCommitService.CommitRecordingDirect(rec3);
 
             RecordingChainQueries.ValidateChains();
 

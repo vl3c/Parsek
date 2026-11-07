@@ -1035,7 +1035,7 @@ namespace Parsek
 
         /// <summary>
         /// Captures a baseline if none exist or if a new one is warranted.
-        /// Called from RecordingStore.CommitRecordingDirect() and FinalizeTreeCommit() as the single funnel point.
+        /// Called from TreeCommitService.CommitRecordingDirect() and FinalizeTreeCommit() as the single funnel point.
         /// Silently skipped in test environments (SuppressLogging = true).
         /// </summary>
         internal static void CaptureBaselineIfNeeded()

@@ -385,7 +385,7 @@ namespace Parsek.Tests
             rec.RewindReservedScience = 25.0;
             rec.RewindReservedRep = 3.0f;
 
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             // Verify committed recording has the rewind fields
             var committed = RecordingStore.CommittedRecordings;
@@ -408,7 +408,7 @@ namespace Parsek.Tests
 
             var rec = RecordingStore.CreateRecordingFromFlightData(points, "NormalRocket");
             Assert.NotNull(rec);
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             var committed = RecordingStore.CommittedRecordings;
             Assert.Single(committed);

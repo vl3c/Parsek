@@ -1916,7 +1916,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             var committed = RecordingStore.CommittedRecordings;
             var stage = committed.FirstOrDefault(r => r.RecordingId == "stage");
@@ -1953,7 +1953,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             var committed = RecordingStore.CommittedRecordings;
             // The count comes FIRST and unconditionally: every assertion below sits inside a
@@ -1993,7 +1993,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.NotNull(vessel.RecordingGroups);
             Assert.Single(vessel.RecordingGroups);
@@ -2025,7 +2025,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // Orphan should now have a group
             Assert.NotNull(orphan.RecordingGroups);
@@ -2050,7 +2050,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // Adopted debris should be in debris subgroup with parent set
             Assert.NotNull(orphanDebris.RecordingGroups);
@@ -2077,7 +2077,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.NotNull(orphanEva.RecordingGroups);
             Assert.Single(orphanEva.RecordingGroups);
@@ -2107,7 +2107,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.NotNull(orphanEva.RecordingGroups);
             Assert.Single(orphanEva.RecordingGroups);
@@ -2134,7 +2134,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.NotNull(orphanEva.RecordingGroups);
             Assert.Single(orphanEva.RecordingGroups);
@@ -2193,7 +2193,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // Should still be in the original group, not adopted
             Assert.Single(alreadyGrouped.RecordingGroups);

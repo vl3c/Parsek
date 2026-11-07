@@ -199,7 +199,7 @@ namespace Parsek
         /// <summary>
         /// Tree-context overload. The switch-continuation hop added for
         /// REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE needs the OWNING TREE to read
-        /// branch points, and <see cref="RecordingStore.CommitTree"/> runs the
+        /// branch points, and <see cref="TreeCommitService.CommitTree"/> runs the
         /// promotion pass BEFORE the tree is in
         /// <see cref="RecordingStore.CommittedTrees"/> (the recordings are not in
         /// <see cref="RecordingStore.CommittedRecordings"/> yet either). Callers

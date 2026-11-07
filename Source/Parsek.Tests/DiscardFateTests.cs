@@ -118,7 +118,7 @@ namespace Parsek.Tests
 
             // CommitPendingTree moves the tree into committed state — our tagged event
             // stays in GameStateStore because commit never calls PurgeEventsForRecordings.
-            RecordingStore.CommitPendingTree();
+            TreeCommitService.CommitPendingTree();
 
             var match = GameStateStore.Events
                 .FirstOrDefault(e => e.key == "guid-A" && e.eventType == GameStateEventType.ContractAccepted);

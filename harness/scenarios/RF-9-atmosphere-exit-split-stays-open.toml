@@ -11,7 +11,7 @@ id = "RF-9-atmosphere-exit-split-stays-open"
 #
 # THE DEFECT, in one chain (measured on the operator's manual session of 2026-09-08,
 # `logs/2026-09-08_2317_refly-a-manual`, and frozen as the fixture `refly-a-recorded`):
-#   1. `RecordingStore.ApplyRewindProvisionalMergeStates` promotes the qualifying
+#   1. `TreeCommitService.ApplyRewindProvisionalMergeStates` promotes the qualifying
 #      slot's recording to `CommittedProvisional` - correct at that instant.
 #   2. 230 ms later `RunOptimizationPass` splits that same recording at an
 #      Atmospheric -> ExoBallistic boundary. `TransferTerminalFieldsToSecondHalf`

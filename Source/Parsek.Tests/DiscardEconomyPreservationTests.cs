@@ -521,7 +521,7 @@ namespace Parsek.Tests
 
         // --- CommitTree duplicate-skip: scope the pending-science clear too ---------
         // The two duplicate-skip early-returns ("tree already committed") in
-        // RecordingStore.CommitTree used a blanket PendingScienceSubjects.Clear(). Since
+        // TreeCommitService.CommitTree used a blanket PendingScienceSubjects.Clear(). Since
         // CommitTree does NOT consume science itself (the callers follow it with
         // NotifyLedgerTreeCommitted, which is scoped per-recording), a duplicate-skip's
         // blanket clear left NotifyLedgerTreeCommitted running on an empty list and
@@ -571,7 +571,7 @@ namespace Parsek.Tests
             GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-head", "rec-head", 110.0));
             GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-other", "rec-OTHER", 120.0));
 
-            RecordingStore.CommitTree(incoming);
+            TreeCommitService.CommitTree(incoming);
 
             // Only the duplicate tree's own UNCOMMITTED subject is dropped.
             Assert.DoesNotContain(GameStateRecorder.PendingScienceSubjects, s => s.subjectId == "sci-fork");
@@ -610,7 +610,7 @@ namespace Parsek.Tests
             GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-r1", "rec-r1", 100.0));
             GameStateRecorder.PendingScienceSubjects.Add(Subject("sci-other", "rec-OTHER", 110.0));
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // The tree's own subject is committed science (already a ledger action), so the
             // scoped helper skips it and it stays pending...

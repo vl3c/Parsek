@@ -2489,7 +2489,7 @@ namespace Parsek
         /// Recording, and <see cref="LoadTimeSweep.RemoveDiscardRecordings"/>
         /// historically only removed the recording from the flat
         /// <c>committedRecordings</c> list — its node in the owning tree's
-        /// <c>Recordings</c> dict survived. <see cref="RecordingStore.FinalizeTreeCommit"/>
+        /// <c>Recordings</c> dict survived. <see cref="TreeCommitService.FinalizeTreeCommit"/>
         /// (<c>RecordingStore.cs:1363-1386</c>) then re-added it on the next
         /// commit pass, and the closure walk in
         /// <see cref="EffectiveState.EnqueuePidPeerSiblings"/> enqueued the

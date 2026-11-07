@@ -78,7 +78,7 @@ namespace Parsek.Tests
                 RootRecordingId = rec.RecordingId
             };
             tree.Recordings[rec.RecordingId] = rec;
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
             return MissionStore.FindOriginalMission(treeId);
         }
@@ -237,7 +237,7 @@ namespace Parsek.Tests
                 RootRecordingId = rec.RecordingId
             };
             tree.Recordings[rec.RecordingId] = rec;
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             Assert.Null(MissionStore.FindOriginalMission("tree-1"));
 
             var ui = new ParsekUI(UIMode.KSC);

@@ -528,7 +528,7 @@ namespace Parsek
         /// <summary>
         /// Locate the recording the active re-fly session targets. Tries the
         /// pending tree first (so the lookup works whether the dialog fires
-        /// before or after `RecordingStore.CommitPendingTree`), then falls
+        /// before or after `TreeCommitService.CommitPendingTree`), then falls
         /// back to the committed recordings list. Returns null if neither
         /// source has the recording — the caller falls back to whole-tree
         /// metadata.

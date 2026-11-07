@@ -53,6 +53,14 @@ Source/Parsek/CommittedListOptimizer.cs
 # Ledger.Actions reads.
 Source/Parsek/TreeDiscardService.cs
 
+# TreeCommitService holds the tree commit moved out of RecordingStore.cs and its
+# TreeReplaceDiff / SupersedeTerminalSpawn partials (the RecordingStore services plan,
+# PR12 L). The commit installs and replaces physical committed recordings and trees by
+# id and index, and the terminal-spawn supersede marks walk the physical list, as they
+# did inside the store; it changes the lists only through the store's primitives.
+Source/Parsek/TreeCommitService.cs
+Source/Parsek/TreeCommitService.SupersedeTerminalSpawn.cs
+
 # --- Serialization (I/O not semantics) ---
 Source/Parsek/ParsekScenario.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.

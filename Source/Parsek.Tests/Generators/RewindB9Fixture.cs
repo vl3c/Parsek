@@ -101,7 +101,7 @@ namespace Parsek.Tests.Generators
                 QuicksaveFilename = RecordingPaths.BuildRewindPointRelativePath(RewindPointId),
                 FocusSlotIndex = UpperSlotIndex,
                 // A committed tree's staging point is persistent: the commit promoted it
-                // (RecordingStore.PromoteNormalStagingRewindPoints). LoadTimeSweep only ever
+                // (TreeCommitService.PromoteNormalStagingRewindPoints). LoadTimeSweep only ever
                 // discards SessionProvisional points, so it stays a durable split point; the
                 // reaper keeps it while the booster slot is open (CommittedProvisional).
                 SessionProvisional = false,
@@ -232,7 +232,7 @@ namespace Parsek.Tests.Generators
         // then rejected `sealedTipClosed` - which is why every in-game Rewind cell
         // gated on EffectiveState.IsUnfinishedFlight skipped on this preset.
         // Production reaches the same state through
-        // RecordingStore.ApplyRewindProvisionalMergeStates, the CommitTree
+        // TreeCommitService.ApplyRewindProvisionalMergeStates, the CommitTree
         // promotion that demotes a qualifying RP child to CommittedProvisional;
         // that pass runs at LIVE tree-commit time and requires tree.BranchPoints,
         // so an already-committed injected tree never passes through it and must

@@ -152,7 +152,7 @@ namespace Parsek.Tests
             };
             ParsekScenario.SetInstanceForTesting(scenario);
             var committed = FinalizedPendingTree("committed");
-            RecordingStore.CommitTree(committed);
+            TreeCommitService.CommitTree(committed);
             scenario.ArmSwitchSegmentSession(new SwitchSegmentSession
             {
                 SessionId = Guid.NewGuid(),
@@ -188,7 +188,7 @@ namespace Parsek.Tests
                 RewindPoints = new List<RewindPoint>(),
             };
             ParsekScenario.SetInstanceForTesting(scenario);
-            RecordingStore.CommitTree(FinalizedPendingTree("committed"));
+            TreeCommitService.CommitTree(FinalizedPendingTree("committed"));
             scenario.ArmSwitchSegmentSession(new SwitchSegmentSession
             {
                 SessionId = Guid.NewGuid(),

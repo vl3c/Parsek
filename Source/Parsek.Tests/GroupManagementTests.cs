@@ -754,7 +754,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             string rootGroup = root.RecordingGroups[0];
             string crewGroup = crew.RecordingGroups[0];
@@ -1045,7 +1045,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             string rootGroup = root.RecordingGroups[0];
             Assert.True(GroupHierarchyStore.SetGroupParent(rootGroup, "Folder"));
@@ -1072,7 +1072,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             string rootGroup = root.RecordingGroups[0];
             var committedRoot = RecordingStore.CommittedRecordings[0];
@@ -1100,7 +1100,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             string rootGroup = root.RecordingGroups[0];
             string customCrewGroup = rootGroup + " / Crew";
@@ -1134,7 +1134,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.True(RecordingGroupStore.IsPermanentGroup(root.RecordingGroups[0], RecordingStore.CommittedTrees));
             Assert.True(RecordingGroupStore.IsPermanentGroup(crew.RecordingGroups[0], RecordingStore.CommittedTrees));
@@ -1398,7 +1398,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.NotNull(root.RecordingGroups);
             Assert.Single(root.RecordingGroups);
@@ -1409,7 +1409,7 @@ namespace Parsek.Tests
         public void CommitTree_SecondSameNamedSingleRecordingLaunch_GetsDistinctFolder()
         {
             var first = MakeTreeRecording("first", "GDLV3", "tree-first");
-            RecordingStore.CommitTree(new RecordingTree
+            TreeCommitService.CommitTree(new RecordingTree
             {
                 Id = "tree-first",
                 TreeName = "GDLV3",
@@ -1418,7 +1418,7 @@ namespace Parsek.Tests
             });
 
             var second = MakeTreeRecording("second", "GDLV3", "tree-second");
-            RecordingStore.CommitTree(new RecordingTree
+            TreeCommitService.CommitTree(new RecordingTree
             {
                 Id = "tree-second",
                 TreeName = "GDLV3",

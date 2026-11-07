@@ -133,7 +133,7 @@ namespace Parsek.Tests
             var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship");
             Assert.NotNull(rec);
 
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("Ship", RecordingStore.CommittedRecordings[0].VesselName);
@@ -143,7 +143,7 @@ namespace Parsek.Tests
         public void CommitRecordingDirect_NullRecording_DoesNothing()
         {
             // Should not crash
-            RecordingStore.CommitRecordingDirect(null);
+            TreeCommitService.CommitRecordingDirect(null);
 
             Assert.Empty(RecordingStore.CommittedRecordings);
         }
@@ -607,9 +607,9 @@ namespace Parsek.Tests
             var deb = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Booster");
             deb.IsDebris = true;
             deb.LoopPlayback = true;
-            RecordingStore.CommitRecordingDirect(main);
-            RecordingStore.CommitRecordingDirect(coast);
-            RecordingStore.CommitRecordingDirect(deb);
+            TreeCommitService.CommitRecordingDirect(main);
+            TreeCommitService.CommitRecordingDirect(coast);
+            TreeCommitService.CommitRecordingDirect(deb);
 
             int cleared = RecordingStore.SanitizeNonLoopableLoopPlayback();
 
@@ -628,7 +628,7 @@ namespace Parsek.Tests
             var deb = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Booster");
             deb.IsDebris = true;
             deb.LoopPlayback = true;
-            RecordingStore.CommitRecordingDirect(deb);
+            TreeCommitService.CommitRecordingDirect(deb);
 
             int first = RecordingStore.SanitizeNonLoopableLoopPlayback();
             int second = RecordingStore.SanitizeNonLoopableLoopPlayback();
@@ -649,8 +649,8 @@ namespace Parsek.Tests
             var quietShip = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Quiet");
             quietShip.SegmentPhase = "atmo";
             quietShip.LoopPlayback = false;
-            RecordingStore.CommitRecordingDirect(loopShip);
-            RecordingStore.CommitRecordingDirect(quietShip);
+            TreeCommitService.CommitRecordingDirect(loopShip);
+            TreeCommitService.CommitRecordingDirect(quietShip);
 
             int cleared = RecordingStore.SanitizeNonLoopableLoopPlayback();
 
@@ -696,7 +696,7 @@ namespace Parsek.Tests
                 tree.AddOrReplaceRecording(root);
                 tree.AddOrReplaceRecording(child);
 
-                RecordingStore.CommitTree(tree);
+                TreeCommitService.CommitTree(tree);
 
                 RecordingTree committedTree = null;
                 foreach (var t in RecordingStore.CommittedTrees)
@@ -1254,7 +1254,7 @@ namespace Parsek.Tests
             try
             {
                 var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "FlushTest");
-                RecordingStore.CommitRecordingDirect(rec);
+                TreeCommitService.CommitRecordingDirect(rec);
 
                 // FlushDirtyFiles fires and logs (SaveRecordingFiles returns false
                 // in test env — no KSP paths — so "failed 1" is expected)
@@ -1489,7 +1489,7 @@ namespace Parsek.Tests
             try
             {
                 var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "OptFlush");
-                RecordingStore.CommitRecordingDirect(rec);
+                TreeCommitService.CommitRecordingDirect(rec);
                 logLines.Clear();
 
                 // Force-dirty to simulate optimizer touching the recording

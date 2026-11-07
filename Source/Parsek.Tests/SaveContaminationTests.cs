@@ -68,7 +68,7 @@ namespace Parsek.Tests
         {
             // Simulate save A: commit a tree (adds to both CommittedTrees and CommittedRecordings)
             var tree = MakeSimpleTree("tree_saveA");
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Single(RecordingStore.CommittedRecordings);
@@ -91,7 +91,7 @@ namespace Parsek.Tests
             // proved only that List.Clear works; the clear that matters is the one
             // inside the real load path, so this drives it.
             var tree = MakeSimpleTree("tree_saveA");
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Single(RecordingStore.CommittedRecordings);
 

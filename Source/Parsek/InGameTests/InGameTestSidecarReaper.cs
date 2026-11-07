@@ -13,7 +13,7 @@ namespace Parsek.InGameTests
     /// <c>CommittedRecordings</c>; <c>RecordingStoreTestSnapshot.Restore</c>
     /// reinstates the pre-test committed list by reference. Neither touches the files.
     /// But the production write paths a test drives DO write files:
-    /// <c>RecordingStore.CommitTree</c> flushes <c>SaveRecordingFiles</c> for every
+    /// <c>TreeCommitService.CommitTree</c> flushes <c>SaveRecordingFiles</c> for every
     /// recording in the tree it commits, and <c>RunOptimizationPass</c> flushes the
     /// dirty sidecars for every recording it splits (inventing fresh ids as it goes).
     /// The result is orphan <c>.prec</c> / <c>.pann</c> / <c>.prec.txt</c> files left

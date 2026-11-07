@@ -5345,7 +5345,7 @@ namespace Parsek.InGameTests
 
         // Same disk-blind teardown problem as RemoveCommittedTreeByIdForPlaybackRuntimeTest
         // (see the comment there). Callers of THIS overload reach a real
-        // RecordingStore.CommitTree indirectly, through the production merge paths rather
+        // TreeCommitService.CommitTree indirectly, through the production merge paths rather
         // than a direct call: TreeMergeDialog_DeferredMergeButton_CommitsPendingTree
         // clicks the real "Merge to Timeline" button on a stashed synthetic tree, and
         // EvaKerbalGhostHasVesselSnapshot runs a real StartRecording + FinalizeTreeRecordings.
@@ -14468,7 +14468,7 @@ namespace Parsek.InGameTests
 
             try
             {
-                RecordingStore.CommitTree(tree);
+                TreeCommitService.CommitTree(tree);
 
                 int recordingIndex = FindCommittedRecordingIndex(recording.RecordingId);
                 InGameAssert.IsTrue(recordingIndex >= 0,
@@ -14594,7 +14594,7 @@ namespace Parsek.InGameTests
                     yield break;
                 }
 
-                RecordingStore.CommitTree(tree);
+                TreeCommitService.CommitTree(tree);
                 flight.FastForwardToRecording(recording);
 
                 yield return RuntimeTests.WaitForTimeJumpLaunchAutoRecordTransientToClear(
@@ -14717,7 +14717,7 @@ namespace Parsek.InGameTests
                     yield break;
                 }
 
-                RecordingStore.CommitTree(tree);
+                TreeCommitService.CommitTree(tree);
 
                 int recordingIndex = FindCommittedRecordingIndex(recording.RecordingId);
                 InGameAssert.IsTrue(recordingIndex >= 0,
@@ -16563,7 +16563,7 @@ namespace Parsek.InGameTests
         }
 
         // The three callers all put their synthetic tree through the REAL
-        // RecordingStore.CommitTree, which flushes SaveRecordingFiles (.prec / .pann /
+        // TreeCommitService.CommitTree, which flushes SaveRecordingFiles (.prec / .pann /
         // .prec.txt) for every recording in it. This removal is memory-only, so without
         // the reap below those sidecars stay in saves/<save>/Parsek/Recordings/ forever
         // (ParsekFileCollector preserves ids it no longer knows). Same leak class the

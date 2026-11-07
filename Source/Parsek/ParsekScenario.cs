@@ -1658,7 +1658,7 @@ namespace Parsek
         ///
         /// <para>Performs the two steps that every auto-commit path must run in lockstep:</para>
         /// <list type="number">
-        ///   <item><description><see cref="RecordingStore.CommitPendingTree"/> — moves the tree from pending to committed state.</description></item>
+        ///   <item><description><see cref="TreeCommitService.CommitPendingTree"/> — moves the tree from pending to committed state.</description></item>
         ///   <item><description><see cref="RecordingStore.MarkTreeAsApplied(RecordingTree)"/> - advances each committed tree recording's <c>LastAppliedResourceIndex</c> (serialized bookkeeping; no production code reads it since the ResourceBudget cost helpers were deleted).</description></item>
         /// </list>
         ///
@@ -1674,7 +1674,7 @@ namespace Parsek
         /// </summary>
         internal static void CommitPendingTreeAsApplied(RecordingTree tree)
         {
-            RecordingStore.CommitPendingTree();
+            TreeCommitService.CommitPendingTree();
             RecordingStore.MarkTreeAsApplied(tree);
         }
 
@@ -8957,7 +8957,7 @@ namespace Parsek
 
         /// <summary>
         /// Prepares all recordings in a pending tree for ghost-only commit (no vessel spawn).
-        /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPendingTree() after this.
+        /// Nulls vessel snapshot and unreserves crew. Call TreeCommitService.CommitPendingTree() after this.
         /// <para>Returns the number of recordings that actually HAD a
         /// <see cref="Recording.VesselSnapshot"/> to null — i.e. how much full-fidelity
         /// spawn-at-end eligibility this commit gave up. The caller logs it.</para>

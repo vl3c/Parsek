@@ -3057,6 +3057,21 @@ each PR lands on the refactor branch, IL-proven a pure move).
   forwarder for `MergeDialog` (calling the service directly: replayed residue 283 -> 287). `RecordingStore` partials 6,195 -> 5,640
   lines, 202 -> 193 IL methods; knot 465 -> 466, `RecordingStore` cut drops 36 -> 34 references,
   replayed cut residue 283 unchanged (bound 283).
+- PR12 L (service L) landed: the tree commit left the store as `TreeCommitService` (27 members
+  from `RecordingStore.cs`, plus the `TreeReplaceDiff` and `SupersedeTerminalSpawn` partials renamed
+  to `TreeCommitService.*.cs`): `CommitTree` / `CommitPendingTree` / `CommitRecordingDirect`, the
+  session and rewind-provisional merge states, the staging RP promotion, `FinalizeTreeCommit` with the
+  same-id replace and `PreserveLiveRuntimeFieldsOnReplace`, the active Re-Fly union and the
+  terminal-spawn supersede marks. Its list writes go through new store primitives:
+  `ReplaceCommittedAt` (index-stable, raises nothing), `AppendCommittedUnbumped`,
+  `ReplaceCommittedTreeAt`, `AppendCommittedTreeUnbumped` (the commit still bumps once per batch) and
+  the existing `AddCommittedInternal` / `FlushDirtyCommittedFiles`; new CommittedListNotificationTests
+  cells. The store keeps `CommitPendingTree` / `UnionActiveReFlyTreeIntoCommittedForMerge` forwarders
+  for `MergeDialog` / `MergeJournalOrchestrator` (calling the service directly: replayed residue
+  283 -> 285), and the two group wrappers that hand `RecordingGroupStore` the list. The
+  `RecordingStore -> LedgerOrchestrator` edge is gone. `RecordingStore` partials 5,640 -> 3,812 lines,
+  193 -> 160 IL methods; knot 466 -> 467, `RecordingStore` cut drops 34 -> 29 references, replayed cut
+  residue 283 unchanged (bound 283).
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

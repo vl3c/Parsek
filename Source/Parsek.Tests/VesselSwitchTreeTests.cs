@@ -521,7 +521,7 @@ namespace Parsek.Tests
             Assert.True(committedTip.VesselSpawned);
             Assert.Equal(200u, committedTip.SpawnedVesselPersistentId);
 
-            RecordingStore.CommitTree(liveTree);
+            TreeCommitService.CommitTree(liveTree);
 
             Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
             Assert.Single(RecordingStore.CommittedTrees);
@@ -789,7 +789,7 @@ namespace Parsek.Tests
             liveTree.Recordings["rec_active"].Points.Add(new TrajectoryPoint { ut = 250.0 });
             liveTree.Recordings["rec_active"].ExplicitEndUT = 250.0;
 
-            RecordingStore.CommitTree(liveTree);
+            TreeCommitService.CommitTree(liveTree);
 
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Same(liveTree, RecordingStore.CommittedTrees[0]);

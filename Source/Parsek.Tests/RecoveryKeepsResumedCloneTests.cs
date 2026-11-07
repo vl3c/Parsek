@@ -284,7 +284,7 @@ namespace Parsek.Tests
             existing.SpawnedVesselPersistentId = Pid;
             var incoming = Tip("ctr-tip-rec", terminal);
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out int otherPreserved,
                 new HashSet<uint> { Pid });
 
@@ -307,7 +307,7 @@ namespace Parsek.Tests
             existing.SpawnedVesselPersistentId = Pid;
             var incoming = Tip("ctr-tip-rec", TerminalState.Landed);
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out int otherPreserved,
                 new HashSet<uint> { Pid });
 

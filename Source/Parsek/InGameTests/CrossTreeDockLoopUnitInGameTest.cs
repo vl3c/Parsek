@@ -11,7 +11,7 @@ namespace Parsek.InGameTests
     /// loop B's mission).
     ///
     /// <para><b>What it drives (all production code, no fakes).</b> Two synthetic
-    /// committed trees registered through the real <c>RecordingStore.CommitTree</c>:
+    /// committed trees registered through the real <c>TreeCommitService.CommitTree</c>:
     /// partner tree tb (vessel B's solo pre-dock flight) and controller tree ta
     /// (A's flight, the Dock branch point claiming B's pid, the combined docked
     /// stretch, and the undock fork where B departs). Then, in order: (1) link
@@ -136,9 +136,9 @@ namespace Parsek.InGameTests
                 RecordingTree tb = BuildPartnerTree(tbId, idB0, guidB, prefix);
                 RecordingTree ta = BuildControllerTree(
                     taId, idA0, idAB, idA1, idB1, dockBpId, undockBpId, guidA, guidB, prefix);
-                RecordingStore.CommitTree(tb);
+                TreeCommitService.CommitTree(tb);
                 tbCommitted = true;
-                RecordingStore.CommitTree(ta);
+                TreeCommitService.CommitTree(ta);
                 taCommitted = true;
 
                 // The committed instances + flat-list indices (the engine alignment contract

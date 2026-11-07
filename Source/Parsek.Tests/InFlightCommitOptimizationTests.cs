@@ -331,11 +331,11 @@ namespace Parsek.Tests
             Assert.Equal(declIdx, prepared.LastIndexOf(decl, StringComparison.Ordinal));
             string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', declIdx));
 
-            int commitIdx = body.IndexOf("RecordingStore.CommitTree(activeTree);", StringComparison.Ordinal);
+            int commitIdx = body.IndexOf("TreeCommitService.CommitTree(activeTree);", StringComparison.Ordinal);
             int passIdx = body.IndexOf("RunInFlightCommitOptimizationPass(activeRec, activeRecId)", StringComparison.Ordinal);
             int ledgerIdx = body.IndexOf("LedgerOrchestrator.NotifyLedgerTreeCommitted(activeTree);", StringComparison.Ordinal);
             int spawnIdx = body.IndexOf("SpawnTreeLeaves(activeTree, activeTipId);", StringComparison.Ordinal);
-            Assert.True(commitIdx >= 0, "CommitTreeFlight no longer commits through RecordingStore.CommitTree");
+            Assert.True(commitIdx >= 0, "CommitTreeFlight no longer commits through TreeCommitService.CommitTree");
             Assert.True(passIdx > commitIdx, "CommitTreeFlight does not run the optimization pass after the commit");
             Assert.True(ledgerIdx > passIdx, "the optimization pass must run before the ledger notify (MergeCommit order)");
             Assert.True(spawnIdx > passIdx, "the leaves must spawn after the pass, with the resolved active tip id");

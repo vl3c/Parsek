@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace Parsek
 {
-    public static partial class RecordingStore
+    internal static partial class TreeCommitService
     {
         /// <summary>
         /// When a newly committed tree continues a vessel that was previously
@@ -18,7 +18,7 @@ namespace Parsek
         {
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return 0;
-            if (committedRecordings == null || committedRecordings.Count == 0)
+            if (RecordingStore.CommittedRecordings == null || RecordingStore.CommittedRecordings.Count == 0)
                 return 0;
 
             double treeStartUT = GetTreeStartUT(tree);
@@ -30,9 +30,9 @@ namespace Parsek
                 if (string.IsNullOrEmpty(continued.RecordingId))
                     continue;
 
-                for (int i = 0; i < committedRecordings.Count; i++)
+                for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
                 {
-                    Recording prior = committedRecordings[i];
+                    Recording prior = RecordingStore.CommittedRecordings[i];
                     if (prior == null || ReferenceEquals(prior, continued))
                         continue;
                     if (string.Equals(prior.RecordingId, continued.RecordingId, StringComparison.Ordinal))
@@ -63,20 +63,20 @@ namespace Parsek
             }
 
             if (marked > 0)
-                BumpStateVersion();
+                RecordingStore.BumpStateVersion();
             return marked;
         }
 
         internal static int MarkSupersededTerminalSpawnsForCommittedContinuations(
             string logContext = "CommittedContinuationRepair")
         {
-            if (committedTrees == null || committedTrees.Count == 0)
+            if (RecordingStore.CommittedTrees == null || RecordingStore.CommittedTrees.Count == 0)
                 return 0;
 
             int marked = 0;
-            for (int i = 0; i < committedTrees.Count; i++)
+            for (int i = 0; i < RecordingStore.CommittedTrees.Count; i++)
                 marked += MarkSupersededTerminalSpawnsForContinuedSources(
-                    committedTrees[i],
+                    RecordingStore.CommittedTrees[i],
                     logContext);
 
             return marked;
@@ -130,13 +130,13 @@ namespace Parsek
                 return 0;
             if (string.IsNullOrEmpty(mergedContinuationRecordingId))
                 return 0;
-            if (committedRecordings == null || committedRecordings.Count == 0)
+            if (RecordingStore.CommittedRecordings == null || RecordingStore.CommittedRecordings.Count == 0)
                 return 0;
 
             int marked = 0;
-            for (int i = 0; i < committedRecordings.Count; i++)
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
             {
-                Recording prior = committedRecordings[i];
+                Recording prior = RecordingStore.CommittedRecordings[i];
                 if (prior == null || string.IsNullOrEmpty(prior.RecordingId))
                     continue;
                 if (string.Equals(prior.RecordingId, mergedContinuationRecordingId,
@@ -182,7 +182,7 @@ namespace Parsek
             }
 
             if (marked > 0)
-                BumpStateVersion();
+                RecordingStore.BumpStateVersion();
             return marked;
         }
 
@@ -290,13 +290,13 @@ namespace Parsek
         {
             if (rec == null || livePid == 0)
                 return null;
-            if (committedRecordings == null || committedRecordings.Count == 0)
+            if (RecordingStore.CommittedRecordings == null || RecordingStore.CommittedRecordings.Count == 0)
                 return null;
 
             double recEndUT = rec.EndUT;
-            for (int i = 0; i < committedRecordings.Count; i++)
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
             {
-                Recording owner = committedRecordings[i];
+                Recording owner = RecordingStore.CommittedRecordings[i];
                 if (owner == null || ReferenceEquals(owner, rec))
                     continue;
                 if (!string.IsNullOrEmpty(rec.RecordingId)

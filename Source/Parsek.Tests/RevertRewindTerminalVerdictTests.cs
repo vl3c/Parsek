@@ -249,7 +249,7 @@ namespace Parsek.Tests
                 ParentRecordingIds = new List<string> { "root" },
                 ChildRecordingIds = new List<string> { "debris-a", "debris-b" },
             });
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
 
             // ... the crew auto-unreserve pass marks the debris (the measured shape) ...

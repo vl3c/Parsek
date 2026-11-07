@@ -10,8 +10,8 @@ namespace Parsek
     /// next-restore suppressions. <c>ParsekScenario.OnSave</c> serializes the slot and
     /// <c>ParsekScenario.OnLoad</c> dispatches it (Limbo / revert / quickload). The state is
     /// save-scoped: a cold load drops it, files untouched (<see cref="ResetForLoad"/>).
-    /// Committing and discarding the pending tree stay on <see cref="RecordingStore"/>
-    /// (<see cref="RecordingStore.CommitPendingTree"/>, <see cref="TreeDiscardService.DiscardPendingTree"/>),
+    /// Committing and discarding the pending tree live in the tree commit and discard services
+    /// (<see cref="TreeCommitService.CommitPendingTree"/>, <see cref="TreeDiscardService.DiscardPendingTree"/>),
     /// which empty the slot through <see cref="ClearSlot"/>.
     /// </summary>
     internal static class PendingTreeSlot
@@ -488,7 +488,7 @@ namespace Parsek
         /// <summary>
         /// #431: sets <see cref="PendingTreeStateValue"/> directly. For unit tests only —
         /// production always transitions state via <see cref="StashPendingTree"/>,
-        /// <see cref="RecordingStore.CommitPendingTree"/>, <see cref="TreeDiscardService.DiscardPendingTree"/>, or the limbo-stash
+        /// <see cref="TreeCommitService.CommitPendingTree"/>, <see cref="TreeDiscardService.DiscardPendingTree"/>, or the limbo-stash
         /// paths. Used by the LimboVesselSwitch tag-fallback test.
         /// </summary>
         internal static void SetPendingTreeStateForTesting(PendingTreeState state)

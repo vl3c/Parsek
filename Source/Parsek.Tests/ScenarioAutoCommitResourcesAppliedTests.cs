@@ -30,7 +30,7 @@ namespace Parsek.Tests
     /// instance + KSP singletons and aren't unit-testable as a whole). NOTE
     /// (silent full-fidelity auto-commit): the scene-exit and outside-Flight sites
     /// now route qualifying trees through <see cref="MergeDialog.MergeCommit"/>
-    /// (which calls <see cref="RecordingStore.CommitPendingTree"/> +
+    /// (which calls <see cref="TreeCommitService.CommitPendingTree"/> +
     /// <see cref="RecordingStore.MarkTreeAsApplied"/> itself) and fall back to this
     /// seam only for the ghost-only cases (re-fly / Limbo / MAINMENU); the OnSave
     /// safety net still uses it directly. The mark-applied contract is identical on
@@ -356,9 +356,9 @@ namespace Parsek.Tests
             Assert.True(bodyStart > 0, "the seam has no body");
             string body = SourceScanText.BraceMatchedBlock(prepared, bodyStart);
 
-            int commitIdx = body.IndexOf("RecordingStore.CommitPendingTree();", StringComparison.Ordinal);
+            int commitIdx = body.IndexOf("TreeCommitService.CommitPendingTree();", StringComparison.Ordinal);
             int markIdx = body.IndexOf("RecordingStore.MarkTreeAsApplied(tree);", StringComparison.Ordinal);
-            Assert.True(commitIdx >= 0, "the seam no longer calls RecordingStore.CommitPendingTree()");
+            Assert.True(commitIdx >= 0, "the seam no longer calls TreeCommitService.CommitPendingTree()");
             Assert.True(markIdx >= 0, "the seam no longer calls RecordingStore.MarkTreeAsApplied(tree)");
             Assert.True(commitIdx < markIdx,
                 "REGRESSION: CommitPendingTreeAsApplied must commit the pending tree BEFORE marking " +

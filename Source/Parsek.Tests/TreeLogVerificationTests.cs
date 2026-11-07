@@ -70,7 +70,7 @@ namespace Parsek.Tests
         {
             var tree = MakeTree("tree_c1", "Mun Mission", 3);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Contains(capturedLines,
                 line => line.Contains("Committed tree 'Mun Mission' (3 recordings)"));

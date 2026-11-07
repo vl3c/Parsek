@@ -287,8 +287,8 @@ namespace Parsek.Tests
 
             RecordingTree lander = BuildLanderTree();
             RecordingTree rover = BuildRoverTree();
-            RecordingStore.CommitTree(lander);
-            RecordingStore.CommitTree(rover);
+            TreeCommitService.CommitTree(lander);
+            TreeCommitService.CommitTree(rover);
 
             // Missions: the default per tree, the lander's renamed, plus a clone with a selection.
             MissionStore.EnsureDefaultsForTrees(new[] { lander, rover });

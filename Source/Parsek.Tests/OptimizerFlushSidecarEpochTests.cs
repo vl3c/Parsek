@@ -275,7 +275,7 @@ namespace Parsek.Tests
             var incoming = new Recording { RecordingId = "optflushepoch4swap", SidecarEpoch = 3 };
             bool savePreserved;
             int otherPreserved;
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 source, incoming, out savePreserved, out otherPreserved);
             Assert.True(incoming.SidecarEpochAdvancePending);
         }
@@ -292,7 +292,7 @@ namespace Parsek.Tests
 
             var committed = MakeRecording(id);
             Assert.Equal(0, committed.SidecarEpoch);
-            RecordingStore.CommitRecordingDirect(committed);
+            TreeCommitService.CommitRecordingDirect(committed);
 
             Assert.False(committed.FilesDirty);
             Assert.Equal(1, committed.SidecarEpoch);
