@@ -564,8 +564,7 @@ namespace Parsek.Tests
             // switch-segment discard already delete sidecars in their services
             // (TreeDiscardService, SwitchSegmentAttempts), so this fix deliberately adds
             // nothing there. If either loses its delete the gap reopens somewhere this
-            // fix does not cover. RecordingStore keeps a DiscardPendingTree forwarder,
-            // so the read names the service file, not the store.
+            // fix does not cover.
             string source = ReadProjectSource("TreeDiscardService.cs");
             int discardPending = source.IndexOf("public static void DiscardPendingTree(",
                 StringComparison.Ordinal);

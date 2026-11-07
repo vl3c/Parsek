@@ -10,8 +10,8 @@ namespace Parsek
     /// next-restore suppressions. <c>ParsekScenario.OnSave</c> serializes the slot and
     /// <c>ParsekScenario.OnLoad</c> dispatches it (Limbo / revert / quickload). The state is
     /// save-scoped: a cold load drops it, files untouched (<see cref="ResetForLoad"/>).
-    /// Committing and discarding the pending tree stay on <see cref="RecordingStore"/>
-    /// (<see cref="TreeCommitService.CommitPendingTree"/>, <see cref="RecordingStore.DiscardPendingTree"/>),
+    /// Committing and discarding the pending tree live in the tree commit and discard services
+    /// (<see cref="TreeCommitService.CommitPendingTree"/>, <see cref="TreeDiscardService.DiscardPendingTree"/>),
     /// which empty the slot through <see cref="ClearSlot"/>.
     /// </summary>
     internal static class PendingTreeSlot
@@ -365,7 +365,7 @@ namespace Parsek
         /// active tree. <see cref="ParsekFileCollector"/> at the next cold-start reclaims
         /// sidecars no quicksave still references.
         ///
-        /// Contrast with <see cref="RecordingStore.DiscardPendingTree"/>, which runs the #431 purge +
+        /// Contrast with <see cref="TreeDiscardService.DiscardPendingTree"/>, which runs the #431 purge +
         /// file deletion for pending-only ids on the merge-dialog Discard button's
         /// explicit "throw it away" choice.
         /// </summary>
@@ -469,7 +469,7 @@ namespace Parsek
         /// Removes the pending tree from the slot WITHOUT deleting its sidecar files or
         /// clearing pending science subjects. Returns the tree so the caller can take
         /// ownership (typically to re-install as the active tree during quickload-resume).
-        /// Unlike <see cref="RecordingStore.DiscardPendingTree"/>, this is non-destructive — the caller
+        /// Unlike <see cref="TreeDiscardService.DiscardPendingTree"/>, this is non-destructive — the caller
         /// is responsible for the tree's lifetime after popping.
         /// </summary>
         internal static RecordingTree PopPendingTree()
@@ -488,7 +488,7 @@ namespace Parsek
         /// <summary>
         /// #431: sets <see cref="PendingTreeStateValue"/> directly. For unit tests only —
         /// production always transitions state via <see cref="StashPendingTree"/>,
-        /// <see cref="TreeCommitService.CommitPendingTree"/>, <see cref="RecordingStore.DiscardPendingTree"/>, or the limbo-stash
+        /// <see cref="TreeCommitService.CommitPendingTree"/>, <see cref="TreeDiscardService.DiscardPendingTree"/>, or the limbo-stash
         /// paths. Used by the LimboVesselSwitch tag-fallback test.
         /// </summary>
         internal static void SetPendingTreeStateForTesting(PendingTreeState state)

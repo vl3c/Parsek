@@ -8,7 +8,7 @@ namespace Parsek
         /// <summary>
         /// Implements the "Discard" branch of the dialog. Does NOT call
         /// <see cref="RecordingStore.MarkTreeAsApplied"/>: the tree is
-        /// removed from storage by <see cref="RecordingStore.DiscardPendingTree"/>
+        /// removed from storage by <see cref="TreeDiscardService.DiscardPendingTree"/>
         /// so there is no surviving caller that needs recording indexes advanced.
         ///
         /// <para>Refuses with a Warn log + screen message if a merge journal

@@ -769,21 +769,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Forwarder to <see cref="TreeDiscardService.DiscardPendingTree"/> (RecordingStore
-        /// services plan, PR12 K). The discard purges game-state and route events and re-homes
-        /// the irreversible ledger tail, so it reaches GameStateStore, RouteEventLog and
-        /// LedgerOrchestrator; a caller the RecordingStore cut does not remove would close a
-        /// cycle through the service around that cut, so those callers stay on this.
-        /// </summary>
-        public static void DiscardPendingTree(bool preserveIrreversibleLiveGameplay = true)
-        {
-            TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay);
-        }
-
-        /// <summary>
-        /// Forwarder to <see cref="TreeDiscardService.RefreshSaveAndQuicksaveAfterDiscard"/> for
-        /// MergeDialog, which the RecordingStore cut does not remove (see
-        /// <see cref="DiscardPendingTree"/>).
+        /// Forwarder to <see cref="TreeDiscardService.RefreshSaveAndQuicksaveAfterDiscard"/>
+        /// (RecordingStore services plan, PR12 K) for MergeDialog. The discard service purges
+        /// game-state and route events and re-homes the irreversible ledger tail, so it reaches
+        /// GameStateStore, RouteEventLog and LedgerOrchestrator; MergeDialog, which the
+        /// RecordingStore cut does not remove, would close a cycle through it around that cut.
         /// </summary>
         internal static void RefreshSaveAndQuicksaveAfterDiscard(
             string reason,

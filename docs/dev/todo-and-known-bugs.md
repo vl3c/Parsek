@@ -3052,9 +3052,9 @@ each PR lands on the refactor branch, IL-proven a pure move).
   discarded-tree set with its note / query; `ResetForLoad` / `ResetForTesting` clear the set where the
   store did). `RemoveRecordingAt` now calls `RecordingStore.RemoveCommittedAt` itself (new
   CommittedListNotificationTests cells). `SaveGameForTesting` stays on the store (shared with the
-  merge journal, the Re-Fly discard and `RefreshQuicksaveAfterMerge`). The store keeps
-  `DiscardPendingTree` / `RefreshSaveAndQuicksaveAfterDiscard` forwarders for callers outside the cut
-  set (`MergeDialog` direct: replayed residue 283 -> 287). `RecordingStore` partials 6,195 -> 5,650
+  merge journal, the Re-Fly discard and `RefreshQuicksaveAfterMerge`). Every
+  `DiscardPendingTree` caller calls the service; the store keeps a `RefreshSaveAndQuicksaveAfterDiscard`
+  forwarder for `MergeDialog` (calling the service directly: replayed residue 283 -> 287). `RecordingStore` partials 6,195 -> 5,650
   lines, 202 -> 194 IL methods; knot 465 -> 466, `RecordingStore` cut drops 36 -> 34 references,
   replayed cut residue 283 unchanged (bound 283).
 
