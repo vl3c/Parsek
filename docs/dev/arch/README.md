@@ -117,16 +117,18 @@ in one residue and not the other, the disagreeing edges that touch it.
 
 CI runs `scripts/arch/test_semantic.py` after the build with `PARSEK_ARCH_IL`
 pointing at the built DLL (its real-tree cells skip only when that is unset).
-On the refactor branch at 62d9b1b56 (2026-11-07): text residue 272, semantic
-residue 250 (greedy and replayed with `SEMANTIC_CUT_ORDER`), knot 459 against
-405; text-only edges 715, IL-only 637, every one classified. Two text false
+On the refactor branch at be2512a0d (2026-11-07): text residue 263, semantic
+residue 250 (greedy and replayed with `SEMANTIC_CUT_ORDER`), knot 450 against
+405; text-only edges 713, IL-only 637, every one classified. Two text false
 positives that held weight: the UI node `State` (StockUiReasonTooltip's private
 nested class) is matched by every `Contract.State` / `RDTech.State` token in
 GameActions and Patches (foreign-qualifier), and `Hold` (RewindVesselHold's
 nested class) by enum members such as `ChainBridgeAction.Hold`
-(qualified-member); `Hold -> ReFlyInvokeHold` is only the qualifier of
-`ReFlyInvokeHold.Entry` (nested-qualifier). The one compiled edge into `Hold`
-is RewindLauncher's `var` list of holds.
+(qualified-member). The one compiled edge into `Hold` is RewindLauncher's
+`var` list of holds. W1b (#2464) moved the hold record out of ReFlyInvokeHold,
+deleting the text edge `ReFlyInvokeHold -> Hold` (only the qualifier of
+`ReFlyInvokeHold.Entry`): the text residue fell 272 -> 263 (knot 459 -> 450)
+and the semantic residue stayed 250, which never counted that edge.
 
 ## Regenerating
 

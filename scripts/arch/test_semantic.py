@@ -465,10 +465,10 @@ class RealTreeSemanticTests(unittest.TestCase):
         self.assertEqual(users, [])
 
     def test_the_semantic_residue_is_within_the_text_bound(self):
-        # The text ratchet's bound (test_archview) is 272; the semantic measure
+        # The text ratchet's bound (test_archview) is 263; the semantic measure
         # replaces it only on a tree that still passes it (plan W4a2).
-        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 272)
-        self.assertLessEqual(semantic.ratchet_residue(self.result["textMeasure"]), 272)
+        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 263)
+        self.assertLessEqual(semantic.ratchet_residue(self.result["textMeasure"]), 263)
 
 
 if __name__ == "__main__":
