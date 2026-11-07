@@ -3145,6 +3145,7 @@ compare).
   bound back to 287; upward edges unchanged (81 / 792). IL: 4 moved bodies
   identical, 39 re-pointed call sites. Moving them back to `VesselSpawner` measured the same
   knot and residue but +2 upward weight (Recording and Rewind -> Controllers).
+  The ratchet then tightened 287 -> 283, the measured replayed residue.
 
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
