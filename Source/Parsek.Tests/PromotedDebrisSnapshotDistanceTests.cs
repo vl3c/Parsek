@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME (GS-11): a staging booster promoted to the
     /// foreground recorder entered RELATIVE mode near its sibling, so its flat
     /// <c>Points</c> list carried anchor-local Cartesian METRES in latitude/longitude/
-    /// altitude. <c>LiveVesselSnapshot.SnapshotVessel</c> resolved that flat list as body-fixed
+    /// altitude. <c>FlightRecorder.SnapshotVessel</c> resolved that flat list as body-fixed
     /// coordinates and stamped <c>Max distance: 1205340m</c> on a booster that fell 5 km
     /// from the pad; the frame-correct finalize backfill then skipped the recording
     /// because its maxDist was already non-zero. The stop-time distances now take the

@@ -51,7 +51,7 @@ namespace Parsek
             // Clear after first capture — prevents chain children from inheriting root's rewind save
             RewindSaveFileName = null;
 
-            LiveVesselSnapshot.SnapshotVessel(
+            FlightRecorder.SnapshotVessel(
                 capture,
                 isDestroyed,
                 snapshotVessel,
@@ -853,7 +853,7 @@ namespace Parsek
                 return;
 
             float startMs = Time.realtimeSinceStartup * 1000f;
-            var snapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
+            var snapshot = FlightRecorder.TryBackupSnapshot(vessel);
             float elapsedMs = Time.realtimeSinceStartup * 1000f - startMs;
 
             if (snapshot != null)

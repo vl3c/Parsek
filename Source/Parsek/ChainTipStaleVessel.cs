@@ -985,7 +985,7 @@ namespace Parsek
             ConfigNode snapshot;
             if (vessel != null)
             {
-                snapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
+                snapshot = FlightRecorder.TryBackupSnapshot(vessel);
             }
             else
             {

@@ -471,7 +471,7 @@ namespace Parsek
         /// root part; <c>inPlaceContinuation</c> already gates on
         /// <c>inheritFrom.VesselPersistentId == stripResult.SelectedPid</c> so
         /// the live vessel is the right thing to snapshot. If
-        /// <see cref="LiveVesselSnapshot.TryBackupSnapshot"/> fails (or the live
+        /// <see cref="FlightRecorder.TryBackupSnapshot"/> fails (or the live
         /// vessel handle is null in tests), we leave the inherited copies in
         /// place — strictly no worse than before.
         /// </para>
@@ -495,7 +495,7 @@ namespace Parsek
                 return false;
             }
 
-            ConfigNode freshSnap = LiveVesselSnapshot.TryBackupSnapshot(liveVessel);
+            ConfigNode freshSnap = FlightRecorder.TryBackupSnapshot(liveVessel);
             if (freshSnap == null)
             {
                 ParsekLog.Warn(InvokeTag,

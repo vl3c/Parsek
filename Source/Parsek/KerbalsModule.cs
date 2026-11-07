@@ -2442,7 +2442,7 @@ namespace Parsek
         /// stand-in names back to their original kerbal names. Returns the number
         /// of crew entries that were rewritten.
         ///
-        /// Called from <see cref="LiveVesselSnapshot.TryBackupSnapshot"/> so every
+        /// Called from <see cref="FlightRecorder.TryBackupSnapshot"/> so every
         /// captured snapshot persists the original kerbals — not whichever stand-in
         /// happens to be seated on the live vessel at capture time. Without this
         /// step, a snapshot captured after <see cref="CrewReservationManager.SwapReservedCrewInFlight"/>

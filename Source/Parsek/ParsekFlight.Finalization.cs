@@ -305,7 +305,7 @@ namespace Parsek
                     ?? (vessel => RecordingTree.DetermineTerminalState((int)vessel.situation, vessel));
                 this.captureTerminalOrbit = captureTerminalOrbit ?? ParsekFlight.CaptureTerminalOrbit;
                 this.captureTerminalPosition = captureTerminalPosition ?? ParsekFlight.CaptureTerminalPosition;
-                this.tryBackupSnapshot = tryBackupSnapshot ?? LiveVesselSnapshot.TryBackupSnapshot;
+                this.tryBackupSnapshot = tryBackupSnapshot ?? FlightRecorder.TryBackupSnapshot;
                 this.tryRefreshStableTerminalSnapshot =
                     tryRefreshStableTerminalSnapshot ?? ParsekFlight.TryRefreshStableTerminalSnapshot;
             }

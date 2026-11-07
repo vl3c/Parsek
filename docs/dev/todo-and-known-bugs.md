@@ -2284,7 +2284,7 @@ have no behavioural lane (unit and in-game decision cells only).
 ## ~~D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance~~ [FILED 2026-09-23 off GS-11. FIXED 2026-09-26 on branch fix-promoted-debris]
 
 **FIXED 2026-09-26 on branch fix-promoted-debris.** Source found: not live bookkeeping but
-`LiveVesselSnapshot.SnapshotVessel` at recorder stop, which resolved the capture's flat `Points`
+`FlightRecorder.SnapshotVessel` at recorder stop, which resolved the capture's flat `Points`
 (first point, last point, `ComputeMaxDistance`) through `GetWorldSurfacePosition`; the promoted
 foreground recorder had entered RELATIVE mode near the sibling booster, so the flat list carried
 anchor-local metres. The finalize backfill never corrected it because
@@ -3042,9 +3042,10 @@ each PR lands on the refactor branch, IL-proven a pure move).
   `CommittedTreeRestoreAttempt` stay on store forwarders (`TryDiscardActiveSwitchSegmentAttempt`,
   `IsMarkerOwnedSwitchSegmentRecordingId`): the service reaches `GameStateStore`, `RouteEventLog` and
   `LedgerOrchestrator`, and those callers calling it directly close cycles around the
-  `RecordingStore` cut (residue 288 -> 292). Five source gates now read `SwitchSegmentAttempts.cs`
+  `RecordingStore` cut (replayed residue +4 with them direct). Five source gates now read `SwitchSegmentAttempts.cs`
   (two of them had kept passing on the forwarder's matching signature). `RecordingStore` partials
-  6,911 -> 6,195 lines, 214 -> 202 IL methods; knot 465 -> 466, cut residue 288 unchanged.
+  6,911 -> 6,195 lines, 214 -> 202 IL methods; knot 464 -> 465 (measured after the tip's
+  LiveVesselSnapshot follow-up), replayed cut residue 283 unchanged (bound 287).
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -3150,6 +3151,16 @@ compare).
   `.TerminalOrbit`, `.SpawnRotation` and `.Validation` take the rest. The five source gates that
   read `VesselSpawner.cs` read the split set through `VesselSpawnerSourceFiles`. IL identical;
   arch unchanged. This closes the VesselSpawner placement (atlas opportunity 7).
+- PR 8 follow-up (ratchet restore): the residue ratchet is never loosened, so the four members
+  that carry `LiveVesselSnapshot`'s knot edges (`TryBackupSnapshot` with its two private helpers,
+  which read `KerbalsModule` / `CrewReservationManager` / `RecordingTree`, and `SnapshotVessel`,
+  which calls it) move to `FlightRecorder` as the partial `FlightRecorder.LiveSnapshot.cs`;
+  2 private members widened. `LiveVesselSnapshot` leaves the knot: knots 465 -> 464 (the
+  remaining +3 over 461 are services PR8's `CommittedListOptimizer`, PR9's
+  `CommittedTreeRestoreAttempt` and PR10's `PendingTreeSlot`), replayed residue 288 -> 283,
+  bound back to 287; upward edges unchanged (81 / 792). IL: 4 moved bodies
+  identical, 39 re-pointed call sites. Moving them back to `VesselSpawner` measured the same
+  knot and residue but +2 upward weight (Recording and Rewind -> Controllers).
 
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -5918,7 +5929,7 @@ rather than a crisis**: the common case was already covered downstream by pid+gu
 adoption, so this narrows a window rather than stopping a live catastrophe. Second, a
 **deliberate scope boundary**: an ABSENT or unrecognised `sit` is left on its pre-fix
 answer (allowed) rather than tightened to "reject on no evidence". Every real snapshot
-carries the field (`LiveVesselSnapshot.TryBackupSnapshot` -> `ProtoVessel.Save` writes it), so
+carries the field (`FlightRecorder.TryBackupSnapshot` -> `ProtoVessel.Save` writes it), so
 the population without one is synthetic test fixtures — 16 cells across 5 files pin the
 current answer, `MergeDialogVesselTests.CanPersistVessel_NullTerminalState_ReturnsTrue` by
 name. Tightening it is separable, has its own blast radius, and has no demonstrated
@@ -7627,7 +7638,7 @@ fixture `InGameTests/Helpers/UnloadedFuelVesselFixture.cs`:
 `EnsureUnloadedLiquidFuelVessel(minStoredLf, minFreeCapacity, result)` (coroutine)
 (a) reuses any suitable pre-existing unloaded vessel (fast path, behavior-identical
 for saves that already have one); else (b) snapshots the ActiveVessel via
-`LiveVesselSnapshot.TryBackupSnapshot`, rewrites its LiquidFuel RESOURCE amounts via the
+`FlightRecorder.TryBackupSnapshot`, rewrites its LiquidFuel RESOURCE amounts via the
 pure `AdjustSnapshotLiquidFuel` (>= minStoredLf stored, >= minFreeCapacity free,
 flowState forced True) and spawns a FRESH-identity copy (preserveIdentity:false ->
 regenerated pid, no collision) into a high (~250 km) parking ORBIT far from the

@@ -86,7 +86,7 @@ namespace Parsek
             string vesselName = vessel.vesselName ?? "(unnamed)";
 
             // Capture snapshot before despawn
-            ConfigNode snapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
+            ConfigNode snapshot = FlightRecorder.TryBackupSnapshot(vessel);
             if (snapshot == null)
             {
                 ParsekLog.Error(Tag,
