@@ -3280,12 +3280,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # PR 8 splits LiveVesselSnapshot out of VesselSpawner: both halves sit on a
         # cycle (TryBackupSnapshot reverse-maps crew names through KerbalsModule),
         # so the knot gains that one type and no reference: 462; 463 after
-        # CommittedListOptimizer (services PR8). It was [301, 7, 4, 2, 2] on 2026-09-25,
+        # CommittedListOptimizer (services PR8), 464 after CommittedTreeRestoreAttempt
+        # (services PR9). It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [463, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [464, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3357,11 +3358,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # reservation files landed at the root; the 2026-11-01 refresh placed
         # 50 more by hand, the first 2026-11-04 merge of main three more, the
         # second two more while main deleted one, and the RecordingStore
-        # services plan's SceneEntryVesselScope and CommittedListOptimizer, which
-        # no family prefix names, two more, and file-placement PR 8's
+        # services plan's SceneEntryVesselScope, CommittedListOptimizer and
+        # CommittedTreeRestoreAttempt, which no family prefix names, three more,
+        # and file-placement PR 8's
         # LiveVesselSnapshot one more); 9 after, the kernel list as it stands
         # today.
-        self.assertIn("| Core | 199 | 9 |", fresh)
+        self.assertIn("| Core | 200 | 9 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -3403,8 +3405,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # second. Same canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
         self.assertEqual(first["sink"], "Route")
-        self.assertEqual(first["sizeBefore"], 463)
-        self.assertEqual(first["sizeAfter"], 445)
+        self.assertEqual(first["sizeBefore"], 464)
+        self.assertEqual(first["sizeAfter"], 446)
         self.assertEqual(
             first["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
@@ -3416,9 +3418,10 @@ class RealTreeSmokeTests(unittest.TestCase):
         # File-placement PR 5 (2026-11-07) deleted the Ghost -> GameActions call,
         # which tightened this cut by one (426 before); PR 8's LiveVesselSnapshot
         # is one more knot member on the uncut side (425 before), and so is
-        # services PR8's CommittedListOptimizer (426 before).
+        # services PR8's CommittedListOptimizer (426 before) and PR9's
+        # CommittedTreeRestoreAttempt (427 before).
         self.assertEqual(second["sink"], "VesselLaunchIdentity")
-        self.assertEqual(second["sizeAfter"], 427)
+        self.assertEqual(second["sizeAfter"], 428)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3446,7 +3449,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # KerbalsModule crew-name call VesselSpawner already made, so it stays in
         # the residue as one more node with no new reference: 288 of 462, the
         # value pinned here (still 288 of 463 after services PR8's
-        # CommittedListOptimizer, which the RecordingStore cut drops with it).
+        # CommittedListOptimizer, which the RecordingStore cut drops with it,
+        # and of 464 after PR9's CommittedTreeRestoreAttempt).
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which

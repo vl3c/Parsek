@@ -2970,7 +2970,7 @@ each PR lands on the refactor branch, IL-proven a pure move).
   directly closes cycles around the `RecordingStore` cut (residue 287 -> 288).
   `IsMarkerOwnedSwitchSegmentRecordingId` and `FindRecordingByIdAcrossStores` stay on the
   store (service J). `RecordingStore` partials 7,650 -> 7,339 lines, 247 -> 237 IL methods;
-  knot 462 -> 463, cut residue unchanged.
+  knot 463 -> 464, cut residue 288 unchanged.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
