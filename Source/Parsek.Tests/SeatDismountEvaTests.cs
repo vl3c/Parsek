@@ -30,14 +30,16 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_UndockHandlerRoutesKerbalLeftVehicleBeforeTheUndockBranch()
         {
-            string src = SourceScanText.StripCSharpComments(ReadParsekFlight());
+            // The handler's body lives on the split brancher; ParsekFlight keeps the subscribed
+            // one-line forwarder of the same signature.
+            string src = SourceScanText.StripCSharpComments(ReadSplitBrancher());
             string handler = MethodBody(src, "void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)");
 
             int shape = handler.IndexOf(
                 "SegmentBoundaryLogic.ClassifyUndockShape(oldVessel.isEVA, newVessel.isEVA)",
                 StringComparison.Ordinal);
             int route = handler.IndexOf("HandleKerbalLeftVehicleUndock(oldVessel, newVessel);", StringComparison.Ordinal);
-            int notRecording = handler.IndexOf("recorder == null || !recorder.IsRecording", StringComparison.Ordinal);
+            int notRecording = handler.IndexOf("host.recorder == null || !host.recorder.IsRecording", StringComparison.Ordinal);
             int undockBranch = handler.IndexOf("DeferredUndockBranch(", StringComparison.Ordinal);
             Assert.True(shape >= 0, "OnVesselsUndocking no longer classifies the undock shape");
             Assert.True(route > shape, "the KerbalLeftVehicle shape is not routed to the EVA handler");
@@ -53,8 +55,8 @@ namespace Parsek.Tests
             string src = SourceScanText.StripCSharpComments(ReadParsekFlight());
             string body = MethodBody(src, "private void HandleKerbalLeftVehicleUndock(Vessel oldVessel, Vessel newVessel)");
 
-            Assert.Contains("StartCoroutine(DeferredEvaBranch(kerbalName, evaData));", body);
-            Assert.Contains("StartCoroutine(DeferredKerbalLeftVehicleNotRecording(evaData, kerbalVessel));", body);
+            Assert.Contains("host.StartCoroutine(host.DeferredEvaBranch(kerbalName, evaData));", body);
+            Assert.Contains("host.StartCoroutine(host.DeferredKerbalLeftVehicleNotRecording(evaData, kerbalVessel));", body);
             Assert.Contains("recorder.ConsumePendingJointBreakCheck(", body);
             Assert.Contains("new GameEvents.FromToAction<Part, Part>(", body);
             Assert.DoesNotContain("BranchPointType.Undock", body);
@@ -78,7 +80,7 @@ namespace Parsek.Tests
         public void Wiring_NotRecordingRouteRunsTheHatchEvaHandlerBehindTheFocusGate()
         {
             string src = SourceScanText.StripCSharpComments(ReadParsekFlight());
-            string body = MethodBody(src, "private IEnumerator DeferredKerbalLeftVehicleNotRecording(");
+            string body = MethodBody(src, "internal IEnumerator DeferredKerbalLeftVehicleNotRecording(");
             int gate = body.IndexOf("ShouldRouteKerbalLeftVehicleNotRecording(", StringComparison.Ordinal);
             int route = body.IndexOf("OnCrewOnEva(evaData);", StringComparison.Ordinal);
             Assert.True(gate >= 0 && route > gate, "OnCrewOnEva must run only behind the focus gate");
@@ -90,6 +92,13 @@ namespace Parsek.Tests
             // The EVA branch the dismount now takes never gets a Re-Fly slot.
             Assert.False(RewindPointAuthor.IsReFlySplitType(BranchPointType.EVA));
             Assert.True(RewindPointAuthor.IsReFlySplitType(BranchPointType.Undock));
+        }
+
+        private static string ReadSplitBrancher()
+        {
+            return File.ReadAllText(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "ParsekFlightSplitBrancher.cs"));
         }
 
         private static string ReadParsekFlight()

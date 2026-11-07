@@ -478,7 +478,7 @@ namespace Parsek
                 && recorder != null && recorder.IsRecording && !recorder.IsBackgrounded
                 && recorder.RecordingVesselId != newVessel.persistentId)
             {
-                EmitPendingSplitBeforeFocusLeaves("OnVesselSwitchComplete(active)");
+                SplitBrancher.EmitPendingSplitBeforeFocusLeaves("OnVesselSwitchComplete(active)");
                 recorder.TransitionToBackground();
                 FlushRecorderToTreeRecording(recorder, activeTree);
                 CopyRewindSaveToRoot(activeTree, recorder,
@@ -508,7 +508,7 @@ namespace Parsek
             else if (activeTree != null
                 && recorder != null && recorder.IsBackgrounded && recorder.TransitionToBackgroundPending)
             {
-                EmitPendingSplitBeforeFocusLeaves("OnVesselSwitchComplete(bg)");
+                SplitBrancher.EmitPendingSplitBeforeFocusLeaves("OnVesselSwitchComplete(bg)");
                 FlushRecorderToTreeRecording(recorder, activeTree);
                 CopyRewindSaveToRoot(activeTree, recorder,
                     logTag: "OnVesselSwitch(bg)");

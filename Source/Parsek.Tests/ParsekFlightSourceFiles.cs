@@ -67,6 +67,7 @@ namespace Parsek.Tests
             "ParsekFlightPostSwitchAutoRecord.cs",
             "ParsekFlightPlaybackHost.cs",
             "ParsekFlightSpawnHost.cs",
+            "ParsekFlightSplitBrancher.cs",
             "ParsekFlightSurfaceCapture.cs",
         };
 

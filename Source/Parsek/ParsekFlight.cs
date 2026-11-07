@@ -521,11 +521,11 @@ namespace Parsek
 
         // Boarding confirmation via onCrewBoardVessel
         internal uint pendingBoardingTargetPid; // vessel PID from onCrewBoardVessel, 0 = none
-        private int boardingConfirmFrames;     // frames since boarding event (auto-clear after 10)
+        internal int boardingConfirmFrames;     // frames since boarding event (auto-clear after 10)
 
         // Pending dock transition (set by OnPartCouple, consumed by HandleTreeDockMerge)
         internal uint pendingDockMergedPid;          // merged vessel pid, 0 = no pending dock
-        private int dockConfirmFrames;              // frame counter for confirmation window (auto-clear after 5)
+        internal int dockConfirmFrames;              // frame counter for confirmation window (auto-clear after 5)
 
         // Recording tree mode (null when not in tree mode)
         internal RecordingTree activeTree;
@@ -747,49 +747,40 @@ namespace Parsek
         internal static bool restoringActiveTree;
 
         // Split event detection: deduplication and race-condition guard
-        private double lastBranchUT = -1;
-        private HashSet<uint> lastBranchVesselPids = new HashSet<uint>();
+        internal double lastBranchUT = -1;
+        internal HashSet<uint> lastBranchVesselPids = new HashSet<uint>();
         internal bool pendingSplitInProgress;
         internal FlightRecorder pendingSplitRecorder;
-        private DeferredSplitCheckTrigger pendingDeferredSplitCheckTrigger;
-        private double pendingSplitTriggerUT = double.NaN;
+        internal DeferredSplitCheckTrigger pendingDeferredSplitCheckTrigger;
+        internal double pendingSplitTriggerUT = double.NaN;
         // Vessel PIDs that existed before a joint break (for filtering pre-existing vessels)
-        private HashSet<uint> preBreakVesselPids;
+        internal HashSet<uint> preBreakVesselPids;
         // Vessels created by decouple during recording (caught via onPartDeCoupleNewVesselComplete
         // synchronously during Part.decouple(), before KSP's debris cleanup can destroy them).
         // Subscribed for the entire recording session, consumed by the next deferred split check.
-        private List<Vessel> decoupleCreatedVessels;
+        internal List<Vessel> decoupleCreatedVessels;
         // Controller status captured at creation time (vessel parts may be cleared before deferred check)
-        private Dictionary<uint, bool> decoupleControllerStatus;
+        internal Dictionary<uint, bool> decoupleControllerStatus;
         // Exact split-time seed points captured from onPartDeCoupleNewVesselComplete.
         // Used to avoid seeding breakup children from the later deferred-check frame.
-        private Dictionary<uint, TrajectoryPoint> decoupleCreatedTrajectoryPoints;
+        internal Dictionary<uint, TrajectoryPoint> decoupleCreatedTrajectoryPoints;
         // Every onPartDeCoupleNewVesselComplete seen while the listener is subscribed, new
         // vessel pid -> the vessel it came off (foreign origins included). The deferred
         // joint-break scan drops a candidate whose origin chain never reaches the recorded
         // vessel (SegmentBoundaryLogic.IsForeignDecoupleOrigin). Cleared by the deferred
         // check and whenever the listener is torn down.
-        private readonly Dictionary<uint, uint> decoupleOriginByNewPid = new Dictionary<uint, uint>();
-
-        // Docking-port undock handoff (onPartUndock -> onVesselsUndocking, same frame).
-        // onPartUndock fires FIRST inside Part.Undock(), while the combined vessel is still
-        // intact (ideal moment to capture the departing root part's pre-split origin seed and
-        // the structural-event snapshot), but the new vessel's persistentId is not assigned
-        // until KSP finishes the split and fires onVesselsUndocking at the end of the same
-        // call. We stash the pre-split seed here and let OnVesselsUndocking author the actual
-        // Undock branch with the final pids.
-        private TrajectoryPoint? pendingUndockRootPartSeed;
+        internal readonly Dictionary<uint, uint> decoupleOriginByNewPid = new Dictionary<uint, uint>();
 
         // Crash coalescer: groups rapid structural splits into single BREAKUP events
-        private CrashCoalescer crashCoalescer = new CrashCoalescer();
+        internal CrashCoalescer crashCoalescer = new CrashCoalescer();
 
         // Merge event detection (tree mode)
         internal bool pendingTreeDockMerge;           // true when a tree dock merge is pending
-        private uint pendingDockAbsorbedPid;         // PID of absorbed vessel in dock merge
+        internal uint pendingDockAbsorbedPid;         // PID of absorbed vessel in dock merge
         // Route partner PID resolved from the couple event (independent of BackgroundMap).
         // 0 means partner was foreign or unresolved; non-zero means the merge child should
         // carry a route window. Cleared when the pending dock state is cleared.
-        private uint pendingDockRouteTargetPid;
+        internal uint pendingDockRouteTargetPid;
         // Branch-point partner stamp: the couple-event partner identity, decoupled from
         // route eligibility (design-dock-event-graph.md 6.1). Set WITHOUT the
         // snapshot/known-recording disjunct (EVA grabs still suppress), so a
@@ -801,23 +792,23 @@ namespace Parsek
         // "restore" it to the gated pid). The ROUTE surfaces - route windows,
         // TransferKind, TransferTargetVesselPid - keep the gated
         // pendingDockRouteTargetPid.
-        private uint pendingDockPartnerPid;
+        internal uint pendingDockPartnerPid;
         // Launch guid (Vessel.id) of the vessel pendingDockPartnerPid names, read from the
         // live couple event. Feeds BranchPoint.TargetVesselGuid only; set and cleared with
         // pendingDockPartnerPid. Null when the partner stamp is 0 or its vessel had no id.
-        private string pendingDockPartnerGuid;
+        internal string pendingDockPartnerGuid;
         // Connection producer that made the pending couple, classified from the live
         // onPartCouple parts (DockingPort / Grapple / Unknown). Stamped on the merge
         // branch data and the route connection window so admission can gate by
         // producer. None when no couple is pending.
-        private RouteConnectionKind pendingDockTransferKind;
+        internal RouteConnectionKind pendingDockTransferKind;
         // Pre-couple partner vessel snapshot, captured in OnPartCouple while data.from
         // and data.to still reference DISTINCT vessels. Used by CreateMergeBranch to
         // build the route window's endpoint baseline from the partner's pre-dock state,
         // instead of inflating it with the post-couple merged vessel (which includes
         // transport parts and gives DOCK_ENDPOINT_RESOURCES = transport + endpoint).
-        private ConfigNode pendingDockPartnerSnapshot;
-        private uint pendingDockPartnerSnapshotPid;
+        internal ConfigNode pendingDockPartnerSnapshot;
+        internal uint pendingDockPartnerSnapshotPid;
         // Pre-couple SELF (transport / recorded vessel) snapshot, captured in OnPartCouple
         // while data.from and data.to still reference DISTINCT vessels. Mirror of
         // pendingDockPartnerSnapshot for the transport side: CreateMergeBranch uses it to
@@ -826,11 +817,11 @@ namespace Parsek
         // transport tank into the depot does not deflate the baseline and trip the strict
         // MixedPickupDelivery pickup gate on a clean delivery run. Cleared with the partner
         // snapshot.
-        private ConfigNode pendingDockSelfSnapshot;
-        private uint pendingDockSelfSnapshotPid;
-        private RouteEndpoint? pendingDockRouteEndpointAtDock;
-        private int pendingDockRouteEndpointSituation = -1;
-        private bool pendingBoardingTargetInTree;    // true if boarding target is in the tree
+        internal ConfigNode pendingDockSelfSnapshot;
+        internal uint pendingDockSelfSnapshotPid;
+        internal RouteEndpoint? pendingDockRouteEndpointAtDock;
+        internal int pendingDockRouteEndpointSituation = -1;
+        internal bool pendingBoardingTargetInTree;    // true if boarding target is in the tree
 
         // Docking race condition guard (Task 5 sets, Task 6 checks)
         internal HashSet<uint> dockingInProgress = new HashSet<uint>();
@@ -988,6 +979,21 @@ namespace Parsek
         void OnEvaConstructionPartDetached(Vessel vessel, Part part) =>
             SurfaceCapture.OnEvaConstructionPartDetached(vessel, part);
         void OnAfterFlagPlanted(FlagSite flagSite) => SurfaceCapture.OnAfterFlagPlanted(flagSite);
+
+        private ParsekFlightSplitBrancher splitBrancher;
+        internal ParsekFlightSplitBrancher SplitBrancher =>
+            splitBrancher ?? (splitBrancher = new ParsekFlightSplitBrancher(this));
+
+        // GameEvents handlers subscribed in Start (OnDecoupleNewVesselDuringSplitCheck by the
+        // recorder session) and removed in OnDestroy / StopRecording; the bodies live on SplitBrancher.
+        void OnCrewBoardVessel(GameEvents.FromToAction<Part, Part> data) => SplitBrancher.OnCrewBoardVessel(data);
+        void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data) => SplitBrancher.OnCrewOnEva(data);
+        void OnPartCouple(GameEvents.FromToAction<Part, Part> data) => SplitBrancher.OnPartCouple(data);
+        void OnPartUndock(Part undockedPart) => SplitBrancher.OnPartUndock(undockedPart);
+        void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel) =>
+            SplitBrancher.OnVesselsUndocking(oldVessel, newVessel);
+        private void OnDecoupleNewVesselDuringSplitCheck(Vessel originalVessel, Vessel newVessel) =>
+            SplitBrancher.OnDecoupleNewVesselDuringSplitCheck(originalVessel, newVessel);
 
         // UI and test-command entry points; the bodies live on SpawnHost.
         internal void WarpToRecordingEnd(int recordingIndex) => SpawnHost.WarpToRecordingEnd(recordingIndex);
@@ -1242,9 +1248,9 @@ namespace Parsek
             ClearStaleConfirmations();
             HandleMissedVesselSwitchRecovery();
 
-            HandleTreeDockMerge();
-            HandleTreeBoardMerge();
-            HandleUnconfirmedBoardingStop();
+            SplitBrancher.HandleTreeDockMerge();
+            SplitBrancher.HandleTreeBoardMerge();
+            SplitBrancher.HandleUnconfirmedBoardingStop();
 
             HandleAtmosphereBoundarySplit();
             HandleAltitudeBoundarySplit();
@@ -1260,8 +1266,8 @@ namespace Parsek
                 backgroundRecorder.CheckDebrisTTL(bgUT);
             }
 
-            HandleJointBreakDeferredCheck();
-            TickCrashCoalescer();
+            SplitBrancher.HandleJointBreakDeferredCheck();
+            SplitBrancher.TickCrashCoalescer();
             SpawnedHarvesterRestore.Tick();
 
             // Skip auto-record and chain handlers while a split is being processed
@@ -2069,7 +2075,7 @@ namespace Parsek
             PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("scene change transient reset");
 
             // Clear dock/undock pending state
-            ClearDockUndockState();
+            SplitBrancher.ClearDockUndockState();
 
             // Clear merge event detection state
             pendingTreeDockMerge = false;
@@ -2138,7 +2144,7 @@ namespace Parsek
             pendingBoardingTargetPid = 0;
 
             // Clear dock/undock state
-            ClearDockUndockState();
+            SplitBrancher.ClearDockUndockState();
 
             // Clear merge event detection state
             pendingTreeDockMerge = false;

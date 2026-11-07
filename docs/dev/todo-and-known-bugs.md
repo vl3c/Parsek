@@ -2951,6 +2951,21 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   body moved behind a same-named forwarder with its twin and reads `callvirt` on a non-virtual
   Unity base member (`StartCoroutine`, `gameObject`) as `call`. Knot 473 -> 474, replayed residue
   283 unchanged (canaries re-pinned).
+- PF7 landed: `ParsekFlightSplitBrancher` (3,420 lines, lazy `SplitBrancher`) is the split
+  brancher: split and merge branch creation (live and background parent), the split recorder's
+  fallback commit and resume, branch dedup, breakup processing and the crash coalescer tick, the
+  rewind-point authoring for splits and breakups, the dock / board / undock confirmations and
+  the bodies of the dock, undock, EVA, board and decouple GameEvents handlers: 51 methods (32
+  instance, the 19 statics no other file names) and `pendingUndockRootPartSeed`
+  (`.SplitBranching.cs` 4,283 -> 2,230 lines, `.SplitEvents.cs` 1,469 -> 140; ParsekFlight.cs
+  2,518). ParsekFlight keeps the six GameEvents handlers (one-line forwarders, so `Start` /
+  `OnDestroy` / the recorder session add and remove the same delegates), the five `Deferred*`
+  coroutines, `Update`'s calls in the same order, the pending-split, decouple and dock / board
+  confirmation fields other seams read and the 41 split statics other files name. 52 declarations
+  widened private -> internal (24 fields, 28 methods). IL (`--fold`): 0 moved-body differences;
+  the 11 left are the accessor (field, property, getter), the service's host field and
+  constructor and the six forwarders. Knot 474 -> 475, replayed residue 283 unchanged (canaries
+  re-pinned).
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 

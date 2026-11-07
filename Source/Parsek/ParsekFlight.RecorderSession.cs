@@ -861,7 +861,7 @@ namespace Parsek
                 || !recorder.IsBackgrounded)
                 return;
 
-            EmitPendingSplitBeforeFocusLeaves("HandleTreeBackgroundFlush");
+            SplitBrancher.EmitPendingSplitBeforeFocusLeaves("HandleTreeBackgroundFlush");
             FlushRecorderToTreeRecording(recorder, activeTree);
 
             // Add old vessel to BackgroundMap
@@ -898,7 +898,7 @@ namespace Parsek
             if (recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null
                 && activeTree == null)
             {
-                FallbackCommitSplitRecorder(recorder);
+                SplitBrancher.FallbackCommitSplitRecorder(recorder);
                 ParsekLog.Info("Flight", "Resolved orphaned recorder capture before starting new one");
             }
 
@@ -1020,7 +1020,7 @@ namespace Parsek
             RecorderStateLog.RecState("StartRecording:post", CaptureRecorderState());
         }
 
-        private void PrepareSessionStateForRecorderStart(string reason)
+        internal void PrepareSessionStateForRecorderStart(string reason)
         {
             PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord(reason);
 

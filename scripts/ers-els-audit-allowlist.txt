@@ -169,6 +169,11 @@ Source/Parsek/ParsekFlightGhostPositioner.cs
 # list and flags over the committed list by INDEX (the engine's index-keyed slots), the same
 # exemption as ParsekFlight.cs.
 Source/Parsek/ParsekFlightPlaybackHost.cs
+# ParsekFlight's split brancher, lifted out of the split partials with its bodies verbatim
+# (ARCH-PARSEKFLIGHT-CHANGE-HUB PF7). It reads the committed list only to correlate a dock
+# partner with its recorded vessel (is the partner pid known, which endpoint part pids did
+# its recording carry): physical-identity correlation, never visibility.
+Source/Parsek/ParsekFlightSplitBrancher.cs
 Source/Parsek/ParsekPlaybackPolicy.cs
 Source/Parsek/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs
