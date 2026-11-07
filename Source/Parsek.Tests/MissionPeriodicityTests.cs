@@ -255,7 +255,7 @@ namespace Parsek.Tests
             if (extraCommitted != null)
                 committed.AddRange(extraCommitted); // e.g. a station's own recording (another tree)
             var (view, compRoots) = Models(tree);
-            return MissionPeriodicity.ExtractConstraints(
+            return MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, excluded ?? new HashSet<string>(), bodyInfo);
         }
 
@@ -554,7 +554,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(); // nothing committed
             var (view, compRoots) = Models(tree);
 
-            var ex = MissionPeriodicity.ExtractConstraints(
+            var ex = MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), StockFake());
 
             Assert.Empty(ex.Constraints);
@@ -1179,7 +1179,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(tree.Recordings.Values) { station };
             var (view, compRoots) = Models(tree);
 
-            var ex = MissionPeriodicity.ExtractConstraints(
+            var ex = MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), StationFake());
 
             Assert.Equal(Support.Supported, ex.Support);
@@ -1200,7 +1200,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(tree.Recordings.Values) { station };
             var (view, compRoots) = Models(tree);
 
-            var ex = MissionPeriodicity.ExtractConstraints(
+            var ex = MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), StationFake());
 
             Assert.Equal(Support.Supported, ex.Support);
@@ -1232,9 +1232,9 @@ namespace Parsek.Tests
             var (view, compRoots) = Models(tree);
 
             var drifted = StationFake();
-            MissionPeriodicity.ExtractConstraints(
+            MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), drifted);
-            MissionPeriodicity.ExtractConstraints(
+            MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), drifted);
             Assert.Equal(1, logLines.Count(l =>
                 l.Contains("[INFO]") && l.Contains("[MissionPeriodicity]")
@@ -1242,9 +1242,9 @@ namespace Parsek.Tests
 
             // The station boosts back to the recorded period -> the amber clears, logged once.
             var aligned = StationFake(period: recordedPeriod);
-            MissionPeriodicity.ExtractConstraints(
+            MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), aligned);
-            MissionPeriodicity.ExtractConstraints(
+            MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), aligned);
             Assert.Equal(1, logLines.Count(l =>
                 l.Contains("[INFO]") && l.Contains("Drift amber CLEARED") && l.Contains("tree=t")));

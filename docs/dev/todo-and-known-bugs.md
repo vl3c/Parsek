@@ -2950,6 +2950,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Wave 2 W1b (2026-11-07, this branch): the hold decision record `ReFlyInvokeHold.Entry` is the
   top-level plain type `ReFlyHoldEntry` (same file, same fields), so `RewindVesselHold.Hold`
   no longer references the classifier. Knot 459 -> 450, replayed residue 272 -> 263.
+- Wave 2 W1c (2026-11-07, this branch): `MissionPeriodicity.ExtractConstraints` takes the
+  trimmed member windows as an input; `MissionLoopUnitBuilder.ExtractPeriodicityConstraints`
+  computes them and is what the builder, the Missions window and the in-game real-save finder
+  call. The periodicity solver no longer reaches up into the builder. Knot 450 (unchanged),
+  replayed residue 263 -> 246; the greedy cuts reorder (GhostPlaybackLogic first) and the
+  greedy residue drops to 201.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

@@ -435,7 +435,7 @@ namespace Parsek
             }
             else if (bodyInfo != null)
             {
-                ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
+                ConstraintExtraction extraction = ExtractPeriodicityConstraints(
                     view, compRoots, committed, mission.ExcludedIntervalKeys, bodyInfo);
                 // Reference time for "the next window at or after the loop was enabled": the
                 // loop-enable UT (LoopAnchorUT), so the snap is stable across frames (it does not
@@ -1619,7 +1619,12 @@ namespace Parsek
             ICollection<string> excludedIntervalKeys,
             IBodyInfo bodyInfo)
         {
-            return MissionPeriodicity.ExtractConstraints(view, compRoots, committed, excludedIntervalKeys, bodyInfo);
+            Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> memberWindows = null;
+            if (committed != null && bodyInfo != null)
+                memberWindows = ComputeTrimmedMemberWindows(
+                    view, compRoots, committed, excludedIntervalKeys, null,
+                    out _, out _);
+            return MissionPeriodicity.ExtractConstraints(view, memberWindows, committed, bodyInfo);
         }
 
         /// <summary>
