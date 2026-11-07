@@ -488,9 +488,8 @@ namespace Parsek
         /// <paramref name="afterRecordingId"/>. If no match is found,
         /// <paramref name="toInsert"/> is appended at the end. Used by
         /// <see cref="RecordingTreeSplitter"/> to insert TIP right after HEAD
-        /// (mirrors the optimizer split's <c>recordings.Insert(recIdx+1, ...)</c>
-        /// pattern in <see cref="RunOptimizationSplitPass"/>). Bumps
-        /// <see cref="StateVersion"/>.
+        /// (the optimizer split inserts its second half the same way, through
+        /// <see cref="InsertCommittedAt"/>). Bumps <see cref="StateVersion"/>.
         /// </summary>
         internal static void InsertCommittedAfter(string afterRecordingId, Recording toInsert)
         {
@@ -510,9 +509,7 @@ namespace Parsek
                     }
                 }
             }
-            committedRecordings.Insert(insertAt, toInsert);
-            BumpStateVersion();
-            NotifyCommittedRecordingInserted(insertAt);
+            InsertCommittedAt(insertAt, toInsert);
         }
 
         /// <summary>
@@ -554,11 +551,45 @@ namespace Parsek
         // the callers that want them (RemoveRecordingAt).
         private static void RemoveCommittedAtWithNotifications(int index)
         {
+            RemoveCommittedAt(index, null);
+        }
+
+        /// <summary>
+        /// The committed-list removal primitive: raises
+        /// <see cref="CommittedRecordingRemoving"/> with the list unshifted, removes the
+        /// recording at <paramref name="index"/>, bumps <see cref="StateVersion"/>, then raises
+        /// <see cref="CommittedRecordingRemoved"/> naming <paramref name="absorbedInto"/> (the
+        /// optimizer merge target that now carries the removed trajectory, or null for a plain
+        /// delete). Every removal from the committed list goes through here.
+        /// </summary>
+        internal static void RemoveCommittedAt(int index, Recording absorbedInto)
+        {
             var rec = committedRecordings[index];
             NotifyCommittedRecordingRemoving(index, rec);
             committedRecordings.RemoveAt(index);
             BumpStateVersion();
-            NotifyCommittedRecordingRemoved(index, rec, null);
+            NotifyCommittedRecordingRemoved(index, rec, absorbedInto);
+        }
+
+        /// <summary>
+        /// The committed-list insertion primitive: inserts <paramref name="toInsert"/> at
+        /// <paramref name="index"/>, bumps <see cref="StateVersion"/>, then raises
+        /// <see cref="CommittedRecordingInserted"/>. Every mid-list insertion goes through here.
+        /// </summary>
+        internal static void InsertCommittedAt(int index, Recording toInsert)
+        {
+            committedRecordings.Insert(index, toInsert);
+            BumpStateVersion();
+            NotifyCommittedRecordingInserted(index);
+        }
+
+        /// <summary>
+        /// Forwarder to <see cref="CommittedListOptimizer.RunOptimizationPass"/>, kept while
+        /// its call sites move (RecordingStore services plan, PR8).
+        /// </summary>
+        internal static void RunOptimizationPass()
+        {
+            CommittedListOptimizer.RunOptimizationPass();
         }
 
         /// <summary>

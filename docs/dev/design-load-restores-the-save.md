@@ -403,7 +403,7 @@ the backup after a successful batch (`CleanupCommittedBackups`). For the three h
    replace is still a rename, and a rollback restores from it exactly as today.
 2. After the batch commits, each backup is hashed from its own bytes (always; memory's idea of
    the head's hash is not trusted here, because a head can be rewritten under the same epoch,
-   RecordingStore.Optimization.cs:442) and renamed to `_versions/<id>.<hash><suffix>`.
+   `RecordingStore.ShouldAdvanceSidecarEpochOnFlush`) and renamed to `_versions/<id>.<hash><suffix>`.
 3. If that target already exists, it holds the same bytes (same id, same hash), so the incoming
    backup is deleted instead. If the hash equals the new head's hash (a byte-identical rewrite),
    the backup is deleted too.
@@ -449,7 +449,7 @@ reading:
 
 When a hash is present it replaces the epoch comparison: a matching hash is the stronger proof,
 and it also catches the optimizer's same-epoch rewrite window that the epoch rule accepts
-(RecordingStore.Optimization.cs:442).
+(`RecordingStore.ShouldAdvanceSidecarEpochOnFlush`).
 
 **The `.pann` cache.** The `.pann` is keyed by `SourceSidecarEpoch`, which a retained version can
 share with the head (the same-epoch rewrite), so the epoch key cannot tell them apart. A recording

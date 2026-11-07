@@ -223,7 +223,7 @@ attribute itself.
 A **knot** is a strongly connected component of the type graph with more than
 one member: a group of types that reach one another in a cycle, directly or
 through other members. Longest-path levelling condenses a cycle to one level,
-so the kernel's 462-type knot collapses into level 10 and only the types above
+so the kernel's 463-type knot collapses into level 10 and only the types above
 it (levels 11 to 14 here, mostly patches and entry points) rise above. A knot
 is why that level is flat: the levelling cannot order types that depend on each
 other.
@@ -232,7 +232,7 @@ other.
 component in largest-first order, or null outside a knot, and `sublevel` is
 the type's level inside its knot after the cut edges are removed (again null
 outside). On the current tree, the refactor branch claude/project-thread-bkwmrr,
-the knots are one of 462, then of 4 and 3 (re-derived 2026-11-06 on main's 1.0.0
+the knots are one of 463, then of 4 and 3 (re-derived 2026-11-06 on main's 1.0.0
 code plus the branch's re-cuts: placing 50 root files the map had skipped took
 the kernel to 584 on 2026-11-01 and merged the 7-type stock-screen decoration
 knot into it; teaching the scanner that a field, property or enum member
@@ -246,7 +246,8 @@ the knot through `RecordingOptimizer`, adds one: 458; moving the chain queries i
 `RewindSpawnScope` adds one more: 460; the file janitor in `RecordingFileJanitor`
 one more: 461; file-placement PR 8 splits
 `LiveVesselSnapshot` out of `VesselSpawner`, and both halves sit on a cycle, so
-the knot gains that one type and no reference: 462).
+the knot gains that one type and no reference: 462; the optimization pass in
+`CommittedListOptimizer` one more: 463).
 It was 301, 7, 4, 2 and 2 on 2026-09-25; 286, 4, 2 and 2 on 2026-09-22; and
 391, 4 and 2 before the 2026-09-14 pass made `ParsekLog` and `Recording` leaves.
 
@@ -259,22 +260,22 @@ reports the references that were dropped. On main's code, `542 -> cut Recording 
 means removing `Recording`'s two references inside the knot
 (`LaunchSiteOnlyGhost`, `SidecarVersions`) splits off 46 members, and the
 second row, `GameAction` (`CaptureSequence`), 40 more; this branch makes both
-cuts in code, so its sequence starts at `462 -> cut Route -> 444`, then
-`444 -> cut VesselLaunchIdentity -> 426` (its `RecordingSidecarStore` and `VesselNameStore`
+cuts in code, so its sequence starts at `463 -> cut Route -> 445`, then
+`445 -> cut VesselLaunchIdentity -> 427` (its `RecordingSidecarStore` and `VesselNameStore`
 references; the flight controller was second until a 2026-11-07 pure move deleted
 one unrelated reference and reordered the greedy steps). Some cuts are
 cheap inversions like those - one or two references between hubs holding a
 whole region together, and those are the references a refactor should look at
 first - while the rest touch many small references at once (the `RecordingStore`
-cut drops 38 on the current tree), and the named
+cut drops 34 on the current tree), and the named
 sink there often needs a new abstraction (an interface, a data boundary) rather
 than moved edges. The table is a research list, not a verdict - the tool never says a
 reference is wrong, only that it holds a cycle together. Nothing in this phase
 changes any dependency; it reports them.
 
 The residue after the last cut is a ratchet in `scripts/arch/test_archview.py`
-(`test_cut_sequence_halves_the_largest_knot`, 288 of 462 on the current tree;
-PR 8's `LiveVesselSnapshot` is the one new residue node):
+(`test_cut_sequence_halves_the_largest_knot`, 288 of 463 on the current tree;
+file-placement PR 8's `LiveVesselSnapshot` is the one new residue node):
 refactor work must not loosen it. Because the greedy sequence is a heuristic,
 deleting a real reference can change which sink wins an early step and leave a
 larger residue after the same 12 steps, so the ratchet measures the smaller of

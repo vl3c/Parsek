@@ -11,7 +11,7 @@ namespace Parsek.InGameTests
     /// xUnit twins under `RecordingOptimizerTests` cover the predicate exhaustively in
     /// isolation. This in-game variant runs the real-flight chain shape through the
     /// production `RecordingStore.RunOptimizationPass()` path inside KSP — so that
-    /// future refactors of `RecordingOptimizer`, `RecordingStore.RunOptimizationSplitPass`,
+    /// future refactors of `RecordingOptimizer`, `CommittedListOptimizer.RunOptimizationSplitPass`,
     /// or any wiring between them must keep producing per-phase chain segments for the
     /// canonical ascent + reentry shape that the feature exists to serve.
     ///

@@ -4,7 +4,17 @@ using System.Globalization;
 
 namespace Parsek
 {
-    public static partial class RecordingStore
+    /// <summary>
+    /// The committed-list optimization pass (RecordingStore services plan, service G): merges
+    /// adjacent chain segments, splits multi-environment recordings at environment
+    /// boundaries, trims boring tails, links loop-sync debris and flushes dirty sidecars.
+    /// <see cref="RecordingOptimizer"/> stays the pure core. The pass reads the committed list
+    /// through <see cref="RecordingStore.CommittedRecordings"/> and changes its structure only
+    /// through the store's primitives (<see cref="RecordingStore.RemoveCommittedAt"/>,
+    /// <see cref="RecordingStore.InsertCommittedAt"/>), which bump the state version and raise
+    /// the committed-list notifications.
+    /// </summary>
+    internal static class CommittedListOptimizer
     {
         // ─── Recording optimization ─────────────────────────────────────────
 
@@ -15,7 +25,7 @@ namespace Parsek
         /// after every tree commit and chain-segment commit.
         ///
         /// Structural changes (a merge removes the absorbed recording mid-list, a split
-        /// inserts the second half mid-list) bump <see cref="StateVersion"/> at the
+        /// inserts the second half mid-list) bump <see cref="RecordingStore.StateVersion"/> at the
         /// mutation so the <see cref="EffectiveState"/> caches rebuild even if a later step
         /// of the pass throws, and raise the <c>CommittedRecording*</c> notifications
         /// (RecordingStore.CommittedListNotifications.cs) so index-keyed live state
@@ -23,7 +33,7 @@ namespace Parsek
         /// </summary>
         internal static void RunOptimizationPass()
         {
-            var recordings = committedRecordings;
+            var recordings = RecordingStore.CommittedRecordings;
             if (recordings == null || recordings.Count == 0)
             {
                 ParsekLog.Verbose("RecordingStore", "Optimization pass: skipped (no recordings)");
@@ -36,7 +46,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("RecordingStore",
                     $"Optimization pass: committed list restructured (merges={mergeCount} splits={splitCount}) - " +
-                    $"StateVersion now {StateVersion}");
+                    $"StateVersion now {RecordingStore.StateVersion}");
             }
             TrimBoringTailsForOptimization(recordings);
 
@@ -53,16 +63,16 @@ namespace Parsek
             // new recordings and merges remove them, invalidating the map.
             if (mergeCount > 0 || splitCount > 0)
             {
-                for (int t = 0; t < committedTrees.Count; t++)
-                    committedTrees[t].RebuildBackgroundMap();
+                for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
+                    RecordingStore.CommittedTrees[t].RebuildBackgroundMap();
             }
 
             // Flush all dirty recordings to disk so the crash window after
             // commit+optimize is closed (data no longer lives only in RAM).
-            FlushDirtyFiles(recordings);
+            RecordingStore.FlushDirtyCommittedFiles();
         }
 
-        private static int RunOptimizationMergePass(List<Recording> recordings)
+        private static int RunOptimizationMergePass(IReadOnlyList<Recording> recordings)
         {
             int mergeCount = 0;
             const int maxMergesPerPass = 50;
@@ -89,10 +99,7 @@ namespace Parsek
                 UpdateTreeStateAfterOptimizationMerge(target, absorbed);
 
                 // Remove absorbed recording from committed list
-                NotifyCommittedRecordingRemoving(idxB, absorbed);
-                recordings.RemoveAt(idxB);
-                BumpStateVersion();
-                NotifyCommittedRecordingRemoved(idxB, absorbed, target);
+                RecordingStore.RemoveCommittedAt(idxB, target);
 
                 // Delete absorbed recording's sidecar files
                 try { RecordingFileJanitor.DeleteRecordingFiles(absorbed); }
@@ -121,7 +128,7 @@ namespace Parsek
             return mergeCount;
         }
 
-        private static int RunOptimizationSplitPass(List<Recording> recordings)
+        private static int RunOptimizationSplitPass(IReadOnlyList<Recording> recordings)
         {
             // Split pass: break multi-environment recordings at environment boundaries.
             // Each split produces two recordings sharing a ChainId for UI grouping.
@@ -182,7 +189,7 @@ namespace Parsek
                 // The parent BranchPoint's ChildRecordingIds still references
                 // original.RecordingId (now the first chain segment), which IS the direct
                 // child of that BP; the shared ChainId connects the later segments.
-                bool childBranchPointMovesToSecond = ShouldMoveChildBranchPointToSplitSecondHalf(
+                bool childBranchPointMovesToSecond = RecordingStore.ShouldMoveChildBranchPointToSplitSecondHalf(
                     original.TreeId,
                     original.ChildBranchPointId,
                     second.StartUT);
@@ -203,22 +210,20 @@ namespace Parsek
                 // second half (SplitParentLinks): the moved ChildBranchPointId, a decouple the
                 // vessel flew on past, a dock, an EVA.
                 SplitParentLinks.RepointToTail(
-                    FindCommittedTreeById(original.TreeId), original.RecordingId, second,
+                    RecordingStore.FindCommittedTreeById(original.TreeId), original.RecordingId, second,
                     second.StartUT, null, "Optimization split");
 
                 // Add to committed recordings (after original)
-                recordings.Insert(recIdx + 1, second);
-                BumpStateVersion();
-                NotifyCommittedRecordingInserted(recIdx + 1);
+                RecordingStore.InsertCommittedAt(recIdx + 1, second);
 
                 // Update tree dict if applicable
                 if (!string.IsNullOrEmpty(original.TreeId))
                 {
-                    for (int t = 0; t < committedTrees.Count; t++)
+                    for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
                     {
-                        if (committedTrees[t].Id == original.TreeId)
+                        if (RecordingStore.CommittedTrees[t].Id == original.TreeId)
                         {
-                            committedTrees[t].AddOrReplaceRecording(second);
+                            RecordingStore.CommittedTrees[t].AddOrReplaceRecording(second);
                             break;
                         }
                     }
@@ -334,42 +339,7 @@ namespace Parsek
             second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
         }
 
-        internal static bool ShouldMoveChildBranchPointToSplitSecondHalf(
-            string treeId,
-            string childBranchPointId,
-            double secondStartUT)
-        {
-            // Optimizer-only helper: RunOptimizationPass operates on committed
-            // trees, so this intentionally does not inspect PendingTree. If a
-            // future pending-tree split path appears, add an explicit tree
-            // parameter rather than broadening this committed-tree contract.
-            if (string.IsNullOrEmpty(treeId) || string.IsNullOrEmpty(childBranchPointId))
-                return false;
-            if (double.IsNaN(secondStartUT) || double.IsInfinity(secondStartUT))
-                return false;
-
-            const double eps = 0.0001;
-            for (int t = 0; t < committedTrees.Count; t++)
-            {
-                var tree = committedTrees[t];
-                if (tree == null || !string.Equals(tree.Id, treeId, StringComparison.Ordinal))
-                    continue;
-                if (tree.BranchPoints == null)
-                    return false;
-                for (int b = 0; b < tree.BranchPoints.Count; b++)
-                {
-                    var bp = tree.BranchPoints[b];
-                    if (bp == null || !string.Equals(bp.Id, childBranchPointId, StringComparison.Ordinal))
-                        continue;
-                    return bp.UT >= secondStartUT - eps;
-                }
-                return false;
-            }
-
-            return false;
-        }
-
-        private static void TrimBoringTailsForOptimization(List<Recording> recordings)
+        private static void TrimBoringTailsForOptimization(IReadOnlyList<Recording> recordings)
         {
             // Boring tail trim pass: remove trailing idle tails from leaf recordings
             // so the real vessel spawns promptly instead of waiting through minutes of
@@ -428,65 +398,6 @@ namespace Parsek
                     $"Optimization pass: TrimBoringTail skipped {totalSkipped} recording(s) — " +
                     string.Join(", ", parts));
             }
-        }
-
-        /// <summary>
-        /// Epoch rule for <see cref="FlushDirtyFiles"/>, an OUT-OF-BAND write: the .sfs
-        /// on disk still carries the epoch of the last OnSave, and every .sfs that names
-        /// a recording holds an epoch no greater than the in-memory one. A positive epoch
-        /// is therefore preserved (advancing it would leave .prec = .sfs + 1 until the
-        /// next save, and a load followed by a quit or crash would then reject the
-        /// sidecar as stale and drop the recording). An epoch of 0 means no .sfs has ever
-        /// carried one, and 0 disables the stale check on load, so the flush seeds 1:
-        /// that strands nothing and keeps bug #270's detector armed for the recording.
-        /// A preserved epoch sets <see cref="Recording.SidecarEpochAdvancePending"/>: the
-        /// content changed under an epoch an older quicksave may also carry, so the next
-        /// OnSave rewrites the recording with the epoch advanced and .prec and .sfs move
-        /// to N+1 together. Between the flush and that save (and for good if the process
-        /// ends first, since the flag is not persisted) a pre-flush quicksave reads the
-        /// flushed content at a matching epoch; that is the window bug #290 already
-        /// accepted for the BG-recorder and scene-exit force-writes.
-        /// </summary>
-        internal static bool ShouldAdvanceSidecarEpochOnFlush(Recording rec)
-        {
-            return rec != null && rec.SidecarEpoch <= 0;
-        }
-
-        /// <summary>
-        /// Saves all dirty recordings to disk immediately. Called after commit and
-        /// after the optimization pass to close the crash window where data exists
-        /// only in RAM. Failures are logged but non-fatal - OnSave will retry.
-        /// Never advances an existing epoch (it defers the advance to the next OnSave);
-        /// see <see cref="ShouldAdvanceSidecarEpochOnFlush"/>.
-        /// </summary>
-        private static void FlushDirtyFiles(List<Recording> recordings)
-        {
-            int saved = 0, failed = 0, epochSeeded = 0, epochPreserved = 0;
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                if (!recordings[i].FilesDirty) continue;
-                bool advanceEpoch = ShouldAdvanceSidecarEpochOnFlush(recordings[i]);
-                if (RecordingSidecarStore.SaveRecordingFiles(recordings[i], incrementEpoch: advanceEpoch))
-                {
-                    saved++;
-                    if (advanceEpoch)
-                    {
-                        epochSeeded++;
-                    }
-                    else
-                    {
-                        epochPreserved++;
-                        recordings[i].SidecarEpochAdvancePending = true;
-                    }
-                }
-                else
-                    failed++;
-            }
-            if (saved > 0 || failed > 0)
-                ParsekLog.Info("RecordingStore",
-                    $"FlushDirtyFiles: saved {saved}, failed {failed} " +
-                    $"(epochPreserved={epochPreserved} epochSeeded={epochSeeded}; " +
-                    "preserved epochs advance at the next OnSave)");
         }
 
         /// <summary>
@@ -578,9 +489,9 @@ namespace Parsek
             if (string.IsNullOrEmpty(treeId) || absorbed == null)
                 return;
 
-            for (int t = 0; t < committedTrees.Count; t++)
+            for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
             {
-                var tree = committedTrees[t];
+                var tree = RecordingStore.CommittedTrees[t];
                 if (tree.Id != treeId)
                     continue;
 
@@ -620,7 +531,7 @@ namespace Parsek
         /// both halves. The first match is used — both segments belong to the same
         /// vessel and loop with the same cycle, so either is correct.
         /// </summary>
-        internal static void PopulateLoopSyncParentIndices(List<Recording> recordings)
+        internal static void PopulateLoopSyncParentIndices(IReadOnlyList<Recording> recordings)
         {
             if (recordings == null) return;
 
