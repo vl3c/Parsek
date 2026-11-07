@@ -3614,6 +3614,8 @@ compare).
   `SEMANTIC_CUT_ORDER` on be2512a0d, a tree that still passed the text bound 263). The text
   residue cell keeps measuring, unbounded, so deleting the RecordingStore metric forwarders (W4c)
   no longer fights the ratchet. The ratchet runs only with `PARSEK_ARCH_IL` (CI after the build).
+  `WorkflowRunsTheRatchetTests` reds if the CI step that sets it stops running; measure the Debug
+  DLL (a Release build drops typed locals and can read lower).
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

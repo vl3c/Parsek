@@ -352,7 +352,16 @@ forwarded type, so adding or deleting a forwarder no longer moves it. The
 ratchet runs where `PARSEK_ARCH_IL` names a built DLL: in CI after the build,
 and locally with
 `PARSEK_ARCH_IL=Source/Parsek/bin/Debug/Parsek.dll python3 -m unittest discover -s scripts/arch -q`
-after a build of the tree under test (a stale DLL measures old code).
+after a Debug build of the tree under test (a stale DLL measures old code).
+Measure the Debug DLL, the one CI builds: a Release DLL can read lower,
+because the optimizer drops typed locals the source names (on 5dc4ebd78 the
+Release build has 19 fewer semantic edges than Debug and 11 text edges no IL
+explains; the residue happened to be 250 in both), so a bound pinned from a
+Release build can red CI. Without `PARSEK_ARCH_IL` the ratchet cell skips, so
+`WorkflowRunsTheRatchetTests` reads `.github/workflows/tests.yml` and reds when
+no step after the build runs the semantic cells with `PARSEK_ARCH_IL` set to
+the built Debug DLL (step deleted, commented out, conditional,
+`continue-on-error`, re-pointed, or a discover pattern that skips the file).
 
 Because the greedy sequence is a heuristic, deleting a real reference can
 change which sink wins an early step and leave a larger residue after the same
