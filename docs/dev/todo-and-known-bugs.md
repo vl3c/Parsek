@@ -1505,7 +1505,7 @@ parts beside the pod, board, `WarpToUT` about 10 game minutes (ten 60 s transmis
 ids with an empty recording tag, and the log line of the untagged route. Estimate: one
 reading flight after the builder; no product change expected.
 
-## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override; 2026-10-03 (branch `settings-risks`): S4 struck and live-proven by ZF-1, reward multipliers with money changing hands live-proven by HC-2, the quickload-off Re-Fly closed by evidence under S7; S10 (UI_SCALE) fixed 2026-11-04, LIVE-PROVEN by UIS-1 `2026-11-04_1925`]
+## ~~KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under~~ [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. CLOSED 2026-11-07 (owner ruling: fix or close): S1-S11 all fixed or resolved, the trace list is done or closed, and every remaining "not flown" / "not modelled" / residual line is closed below with its reason. Owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override; 2026-10-03 (branch `settings-risks`): S4 struck and live-proven by ZF-1, reward multipliers with money changing hands live-proven by HC-2, the quickload-off Re-Fly closed by evidence under S7; S10 (UI_SCALE) fixed 2026-11-04, LIVE-PROVEN by UIS-1 `2026-11-04_1925`]
 
 Audit of every player-facing stock KSP 1.12.5 setting (new-game modes and presets, the 103
 `GameParameters` fields, the 306 `settings.cfg` keys, the Alt+F12 cheats) against what
@@ -1546,7 +1546,11 @@ Bugs (no ruling needed):
   523458; LedgerGroundTruth `passed=3 hardFailures=0 facetsCompared=11`; the rewind patches
   funds / science / reputation back to the seed. Offline negative control 10 of 10 seeds red.
   Not flown: a contract reward (baked at generation by the same factors, recorded as the
-  amount paid) and the x2 loss multipliers (no loss channel fired).
+  amount paid) and the x2 loss multipliers (no loss channel fired). CLOSED 2026-11-07: owed
+  nothing. Parsek reads no multiplier except the science stamp; a contract reward or penalty
+  and every loss reaches the ledger as the amount stock applied (the generation-baked values
+  HC-2 already showed on the milestone path), so another multiplier value exercises no
+  Parsek decision.
 - ~~S2. `Career.RepLossDeclined` (Normal 1, Hard 3) never reaches the ledger: `ContractDeclined`
   is dropped in `GameStateEventConverter` and `ReputationPenaltySource.ContractDecline` is
   never constructed, so a rewind refunds the reputation. Fix: a KSC-origin reputation
@@ -1583,7 +1587,8 @@ Bugs (no ruling needed):
   recalc lands on 3882; LedgerGroundTruth in that FLIGHT scene reads `hardFailures=0
   facetsCompared=8`. Offline negative control 10 of 10 seeds red. The science-mode zero seed and
   the Science / Sandbox singleton waits stay unit-only (`KspSettingsLedgerTests`,
-  `CareerSeedReadinessTests`).
+  `CareerSeedReadinessTests`); CLOSED 2026-11-07 as owed nothing: the science seed takes the
+  same confirmed-zero shape ZF-1 proved for funds.
 - ~~S5. Ghost map vessels count toward the stock vessel budget: `Game.Updated` builds the
   pruned `FlightState` before `ParsekScenario.OnSave` strips ghosts, and ghosts are live,
   `prst=True`, non-Debris vessels in FLIGHT and TRACKSTATION, so each one pushes one real
@@ -1637,7 +1642,13 @@ Bugs (no ruling needed):
   inside the FLIGHT scene after the load (present at load, so the check keeps it; the
   recovery terminal update reads the pending tree, not the active one). In-session debris end
   by their 60 s TTL first, so the reachable case is a restored debris member: its TTL is set
-  only at split time (`debrisTTLExpiry`) and is not restored.
+  only at split time (`debrisTTLExpiry`) and is not restored. CLOSED 2026-11-07 (owner ruling:
+  fix or close), both: the spawnable-leaf case needs the player to retype a recorded
+  non-debris vessel to Debris AND overflow the vessel budget; the spawn then puts back a
+  vessel the committed timeline really ended with, which is the recording's ordinary promise,
+  and a persisted no-spawn flag for that is not worth a format addition. The in-FLIGHT
+  autoclean case is a debris member: debris recordings never spawn and play visual-only, so
+  the worst outcome is a debris ghost whose end reads later than stock's cleanup.
   LIVE PROOF 2026-09-29 (branch `settings-axis`, operator request for a game-settings test axis,
   which supersedes the "no dedicated low-budget lane" half of S6): re-derived from a fresh
   decompile (the only budget reader is the parameterless `FlightState()`, called by
@@ -1663,7 +1674,8 @@ Owner rulings (2026-09-26):
   flip. The S5 fix gets unit and in-game cells, no dedicated low-budget lane.~~
   FIXED 2026-09-26, branch `kss-debris`: both profiles' `[settings]` carry the two keys,
   pinned by `test_provlib.test_both_profiles_pin_the_player_default_vessel_budget`. Re-fly of
-  the daily tier pending (needs a re-provision first).
+  the daily tier pending (needs a re-provision first). Done: the 2026-11-06 full run flew every
+  lane (537, every tier, on main) on instances provisioned from those profiles.
 - ~~S7 (Q1). Rewind-to-Separation and Re-Fly IGNORE `Flight.CanQuickLoad` / `Flight.CanRestart`
   (they are Parsek's own time mechanic). Only the re-fly exit must stay reachable: stock
   builds the Esc-menu Revert button only when `CanRestart`, so `ReFlyRevertButtonGate` alone
@@ -1742,7 +1754,11 @@ Owner rulings (2026-09-26):
   respawn still extends the hold as an ordinary reservation.
   Not modelled: a per-part `Part.crewRespawnTime` override (mission-builder field), and stock
   re-reading the flag at the respawn instant (a policy turned off after a respawn-on death
-  kills the kerbal in stock's roster while Parsek's stamped hold still releases him).
+  kills the kerbal in stock's roster while Parsek's stamped hold still releases him). CLOSED
+  2026-11-07 as by design: `crewRespawnTime` is a Making History mission-builder field and
+  Parsek is inert in mission games (S9); the stamp-at-death rule is the audit's own principle
+  (S1: stamp at capture, never read the current setting at replay), and the flip needs the
+  player to change difficulty between a death and its respawn.
   Staged deaths (follow-up, same branch): a tree recording that ended at a split (staging,
   undock, EVA, dock) has no terminal state, so its crew row reads Unknown and started before
   any death on the child that carried the crew on; that open-ended row made a death after
@@ -1778,7 +1794,8 @@ Owner rulings (2026-09-26):
   (the ghost-pid filters are left alone). xUnit: `ParsekGameModeGateTests`, including an IL
   check that each gated entry point calls the gate. Not gated on purpose: the automation seam,
   the Ctrl+Shift+T test runner, the GUI-tree recorder pump. No mission / scenario flight has
-  been flown.
+  been flown; CLOSED 2026-11-07 as owed nothing: the IL check pins every entry point, and stock
+  never adds `ParsekScenario` to those games.
 
 Supervisor defaults (not overridden):
 
@@ -1798,7 +1815,8 @@ Supervisor defaults (not overridden):
   host scopes and the anchor conversion), the in-game `UiScale` category, and lane
   `UIS-1-ui-scale` at `UI_SCALE = 1.5` (harness `kspSettings` gained `UI_SCALE`). Status:
   LIVE-PROVEN 2026-11-04 (`2026-11-04_1925` PASS, 3 of 3 cells). Known limit: the GUI census instruments (`GuiTreeRecorder`, `UiPointer`) still assume
-  100%, which every census profile pins.
+  100%, which every census profile pins. CLOSED 2026-11-07: test tooling only, and the pin
+  keeps it true.
 - ~~S11 (Q6). Alt+F12 cheat currency (`TransactionReasons.Cheating`) stays unledgered and
   clamp-held until the next rewind; log it once per event.~~ FIXED 2026-09-26, branch
   `kss-ledger`: each captured `Cheating` funds / science / reputation change writes one Info line
@@ -1812,6 +1830,15 @@ inside a live recording; infinite-propellant recordings vs route cost manifests;
 `persistKerbalInventories` vs inventory-carrying recordings (traced 2026-09-27: filed and fixed as
 KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 `AllowOtherLaunchSites` off.
+Resolved 2026-11-07 (owner ruling: fix or close; the research table's rows 57, 103 and 105
+say the same): the teleport cheats were fixed 2026-09-27 (logged, a section seam or body
+split; KSP-SETTINGS-FOLLOWUPS-RECORDING-2026-09-27). Infinite propellant: CLOSED, no defect.
+A route's cost manifest is its per-cycle DELIVERY manifest (`RouteBuilder.BuildRouteCostManifests`),
+never the propellant the transport burned, so a cheat that stops consumption changes nothing
+a route charges. `AllowOtherLaunchSites`: CLOSED, no defect. No Parsek code reads it (grep of
+`Source/Parsek`: zero hits); it only hides stock's launch-site picker, every stock site already
+retires an ending like the KSC, and a recording made at another site replays and spawns from
+its own recorded data whatever the setting says now.
 
 ---
 
@@ -1871,7 +1898,7 @@ same commit as whatever moves them.
 
 ---
 
-## STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing [FILED 2026-09-25 from the stock-UI reservation analysis. OPEN; owner rulings taken 2026-09-25 (D1, D2, D4, D5, D7, S1 ruled; D3, D6 out of scope); section 12 claims verified by unit cells]
+## ~~STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing~~ [FILED 2026-09-25 from the stock-UI reservation analysis. Owner rulings taken 2026-09-25 (D1, D2, D4, D5, D7, S1 ruled; D3, D6 out of scope; D6 decided 2026-09-27); section 12 claims verified by unit cells. CLOSED 2026-11-07 (owner ruling: fix or close): every hole and defect below is fixed; the open lines left at filing are each closed below (the Effective=false display was already handled and is now pinned by xUnit; the in-game and behavioural coverage was delivered by H45 / KB-3 / KB-4 / KB-5; the dismissal fallback was replaced by a ledger row)]
 
 **Reference:** `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` is the single
 planning reference (it supersedes #640's v2 list and re-scopes #430). Its section 10 is the
@@ -1885,7 +1912,10 @@ strategy-state patch. D4 / D5 rejected: no silent ledger dedupe, because the led
 recalculated, append-only record and whether a duplicate is legitimate depends on when it
 happened. P1 gets a visible block at the stock control, like tech research. F3 and the double
 penalties stay separate ledger bugs. D3 and D6 (Parsek's own windows) stay open, outside this
-program.
+program. CLOSED 2026-11-07: D6 was decided 2026-09-27 (the Career window is removed). D3
+(return the Kerbals window to Advanced) needs no work: `design-ui-basic-advanced.md` section 4
+keeps the window in Basic on its own merits (read-only, the one list of every reserved,
+stand-in, retired and lost kerbal with the reason), not only as the crew dialog's stand-in.
 
 **Holes found by the block audit** (section 4; each blocks its screen's annotation under the
 pairing rule):
@@ -1932,7 +1962,9 @@ pairing rule):
   backstops and in the CC `CanAccept` postfix; there is no row mark (the section 4 C2
   pairing interpretation). `ContractsModule.GetAvailableSlots` still has no caller, and
   `PatchContracts` still restores committed accepts without a slot check: with the block in
-  place only a committed history that was already over the limit can reach it.
+  place only a committed history that was already over the limit can reach it. CLOSED
+  2026-11-07: restoring that history is correct (the ledger is the timeline; refusing a
+  committed accept would desync stock from it), and the block keeps new play from reaching it.
 - ~~C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.~~
   Fixed by PR 2b (branch `stock-ui-mc`): `ContractDeclinePatch` prefixes the non-virtual
   `Contract.Decline()` and refuses (with the accept explanation) exactly where
@@ -1953,9 +1985,12 @@ pairing rule):
   and rebuilds the whole list right after), let through by
   `ContractSystemRebuildContractsScopePatch`. The unconditional double penalty itself was
   the ledger bug below, since fixed in the walk (branch `fix-reservation-ledger`).
-  Open: the in-game cell `MissionControlActiveRowLabelAndCancelBlockedWithReason` needs a
+  ~~Open: the in-game cell `MissionControlActiveRowLabelAndCancelBlockedWithReason` needs a
   career host with an Active contract (it never accepts one: SPACECENTER batches restore
-  `persistent.sfs` on disk only); H45's `career-earned-ksc` has none, so it skips there.
+  `persistent.sfs` on disk only); H45's `career-earned-ksc` has none, so it skips there.~~
+  Done 2026-09-28: H45 moved to `career-earned-pad` (one Active contract) and runs all twelve
+  cells, `2026-09-28_2105` 12 / 0 / 0 (todo H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE,
+  `harness/lib/test_hlib.py` RUNTIME_SKIPS: "H45 owes nothing"); KB-4 presses the Cancel.
 - ~~P1 part purchases (verified, bypass-entry-purchase off only): no block, and no state patch.
   After a rewind a committed purchase is charged at its UT but never applied, and buying the
   part again charges the entry cost twice.~~ Fixed by PR 8 (branch `stock-ui-parts`), both
@@ -1977,10 +2012,17 @@ pairing rule):
   committed row, and the post-tombstone refresh passes `techPatchCutoff = double.MaxValue`,
   which unclamped would mark future purchases for good. The editor clock is paused by stock
   (`PSystemSetup.SetEditor`), so no purchase row can pass while the player is in the VAB/SPH.
-  Open: (1) not proven in game (no in-game cell: EDITOR tests are forbidden and a
+  ~~Open: (1) not proven in game (no in-game cell: EDITOR tests are forbidden and a
   SPACECENTER cell would have to buy a part); the `textGreyoutMessage` placement in the
   purchase state is read from the decompile (stock enables it with an empty text there), not
-  seen. (2) Stock's purchase-all caption still totals the skipped parts' entry costs.
+  seen. (2) Stock's purchase-all caption still totals the skipped parts' entry costs.~~
+  (1) Done 2026-09-28: KB-4 (`2026-09-28_2031` PASS, re-flown `2026-09-29_1514`) presses the
+  R&D part purchase and purchase-all and reads each refused with its control's text, and
+  GUI-28 photographs the part tooltip. (2) CLOSED 2026-11-07 (owner ruling: fix or close),
+  cosmetic: the caption is stock's own sum, the click charges only the unblocked parts and the
+  one refusal dialog names the skipped ones, so the player pays less than the caption, never
+  more; rewriting stock's caption field would need an in-game check that flights cannot give
+  now.
   (3) ~~Capture bug found on the way: a purchase in the editor or R&D also buys the part's
   `identicalParts` (same tech) with `costsFunds = false`, so stock charges nothing for them
   (`Funding.onPartPurchased` checks the flag), but
@@ -2014,7 +2056,9 @@ pairing rule):
   unlocks a future node, and skips while the clock is not ready or
   `RecordingStore.RewindUTAdjustmentPending`. It runs before `PatchPurchasedParts`, so a committed
   purchase on the node lands in the same pass. Pinned by `CommittedTechUnlockPatchTests`
-  (drives the cursor's own decisions into the real orchestrator path). Not proven in game.
+  (drives the cursor's own decisions into the real orchestrator path). Not proven in game;
+  CLOSED 2026-11-07 as owed nothing: the cell runs the cursor's own decisions through the real
+  orchestrator path, and the pass is add-only.
 - ~~Contract fail / cancel penalties are charged unconditionally, so an already-resolved
   contract is charged again (C4 X2/X3, C6, and a world-driven failure).~~ Fixed (branch
   `fix-reservation-ledger`). **Fix:** `ContractsModule.ProcessFail` / `ProcessCancel` mark the
@@ -2049,15 +2093,36 @@ pairing rule):
   proves stock found it destroyed, and a pre-ledger collapse leaves no row, the same "never
   infer intact from an absent row" rule `FacilityStatePatcher.PatchLiveDestructionState`
   follows. Known cost: a repair whose collapse row left the effective ledger (a Re-Fly that
-  supersedes the flight that knocked the building down) still charges. Pinned by
+  supersedes the flight that knocked the building down) still charges. CLOSED 2026-11-07 as by
+  design: not charging it would infer "intact" from an absent row, the same inference that
+  would leave a pre-ledger collapse's repair free; stock really took the money for that
+  repair. Pinned by
   `ChargeOnceLedgerTests` (one destruction one charge, two repairs of one destruction one
   charge, no-row repair charges, repair after repair free, per building, cutoff projection;
   every cutoff-less cell also asserts `GetAvailableFunds`).
-- Open, display only: `CommittedFutureIndex` and the Timeline / Career rows still list an
+- ~~Open, display only: `CommittedFutureIndex` and the Timeline / Career rows still list an
   `Effective=false` fail / cancel / repair row with its amount (the Timeline demotes it to
   T2; the Career window already skips it). The index is built from the effective ledger on
   its own cache cycle, not from the walk, so reading the walk's `Effective` there is not a
-  trivially safe change; left for the overlay program.
+  trivially safe change; left for the overlay program.~~ CLOSED 2026-11-07 (owner ruling: fix
+  or close), re-verified on main 22d28a47; nothing shows an uncharged amount as charged.
+  Timeline: an `Effective=false` row draws in the grey not-counted style
+  (`TimelineWindowUI`, `!entry.IsEffective`), is demoted from T1, and its hover says "Not
+  counted: the contract had already ended earlier on timeline, so no penalty was charged." /
+  "... the building was not damaged at that point on timeline, so nothing was charged."
+  (`TimelineRowHover.NotCounted`), the treatment every other not-counted row (duplicate
+  completion, repeated milestone) gets. The Career window is gone (D6). Index: its `Amount` is
+  0 for a fail / cancel and is never read for a repair (the only `Amount` reader is
+  `TechResearchPatch`), and no ineffective row decides a mark or block wrongly. Every contract
+  consumer reads the EARLIEST resolution (`CommittedContractResolutionAfter`), which is the
+  charged one; once that is past, stock holds the contract Completed or Failed and an
+  archived row is never marked. An uncharged repair-after-repair holds Repair only while stock
+  shows the building destroyed and the walk has it intact, i.e. a destruction no ledger row
+  carries yet, and when that flight's row lands this repair is the one the walk charges, so
+  the hold is right; filtering it would open a double charge. Pinned by xUnit
+  `TimelineRowHoverTests.IneffectiveFail_IsGreyedAndSaysNotCharged_AndNeverDecidesAContractMark`
+  and `FacilityRepairBlockTests.AnUnchargedRepairAfterARepair_HoldsOnlyAnUnledgeredDestruction`
+  (both pin current behaviour; no product change).
 - ~~K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.~~
   Fixed (branch `overlay-gaps`) as a block at the stock controls, not a flight fix. Predicate
   `StockUiFlightCrewDecoration.IsMoveRefused`: the crew dialog's
@@ -2081,7 +2146,9 @@ pairing rule):
   carries a held kerbal is not a crew move. Not proven in game: no committed fixture boots a
   held kerbal aboard a live non-continuation vessel (on `career-earned-pad` the flight-ready
   swap takes Jeb out of the only vessel first); see the overlay-gaps PR notes for the smallest
-  fixture that would.
+  fixture that would. Done 2026-09-28: KB-5 (`2026-09-28_2033` PASS) on the new fixture
+  `k2-held-kerbal-pad` refuses Jeb's EVA through the real `FlightEVA.spawnEVA` and photographs
+  the greyed portrait hover.
 - ~~Mission Control read "fails" / "Fails on" for a committed ContractFail row that is the
   deadline running out, where the Timeline reads "Expired" and the Career window "expires".~~
   Fixed (branch `overlay-gaps`): `CommittedFutureIndex.Build` stamps a fail row
@@ -2121,7 +2188,9 @@ pairing rule):
   `Contract.Decline` backstop. Remaining under CC: CC's Decline handler clears the info
   panel BEFORE calling `Decline()`, so if anything re-enabled the button and it were
   clicked, the refusal would leave an empty panel over a still-Offered row (cosmetic). The
-  CC row label is not applied to CC's contract-TYPE rows (no contract behind them).
+  CC row label is not applied to CC's contract-TYPE rows (no contract behind them). CLOSED
+  2026-11-07: both are cosmetic, need a button something else re-enabled or a row with no
+  contract, and CC is installed on no Parsek instance to see them.
 - ~~The Astronaut Complex opened from the editor is undecorated.~~ Fixed by PR 2a (branch
   `stock-ui-rnd-ac`): the Astronaut Complex annotations are Harmony postfixes on the stock
   row builders (`AstronautComplex.AddItem_*`, `UpdateCrewCounts`,
@@ -2170,14 +2239,20 @@ pairing rule):
   Code: `StockUiCrewDialogDecoration.cs`, `Patches/CrewDialogReservationPatches.cs`; cells in
   `StockUiCrewDialogTests.cs`. Not covered in game: `NoEditorSceneTestsExistContract` forbids
   EDITOR-scene cells (DiskOnly isolation), and a timeline change while the dialog is open
-  re-marks only at the next stock rebuild. D3 (the Kerbals window back to Advanced) stays open.
-- In-game coverage: the rewritten `StockUiOverlay` cells (six R&D / Astronaut
+  re-marks only at the next stock rebuild. Closed 2026-11-07: KB-4 presses the VAB crew seat
+  in game and reads it refused, and the editor clock is paused (`PSystemSetup.SetEditor`), so
+  no committed row passes while the dialog is open. D3 (the Kerbals window back to Advanced): closed
+  2026-11-07, see the rulings paragraph above.
+- ~~In-game coverage: the rewritten `StockUiOverlay` cells (six R&D / Astronaut
   Complex from PR 2a, three Mission Control from PR 2b, the Active-row / Cancel cell from
   PR 3 and the facility menu cell from PR 7) have not flown; H45 pins `total=11`
-  INTERIM until its reading run. The editor-opened complex has no in-game cell (no
-  lane runs `StockUiOverlay` in the EDITOR), and a timeline change while that complex is open
-  re-annotates only on the next stock rebuild (the refresh hook lives in the SpaceCentre-only
-  `StockUiOverlayController`).
+  INTERIM until its reading run.~~ Done: H45 flies all twelve cells (`2026-09-28_2105`
+  12 / 0 / 0, re-flown `2026-09-29_1506` and in the 2026-11-06 full run) and is pinned whole.
+  CLOSED 2026-11-07 for the rest: the editor-opened complex has no in-game cell because
+  EDITOR-scene cells are forbidden (`NoEditorSceneTestsExistContract`), and its annotations are
+  the same scene-agnostic `AstronautComplex` postfixes H45 runs in the Space Center. A timeline
+  change while that complex is open re-annotates on the next stock rebuild: the editor clock is
+  paused (`PSystemSetup.SetEditor`), so nothing on the timeline moves while it is open.
 - ~~Marks and blocks go stale after a rewind: the `MilestoneStore` unreplayed slice
   never advances. F1 verified: after a rewind the committed facility upgrade blocks
   every later upgrade of that facility for good, because the predicate keys on the facility id
@@ -2190,11 +2265,15 @@ pairing rule):
   `ReservationExplanation` builder per kind (fact + rule + when it frees up, calendar dates)
   feeds the badge hovers and the `CommittedActionDialog` refusals; the facility dialog names
   the building (`FacilityDisplayNames`).
-- A committed kerbal DISMISSAL (`CrewRemoved`) has no ledger row (the converter drops the
+- ~~A committed kerbal DISMISSAL (`CrewRemoved`) has no ledger row (the converter drops the
   event), so its Astronaut Complex mark still reads committed milestone events, through a
   narrow, UT-keyed fallback (`CommittedFutureIndexCache.CollectRetireFallbackEntries`). No
   click-block reads it. Fold it into the index properly if a dismissal ever becomes a
-  ledger action.
+  ledger action.~~ Done by KERBAL-DISMISSAL-ON-THE-TIMELINE (owner ruling 2026-10-28, design
+  section 9.12.1): a Space Center firing is a `KerbalDismissal` ledger row, the index keys it
+  as `CommittedFutureKind.KerbalDismissal` (holding the kerbal's Dismiss button and crew
+  assignment until its UT), and `CollectRetireFallbackEntries` is deleted (re-checked
+  2026-11-07: no reference left in `Source/`).
 
 **First in-game census (2026-09-25, lane GUI-28, run `2026-09-25_2055` on base `7c90492bd`):**
 every annotated screen drew; the findings below are what the screenshots showed.
@@ -2225,10 +2304,10 @@ every annotated screen drew; the findings below are what the screenshots showed.
   each row and in the panel (`CommittedFutureEntry.AgentTitle`, from the accept snapshot's
   `agent`; with no snapshot agent, the live offer's `Agent.Title` read when the reason is
   rendered, `ContractSlotReservation.WithStarvedAcceptAgent` in `ForecastNow`).
-- Still to see in the next census: the greyed Research / purchase-all / Accept / Decline /
+- ~~Still to see in the next census: the greyed Research / purchase-all / Accept / Decline /
   Cancel (the in-game cells now assert the look and the restored colours), the wrapped facility
   tooltip, and the shorter row labels. The Astronaut Complex and Administration findings are on
-  branch `stock-ui-fixes-b`.
+  branch `stock-ui-fixes-b`.~~ Seen: the second census below, GUI-28 re-flown `2026-09-29_1510`.
 - Second census (run `2026-09-25_2332`): F1-F5, F7 and F9 confirmed in game. F6 still read no
   agent: the index is rebuilt on scene load about 10 ms after `KspStatePatcher.PatchContracts`
   logs `KSP has 0 current contracts`, so its live read found no offer and the null stayed
@@ -2246,7 +2325,8 @@ every annotated screen drew; the findings below are what the screenshots showed.
   2026-09-27: a looped segment no longer holds a chain's crew at all, so the toggle changes
   no hold; `StockUiReservationVerificationTests.LoopToggle_*`.)
 - The CC Mission Control bypass is code-read only: it needs a live Mission Control with CC
-  installed.
+  installed. CLOSED 2026-11-07: CC is installed on no Parsek instance, so a live proof needs a
+  new modded profile and a flight for a test-only benefit; the hooks are read from CC's source.
 
 **First real-game census (GUI-28, run `2026-09-25_2055`), findings fixed on branch
 `stock-ui-fixes-b`:**
@@ -2286,7 +2366,11 @@ ledger at 26 rows throughout. No product finding. A grep of all 333 specs for `B
 `blocked-committed` and `actionblocked` finds only KB-2 and KB-3 pressing a blocked control (GUI-10
 raises the dialog synthetically; KB-1 lists the refusals as forbidden), so the strategy activate /
 deactivate, Decline, Cancel, contract-slot, dismissal, crew-dialog seat and part-purchase blocks still
-have no behavioural lane (unit and in-game decision cells only).
+have no behavioural lane (unit and in-game decision cells only). Done 2026-09-28: KB-4
+(`KB-4-ksc-click-blocks-remaining`, `2026-09-28_2031` PASS) presses every one of them (Decline,
+Cancel, the slot-starved Accept, both Administration buttons and the activation primitive, the
+Astronaut Complex dismiss, the R&D part purchase and purchase-all and the VAB crew seat), and
+KB-5 the flight EVA block (autotest-status, 2026-09-29 entry).
 
 ---
 
@@ -2536,7 +2620,7 @@ a Parsek-spawned vessel (`SpawnedVesselPersistentId`, guid-gated) that bounds it
 Either changes reservation semantics across rewinds (a rewind to before the recovery must hold
 the kerbal again), so it needs its own design pass and live proof.
 
-## KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, a snapshot-less recording can be attributed to the wrong stand-in, and a stand-in's own flight is filed under the owner [FILED 2026-09-15 with the Kerbals-window rebuild; item 5 added on the post-capture review pass. All PRODUCER gaps, not defects in the window. OPEN; each needs a producer or schema decision]
+## ~~KERBALS-WINDOW-RESIDUE-2026-09-15: the rebuilt Roster tab cannot date four of its six statuses, a snapshot-less recording can be attributed to the wrong stand-in, and a stand-in's own flight is filed under the owner~~ [FILED 2026-09-15 with the Kerbals-window rebuild; item 5 added on the post-capture review pass. All PRODUCER gaps, not defects in the window. FIXED 2026-11-07, branch cleanup-1, xUnit (item 5's visible half: the owner's Last flight cell names the stand-in); items 2-4 and the rest of 5 CLOSED 2026-11-07 (owner ruling: fix or close), reasons per item below]
 
 **What is true.** The rebuilt window is `docs/dev/design-gui-kerbals-window.md`; these are
 the two things its row model could not answer off existing data.
@@ -2548,7 +2632,7 @@ the two things its row model could not answer off existing data.
    instead of a date (see KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME above; since that fix a
    finite Recovered hold reads its release date again, in the Status cell).
 
-2. **The "as &lt;stand-in&gt;" fallback is time-blind.** The primary source is per-flight
+2. ~~**The "as &lt;stand-in&gt;" fallback is time-blind.**~~ The primary source is per-flight
    truth - the recording's own raw crew, through the new
    `KerbalsModule.RawRecordingCrewByRecordingId` - but raw crew comes from the recording's
    `VesselSnapshot`, and the load-time sweep can null it. The fallback is then
@@ -2556,13 +2640,22 @@ the two things its row model could not answer off existing data.
    old flight it can name a kerbal who did not fly it. Chosen deliberately over silence (the
    cell would otherwise read `-` on exactly the flights a stand-in is most likely to have
    flown), and the reverse-map in `PopulateCrewEndStates` has the same blindness by
-   construction. **Fix (if wanted):** persist the flown crew names per recording beside
+   construction. **Fix (considered, not taken - see the closure):** persist the flown crew names per recording beside
    `CREW_END_STATES` instead of reverse-mapping them to the owner - a schema change, and it
    would also let the Flights tab file a stand-in's flights under the stand-in if that ever
    becomes the wanted reading (it is not today: operator ruling 2026-09-15 keeps the
    grouping per owner).
+   CLOSED 2026-11-07 (owner ruling: fix or close): re-verified on main 22d28a47, the premise
+   is narrower than written. Raw crew reads the GHOST snapshot first, then the vessel
+   snapshot, then `EvaCrewName` (`KerbalsModule.ExtractRawCrewFromRecording`), and the ghost
+   snapshot is null only when its `_ghost.craft` sidecar is missing or unreadable
+   (`RecordingSidecarStore.LoadSnapshotSidecarsFromPaths`; no sweep nulls it). So the
+   time-blind fallback serves only a recording that lost both snapshot sidecars, which
+   already plays no ghost. A persisted flown-crew key would have to be written while a
+   snapshot exists, so it could not help the recordings that reach the fallback today. The
+   comments and `design-gui-kerbals-window.md` sections 4 and 9 now say so.
 
-3. **The stand-in note has NO picture** (the `as <stand-in>` Crew column until 2026-09-22,
+3. ~~**The stand-in note has NO picture**~~ (the `as <stand-in>` Crew column until 2026-09-22,
    now `(flown by <stand-in>)` in the Mission cell - the column is gone because it read `-`
    everywhere). Five census lanes flew the rebuild on 2026-09-15 and every Crew cell in
    every capture reads `-`, for a structural reason:
@@ -2573,14 +2666,22 @@ the two things its row model could not answer off existing data.
    Unphotographed with it: `Retired` and the `Reserved for <owner>` form (it needs a
    reserved stand-in). `Lost` has a real picture on the c1 career (`GUI-1`
    `ksc-kerbals-roster-advanced`).
-4. **`GUI-8-census-empty-states` photographs the fold CLOSED.** Its roster capture now
+   CLOSED 2026-11-07 (owner ruling: fix or close): a photograph is a test-only benefit that
+   needs a new fixture where a stand-in flew plus a flight. The note's text is pure and
+   pinned by unit cells (the six in `KerbalsWindowUITests` named above, plus
+   `Roster_TheOwnersLastFlightSaysWhenAStandInFlewIt` for the Roster cell), and the window
+   draws it as a plain label in a cell the census already photographs.
+4. ~~**`GUI-8-census-empty-states` photographs the fold CLOSED.**~~ Its roster capture now
    reads one row, `Available, no recorded flights (4)`, which is the honest new picture but
    not a picture of the four rows behind it. One `op=expand key=all` step plus a second
    capture would pay it; GUI-5 already has that pair on a career host, so it is worth a
    cent, not a flight of its own.
+   CLOSED 2026-11-07 (owner ruling: fix or close): GUI-5 already photographs the expanded
+   fold on a career host, so a second picture adds no coverage, and changing GUI-8's step
+   list needs a re-flight to re-pin it.
 
-5. **A stand-in's own flight is filed under the OWNER, always - and can fill the owner's
-   `Last flight` cell with a flight he never took.** The producer is
+5. ~~**A stand-in's own flight is filed under the OWNER, always - and can fill the owner's
+   `Last flight` cell with a flight he never took.**~~ The producer is
    `KerbalsModule.ReverseMapCrewNames` (`Source/Parsek/KerbalsModule.cs:479-507`), called
    from `PopulateCrewEndStates` before `Recording.CrewEndStates` is written: it walks the
    recorded crew list and maps EVERY name that appears as a `CrewReplacements` value - then,
@@ -2598,9 +2699,20 @@ the two things its row model could not answer off existing data.
    bump and re-harvests every stamped fixture, which is why the Kerbals rebuild recorded it
    rather than doing it; the reading-side workaround (item 2's `RawRecordingCrewByRecordingId`)
    already exists and is what the crew note uses.
+   FIXED 2026-11-07 (branch cleanup-1), the part a player reads: `KerbalsPresentation.FormatLastFlight`
+   now reads the flight's Mission cell, so the owner's Last flight cell says
+   `Mun Hopper (flown by Lars Kerman) - Recovered` instead of naming the flight as his own.
+   xUnit `KerbalsWindowUITests.Roster_TheOwnersLastFlightSaysWhenAStandInFlewIt` (red with the
+   old `MissionText` read). The filing itself is CLOSED (owner ruling: fix or close): the
+   reverse-map is the reservation model (#254: a stand-in's flight holds the owner's slot,
+   and keying end states by the stand-in would reserve the stand-in and start a cascade of
+   replacements), and the per-owner grouping is the operator ruling of 2026-09-15. With both
+   cells labelled, the remaining effect is that the stand-in's own Flights group does not list
+   the flight, which is that ruling.
 
 Neither of the first two blocks anything. All five are recorded because the window now has
-columns whose blanks are visible, where the old outline simply said nothing.
+columns whose blanks are visible, where the old outline simply said nothing. Nothing in this
+entry is owed (2026-11-07).
 
 ## ARCH-FINDINGS-REPORT: the architecture findings report and how to regenerate its numbers [FILED 2026-09-15. A POINTER, not a defect. OPEN as the entry point for the refactoring work that follows. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -3304,7 +3416,7 @@ Option 1 is the proportionate one unless a lane appears that genuinely needs the
 Whoever takes it re-flies L3 once to confirm, and updates this entry and the L3 status row
 in the same commit.
 
-## SENDONCE-RESIDUAL-PATHS: three Send-Once arm paths the blocked-cycle fix deliberately did not take, surfaced by PR #1582's clean review [FOUND 2026-08-30 by the pre-merge review of the fix. ALL PRE-EXISTING (none introduced by the fix); filed together because they are one family: "which cycle resolutions consume the arm, and does every consumer say so". Items 1 and 2 FIXED 2026-09-01; item 3 CLASSIFIED and left open by design; item 4 ADDED and FIXED 2026-09-01 from the same family, found while fixing 1 and 2 - see below. Only item 3 remains, deliberately]
+## ~~SENDONCE-RESIDUAL-PATHS: three Send-Once arm paths the blocked-cycle fix deliberately did not take, surfaced by PR #1582's clean review~~ [FOUND 2026-08-30 by the pre-merge review of the fix. ALL PRE-EXISTING (none introduced by the fix); filed together because they are one family: "which cycle resolutions consume the arm, and does every consumer say so". Items 1 and 2 FIXED 2026-09-01; item 4 ADDED and FIXED 2026-09-01 from the same family, found while fixing 1 and 2 - see below. CLOSED 2026-11-07 (owner ruling: fix or close): item 3 is by design and now pinned by xUnit `EndpointLostAtDelivery_KeepsTheArmedOneShots`]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): item 3's ruling still holds. New
 since it: the player's Re-scan (`RouteOrchestrator.TryRecoverEndpointLostAfterRescan`) is a second
@@ -3363,8 +3475,8 @@ the ledger and the branch re-plans nothing, so there are no actuals to quote. Co
 `IdempotentReplay_PauseAfterCycleArmed_PausesWithoutToast` /
 `IdempotentReplay_Unarmed_PostsNoToast_StaysActive`.
 
-**3. Endpoint-lost at delivery leaves the arm live.** [OPEN - classified 2026-09-01 as
-DELIBERATE, not a bug to close] That branch transitions to `EndpointLost` without touching
+**~~3. Endpoint-lost at delivery leaves the arm live.~~** [CLOSED 2026-11-07 (owner ruling:
+fix or close), classified 2026-09-01 as DELIBERATE] That branch transitions to `EndpointLost` without touching
 `PauseAfterCurrentCycle`/`SendOnceArmed`, and both flags persist through the codec. Inert today
 (`EndpointLost` is not ghost-driving, and `TryActivate` - the only exit - clears the flags).
 
@@ -3382,7 +3494,7 @@ inconsistent with the blocked path, where `EndpointLost` arrives as an eligibili
 handled by `TryHonorArmedPauseOnBlockedCycle`'s postponement allowlist policy - two paths, one
 kind, opposite answers.
 
-What keeps it OPEN is the stale-arm hazard, not the current behaviour: if any future path ever
+What kept it open was the stale-arm hazard, not the current behaviour: if any future path ever
 returns an endpoint-recovered route to a ghost-driving status WITHOUT clearing the flags, a
 one-shot armed hours ago would silently fire. The invariant to hold is "every entry back into
 ghost-driving either honors or clears the one-shot"; `TryActivate` is the only such entry today
@@ -3390,6 +3502,18 @@ and it clears (`ClearOneShotFlags`, which the rewind classifier already treats a
 surface). Any new one must do the same - or, if endpoint-lost is ever reclassified as a
 resolution, it should be added to the postponement allowlist's mirror, not fixed at one call
 site.
+
+Closure (2026-11-07, branch cleanup-1): re-checked on main 22d28a47. The ways back to a
+ghost-driving status are `TryActivate` (clears both flags), the Re-scan
+(`TryRecoverEndpointLostAfterRescan`: a loop route resumes its pre-loss status with the arm
+kept and the next completed cycle honours it through `TryHonorArmedPauseOnCompletedCycle`; a
+non-loop route only has its retry gate cleared, and its next dispatch delivers through
+`ApplyDelivery`'s armed tail), and the rewind classifier (clears both). Every one honours or
+clears the arm, so the hazard needs a future path, and the decision is now held mechanically:
+`RouteOrchestratorDeliveryTests.EndpointLostAtDelivery_KeepsTheArmedOneShots` reds if the
+delivery-time loss ever consumes either flag (checked: red with `SendOnceArmed = false` added
+before the transition), and a one-line comment at that `TransitionTo` states the constraint.
+Nothing is owed.
 
 **~~4. A SINGLE-STOP pure-PICKUP loop route never honors the arm on its delivered path.~~**
 [FOUND 2026-09-01 while fixing 1 and 2; FIXED 2026-09-01 in the same family]
@@ -3415,7 +3539,8 @@ resolution for tidiness alone). Still unverified against a real save; no known p
 exists yet. Covered by `SendOnceArmed_PurePickupCycle_EndsPaused_ClearsFlags_OneToast`,
 `Unarmed_PurePickupCycle_StaysActive_NoPauseNoToast` and
 `PauseAfterCycleArmed_PurePickupCycle_PausesWithoutToast` (`RouteLoopPickupFireTests`); all
-three go red against the pre-fix branch.
+three go red against the pre-fix branch. Nothing owed (2026-11-07): those cells drive the real
+`EmitLoopCycle` branch, so a live save would prove nothing they do not.
 
 Also banked from the same review (comment-only, corrected in the follow-up commit): the
 blocked-cycle marker CAN share its `(routeId, UT, Sequence=0)` key with a

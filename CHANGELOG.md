@@ -17,6 +17,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **The Kerbals window says when a stand-in flew a kerbal's last flight.** A flight a stand-in
+  flew is listed under the kerbal he covered; the Roster's Last flight cell now adds "(flown by
+  <stand-in>)" as the Flights tab already did, instead of reading as the kerbal's own flight.
+  (KERBALS-WINDOW-RESIDUE-2026-09-15)
 - **A crashed flight's ghost looks the same on the map whether it was stored whole or in pieces.**
   The climb part of a crash flight no longer shows as a KSP vessel on an orbit it never flew; in
   the Tracking Station a crash flight's ghost now keeps Parsek's marker along its coast instead of
