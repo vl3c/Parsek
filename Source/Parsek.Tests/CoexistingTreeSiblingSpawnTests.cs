@@ -856,7 +856,10 @@ namespace Parsek.Tests
         {
             string srcRoot = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "Parsek"));
-            string raw = File.ReadAllText(Path.Combine(srcRoot, file)).Replace("\r\n", "\n");
+            // VesselSpawner is a partial class; its gate reads every split file as one text.
+            string raw = (file == "VesselSpawner.cs"
+                ? VesselSpawnerSourceFiles.ReadAll(srcRoot)
+                : File.ReadAllText(Path.Combine(srcRoot, file))).Replace("\r\n", "\n");
             return SourceScanText.StripCSharpComments(raw);
         }
 

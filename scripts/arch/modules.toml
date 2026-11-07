@@ -268,10 +268,11 @@ placement = "R0"
 # It left the Core kernel list in file-placement PR 9 (2026-11-06) once PRs 6-8
 # had moved its pure snapshot half to VesselSnapshotOps and its live capture to
 # LiveVesselSnapshot; the spawn half references 12 Controllers types, so
-# Controllers is the home with the smaller upward weight
+# Controllers is the home with the smaller upward weight. PR 10 split it into
+# partial files (scripts/refactor/split_vesselspawner.py), which the rule names too
 [[module]]
 name = "Controllers"
-prefix = "^VesselSpawner[.]cs$"
+prefix = "^VesselSpawner[.]cs$|^VesselSpawner[.][A-Za-z]+[.]cs$"
 placement = "R0"
 
 [[module]]

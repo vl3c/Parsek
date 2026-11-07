@@ -3351,16 +3351,17 @@ class RealTreeSmokeTests(unittest.TestCase):
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
         self.assertIn("| Core |", fresh)
-        # 198: the historical before-state collects every root file the narrowed
+        # 206: the historical before-state collects every root file the narrowed
         # family rules leave behind (138 on 2026-09-25, 126 before the stock-UI
         # reservation files landed at the root; the 2026-11-01 refresh placed
         # 50 more by hand, the first 2026-11-04 merge of main three more, the
         # second two more while main deleted one, and the RecordingStore
         # services plan's SceneEntryVesselScope, which no family prefix names,
-        # one more, and file-placement PR 8's LiveVesselSnapshot one more); 8
+        # one more, file-placement PR 8's LiveVesselSnapshot one more, and PR 10's
+        # eight VesselSpawner.<Area>.cs partial files eight more); 8
         # after, the kernel list as it stands today (9 until file-placement PR 9
         # placed VesselSpawner.cs in Controllers).
-        self.assertIn("| Core | 198 | 8 |", fresh)
+        self.assertIn("| Core | 206 | 8 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)

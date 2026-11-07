@@ -80,6 +80,8 @@ namespace Parsek.Tests
                 RecordingsTableUISourceFiles.Paths(Path.Combine(parsek, "UI")).Count);
             Assert.Equal(1 + ParsekFlightSourceFiles.SplitFileNames.Length,
                 ParsekFlightSourceFiles.Paths(parsek).Count);
+            Assert.Equal(1 + VesselSpawnerSourceFiles.SplitFileNames.Length,
+                VesselSpawnerSourceFiles.Paths(parsek).Count);
         }
     }
 }
