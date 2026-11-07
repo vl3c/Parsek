@@ -51,7 +51,7 @@ namespace Parsek.Tests
 
             Assert.True(RecordingStore.HasPendingTree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
         }
@@ -84,7 +84,7 @@ namespace Parsek.Tests
 
             // Simulate the revert guard from ParsekScenario.OnLoad
             if (RecordingStore.HasPendingTree)
-                RecordingStore.DiscardPendingTree();
+                TreeDiscardService.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
         }

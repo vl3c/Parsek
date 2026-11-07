@@ -144,7 +144,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree001", "rec-A");
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "guid-A");
             Assert.Null(GameStateStore.GetContractSnapshot("guid-A"));
@@ -188,7 +188,7 @@ namespace Parsek.Tests
             var pendingTree = MakeTree("tree-pending-overlap", "rec-shared", "rec-pending-only");
             PendingTreeSlot.StashPendingTree(pendingTree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.Contains(GameStateStore.Events, e =>
                 e.key == "contract-shared" && e.recordingId == "rec-shared");
@@ -230,7 +230,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree001", "rec-A", "rec-B");
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.Contains(GameStateStore.Events, e => e.key == "guid-KSC");
             var kscMatch = GameStateStore.Events.First(e => e.key == "guid-KSC");
@@ -256,7 +256,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree001", "rec-parent", "rec-eva");
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.Empty(GameStateStore.Events);
             Assert.Contains(logLines, l =>
@@ -276,7 +276,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree001", "rec-A", "rec-B");
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.Single(GameStateStore.Events);
             var survivor = GameStateStore.Events[0];
@@ -332,7 +332,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree001", "rec-A");
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             // Accept survives — it's untagged. The tagged completion store event is still
             // purged (now redundant).
@@ -369,7 +369,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree001", "rec-A");
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             // Both tagged store events + the snapshot are still purged.
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "guid-mission");
@@ -542,7 +542,7 @@ namespace Parsek.Tests
             Assert.Contains(MilestoneStore.Milestones[0].Events,
                 e => e.key == "guid-flush" && e.recordingId == "rec-flush");
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             // Event gone from both live and milestone, milestone empty → dropped,
             // snapshot removed.
@@ -619,7 +619,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree-mixed", "rec-A");
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             // Milestone not dropped (still has rec-B + untagged event).
             Assert.Equal(1, MilestoneStore.MilestoneCount);

@@ -6,7 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// DELETE-LEAVES-TREE-MEMBERSHIP (found by S0.11-ksc-table-delete's first flight,
-    /// 2026-09-02): <c>RecordingStore.RemoveRecordingAt</c> removed the row from the flat
+    /// 2026-09-02): <c>TreeDiscardService.RemoveRecordingAt</c> removed the row from the flat
     /// committed list only, so the committed tree that owned it kept the member,
     /// <c>SaveTreeRecordings</c> re-wrote its sidecars on the next OnSave, and the next load
     /// put it back. The removal must also prune the row from every committed tree.
@@ -60,7 +60,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(MakeRecording("c"));
             Assert.True(AnyCommittedTreeHolds("b"), "fixture: b must start as a tree member");
 
-            RecordingStore.RemoveRecordingAt(1);
+            TreeDiscardService.RemoveRecordingAt(1);
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
             Assert.False(AnyCommittedTreeHolds("b"),
@@ -98,7 +98,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(b);
             RecordingStore.AddCommittedInternal(c);
 
-            RecordingStore.RemoveRecordingAt(1);
+            TreeDiscardService.RemoveRecordingAt(1);
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
             Assert.False(tree.Recordings.ContainsKey("b"));

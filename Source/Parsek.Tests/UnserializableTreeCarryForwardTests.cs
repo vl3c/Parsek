@@ -474,7 +474,7 @@ namespace Parsek.Tests
         public void ShouldPreserveCommittedOverlapOnPendingDiscard_Matrix(
             bool committedInMemory, bool durableHint, bool expected)
         {
-            Assert.Equal(expected, RecordingStore.ShouldPreserveCommittedOverlapOnPendingDiscard(
+            Assert.Equal(expected, TreeDiscardService.ShouldPreserveCommittedOverlapOnPendingDiscard(
                 committedInMemory, durableHint));
         }
 
@@ -525,7 +525,7 @@ namespace Parsek.Tests
                 new HashSet<string>(StringComparer.Ordinal) { "rec-overlap" });
             try
             {
-                RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+                TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
             }
             finally
             {
@@ -557,7 +557,7 @@ namespace Parsek.Tests
             RecordingStore.ClearDurableCommittedRecordingIdHint();
 
             logLines.Clear();
-            RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+            TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
 
             Assert.DoesNotContain(logLines, l => l.Contains("skipped deleting"));
             Assert.DoesNotContain(logLines, l =>

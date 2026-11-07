@@ -372,7 +372,7 @@ namespace Parsek.Tests
             tree.Recordings["rec-A"] = new Recording { RecordingId = "rec-A", TreeId = "tree-e2e" };
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             // Walk the resulting ledger through ContractsModule: before the fix the contract
             // would be ACTIVE again (accept survives, completion gone); after the fix the
@@ -410,7 +410,7 @@ namespace Parsek.Tests
             tree.Recordings["rec-A"] = new Recording { RecordingId = "rec-A", TreeId = "tree-ab" };
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+            TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
 
             Assert.DoesNotContain(Ledger.Actions, a =>
                 a.Type == GameActionType.ContractComplete && a.ContractId == "guid-abandon");
@@ -484,7 +484,7 @@ namespace Parsek.Tests
             tree.Recordings["rec-A"] = new Recording { RecordingId = "rec-A", TreeId = "tree-x" };
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             // rec-A's pending science is gone, re-homed as a DIRECT science action.
             Assert.DoesNotContain(GameStateRecorder.PendingScienceSubjects, s => s.recordingId == "rec-A");
@@ -514,7 +514,7 @@ namespace Parsek.Tests
             tree.Recordings["rec-A"] = new Recording { RecordingId = "rec-A", TreeId = "tree-ab" };
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+            TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
 
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
         }

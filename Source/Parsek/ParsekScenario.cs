@@ -732,7 +732,7 @@ namespace Parsek
             // KSP's economy is being rolled back (or belongs to a different save), so do NOT
             // re-home the discarded tree's contracts/science/milestones into the ledger —
             // that would credit economy KSP no longer reflects (see DiscardPendingTree).
-            RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+            TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
         }
 
         /// <summary>
@@ -746,7 +746,7 @@ namespace Parsek
                 return;
 
             ParsekLog.Verbose("Scenario", $"DiscardPendingTree recalc path: {reason}");
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                 GetCurrentTimelineUTForLedgerRecalc(),
                 "pending-tree-discard");
@@ -1193,7 +1193,7 @@ namespace Parsek
         /// <para>
         /// <b>Caller contract (#434 follow-up, 2026-04-17):</b> this method is
         /// destructive — it deletes sidecar files via
-        /// <see cref="RecordingStore.DiscardPendingTree"/> — and MUST NOT be
+        /// <see cref="TreeDiscardService.DiscardPendingTree"/> — and MUST NOT be
         /// called from the revert path. Revert-to-Launch in particular matches
         /// the "UT went backwards and scene stayed in FLIGHT" quickload
         /// heuristic, but reverted recordings must survive on disk so a flight
@@ -1669,7 +1669,7 @@ namespace Parsek
         /// <para>Do NOT call from post-revert or other rollback paths where KSP's funds
         /// have been rewound to pre-flight: those paths intentionally discard or unstash
         /// the pending tree instead of committing it. None of the current callers are on
-        /// that path — the revert branch runs <see cref="RecordingStore.DiscardPendingTree"/>
+        /// that path — the revert branch runs <see cref="TreeDiscardService.DiscardPendingTree"/>
         /// (or <see cref="PendingTreeSlot.UnstashPendingTreeOnRevert"/>) instead (#434).</para>
         /// </summary>
         internal static void CommitPendingTreeAsApplied(RecordingTree tree)
@@ -1826,7 +1826,7 @@ namespace Parsek
         ///   node via <see cref="SaveActiveTreeIfAny"/>/<see cref="SavePendingTreeIfAny"/> —
         ///   does NOT mask the loss of the committed trees.</description></item>
         ///   <item><description>stranded sidecars &gt; 0 — deleting a recording removes its
-        ///   sidecars (<see cref="RecordingStore.RemoveRecordingAt"/> → <c>DeleteRecordingFiles</c>),
+        ///   sidecars (<see cref="TreeDiscardService.RemoveRecordingAt"/> → <c>DeleteRecordingFiles</c>),
         ///   so leftover sidecars corroborate that committed recordings existed and were lost,
         ///   not that the save is genuinely empty.</description></item>
         /// </list>

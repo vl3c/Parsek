@@ -100,6 +100,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TreeDiscardServiceRemoveRecordingAt_RaisesThroughThePrimitive_AfterTheTreePrune()
+        {
+            // RemoveRecordingAt lives on TreeDiscardService (RecordingStore services plan,
+            // PR12 K) and must change the list only through RecordingStore.RemoveCommittedAt:
+            // one Removing / Removed pair at the index, a StateVersion bump, the chain
+            // siblings degraded and the row already gone from its committed tree when the
+            // Removing handler runs (the handler tears the ghost down; the tree flush must
+            // not re-materialize the row).
+            RecordingStore.AddRecordingWithTreeForTesting(MakeRecording("a", "chain-1", 0));
+            RecordingStore.AddRecordingWithTreeForTesting(MakeRecording("b", "chain-1", 1));
+            RecordingStore.AddRecordingWithTreeForTesting(MakeRecording("c"));
+            bool treeHeldBAtRemoving = true;
+            RecordingStore.CommittedRecordingRemoving += (index, removed) =>
+            {
+                bool held = false;
+                var trees = RecordingStore.CommittedTrees;
+                for (int t = 0; t < trees.Count; t++)
+                    if (trees[t]?.Recordings != null && trees[t].Recordings.ContainsKey(removed.RecordingId))
+                        held = true;
+                treeHeldBAtRemoving = held;
+            };
+            int versionBefore = RecordingStore.StateVersion;
+
+            TreeDiscardService.RemoveRecordingAt(1);
+
+            Assert.NotEqual(versionBefore, RecordingStore.StateVersion);
+            Assert.Equal(new[] { "removing:1:b:count=3", "removed:1:b:target=none:count=2" }, sequence);
+            Assert.False(treeHeldBAtRemoving, "the tree prune runs before the primitive raises Removing");
+            Assert.Null(RecordingStore.CommittedRecordings[0].ChainId);
+            Assert.Equal("c", RecordingStore.CommittedRecordings[1].RecordingId);
+        }
+
+        [Fact]
+        public void TreeDiscardServiceRemoveRecordingAt_InvalidIndex_RaisesNothing()
+        {
+            AddThree();
+            int versionBefore = RecordingStore.StateVersion;
+
+            TreeDiscardService.RemoveRecordingAt(3);
+            TreeDiscardService.RemoveRecordingAt(-1);
+
+            Assert.Equal(versionBefore, RecordingStore.StateVersion);
+            Assert.Empty(sequence);
+            Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
+        }
+
+        [Fact]
         public void RemoveCommittedTreeById_RaisesForEachOfTheTreesRecordings()
         {
             var tree = new RecordingTree { Id = "tree-1", TreeName = "T" };

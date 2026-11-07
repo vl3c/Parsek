@@ -590,7 +590,7 @@ namespace Parsek.Tests
             liveTree.Recordings["rec_tip"].FilesDirty = true;
             PendingTreeSlot.StashPendingTree(liveTree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
             Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
@@ -647,7 +647,7 @@ namespace Parsek.Tests
             pendingTree.Id = "tree_pending_not_the_attempt";
             PendingTreeSlot.StashPendingTree(pendingTree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
             // The attempt belongs to ANOTHER tree: neither its suppressed tail nor its

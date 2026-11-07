@@ -133,7 +133,7 @@ namespace Parsek.Tests
             RecordingTree tree = RecoveredWithLabMark();
             PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
             Assert.False(InFlightRecoveryRequest.LabScienceAwaitingRecovery.ContainsKey(RecId));

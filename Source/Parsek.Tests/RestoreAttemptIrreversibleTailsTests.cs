@@ -190,7 +190,7 @@ namespace Parsek.Tests
             AddEvent(GameStateEventType.ContractCompleted, "guid-pending", 250.0);
             PendingTreeSlot.StashPendingTree(clone);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.Contains(Ledger.Actions, a =>
                 a.Type == GameActionType.ContractComplete && a.ContractId == "guid-pending"
@@ -205,7 +205,7 @@ namespace Parsek.Tests
             AddEvent(GameStateEventType.ContractCompleted, "guid-abandon", 250.0);
             PendingTreeSlot.StashPendingTree(clone);
 
-            RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+            TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
 
             Assert.DoesNotContain(Ledger.Actions, a => a.ContractId == "guid-abandon");
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "guid-abandon");

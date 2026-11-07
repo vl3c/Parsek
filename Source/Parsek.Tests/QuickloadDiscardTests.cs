@@ -214,7 +214,7 @@ namespace Parsek.Tests
         {
             // Defense-in-depth for Re-Fly retry: an active session owns the
             // pending tree and RP quicksave, so even a direct call must refuse
-            // before RecordingStore.DiscardPendingTree can invoke PurgeTree.
+            // before TreeDiscardService.DiscardPendingTree can invoke PurgeTree.
             var tree = MakeTree("t_refly", "Kerbal X", 2);
             PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
             var scenario = new ParsekScenario
@@ -307,7 +307,7 @@ namespace Parsek.Tests
         public void DiscardPendingTreeAndAbandonDeferredFlightResults_DiscardsPendingTree()
         {
             // #434: FlightResultsPatch is gone; this helper now just forwards to
-            // RecordingStore.DiscardPendingTree with a named reason for logging.
+            // TreeDiscardService.DiscardPendingTree with a named reason for logging.
             var tree = MakeTree("t_cleanup", "Cleanup Carrier", 2);
             PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
 

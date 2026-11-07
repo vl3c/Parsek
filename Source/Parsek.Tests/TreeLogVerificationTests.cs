@@ -102,7 +102,7 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(tree);
             capturedLines.Clear();
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.Contains(capturedLines,
                 line => line.Contains("Discarded pending tree 'Mun Mission'"));

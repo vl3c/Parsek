@@ -7,7 +7,7 @@ namespace Parsek.Tests
     /// Tests for #434: on revert, the pending tree is soft-unstashed (slot cleared) but
     /// sidecar files and tagged events are preserved so that a flight quicksave can still
     /// be F9'd back into. Contrast with merge-dialog Discard, which runs the full #431
-    /// purge via <see cref="RecordingStore.DiscardPendingTree"/>.
+    /// purge via <see cref="TreeDiscardService.DiscardPendingTree"/>.
     /// </summary>
     [Collection("Sequential")]
     public class RevertDiscardTests : System.IDisposable
@@ -396,7 +396,7 @@ namespace Parsek.Tests
             // Restash and discard the second path — events should be purged.
             var tree2 = MakeTreeWithOneRec("Discard path", "rec-contrast");
             PendingTreeSlot.StashPendingTree(tree2, PendingTreeState.Finalized);
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
             Assert.Empty(GameStateStore.Events); // purge confirmed
         }
 

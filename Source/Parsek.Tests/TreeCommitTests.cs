@@ -1376,7 +1376,7 @@ namespace Parsek.Tests
             var tree = MakeSimpleTree();
             PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Empty(RecordingStore.CommittedRecordings);

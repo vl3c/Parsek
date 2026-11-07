@@ -169,7 +169,7 @@ namespace Parsek.Tests
 
             // ---- Discard: the clone goes, the committed copy stays readable ----
             RecordingStore.DiscardCommittedTreeRestoreAttempt("test-discard", preserveIrreversibleTails: false);
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
             Assert.True(File.Exists(HeadPath(RootId)));
             Assert.True(File.Exists(VersionPath(RootId, h1)));
 

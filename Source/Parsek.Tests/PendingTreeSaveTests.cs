@@ -490,7 +490,7 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(pending, PendingTreeState.Finalized);
             logLines.Clear();
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedRecordings, r =>

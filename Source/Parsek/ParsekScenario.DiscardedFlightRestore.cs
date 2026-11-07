@@ -69,7 +69,7 @@ namespace Parsek
         /// recorder into the discarded ids. A missing file alone does not prove a discard (a
         /// copied save folder or deleted files look the same), so the tree id must also be one
         /// a discard deleted sidecars for in this process
-        /// (<see cref="RecordingStore.WasTreeDiscardedThisSession"/>).
+        /// (<see cref="TreeDiscardService.WasTreeDiscardedThisSession"/>).
         /// Anything else - a committed copy in memory, a member that hydrated, a member that
         /// failed for another reason (stale epoch, schema, snapshot, corrupt file) - restores
         /// as before, and so does a tree a same-id pending tree still holds (the restore salvages
@@ -143,7 +143,7 @@ namespace Parsek
             bool pendingSameId = RecordingStore.HasPendingTree
                 && RecordingStore.PendingTree != null
                 && string.Equals(RecordingStore.PendingTree.Id, tree.Id, StringComparison.Ordinal);
-            bool discardedThisSession = RecordingStore.WasTreeDiscardedThisSession(tree.Id);
+            bool discardedThisSession = TreeDiscardService.WasTreeDiscardedThisSession(tree.Id);
             DiscardedActiveTreeRestoreAction action = DecideDiscardedActiveTreeRestore(
                 tree, discardedThisSession, committedCopy, pendingSameId, out string reason);
             if (action == DiscardedActiveTreeRestoreAction.Restore)
@@ -213,7 +213,7 @@ namespace Parsek
             bool pendingSameId = RecordingStore.HasPendingTree
                 && RecordingStore.PendingTree != null
                 && string.Equals(RecordingStore.PendingTree.Id, tree.Id, StringComparison.Ordinal);
-            bool discardedThisSession = RecordingStore.WasTreeDiscardedThisSession(tree.Id);
+            bool discardedThisSession = TreeDiscardService.WasTreeDiscardedThisSession(tree.Id);
             DiscardedActiveTreeRestoreAction action = DecideDiscardedActiveTreeRestore(
                 tree, discardedThisSession, committedCopy, pendingSameId, out string reason);
             if (action == DiscardedActiveTreeRestoreAction.Restore)

@@ -195,7 +195,7 @@ namespace Parsek.InGameTests
                 PendingTreeSlot.StashPendingTree(tree);
 
                 // REAL discard (genuine vs abandon) + REAL recalc against live KSP.
-                RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay);
+                TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay);
                 LedgerOrchestrator.RecalculateAndPatch();
 
                 afterRecalc();
@@ -214,7 +214,7 @@ namespace Parsek.InGameTests
                 // (ledger included) from the clean baseline after the test - so the persisted
                 // save is always restored and any in-memory residue is bounded to that window.
                 if (RecordingStore.HasPendingTree)
-                    RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+                    TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
                 FlightIntegrationTests.TruncateLedgerForTeardown(
                     beforeActions, "DiscardEconomyPreservation");
                 GameStateStore.TruncateEventsForTesting(beforeEvents);

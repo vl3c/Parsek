@@ -13,7 +13,7 @@ namespace Parsek
         // can shift that state in step. Raised by the two primitives RemoveCommittedAt and
         // InsertCommittedAt, which the optimization pass (CommittedListOptimizer: merge
         // removal + split insert), InsertCommittedAfter, and every removal helper route
-        // through (RemoveRecordingAt, RemoveCommittedInternal, RemoveCommittedById,
+        // through (TreeDiscardService.RemoveRecordingAt, RemoveCommittedInternal, RemoveCommittedById,
         // RemoveCommittedTreeById, ClearCommittedInternal - the last one removes top-down one
         // item at a time, because the failed-rewind-load bundle restore reaches it in FLIGHT
         // with ghosts alive).
