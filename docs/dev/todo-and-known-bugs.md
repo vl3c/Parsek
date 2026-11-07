@@ -2961,6 +2961,18 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `.Roster` 1,244, `.Walk` 946, `.CrewEndStates` 900, `.Handoffs` 505, `.Queries` 427,
   `.HoldClock` 404. The ERS / ELS allowlist adds the partial that now holds each raw read
   (`RouteOrchestrator.LoopClock.cs`, `KerbalsModule.Walk.cs`).
+- Wave 2 W8c, second PR (S3, pure move, IL identical): `UI/MissionsWindowUI.cs` (5,039 lines)
+  and `UI/LogisticsWindowUI.cs` (4,782) are partial classes over 8 files each
+  (`scripts/refactor/split_missionswindowui.py`, `split_logisticswindowui.py`; every field,
+  property, constant and the constructor stay in the main file). Missions: main 1,538 (the
+  tab draw, reveal navigation, styles, sorting, column header, testing seams), `.ViewData`
+  626, `.VesselRows` 594, `.Periodicity` 594, `.Loop` 540, `.Interact` 463, `.MissionRows`
+  424, `.ForeignDocks` 330. Logistics: main 1,185 (window lifecycle and draw, styles, testing
+  seams), `.Legibility` 896, `.Detail` 778, `.Rows` 714, `.Actions` 496, `.Sections` 467,
+  `.LinkPicker` 169, `.Formatting` 168. The source gates that read either file now read the
+  whole class through `MissionsWindowUISourceFiles` / `LogisticsWindowUISourceFiles` (or the
+  one area file a single-method gate names); the ERS / ELS allowlist adds the four Missions
+  partials that hold its raw reads.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

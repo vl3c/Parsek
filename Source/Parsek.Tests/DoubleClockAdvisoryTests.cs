@@ -393,9 +393,10 @@ namespace Parsek.Tests
         {
             string projectRoot = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(projectRoot, "Source", "Parsek", "UI", "MissionsWindowUI.cs");
-            Assert.True(File.Exists(path), $"MissionsWindowUI.cs not found at {path}");
-            return File.ReadAllText(path);
+            // MissionsWindowUI is a partial class: the scans read every file of it.
+            string dir = Path.Combine(projectRoot, "Source", "Parsek", "UI");
+            string text = MissionsWindowUISourceFiles.ReadAll(dir);
+            return text;
         }
     }
 }
