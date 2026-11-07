@@ -501,7 +501,7 @@ namespace Parsek.Tests
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            return StripComments(File.ReadAllText(Path.Combine(root, "Source", "Parsek", relative))
+            return StripComments(ParsekScenarioSourceFiles.ReadText(Path.Combine(root, "Source", "Parsek", relative))
                 .Replace("\r\n", "\n"));
         }
 

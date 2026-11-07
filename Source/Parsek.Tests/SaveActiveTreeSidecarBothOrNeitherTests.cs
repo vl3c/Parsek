@@ -372,7 +372,7 @@ namespace Parsek.Tests
             string scenarioPath = Path.Combine(projectRoot, "Source", "Parsek", "ParsekScenario.cs");
             Assert.True(File.Exists(scenarioPath), $"ParsekScenario.cs not found at {scenarioPath}");
 
-            string source = File.ReadAllText(scenarioPath);
+            string source = ParsekScenarioSourceFiles.ReadText(scenarioPath);
             int start = source.IndexOf(
                 "private static void SaveActiveTreeIfAny(ConfigNode node)", StringComparison.Ordinal);
             Assert.True(start >= 0, "SaveActiveTreeIfAny method signature not found");
