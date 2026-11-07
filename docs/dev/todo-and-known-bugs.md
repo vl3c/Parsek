@@ -1735,7 +1735,7 @@ KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 
 ---
 
-## ~~RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL: a recovery stamps the non-leaf earlier segment of the recovered vessel too~~ [FILED 2026-09-26 from the MatchesVessel trace. FIXED 2026-09-27, branch `kss2-career`; the Re-Fly sibling edge below stays OPEN]
+## ~~RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL: a recovery stamps the non-leaf earlier segment of the recovered vessel too~~ [FILED 2026-09-26 from the MatchesVessel trace. FIXED 2026-09-27, branch `kss2-career`; the Re-Fly sibling edge below FIXED 2026-11-06, branch `claude/project-thread-esanuo`]
 
 Segments of one vessel share pid, launch guid and name: a breakup parent (its
 `ChildBranchPointId` set) and its same-vessel parent continuation
@@ -1776,7 +1776,7 @@ tip matches whenever an earlier segment does). Cells: `TerminalEventEarlierSegme
 (split parent, breakup-continuous still stamped, dock dominant parent keeps Docked, background
 chain, terminate path, exactly one recovery funds row on commit, the log line).
 
-Still OPEN (Re-Fly sibling edge, not traced): a Re-Fly provisional is a SIBLING of the origin
+~~Still OPEN (Re-Fly sibling edge, not traced)~~ FIXED 2026-11-06 (see below): a Re-Fly provisional is a SIBLING of the origin
 child (same parent branch point, same pid + guid, `SupersedeTargetId` = the prior tip); if the
 origin copy is in the pending tree at the recovery, both are leaves and both are stamped, and
 both could pair the recovery event at commit. Neither predicate separates them; it would need
@@ -1784,6 +1784,24 @@ both could pair the recovery event at commit. Neither predicate separates them; 
 whether `SupersedeCommit` already strips the origin's ledger rows. Defensive follow-up worth
 considering with it: refuse a second recovery row with the same recovery dedup key within one
 tree commit.
+
+TRACED + FIXED 2026-11-06 (branch `claude/project-thread-esanuo`). Reachable whenever the prior
+tip's terminal can still be overwritten (Orbiting / SubOrbital / Landed / Splashed; a Destroyed
+prior tip is blocked by `CanOverwriteTerminalState`). The in-place fork is attached to the session
+tree (`RewindInvoker` AtomicMarkerWrite -> `FindTreeForReFlyFork`), which also holds a CLONE of
+the prior tip (`SpliceMissingCommittedRecordingsIntoLoadedTree`); both match the recovered vessel
+by pid + guid and both are leaves, so a recovery (in-flight `InFlightRecoveryRequest`, or TS / KSC
+with the tree stashed pending) stamped both, and `FinalizeTreeCommit` then replaced the committed
+prior tip with the stretched clone. `NotifyLedgerTreeCommitted` booked a second FundsEarning
+(Recovery) row on the prior tip's id; the merge's tombstone pass retired it from ELS (transient
+double funds until the post-tombstone recalc, a permanent raw row), and
+`RecoveryDispatchScope.DecideOwner` read `pending-owner-ambiguous`. Fix:
+`ParsekScenario.IsTerminalEventTarget` refuses a recording another tree recording names as its
+`SupersedeTargetId` (the live fork) or that a supersede relation replaces (a merged or nested
+Re-Fly), so all three callers stay in step; one `skippedReplacedByReFly=N` Info line per event.
+The dedup-key guard was not added: with the predicate fixed no second row is produced. Cells:
+`TerminalEventEarlierSegmentTests.ReFlySibling_*` (stamp, relation variant, one funds row; all
+three red with the guard removed).
 
 ---
 
@@ -2984,7 +3002,7 @@ entry below is one line of that split. Struck entries were fixed in this batch, 
 evidence that found them; open entries carry the proposed fix and, where the triage said
 so, a `Decision:` naming what the operator must choose.
 
-## GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL: the Missions window's merged first header cell leaves the Name column 1 px off in both tabs [FILED 2026-09-11 off the census dumps; the Recordings tab's -5 on the data columns turned out to be the gutter and is FIXED + confirmed by run 2026-09-11_1729. OPEN for the 1 px residual; needs a flight to verify any fix]
+## ~~GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL: the Missions window's merged first header cell leaves the Name column 1 px off in both tabs~~ [FILED 2026-09-11 off the census dumps; the Recordings tab's -5 on the data columns turned out to be the gutter and is FIXED + confirmed by run 2026-09-11_1729. The Missions tab's data-column 1 px FIXED 2026-11-06 (gutter); the Name-cell 1 px left as the text lead gap, see the 2026-11-06 note]
 
 **Evidence.** The last two rows of the table in
 GUI-TABLE-HEADERS-OFFSET-FROM-CELLS above.
@@ -3016,6 +3034,16 @@ entry's own fix section already prefers, which moves every row draw in that tab 
 cannot be checked without re-running a census dump; and the merged-cell half is the
 multi-row-shape change described below. Both belong in a change whose own flight re-diffs the
 GUI-4 `bd-missions-*` dumps, not in a PR whose flights are pointed at dialogs and hover.
+
+**2026-11-06 (branch `claude/project-thread-esanuo`).** The Missions tab's header now reserves
+`ParsekUI.VerticalScrollbarFootprintWidth()` (16, the bare footprint this entry derived) instead
+of `verticalScrollbar.fixedWidth` (15), so its data columns move 1 px left onto their cells
+(source pin `TableRowInsetAlignmentTests.TheMissionsTabHeaderReservesTheBareScrollbarFootprint`;
+not re-measured by a census flight, per the 2026-10-31 ruling that GUI is judged in game). The
+merged-cell part is left: only the expanding Name column's left edge moves (76 header vs 77 row
+in the Recordings tab), and the body's 5 px lead gap (`NameColumnLeadGap` / the Missions tab's
+`BodyCellTextIndent`) exists to put the row TEXT under the heading text, so matching the rects
+would move the text 1 px off instead. Closed as cosmetic unless seen in game.
 
 **Fix (proposed, not applied).** Wrap the body rows' leading toggle + index pair in a
 container of the header's merged width, and open every row with
@@ -3073,7 +3101,7 @@ drives the DESIGNED flag through a real career.
   `TerminalSpawnSupersededByRecordingId` set, scanning the committed list even far from EndUT (O(K*n)
   per frame). Fine at today's scales. Fix: gate it to near or past EndUT as the Tracking Station does.
 
-## ~~GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance~~ [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15. DONE 2026-09-26, branch `commnet-followups`; two Tracking Station sub-cases left dark, below]
+## ~~GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance~~ [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15. DONE 2026-09-26, branch `commnet-followups`; of the two Tracking Station sub-cases below, the double count is FIXED 2026-11-06 and the pre-claim gap stays dark]
 
 Design 15.6 scenario 15 says a real vessel despawned because a committed future recording claims
 it keeps relaying until the claim resolves. What shipped covered only the stretch BEFORE the first
@@ -3126,11 +3154,16 @@ another pid, a chain claim before any carrier, the gates, the precedence).
   a vessel a flight despawned (and the save therefore no longer holds) has no despawn snapshot to
   relay from there. It relays again once a recording carrying it starts. A snapshot relay would
   need the flight's despawn snapshots carried across the scene change; not done.
-- Tracking Station, chain-claimed vessel still real there (no flight ran after the load, so it was
+- ~~Tracking Station, chain-claimed vessel still real there (no flight ran after the load, so it was
   never despawned): its stock node relays, and an in-window committed recording of it in the
   claiming tree also registers a ghost node (`ShouldSkipExternalVesselGhost` lets a tree's own
   recording through). A narrow pre-existing double count, not introduced here; it needs a save
-  loaded straight into the Space Center or Tracking Station with a claim still ahead.
+  loaded straight into the Space Center or Tracking Station with a claim still ahead.~~ FIXED
+  2026-11-06 (branch `claude/project-thread-esanuo`): a new eligibility input `RealVesselRelays`
+  (`GhostPlaybackLogic.RealVesselRelaysForRecording`: a launch-matched real vessel exists and is
+  not chain-ghosted; no tree-owned exemption, so the VISUAL ghost still draws) excludes the node
+  `real-vessel-relays` in both hosts, per the one-node rule (scenarios 13 and 15). Cells in
+  `GhostCommNetTests` (`RealVesselRelays_*`, the exclusion theory row).
 
 **Live proof: none cheap.** `bdock-second-dock-recorded` has the gap shape, but the station
 (Mk1-3 pods, Communotron 88-88 direct dishes, no RC-L01) has no relay antenna and no probe control
@@ -3291,8 +3324,21 @@ not a segment-lookup one: in the same session the flight-scene engine had the TI
 and driven (`[i=1 rec=8da7c2c2 ... endUT=2348.5][out:vis=T ...]`, KSP.log:20211) while
 map-presence resolution never ran for it at all.
 
-Fix: unknown - needs a reading of which member the map-presence lifecycle pass selects for
-a chain and why the TIP never entered the pending-create queue. Not scheduled.
+~~Fix: unknown - needs a reading of which member the map-presence lifecycle pass selects for
+a chain and why the TIP never entered the pending-create queue.~~ ANSWERED 2026-11-06 (code
+reading, branch `claude/project-thread-esanuo`): the TIP is refused by the terminal gate, not by
+a chain hand-off. `GhostMapPresence.HandleFlightGhostCreatedMapPresence` returns at
+`IsTerminalStateEligibleForMapPresence` (accepts only null / Orbiting / Docked / SubOrbital), and
+the optimizer split moved the Destroyed terminal (the predicted ballistic tail's impact at 2348.5)
+to the TIP and nulled the HEAD's, so the HEAD passes and the TIP never enters pending-create. The
+skip line carried no recording id, so a grep for the TIP's id found nothing; it now prints
+`rec=<id>`. In the gap the HEAD's proto (if already created) clamps to its last point and reseeds
+from it, showing the pre-burn ellipse for about 25 s of game time; creating one there fails
+(`no-state-vector-point`). An eligible TIP would not fill it either (`before-terminal-orbit` until
+its first conic at 216.70). The span is powered flight, so no conic is right there; the only
+truthful source is the TIP's own points, a design change. Open policy question, not scheduled:
+should a chain HEAD whose effective tip ends Destroyed be map-ineligible like an unsplit flight
+that ends Destroyed? Cosmetic, not a release item.
 
 ## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; the GUI-tree dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on 2026-09-11 with one `RunTests` step, so the axis reads 113 of 113 by SPEC COVERAGE again and this cell is once more the only named unreachable one]
 

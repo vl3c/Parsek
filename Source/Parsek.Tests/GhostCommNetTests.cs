@@ -29,6 +29,8 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            GhostPlaybackLogic.ResetIsGhostedOverride();
+            GhostPlaybackLogic.ResetVesselExistsOverride();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -438,6 +440,7 @@ namespace Parsek.Tests
         [InlineData("superseded")]
         [InlineData("re-fly-session-suppressed")]
         [InlineData("real-vessel-exists")]
+        [InlineData("real-vessel-relays")]
         [InlineData("historical-never-replayed")]
         public void Eligibility_Exclusions(string reason)
         {
@@ -451,11 +454,97 @@ namespace Parsek.Tests
                 case "superseded": i.SupersededByRelation = true; break;
                 case "re-fly-session-suppressed": i.SessionSuppressed = true; break;
                 case "real-vessel-exists": i.ExternalVesselSuppressed = true; break;
+                case "real-vessel-relays": i.RealVesselRelays = true; break;
                 case "historical-never-replayed": i.HistoricalNeverReplayed = true; break;
             }
             var e = GhostCommNetMath.EvaluateEligibility(i, 150);
             Assert.False(e.Eligible);
             Assert.Equal(reason, e.Reason);
+        }
+
+        // GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP, Tracking Station sub-case: a claimed vessel that
+        // is still real there (no flight despawned it) relays through its own stock node, so
+        // the claiming tree's in-window recording of it must not register a second node, even
+        // though its VISUAL ghost is tree-owned and still draws.
+        private static Recording ClaimedTreeRecording(string guid) => new Recording
+        {
+            RecordingId = "rec-claimed",
+            TreeId = "tree-claim",
+            VesselName = "Station",
+            VesselPersistentId = 700u,
+            RecordedVesselGuid = guid,
+        };
+
+        [Fact]
+        public void RealVesselRelays_SameLaunchRealAndNotChainGhosted_True()
+        {
+            const string guid = "11111111-1111-1111-1111-111111111111";
+            GhostPlaybackLogic.SetIsGhostedOverride(pid => false);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 700u);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => guid);
+            Assert.True(GhostPlaybackLogic.RealVesselRelaysForRecording(ClaimedTreeRecording(guid)));
+        }
+
+        [Fact]
+        public void RealVesselRelays_ChainGhostedVessel_False()
+        {
+            // FLIGHT despawns a claimed vessel; the ghost then carries it (scenario 15).
+            const string guid = "11111111-1111-1111-1111-111111111111";
+            GhostPlaybackLogic.SetIsGhostedOverride(pid => pid == 700u);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => guid);
+            Assert.False(GhostPlaybackLogic.RealVesselRelaysForRecording(ClaimedTreeRecording(guid)));
+        }
+
+        [Fact]
+        public void RealVesselRelays_LiveVesselIsADifferentLaunch_False()
+        {
+            // Same craft-baked pid, different launch: the recorded vessel is not in the world.
+            GhostPlaybackLogic.SetIsGhostedOverride(pid => false);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(
+                pid => "22222222-2222-2222-2222-222222222222");
+            Assert.False(GhostPlaybackLogic.RealVesselRelaysForRecording(
+                ClaimedTreeRecording("11111111-1111-1111-1111-111111111111")));
+        }
+
+        [Fact]
+        public void RealVesselRelays_NoLiveVessel_False()
+        {
+            GhostPlaybackLogic.SetIsGhostedOverride(pid => false);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => false);
+            Assert.False(GhostPlaybackLogic.RealVesselRelaysForRecording(
+                ClaimedTreeRecording("11111111-1111-1111-1111-111111111111")));
+            Assert.False(GhostPlaybackLogic.RealVesselRelaysForRecording(null));
+        }
+
+        [Fact]
+        public void RealVesselRelays_TreeOwnedRecording_VisualKeptButNodeExcluded()
+        {
+            // The visual gate exempts a tree's own recording; the relay gate does not.
+            const string guid = "11111111-1111-1111-1111-111111111111";
+            GhostPlaybackLogic.SetIsGhostedOverride(pid => false);
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => guid);
+            var rec = ClaimedTreeRecording(guid);
+            var tree = new RecordingTree { Id = "tree-claim" };
+            tree.Recordings[rec.RecordingId] = rec;
+            tree.RecordedVesselPids.Add(700u);
+            RecordingStore.ResetForTesting();
+            try
+            {
+                RecordingStore.CommittedTrees.Add(tree);
+                Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(rec, false));
+                var i = InWindowInput();
+                i.RealVesselRelays = GhostPlaybackLogic.RealVesselRelaysForRecording(rec);
+                var e = GhostCommNetMath.EvaluateEligibility(i, 150);
+                Assert.False(e.Eligible);
+                Assert.Equal(GhostCommNetMath.ReasonRealVesselRelays, e.Reason);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
         }
 
         [Fact]
