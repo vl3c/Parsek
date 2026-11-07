@@ -1649,3 +1649,17 @@ The tree is also written a second time as the `isActive = True` in-flight copy (
 committed-spawned restore resumed it after the commit). Craft come from the shared
 library (`../shared-ships.toml`). Payload pinned in
 `harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.
+
+## eve-gilly-recorded (GAME Mode = SANDBOX, 1 VESSEL, 10 recordings in 1 committed tree)
+
+PROVENANCE: `B37-eve-gilly-continuation`, run `2026-11-07_2220`, PASS attempt 1 (branch
+`claude/project-thread-ni23y9` head 9bd50bf, automation DLL sha256 prefix deeb466b),
+harvested `--keep-parsek --expect-situation ORBITING` from the run's own `_save` snapshot.
+The crewed Kerbal X upper stage of `eve-orbit-recorded` (B16) flew B24's Eve->Gilly hop with
+no kill pair, so the hop is recorded into B16's committed tree
+`16af6b5e546a4bef86fcd8cde1ddc924`: one tree that crosses Eve's SOI and then Gilly's, the
+subject of the lone-moon arrival hold loop lanes V32M / V32T. New recordings over
+`eve-orbit-recorded`: `e3b89e4d` Kerbin->Eve (Orbiting Eve) and `fcb6f503` the Eve->Gilly hop
+(Orbiting Gilly); `75a6ab25` is now the pad head only. The tree is also written a second
+time as the `isActive = True` in-flight copy. Payload pinned in
+`harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.
