@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using Xunit;
 
@@ -1139,6 +1140,84 @@ namespace Parsek.Tests
             Assert.False(GhostCommNetMath.ShouldPredictHoldPastEnd(150, 200, look));
             Assert.False(GhostCommNetMath.ShouldPredictHoldPastEnd(200.1, 200, look));
             Assert.False(GhostCommNetMath.ShouldPredictHoldPastEnd(double.NaN, 200, look));
+        }
+
+        [Fact]
+        public void ShouldResolveContinuationHold_OnlyNearOrPastEnd()
+        {
+            // FLIGHT at 1x: lookahead = max(1, 2 * 0.5 * 1) = 1 s of game time.
+            double look = GhostCommNetMath.HoldPredictionLookaheadSeconds(
+                GhostCommNetMath.FlightHoldPredictionTickSeconds, 1.0);
+            Assert.Equal(1.0, look, 9);
+            Assert.False(GhostCommNetMath.ShouldResolveContinuationHold(100, 200, look));
+            Assert.False(GhostCommNetMath.ShouldResolveContinuationHold(198.9, 200, look));
+            Assert.True(GhostCommNetMath.ShouldResolveContinuationHold(199.5, 200, look));
+            Assert.True(GhostCommNetMath.ShouldResolveContinuationHold(200, 200, look));
+            Assert.True(GhostCommNetMath.ShouldResolveContinuationHold(200.1, 200, look));
+            Assert.True(GhostCommNetMath.ShouldResolveContinuationHold(1e9, 200, look));
+            Assert.False(GhostCommNetMath.ShouldResolveContinuationHold(double.NaN, 200, look));
+            Assert.False(GhostCommNetMath.ShouldResolveContinuationHold(150, double.NaN, look));
+
+            // At 100000x one slow frame can step 50000 s: the lookahead widens with warp.
+            double warpLook = GhostCommNetMath.HoldPredictionLookaheadSeconds(
+                GhostCommNetMath.FlightHoldPredictionTickSeconds, 100000.0);
+            Assert.True(GhostCommNetMath.ShouldResolveContinuationHold(200 - 40000, 200, warpLook));
+            Assert.False(GhostCommNetMath.ShouldResolveContinuationHold(200 - 200000, 200, warpLook));
+        }
+
+        [Fact]
+        public void ShouldResolveContinuationHold_CoversEveryUtTheHoldIsReadAt()
+        {
+            // The hold changes eligibility only past EndUT (continuation-gap-hold) and, in the
+            // window, only ExpectHoldPastEnd, which the hook reads once now > EndUT. A skipped
+            // resolve far from the end must therefore leave every decision unchanged.
+            var held = InWindowInput();
+            held.HasContinuationHold = true;
+            held.ContinuationHoldUntilUT = held.EndUT + 500;
+            var skipped = InWindowInput();
+            double look = 1.0;
+            for (double ut = held.ActivationStartUT; ut <= held.EndUT + 400; ut += 7.25)
+            {
+                if (GhostCommNetMath.ShouldResolveContinuationHold(ut, held.EndUT, look))
+                    continue;
+                GhostCommNetEligibility a = GhostCommNetMath.EvaluateEligibility(held, ut);
+                GhostCommNetEligibility b = GhostCommNetMath.EvaluateEligibility(skipped, ut);
+                Assert.Equal(a.Eligible, b.Eligible);
+                Assert.Equal(a.Reason, b.Reason);
+                Assert.Equal(a.HoldAtEnd, b.HoldAtEnd);
+                // ExpectHoldPastEnd differs, but the hook only reads it past EndUT, and the
+                // next host tick (inside the lookahead) resolves the hold before then.
+                Assert.True(ut < held.EndUT - look);
+            }
+        }
+
+        [Fact]
+        public void FlightHost_ResolvesContinuationHoldOnlyNearOrPastEnd()
+        {
+            // Source gate: FLIGHT's per-frame flags pass must not scan the committed list for a
+            // continuation hold far from a recording's EndUT (O(K*n) per frame otherwise).
+            string src = File.ReadAllText(FindSourceFile("ParsekFlight.cs"));
+            int call = src.IndexOf("GhostCommNetMath.ApplyContinuationHold(", StringComparison.Ordinal);
+            Assert.True(call >= 0, "ParsekFlight no longer calls ApplyContinuationHold");
+            Assert.Equal(-1, src.IndexOf("GhostCommNetMath.ApplyContinuationHold(", call + 1,
+                StringComparison.Ordinal));
+            int ifStart = src.LastIndexOf("if (hasData && !rec.IsDebris", call, StringComparison.Ordinal);
+            Assert.True(ifStart >= 0 && call - ifStart < 600, "the continuation-hold guard was not found");
+            string guard = src.Substring(ifStart, call - ifStart);
+            Assert.Contains("GhostCommNetMath.ShouldResolveContinuationHold(", guard);
+        }
+
+        private static string FindSourceFile(string name)
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (!string.IsNullOrEmpty(dir))
+            {
+                string candidate = Path.Combine(dir, "Source", "Parsek", name);
+                if (File.Exists(candidate)) return candidate;
+                dir = Path.GetDirectoryName(dir);
+            }
+            return Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "Parsek", name));
         }
 
         [Fact]
