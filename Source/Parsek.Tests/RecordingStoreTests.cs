@@ -1316,7 +1316,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             RecordingStore.CommittedTrees.Add(tree);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // Tree should now have 2 recordings
             Assert.Equal(2, tree.Recordings.Count);
@@ -1399,7 +1399,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             RecordingStore.CommittedTrees.Add(tree);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // After split, first half should have no ChildBranchPointId
             Assert.Null(rec.ChildBranchPointId);
@@ -1467,7 +1467,7 @@ namespace Parsek.Tests
                 RecordingStore.AddRecordingWithTreeForTesting(rec);
                 RecordingStore.CommittedTrees.Add(tree);
 
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.Contains(logLines, l =>
                     l.Contains("[RecordingStore]") && l.Contains("Split recording") && l.Contains("tree=tree-log-test"));
@@ -1494,7 +1494,7 @@ namespace Parsek.Tests
 
                 // Force-dirty to simulate optimizer touching the recording
                 RecordingStore.CommittedRecordings[0].FilesDirty = true;
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.Contains(logLines, l =>
                     l.Contains("[RecordingStore]") && l.Contains("FlushDirtyFiles"));
@@ -1514,7 +1514,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             try
             {
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.DoesNotContain(logLines, l => l.Contains("FlushDirtyFiles"));
             }
@@ -1539,7 +1539,7 @@ namespace Parsek.Tests
                 RecordingStore.CommittedRecordings[0].FilesDirty = false;
                 logLines.Clear();
 
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.DoesNotContain(logLines, l => l.Contains("FlushDirtyFiles"));
             }

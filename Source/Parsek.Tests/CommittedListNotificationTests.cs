@@ -330,7 +330,7 @@ namespace Parsek.Tests
                 versions.Add(RecordingStore.StateVersion);
             };
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(new[]
             {

@@ -238,7 +238,7 @@ namespace Parsek
         /// <summary>
         /// #431: returns the id of the currently-live recording for GameStateEvent tagging.
         /// Empty string when there is no active flight, no active tree, or the tree has no active leaf.
-        /// The secondary fallback to <see cref="RecordingStore.PendingTree"/> while
+        /// The secondary fallback to <see cref="PendingTreeSlot.PendingTree"/> while
         /// <see cref="PendingTreeState.LimboVesselSwitch"/> is owned by the Emit resolver —
         /// this accessor only exposes the live flight-scene value.
         /// </summary>
@@ -764,8 +764,8 @@ namespace Parsek
             RecorderStateSnapshot.CaptureFromParts(
                 activeTree,
                 recorder,
-                RecordingStore.PendingTree,
-                RecordingStore.PendingTreeStateValue,
+                PendingTreeSlot.PendingTree,
+                PendingTreeSlot.PendingTreeStateValue,
                 null, // standalone pending removed (T56)
                 pendingSplitRecorder,
                 pendingSplitInProgress,
@@ -3740,7 +3740,7 @@ namespace Parsek
         {
             if (activeTree != null || recorder != null || restoringActiveTree)
                 return false;
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady
                     != ParsekScenario.ActiveTreeRestoreMode.None)
             {
@@ -12662,7 +12662,7 @@ namespace Parsek
             if (ShouldIgnoreFlightReadyReset(
                 hasActiveRecorder: recorder != null && recorder.IsRecording,
                 hasActiveTree: activeTree != null,
-                hasPendingTree: RecordingStore.HasPendingTree,
+                hasPendingTree: PendingTreeSlot.HasPendingTree,
                 restoreMode: restoreMode))
             {
                 ParsekLog.Info("Flight",
@@ -12676,7 +12676,7 @@ namespace Parsek
                     && activeTree != null && object.ReferenceEquals(recorder.ActiveTree, activeTree),
                 activeTreeIsCommittedRestoreClone: activeTree != null
                     && CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(activeTree.Id),
-                hasPendingTree: RecordingStore.HasPendingTree,
+                hasPendingTree: PendingTreeSlot.HasPendingTree,
                 restoreMode: restoreMode))
             {
                 ParsekLog.Info("Flight",
@@ -12720,15 +12720,15 @@ namespace Parsek
             // tree.
             if (ShouldUpgradeRestoreModeForReFlyRetry(
                     restoreMode,
-                    hasPendingTree: RecordingStore.HasPendingTree,
+                    hasPendingTree: PendingTreeSlot.HasPendingTree,
                     pendingTreeIsFinalized:
-                        RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized,
+                        PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Finalized,
                     reFlyInPlaceContinuationActive:
                         ParsekScenario.IsReFlyInPlaceContinuationActive()))
             {
                 ParsekLog.Info("Flight",
                     "OnFlightReady: scheduling Quickload restore for Re-Fly retry " +
-                    $"(pending tree '{RecordingStore.PendingTree?.TreeName}' is Finalized; " +
+                    $"(pending tree '{PendingTreeSlot.PendingTree?.TreeName}' is Finalized; " +
                     "AtomicMarkerWrite attached a fresh fork that needs a live recorder)");
                 restoreMode = ParsekScenario.ActiveTreeRestoreMode.Quickload;
             }
@@ -13034,7 +13034,7 @@ namespace Parsek
                     activeTree != null,
                     recorder != null,
                     restoringActiveTree,
-                    RecordingStore.HasPendingTree,
+                    PendingTreeSlot.HasPendingTree,
                     ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady,
                     Time.unscaledTime,
                     nextCommittedSpawnedRestoreRetryAt))
@@ -14055,7 +14055,7 @@ namespace Parsek
         /// <c>CommitTree</c> seam verb (<c>TestCommands/ParsekTestCommandAddon.cs:2016</c>).
         /// The merge DIALOG's own commit is a different path
         /// (<c>MergeDialog.MergeCommit</c>) and does not come through here.</para>
-        /// <para>Both paths run <see cref="RecordingStore.RunOptimizationPass"/> after the
+        /// <para>Both paths run <see cref="CommittedListOptimizer.RunOptimizationPass"/> after the
         /// commit. This one spawns / adopts the leaves AFTER the pass, so the spawn stamps land
         /// on the post-split chain tips, and moves the live active vessel's stamp onto its tip
         /// (<see cref="InFlightCommitOptimization"/>).</para>
@@ -14164,7 +14164,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Runs <see cref="RecordingStore.RunOptimizationPass"/> for an in-flight tree commit
+        /// Runs <see cref="CommittedListOptimizer.RunOptimizationPass"/> for an in-flight tree commit
         /// (boring-tail trim, env splits, chain merges) and moves the live active vessel's
         /// spawn stamp onto its post-pass chain tip. Returns the id the rest of the commit
         /// must treat as the active vessel's recording. Skipped (the next cold load optimizes
@@ -14192,7 +14192,7 @@ namespace Parsek
             // Guarded: a throw is logged as an Error and the commit continues to the ledger
             // notify and leaf spawn with whatever the committed list holds.
             string activeTipId = InFlightCommitOptimization.RunPassAndResolveActiveTip(
-                RecordingStore.RunOptimizationPass,
+                CommittedListOptimizer.RunOptimizationPass,
                 () =>
                 {
                     Recording activeTip = InFlightCommitOptimization.ResolveChainTip(
@@ -14435,13 +14435,13 @@ namespace Parsek
             // the explicit re-read keeps this independent of dispatcher
             // assumptions.
             bool acceptFinalizedForReFly = ShouldAcceptFinalizedPendingTreeForReFlyRetry(
-                hasPendingTree: RecordingStore.HasPendingTree,
+                hasPendingTree: PendingTreeSlot.HasPendingTree,
                 pendingTreeIsFinalized:
-                    RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized,
+                    PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Finalized,
                 reFlyInPlaceContinuationActive:
                     ParsekScenario.IsReFlyInPlaceContinuationActive());
-            if (!RecordingStore.HasPendingTree
-                || (RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo
+            if (!PendingTreeSlot.HasPendingTree
+                || (PendingTreeSlot.PendingTreeStateValue != PendingTreeState.Limbo
                     && !acceptFinalizedForReFly))
             {
                 ParsekLog.Verbose("Flight",
@@ -14452,11 +14452,11 @@ namespace Parsek
             {
                 ParsekLog.Info("Flight",
                     $"RestoreActiveTreeFromPending: accepting Finalized pending tree " +
-                    $"'{RecordingStore.PendingTree?.TreeName}' — active Re-Fly session " +
+                    $"'{PendingTreeSlot.PendingTree?.TreeName}' — active Re-Fly session " +
                     "needs a recorder bound to the freshly-attached fork");
             }
 
-            var tree = RecordingStore.PendingTree;
+            var tree = PendingTreeSlot.PendingTree;
             string activeRecId = tree.ActiveRecordingId;
 
             // Bug #585 follow-up (PR #558 P1 review): gate marker read on
@@ -14982,7 +14982,7 @@ namespace Parsek
         internal static FreshRolloutRefusedTreeDisposition DisposeFreshRolloutRefusedPendingTree(
             string refusalSite, RecordingTree refusedTree, uint refusedVesselPid)
         {
-            RecordingTree pending = RecordingStore.PendingTree;
+            RecordingTree pending = PendingTreeSlot.PendingTree;
             bool slotMatches = refusedTree != null && ReferenceEquals(pending, refusedTree);
             RecordingTree committedTree = RecordingStore.FindCommittedTreeById(pending?.Id);
             RefusedResumedCopyTail.Result tail = pending != null && committedTree != null
@@ -15010,7 +15010,7 @@ namespace Parsek
                     bool serialized = PendingTreeSlot.PendingTreeSerializedForSave;
                     ParsekLog.Info("Flight",
                         $"Fresh-rollout refusal ({site}): discarding resumed copy of committed tree " +
-                        $"'{pending.TreeName}' (id={treeId}, state={RecordingStore.PendingTreeStateValue}, " +
+                        $"'{pending.TreeName}' (id={treeId}, state={PendingTreeSlot.PendingTreeStateValue}, " +
                         $"recordings={total}, droppedSpan={span}, droppedPoints={tail.TailPointCount}, " +
                         $"restoreAttemptArmed={CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(treeId)}, " +
                         $"serialized={serialized}, refusedPid={refusedVesselPid}) - committed history " +
@@ -15104,7 +15104,7 @@ namespace Parsek
         {
             string treeId = pending.Id ?? "<none>";
             int total = pending.Recordings?.Count ?? 0;
-            PendingTreeState stateAtCommit = RecordingStore.PendingTreeStateValue;
+            PendingTreeState stateAtCommit = PendingTreeSlot.PendingTreeStateValue;
             bool serialized = PendingTreeSlot.PendingTreeSerializedForSave;
             RecordingTree committedTwin = RecordingStore.FindCommittedTreeById(pending.Id);
             int committedTwinRecordings = committedTwin?.Recordings?.Count ?? 0;
@@ -15130,7 +15130,7 @@ namespace Parsek
                     $"(id={treeId}) threw {ex.GetType().Name}: {ex.Message}");
             }
 
-            if (ReferenceEquals(RecordingStore.PendingTree, pending))
+            if (ReferenceEquals(PendingTreeSlot.PendingTree, pending))
             {
                 ParsekLog.Warn("Flight",
                     $"Fresh-rollout refusal ({site}): kept tree '{pending.TreeName}' (id={treeId}) is " +
@@ -15215,8 +15215,8 @@ namespace Parsek
             {
             // NOTE: body intentionally not re-indented to minimize diff
             RecorderStateLog.RecState("RestoreSwitch:start", CaptureRecorderState());
-            if (!RecordingStore.HasPendingTree
-                || RecordingStore.PendingTreeStateValue != PendingTreeState.LimboVesselSwitch)
+            if (!PendingTreeSlot.HasPendingTree
+                || PendingTreeSlot.PendingTreeStateValue != PendingTreeState.LimboVesselSwitch)
             {
                 ParsekLog.Verbose("Flight",
                     "RestoreActiveTreeFromPendingForVesselSwitch: no pending-LimboVesselSwitch tree, skipping");
@@ -15225,7 +15225,7 @@ namespace Parsek
 
             // The tree this coroutine is about to act on; the fresh-rollout refusal
             // discards only if the pending slot still holds exactly this tree.
-            RecordingTree stashedTree = RecordingStore.PendingTree;
+            RecordingTree stashedTree = PendingTreeSlot.PendingTree;
 
             // Wait up to ~3 seconds for FlightGlobals.ActiveVessel to populate.
             // Aligned with the existing quickload-resume coroutine
@@ -15255,8 +15255,8 @@ namespace Parsek
             {
                 ParsekLog.Info("Flight",
                     $"RestoreActiveTreeFromPendingForVesselSwitch: refusing to reinstall tree " +
-                    $"'{RecordingStore.PendingTree?.TreeName}' " +
-                    $"(id={RecordingStore.PendingTree?.Id ?? "<none>"}) for fresh-rollout vessel " +
+                    $"'{PendingTreeSlot.PendingTree?.TreeName}' " +
+                    $"(id={PendingTreeSlot.PendingTree?.Id ?? "<none>"}) for fresh-rollout vessel " +
                     $"'{candidate.vesselName}' pid={candidate.persistentId} - a new launch is not a " +
                     "vessel switch; the launch starts its own tree");
                 // The refused tree is discarded (idle resumed committed copy) or committed
@@ -15272,7 +15272,7 @@ namespace Parsek
                     // pre-transition so the tree is a plain Limbo stash that the guid-gated
                     // quickload restore owns.
                     if (TryRevertPreTransitionForVesselSwitch(
-                            RecordingStore.PendingTree, out string restoredRecId))
+                            PendingTreeSlot.PendingTree, out string restoredRecId))
                     {
                         PendingTreeSlot.ConvertPendingVesselSwitchStashToLimbo(
                             "fresh-rollout refusal restored activeRecId=" + restoredRecId);
@@ -16359,7 +16359,7 @@ namespace Parsek
         ///
         /// <para>This mirrors the in-session <see cref="OnVesselSwitchComplete"/> path
         /// at lines 1493–1534, except the <c>activeTree</c> reference must cross the
-        /// scene boundary via <see cref="RecordingStore.PendingTree"/> because the
+        /// scene boundary via <see cref="PendingTreeSlot.PendingTree"/> because the
         /// <see cref="ParsekFlight"/> singleton is destroyed on scene reload.</para>
         /// </summary>
         void StashActiveTreeForVesselSwitch(double commitUT)

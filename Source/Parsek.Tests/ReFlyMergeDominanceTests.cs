@@ -933,7 +933,7 @@ namespace Parsek.Tests
             MergeDialog.MergeCommit(pending, new Dictionary<string, bool>(), 0,
                 refreshQuicksaveAfterCommit: false, reShowDialogOnRefusal: true);
 
-            Assert.Same(pending, RecordingStore.PendingTree);
+            Assert.Same(pending, PendingTreeSlot.PendingTree);
             Assert.Same(pending, reShown);
             Assert.NotNull(ParsekScenario.Instance.ActiveReFlySessionMarker);
         }
@@ -952,7 +952,7 @@ namespace Parsek.Tests
             MergeDialog.MergeCommit(pending, new Dictionary<string, bool>(), 0,
                 refreshQuicksaveAfterCommit: false, reShowDialogOnRefusal: true);
 
-            Assert.Same(pending, RecordingStore.PendingTree);
+            Assert.Same(pending, PendingTreeSlot.PendingTree);
             // The automation seam reads this counter to report the refusal, not a commit.
             Assert.Equal(refusalsBefore + 1, MergeDialog.MergeDominanceRefusalCount);
             Assert.Equal(committedBefore, RecordingStore.CommittedRecordings.Count);

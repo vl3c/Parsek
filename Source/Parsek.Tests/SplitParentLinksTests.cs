@@ -138,7 +138,7 @@ namespace Parsek.Tests
 
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             RecordingStore.AddCommittedTreeForTesting(tree);
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             List<Recording> segs = Chain(tree, rec.ChainId);
             Assert.Equal(3, segs.Count);
@@ -178,7 +178,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(a);
             RecordingStore.AddRecordingWithTreeForTesting(b);
             RecordingStore.AddCommittedTreeForTesting(tree);
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.False(tree.Recordings.ContainsKey("seg-b"));
             Assert.Equal(new[] { "seg-a" }, decouple.ParentRecordingIds);
@@ -688,7 +688,7 @@ namespace Parsek.Tests
                     RecordingStore.AddCommittedInternal(rec);
             }
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             int repointedLive = logLines.Count(l => l.Contains("[VERBOSE][SplitParentLinks]")
                 && l.Contains("Optimization split"));
 

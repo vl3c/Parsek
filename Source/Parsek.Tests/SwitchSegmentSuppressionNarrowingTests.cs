@@ -264,7 +264,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(attemptTree);
             AddCommitted(parent);
 
-            RecordingStore.ArmCommittedTreeRestoreAttempt(
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
                 attemptTree, "test-arm");
             Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
 
@@ -278,7 +278,7 @@ namespace Parsek.Tests
             var evt = MakeEvent(ut: 250.0, recordingId: "rec_segment_owned");
 
             Assert.False(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]")
                 && l.Contains("not-suppressed")
@@ -310,17 +310,17 @@ namespace Parsek.Tests
             AddCommitted(parent);
             AddCommitted(segment);
 
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
 
             // The precondition the sibling cell lacks: the marker-owned id is
             // also an attempt id, so the fallback would suppress it.
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptRecordingId(
                 "rec_segment_in_tree"));
 
             var evt = MakeEvent(ut: 250.0, recordingId: "rec_segment_in_tree");
 
             Assert.False(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]")
                 && l.Contains("not-suppressed")
@@ -342,19 +342,19 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(attemptTree);
             AddCommitted(parent);
 
-            RecordingStore.ArmCommittedTreeRestoreAttempt(
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
                 attemptTree, "test-arm");
 
             // Post-cutoff event on the original committed id — no marker
             // ownership, must still be suppressed.
             var afterCutoff = MakeEvent(ut: 250.0, recordingId: "rec_tip");
             Assert.True(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(afterCutoff));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(afterCutoff));
 
             // Pre-cutoff event on the same id — historical, not suppressed.
             var beforeCutoff = MakeEvent(ut: 150.0, recordingId: "rec_tip");
             Assert.False(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(beforeCutoff));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(beforeCutoff));
         }
 
         // Fails if: a pending-only attempt id that is NOT marker-owned by
@@ -374,7 +374,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(attemptTree);
             AddCommitted(parent);
 
-            RecordingStore.ArmCommittedTreeRestoreAttempt(
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
                 attemptTree, "test-arm");
 
             // Add a new pending-only id directly to the pending tree —
@@ -390,7 +390,7 @@ namespace Parsek.Tests
 
             var evt = MakeEvent(ut: 250.0, recordingId: "rec_pending_only");
             Assert.True(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
         }
 
         // -----------------------------------------------------------------
@@ -425,9 +425,9 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(attemptTree);
             AddCommitted(parent);
             AddCommitted(segment);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
             Assert.True(
-                RecordingStore.IsCommittedTreeRestoreAttemptRecordingId("rec_segment_owned"),
+                CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptRecordingId("rec_segment_owned"),
                 "fixture precondition: the marker-owned id must also be an attempt id, "
                 + "or the un-narrowed loop would answer false for its own reason");
 
@@ -459,7 +459,7 @@ namespace Parsek.Tests
             var attemptTree = MakeTreeWithRecordings("tree_attempt", parent);
             RecordingStore.AddCommittedTreeForTesting(attemptTree);
             AddCommitted(parent);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
 
             var segment = MakeRecording(
                 "rec_segment_owned", "tree_attempt",
@@ -507,7 +507,7 @@ namespace Parsek.Tests
             // normalized so the grep holds on both CRLF and LF checkouts.
             string normalized = source.Replace("\r\n", "\n");
             Assert.Contains(
-                "RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)"
+                "CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)"
                 + "\n                        && !SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId)",
                 normalized.Replace("\n                        &&\n",
                                    "\n                        && "));

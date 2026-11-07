@@ -102,12 +102,12 @@ namespace Parsek.Tests
             bool restored = ParsekScenario.TryRestorePendingTreeNode(node);
 
             Assert.True(restored);
-            Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+            Assert.Equal(PendingTreeState.Finalized, PendingTreeSlot.PendingTreeStateValue);
             // The whole point: at a non-FLIGHT scene, autoMerge ON, no re-fly, this
             // state takes the FULL-FIDELITY branch, not the ghost-only one.
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.SilentFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
         }
 
         // ---------------------------------------------------------------------
@@ -125,9 +125,9 @@ namespace Parsek.Tests
             bool restored = ParsekScenario.TryRestoreActiveTreeNode(node);
 
             Assert.True(restored);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             // A NON-Finalized pending tree, restored from disk, at SPACECENTER.
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
             // PRE-FIX this asserted the ghost-only route. The reachability claim the
             // cell was written to make is UNCHANGED and still what matters — this
             // state does come off disk outside FLIGHT — but what the site DOES with
@@ -138,7 +138,7 @@ namespace Parsek.Tests
             // could no longer distinguish what this cell is about.
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
         }
 
         [Fact]
@@ -153,10 +153,10 @@ namespace Parsek.Tests
             AddTreeNode(node, tree, marker: "isActive");
 
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
-            Assert.Equal(PendingTreeState.LimboVesselSwitch, RecordingStore.PendingTreeStateValue);
+            Assert.Equal(PendingTreeState.LimboVesselSwitch, PendingTreeSlot.PendingTreeStateValue);
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
         }
 
         // ---------------------------------------------------------------------
@@ -186,7 +186,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(saved));
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
         }
 
         // ---------------------------------------------------------------------
@@ -235,7 +235,7 @@ namespace Parsek.Tests
             // which is what MergeDialog.MergeCommit runs first.
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
 
             var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
             int released;
@@ -275,7 +275,7 @@ namespace Parsek.Tests
 
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
 
             var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
             int released;
@@ -345,7 +345,7 @@ namespace Parsek.Tests
 
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
 
             var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
             int spawnable = 0;

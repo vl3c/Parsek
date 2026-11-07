@@ -193,7 +193,7 @@ namespace Parsek.Tests
             AddMilestone("RecordsSpeed", 12.0, "rec_walk");
             AddMilestone("Kerbin/Science", 40.0, "rec_walk");
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
             string seg1 = list[0].RecordingId;
@@ -259,7 +259,7 @@ namespace Parsek.Tests
             AddMilestone("RecordsSpeed", 12.0, "rec_whole");
             AddMilestone("Kerbin/Science", 40.0, "rec_whole");
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.Single(RecordingStore.CommittedRecordings);
 
             CountWalks();

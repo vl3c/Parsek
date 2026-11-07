@@ -297,8 +297,8 @@ namespace Parsek.Tests
             var tree = MakeTreeWithRecordings("tree_dual", parent);
             RecordingStore.AddCommittedTreeForTesting(tree);
             RecordingStore.AddCommittedInternal(parent);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test-arm");
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test-arm");
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
 
             // Add a marker-owned segment to the same tree and arm session.
             var segment = MakeRecording("rec_seg", "tree_dual",
@@ -311,7 +311,7 @@ namespace Parsek.Tests
             // by the #866 contract (would lose it across save).
             var evt = MakeEvent(ut: 250.0, recordingId: "rec_seg");
             Assert.False(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
 
             // Adding the event AND a scoped discard later must purge it.
             GameStateStore.AddEvent(ref evt);
@@ -348,7 +348,7 @@ namespace Parsek.Tests
             var tree = MakeTreeWithRecordings("tree_flush", parent);
             RecordingStore.AddCommittedTreeForTesting(tree);
             RecordingStore.AddCommittedInternal(parent);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test-arm");
 
             var segment = MakeRecording("rec_seg", "tree_flush",
                 switchSegmentSessionId: sessionIdStr);
@@ -405,7 +405,7 @@ namespace Parsek.Tests
             var tree = MakeTreeWithRecordings("tree_both", parent);
             RecordingStore.AddCommittedTreeForTesting(tree);
             RecordingStore.AddCommittedInternal(parent);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "save-test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "save-test-arm");
 
             // Arm a segment session referencing the same tree.
             var seg = MakeRecording("rec_seg", "tree_both",
@@ -430,10 +430,10 @@ namespace Parsek.Tests
             // armed, the marker-owned event-persistence predicate must
             // still return false (event not suppressed) for the segment
             // id even after the round-trip.
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
             var evt = MakeEvent(ut: 250.0, recordingId: "rec_seg");
             Assert.False(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt));
         }
     }
 }

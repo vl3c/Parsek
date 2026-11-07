@@ -209,7 +209,7 @@ namespace Parsek
             }
 
             // Also check the pending tree (active recording in flight)
-            var pendingTree = RecordingStore.PendingTree;
+            var pendingTree = PendingTreeSlot.PendingTree;
             if (pendingTree != null && pendingTree.Id == rec.TreeId)
             {
                 Recording parentRec;

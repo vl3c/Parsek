@@ -139,7 +139,7 @@ namespace Parsek.InGameTests
                 skipReason = "R&D singleton / tech tree not initialized";
                 return false;
             }
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {

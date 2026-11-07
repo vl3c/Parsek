@@ -209,9 +209,9 @@ namespace Parsek
             for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
                 AddKnownRecordingForCleanup(recordings, seenIds, RecordingStore.CommittedRecordings[i]);
 
-            if (RecordingStore.PendingTree != null && RecordingStore.PendingTree.Recordings != null)
+            if (PendingTreeSlot.PendingTree != null && PendingTreeSlot.PendingTree.Recordings != null)
             {
-                foreach (var kvp in RecordingStore.PendingTree.Recordings)
+                foreach (var kvp in PendingTreeSlot.PendingTree.Recordings)
                     AddKnownRecordingForCleanup(recordings, seenIds, kvp.Value);
             }
 
@@ -318,7 +318,7 @@ namespace Parsek
                 visit(RecordingStore.CommittedRecordings[i]);
             for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
                 VisitTreeRecordings(RecordingStore.CommittedTrees[t], visit);
-            VisitTreeRecordings(RecordingStore.PendingTree, visit);
+            VisitTreeRecordings(PendingTreeSlot.PendingTree, visit);
             VisitTreeRecordings(PendingTreeSlot.SavedPendingTreeDuringActiveRestore, visit);
         }
 

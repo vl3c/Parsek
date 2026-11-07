@@ -97,8 +97,8 @@ namespace Parsek.Tests
             cloneRec.VesselSnapshot = MakeVesselSnapshot("Resumed");
             cloneRec.FilesDirty = true;
             clone.ActiveRecordingId = RootId;
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(RootId));
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptRecordingId(RootId));
 
             // ---- the F5: committed trees, then the active tree's write pass ----
             logLines.Clear();
@@ -157,11 +157,11 @@ namespace Parsek.Tests
             Assert.Equal(3, loadedCommitted.Points.Count);
             Assert.Equal(200.0, loadedCommitted.Points[2].ut);
             Assert.Equal(1, loadedCommitted.SidecarEpoch);
-            RecordingTree restored = RecordingStore.PendingTree;
+            RecordingTree restored = PendingTreeSlot.PendingTree;
             Assert.Equal(TreeId, restored.Id);
             Assert.Equal(5, restored.Recordings[RootId].Points.Count);
             Assert.Equal(320.0, restored.Recordings[RootId].Points[4].ut);
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(TreeId));
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(TreeId));
             Assert.Contains(logLines, l => l.Contains("Sidecar version read without promote")
                 && l.Contains("rec=" + RootId) && l.Contains("reason=multiple-owners"));
             // Both read their own bytes, so the head still holds the clone's.
@@ -208,7 +208,7 @@ namespace Parsek.Tests
             SetPoints(cloneRec, 100.0, 150.0, 200.0, 260.0, 320.0);
             cloneRec.FilesDirty = true;
             clone.ActiveRecordingId = RootId;
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
             WriteSave(clone, expectedOverlap: 1);
             Assert.Equal(2, cloneRec.SidecarEpoch);
 
@@ -243,7 +243,7 @@ namespace Parsek.Tests
             SetPoints(cloneRec, 100.0, 150.0, 200.0, 260.0, 320.0);
             cloneRec.FilesDirty = true;
             clone.ActiveRecordingId = RootId;
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
             ConfigNode save = WriteSave(clone, expectedOverlap: 1);
 
             // The scene-exit finalization stashed the clone as the Finalized pending tree.
@@ -255,12 +255,12 @@ namespace Parsek.Tests
 
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == TreeId);
             Assert.Contains(RecordingStore.CommittedRecordings, r => r.RecordingId == RootId);
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(TreeId));
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(TreeId));
             if (finalizedPending)
-                Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+                Assert.Equal(PendingTreeState.Finalized, PendingTreeSlot.PendingTreeStateValue);
             // The save's clone keeps the path flown since the resume (no splice refresh from the
             // committed copy).
-            Assert.Equal(5, RecordingStore.PendingTree.Recordings[RootId].Points.Count);
+            Assert.Equal(5, PendingTreeSlot.PendingTree.Recordings[RootId].Points.Count);
             Assert.DoesNotContain(logLines, l => l.Contains("removed committed tree"));
             Assert.Contains(logLines, l => l.Contains("kept the committed copy of tree")
                 && l.Contains("id=" + TreeId) && l.Contains("live restore attempt"));
@@ -301,14 +301,14 @@ namespace Parsek.Tests
             SetPoints(rpRoot, 100.0, 150.0, 180.0);
             rpRoot.FilesDirty = true;
             rpTree.ActiveRecordingId = RootId;
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committed, ArmReason);
             ConfigNode save = WriteSave(rpTree, expectedOverlap: 1);
 
             logLines.Clear();
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.ReFlyStart, loadedSceneIsFlight: true));
 
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == TreeId);
-            Assert.True(RecordingStore.PendingTree.Recordings.ContainsKey(PostRpId));
+            Assert.True(PendingTreeSlot.PendingTree.Recordings.ContainsKey(PostRpId));
             Assert.Contains(logLines, l => l.Contains("removed committed tree"));
             Assert.Contains(logLines, l => l.Contains("spliced 1 post-RP recording(s) from committed tree"));
             Assert.DoesNotContain(logLines, l => l.Contains("kept the committed copy of tree"));

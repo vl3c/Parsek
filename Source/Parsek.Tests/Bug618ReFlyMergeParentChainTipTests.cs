@@ -189,7 +189,7 @@ namespace Parsek.Tests
 
             MergeDialog.MergeCommit(tree, decisions, spawnCount: 2);
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             RecordingTree committedTree = RecordingStore.CommittedTrees.Find(t => t.Id == TreeId);
             Assert.NotNull(committedTree);
             Recording finalUpperTip = EffectiveState.ResolveChainTerminalRecording(

@@ -676,7 +676,7 @@ namespace Parsek.Tests
             var seg = Segment("rec_seg", "tree_k", noOp: true);
             var tree = Tree("tree_k", "rec_seg", parent, other, seg);
             PendingTreeSlot.StashPendingTree(tree);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test");
             ArmSession("tree_k", "rec_seg", parentId: "rec_b", committedTreeId: "tree_k");
 
             bool noOp = SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(
@@ -699,7 +699,7 @@ namespace Parsek.Tests
             var seg = Segment("rec_seg", "tree_h", noOp: true);
             var tree = Tree("tree_h", "rec_seg", parent, other, seg);
             PendingTreeSlot.StashPendingTree(tree);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test");
             ArmSession("tree_h", "rec_seg", parentId: "rec_b", committedTreeId: "tree_h");
 
             bool noOp = SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(

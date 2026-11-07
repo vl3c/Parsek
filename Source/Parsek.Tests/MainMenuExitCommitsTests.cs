@@ -158,7 +158,7 @@ namespace Parsek.Tests
 
             Assert.True(allowStockLoad);
             Assert.Null(shown);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "pend");
             Assert.Equal(1, saves);
             Assert.Contains(logLines, l => l.Contains("[SceneExit]")
@@ -178,7 +178,7 @@ namespace Parsek.Tests
 
             Assert.False(allowStockLoad);
             Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, shown);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.Equal(0, saves);
         }
 
@@ -227,7 +227,7 @@ namespace Parsek.Tests
 
             Assert.True(allowStockLoad);
             Assert.Null(shown);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.Equal(0, saves);
         }
 
@@ -288,7 +288,7 @@ namespace Parsek.Tests
 
             Assert.True(allowStockLoad);
             Assert.Null(shown);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.NotNull(scenario.ActiveSwitchSegmentSession);
         }
 

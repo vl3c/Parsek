@@ -6,7 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: <c>ParsekFlight.CommitTreeFlight</c> now runs
-    /// <c>RecordingStore.RunOptimizationPass</c> like <c>MergeDialog.MergeCommit</c>. These
+    /// <c>CommittedListOptimizer.RunOptimizationPass</c> like <c>MergeDialog.MergeCommit</c>. These
     /// cells pin the pure decisions it uses (skip guards, post-pass chain-tip resolution, the
     /// active vessel's spawn-stamp carry) and, source-gated, the call's position in the commit.
     /// </summary>
@@ -279,7 +279,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(activeRec);
             RecordingStore.CommittedTrees.Add(tree);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
             var tip = InFlightCommitOptimization.ResolveChainTip(
@@ -349,7 +349,7 @@ namespace Parsek.Tests
             // The pass runs only through the guarded runner, never as a bare call that could
             // throw out of the commit before the ledger notify and the leaf spawn.
             Assert.Contains("InFlightCommitOptimization.RunPassAndResolveActiveTip(", helper);
-            Assert.Contains("RecordingStore.RunOptimizationPass,", helper);
+            Assert.Contains("CommittedListOptimizer.RunOptimizationPass,", helper);
             Assert.DoesNotContain("RunOptimizationPass()", helper);
             Assert.DoesNotContain("RunOptimizationPass()", body);
         }

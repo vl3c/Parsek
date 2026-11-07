@@ -107,7 +107,7 @@ namespace Parsek
         /// <param name="committedTrees">Trees searched for both BranchPoint
         /// topology lookup AND the active Re-Fly recording's PID. Production
         /// composes <see cref="RecordingStore.CommittedTrees"/> ++
-        /// <see cref="RecordingStore.PendingTree"/> via
+        /// <see cref="PendingTreeSlot.PendingTree"/> via
         /// <see cref="ComposeSearchTreesForReFlySuppression"/>; tests pass a
         /// list directly. Despite the legacy parameter name, this list MUST
         /// include the pending tree for the load-window predicate to fire
@@ -527,7 +527,7 @@ namespace Parsek
         /// closures.</para>
         ///
         /// <para><b>#611 fix:</b> at Re-Fly load time the active recording
-        /// lives in <see cref="RecordingStore.PendingTree"/>, NOT
+        /// lives in <see cref="PendingTreeSlot.PendingTree"/>, NOT
         /// <see cref="RecordingStore.CommittedTrees"/> (the committed copy is
         /// removed by <c>TryRestoreActiveTreeNode</c>'s post-splice
         /// <c>RemoveCommittedTreeById</c>). Callers must therefore compose
@@ -550,7 +550,7 @@ namespace Parsek
         /// </summary>
         /// <param name="searchTrees">Trees to search. Production callers
         /// compose <see cref="RecordingStore.CommittedTrees"/> ++
-        /// <see cref="RecordingStore.PendingTree"/> (when present). Tests
+        /// <see cref="PendingTreeSlot.PendingTree"/> (when present). Tests
         /// pass an explicit list.</param>
         /// <param name="walkTrace">Diagnostic summary for the caller's
         /// structured log line. Always populated, even on early-return.</param>

@@ -573,7 +573,7 @@ namespace Parsek
         private static List<string> ReadUncommittedRecordingIdsLive()
         {
             var ids = new List<string>();
-            AddTreeRecordingIds(ids, RecordingStore.PendingTree);
+            AddTreeRecordingIds(ids, PendingTreeSlot.PendingTree);
             AddTreeRecordingIds(ids, ParsekFlight.UncommittedActiveTreeForLedger());
             if (ids.Count == 0)
                 return ids;

@@ -361,10 +361,10 @@ namespace Parsek
             if (traj == null || string.IsNullOrWhiteSpace(traj.RecordingId))
                 return false;
 
-            if (RecordingStore.HasPendingTree
-                && TryFindRecordingInTree(RecordingStore.PendingTree, traj.RecordingId, out recording))
+            if (PendingTreeSlot.HasPendingTree
+                && TryFindRecordingInTree(PendingTreeSlot.PendingTree, traj.RecordingId, out recording))
             {
-                tree = RecordingStore.PendingTree;
+                tree = PendingTreeSlot.PendingTree;
                 return true;
             }
 

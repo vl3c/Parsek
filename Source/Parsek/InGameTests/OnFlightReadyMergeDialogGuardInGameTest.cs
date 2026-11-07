@@ -59,7 +59,7 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no existing pending tree");
                 yield break;
@@ -145,8 +145,8 @@ namespace Parsek.InGameTests
             finally
             {
                 MergeDialog.DismissAndClearPendingFlag("OnFlightReady Re-Fly guard test cleanup");
-                if (RecordingStore.HasPendingTree
-                    && object.ReferenceEquals(RecordingStore.PendingTree, tree))
+                if (PendingTreeSlot.HasPendingTree
+                    && object.ReferenceEquals(PendingTreeSlot.PendingTree, tree))
                 {
                     TreeDiscardService.DiscardPendingTree();
                 }
@@ -178,7 +178,7 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no existing pending tree");
                 yield break;
@@ -250,8 +250,8 @@ namespace Parsek.InGameTests
             finally
             {
                 MergeDialog.DismissAndClearPendingFlag("OnFlightReady control test cleanup");
-                if (RecordingStore.HasPendingTree
-                    && object.ReferenceEquals(RecordingStore.PendingTree, tree))
+                if (PendingTreeSlot.HasPendingTree
+                    && object.ReferenceEquals(PendingTreeSlot.PendingTree, tree))
                 {
                     TreeDiscardService.DiscardPendingTree();
                 }

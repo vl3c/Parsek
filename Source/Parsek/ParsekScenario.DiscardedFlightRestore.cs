@@ -140,9 +140,9 @@ namespace Parsek
         private static bool TryDeclineDiscardedActiveTree(RecordingTree tree, bool loadedSceneIsFlight)
         {
             bool committedCopy = FindCommittedTreeById(tree.Id, exclude: tree) != null;
-            bool pendingSameId = RecordingStore.HasPendingTree
-                && RecordingStore.PendingTree != null
-                && string.Equals(RecordingStore.PendingTree.Id, tree.Id, StringComparison.Ordinal);
+            bool pendingSameId = PendingTreeSlot.HasPendingTree
+                && PendingTreeSlot.PendingTree != null
+                && string.Equals(PendingTreeSlot.PendingTree.Id, tree.Id, StringComparison.Ordinal);
             bool discardedThisSession = TreeDiscardService.WasTreeDiscardedThisSession(tree.Id);
             DiscardedActiveTreeRestoreAction action = DecideDiscardedActiveTreeRestore(
                 tree, discardedThisSession, committedCopy, pendingSameId, out string reason);
@@ -166,11 +166,11 @@ namespace Parsek
             // committed-future row into KSP (a resume escapes that only because its Limbo stash
             // defers the patch).
             string poppedLimbo = "none";
-            if (RecordingStore.HasPendingTree
-                && (RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                    || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
+            if (PendingTreeSlot.HasPendingTree
+                && (PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Limbo
+                    || PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
             {
-                PendingTreeState poppedState = RecordingStore.PendingTreeStateValue;
+                PendingTreeState poppedState = PendingTreeSlot.PendingTreeStateValue;
                 RecordingTree popped = PendingTreeSlot.PopPendingTree();
                 poppedLimbo = $"'{popped?.TreeName ?? "<null>"}' id={popped?.Id ?? "<none>"} state={poppedState}";
             }
@@ -210,9 +210,9 @@ namespace Parsek
         private static bool TryDeclineDiscardedPendingTree(RecordingTree tree)
         {
             bool committedCopy = FindCommittedTreeById(tree.Id, exclude: tree) != null;
-            bool pendingSameId = RecordingStore.HasPendingTree
-                && RecordingStore.PendingTree != null
-                && string.Equals(RecordingStore.PendingTree.Id, tree.Id, StringComparison.Ordinal);
+            bool pendingSameId = PendingTreeSlot.HasPendingTree
+                && PendingTreeSlot.PendingTree != null
+                && string.Equals(PendingTreeSlot.PendingTree.Id, tree.Id, StringComparison.Ordinal);
             bool discardedThisSession = TreeDiscardService.WasTreeDiscardedThisSession(tree.Id);
             DiscardedActiveTreeRestoreAction action = DecideDiscardedActiveTreeRestore(
                 tree, discardedThisSession, committedCopy, pendingSameId, out string reason);

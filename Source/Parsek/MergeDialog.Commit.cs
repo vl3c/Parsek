@@ -66,7 +66,7 @@ namespace Parsek
             // would disappear with nothing committed. Refuse the commit when
             // the passed tree isn't the one CommitPendingTree will act on, so
             // we never silently misbehave.
-            var pendingForGuard = RecordingStore.PendingTree;
+            var pendingForGuard = PendingTreeSlot.PendingTree;
             if (pendingForGuard == null
                 || !object.ReferenceEquals(pendingForGuard, tree))
             {

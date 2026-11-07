@@ -701,7 +701,7 @@ namespace Parsek.Tests
 
             flight.FinalizeTreeOnSceneChangeForTesting(GameScenes.SPACECENTER, 123.4);
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Null(GetPrivateField<RecordingTree>(flight, "activeTree"));
             Assert.True(activeRecording.FilesDirty,

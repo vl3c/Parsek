@@ -1166,7 +1166,7 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(replacement);
             TreeCommitService.CommitPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Same(replacement, RecordingStore.CommittedTrees[0]);
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
@@ -1353,8 +1353,8 @@ namespace Parsek.Tests
 
             PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal("tree001", RecordingStore.PendingTree.Id);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal("tree001", PendingTreeSlot.PendingTree.Id);
         }
 
         [Fact]
@@ -1365,7 +1365,7 @@ namespace Parsek.Tests
 
             TreeCommitService.CommitPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Single(RecordingStore.CommittedTrees);
         }
@@ -1378,7 +1378,7 @@ namespace Parsek.Tests
 
             TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.Empty(RecordingStore.CommittedTrees);
         }
@@ -1592,7 +1592,7 @@ namespace Parsek.Tests
 
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.Empty(RecordingStore.CommittedTrees);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
 
         // ============================================================

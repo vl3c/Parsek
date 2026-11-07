@@ -253,7 +253,7 @@ namespace Parsek
             RecordingTree active = ReferenceEquals(null, flight) ? null : flight.ActiveTreeForDisplay;
             if (active != null && string.Equals(active.Id, treeId, StringComparison.Ordinal))
                 return active;
-            RecordingTree pending = RecordingStore.PendingTree;
+            RecordingTree pending = PendingTreeSlot.PendingTree;
             if (pending != null && string.Equals(pending.Id, treeId, StringComparison.Ordinal))
                 return pending;
             var committed = RecordingStore.CommittedTrees;

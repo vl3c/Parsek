@@ -224,7 +224,7 @@ namespace Parsek
             // committed-tree restore attempt is concurrently armed. Bypass before the
             // existing same-id cutoff / pending-only checks so the suppression contract
             // for original committed recording ids remains unchanged.
-            if (RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(recordingId))
+            if (SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId(recordingId))
             {
                 var session = ParsekScenario.Instance?.ActiveSwitchSegmentSession;
                 ParsekLog.Verbose("RecordingStore",
@@ -263,7 +263,7 @@ namespace Parsek
                 return false;
 
             return TreeContainsRecordingId(
-                    RecordingStore.PendingTree,
+                    PendingTreeSlot.PendingTree,
                     committedTreeRestoreAttemptTreeId,
                     recordingId)
                 || TreeContainsRecordingId(
@@ -328,10 +328,10 @@ namespace Parsek
 
         internal static bool PendingTreeMatchesCommittedTreeRestoreAttempt()
         {
-            return RecordingStore.PendingTree != null
+            return PendingTreeSlot.PendingTree != null
                 && !string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId)
                 && string.Equals(
-                    RecordingStore.PendingTree.Id,
+                    PendingTreeSlot.PendingTree.Id,
                     committedTreeRestoreAttemptTreeId,
                     StringComparison.Ordinal);
         }
@@ -392,7 +392,7 @@ namespace Parsek
             }
 
             return PurgeCommittedTreeRestoreAttemptEventTails(
-                $"DiscardPendingTree committed-spawned-vessel attempt '{RecordingStore.PendingTree.TreeName}'",
+                $"DiscardPendingTree committed-spawned-vessel attempt '{PendingTreeSlot.PendingTree.TreeName}'",
                 preserveIrreversibleTails,
                 "DiscardPendingTree");
         }

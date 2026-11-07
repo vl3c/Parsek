@@ -1482,7 +1482,7 @@ namespace Parsek.Tests
             // would return (head, tip) and MergeInto would collapse them
             // into a single recording.)
             int committedCountBefore = RecordingStore.CommittedRecordings.Count;
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // Step 5: assert HEAD+TIP both survived intact.
             Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);

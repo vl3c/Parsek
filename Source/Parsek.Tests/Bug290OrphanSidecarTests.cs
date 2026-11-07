@@ -160,7 +160,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             // No pending tree
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             var knownIds = RecordingStore.BuildKnownRecordingIds();
 
@@ -283,7 +283,7 @@ namespace Parsek.Tests
                 TreeId = "saved-tree"
             };
             PendingTreeSlot.PreservePendingTreeFromSaveDuringActiveRestore(saved);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             var knownIds = RecordingStore.BuildKnownRecordingIds(out int pendingCount);
 

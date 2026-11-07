@@ -119,7 +119,7 @@ namespace Parsek.InGameTests
                 skipReason = "Funding/R&D/Reputation singletons not all initialized";
                 return false;
             }
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {
@@ -213,7 +213,7 @@ namespace Parsek.InGameTests
                 // RestoreBatchFlightBaselineAfterExecution, which reloads the entire career
                 // (ledger included) from the clean baseline after the test - so the persisted
                 // save is always restored and any in-memory residue is bounded to that window.
-                if (RecordingStore.HasPendingTree)
+                if (PendingTreeSlot.HasPendingTree)
                     TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
                 FlightIntegrationTests.TruncateLedgerForTeardown(
                     beforeActions, "DiscardEconomyPreservation");

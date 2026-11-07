@@ -391,7 +391,7 @@ namespace Parsek.Tests
         {
             // Events captured while the pending tree is in LimboVesselSwitch state belong to
             // the outgoing recording. ResolveCurrentRecordingTag falls back to
-            // RecordingStore.PendingTree.ActiveRecordingId; Emit should stamp that tag without
+            // PendingTreeSlot.PendingTree.ActiveRecordingId; Emit should stamp that tag without
             // firing the "outside flight" drift warn (midSwitch gates it off).
             var tree = new RecordingTree
             {
@@ -493,18 +493,18 @@ namespace Parsek.Tests
             });
 
             Assert.NotEmpty(GameStateStore.Events);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.Equal(1, MilestoneStore.MilestoneCount);
             Assert.NotNull(GameStateRecorder.TagResolverForTesting);
 
             // Each reset touches only its own store.
             GameStateStore.ResetForTesting();
             Assert.Empty(GameStateStore.Events);
-            Assert.True(RecordingStore.HasPendingTree); // still there
+            Assert.True(PendingTreeSlot.HasPendingTree); // still there
             Assert.Equal(1, MilestoneStore.MilestoneCount); // still there
 
             RecordingStore.ResetForTesting();
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Equal(1, MilestoneStore.MilestoneCount); // still there
 
             MilestoneStore.ResetForTesting();

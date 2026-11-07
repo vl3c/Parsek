@@ -2867,7 +2867,7 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   non-loop live-PID audit names every split file; the ERS / ELS and UI-complexity allowlists
   list the partials that read what ParsekFlight.cs read.
 
-## ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type [FILED 2026-09-14 off the architecture program (item 4). OPEN; the first item with real design content, after the cheap cuts. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
+## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 
 **What is true.**
 - 6,970 lines plus partials, fan-in 91 files, touched in 408 commits (third most churned file);
@@ -3099,6 +3099,28 @@ each PR lands on the refactor branch, IL-proven a pure move).
   pin now name `RewindLauncher.cs`. `RecordingStore` partials 3,203 -> 2,172 lines, 144 -> 110 IL
   methods; knot 468 -> 469, `RecordingStore` cut drops 29 -> 24, replayed cut residue 283 unchanged
   (bound 283).
+- PR14 (finish) landed: production call sites left the store's forwarders, each measured against
+  the cut-residue ratchet caller by caller. Deleted, every caller on the service: `HasPendingTree` /
+  `PendingTree` / `PendingTreeStateValue` (`PendingTreeSlot`), `ArmCommittedTreeRestoreAttempt`,
+  `IsCommittedTreeRestoreAttemptTree`, `IsCommittedTreeRestoreAttemptRecordingId`,
+  `ClearCommittedTreeRestoreAttemptForDroppedTree` and `IsMarkerOwnedSwitchSegmentRecordingId`. Kept
+  for the callers that would add to the residue by calling the service (each named on its
+  forwarder): four restore-attempt forwarders (`MergeDialog`, `RouteRunPrompt`, `GameStateStore`,
+  `RewindInvoker`), `RunOptimizationPass` and `CommitPendingTree` (`MergeDialog`),
+  `TryDiscardActiveSwitchSegmentAttempt` and `RefreshSaveAndQuicksaveAfterDiscard` (`MergeDialog`),
+  `UnionActiveReFlyTreeIntoCommittedForMerge` (`MergeJournalOrchestrator`) and the six rewind gate /
+  entry-point forwarders (the recordings table, the timeline window, `WarpToTimeController`).
+  `RecordingStore` partials 2,172 -> 2,140 lines, 110 -> 102 IL methods; knot 469, cut residue 283.
+
+**End state** (plan section 7; baseline 163 co-changes / 10,000 lines / 42 statics / 53 knot-outs,
+expected about 1,500 lines, 9 statics, 8 knot-outs): `RecordingStore` is the committed list with its
+notifications and primitives, the schema gate, the committed-id queries, the UT-adjustment flags and
+the reset fan-out: 1,934 lines (archview), 13 mutable statics, 26 in-knot outgoing references,
+fan-in 135. The `ParsekScenario.cs <-> RecordingStore.cs` co-change count reads 174 (`ParsekFlight.cs`
+159); it is cumulative over history and rose with this program's own commits, so the measure is the
+hunk buckets of later commits, which now land on the service files. The gap to the expected end
+state is the measured forwarders above and the reset fan-out (the plan's optional `ResetRequested`
+event would remove the latter).
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

@@ -153,7 +153,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree-safety", "rec-safety-1", rec1, rec2);
 
             PendingTreeSlot.StashPendingTree(tree);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             foreach (var r in tree.Recordings.Values)
                 Assert.Equal(-1, r.LastAppliedResourceIndex);
 
@@ -161,7 +161,7 @@ namespace Parsek.Tests
 
             Assert.Equal(2, rec1.LastAppliedResourceIndex); // 3 points - 1
             Assert.Equal(2, rec2.LastAppliedResourceIndex);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree-safety");
         }
 
@@ -255,7 +255,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("rec-nopending", "tree-nopending", 100.0, 200.0);
             var tree = MakeTree("tree-nopending", "rec-nopending", rec);
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
@@ -282,7 +282,7 @@ namespace Parsek.Tests
 
             ParsekScenario.DiscardPendingTreeAndRecalculate("test helper");
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(logLines, l =>
                 l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
             Assert.DoesNotContain(logLines, l =>
@@ -319,15 +319,15 @@ namespace Parsek.Tests
             var tree = MakeTree("tree-order", "rec-order", rec);
             PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Same(tree, RecordingStore.PendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Same(tree, PendingTreeSlot.PendingTree);
 
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
             // Post-condition: pending slot empty, tree in committed storage AND
             // the recording index advanced to the end. Both must hold so the
             // committed tree is immediately fully applied on save.
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree-order");
             Assert.Equal(2, rec.LastAppliedResourceIndex);
         }

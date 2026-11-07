@@ -544,9 +544,9 @@ namespace Parsek.Tests
         {
             string onLoad = Collapse(PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)"));
             Assert.Equal(2, Occurrences(onLoad, "ConfigurePendingQuickloadResumeContext("));
-            Assert.Contains("ConfigurePendingQuickloadResumeContext( RecordingStore.PendingTree, refinedLoadKind);",
+            Assert.Contains("ConfigurePendingQuickloadResumeContext( PendingTreeSlot.PendingTree, refinedLoadKind);",
                 onLoad);
-            Assert.Contains("ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree, LoadKind.Cold);", onLoad);
+            Assert.Contains("ConfigurePendingQuickloadResumeContext(PendingTreeSlot.PendingTree, LoadKind.Cold);", onLoad);
 
             string root = ParsekSourceRoot();
             var armFiles = new List<string>();

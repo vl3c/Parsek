@@ -209,7 +209,7 @@ namespace Parsek.InGameTests
             if (activeTree != null && seen.Add(activeTree))
                 yield return new RecordingTreeRuntimeView { Tree = activeTree, Source = "active" };
 
-            RecordingTree pendingTree = RecordingStore.PendingTree;
+            RecordingTree pendingTree = PendingTreeSlot.PendingTree;
             if (pendingTree != null && seen.Add(pendingTree))
                 yield return new RecordingTreeRuntimeView { Tree = pendingTree, Source = "pending" };
 

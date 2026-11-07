@@ -583,7 +583,7 @@ namespace Parsek
             }
             foreach (RecordingTree t in RecordingStore.CommittedTrees)
                 if (t != null) trees.Add(t);
-            if (RecordingStore.PendingTree != null) trees.Add(RecordingStore.PendingTree);
+            if (PendingTreeSlot.PendingTree != null) trees.Add(PendingTreeSlot.PendingTree);
             RecordingTree live = ReadLiveTreeSafe();
             if (live != null && !trees.Contains(live)) trees.Add(live);
             return trees;

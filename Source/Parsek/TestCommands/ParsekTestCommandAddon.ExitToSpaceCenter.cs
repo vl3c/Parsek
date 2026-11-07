@@ -74,7 +74,7 @@ namespace Parsek.TestCommands
 
             ParsekLog.Info(Tag,
                 $"exittospacecenter start scene={HighLogic.LoadedScene} autoMerge={Bool(ParsekScenario.IsAutoMerge)} " +
-                $"hasActiveTree={Bool(hasActiveTree)} hasPendingTree={Bool(RecordingStore.HasPendingTree)} " +
+                $"hasActiveTree={Bool(hasActiveTree)} hasPendingTree={Bool(PendingTreeSlot.HasPendingTree)} " +
                 $"switchSegmentSession={Bool(sessionArmed)} activeTreeVariant={activeTreeVariant} pendingTreeVariant={pendingTreeVariant}");
 
             bool sessionFollowsAutoMerge = SceneExitInterceptor.ShouldSessionExitFollowAutoMerge(

@@ -2903,7 +2903,7 @@ namespace Parsek
                 focusRecordingId: focusedRecordingId,
                 focusTreeId: focusTree?.Id,
                 activeReFlyMarker: marker,
-                pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
+                pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveAnchorResolverPointWorldPosition,
                 bodyWorldRotationResolver: ResolveAnchorResolverBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveFlightOrbitalAnchorPose,

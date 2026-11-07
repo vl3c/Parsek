@@ -761,8 +761,8 @@ namespace Parsek
                 }
             }
 
-            RecordingTree pending = RecordingStore.HasPendingTree
-                ? RecordingStore.PendingTree
+            RecordingTree pending = PendingTreeSlot.HasPendingTree
+                ? PendingTreeSlot.PendingTree
                 : null;
             if (pending?.Recordings != null
                 && pending.Recordings.TryGetValue(recordingId, out recording)
@@ -1296,7 +1296,7 @@ namespace Parsek
             // active recording in either committed or pending state.
             IReadOnlyList<RecordingTree> searchTrees = ComposeSearchTreesForReFlySuppression(
                 RecordingStore.CommittedTrees,
-                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+                PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null);
             if (ShouldSuppressStateVectorProtoVesselForActiveReFlyAtCreateTime(
                     SessionSuppressionState.ActiveMarker,
                     resolution.Branch,
@@ -1547,7 +1547,7 @@ namespace Parsek
 
             IReadOnlyList<RecordingTree> searchTrees = ComposeSearchTreesForReFlySuppression(
                 RecordingStore.CommittedTrees,
-                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+                PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null);
             if (ShouldRemoveStateVectorProtoVesselForActiveReFlyOnUpdate(
                     SessionSuppressionState.ActiveMarker,
                     resolution.Branch,

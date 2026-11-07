@@ -7,7 +7,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT: <see cref="RecordingStore.RunOptimizationPass"/>
+    /// CHAIN-WALK-STOPS-ON-FIRST-OPTIMIZER-SEGMENT: <see cref="CommittedListOptimizer.RunOptimizationPass"/>
     /// (every load and commit) splits a recording at environment / body boundaries into chain
     /// segments; the first keeps the recording id (so it stays the branch point's child) and the
     /// LAST one takes the end state (vessel snapshot, terminal state). The chain walker followed
@@ -273,7 +273,7 @@ namespace Parsek.Tests
             RecordingTree tree = BuildAndCommit(transportDominant, TerminalState.Landed,
                 stageBeforeCut: false, stationHalf: out Recording stationHalf);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             List<Recording> segs = Segments(tree, stationHalf);
             Assert.Equal(3, segs.Count);
@@ -314,7 +314,7 @@ namespace Parsek.Tests
             RecordingTree tree = BuildAndCommit(transportDominant: true, TerminalState.Destroyed,
                 stageBeforeCut: false, stationHalf: out Recording stationHalf);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             List<Recording> segs = Segments(tree, stationHalf);
             Assert.Equal(3, segs.Count);
@@ -337,7 +337,7 @@ namespace Parsek.Tests
             RecordingTree tree = BuildAndCommit(transportDominant: true, TerminalState.Landed,
                 stageBeforeCut: true, stationHalf: out Recording stationHalf);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             List<Recording> segs = Segments(tree, stationHalf);
             Assert.Equal(3, segs.Count);
@@ -363,7 +363,7 @@ namespace Parsek.Tests
         {
             RecordingTree tree = BuildMergedSplitAndCommit(transportDominant, out Recording merged);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             List<Recording> segs = Segments(tree, merged);
             Assert.Equal(2, segs.Count);
@@ -397,7 +397,7 @@ namespace Parsek.Tests
             stationHalf.TrackSections.RemoveRange(1, 2);
             stationHalf.Points.RemoveRange(2, stationHalf.Points.Count - 2);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.True(string.IsNullOrEmpty(stationHalf.ChainId));
             var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, 900);
@@ -418,7 +418,7 @@ namespace Parsek.Tests
                 stageBeforeCut: false, stationHalf: out Recording stationHalf);
             tree.Recordings["F-half"].TerminalStateValue = TerminalState.Destroyed;
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(3, Segments(tree, stationHalf).Count);
             Assert.True(GhostChainWalker.IsTreeFullyTerminated(tree));

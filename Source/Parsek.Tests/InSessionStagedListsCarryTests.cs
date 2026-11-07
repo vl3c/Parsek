@@ -782,7 +782,7 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(logLines, l => l.Contains("Quickload committed-copy restore"));
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == TreeId);
-            Assert.True(RecordingStore.PendingTree.Recordings.ContainsKey(ForkId));
+            Assert.True(PendingTreeSlot.PendingTree.Recordings.ContainsKey(ForkId));
             Assert.Equal(new[] { "rel_a" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
             Assert.Equal(new[] { "tomb_a" }, loaded.LedgerTombstones.Select(t => t.TombstoneId));
         }
@@ -979,7 +979,7 @@ namespace Parsek.Tests
             Assert.True(committed.Recordings.ContainsKey(OriginId), "the origin is committed again");
             Assert.False(committed.Recordings.ContainsKey(ForkId), "the discarded attempt is not");
             Assert.Equal(OriginId, committed.ActiveRecordingId);
-            Assert.False(RecordingStore.HasPendingTree, "the restored tree does not also stay pending");
+            Assert.False(PendingTreeSlot.HasPendingTree, "the restored tree does not also stay pending");
             Assert.True(ErsHas(OriginId), "the sanitized tree is committed again with its origin visible");
             Assert.False(ErsHas(ForkId));
             Assert.Contains(logLines, l => l.Contains("[INFO][MergeDialog]")

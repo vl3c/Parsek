@@ -352,7 +352,7 @@ namespace Parsek.Tests
             NoSaveSceneExit.NoteStashedTree("qws", NoSaveSceneExit.CurrentSaveFolder());
 
             ParsekScenario.ResetSaveScopedSessionState("test");
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             NoSaveSceneExit.ReapDroppedFlightSidecars(false, false, false);
             Assert.Equal(2, deleted.Count);

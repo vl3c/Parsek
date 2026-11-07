@@ -89,7 +89,7 @@ namespace Parsek.Tests
 
             // Nothing holds the discarded ids: no pending stash, no committed copy, no resume.
             Assert.False(restored);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == "ql_disc");
             Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.TreeId == "ql_disc");
             Assert.False(ParsekScenario.MatchesPendingQuickloadResumeContext("ql_disc"));
@@ -132,7 +132,7 @@ namespace Parsek.Tests
                 quicksave, EarlyLoadKind.InSession, loadedSceneIsFlight: true);
 
             Assert.False(restored);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.True(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
             Assert.Equal("ql_inflight", ParsekScenario.FreshRecordingAfterDiscardTreeIdForTesting);
             Assert.DoesNotContain(logLines, l => l.Contains("TryRestoreActiveTreeNode: stashed active tree 'ql_inflight'"));
@@ -180,7 +180,7 @@ namespace Parsek.Tests
             logLines.Clear();
             Assert.False(ParsekScenario.TryRestoreActiveTreeNode(quicksave));
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.True(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
             Assert.Contains(logLines, l =>
                 l.Contains("was discarded this session")
@@ -196,7 +196,7 @@ namespace Parsek.Tests
             Assert.False(ParsekScenario.TryRestoreActiveTreeNode(
                 quicksave, EarlyLoadKind.InSession, loadedSceneIsFlight: false));
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.False(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
             Assert.Contains(logLines, l =>
                 l.Contains("was discarded this session")
@@ -214,7 +214,7 @@ namespace Parsek.Tests
 
             Assert.False(ParsekScenario.TryRestoreActiveTreeNode(quicksave));
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.False(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
             Assert.Contains(logLines, l =>
                 l.Contains("action=DropWithoutRecording")
@@ -238,8 +238,8 @@ namespace Parsek.Tests
             logLines.Clear();
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(quicksave));
 
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
-            Assert.Equal("ql_missing", RecordingStore.PendingTree.Id);
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
+            Assert.Equal("ql_missing", PendingTreeSlot.PendingTree.Id);
             Assert.False(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
             Assert.DoesNotContain(logLines, l => l.Contains("was discarded this session"));
             Assert.Contains(logLines, l =>
@@ -327,8 +327,8 @@ namespace Parsek.Tests
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(quicksave));
 
             Assert.False(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
-            Assert.Equal("ql_same", RecordingStore.PendingTree.Id);
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
+            Assert.Equal("ql_same", PendingTreeSlot.PendingTree.Id);
             Assert.Contains(logLines, l =>
                 l.Contains("TryRestoreActiveTreeNode: tree 'ql_same' id=ql_same was discarded this session "
                     + "but is restored as before (reason=pending-same-id-in-memory)"));
@@ -351,7 +351,7 @@ namespace Parsek.Tests
             logLines.Clear();
             Assert.False(ParsekScenario.TryRestorePendingTreeNode(save));
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.False(ParsekScenario.IsFreshRecordingAfterDiscardArmed);
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]")
@@ -371,8 +371,8 @@ namespace Parsek.Tests
             logLines.Clear();
             Assert.True(ParsekScenario.TryRestorePendingTreeNode(save));
 
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal("ql_pending_missing", RecordingStore.PendingTree.Id);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal("ql_pending_missing", PendingTreeSlot.PendingTree.Id);
             Assert.DoesNotContain(logLines, l => l.Contains("was discarded this session"));
         }
 
@@ -546,7 +546,7 @@ namespace Parsek.Tests
                 ToLevel = 2, FacilityCost = 50000f,
             });
             ArmByDiscardThenF9();
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             logLines.Clear();
             bool cutoffUsed = ParsekScenario.RecalculateLedgerForInSessionLoad(
@@ -593,7 +593,7 @@ namespace Parsek.Tests
             SetPoints(flown.Recordings[flown.RootRecordingId], 100.0, 200.0, 320.0);
             PendingTreeSlot.StashPendingTree(flown, PendingTreeState.Finalized);
             TreeDiscardService.DiscardPendingTree();
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
 
         private static void ArmByDiscardThenF9()

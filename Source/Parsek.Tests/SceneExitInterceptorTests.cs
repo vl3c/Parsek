@@ -259,7 +259,7 @@ namespace Parsek.Tests
         public void TryResolveSessionTreeForDialog_MatchesPendingTree_Returns()
         {
             // Fails if: the helper does not return the pending tree when
-            // the session's TreeId matches RecordingStore.PendingTree.
+            // the session's TreeId matches PendingTreeSlot.PendingTree.
             // This is the common case for a session whose live recorder
             // was torn down mid-segment.
             const string treeId = "session_tree_pending";

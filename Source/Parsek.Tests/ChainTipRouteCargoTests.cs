@@ -1302,7 +1302,7 @@ namespace Parsek.Tests
             RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
             RouteEventLog.Add(DeliveredAction("route-a", "cycle-2", 1600, "LiquidFuel", 100));
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.True(leaf.EndUT < 1450.0, "the tail was not trimmed: endUT=" + leaf.EndUT.ToString("R", CultureInfo.InvariantCulture));
             double spawnUT = leaf.EndUT;
             DropOrbitAfterTheTrim(leaf);
@@ -1336,7 +1336,7 @@ namespace Parsek.Tests
             SeedRouteHistory();
             RouteEventLog.Add(DeliveredAction("route-a", "cycle-3", 1650, "LiquidFuel", 100));
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.True(tip.EndUT < 1645.0, "the tail was not trimmed: endUT=" + tip.EndUT.ToString("R", CultureInfo.InvariantCulture));
             DropOrbitAfterTheTrim(tip);
 

@@ -140,7 +140,7 @@ namespace Parsek.Tests
         {
             var rec = MakeFutureRecording();
             PendingTreeSlot.StashPendingTree(new RecordingTree());
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             string reason;
             Assert.False(RewindLauncher.CanFastForward(rec, out reason, isRecording: false));
@@ -157,7 +157,7 @@ namespace Parsek.Tests
             var rec = MakeFutureRecording();
             Assert.Null(rec.RewindSaveFileName);
             Assert.False(RewindContext.IsRewinding);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             // If we get past all testable guards, the next call would be
             // Planetarium.GetUniversalTime() which throws in unit tests.
             // The fact that it throws (not returns false) proves all prior guards passed.

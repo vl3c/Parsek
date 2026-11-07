@@ -229,7 +229,7 @@ namespace Parsek.Tests
                     activeRecordingId: committedParent.RecordingId, committedParent);
                 RecordingStore.AddCommittedInternal(committedParent);
                 RecordingStore.AddCommittedTreeForTesting(committedTree);
-                RecordingStore.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
+                CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
 
                 var scenario = new ParsekScenario();
                 ParsekScenario.SetInstanceForTesting(scenario);
@@ -757,8 +757,8 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(committedTree);
 
             // Arm the committed-tree restore attempt.
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
 
             // Now build a clone tree with the same tree id, an in-place
             // mutated parent (clone copy of committedParent) and a marker-
@@ -804,9 +804,9 @@ namespace Parsek.Tests
                 disposition);
 
             // Clone wrapper dropped: pending slot is empty.
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             // Committed-tree restore attempt cleared.
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
             // Original committed tree + parent still present, untouched.
             Assert.NotNull(RecordingStore.CommittedTrees.Find(
                 t => t.Id == committedTreeId));
@@ -836,8 +836,8 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(committedParent);
             RecordingStore.AddCommittedTreeForTesting(committedTree);
 
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
 
             var postCutoff = new GameStateEvent
             {
@@ -858,10 +858,10 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(ref preCutoff);
             Assert.True(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
                     postCutoff));
             Assert.False(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
                     preCutoff));
 
             // Clone tree with the same id, an in-place mutated parent (clone copy of
@@ -905,7 +905,7 @@ namespace Parsek.Tests
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone,
                 disposition);
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
             Assert.DoesNotContain(GameStateStore.Events,
                 e => e.key == "attempt-tail-post");
             Assert.Contains(GameStateStore.Events,
@@ -919,20 +919,20 @@ namespace Parsek.Tests
         [Fact]
         public void IsCommittedTreeRestoreAttemptTree_TracksArmedTree()
         {
-            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree("tree_x"));
-            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(null));
+            Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree("tree_x"));
+            Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(null));
 
             var committedTree = MakeTree("tree_x",
                 activeRecordingId: "rec_x",
                 MakeRecording("rec_x", "tree_x", vesselName: "X"));
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
 
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree("tree_x"));
-            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree("tree_other"));
-            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(null));
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree("tree_x"));
+            Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree("tree_other"));
+            Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(null));
 
             RecordingStore.ClearCommittedTreeRestoreAttempt("test-clear");
-            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree("tree_x"));
+            Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree("tree_x"));
         }
 
         // -----------------------------------------------------------------
@@ -954,7 +954,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(c2);
             RecordingStore.AddCommittedInternal(c3);
             RecordingStore.AddCommittedTreeForTesting(committedTree);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committedTree, "test-arm");
 
             var scenario = new ParsekScenario();
             ParsekScenario.SetInstanceForTesting(scenario);
@@ -1073,8 +1073,8 @@ namespace Parsek.Tests
                 BuildPendingTreeWithSegment();
 
             PendingTreeSlot.StashPendingTree(tree);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test committed-tree restore");
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test committed-tree restore");
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
             Assert.NotNull(scenario.ActiveSwitchSegmentSession);
 
             var decisions = new Dictionary<string, bool>
@@ -1089,12 +1089,12 @@ namespace Parsek.Tests
                 tree, decisions, spawnCount: 0, refreshQuicksaveAfterCommit: false);
 
             // The commit itself succeeded (the marker clear is gated on it).
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == tree.Id);
 
             // Both markers are gone, and the clear names the merge as the reason.
             Assert.Null(scenario.ActiveSwitchSegmentSession);
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
             Assert.Contains(logLines, l =>
                 l.Contains("[SwitchSegment]")
                 && l.Contains("cleared:")

@@ -284,9 +284,9 @@ namespace Parsek
             bool pendingMatched = false;
             int targetCount = 0;
             string targetId = null;
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
-                RecordingTree pendingTree = RecordingStore.PendingTree;
+                RecordingTree pendingTree = PendingTreeSlot.PendingTree;
                 foreach (Recording rec in pendingTree.Recordings.Values)
                 {
                     if (!ParsekScenario.MatchesVessel(rec, identity, persistentId))

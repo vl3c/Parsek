@@ -173,13 +173,13 @@ namespace Parsek.Tests
             // Seed a pending tree stashed "this transition"
             var tree = MakeTree("t_sa", "Siford Kerman", 2);
             PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.True(PendingTreeSlot.PendingStashedThisTransition);
             logLines.Clear();
 
             ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 397.2, currentUT: 369.2);
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]") && l.Contains("Quickload detected")
                 && l.Contains("397.20") && l.Contains("369.20"));
@@ -195,13 +195,13 @@ namespace Parsek.Tests
             // Non-Limbo pending tree stashed this transition: discard.
             var tree = MakeTree("t_a", "Kerbal X", 2);
             PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.True(PendingTreeSlot.PendingStashedThisTransition);
             logLines.Clear();
 
             ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 400.0, currentUT: 370.0);
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(logLines, l =>
                 l.Contains("discarded pending tree") && l.Contains("Kerbal X")
                 && l.Contains("state != Limbo"));
@@ -242,7 +242,7 @@ namespace Parsek.Tests
 
             ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 400.0, currentUT: 370.0);
 
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.True(PendingTreeSlot.PendingStashedThisTransition);
             Assert.Single(scenario.RewindPoints);
             Assert.Equal(0, TreeDiscardPurge.PurgeTreeCountForTesting);
@@ -267,7 +267,7 @@ namespace Parsek.Tests
 
             ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 16558.08, currentUT: 16466.39);
 
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.True(PendingTreeSlot.PendingStashedThisTransition);
             Assert.Equal(0, TreeDiscardPurge.PurgeTreeCountForTesting);
             Assert.Contains(logLines, l =>
@@ -289,14 +289,14 @@ namespace Parsek.Tests
             // OnFlightReady. This is the tree-mode F5/F9 case.
             var tree = MakeTree("t_b", "Mun Mission", 2);
             PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
             logLines.Clear();
 
             ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 400.0, currentUT: 370.0);
 
-            Assert.True(RecordingStore.HasPendingTree); // preserved
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.True(PendingTreeSlot.HasPendingTree); // preserved
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
             Assert.Contains(logLines, l =>
                 l.Contains("Quickload discard complete") && l.Contains("tree=0"));
             // The preserve path must NOT log a "discarded pending tree" line.
@@ -314,7 +314,7 @@ namespace Parsek.Tests
             ParsekScenario.DiscardPendingTreeAndAbandonDeferredFlightResults(
                 "unit test abandoned pending tree");
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
 
         [Fact]
@@ -372,7 +372,7 @@ namespace Parsek.Tests
             // discard call must still log the "Quickload detected" header (so
             // diagnostics always show why we took this path) and a final
             // "discard complete tree=0 science=0" line.
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
             logLines.Clear();
 

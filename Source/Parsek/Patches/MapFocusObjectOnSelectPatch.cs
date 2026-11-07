@@ -920,7 +920,7 @@ namespace Parsek.Patches
                     // Degenerate (no flight controller): fall back to the bare
                     // scoped discard so the session is still cleared.
                     string reason;
-                    var disposition = RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                    var disposition = SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
                     ParsekLog.Warn("SwitchIntentPatch",
                         $"pre-switch-dialog scoped-discard (no flight controller) " +
                         $"priorSessionId={priorSessionIdStr} " +
@@ -1091,7 +1091,7 @@ namespace Parsek.Patches
                     // clear it. Id-matched against the tree being torn down, so an
                     // attempt armed for another tree (a parked pending clone) keeps
                     // its tails. No-op when none armed or the ids differ.
-                    RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                    CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                         flight.ActiveTreeForDisplay?.Id,
                         "pre-switch-dialog discard (no-session)",
                         preserveIrreversibleTails: true);

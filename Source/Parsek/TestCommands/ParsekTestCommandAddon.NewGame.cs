@@ -106,7 +106,7 @@ namespace Parsek.TestCommands
                 && HighLogic.CurrentGame.Parameters.SpaceCenter.CanLeaveToMainMenu;
             bool recorderLive = ParsekFlight.HasLiveRecorderForTagging();
             bool hasActiveTree = flight != null && flight.HasActiveTree;
-            bool hasPendingTree = RecordingStore.HasPendingTree;
+            bool hasPendingTree = PendingTreeSlot.HasPendingTree;
             bool mergeDialogPending = ParsekScenario.MergeDialogPending;
             bool reFlySession = scenario != null && scenario.ActiveReFlySessionMarker != null;
             bool switchSession = scenario != null && scenario.ActiveSwitchSegmentSession != null;
