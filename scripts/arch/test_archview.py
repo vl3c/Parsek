@@ -3294,15 +3294,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # then placed 67 of those by hand, leaving the kernel files that are
         # used across many modules (see README, "Editing modules.toml").
         # VesselSnapshotOps.cs joined them in the 2026-09-14 VesselSpawner
-        # split, which named it in the Core rule, so the kernel is 9 files.
-        self.assertEqual(self.by_name["Core"]["files"], 9)
+        # split, which named it in the Core rule; file-placement PR 9 moved
+        # VesselSpawner.cs itself to Controllers, so the kernel is 8 files.
+        self.assertEqual(self.by_name["Core"]["files"], 8)
 
     def test_kernel_files_resolve_to_core(self):
         kernel = [
             "BranchPoint.cs",
             "IPlaybackTrajectory.cs",
             "VesselLaunchIdentity.cs",
-            "VesselSpawner.cs",
             "VesselSnapshotOps.cs",
             "MilestoneStore.cs",
             "GroupHierarchyStore.cs",
@@ -3359,9 +3359,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         # second two more while main deleted one, and the RecordingStore
         # services plan's SceneEntryVesselScope and CommittedListOptimizer, which
         # no family prefix names, two more, and file-placement PR 8's
-        # LiveVesselSnapshot one more); 9 after, the kernel list as it stands
-        # today.
-        self.assertIn("| Core | 199 | 9 |", fresh)
+        # LiveVesselSnapshot one more); 8 after, the kernel list as it stands
+        # today (9 until file-placement PR 9 placed VesselSpawner.cs in Controllers).
+        self.assertIn("| Core | 199 | 8 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)

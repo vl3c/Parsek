@@ -3047,6 +3047,11 @@ compare).
   4 private members widened. The hooks have no initializer, so no static constructor moves.
   The new type sits on a cycle (crew-name reverse map through `KerbalsModule`): knots 461 -> 462,
   residue ratchet 287 -> 288, one node and no new reference; upward 813 -> 812 (Core -> Logistics).
+- PR 9: `modules.toml` only. `VesselSpawner.cs` leaves the Core kernel list (9 -> 8 files) for an
+  R0 rule -> Controllers (it references 12 Controllers types). Upward edges 83 / 812 -> 81 / 786:
+  Core -> Recording 25 -> 12, Core -> Controllers 13 -> 1, Core -> Crew and Core -> Ghost gone;
+  Ghost -> Controllers 50 -> 58, Recording -> Controllers 39 -> 43, Rewind and Crew -> Controllers
+  +1 each. Knots and residue unchanged. No Source file changes.
 
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

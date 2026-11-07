@@ -71,10 +71,10 @@ folder = "UI"
 # --- R0 operator placements (phase 2b) ------------------------------------
 # Evaluated FIRST so an explicit file name beats every family prefix below.
 # Files below the R2 evidence floor or referenced by nothing outside Core,
-# placed by hand from what each file does. The nine kernel files stay in Core
+# placed by hand from what each file does. The eight kernel files stay in Core
 # on purpose: BranchPoint, IPlaybackTrajectory, VesselLaunchIdentity,
-# VesselSpawner, VesselSnapshotOps, MilestoneStore, GroupHierarchyStore,
-# InventoryManifest and PlaybackTrajectoryBoundsResolver have no majority owner
+# VesselSnapshotOps, MilestoneStore, GroupHierarchyStore, InventoryManifest
+# and PlaybackTrajectoryBoundsResolver have no majority owner
 # because every module uses them; that is the shared vocabulary, not a
 # placement gap.
 
@@ -264,6 +264,17 @@ name = "Recording"
 prefix = "^LiveVesselSnapshot[.]cs$"
 placement = "R0"
 
+# the vessel spawner: spawn, respawn, end-of-recording spawn-or-recover, KSC
+# retirement, crew roster and terminal-orbit seeding the scene controllers run.
+# It left the Core kernel list in file-placement PR 9 (2026-11-06) once PRs 6-8
+# had moved its pure snapshot half to VesselSnapshotOps and its live capture to
+# LiveVesselSnapshot; the spawn half references 12 Controllers types, so
+# Controllers is the home with the smaller upward weight
+[[module]]
+name = "Controllers"
+prefix = "^VesselSpawner[.]cs$"
+placement = "R0"
+
 [[module]]
 name = "Missions"
 prefix = "^Mission"
@@ -443,14 +454,15 @@ name = "Controllers"
 prefix = '^TerminalOrbitSpawnSafety[.]cs$'
 placement = "R2"
 
-# Core is the kernel vocabulary, not a catch-all: exactly the nine root files
+# Core is the kernel vocabulary, not a catch-all: exactly the eight root files
 # every module leans on (VesselSnapshotOps joined in the 2026-09-14
 # VesselSpawner split; its R2 evidence would say Logistics, and the placement
-# report names that disagreement - see the README, "Placing catch-all files"). Any other root file must be placed by a rule above; an
+# report names that disagreement - see the README, "Placing catch-all files";
+# VesselSpawner itself left for Controllers in file-placement PR 9). Any other root file must be placed by a rule above; an
 # unplaced root file is reported by the checker and skipped. MUST stay last.
 [[module]]
 name = "Core"
-prefix = "^BranchPoint[.]cs$|^IPlaybackTrajectory[.]cs$|^VesselLaunchIdentity[.]cs$|^VesselSpawner[.]cs$|^MilestoneStore[.]cs$|^GroupHierarchyStore[.]cs$|^InventoryManifest[.]cs$|^PlaybackTrajectoryBoundsResolver[.]cs$|^VesselSnapshotOps[.]cs$"
+prefix = "^BranchPoint[.]cs$|^IPlaybackTrajectory[.]cs$|^VesselLaunchIdentity[.]cs$|^MilestoneStore[.]cs$|^GroupHierarchyStore[.]cs$|^InventoryManifest[.]cs$|^PlaybackTrajectoryBoundsResolver[.]cs$|^VesselSnapshotOps[.]cs$"
 
 # --- production views ------------------------------------------------------
 # Modules listed here are hidden from the production views (dot + matrix) and
