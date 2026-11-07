@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Parsek;
 using Parsek.Rendering;
 using UnityEngine;
@@ -231,6 +232,10 @@ namespace Parsek.Tests.Rendering
             string sourceRoot = Path.Combine(repoRoot, "Source", "Parsek");
             var offenders = new List<string>();
             int helperCalls = 0;
+            // The text that was ParsekScenario.cs: its main file and the split files.
+            var scenarioOwnerFiles = new HashSet<string>(
+                ParsekScenarioSourceFiles.Paths(sourceRoot).Select(Path.GetFileName),
+                StringComparer.OrdinalIgnoreCase);
 
             foreach (string file in Directory.EnumerateFiles(
                 sourceRoot, "*.cs", SearchOption.AllDirectories))
@@ -242,7 +247,7 @@ namespace Parsek.Tests.Rendering
                 // ParsekScenario owns the helper and the OnLoad reset;
                 // ReconciliationBundle's is a fresh-struct default;
                 // InGameTests null it in fixture teardown (paired, see the scan above).
-                if (string.Equals(name, "ParsekScenario.cs", StringComparison.OrdinalIgnoreCase)
+                if (scenarioOwnerFiles.Contains(name)
                     || string.Equals(name, "ReconciliationBundle.cs", StringComparison.OrdinalIgnoreCase)
                     || file.IndexOf("InGameTests", StringComparison.OrdinalIgnoreCase) >= 0)
                 {

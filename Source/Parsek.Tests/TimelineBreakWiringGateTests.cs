@@ -176,7 +176,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(repo, "Source", "Parsek", "ParsekScenario.cs");
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
             int sig = prepared.IndexOf("public override void OnLoad(ConfigNode node)", StringComparison.Ordinal);
             Assert.True(sig >= 0, "timeline-break gate: OnLoad not found");
             return SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', sig));

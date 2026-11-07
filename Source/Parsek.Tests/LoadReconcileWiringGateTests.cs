@@ -564,7 +564,9 @@ namespace Parsek.Tests
                 if (prepared.Contains("ConfigurePendingQuickloadResumeContext("))
                     armFiles.Add(rel);
             }
-            Assert.Equal(new[] { "ParsekScenario.cs" }, armFiles);
+            // OnLoad's two arm sites in the main file; the declaration in the tree-restore partial.
+            Assert.Equal(new[] { "ParsekScenario.TreeRestore.cs", "ParsekScenario.cs" },
+                armFiles.OrderBy(f => f, StringComparer.Ordinal).ToArray());
         }
 
         // ---- the Discard Re-fly intent ----
@@ -1110,7 +1112,7 @@ namespace Parsek.Tests
         {
             string path = Path.Combine(ParsekSourceRoot(), relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            return ParsekFlightSourceFiles.ReadText(path);
+            return ParsekScenarioSourceFiles.ReadText(path);
         }
     }
 }
