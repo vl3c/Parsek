@@ -53,7 +53,7 @@ test stand between an unrelated later tree and a terminal spawn supersede mark.
 **Fix.** Skip recordings without trajectory bounds or an explicit start in `GetTreeStartUT`
 (NaN when none is left), with a unit test beside the existing `GetTreeStartUT_*` cells.
 
-## LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED: two loop-seam trace dictionaries in ParsekFlight are keyed by committed index and never shift [FILED 2026-11-07 from the ParsekFlight seam inventory (`plan-parsekflight-seams-2026-11-07.md`, refactor branch `claude/project-thread-bkwmrr` at f3400b90a), by code reading. OPEN; diagnostics only, low]
+## ~~LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED: two loop-seam trace dictionaries in ParsekFlight are keyed by committed index and never shift~~ [FILED 2026-11-07 from the ParsekFlight seam inventory (`plan-parsekflight-seams-2026-11-07.md`, refactor branch `claude/project-thread-bkwmrr` at f3400b90a), by code reading. FIXED 2026-11-07, branch `refactor-loopseam-index-shift` (base `claude/project-thread-bkwmrr`); xUnit; diagnostics only, low]
 
 **What is true.**
 - `ParsekFlight.reaimLastGhostFrame` and `ParsekFlight.loopSeamLastGhostFrame` are
@@ -69,10 +69,17 @@ test stand between an unrelated later tree and a terminal spawn supersede mark.
   diagnostics (`ghostRenderTracing` for the loop-seam instrument, Verbose for `ReaimSeam`);
   nothing a player sees and no positioning reads them.
 
-**Fix.** Clear both dictionaries in `OnCommittedRecordingRemoved` and
-`OnCommittedRecordingInserted` (as the `loggedOrbit*` sets are), or key them by recording id.
-A clear costs at most one missed seam line per member after a list change. Not part of the
-pure-move refactor; land it on its own after the ParsekFlight playback split.
+**Fix.** The dictionaries now live on `ParsekFlightGhostPositioner` and shift with the list
+instead of being cleared: `ShiftLoopSeamTracesAfterDelete` / `ShiftLoopSeamTracesAfterInsert`
+run both through `IndexShift.DictAfterDelete` / `DictAfterInsert` (delete drops the removed index
+and moves higher keys down; insert moves keys at or above the index up and leaves the slot
+empty), and log one Verbose `[Flight] Loop-seam traces reindexed after delete|insert at #N:` line
+with per-dictionary shifted / dropped / count values. `ParsekFlight.OnCommittedRecordingRemoved` /
+`OnCommittedRecordingInserted` call them right after `Positioner.ClearOrbitPlaybackCaches()`; no
+service subscribes to the seam. Tests: `LoopSeamTraceIndexShiftTests` (delete, insert, log line,
+empty no-op) and the call order pinned in
+`CommittedListNotificationTests.FlightHandlers_StayOnParsekFlight_InOrder_AndNoServiceListensOrWrites`.
+Not flown; the loop lanes that exercise the traces are listed in the PR.
 
 ## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
 
