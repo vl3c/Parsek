@@ -815,10 +815,10 @@ namespace Parsek.Tests
             Assert.True(link < IndexOrFail(take, "SpawnedVesselPersistentId = 0"),
                 "the Resume link is recorded before the spawn pid is cleared");
 
-            string couple = MethodBody("ParsekFlight.cs", "void OnPartCouple(GameEvents.FromToAction<Part, Part> data)");
+            string couple = MethodBody("ParsekFlightSplitBrancher.cs", "void OnPartCouple(GameEvents.FromToAction<Part, Part> data)");
             Assert.True(IndexOrFail(couple, "VesselNameLiveSync.OnDockCouple(data.from") < couple.IndexOf("return;", StringComparison.Ordinal),
                 "the dock-absorb row is recorded before any early return");
-            string undock = MethodBody("ParsekFlight.cs", "void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)");
+            string undock = MethodBody("ParsekFlightSplitBrancher.cs", "void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)");
             Assert.True(IndexOrFail(undock, "VesselNameLiveSync.OnUndockSplit(newVessel)") < undock.IndexOf("return;", StringComparison.Ordinal),
                 "the undock link is recorded before any early return");
         }

@@ -24036,7 +24036,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # asserted because the five spec comment blocks and the reachability
         # cell below all cite it by name and level as the path NOT taken, and a
         # silent rename would leave that evidentiary record pointing at nothing.
-        fg = self._source("ParsekFlight.SplitBranching.cs")
+        fg = self._source("ParsekFlightSplitBrancher.cs")
         self.assertRegex(
             fg, r'ParsekLog\.Info\(\s*"Coalescer",\s*\$"ProcessBreakupEvent: '
                 r'debris child created: pid=')

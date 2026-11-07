@@ -200,7 +200,7 @@ namespace Parsek.Tests
             Assert.Equal(declIdx, prepared.LastIndexOf(decl, StringComparison.Ordinal));
             string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', declIdx));
 
-            const string call = "WireBreakupIntoTree(activeTree, activeRecId, activeRec, breakupBp);";
+            const string call = "ParsekFlight.WireBreakupIntoTree(host.activeTree, activeRecId, activeRec, breakupBp);";
             int callIdx = body.IndexOf(call, StringComparison.Ordinal);
             Assert.True(callIdx >= 0, "ProcessBreakupEvent no longer wires the breakup through WireBreakupIntoTree");
             Assert.Equal(callIdx, body.LastIndexOf(call, StringComparison.Ordinal));
