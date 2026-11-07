@@ -65,6 +65,7 @@ namespace Parsek
         ///     [x] CheckRoboticState           - RoboticMotionStarted / RoboticPositionSample / RoboticMotionStopped
         ///                                       (wheel MOTOR spin excluded — derived from ground speed at playback)
         ///     [x] CheckConverterState         - ConverterActivated / ConverterDeactivated
+        ///     [x] CheckWheelDamageState       - WheelBroken / WheelRepaired
         ///     [x] CheckEvaState               - EvaJetpackDeployed / EvaJetpackStowed / EvaRagdollStarted / EvaRagdollEnded
         ///                                       (jetpack THRUST is flight-only by nature: a background
         ///                                        kerbal receives no input, so the edge never fires. That
@@ -84,7 +85,7 @@ namespace Parsek
             // Count delta before/after pattern: all CheckXState methods only
             // mutate treeRec.PartEvents (no Points/OrbitSegments/etc changes),
             // so a single post-polling dirty mark guarded on count-delta covers
-            // all 19 child checks without 19 inline MarkFilesDirty calls.
+            // all 20 child checks without 20 inline MarkFilesDirty calls.
             // If no events were emitted this poll, the mark is skipped — keeps
             // the frequent per-physics-frame poll cheap.
             int prePartEventCount = treeRec.PartEvents.Count;
@@ -107,6 +108,7 @@ namespace Parsek
             CheckFairingState(v, state, treeRec, ut);
             CheckRoboticState(v, state, treeRec, ut);
             CheckConverterState(v, state, treeRec, ut);
+            CheckWheelDamageState(v, state, treeRec, ut);
             CheckEvaState(v, state, treeRec, ut);
 
             if (treeRec.PartEvents.Count > prePartEventCount)
@@ -308,6 +310,34 @@ namespace Parsek
             FlightRecorder.AppendDepartedConverterStops(v, state.activeConverterParts, presentActive,
                 treeRec.PartEvents, ut, "BgRecorder",
                 $"bg vessel pid={state.vesselPid} rec={state.recordingId}");
+        }
+
+        /// <summary>
+        /// Wheel damage BG parity. This is the path an EVA REPAIR takes: the engineer on EVA is
+        /// the active vessel, so the rover whose wheel he fixes is a loaded background vessel and
+        /// only this poll can see its <c>isDamaged</c> flag clear. Same Layer-1 transition as the
+        /// flight poll.
+        /// </summary>
+        private void CheckWheelDamageState(Vessel v, BackgroundVesselState state,
+            Recording treeRec, double ut)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var evt = FlightRecorder.CheckWheelDamageTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown",
+                    FlightRecorder.IsAnyWheelDamagedOnPart(p), state.damagedWheelParts, ut);
+                if (evt.HasValue)
+                {
+                    treeRec.PartEvents.Add(evt.Value);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid}, wheel damage)");
+                }
+            }
         }
 
         /// <summary>

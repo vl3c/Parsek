@@ -8,6 +8,9 @@ All notable changes to Parsek are documented here.
 
 ### Changed
 
+- **Ghosts show broken wheels.** A wheel that breaks during a flight now shows its broken mesh on
+  the replay from that moment, and swaps back when an engineer repairs it. A vessel that started
+  its flight with a broken wheel replays with it broken. (WHEEL-DAMAGE-NOT-RECORDED)
 - **A recording's hover says what the flight used and carried.** Hovering a recording's Status
   in the Recordings window now also lists the fuel and other resources it used or gained, the
   cargo parts it unloaded or loaded, and crew changes. (GUI-I)

@@ -98,7 +98,25 @@ namespace Parsek
         /// the timeline.
         EvaRagdollStarted = 43,
         /// KerbalEVA recovered from ragdoll.
-        EvaRagdollEnded = 44
+        EvaRagdollEnded = 44,
+
+        // ------------------------------------------------------------------
+        // Wheel damage (members 45-46, explicit and append-only). Additive enum
+        // members, so no schema-generation bump: the forward-compat argument of the
+        // P8 block above applies unchanged (an older build carries the raw int
+        // through the binary sidecar and every consumer degrades conservatively).
+        // ------------------------------------------------------------------
+
+        /// A ModuleWheelDamage wheel broke (stock isDamaged went true): stock hides
+        /// the intact wheel mesh (undamagedTransformName) and shows the busted one
+        /// (damagedTransformName); playback does the same swap. REVERSIBLE: an EVA
+        /// engineer's repair (EventRepairExternal) clears the flag, which the recorder
+        /// writes as WheelRepaired. A wheel that explodes outright is a Destroyed
+        /// event, not this one.
+        WheelBroken = 45,
+        /// A broken ModuleWheelDamage wheel was repaired: the intact mesh is back and
+        /// the busted one hidden again.
+        WheelRepaired = 46
     }
 
     internal enum HeatLevel { Cold, Medium, Hot }

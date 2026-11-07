@@ -324,6 +324,16 @@ namespace Parsek
         /// if none specify a damagedTransformName.
         /// </summary>
         internal static HashSet<string> GetDamagedWheelTransformNames(ConfigNode partConfig)
+            => GetWheelDamageTransformNames(partConfig, "damagedTransformName");
+
+        /// <summary>
+        /// Extracts undamagedTransformName values from all ModuleWheelDamage MODULE nodes: the
+        /// intact wheel mesh stock hides on a break. Empty when none is configured.
+        /// </summary>
+        internal static HashSet<string> GetUndamagedWheelTransformNames(ConfigNode partConfig)
+            => GetWheelDamageTransformNames(partConfig, "undamagedTransformName");
+
+        private static HashSet<string> GetWheelDamageTransformNames(ConfigNode partConfig, string key)
         {
             var names = new HashSet<string>();
             if (partConfig == null) return names;
@@ -335,9 +345,9 @@ namespace Parsek
             {
                 if (modules[i].GetValue("name") != "ModuleWheelDamage")
                     continue;
-                string damagedName = modules[i].GetValue("damagedTransformName");
-                if (!string.IsNullOrEmpty(damagedName))
-                    names.Add(damagedName);
+                string value = modules[i].GetValue(key);
+                if (!string.IsNullOrEmpty(value))
+                    names.Add(value);
             }
             return names;
         }
