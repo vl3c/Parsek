@@ -428,6 +428,12 @@ namespace Parsek
 
             var info = new FairingGhostInfo { partPersistentId = persistentId };
 
+            var fairingPrefab = prefab.FindModuleImplementing<ModuleProceduralFairing>();
+
+            // The base ring stays on after the shell goes, so its variant colour applies to
+            // deployed fairings as well.
+            ApplyFairingVariantToBase(fairingPrefab, prefab, partNode, modelNode, persistentId, partName);
+
             // The interstage truss and cap plates follow stock's own rule whether or not the
             // shell is still on: a ghost recorded after jettison still shows the truss of an
             // attached stage, and never the five unattached ones.
@@ -440,7 +446,6 @@ namespace Parsek
             if (fsmState == "st_flight_deployed" || sections.Count < 2)
                 return info.structureNodes != null ? info : null;
 
-            var fairingPrefab = prefab.FindModuleImplementing<ModuleProceduralFairing>();
             string declineReason;
             info.shellMeshes = new List<Mesh>();
             GameObject stockShell = TryBuildStockFairingPanels(
@@ -608,6 +613,140 @@ namespace Parsek
             if (fairingInfos == null) return;
             foreach (var kvp in fairingInfos)
                 if (kvp.Value != null) DestroyMeshes(kvp.Value.shellMeshes);
+        }
+
+        /// <summary>
+        /// Pure: the shader stock puts on the fairing base ring. onVariantApplied reads the
+        /// variant's shaderName (default "KSP/Bumped Specular (Cutoff)") and swaps that
+        /// default for "KSP/Bumped Specular" on the base; any other name is used as given.
+        /// </summary>
+        internal static string ResolveFairingBaseShaderName(string variantShaderName)
+        {
+            const string cutoff = "KSP/Bumped Specular (Cutoff)";
+            string text = string.IsNullOrEmpty(variantShaderName) ? cutoff : variantShaderName;
+            return text == cutoff ? "KSP/Bumped Specular" : text;
+        }
+
+        /// <summary>
+        /// Pure: whether a material is the one stock re-textures as the fairing base. Stock
+        /// matches the variant's materials by name prefix against BaseMaterialName; a clone's
+        /// " (Instance)" suffix is ignored.
+        /// </summary>
+        internal static bool IsFairingBaseMaterialName(string materialName, string baseMaterialName)
+        {
+            if (string.IsNullOrEmpty(materialName) || string.IsNullOrEmpty(baseMaterialName))
+                return false;
+            return materialName.Replace(" (Instance)", "")
+                .StartsWith(baseMaterialName, System.StringComparison.Ordinal);
+        }
+
+        // Shared base-ring materials, keyed by part name and variant.
+        private static readonly Dictionary<string, Material> fairingBaseMaterialCache =
+            new Dictionary<string, Material>();
+
+        /// <summary>
+        /// Gives the ghost's fairing base ring the selected variant's look, as stock
+        /// ModuleProceduralFairing.onVariantApplied does for the renderer on the child named
+        /// BaseModelTransformName: the variant material whose name starts with the EXTRA_INFO
+        /// BaseMaterialName gets the variant shader, BaseTextureName as main texture,
+        /// BaseNormalsName as bump map (only when the material has one) and the remaining
+        /// extra info (spec maps, floats) through UpdateMaterialFromExtraInfo. The variant
+        /// TEXTURE rules only name FairingsMat, so without this the ghost base keeps the
+        /// prefab's default texture whatever colour the player picked.
+        /// </summary>
+        private static void ApplyFairingVariantToBase(
+            ModuleProceduralFairing host, Part prefab, ConfigNode partNode, Transform modelNode,
+            uint persistentId, string partName)
+        {
+            if (host == null || modelNode == null || string.IsNullOrEmpty(host.BaseModelTransformName))
+                return;
+            string variantName;
+            PartVariant variant = ResolveFairingVariant(prefab, partNode, out variantName);
+            if (variant == null) return;
+            string baseMaterialName = variant.GetExtraInfoValue("BaseMaterialName");
+            if (string.IsNullOrEmpty(baseMaterialName)) return;
+
+            Transform baseTransform = FindTransformByName(modelNode, host.BaseModelTransformName);
+            Renderer baseRenderer = baseTransform != null ? baseTransform.GetComponent<Renderer>() : null;
+            if (baseRenderer == null || baseRenderer.sharedMaterial == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"fairing_base_missing_{partName}",
+                    $"  Fairing base: part='{partName}' pid={persistentId} variant='{variantName}' " +
+                    $"no renderer on '{host.BaseModelTransformName}', base keeps its prefab look", 60.0);
+                return;
+            }
+
+            string key = partName + "|" + variantName;
+            Material mat;
+            if (!fairingBaseMaterialCache.TryGetValue(key, out mat) || mat == null)
+            {
+                mat = BuildFairingBaseMaterial(variant, baseMaterialName, baseRenderer.sharedMaterial);
+                if (mat == null)
+                {
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"fairing_base_nomat_{partName}",
+                        $"  Fairing base: part='{partName}' pid={persistentId} variant='{variantName}' " +
+                        $"no material named '{baseMaterialName}', base keeps its prefab look", 60.0);
+                    return;
+                }
+                fairingBaseMaterialCache[key] = mat;
+            }
+            baseRenderer.sharedMaterial = mat;
+            ParsekLog.VerboseRateLimited("GhostVisual", $"fairing_base_{partName}_{variantName}",
+                $"  Fairing base: part='{partName}' pid={persistentId} variant='{variantName}' " +
+                $"material='{mat.name}' shader='{(mat.shader != null ? mat.shader.name : "null")}' " +
+                $"texture='{variant.GetExtraInfoValue("BaseTextureName") ?? "(kept)"}'", 60.0);
+        }
+
+        private static Material BuildFairingBaseMaterial(
+            PartVariant variant, string baseMaterialName, Material rendererMaterial)
+        {
+            // Stock's source is the variant's own copy of the part material; the ghost
+            // renderer's prefab material is the same material when the variant carries none.
+            Material source = null;
+            List<Material> variantMaterials = variant.Materials;
+            if (variantMaterials != null)
+            {
+                for (int i = 0; i < variantMaterials.Count; i++)
+                {
+                    if (variantMaterials[i] != null
+                        && IsFairingBaseMaterialName(variantMaterials[i].name, baseMaterialName))
+                    {
+                        source = variantMaterials[i];
+                        break;
+                    }
+                }
+            }
+            if (source == null && IsFairingBaseMaterialName(rendererMaterial.name, baseMaterialName))
+                source = rendererMaterial;
+            if (source == null) return null;
+
+            bool hasBump = rendererMaterial.HasProperty("_BumpMap");
+            Texture mainTex = rendererMaterial.mainTexture;
+            Texture bumpTex = hasBump ? rendererMaterial.GetTexture("_BumpMap") : null;
+
+            string texUrl = variant.GetExtraInfoValue("BaseTextureName");
+            if (!string.IsNullOrEmpty(texUrl))
+            {
+                Texture2D t = GameDatabase.Instance.GetTexture(texUrl, false);
+                if (t != null) mainTex = t;
+            }
+            string normalUrl = variant.GetExtraInfoValue("BaseNormalsName");
+            if (!string.IsNullOrEmpty(normalUrl) && hasBump)
+            {
+                Texture2D n = GameDatabase.Instance.GetTexture(normalUrl, true);
+                if (n != null) bumpTex = n;
+            }
+
+            var mat = new Material(source) { name = source.name.Replace(" (Instance)", "") };
+            Shader shader = Shader.Find(ResolveFairingBaseShaderName(variant.GetExtraInfoValue("shaderName")));
+            if (shader != null) mat.shader = shader;
+            mat.mainTexture = mainTex;
+            if (mat.HasProperty("_BumpMap"))
+                mat.SetTexture("_BumpMap", bumpTex);
+            // Keeps the stock name while it runs: it routes texture-valued extra info (the
+            // base _SpecMap) by matching the URL against the material name.
+            variant.UpdateMaterialFromExtraInfo(mat);
+            return mat;
         }
 
         private static PartVariant ResolveFairingVariant(Part prefab, ConfigNode partNode, out string variantName)

@@ -18,8 +18,9 @@ All notable changes to Parsek are documented here.
   your career, a short message names them: a kerbal's death, contract failures, reputation
   penalties. (GUI-EXPOSURE-4)
 - **Ghost fairings look like the real ones.** In flight a ghost's fairing is now built by KSP's own
-  fairing builder from the shape you drew, with the same panels, nose, paint and colour variant,
-  and an interstage fairing shows KSP's lattice truss until the upper stage separates. (T25)
+  fairing builder from the shape you drew, with the same panels, nose, paint and colour variant
+  (the base ring too), and an interstage fairing shows KSP's lattice truss until the upper stage
+  separates. (T25)
 
 ### Fixed
 

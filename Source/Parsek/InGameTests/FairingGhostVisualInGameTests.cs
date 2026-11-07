@@ -372,6 +372,7 @@ namespace Parsek.InGameTests
                         continue;
                     }
                     LogGhostStructureState(run, "built");
+                    CompareBaseRingTexture(run, "built", failures);
 
                     // ---- frame and capture: intact ---------------------------------------------
                     ComputeFraming(run);
@@ -408,6 +409,7 @@ namespace Parsek.InGameTests
                     yield return HoldCamera(run, JettisonSettleSeconds);
                     LogRealVesselState(run, "jettisoned");
                     LogGhostStructureState(run, "jettisoned");
+                    CompareBaseRingTexture(run, "jettisoned", failures);
                     yield return CaptureShot(run, "jettisoned", captured, failures);
 
                     // ---- separation (interstage configuration only) ----------------------------
@@ -1136,6 +1138,42 @@ namespace Parsek.InGameTests
             ParsekLog.Info(Tag, $"config {run.Config.Number} {run.Config.Name}: ghost {phase} shellActive={shellActive} " +
                 $"logicalParts={(run.State.logicalPartIds != null ? run.State.logicalPartIds.Count : 0).ToString(IC)} " +
                 $"trussCapTransforms={total.ToString(IC)} activeTrussCap=[{string.Join(",", on.ToArray())}]");
+        }
+
+        /// <summary>
+        /// The base ring's paint is the one fairing look a picture shows but no structure
+        /// line does: compare the main texture stock put on the real part's base renderer
+        /// (the child named BaseModelTransformName) with the ghost's.
+        /// </summary>
+        private static void CompareBaseRingTexture(ConfigRun run, string phase, List<string> failures)
+        {
+            if (run.FairingPart == null || run.State == null || run.State.ghost == null) return;
+            ModuleProceduralFairing f = run.FairingPart.FindModuleImplementing<ModuleProceduralFairing>();
+            if (f == null || string.IsNullOrEmpty(f.BaseModelTransformName)) return;
+            string realTex = BaseRingTextureName(run.FairingPart.transform, f.BaseModelTransformName);
+            Transform partT = GhostVisualBuilder.FindGhostPartTransform(run.State.ghost, run.FairingPid);
+            string ghostTex = partT != null ? BaseRingTextureName(partT, f.BaseModelTransformName) : "<no-ghost-part>";
+            bool match = realTex == ghostTex;
+            ParsekLog.Info(Tag, $"config {run.Config.Number} {run.Config.Name}: base ring {phase} " +
+                $"realTexture={realTex} ghostTexture={ghostTex} variant={run.VariantName ?? "<base>"} match={match}");
+            // Gated on the colour-variant config only: the base-variant configs log the pair
+            // for the record (both read the default texture, possibly through different paths).
+            if (!match && run.VariantName != null)
+                failures.Add($"config {run.Config.Number} {run.Config.Name}: {phase} base ring texture real={realTex} ghost={ghostTex}");
+        }
+
+        private static string BaseRingTextureName(Transform root, string baseName)
+        {
+            Transform[] all = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].name != baseName) continue;
+                Renderer r = all[i].GetComponent<Renderer>();
+                if (r == null || r.sharedMaterial == null) return "<no-material>";
+                Texture t = r.sharedMaterial.mainTexture;
+                return t != null ? t.name : "<no-texture>";
+            }
+            return "<no-base>";
         }
 
         private static void TearDownConfig(ConfigRun run, string reason)

@@ -216,5 +216,29 @@ namespace Parsek.Tests
                 Module("ModuleProceduralFairing", "nArcs", "0"), 2f));
             Assert.Equal(3f, GhostVisualBuilder.ResolveFairingArcCount(null, 3f));
         }
+
+        [Fact]
+        public void ResolveFairingBaseShaderName_FollowsStockOnVariantApplied()
+        {
+            // No shaderName and the explicit default both become the plain bumped shader.
+            Assert.Equal("KSP/Bumped Specular", GhostVisualBuilder.ResolveFairingBaseShaderName(null));
+            Assert.Equal("KSP/Bumped Specular", GhostVisualBuilder.ResolveFairingBaseShaderName(""));
+            Assert.Equal("KSP/Bumped Specular",
+                GhostVisualBuilder.ResolveFairingBaseShaderName("KSP/Bumped Specular (Cutoff)"));
+            // The Gold / Silver variants name their own shader, used as given.
+            Assert.Equal("KSP/Bumped Specular (Mapped)",
+                GhostVisualBuilder.ResolveFairingBaseShaderName("KSP/Bumped Specular (Mapped)"));
+        }
+
+        [Fact]
+        public void IsFairingBaseMaterialName_MatchesByPrefixIgnoringInstanceSuffix()
+        {
+            Assert.True(GhostVisualBuilder.IsFairingBaseMaterialName("FairingBase", "FairingBase"));
+            Assert.True(GhostVisualBuilder.IsFairingBaseMaterialName("FairingBase (Instance)", "FairingBase"));
+            Assert.True(GhostVisualBuilder.IsFairingBaseMaterialName("FairingBase_bw", "FairingBase"));
+            Assert.False(GhostVisualBuilder.IsFairingBaseMaterialName("FairingsMat", "FairingBase"));
+            Assert.False(GhostVisualBuilder.IsFairingBaseMaterialName(null, "FairingBase"));
+            Assert.False(GhostVisualBuilder.IsFairingBaseMaterialName("FairingBase", null));
+        }
     }
 }
