@@ -1,9 +1,9 @@
 schema = 1
 id = "V33M-jool-laythe-continuation-player-loop"
 # =====================================================================================
-# DRAFT - NEVER FLOWN - NOT COMMITTED. Do not commit until `jool-laythe-recorded` exists in
-# harness/fixtures/saves/ (a committed spec naming a missing fixture reds the suites).
-# Order and commands: moon-lane-drafts/README.md.
+# AUTHORED 2026-11-07, NEVER FLOWN. Committed once `jool-laythe-recorded` was harvested from
+# B38's first green flight (2026-11-07_2230). Order and commands:
+# docs/dev/plans/moon-lane-drafts/README.md.
 #
 # THE PLAYER-LOOP HALF (modelled on V16M's preamble and V13's build-log reading):
 # MissionConfig loop=true + StartLoopPlayback on the Kerbin -> Jool -> Laythe tree,
@@ -35,7 +35,7 @@ id = "V33M-jool-laythe-continuation-player-loop"
 # `ENGAGED re-aim ... loiterCuts=` and the MOON HOLD line (or its absence) first.
 # =====================================================================================
 tier = "operator"
-description = "DRAFT, NEVER FLOWN. The player loop on the Kerbin->Jool->Laythe tree harvested by B38-jool-laythe-continuation: re-aim Kerbin->Jool engages and the lone-moon arrival hold (PR #2468) aligns Laythe's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
+description = "AUTHORED 2026-11-07, NEVER FLOWN. The player loop on the Kerbin->Jool->Laythe tree harvested by B38-jool-laythe-continuation: re-aim Kerbin->Jool engages and the lone-moon arrival hold (PR #2468) aligns Laythe's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
 tags = ["V33", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "laythe", "moon", "ingame-batch", "pending-flight"]
 
@@ -60,11 +60,13 @@ steps = [
   { cmd = "MissionConfig",     args = { tree = "6ec68e87b782476f970a71df8c8b4685", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "6ec68e87b782476f970a71df8c8b4685" }, expect = "OK", budget = 300 },
   # SECOND REVISION: the bracket jump table around the replayed Laythe SOI entry goes here.
-  { cmd = "ExportRenderManifest",                                            expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "DiscardTree",                                                     expect = "OK" },
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
   { cmd = "RunTests",   args = { category = "MoonArrivalHold" },             expect = "OK", budget = 300 },
+  # The export sits right before teardown (RenderComposeVerifierWiringTests placement
+  # rule): the recorder accumulates from Awake, so an earlier export drops later steps.
+  { cmd = "ExportRenderManifest",                                            expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -78,9 +80,10 @@ D14 = ["jool", "laythe", "scene-flight", "scene-ksc", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# RE-PIN AT HARVEST: the harvested fixture's `.prec` count N, then {N, N + 1} (a
-# load-time optimizer split adds at most one here). The forge's derived window:
-count = { min = 5, max = 9 }
+# Pinned at harvest: `jool-laythe-recorded` ships N = 7 `.prec` sidecars (B22's five with
+# the root now the pad head, plus Kerbin->Jool and the Jool->Laythe hop), so {N, N + 1} (a
+# load-time optimizer split adds at most one here).
+count = { min = 7, max = 8 }
 
 [expectations.logContracts]
 # CANDIDATE, not required (see the header): "MOON HOLD keeps the destination loiter whole: dest=Jool moons=1 ",
