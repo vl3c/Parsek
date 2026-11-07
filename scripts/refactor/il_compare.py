@@ -25,8 +25,10 @@ Normalization, always on:
   ``<M>b__12_0``, ``<>9__12_0``, ``<M>d__12``, local functions, ``CS$<>8__locals1``,
   ``<>u__1``) are blanked;
 - IL offsets (``IL_0000:``) and ``// end of method`` trailers are dropped;
-- attribute blobs (hex byte rows) are dropped, because a state machine attribute spells the
-  iterator class name with its ordinal.
+- the blob of an iterator / async state machine attribute is dropped, because it spells the
+  generated class name with its ordinal (every other attribute blob is compared);
+- the RVA of a mapped data field (``at I_...``) is dropped: the field's name is the SHA-256 of
+  its bytes.
 
 ``--fold OLD=NEW`` (Phase B, repeatable) folds a member move from type OLD into type NEW
 back onto OLD before comparing: every token ``NEW::`` reads ``OLD::``, every method and
@@ -63,11 +65,33 @@ ORDINALS = [
 BODY_ONLY = [
     (re.compile(r"IL_[0-9a-f]{4}:\s*"), ""),
     (re.compile(r"\} // end of method .*"), "}"),
-    (re.compile(r"(?m)^\s*(?:[0-9A-F]{2} )+\)?\s*(?://.*)?$"), ""),
 ]
+_HEX_ROW = re.compile(r"^\s*(?:[0-9A-F]{2} )+\)?\s*(?://.*)?$")
+
+
+def _drop_state_machine_blobs(text):
+    """An iterator / async state machine attribute spells the generated class name, ordinal
+    included, in its blob, so its blob is replaced; every other attribute blob is kept."""
+    out = []
+    skipping = False
+    for line in text.split("\n"):
+        if skipping:
+            if _HEX_ROW.match(line):
+                continue
+            skipping = False
+        s = line.strip()
+        if s.startswith(".custom") and "StateMachineAttribute::.ctor" in s and "= (" in s:
+            out.append(s.split("= (", 1)[0] + "= (state machine type)")
+            skipping = ")" not in s.split("= (", 1)[1].split("//", 1)[0]
+            continue
+        out.append(line)
+    return "\n".join(out)
 
 
 _STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
+_FIELD_RVA = re.compile(r" at I_[0-9A-Fa-f]+$")
 
 
 def brace_delta(line):
@@ -86,6 +110,7 @@ def normalize_name(text):
 
 
 def normalize_body(text):
+    text = _drop_state_machine_blobs(text)
     for rx, rep in BODY_ONLY:
         text = rx.sub(rep, text)
     text = normalize_name(text)
@@ -174,7 +199,10 @@ def parse_il(text):
             opened = delta > 0
             continue
         if stack and s.startswith(".field"):
-            types[stack[-1][0]].fields[normalize_name(" ".join(s.split()))] += 1
+            # A mapped data field's RVA (`at I_0001A2B0`) follows the data layout; its name is
+            # the SHA-256 of its bytes, so the name alone pins the content.
+            field = _FIELD_RVA.sub("", " ".join(s.split()))
+            types[stack[-1][0]].fields[normalize_name(field)] += 1
         elif stack and (s.startswith(".property") or s.startswith(".event")):
             types[stack[-1][0]].props[normalize_name(" ".join(s.split()))] += 1
         depth += brace_delta(s)

@@ -74,6 +74,33 @@ class IlCompareTests(unittest.TestCase):
         swapped = IL_BASE[:tick_start] + lam + tick + IL_BASE[nested:]
         self.assertEqual([], self.diffs(IL_BASE, swapped))
 
+    def test_state_machine_attribute_ordinal_is_not_a_difference(self):
+        def with_iter(ordinal):
+            return IL_BASE.replace(
+                "    // Code size 8\n",
+                "    .custom instance void [mscorlib]System.Runtime.CompilerServices."
+                "IteratorStateMachineAttribute::.ctor([mscorlib]System.Type) = "
+                "( 01 00 15 50 61 72 73 65 6B 2E 48 6F 73 74 2B   // ..Parsek.Host+\n"
+                "      3C 54 3E 64 5F 5F %s 00 00 )   // <T>d__..\n"
+                "    // Code size 8\n" % ordinal)
+        self.assertEqual([], self.diffs(with_iter("31 32"), with_iter("39 37 30")))
+
+    def test_other_attribute_blob_change_is_reported(self):
+        def with_attr(byte):
+            return IL_BASE.replace(
+                "    // Code size 8\n",
+                "    .custom instance void Parsek.InGameTestAttribute::.ctor() = ( 01 00 %s 00 )\n"
+                "    // Code size 8\n" % byte)
+        self.assertEqual(["method-body"], [d[0] for d in self.diffs(with_attr("01"), with_attr("02"))])
+
+    def test_data_field_rva_is_not_a_difference(self):
+        def with_data(rva):
+            return IL_BASE.replace(
+                "  .field private int32 count\n",
+                "  .field private int32 count\n"
+                "  .field static assembly initonly int64 'ABCD' at I_%s\n" % rva)
+        self.assertEqual([], self.diffs(with_data("00A4D730"), with_data("00A4D788")))
+
     def test_body_change_is_reported(self):
         changed = IL_BASE.replace('ldstr "a { brace"', 'ldstr "b { brace"')
         kinds = [d[0] for d in self.diffs(IL_BASE, changed)]
