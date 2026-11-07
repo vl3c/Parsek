@@ -712,7 +712,7 @@ namespace Parsek
             return true;
         }
 
-        private static string FormatSegmentPhaseForLog(string bodyName, string phase)
+        internal static string FormatSegmentPhaseForLog(string bodyName, string phase)
         {
             if (string.IsNullOrEmpty(phase))
                 return "<none>";
@@ -1252,7 +1252,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool TryResolveTerminalStateSegmentPhase(
+        internal static bool TryResolveTerminalStateSegmentPhase(
             Recording rec,
             out string phase,
             out string bodyName,
@@ -1297,7 +1297,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool TryResolveTrackSectionEnvironmentSegmentPhase(
+        internal static bool TryResolveTrackSectionEnvironmentSegmentPhase(
             Recording rec,
             out string phase,
             out string bodyName,
@@ -1332,7 +1332,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool TryGetTerminalSurfaceBodyName(Recording rec, out string bodyName)
+        internal static bool TryGetTerminalSurfaceBodyName(Recording rec, out string bodyName)
         {
             bodyName = null;
             if (rec == null)
@@ -1355,7 +1355,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool TryGetReliableRelativeEndpointBodyName(
+        internal static bool TryGetReliableRelativeEndpointBodyName(
             Recording rec,
             TrackSection section,
             out string bodyName,
@@ -1446,7 +1446,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool TryGetFinalTrackSection(Recording rec, out TrackSection section)
+        internal static bool TryGetFinalTrackSection(Recording rec, out TrackSection section)
         {
             section = default(TrackSection);
             if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
@@ -1466,7 +1466,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool TryGetLastBodyFixedPrimaryPoint(
+        internal static bool TryGetLastBodyFixedPrimaryPoint(
             TrackSection section,
             out TrajectoryPoint point)
         {
@@ -1478,7 +1478,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool TryGetFinalAbsoluteEndpointPoint(
+        internal static bool TryGetFinalAbsoluteEndpointPoint(
             Recording rec,
             out TrajectoryPoint point,
             out string source,
@@ -1549,7 +1549,7 @@ namespace Parsek
             return false;
         }
 
-        private static string GetBestEndpointBodyName(
+        internal static string GetBestEndpointBodyName(
             Recording rec,
             bool includeFlatPointBody)
         {
