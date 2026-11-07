@@ -16,6 +16,13 @@
 #     the miner's own port (`partPid=`), the backwards drive starts right after the depot
 #     undock, and the silo stands 4 m behind (`SILO_GAP_METERS`), so neither push can reach a
 #     port it should not. The IR-9 creep is gone (the silo undock's push clears the rear port).
+#   2026-11-07_0931 (+ _a2), head a8af13e, same DLL: INVALID (driver). Stock offers Undock only
+#     on the absorbed half's port: `partaction rejected reason=partaction-event-unavailable
+#     button=undock ... partPid=2411209819 candidates=0`. Reading of the first flight's switch:
+#     V's save carries `ref = 0` (no reference part), so after the undock stock moves the focus
+#     to the pressed port's half. Fixed: `PartAction button=controlfrom` on the miner's probe
+#     core before the recording, and every undock presses the one offered port again. A
+#     `Vessel switch detected: 'Mining Rover RC'` line is now forbidden.
 #
 # WHAT IT CLOSES.
 #   * MINE-4 (`docs/dev/research/mining-isru-test-program-2026-10-17.md`, todo
@@ -99,6 +106,10 @@ steps = [
   { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
   # Miner (110406740) 0, depot (3950359723) 150, silo (4030840545) 0 Ore.
   { cmd = "ReadVesselResources", args = { pid = "110406740,3950359723,4030840545", resources = "Ore", expect = "Ore:150", tolerance = "0.01" }, label = "r0", expect = "OK" },
+  # The control point on the miner's own probe core (2300437286): V's save carries
+  # `ref = 0`, and with no reference part aboard stock moves the focus to the undocked half
+  # after every undock (flight 2026-11-07_0921).
+  { cmd = "PartAction",          args = { button = "controlfrom", part = "probeStackSmall", partPid = "2300437286" }, expect = "OK" },
   { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
   { cmd = "RecordingState",                                                               expect = "OK" },
   { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
@@ -110,9 +121,10 @@ steps = [
   { cmd = "PartAction",          args = { button = "transfer", part = "RadialOreTank", partPid = "3466353313", resource = "Ore" }, label = "tl", expect = "OK" },
   { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore", expect = "Ore:150", tolerance = "0.01" }, expect = "OK" },
   { cmd = "MissionMark",         args = { label = "mine4-undock-depot" },                 expect = "OK" },
-  # Undock from the miner's OWN front port (2411209819): pressing the depot's port moved the
-  # focus to the depot on the first flight (stock switches to the pressed port's half).
-  { cmd = "PartAction",          args = { button = "undock", part = "dockingPort3", partPid = "2411209819" }, label = "und1", expect = "OK" },
+  # Undock. Stock offers the Undock event only on the absorbed half's port (the depot's;
+  # flight 2026-11-07_0931 refused the miner's own port `candidates=0`), so the press names
+  # no port; the control point set above keeps the focus on the miner.
+  { cmd = "PartAction",          args = { button = "undock" }, label = "und1",            expect = "OK" },
   # Backwards into the silo at once, before the undock's push settles: the first flight's
   # miner rolled about 2.5 m back on its own while the lane waited.
   { cmd = "MissionMark",         args = { label = "mine4-dock-silo" },                    expect = "OK" },
@@ -125,7 +137,7 @@ steps = [
   { cmd = "PartAction",          args = { button = "transfer", part = "RadialOreTank", partPid = "24625215", resource = "Ore" }, label = "tu", expect = "OK" },
   { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore", expect = "Ore:75", tolerance = "0.01" }, expect = "OK" },
   { cmd = "MissionMark",         args = { label = "mine4-undock-silo" },                  expect = "OK" },
-  { cmd = "PartAction",          args = { button = "undock", part = "dockingPort3", partPid = "1129910960" }, label = "und2", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "undock" }, label = "und2",            expect = "OK" },
   { cmd = "WarpToUT",            args = { ut = "180", maxRate = "1" },                    expect = "OK", budget = 120 },
   { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore", expect = "Ore:0", tolerance = "0.01" }, expect = "OK" },
   { cmd = "ReadVesselResources", args = { pid = "${und2.newPid}", resources = "Ore", expect = "Ore:75", tolerance = "0.01" }, label = "rsilo1", expect = "OK" },
@@ -149,7 +161,7 @@ steps = [
   { cmd = "TimeJump",            args = { ut = "3000" },                                  expect = "OK", budget = 300 },
   { cmd = "ListHandles",         args = { kind = "routes" },                              expect = "OK" },
   { cmd = "MissionMark",         args = { label = "mine4-visitor-delivered" },            expect = "OK" },
-  { cmd = "PartAction",          args = { button = "undock", part = "dockingPort3", partPid = "1129910960" }, label = "und3", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "undock" }, label = "und3",            expect = "OK" },
   { cmd = "WarpToUT",            args = { ut = "3010", maxRate = "1" },                   expect = "OK", budget = 120 },
   # The visitor's tanks are unchanged (empty), the silo's own tanks hold the delivery, the
   # depot gave its 75.
@@ -245,6 +257,8 @@ forbidden = [
   "BLOCKED kind=DestinationFull",
   "Built route .* mode=CAREER",
   "Materialize: dormant route [^\\r\\n]*DROPPED",
+  # The miner keeps the focus through every undock (the first flight lost it to the depot).
+  "Vessel switch detected: 'Mining Rover RC'",
 ]
 
 [runtime]
