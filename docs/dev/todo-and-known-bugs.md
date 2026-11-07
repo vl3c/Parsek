@@ -3046,6 +3046,17 @@ each PR lands on the refactor branch, IL-proven a pure move).
   (two of them had kept passing on the forwarder's matching signature). `RecordingStore` partials
   6,911 -> 6,195 lines, 214 -> 202 IL methods; knot 464 -> 465 (measured after the tip's
   LiveVesselSnapshot follow-up), replayed cut residue 283 unchanged (bound 283 since #2427).
+- PR12 K (service K) landed: the tree discard left the store as `TreeDiscardService` (10 members:
+  `DiscardPendingTree`, `RemoveRecordingAt` with its tree prune and branch-point scrub, the
+  persistent.sfs refreshes after a discard, the committed-overlap predicate, and the per-process
+  discarded-tree set with its note / query; `ResetForLoad` / `ResetForTesting` clear the set where the
+  store did). `RemoveRecordingAt` now calls `RecordingStore.RemoveCommittedAt` itself (new
+  CommittedListNotificationTests cells). `SaveGameForTesting` stays on the store (shared with the
+  merge journal, the Re-Fly discard and `RefreshQuicksaveAfterMerge`). The store keeps
+  `DiscardPendingTree` / `RefreshSaveAndQuicksaveAfterDiscard` forwarders for callers outside the cut
+  set (`MergeDialog` direct: replayed residue 283 -> 287). `RecordingStore` partials 6,195 -> 5,650
+  lines, 202 -> 194 IL methods; knot 465 -> 466, `RecordingStore` cut drops 36 -> 34 references,
+  replayed cut residue 283 unchanged (bound 283).
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
