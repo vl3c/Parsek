@@ -11,7 +11,7 @@ namespace Parsek.Tests.Rendering
     /// Phase 2 T5e tests for the <c>ParsekFlight.allowAnchorCorrection</c>
     /// gate (design doc §6.3 / §6.4 single-anchor case / §7.1 / §18 Phase 2 /
     /// §26.1 HR-9 / HR-15). The full
-    /// <see cref="ParsekFlight.InterpolateAndPosition"/> integration requires a
+    /// <see cref="ParsekFlightGhostPositioner.InterpolateAndPosition"/> integration requires a
     /// live KSP scene (CelestialBody, FlightGlobals); the in-game
     /// <c>Pipeline_Anchor_LiveSeparation</c> test pins the integration end to
     /// end. These xUnit tests pin the static gate's six branches: null id,

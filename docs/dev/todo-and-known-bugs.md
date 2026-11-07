@@ -2877,6 +2877,18 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   class when the path is ParsekFlight.cs), four SwitchSegmentConsume ordering gates bound by
   the brace-matched method body instead of the next method's text, the non-loop live-PID audit
   and the ERS / ELS allowlist name the new files, two harness source anchors follow the moves.
+- PF2 landed (Phase B, the first service type): `ParsekFlightGhostPositioner` (6,017 lines) is the
+  flight scene's `IGhostPositioner`; ParsekFlight builds the engine with its lazy `Positioner`. It
+  holds 116 methods (68 instance, the 48 statics no other file names), 6 fields only it reads and
+  9 constants; the 40 positioning statics other files name stay on ParsekFlight
+  (`.GhostPositioning.cs` 5,069 -> 931 lines, `.GhostPositioner.cs` 1,807 -> 503, `.TailLift.cs`
+  375 -> 126, `.AttitudeTrace.cs` deleted). Bodies verbatim apart from `host.` / `ParsekFlight.`
+  re-homing; 62 declarations widened private -> internal (17 fields, 39 methods, 6 nested types).
+  IL: `il_compare.py --fold` reports 0 moved-body differences; the 7 left are the accessor (field,
+  property, getter), the service's host field and constructor, the host constructor minus the 5
+  moved initializers and the dropped interface. The tool gained the folds this needed (display
+  classes, accessor through a local, branch ordinals, widenings listed apart). Knot 469 -> 470,
+  replayed residue 283 unchanged (canaries re-pinned).
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 

@@ -86,7 +86,7 @@ namespace Parsek
                         // unknownFrameTagWarned dedup so LateUpdate doesn't
                         // double-emit).
                         Vector3d pos;
-                        if (!TryComputeLateUpdateSplineWorldPosition(e, out pos))
+                        if (!Positioner.TryComputeLateUpdateSplineWorldPosition(e, out pos))
                         {
                             Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
                                 e.latBefore, e.lonBefore, e.altBefore);
@@ -103,7 +103,7 @@ namespace Parsek
                             else
                             {
                                 double hermiteMaxDeviationMeters =
-                                    ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
+                                    ParsekFlightGhostPositioner.ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
                                 if (!TrajectoryMath.TryInterpolateWorldHermite(
                                         posBefore,
                                         e.velocityBefore,
@@ -172,7 +172,7 @@ namespace Parsek
                             // are applied to transform.position, not to the
                             // orbital rotation inputs.
                             Vector3d rawOrbitPos = orbit.getPositionAtUT(e.orbitUT);
-                            Vector3d orbitContinuityOffset = ResolveOrbitContinuityOffset(e, e.orbitUT);
+                            Vector3d orbitContinuityOffset = ParsekFlightGhostPositioner.ResolveOrbitContinuityOffset(e, e.orbitUT);
                             Vector3d targetPos = rawOrbitPos + orbitContinuityOffset;
                             Quaternion targetRot = e.ghost.transform.rotation;
 
@@ -363,7 +363,7 @@ namespace Parsek
 
                         if (!string.IsNullOrEmpty(e.relativeAnchorRecordingId))
                         {
-                            haveAnchor = TryResolveRecordedRelativeAnchorPose(
+                            haveAnchor = Positioner.TryResolveRecordedRelativeAnchorPose(
                                 e.anchorRecordingId,
                                 e.relativeAnchorRecordingId,
                                 e.anchorSectionIndex,
@@ -386,7 +386,7 @@ namespace Parsek
                             // loop-anchor contract. Non-loop recorded-relative
                             // entries set relativeAnchorRecordingId and resolve
                             // through the branch above.
-                            if (TryResolveLoopLiveAnchorPose(
+                            if (Positioner.TryResolveLoopLiveAnchorPose(
                                     e.anchorVesselId,
                                     e.recordingId,
                                     e.pointUT,
@@ -807,7 +807,7 @@ namespace Parsek
                 ghostObject = null;
             }
 
-            ClearOrbitPlaybackCaches();
+            Positioner.ClearOrbitPlaybackCaches();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             reFlyDenseAbsolutePlaybackFrameCache.Clear();
@@ -865,7 +865,7 @@ namespace Parsek
             InterpolationResult interpResult;
             bool surfaceSkip = previewRecording != null &&
                 TrajectoryMath.IsSurfaceAtUT(previewRecording.TrackSections, recordingTime);
-            InterpolateAndPosition(ghostObject, recording, orbitSegments,
+            Positioner.InterpolateAndPosition(ghostObject, recording, orbitSegments,
                 ref lastPlaybackIndex, recordingTime, 10000, out interpResult,
                 skipOrbitSegments: surfaceSkip,
                 recordingId: previewRecording?.RecordingId,
@@ -1270,7 +1270,7 @@ namespace Parsek
                 if (!HasOrbitCoverageAtUT(rec, currentUT))
                     return false;
 
-                PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
+                Positioner.PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
                     (int)(chain.OriginalVesselPid * 10000), allowActivation: true);
                 UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
                 ParsekLog.VerboseRateLimited("Flight",
@@ -1283,7 +1283,7 @@ namespace Parsek
 
             if (HasSurfaceCoverageAtUT(rec, currentUT))
             {
-                PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value, allowActivation: true,
+                Positioner.PositionGhostAtSurface(ghostGO, rec.SurfacePos.Value, allowActivation: true,
                     recordingId: rec.RecordingId);
                 ParsekLog.VerboseRateLimited("Flight",
                     "chain-ghost-surface-" + chain.OriginalVesselPid,
@@ -1383,7 +1383,7 @@ namespace Parsek
                     // indexing — the BackgroundRecorder does not yet emit
                     // TrackSections, so there is no body-fixed section index
                     // to feed the spline gate. Tracked in the Phase 1 plan.
-                    InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
+                    Positioner.InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, skipOrbitSegments: surfaceSkip,
                         recordingId: bgRec.RecordingId,
@@ -1876,7 +1876,7 @@ namespace Parsek
                 string reason;
                 reFlyAnchorHoldReasonsThisFrame.TryGetValue(kvp.Key, out reason);
                 ParsekLog.Info("ReFlySettle",
-                    $"Anchor ghost visibility hold engaged: anchorRec={ShortRecordingId(kvp.Key)} " +
+                    $"Anchor ghost visibility hold engaged: anchorRec={ParsekFlightGhostPositioner.ShortRecordingId(kvp.Key)} " +
                     $"ghosts={kvp.Value.ToString(CultureInfo.InvariantCulture)} " +
                     $"reason={reason ?? "(none)"} frame={frame.ToString(CultureInfo.InvariantCulture)}");
             }
@@ -1894,7 +1894,7 @@ namespace Parsek
                 int startFrame = reFlyAnchorHoldStartFrameByAnchor[anchorId];
                 int heldFrames = Math.Max(0, frame - startFrame);
                 ParsekLog.Info("ReFlySettle",
-                    $"Anchor ghost visibility hold released: anchorRec={ShortRecordingId(anchorId)} " +
+                    $"Anchor ghost visibility hold released: anchorRec={ParsekFlightGhostPositioner.ShortRecordingId(anchorId)} " +
                     $"heldFrames={heldFrames.ToString(CultureInfo.InvariantCulture)} " +
                     $"frame={frame.ToString(CultureInfo.InvariantCulture)}");
                 reFlyAnchorHoldStartFrameByAnchor.Remove(anchorId);
@@ -2623,7 +2623,7 @@ namespace Parsek
                 if (index < 0)
                     return false;
             }
-            return TryResolvePlaybackWorldPosition(index, committed[index], null, ut, out worldPos);
+            return Positioner.TryResolvePlaybackWorldPosition(index, committed[index], null, ut, out worldPos);
         }
 
         /// <summary>The flight scene's ghost CommNet manager (in-game tests); null before the first tick.</summary>
@@ -2893,7 +2893,7 @@ namespace Parsek
             return marker != null && !string.IsNullOrWhiteSpace(marker.ActiveReFlyRecordingId);
         }
 
-        private static RelativeAnchorResolverContext BuildFlightRelativeAnchorResolverContext(
+        internal static RelativeAnchorResolverContext BuildFlightRelativeAnchorResolverContext(
             RecordingTree focusTree,
             string focusedRecordingId,
             ReFlySessionMarker marker)
@@ -2948,7 +2948,7 @@ namespace Parsek
             if (!GhostPlaybackLogic.RealVesselExistsForRecording(anchorRec))
                 return null;
 
-            if (!instance.TryResolveLoopLiveAnchorPose(
+            if (!instance.Positioner.TryResolveLoopLiveAnchorPose(
                     anchorRec.VesselPersistentId,
                     anchorRec.RecordingId,
                     ut,
@@ -2981,7 +2981,7 @@ namespace Parsek
             if (instance == null)
                 return null;
 
-            if (!instance.TryResolveLoopLiveAnchorPose(
+            if (!instance.Positioner.TryResolveLoopLiveAnchorPose(
                     anchorVesselId,
                     victimRecordingId,
                     targetUT,
@@ -3248,7 +3248,7 @@ namespace Parsek
             engine.DestroyAllGhosts();
 
             // Clear ParsekFlight-local state (positioning, proximity, diagnostics)
-            ClearOrbitPlaybackCaches();
+            Positioner.ClearOrbitPlaybackCaches();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             nearbySpawnCandidates.Clear();

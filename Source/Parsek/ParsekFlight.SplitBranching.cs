@@ -3984,7 +3984,7 @@ namespace Parsek
                    $"{value.z.ToString("F2", ic)})";
         }
 
-        private static string FormatVector3d(Vector3d value)
+        internal static string FormatVector3d(Vector3d value)
         {
             var ic = CultureInfo.InvariantCulture;
             return $"({value.x.ToString("F2", ic)}," +

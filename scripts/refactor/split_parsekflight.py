@@ -14,7 +14,10 @@ Only methods, nested types and properties WITHOUT an initializer (accessor-bodie
 expression-bodied) may move. The script refuses a mapping that moves anything else.
 
 Phases: PF1a (f062b4911) split the playback side; its five files are EXISTING_SIBLINGS now.
-AREAS holds PF1b, the recording side.
+AREAS holds PF1b, the recording side (193c4773c), the last Phase A split. Phase B (PF2 on)
+lifts members into service types by hand under the il_compare.py --fold proof; this script
+reads the main file's pre-PF2 class line (CLASS_DECL) and is kept to regenerate a Phase A
+split on an older tip.
 
 Regions: ParsekFlight.cs grouped members in ``#region`` blocks whose members land in
 different files (Timeline Auto-Playback kept its pad-evidence helpers in the main file,

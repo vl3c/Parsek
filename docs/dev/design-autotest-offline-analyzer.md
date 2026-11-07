@@ -383,7 +383,7 @@ the LOADER-FAULT rule that turns loader parse failures into findings. Each is on
   CitedContract: `TrackSection.referenceFrame` / `anchorRecordingId` /
   `anchorVesselId` + the RELATIVE offset contract
   (`TrajectoryMath.ComputeRelativeLocalOffset` /
-  `ParsekFlight.TryResolveRelativeOffsetWorldPosition`).
+  `ParsekFlightGhostPositioner.TryResolveRelativeOffsetWorldPosition`).
 - **INV4 part-event PID resolution** (`RuleId INV4-PARTEVENT-PID`). Every part
   event's PID resolves against the paired snapshot's part-PID set. For synthetic
   ghosts the builder assigns `persistentId = 100000 + idx*1111`

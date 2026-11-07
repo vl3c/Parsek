@@ -16,7 +16,10 @@ namespace Parsek.Tests
     /// older siblings in <see cref="OtherPartialFileNames"/> were never part of that file and
     /// are NOT read, so a gate's scope stays what it was. Every <c>ParsekFlight.*.cs</c> on disk
     /// must be named in one of the two lists, or <see cref="Paths"/> throws naming the new file.
-    /// A gate that pins a COUNT in one file keeps naming that file.
+    /// A gate that pins a COUNT in one file keeps naming that file. Phase B of the plan lifts
+    /// members out of the partial class into service types (<see cref="ServiceFileNames"/>);
+    /// <see cref="ReadAll"/> appends their files after the partials, so a gate that read a moved
+    /// body in "ParsekFlight.cs" still reads it.
     /// </summary>
     internal static class ParsekFlightSourceFiles
     {
@@ -44,7 +47,6 @@ namespace Parsek.Tests
         /// </summary>
         internal static readonly string[] OtherPartialFileNames =
         {
-            "ParsekFlight.AttitudeTrace.cs",
             "ParsekFlight.BlockedChainTipGhost.cs",
             "ParsekFlight.BreakupChildSeed.cs",
             "ParsekFlight.ClaimedVesselHoldGhost.cs",
@@ -59,6 +61,15 @@ namespace Parsek.Tests
             "ParsekFlight.TimeJump.cs",
         };
 
+        /// <summary>
+        /// The service types lifted out of the partial class (ARCH-PARSEKFLIGHT-CHANGE-HUB
+        /// Phase B), each holding members moved verbatim apart from the host re-homing.
+        /// </summary>
+        internal static readonly string[] ServiceFileNames =
+        {
+            "ParsekFlightGhostPositioner.cs",
+        };
+
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)
         {
             return PartialClassSourceFiles.Paths(
@@ -71,7 +82,9 @@ namespace Parsek.Tests
 
         internal static string ReadAll(string parsekSourceDir)
         {
-            return string.Join("\n", Paths(parsekSourceDir).Select(File.ReadAllText));
+            return string.Join("\n", Paths(parsekSourceDir)
+                .Concat(ServiceFileNames.Select(n => Path.Combine(parsekSourceDir, n)))
+                .Select(File.ReadAllText));
         }
 
         /// <summary>

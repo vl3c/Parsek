@@ -22,7 +22,7 @@ namespace Parsek
     // TODO(phase 6+): migrate ParsekFlight ghost-state dicts + event indices
     // to recording-id keying and route every read here through ComputeERS().
     [KSPAddon(KSPAddon.Startup.Flight, false)]
-    public partial class ParsekFlight : MonoBehaviour, IGhostPositioner
+    public partial class ParsekFlight : MonoBehaviour
     {
         internal enum DeferredSplitCheckTrigger
         {
@@ -362,7 +362,7 @@ namespace Parsek
             public float time;
         }
 
-        private struct RelativeAnchorPose
+        internal struct RelativeAnchorPose
         {
             public Vector3d worldPos;
             public Quaternion worldRotation;
@@ -376,7 +376,7 @@ namespace Parsek
             public Quaternion surfaceRot;
         }
 
-        private sealed class RelativeAnchorPoseSnapshot
+        internal sealed class RelativeAnchorPoseSnapshot
         {
             public Vector3d worldPos;
             public Quaternion worldRotation;
@@ -434,11 +434,11 @@ namespace Parsek
         // We store each ghost's last positioning inputs and re-apply in LateUpdate()
         // so the position is correct in the post-shift frame that actually renders.
 
-        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint }
+        internal enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint }
 
         internal enum GhostPositionReapplyPhase { LateUpdate, CameraPreCull }
 
-        private struct GhostPosEntry
+        internal struct GhostPosEntry
         {
             public GameObject ghost;
             public GhostPosMode mode;
@@ -518,7 +518,7 @@ namespace Parsek
         private int ghostPreCullReapplyFrame = -1;
         private int ghostLateUpdateReapplyFrame = -1;
 
-        private void AddOrReplaceGhostPosEntry(GhostPosEntry entry)
+        internal void AddOrReplaceGhostPosEntry(GhostPosEntry entry)
         {
             if (entry.ghost == null)
                 return;
@@ -539,7 +539,7 @@ namespace Parsek
                     "Playback",
                     "ghost-pos-entry-replaced|" + (entry.recordingId ?? "<no-rec>"),
                     "Ghost position reapply entry replaced: recording="
-                    + ShortRecordingId(entry.recordingId)
+                    + ParsekFlightGhostPositioner.ShortRecordingId(entry.recordingId)
                     + " mode=" + entry.mode
                     + " removed=" + removed.ToString(CultureInfo.InvariantCulture)
                     + " reason=same-frame-latest-position-wins",
@@ -908,8 +908,8 @@ namespace Parsek
         }
 
         // Diagnostic logging guards (log once per state transition, not per frame)
-        private HashSet<long> loggedOrbitSegments = new HashSet<long>();
-        private HashSet<long> loggedOrbitRotationSegments = new HashSet<long>();
+        internal HashSet<long> loggedOrbitSegments = new HashSet<long>();
+        internal HashSet<long> loggedOrbitRotationSegments = new HashSet<long>();
 
         // Anchor vessel tracking moved to engine (T25).
         private HashSet<uint> loadedAnchorVessels => engine.loadedAnchorVessels;
@@ -927,7 +927,7 @@ namespace Parsek
         private float lastWarpCheckpointRate;
         private double lastWarpCheckpointUT;
         // Camera follow (watch mode) — extracted to WatchModeController
-        private WatchModeController watchMode;
+        internal WatchModeController watchMode;
         internal WatchModeController WatchMode => watchMode;
 
         // UI
@@ -976,9 +976,15 @@ namespace Parsek
         private ParsekUI ui;
 
         // Ghost playback engine + policy (T25 extraction)
-        private GhostPlaybackEngine engine;
+        internal GhostPlaybackEngine engine;
         internal GhostPlaybackEngine Engine => engine;
         private ParsekPlaybackPolicy policy;
+
+        // The IGhostPositioner the engine is built with: ghost placement and the positioning caches
+        // only it reads (ParsekFlightGhostPositioner). Created on first use; holds only this host.
+        private ParsekFlightGhostPositioner positioner;
+        internal ParsekFlightGhostPositioner Positioner =>
+            positioner ?? (positioner = new ParsekFlightGhostPositioner(this));
 
         // Accessors for WatchModeController (delegates need host services)
         internal bool ShouldLoopPlaybackForWatch(Recording rec) => GhostPlaybackEngine.ShouldLoopPlayback(rec);
@@ -1010,7 +1016,7 @@ namespace Parsek
             int recordingIndex, double currentUT, double memberStartUT, double memberEndUT, out double loopUT)
             => engine.TryResolveUnitMemberPlaybackUT(
                 recordingIndex, currentUT, memberStartUT, memberEndUT, out loopUT);
-        internal void PositionGhostAtForWatch(GameObject ghost, TrajectoryPoint point) => PositionGhostAt(ghost, point);
+        internal void PositionGhostAtForWatch(GameObject ghost, TrajectoryPoint point) => Positioner.PositionGhostAt(ghost, point);
 
         // Cached per-frame allocations for engine path (avoid GC pressure)
         private readonly List<IPlaybackTrajectory> cachedTrajectories = new List<IPlaybackTrajectory>();
@@ -1025,7 +1031,7 @@ namespace Parsek
         // as an ordinary recording until its anchor.
         private string lastLoopUnitSignature;
         private GhostPlaybackLogic.LoopUnitSet builtLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
-        private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+        internal GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
 
         /// <summary>
         /// Read-only accessor on the current frame's cached loop unit set.
@@ -1061,22 +1067,22 @@ namespace Parsek
         private readonly Dictionary<string, int> spawnSuppressedReasonScratch =
             new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly List<string> reFlyAnchorHoldReleaseScratch = new List<string>();
-        private readonly Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry> reFlyDenseAbsolutePlaybackFrameCache =
+        internal readonly Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry> reFlyDenseAbsolutePlaybackFrameCache =
             new Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry>(StringComparer.Ordinal);
-        private readonly HashSet<string> loggedReFlyDenseAbsolutePlaybackFrameSelections =
+        internal readonly HashSet<string> loggedReFlyDenseAbsolutePlaybackFrameSelections =
             new HashSet<string>(StringComparer.Ordinal);
         private int reFlySettlePoseLogActiveFrame = -1;
         // Scene-scoped; cleared alongside TerrainCacheBuckets.Clear() in OnSceneChangeRequested.
-        private static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
+        internal static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
             new Dictionary<string, TerrainCorrector.TailLiftPlan>();
-        private static readonly Dictionary<string, string> s_tailLiftPlanTerminalBodyCache =
+        internal static readonly Dictionary<string, string> s_tailLiftPlanTerminalBodyCache =
             new Dictionary<string, string>();
         // P2 review (PR #706): the manual-preview Recording (recorder.CaptureAtStop)
         // is never added to RecordingStore.CommittedRecordings, so the tail-lift
         // resolver would log recording-missing every frame and skip the lift.
         // ParsekFlight registers/clears the preview source in StartPlayback /
         // StopPlayback so ResolveTailLiftPlan can find it.
-        private static Recording s_previewRecordingForTailLift;
+        internal static Recording s_previewRecordingForTailLift;
 
         void OnEnable()
         {
@@ -1150,15 +1156,15 @@ namespace Parsek
             watchMode = new WatchModeController(this);
 
             // Ghost playback engine + policy (T25 extraction)
-            engine = new GhostPlaybackEngine(this);
+            engine = new GhostPlaybackEngine(Positioner);
             // Tracing-only attitude residual source (GhostRenderTrace AfterUpdate dRotDeg=).
-            GhostRenderTrace.ExpectedAttitudeSource = TryResolveRecordedAttitudeForTrace;
+            GhostRenderTrace.ExpectedAttitudeSource = Positioner.TryResolveRecordedAttitudeForTrace;
             engine.OnLoopCameraAction += watchMode.HandleLoopCameraAction;
             engine.OnOverlapCameraAction += watchMode.HandleOverlapCameraAction;
             engine.IsWatchedGhostStateResolver = (recordingIndex, state) =>
                 watchMode != null && watchMode.IsWatchedGhostState(recordingIndex, state);
-            engine.ResolvePlaybackDistanceOverride = ResolvePlaybackDistanceForEngine;
-            engine.ResolvePlaybackActiveVesselDistanceOverride = ResolvePlaybackActiveVesselDistanceForEngine;
+            engine.ResolvePlaybackDistanceOverride = Positioner.ResolvePlaybackDistanceForEngine;
+            engine.ResolvePlaybackActiveVesselDistanceOverride = Positioner.ResolvePlaybackActiveVesselDistanceForEngine;
             policy = new ParsekPlaybackPolicy(engine, this);
             // Phase 8d.0: route the per-frame map-presence tick through the scene adapter. The seam
             // delegates verbatim to policy.CheckPendingMapVessels; relocating the body is Phase 8d.1.
@@ -1352,7 +1358,7 @@ namespace Parsek
         internal void PositionGhostAtSurfaceForInGameTest(
             GameObject ghost, SurfacePosition surfPos, string recordingId)
         {
-            PositionGhostAtSurface(ghost, surfPos, allowActivation: false, recordingId: recordingId);
+            Positioner.PositionGhostAtSurface(ghost, surfPos, allowActivation: false, recordingId: recordingId);
         }
 
         internal int PendingGhostPosEntryCountForInGameTest => ghostPosEntries.Count;
@@ -1531,7 +1537,7 @@ namespace Parsek
             engine?.Dispose();
 
             // Clear ParsekFlight-local state after engine disposal
-            ClearOrbitPlaybackCaches();
+            Positioner.ClearOrbitPlaybackCaches();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             nearbySpawnCandidates.Clear();
@@ -1756,7 +1762,7 @@ namespace Parsek
             }
         }
 
-        private static bool IsFinite(double value)
+        internal static bool IsFinite(double value)
         {
             return !double.IsNaN(value) && !double.IsInfinity(value);
         }
@@ -2296,7 +2302,7 @@ namespace Parsek
             GhostMapPresence.ReindexPresenceAfterDelete(index);
             // Orbit cache keys are index-derived (i * 10000 + segIdx); the map marker
             // waypoint cache and the diagnostic guards are index-keyed too.
-            ClearOrbitPlaybackCaches();
+            Positioner.ClearOrbitPlaybackCaches();
             ui?.ClearMapMarkerCache();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
@@ -2322,7 +2328,7 @@ namespace Parsek
             policy.ReindexHeldGhostsAfterInsert(index);
             GhostMapPresence.ReindexPresenceAfterInsert(index);
             watchMode.OnRecordingInserted(index);
-            ClearOrbitPlaybackCaches();
+            Positioner.ClearOrbitPlaybackCaches();
             ui?.ClearMapMarkerCache();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
@@ -2425,40 +2431,12 @@ namespace Parsek
             Quaternion oldTargetRot, Quaternion newTargetRot, float pitch, float hdg) =>
             WatchModeController.CompensateCameraAngles(oldTargetRot, newTargetRot, pitch, hdg);
 
-        // M4b phasing-knob body-fixed derotation: the time shift (seconds) of the positioning call
-        // currently on the stack, read from GhostPlaybackState.bodyFixedShiftSeconds at the
-        // IGhostPositioner entries (InterpolateAndPosition / PositionAtPoint / PositionLoop) and
-        // consumed by the private InterpolateAndPosition / PositionGhostAt when resolving Absolute
-        // body-fixed points (vacuum burn arcs replayed off the rotation-aligned grid render rotated
-        // with the planet otherwise; the 2026-06-11 playtest's 46-degree teleports). Per-call
-        // ambient with try/finally reset rather than threading a parameter through the six-deep
-        // positioning chain; single-threaded Unity main loop, and 0 (the identity) for every
-        // non-knob caller.
-        private double activeBodyFixedShiftSeconds;
-
         // Literal floor returned by the immediate-clearance resolver when it
         // cannot compute a distance-aware value. Matches the legacy pre-#262
         // hardcoded floor — callers that hit this branch silently regress to
         // the old behavior, so ResolveImmediateLandedGhostClearanceMeters
         // emits a rate-limited warning naming the offending ghost (#373).
         internal const double ImmediateLandedGhostClearanceFallbackMeters = 0.5;
-
-        // Per-member last re-aim ghost frame, for seam-teleport detection (segment change -> log the jump).
-        private readonly Dictionary<int, (int segIdx, Vector3 pos, double loopUT)> reaimLastGhostFrame
-            = new Dictionary<int, (int, Vector3, double)>();
-
-        // Per-member last orbit-positioned ghost frame for the mode-agnostic
-        // loop-seam teleport instrument (Tier-C, ghostRenderTracing-gated;
-        // faithful AND re-aimed members). Unity frame number rides along so a
-        // hide/show gap suppresses the stale-prev comparison.
-        private readonly Dictionary<int, (int segIdx, Vector3 pos, double loopUT, double currentUT, int frame)>
-            loopSeamLastGhostFrame
-                = new Dictionary<int, (int, Vector3, double, double, int)>();
-
-        // Generous upper bound on a loop ghost's own speed (m/s), added to the
-        // segment body's orbital speed for the warp-scaled expected-motion term
-        // of the teleport threshold. Interplanetary coast speeds run ~3-12 km/s.
-        internal const double LoopSeamGhostSpeedAllowanceMps = 15_000.0;
 
         // -------------------------------------------------------------------
         //  L4 — per-frame spline-eval summary (design doc §19.2 Stage 1).
@@ -2480,48 +2458,29 @@ namespace Parsek
         internal static Func<DateTime> NowProviderForTesting;
 
         // Cache to avoid reconstructing Orbit objects every frame
-        private Dictionary<long, Orbit> orbitCache = new Dictionary<long, Orbit>();
-        private readonly Dictionary<string, PredictedOrbitTailContinuityCacheEntry> predictedOrbitTailContinuityCache =
-            new Dictionary<string, PredictedOrbitTailContinuityCacheEntry>();
+        internal Dictionary<long, Orbit> orbitCache = new Dictionary<long, Orbit>();
 
         // Tracks which (recording index, anchor PID) combos have been logged for loop-relative playback start.
-        private readonly HashSet<long> loggedRelativeStart = new HashSet<long>();
-        private readonly HashSet<string> loggedRecordedRelativeStart =
+        internal readonly HashSet<long> loggedRelativeStart = new HashSet<long>();
+        internal readonly HashSet<string> loggedRecordedRelativeStart =
             new HashSet<string>(StringComparer.Ordinal);
-        private readonly HashSet<string> loggedRelativeBodyFixedPrimaryStart =
+        internal readonly HashSet<string> loggedRelativeBodyFixedPrimaryStart =
             new HashSet<string>(StringComparer.Ordinal);
         // Tracks which anchor-not-found warnings have been logged
-        private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
-        private readonly HashSet<string> recordedAnchorSeenRecordingIds =
-            new HashSet<string>(StringComparer.Ordinal);
-        private readonly HashSet<string> recordedRelativeAnchorVisited =
-            new HashSet<string>(StringComparer.Ordinal);
+        internal readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
         // Phase 4 HR-9: per-(recordingId, sectionIndex) dedup so an unrecognised
         // FrameTag warns once per session instead of every per-frame dispatch.
         // Cleared in the same Cleanup hooks as the other per-session log state.
-        private readonly HashSet<string> unknownFrameTagWarned =
+        internal readonly HashSet<string> unknownFrameTagWarned =
             new HashSet<string>(StringComparer.Ordinal);
-
-        // ===== Recorded-coordinate playback helpers =====
-        //
-        private const double PointHermiteMaxDeviationCapMeters = 250.0;
-        private const double PointHermiteMinDeviationMeters = 10.0;
-        private const double PointHermiteDeviationFraction = 0.05;
-        private const bool NormalPlaybackSplinePositioningEnabled = false;
-        private const bool NormalPlaybackPointHermiteEnabled = false;
-
-        private const long CheckpointOrbitCacheBase = long.MinValue;
-        private const long CheckpointOrbitCacheRecordingStride = 1000000000000L;
-        private const long CheckpointOrbitCacheSectionStride = 1000000L;
-        private const long CheckpointOrbitCacheMaxRecordingIndex =
-            (long.MaxValue - CheckpointOrbitCacheRecordingStride + 1) / CheckpointOrbitCacheRecordingStride;
+        internal const bool NormalPlaybackPointHermiteEnabled = false;
 
         private const double RecordedAnchorFallbackGapWarnThresholdSeconds = 5.0;
 
         internal const double RecordedRelativeOffsetSpikeNeighborMaxMeters = 5.0;
         internal const double RecordedRelativeOffsetSpikeMinDeviationMeters = 15.0;
 
-        private static bool IsFinite(Vector3d value)
+        internal static bool IsFinite(Vector3d value)
         {
             return !double.IsNaN(value.x) && !double.IsInfinity(value.x)
                 && !double.IsNaN(value.y) && !double.IsInfinity(value.y)
@@ -2551,7 +2510,7 @@ namespace Parsek
         /// </summary>
         internal int GhostChainEvaluationCount => ghostChainEvaluationCount;
 
-        void Log(string message) => ParsekLog.Verbose("Flight", message);
+        internal void Log(string message) => ParsekLog.Verbose("Flight", message);
         void ScreenMessage(string message, float duration) => ParsekLog.ScreenMessage(message, duration);
     }
 }

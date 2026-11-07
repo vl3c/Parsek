@@ -512,7 +512,8 @@ namespace Parsek.Tests.Rendering
                 "void PositionGhostAt(GameObject ghost, TrajectoryPoint point, string recordingId = null,");
             Assert.Contains("altitudeAuthoritative", positionGhostAt);
             Assert.Contains("? point.altitude", positionGhostAt);
-            Assert.Contains(": ResolveEffectiveAltitudeWithTailLift(", positionGhostAt);
+            // The positioner reaches the host's static wrapper qualified (ParsekFlight. prefix).
+            Assert.Matches(@":\s*(ParsekFlight\.)?ResolveEffectiveAltitudeWithTailLift\(", positionGhostAt);
         }
 
         private static Recording CreateTailLiftRecording(
