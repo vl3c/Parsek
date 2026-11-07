@@ -3724,8 +3724,8 @@ truthful source is the TIP's own points, a design change. Open policy question, 
 should a chain HEAD whose effective tip ends Destroyed be map-ineligible like an unsplit flight
 that ends Destroyed? Cosmetic, not a release item.
 
-CORRECTED AND FIXED 2026-11-07 (branch `claude/project-thread-ttejg7`, owner ruling pending
-option A). Two corrections to the reading above. (1) In FLIGHT the HEAD's proto does not hold
+CORRECTED AND FIXED 2026-11-07 (branch `claude/project-thread-ttejg7`; owner ruling 2026-11-07:
+a crash flight stored in pieces looks exactly like one stored whole). Two corrections to the reading above. (1) In FLIGHT the HEAD's proto does not hold
 for the 25 s gap: the HEAD's flight ghost ends at its own end (`RunStalePastEndCleanup` destroys
 it within `ChainHandoffLogic.DefaultBridgeMaxSeconds` once the TIP's ghost is active, unless
 the watch camera holds it), and `HandleFlightGhostDestroyedMapPresence` removes the proto with
