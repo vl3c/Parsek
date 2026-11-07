@@ -381,7 +381,10 @@ respawn and end-of-recording paths it keeps (it references 12 `Controllers`
 types). Upward edges went 83 / 812 -> 81 / 786: `Core -> Recording` 25 -> 12,
 `Core -> Controllers` 13 -> 1, and the `Core -> Crew` and `Core -> Ghost` edges
 gone, against `Ghost -> Controllers` 50 -> 58, `Recording -> Controllers`
-39 -> 43 and one more each from `Rewind` and `Crew`.
+39 -> 43 and one more each from `Rewind` and `Crew`. PR 10 split the class
+into partial files (`VesselSpawner.cs` plus eight `VesselSpawner.<Area>.cs`,
+written by `scripts/refactor/split_vesselspawner.py`); the same R0 rule names
+them, and no edge moves.
 
 ## The atlas
 
