@@ -57,6 +57,12 @@ namespace Parsek.TestCommands
         /// <summary>A test subject's "Run Test" (<c>ModuleTestSubject.RunTestEvent</c>), the
         /// button a part-test contract offers while its part is under test.</summary>
         RunTest,
+        /// <summary>A resource transfer INTO the named part: every other part of the vessel
+        /// holding the resource gives what the named part has room for, in vessel part order.
+        /// Not a part-menu button; it stands in for the player's resource transfer between
+        /// two tanks of one vessel (two docked vessels are one), which stock drives through
+        /// its transfer UI.</summary>
+        Transfer,
     }
 
     /// <summary>One module reading of the target part for the <c>state=</c> answer field: plain
@@ -145,7 +151,8 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
     /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    /// activate|explode|chute|runtest [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
+    /// activate|explode|chute|runtest|transfer [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
+    /// [partPid=&lt;part persistentId&gt;] [resource=&lt;resource name&gt;]
     /// [expectSnapshot=true|false rec=&lt;recordingId&gt; tolerance=&lt;abs&gt;]</c>. The three snapshot
     /// args are for <c>inspect</c> only (<c>snapshot-arg-unexpected</c> elsewhere, and for
     /// <c>rec=</c> / <c>tolerance=</c> without <c>expectSnapshot=true</c>).
@@ -200,6 +207,20 @@ namespace Parsek.TestCommands
     /// fire as on an impact); <c>all=true</c> is <c>all-arg-unexpected</c> and <c>state=</c> is
     /// empty (the part is gone).</para>
     ///
+    /// <para><b>partPid=</b> (any button) keeps only the named part whose
+    /// <c>Part.persistentId</c> it is, for a vessel that carries several parts of one name.
+    /// <b>transfer</b> (<c>resource=</c> REQUIRED, refused elsewhere) fills the ONE named part
+    /// carrying the resource (none: <c>resource-not-found</c>; several: <c>part-ambiguous</c>;
+    /// <c>all=true</c> is <c>all-arg-unexpected</c>) from every other part of the vessel holding
+    /// it, in vessel part order, each giving at most what it holds, until the destination is
+    /// full (<see cref="PlanTransfer"/>), by writing the <c>PartResource.amount</c>s directly:
+    /// what the sources lose the destination gains. A plan that moves nothing (destination full,
+    /// no source) is refused <c>transfer-nothing-moved</c> before anything changes. It is how a
+    /// lane moves a docked transport's cargo into its endpoint (a route's delivery), which a
+    /// player does with stock's transfer UI; the applied line appends
+    /// <c> resource= moved= sources= destBefore= destAfter= destMax=</c> and the payload the
+    /// same six fields after the warp fields.</para>
+    ///
     /// <para><b>Answer.</b> OK payload <c>button= pid= part= partId= event= newPid= newName=
     /// vesselsBefore= vesselsAfter= activePid= activeName= converter= state= count=</c>: <c>newPid</c> /
     /// <c>newName</c> are the one vessel the event created (0 / empty when none, as for
@@ -231,6 +252,8 @@ namespace Parsek.TestCommands
         internal const string ExpectSnapshotKey = "expectSnapshot";
         internal const string RecKey = "rec";
         internal const string ToleranceKey = "tolerance";
+        internal const string PartPidKey = "partPid";
+        internal const string ResourceKey = "resource";
         /// <summary>The one value <c>all=</c> takes.</summary>
         internal const string AllTrueToken = "true";
 
@@ -251,6 +274,13 @@ namespace Parsek.TestCommands
         internal const string ExplodeToken = "explode";
         internal const string ChuteToken = "chute";
         internal const string RunTestToken = "runtest";
+        internal const string TransferToken = "transfer";
+
+        /// <summary>The <c>event=</c> of every transfer: the verb's own resource move.</summary>
+        internal const string TransferEventName = "resourceTransfer";
+
+        /// <summary>Below this many units moved, a transfer moved nothing.</summary>
+        internal const double TransferEpsilon = 1e-6;
 
         /// <summary>The <c>event=</c> of every explode: stock's <c>Part.explode()</c>.</summary>
         internal const string ExplodeEventName = "explode";
@@ -262,7 +292,7 @@ namespace Parsek.TestCommands
             UndockToken, DecoupleToken, ControlFromToken, DeployToken, RetractToken,
             StartConverterToken, StopConverterToken, ExperimentToken, LabProcessToken,
             LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken, ActivateToken,
-            ExplodeToken, ChuteToken, RunTestToken,
+            ExplodeToken, ChuteToken, RunTestToken, TransferToken,
         };
 
         /// <summary>The <c>event=</c> of every labprocess: the results dialog page's own lab
@@ -290,6 +320,9 @@ namespace Parsek.TestCommands
         internal const string AllArgInvalidReason = "partaction-all-arg-invalid";
         internal const string AllArgUnexpectedReason = "partaction-all-arg-unexpected";
         internal const string PidArgInvalidReason = "partaction-pid-arg-invalid";
+        internal const string PartPidArgInvalidReason = "partaction-part-pid-arg-invalid";
+        internal const string ResourceArgMissingReason = "partaction-resource-arg-missing";
+        internal const string ResourceArgUnexpectedReason = "partaction-resource-arg-unexpected";
         internal const string ExpectSnapshotArgInvalidReason = "partaction-expect-snapshot-arg-invalid";
         internal const string SnapshotArgUnexpectedReason = "partaction-snapshot-arg-unexpected";
         internal const string ExpectSnapshotNeedsRecReason = "partaction-expect-snapshot-needs-rec";
@@ -312,6 +345,8 @@ namespace Parsek.TestCommands
         internal const string RadiatorNotFoundReason = "partaction-radiator-not-found";
         internal const string EngineNotFoundReason = "partaction-engine-not-found";
         internal const string ParachuteNotFoundReason = "partaction-parachute-not-found";
+        internal const string ResourceNotFoundReason = "partaction-resource-not-found";
+        internal const string TransferNothingMovedReason = "partaction-transfer-nothing-moved";
 
         // Post-call ERROR terminal: the event was invoked and threw.
         internal const string EventThrewReason = "partaction-event-threw";
@@ -332,6 +367,9 @@ namespace Parsek.TestCommands
             "partaction-all-arg-invalid",
             "partaction-all-arg-unexpected",
             "partaction-pid-arg-invalid",
+            "partaction-part-pid-arg-invalid",
+            "partaction-resource-arg-missing",
+            "partaction-resource-arg-unexpected",
             "partaction-expect-snapshot-arg-invalid",
             "partaction-snapshot-arg-unexpected",
             "partaction-expect-snapshot-needs-rec",
@@ -354,6 +392,8 @@ namespace Parsek.TestCommands
             "partaction-radiator-not-found",
             "partaction-engine-not-found",
             "partaction-parachute-not-found",
+            "partaction-resource-not-found",
+            "partaction-transfer-nothing-moved",
         };
 
         /// <summary>The post-call ERROR vocabulary.</summary>
@@ -388,6 +428,7 @@ namespace Parsek.TestCommands
                 case ExplodeToken: kind = PartActionKind.Explode; return null;
                 case ChuteToken: kind = PartActionKind.ChuteDeploy; return null;
                 case RunTestToken: kind = PartActionKind.RunTest; return null;
+                case TransferToken: kind = PartActionKind.Transfer; return null;
                 default: return ButtonArgInvalidReason;
             }
         }
@@ -414,6 +455,7 @@ namespace Parsek.TestCommands
                 case PartActionKind.Explode: return ExplodeToken;
                 case PartActionKind.ChuteDeploy: return ChuteToken;
                 case PartActionKind.RunTest: return RunTestToken;
+                case PartActionKind.Transfer: return TransferToken;
                 default: return "unknown";
             }
         }
@@ -477,16 +519,114 @@ namespace Parsek.TestCommands
 
         /// <summary>True for the buttons <c>all=true</c> applies to: every button but the four
         /// whose single press reshapes or re-points the vessel (undock, decouple, controlfrom,
-        /// explode).</summary>
+        /// explode) and transfer, which fills ONE named part.</summary>
         internal static bool AcceptsAll(PartActionKind kind)
             => kind != PartActionKind.Unknown && kind != PartActionKind.Undock
                 && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom
-                && kind != PartActionKind.Explode;
+                && kind != PartActionKind.Explode && kind != PartActionKind.Transfer;
 
         /// <summary>True for the buttons whose candidates are the named parts themselves rather
         /// than a live module event on them: inspect (reads) and explode (destroys the part).</summary>
         internal static bool IsWholePartKind(PartActionKind kind)
-            => kind == PartActionKind.Inspect || kind == PartActionKind.Explode;
+            => kind == PartActionKind.Inspect || kind == PartActionKind.Explode
+                || kind == PartActionKind.Transfer;
+
+        /// <summary>True for the transfer button, whose candidates are the named parts that
+        /// carry the <c>resource=</c>.</summary>
+        internal static bool IsTransferKind(PartActionKind kind)
+            => kind == PartActionKind.Transfer;
+
+        /// <summary>Parses the OPTIONAL <c>partPid=</c> (invariant decimal uint, nonzero): the
+        /// named part's own <c>Part.persistentId</c>, so a lane can pick one of several parts
+        /// carrying the same name (two docked vessels built from one design). Any button.</summary>
+        internal static string ParsePartPid(string raw, out uint partPid, out bool hasPartPid)
+        {
+            partPid = 0;
+            hasPartPid = false;
+            if (string.IsNullOrEmpty(raw)) return null;
+            if (!uint.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out uint parsed)
+                || parsed == 0)
+                return PartPidArgInvalidReason;
+            partPid = parsed;
+            hasPartPid = true;
+            return null;
+        }
+
+        /// <summary>Parses <c>resource=</c>: REQUIRED for transfer (verbatim resource name,
+        /// <c>resource-arg-missing</c>), refused on every other button
+        /// (<c>resource-arg-unexpected</c>, it would be silently ignored).</summary>
+        internal static string ParseResource(string raw, PartActionKind kind, out string resourceName)
+        {
+            resourceName = string.IsNullOrEmpty(raw) ? null : raw;
+            if (IsTransferKind(kind))
+                return resourceName == null ? ResourceArgMissingReason : null;
+            if (resourceName != null)
+            {
+                resourceName = null;
+                return ResourceArgUnexpectedReason;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The transfer plan: how much each source gives to a destination with
+        /// <paramref name="destFree"/> units of room, sources taken in the given (vessel part)
+        /// order, each giving at most what it holds. Nothing negative is moved. Returns the
+        /// per-source amounts; <paramref name="moved"/> is their sum.
+        /// </summary>
+        internal static double[] PlanTransfer(double destFree, IList<double> sourceAmounts, out double moved)
+        {
+            moved = 0.0;
+            int n = sourceAmounts == null ? 0 : sourceAmounts.Count;
+            var takes = new double[n];
+            double room = destFree > 0.0 && !double.IsNaN(destFree) ? destFree : 0.0;
+            for (int i = 0; i < n && room > 0.0; i++)
+            {
+                double have = sourceAmounts[i];
+                if (!(have > 0.0)) continue;
+                double take = have < room ? have : room;
+                takes[i] = take;
+                room -= take;
+                moved += take;
+            }
+            return takes;
+        }
+
+        /// <summary>The transfer press gate: refused <c>transfer-nothing-moved</c> when the plan
+        /// moves less than <see cref="TransferEpsilon"/> (the destination is full, or no other
+        /// part holds the resource), before anything changes.</summary>
+        internal static string DecideTransfer(double moved)
+            => moved < TransferEpsilon ? TransferNothingMovedReason : null;
+
+        /// <summary>The ` resource= moved= sources= destBefore= destAfter= destMax=` tail a
+        /// transfer appends to the applied line.</summary>
+        internal static string FormatTransferTail(string resource, double moved, int sources,
+            double destBefore, double destAfter, double destMax)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return " resource=" + (resource ?? string.Empty)
+                + " moved=" + moved.ToString("F4", ic)
+                + " sources=" + sources.ToString(ic)
+                + " destBefore=" + destBefore.ToString("F4", ic)
+                + " destAfter=" + destAfter.ToString("F4", ic)
+                + " destMax=" + destMax.ToString("F4", ic);
+        }
+
+        /// <summary>The transfer payload fields, after the warp fields.</summary>
+        internal static List<KeyValuePair<string, string>> TransferPayloadFields(string resource,
+            double moved, int sources, double destBefore, double destAfter, double destMax)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("resource", resource ?? string.Empty),
+                new KeyValuePair<string, string>("moved", moved.ToString("F4", ic)),
+                new KeyValuePair<string, string>("sources", sources.ToString(ic)),
+                new KeyValuePair<string, string>("destBefore", destBefore.ToString("F4", ic)),
+                new KeyValuePair<string, string>("destAfter", destAfter.ToString("F4", ic)),
+                new KeyValuePair<string, string>("destMax", destMax.ToString("F4", ic)),
+            };
+        }
 
         /// <summary>Parses the OPTIONAL closed <c>all=</c>: absent or empty is false; <c>true</c>
         /// (case-sensitive) is true on a button that accepts it; any other value is
@@ -611,6 +751,7 @@ namespace Parsek.TestCommands
             if (IsRadiatorKind(kind) && typedModules == 0) return RadiatorNotFoundReason;
             if (IsEngineKind(kind) && typedModules == 0) return EngineNotFoundReason;
             if (IsParachuteKind(kind) && typedModules == 0) return ParachuteNotFoundReason;
+            if (IsTransferKind(kind) && typedModules == 0) return ResourceNotFoundReason;
             if (candidates == 0)
                 return kind == PartActionKind.LabProcess && experimentModules > 0
                     ? ExperimentNoDataReason

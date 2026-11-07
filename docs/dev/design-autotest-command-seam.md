@@ -4718,10 +4718,10 @@ after the split). The PAW buttons are `KSPEvent`s; the verb invokes the module's
 way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
-stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode|chute>
-[part=<part name>]
-[converter=<ConverterName>] [all=true] [pid=<persistentId>] [expectSnapshot=true|false
-rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,
+stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode|chute|
+transfer> [part=<part name>]
+[converter=<ConverterName>] [all=true] [pid=<persistentId>] [partPid=<part persistentId>]
+[resource=<R>] [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
 name (dot form, `Decoupler.1`), REQUIRED for every button but `undock`
 (`partaction-part-arg-missing`), OPTIONAL for `undock`; `converter=` OPTIONAL and only for
@@ -4739,6 +4739,21 @@ OPTIONAL (absent: the active vessel), Recover's grammar (`partaction-pid-arg-inv
 `expectSnapshot=true` needs `rec=` (`partaction-expect-snapshot-needs-rec`), a recording id
 `RecordingPaths.ValidateRecordingId` accepts (`partaction-rec-arg-invalid`); `tolerance=` is a
 plain decimal >= 0 (`partaction-tolerance-arg-invalid`), default 0.01 (ReadVesselResources').
+`partPid=` OPTIONAL on every button, a part `persistentId` (`partaction-part-pid-arg-invalid`):
+only that part of the vessel is a candidate, so a lane names one of several same-named parts
+(a docked vessel's two sets of ore tanks).
+
+**Transfer (2026-11-07, lane MINE-5b).** `button=transfer part=<name> resource=<R>
+[partPid=<p>]` is the stock resource transfer a player makes between the tanks of a docked
+vessel: every OTHER part of the vessel holding `R` gives, in part order, until the one named part
+is full; the amounts move directly (`PartResource.amount`), so the vessel total is unchanged.
+`resource=` is REQUIRED on `transfer` (`partaction-resource-arg-missing`) and refused on any
+other button (`partaction-resource-arg-unexpected`); `all=` is refused (one destination). The
+candidates are the named parts that hold `R` (none: `partaction-resource-not-found`); more than
+one is `partaction-part-ambiguous`, so `partPid=` picks the destination. The transfer is planned
+before anything changes, and a plan that moves nothing (the destination full, or no other part
+holding any) is `partaction-transfer-nothing-moved`, gate-class. The applied line adds
+`resource= moved= sources= destBefore= destAfter= destMax=` (F4), and so does the payload.
 
 **Behavior.** Resolves a LOADED, non-ghost vessel (`-no-active-vessel`, `-vessel-not-found`,
 `-target-is-ghost`, `-vessel-unloaded`), then collects the candidate buttons: every module on the
@@ -4963,6 +4978,26 @@ payload `settled gameSeconds srfSpeed situation`), ERROR `drivevessel-did-not-se
 game clock covered `seconds` with the vessel still moving, and the drive's vessel-lost / timeout
 terminals otherwise. A lane puts it before `StartRecording` so the recorder's environment
 hysteresis initializes SurfaceStationary.
+
+**Dock mode (2026-11-07, lane MINE-5b, todo MINING-ISRU-UNTESTED-END-TO-END).** `cmd=DriveVessel
+wheelThrottle=<t> seconds=<s> untilDocked=true [maxSpeed=<m/s>]` drives into a docking port on
+the surface. `untilDocked` is closed to the string `true` (`drivevessel-dock-arg-invalid`) and
+cannot pair with `settleBelow` (`drivevessel-dock-arg-conflict`); `maxSpeed` is a finite
+invariant-culture float in (0, 1], default 0.25 (`drivevessel-maxspeed-arg-invalid`), only with
+`untilDocked` (`drivevessel-maxspeed-arg-unexpected`); all deterministic. The gate adds
+`drivevessel-no-docking-port` (no `ModuleDockingNode` on the vessel whose FSM state is `Ready`,
+gate-class). The callback holds the throttle at 0 while srfSpeed is above `maxSpeed` (stock's
+capture refuses a relative speed above `captureMaxRvel`, 0.3 m/s for the stock ports), and a
+`GameEvents.onPartCouple` hook marks the dock when either side of the couple is one of the Ready
+ports captured at the start (stock fires it inside `Part.Couple`, before the merge, so the
+partner's vessel is still its own: `drivevessel dock couple: port= partnerPart= partnerPid=
+partnerName= ut=`). The completion checks the couple first: OK `docked=true gameSeconds=
+maxSrfSpeed= pathMeters= dockUT= partnerPid= partnerName= activePid= activeName= activeParts=`
+(`drivevessel dock start:` / `drivevessel dock end: outcome=docked ...`); `seconds` of game time
+with no couple is ERROR `drivevessel-did-not-dock`, so a lane whose geometry misses reads a fast
+driver INVALID, not a PARSEK-FAIL. The hook is removed and the Brakes restored on every exit;
+when the driven vessel did not survive the dock (it was the absorbed side) the Brakes go back
+on the active vessel.
 
 #### ReadVesselResources (additive; the tank read, roadmap TC-1)
 
