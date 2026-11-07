@@ -3761,9 +3761,9 @@ namespace Parsek
         // who has explicitly turned auto-merge off.
         private static bool cachedAutoMerge = false;
 
-        // Deferred merge dialog: when autoMerge is off, the dialog follows the player
-        // across scenes until they address it. Reset on each OnLoad so scene changes
-        // get a fresh chance to show the dialog.
+        // True while a merge dialog popup is up: set by MergeDialog when it spawns the
+        // popup, cleared by its buttons and teardown (MergeDialog.ClearPendingFlag) and by
+        // the session reset.
         private static bool mergeDialogPending = false;
         internal static bool MergeDialogPending
         {
@@ -4871,15 +4871,16 @@ namespace Parsek
 
                     // Handle pending recordings on non-revert scene exits to non-flight scenes.
                     // The pre-transition merge dialog (SceneExitInterceptor) is the
-                    // primary path; this OnLoad path is the deferred fallback for
-                    // any flight-exit that bypassed our HighLogic.LoadScene prefix
-                    // (KSP version drift, foreign mod patch, etc.). Pre-transition
-                    // path now handles MAINMENU too, so the historical
-                    // forceAutoMerge=MAINMENU shortcut is gone.
+                    // primary path; this OnLoad path commits whatever a flight-exit left
+                    // pending (one that bypassed our HighLogic.LoadScene prefix: KSP
+                    // version drift, a foreign mod patch). It never asks: leaving a flight
+                    // commits (owner ruling 2026-11-01), and the deferred merge dialog
+                    // that used to ask here under autoMerge OFF was retired 2026-11-06
+                    // (todo GUI-D5); AutoCommitPendingTreeOutsideFlight still reads the
+                    // setting to pick its commit fidelity.
                     loadPhase = "pending-outside-flight";
                     if (!isRevert && HighLogic.LoadedScene != GameScenes.FLIGHT)
                     {
-                        if (IsAutoMerge)
                         {
                             // #88 folded: landed/splashed no longer forces an approval
                             // dialog under autoMerge — the silent commit is now
@@ -4903,12 +4904,6 @@ namespace Parsek
                             // during the flight we are exiting (!isRevert checked upstream),
                             // so the tree is marked applied to disarm the lump-sum replay.
                             AutoCommitPendingTreeOutsideFlight("scene-exit");
-                        }
-                        else if (PendingTreeSlot.HasPendingTree && !mergeDialogPending)
-                        {
-                            // autoMerge OFF: defer to merge dialog in the new scene
-                            mergeDialogPending = true;
-                            StartCoroutine(ShowDeferredMergeDialog());
                         }
                     }
 
@@ -5381,22 +5376,15 @@ namespace Parsek
                             "resume/restore flow will run instead");
                     }
 
-                    if (IsAutoMerge || HighLogic.LoadedScene == GameScenes.MAINMENU)
-                    {
-                        // Silent auto-commit: full-fidelity MergeCommit when the tree
-                        // qualifies (autoMerge, Finalized, no active re-fly, real scene),
-                        // else the lightweight ghost-only commit. MAINMENU (game
-                        // unloading) and non-autoMerge always fall to ghost-only. The
-                        // originating flight already applied its resources live, so the
-                        // commit marks the tree applied to disarm the lump-sum replay.
-                        AutoCommitPendingTreeOutsideFlight("cold-load outside-flight");
-                    }
-                    else if (!mergeDialogPending)
-                    {
-                        // autoMerge OFF: defer to merge dialog
-                        mergeDialogPending = true;
-                        StartCoroutine(ShowDeferredMergeDialog());
-                    }
+                    // Silent auto-commit: full-fidelity MergeCommit when the tree
+                    // qualifies (autoMerge, Finalized, no active re-fly, real scene),
+                    // else the lightweight ghost-only commit. MAINMENU (game
+                    // unloading) and non-autoMerge always fall to ghost-only. The
+                    // originating flight already applied its resources live, so the
+                    // commit marks the tree applied to disarm the lump-sum replay.
+                    // Never a dialog here: the deferred merge dialog was retired
+                    // 2026-11-06 (todo GUI-D5).
+                    AutoCommitPendingTreeOutsideFlight("cold-load outside-flight");
                 }
 
                 loadPhase = "sidecar-reconcile";
@@ -7462,79 +7450,6 @@ namespace Parsek
             RecorderStateLog.RecState("FinalizeLimboForRevert:post", CaptureScenarioRecorderState());
         }
 
-        #region Deferred Merge Dialog
-
-        /// <summary>
-        /// Shows the merge dialog after a short delay, allowing the scene to fully load.
-        /// Used when autoMerge is off and the player leaves Flight with a pending recording.
-        /// </summary>
-        private IEnumerator ShowDeferredMergeDialog()
-        {
-            // Canary: the pre-transition merge dialog
-            // (SceneExitInterceptor's HighLogic.LoadScene prefix) is the
-            // primary path. If this deferred coroutine fires, the
-            // pre-transition path missed the transition (mod compat,
-            // KSP version drift, foreign LoadScene patch). Warn so we
-            // can investigate.
-            ParsekLog.Warn("Scenario",
-                $"Deferred merge dialog fired - pre-transition intercept missed " +
-                $"scene={HighLogic.LoadedScene} pendingTree=" +
-                $"{(PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree?.TreeName ?? "<unnamed>" : "<none>")} " +
-                "(check SceneExitInterceptor or KSP version compat)");
-
-            // Wait ~60 frames for scene to fully load (UI skin, singletons, etc.)
-            int waitFrames = 60;
-            while (waitFrames-- > 0)
-                yield return null;
-
-            // Guard: pending may have been consumed during the wait
-            if (!PendingTreeSlot.HasPendingTree)
-            {
-                mergeDialogPending = false;
-                ParsekLog.Verbose("Scenario", "Deferred merge dialog: pending consumed during wait — aborting");
-                yield break;
-            }
-
-            // Auto-discard idle-on-pad recordings before showing the dialog.
-            // Only for Finalized trees (Limbo trees are resume-flow stashes,
-            // not merge candidates).
-            if (PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Finalized
-                && ParsekFlight.IsTreeIdleOnPad(PendingTreeSlot.PendingTree))
-            {
-                ParsekLog.Info("Scenario", "Idle on pad detected — auto-discarding tree recording");
-                DiscardPendingTreeAndRecalculate(
-                    "deferred merge dialog idle-on-pad auto-discard");
-                ScreenMessages.PostScreenMessage("Recording discarded - vessel idle on pad", 4f);
-                mergeDialogPending = false;
-                yield break;
-            }
-
-            // Show the tree merge dialog.
-            //
-            // Note: unlike the OnFlightReady fallback (ParsekFlight.cs), this
-            // deferred coroutine does NOT need the active-Re-Fly skip guard.
-            // The OnFlightReady fallback fires the moment the player enters
-            // FLIGHT after Re-Fly invocation or Retry-from-RP — i.e. when the
-            // user just started flying a fresh attempt and the dialog would
-            // be wrong-timing. The deferred coroutine, by contrast, only
-            // fires in a non-FLIGHT scene (call sites at 1862, 1888, 2211
-            // all gate on leaving / having left FLIGHT), which means the
-            // Re-Fly attempt is already concluded by the player's scene
-            // change. Surfacing the merge decision there is the correct
-            // recovery path when SceneExitInterceptor missed the
-            // pre-transition catch. MergeDialog.ShowTreeDialog already
-            // detects ActiveReFlySessionMarker != null and renders the
-            // Re-Fly-specific message + suppressed-subtree closure, so the
-            // dialog presented here is semantically correct.
-            ParsekLog.Info("Scenario",
-                $"Showing deferred tree merge dialog in {HighLogic.LoadedScene}");
-            MergeDialog.ShowTreeDialog(PendingTreeSlot.PendingTree);
-            // mergeDialogPending stays true until the user clicks a button
-            // (ClearPendingFlag is called from the button callbacks)
-        }
-
-        #endregion
-
         #region Deferred Seeding
 
         /// <summary>
@@ -9313,7 +9228,11 @@ namespace Parsek
                 var pendingTree = PendingTreeSlot.PendingTree;
                 int stampedCount = 0;
                 int skippedEarlierSegmentCount = 0;
+                int skippedReplacedCount = 0;
                 int stampedRenamedCount = 0;
+                var scenario = Instance;
+                IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                    object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes;
                 foreach (var rec in pendingTree.Recordings.Values)
                 {
                     VesselMatchKind matchKind = ClassifyVesselMatch(rec, identity, vesselPid);
@@ -9327,7 +9246,12 @@ namespace Parsek
                     // Stamping it would stretch its EndUT to the event UT, drop its
                     // snapshot, and pair the same recovery funds event a second time at
                     // commit (AddVesselRecoveryCostActions keys by recording id).
-                    if (!IsTerminalEventTarget(rec, pendingTree))
+                    if (IsReplacedByReFly(rec, pendingTree, supersedes))
+                    {
+                        skippedReplacedCount++;
+                        continue;
+                    }
+                    if (!IsTerminalEventTarget(rec, pendingTree, supersedes))
                     {
                         skippedEarlierSegmentCount++;
                         continue;
@@ -9349,6 +9273,14 @@ namespace Parsek
                         "stampedByLaunchIdentity={3} under a different recorded name " +
                         "(matched by launch guid; a vessel name is not its identity)",
                         identity.DisplayName, vesselPid, state, stampedRenamedCount));
+                }
+
+                if (skippedReplacedCount > 0)
+                {
+                    ParsekLog.Info("Scenario", string.Format(CultureInfo.InvariantCulture,
+                        "UpdateRecordingsForTerminalEvent: vessel='{0}' pid={1} state={2} stamped={3} " +
+                        "skippedReplacedByReFly={4} (a recording a Re-Fly replaced keeps its own end)",
+                        identity.DisplayName, vesselPid, state, stampedCount, skippedReplacedCount));
                 }
 
                 if (skippedEarlierSegmentCount > 0)
@@ -9401,11 +9333,55 @@ namespace Parsek
         /// </summary>
         internal static bool IsTerminalEventTarget(Recording rec, RecordingTree tree)
         {
+            var scenario = Instance;
+            return IsTerminalEventTarget(rec, tree,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+        }
+
+        /// <summary>
+        /// <see cref="IsTerminalEventTarget(Recording, RecordingTree)"/> with the supersede
+        /// relations passed in. A recording a Re-Fly replaced is never the target either: the
+        /// in-place fork is a SIBLING of the slot's prior tip with the same pid + launch guid,
+        /// and both are leaves of the session tree, so without this a recovery stamped the
+        /// replaced prior tip too (stretching its end to the recovery UT, dropping its
+        /// snapshot, and pairing the recovery funds event a second time at commit). During the
+        /// session the fork names the replaced recording in <c>SupersedeTargetId</c>; after a
+        /// merge the replaced recording is superseded by relation.
+        /// </summary>
+        internal static bool IsTerminalEventTarget(
+            Recording rec, RecordingTree tree, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
             if (rec == null)
+                return false;
+            if (IsReplacedByReFly(rec, tree, supersedes))
                 return false;
             if (string.IsNullOrEmpty(rec.ChildBranchPointId))
                 return true;
             return GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, tree);
+        }
+
+        /// <summary>
+        /// True when another recording of <paramref name="tree"/> names <paramref name="rec"/>
+        /// as its <c>SupersedeTargetId</c> (a live Re-Fly fork), or a supersede relation
+        /// replaces it.
+        /// </summary>
+        internal static bool IsReplacedByReFly(
+            Recording rec, RecordingTree tree, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+            if (tree?.Recordings != null)
+            {
+                foreach (var other in tree.Recordings.Values)
+                {
+                    if (other == null || object.ReferenceEquals(other, rec))
+                        continue;
+                    if (string.Equals(other.SupersedeTargetId, rec.RecordingId, StringComparison.Ordinal)
+                        && !string.Equals(other.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                        return true;
+                }
+            }
+            return EffectiveState.IsSupersededByRelation(rec, supersedes);
         }
 
         /// <summary>

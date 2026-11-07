@@ -1,0 +1,296 @@
+schema = 1
+id = "STR-4-transponders-and-negotiations-across-rewind"
+# =====================================================================================
+# STR-4: RECOVERY TRANSPONDER FITTING AND AGGRESSIVE NEGOTIATIONS ACROSS A REWIND-TO-LAUNCH
+# (todo CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16, "strategies across any timeline operation":
+# "Still open: ... Aggressive Negotiations and Recovery Transponder"). AUTHORED 2026-11-06
+# (branch `str4`), NEVER FLOWN.
+#
+# WHAT IS ALREADY LIVE. Aggressive Negotiations ran in game after that line was written: RW-9
+# (a discounted repair), RW-23 (a discounted part purchase), RW-24 (its committed activation
+# needs the one slot) and RW-10 (activated inside the lead window), all across a
+# Rewind-to-Launch. Its fourth stock reason, `StructureConstruction` (a facility upgrade or a
+# paid Rebuild), never ran, and nothing ever pinned its reputation leg on a `VesselRollout`.
+# Recovery Transponder Fitting never ran at all, and no lane crosses a committed strategy
+# DEACTIVATION by time (a stock 1.12.5 strategy cannot expire without KSPCF, so a manual
+# deactivation is the one reachable way a committed strategy turns off).
+#
+# THE STOCK FACTS (Squad/Strategies/Strategies.cfg and Assembly-CSharp, KSP 1.12.5):
+#   RecoveryTransponders  groupTag Misc,Recovery; required reputation -1000 (always met);
+#              setup funds Lerp(70000, 550000, factor) = 94000 at the default factor 0.05
+#              (the same lerp gave Appreciation Campaign's measured 70750 on STR-1); two
+#              ValueModifier effects on `RecoveryMinimumDelta` / `RecoveryMaximumDelta`, no
+#              CurrencyOperation. `VesselRecovery.OnVesselRecovered` folds them into the
+#              recovery FACTOR it hands to `onVesselRecoveryProcessing` (a vessel off the KSC
+#              grounds gets min 0.1+d1 / max 0.98+d2 by distance), so the payout reaches the
+#              pool as one ordinary `AddFunds(VesselRecovery)`: no currency query moves, no
+#              conversion leg exists, and Parsek books stock's observed payout (design 11.5,
+#              15.11). A vessel whose `landedAt` names the LaunchPad or the Runway gets factor 1
+#              and one on the KSC grounds 0.98, with or without the strategy, so V's pad
+#              recovery below pays the same as without it: the lane proves the activation,
+#              the recovery and the deactivation across the timeline, not the bonus (no
+#              committed career host can land a vessel off the KSC grounds without a mission).
+#   AgressiveNegotiations groupTag Misc,D; required reputation Lerp(-10, 950, factor) (38 at
+#              0.05; the host holds 120); setup reputation Lerp(10, 100, factor) = 14.5;
+#              CurrencyOperation Funds Multiply on VesselRollout / RnDPartPurchase (1.00..0.70)
+#              and on StructureRepair / StructureConstruction (1.00..0.99, 0.9995 at 0.05), and
+#              CurrencyOperation Reputation Add -1..-6 (-1.25 at 0.05) on all four.
+#   One slot (Administration level 0) and a shared `Misc` tag, so the two never overlap: the
+#   lane switches Recovery Transponders off before Aggressive Negotiations goes on.
+#
+# THE RULE UNDER TEST (code read 2026-11-06 on main 7eb3770, no defect found):
+#   - a facility upgrade's row is the OBSERVED net debit (`FacilityUpgradeCapture`, inside the
+#     `UpgradeFacility` scope), so the discount lives in the row and no funds leg is written
+#     for `StructureConstruction` (`StrategyConversionCapture.IsNominalChannelFundsReason`
+#     excludes it; a leg there would discount twice);
+#   - the strategy's reputation leg is its own `ReputationPenalty` (StrategyConverter) row with
+#     no conversion cause (an upgrade is not a cause type), untagged at the Space Center;
+#   - after the rewind every T1 row is committed future: the upgrade is refused
+#     `blocked-committed`, and the warp past T1 applies the upgrade, its leg, the deactivation
+#     and the activation once (`PatchStrategies` switches Recovery Transponders off and
+#     Aggressive Negotiations on without cost or capture), so the pools after the crossing
+#     equal the pools before the rewind;
+#   - the check launch's rollout under Aggressive Negotiations writes the reputation leg
+#     (reason VesselRollout) and no funds leg (the rollout row is observed, net).
+#
+# THE HOST. `career-pad-craft-purchase` (RW-23 / RW-24's: L2's pad career, funds 500000,
+# science 100, reputation 120, every facility at level 0, x1 multipliers, the Jumping Flea on
+# the pad at UT 9.06, pid 2905720181). Entry purchases are on there, which nothing here buys.
+#
+# PLAN (UTs are the plan):
+#   boot       LoadGame persistent at the Space Center (UT 9.06); activate RecoveryTransponders
+#              (-94000 funds). Before V's launch and more than 15 s before it (the
+#              Rewind-to-Launch lead window), so it is in V's rewind save.
+#   V          warp to 60 at the Space Center, save, load that save onto the pad Flea, record
+#              60..100, commit, exit to the Space Center, marker Recover (RW-23's shape): the
+#              recovery is paid under Recovery Transponders.
+#   T1         warp to 200: deactivate RecoveryTransponders, activate AgressiveNegotiations,
+#              upgrade the Runway 0 -> 1 (75000 gross, about 74962.5 net, reputation -1.25).
+#   rewind     InvokeRewindToLaunch tree=latest: clock ~45; Recovery Transponders on (the
+#              rewind save's), the Runway at 0, every T1 row committed future. No load may
+#              switch a strategy here.
+#   refused    upgrade the Runway again -> REJECTED blocked-committed; the dialog dismissed.
+#   crossing   warp to 260: the Runway patched 0 -> 1 once, Recovery Transponders off, Aggressive
+#              Negotiations on; the pools equal the pools before the rewind.
+#   check      the Settings Probe onto the pad (its rollout under Aggressive Negotiations), the
+#              default save, LedgerGroundTruth: pools exact and the strategy facet exactly
+#              Aggressive Negotiations on both sides.
+#
+# STEP SAVES (temporary analysis artifacts, copied with the run under logs/):
+#   str4-setup, str4-01-after-v, str4-02-after-t1, str4-03-after-rtl, str4-04-after-crossing.
+#
+# PINNED LITERALS (read 2026-11-06 on main 7eb3770):
+#   kscaction action=<a> target=<t> applied=true          TestCommands/TestCommandKscAction.cs:519
+#   setupFunds= / fundsDelta= on activate-strategy        TestCommands/TestCommandKscAction.cs:1443
+#   VesselRecovery funds patched: vessel=                 GameActions/LedgerRecoveryFundsPairing.cs:725
+#   Game state: FacilityUpgraded ... cost= costSource=    GameStateFacilityRecorder.cs:140 (arrow non-ASCII: `.{1,3}`)
+#   Strategy conversion recorded: type=                   GameActions/LedgerOrchestrator.LiveEvents.cs:441
+#   Clock-crossing reached committed-future rows:         GameActions/LedgerOrchestrator.Recalculate.cs:390
+#   PatchFacilities: '<id>' level                         GameActions/FacilityStatePatcher.cs:151
+#   PatchStrategies: activated= ... activatedIds=[...]    GameActions/StrategyStatePatcher.cs:387
+#   CompareStrategies: managed=[...]                      (STR-1's pin, live 2026-10-25_1151)
+#
+# PRE-REGISTERED READINGS (what to check first if the first flight reds):
+#   - `setupFunds=` other than 94000 on the RecoveryTransponders line: the lerp or the factor
+#     read differs from Appreciation Campaign's (STR-1); a premise miss, re-pin from the line.
+#   - `kscaction refused action=deactivate-strategy reason=strategy-cannot-deactivate`: stock's
+#     LeastDuration was not 0 on this instance (KSPCF's StrategyDuration fix installed?); read
+#     stock's reason in the line. A premise miss, not a Parsek finding.
+#   - `kscaction refused action=activate-strategy ... target=AgressiveNegotiations`: the slot
+#     was not free yet (`slots=` on the deactivate line) or reputation fell under 38.
+#   - `cost=75000` on the FacilityUpgraded line: Aggressive Negotiations did not discount the
+#     construction (its effect not registered); `cost=0` with another costSource: the scope
+#     missed the debit (FacilityUpgradeCapture's Warn says which).
+#   - a `Strategy conversion recorded: type=Funds...` line with reason StructureConstruction or
+#     VesselRollout: a funds leg on an observed row, the double discount; a product defect.
+#   - no reputation leg on the check rollout: the crossing's PatchStrategies switch-on did not
+#     register Aggressive Negotiations' effects (a strategy on in name only); a product
+#     finding, file it.
+#   - `PatchStrategies: activated=1 ... activatedIds=[AgressiveNegotiations]` between the
+#     rewind and the refusal: a load switched the future activation on early; read
+#     `futureDated=` on the same line.
+#   - two PatchStrategies lines inside the crossing (AN on, then RT off and AN on again): the
+#     warp ran a recalc between the T1 rows; harmless while the ground truth is exact.
+#   - the pools after the crossing differ by about 1.25 reputation or 37.5 funds: the leg or
+#     the discount paid twice or not at all at the crossing.
+#
+# FAST-LANE CHECKLIST: (1) reuse - RW-23's boot, V and check verbatim; (2) explicit-UT warps
+# only; (3)-(5) no dwells, burns or coasts; (6) retry `once`; (7) count pinned {1,1} (V only;
+# the probe is unrecorded); (8) operator until green, about 3 min expected (RW-23 flew 138 s);
+# (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "STR-4 (strategies x Rewind-to-Launch): on career-pad-craft-purchase Recovery Transponder Fitting is activated before a pad Flea V is recorded, committed and recovered under it; at T1 it is switched off, Aggressive Negotiations switched on and the Runway upgraded at its discount; a Rewind-to-Launch refuses a second upgrade as committed, and the warp past T1 applies the upgrade, its reputation leg, the deactivation and the activation once: the pools equal the pools before the rewind, and LedgerGroundTruth finds the pools and the strategy list exact."
+instanceProfile = "stock-minimal"
+tags = ["STR-4", "strategy", "strategy-conversion", "career", "ledger", "ledger-groundtruth",
+        "rewind", "rewind-to-launch", "facility-upgrade", "recovery", "editor", "stock-ui",
+        "ground-truth", "ingame-batch", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft-purchase"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 2 x 300 LoadGame + 4 x 60 KscAction + 5 x 120 warps + 180 StartRecording
+# + 120 CommitTree + 120 exit + 60 marker Recover + 60 refused upgrade + 300 rewind + 120
+# GoToEditor + 180 LaunchFromEditor + 6 x 120 SaveGame + 540 RunTests = 4020; runtime 4800
+# adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  # ---- Recovery Transponders, well before V's launch (so in its rewind save) ----
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "RecoveryTransponders" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "str4-rt-active" },                           expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "60", maxRate = "100" },                         expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "str4-setup" },                                expect = "OK", budget = 120 },
+  # ---- V: the pad Flea, recorded 60..100, committed, recovered under the strategy ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "str4-setup", focusPid = "2905720181" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "DiscardTree",                                                                   expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "100" },                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  # The Space Center exit and the marker Recover (RW-23's shape): the in-flight press's
+  # MissionSummaryDialog holds the TIMEWARP lock and would refuse the warp to T1.
+  { cmd = "ExitToSpaceCenter",                                                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "str4-before-recover" },                     expect = "OK" },
+  { cmd = "KscMarkerRecover", args = { pid = "2905720181" },                              expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "str4-v-recovered" },                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "str4-01-after-v" },                          expect = "OK", budget = 120 },
+  # ---- T1 = 200: Transponders off, Negotiations on, the discounted Runway upgrade ----
+  { cmd = "WarpToUT",       args = { ut = "200", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "str4-t1" },                                  expect = "OK" },
+  { cmd = "KscAction",      args = { action = "deactivate-strategy", strategy = "RecoveryTransponders" }, expect = "OK", budget = 60 },
+  # One frame between the deactivation and the activation, so the two rows never share a UT.
+  { cmd = "MissionMark",    args = { label = "str4-rt-off" },                              expect = "OK" },
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AgressiveNegotiations" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "str4-an-active" },                           expect = "OK" },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/Runway" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "str4-upgraded" },                            expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "str4-02-after-t1" },                         expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "str4-before-rewind" },                       expect = "OK" },
+  # ---- the rewind to V's launch: every T1 row committed future ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "str4-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "str4-03-after-rtl" },                        expect = "OK", budget = 120 },
+  # ---- a second upgrade is refused as committed (FacilityUpgradeSpendPatch) ----
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/Runway" }, expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "str4-refused" },                             expect = "OK" },
+  # ---- the crossing: the T1 rows apply once ----
+  { cmd = "WarpToUT",       args = { ut = "260", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "str4-crossed" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "str4-04-after-crossing" },                   expect = "OK", budget = 120 },
+  # ---- the check: an unrecorded launch onto the (clear) pad, the save, the ground truth ----
+  # The one-part Settings Probe (L8's): no crew, so nothing a committed flight holds can stall
+  # the rollout. Its rollout runs under Aggressive Negotiations.
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "290" },                                         expect = "OK", budget = 120 },
+  # The DEFAULT slot (persistent): the one a harvest reads; the named slots above are side files.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "str4-check" },                               expect = "OK" },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "reputation", "strategies", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# V only; the check launch is unrecorded (RW-23 measured 1 on the same shape).
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- Recovery Transponders: the setup cost, then V recovered under it ----
+  "kscaction action=activate-strategy target=RecoveryTransponders applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 setupFunds=94000 setupSci=0 setupRep=0 fundsDelta=-94000 [\\s\\S]*?MISSIONMARK label=str4-rt-active ut=",
+  "MISSIONMARK label=str4-before-recover ut=(?:(?!MISSIONMARK label=str4-t1 )[\\s\\S])*?VesselRecovery funds patched: vessel='[^']+' amount=[1-9][0-9]* ut=[0-9.]+ recordingId=\\S+ quick=",
+
+  # ---- T1: the deactivation, the activation in the freed slot, the discounted upgrade ----
+  "MISSIONMARK label=str4-t1 ut=(?:(?!MISSIONMARK label=str4-rt-off )[\\s\\S])*?kscaction action=deactivate-strategy target=RecoveryTransponders applied=true manifestKind=strategy-deactivate observedAfter=slots=0/1",
+  "MISSIONMARK label=str4-rt-off ut=(?:(?!MISSIONMARK label=str4-an-active )[\\s\\S])*?kscaction action=activate-strategy target=AgressiveNegotiations applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 setupFunds=0 setupSci=0 setupRep=[1-9][0-9.]* fundsDelta=0 ",
+  "MISSIONMARK label=str4-an-active ut=(?:(?!MISSIONMARK label=str4-upgraded )[\\s\\S])*?kscaction action=upgrade-facility target=SpaceCenter/Runway applied=true manifestKind=facility-upgrade observedAfter=level=1",
+  # The row is the observed NET debit: 75000 gross times 0.9995 at the default factor.
+  "MISSIONMARK label=str4-an-active ut=(?:(?!MISSIONMARK label=str4-before-rewind )[\\s\\S])*?Game state: FacilityUpgraded 'SpaceCenter/Runway' 0\\.00 .{1,3} 0\\.50 \\(event-driven\\) cost=749[0-9]{2}(?:\\.[0-9]+)? costSource=observed-debit",
+  # The strategy's reputation leg on the construction, its own row (no funds leg: see forbidden).
+  "MISSIONMARK label=str4-an-active ut=(?:(?!MISSIONMARK label=str4-before-rewind )[\\s\\S])*?Strategy conversion recorded: type=ReputationPenalty, currency=Reputation, delta=-[0-9][0-9.E+-]*, UT=(?:19[0-9]|20[0-9])\\.[0-9], reason=StructureConstruction",
+
+  # ---- after the rewind: a second upgrade refused as committed, nothing charged ----
+  "MISSIONMARK label=str4-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=str4-rewound ut=",
+  "MISSIONMARK label=str4-rewound ut=(?:(?!MISSIONMARK label=str4-refused )[\\s\\S])*?kscaction upgrade-facility not applied: target=SpaceCenter/Runway levelBefore=0 levelAfter=0 fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 ",
+  "MISSIONMARK label=str4-rewound ut=(?:(?!MISSIONMARK label=str4-refused )[\\s\\S])*?kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/Runway",
+  "MISSIONMARK label=str4-rewound ut=(?:(?!MISSIONMARK label=str4-refused )[\\s\\S])*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
+
+  # ---- the crossing: the upgrade, the deactivation and the activation applied once ----
+  "MISSIONMARK label=str4-refused ut=(?:(?!MISSIONMARK label=str4-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*FacilityUpgrade@",
+  "MISSIONMARK label=str4-refused ut=(?:(?!MISSIONMARK label=str4-crossed )[\\s\\S])*?PatchFacilities: 'SpaceCenter/Runway' level 0 -> 1 ",
+  "MISSIONMARK label=str4-refused ut=(?:(?!MISSIONMARK label=str4-crossed )[\\s\\S])*?PatchStrategies: activated=[0-9]+ deactivated=[0-9]+ [^\\r\\n]*activatedIds=\\[AgressiveNegotiations\\]",
+  "MISSIONMARK label=str4-refused ut=(?:(?!MISSIONMARK label=str4-crossed )[\\s\\S])*?PatchStrategies: activated=[0-9]+ deactivated=[1-9][0-9]* [^\\r\\n]*deactivatedIds=\\[RecoveryTransponders\\]",
+  # The pools after the crossing equal the pools before the rewind (RW-23's form).
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=str4-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=str4-crossed ut=",
+
+  # ---- the check rollout runs under Aggressive Negotiations: its reputation leg ----
+  "MISSIONMARK label=str4-crossed ut=(?:(?!MISSIONMARK label=str4-check )[\\s\\S])*?Strategy conversion recorded: type=ReputationPenalty, currency=Reputation, delta=-[0-9][0-9.E+-]*, UT=[0-9.]+, reason=VesselRollout",
+
+  # ---- the ground truth: the pools and the strategy list exact ----
+  "(?s)MISSIONMARK label=str4-check .*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  "(?s)MISSIONMARK label=str4-check .*?result: hardFailures=0 ",
+  "(?s)MISSIONMARK label=str4-check .*?CompareStrategies: managed=\\[[^\\]]*AgressiveNegotiations[^\\]]*RecoveryTransponders[^\\]]*\\] ledgerActive=\\[AgressiveNegotiations\\] saveActive=\\[AgressiveNegotiations\\] diverged=0 \\[\\]",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "warptout refused",
+  "invokerewindtolaunch refused",
+  # The strategy verbs must all apply; the one expected refusal is the committed upgrade.
+  "kscaction refused action=(?:activate-strategy|deactivate-strategy)",
+  "kscaction refused action=upgrade-facility reason=(?!blocked-committed )",
+  # A funds leg on an observed row (the construction or a rollout) is the double discount.
+  "Strategy conversion recorded: type=Funds[A-Za-z]*, currency=Funds, [^\\r\\n]*reason=(?:StructureConstruction|VesselRollout)",
+  # The discount is never kept as an untagged pool adjustment, and no guard clamps.
+  "filed StockPoolAdjustment amount=",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  # The discounted upgrade reconciles against its observed debit.
+  "KSC reconciliation \\(funds\\): action FacilityUpgrade",
+  # The upgrade is bought once, and the crossing patches the Runway up once, never down.
+  # Both patch lines are scoped (first flight `2026-11-07_0020`): the purchase's own recalc
+  # patches 0 -> 1 before stock sets the level, and the rewind's OnLoad patches the OUTGOING
+  # scene's Runway 1 -> 0 before stock's ScenarioUpgradeableFacilities loads the rewind save
+  # (`Loading...` after it; the rewind game was written to persistent.sfs). Neither touches the
+  # rewound world. A 1 -> 0 after that load is the #2181 shape (the old world came back).
+  "MISSIONMARK label=str4-rewound ut=[\\s\\S]*kscaction action=upgrade-facility target=SpaceCenter/Runway applied=true",
+  "MISSIONMARK label=str4-before-rewind ut=[\\s\\S]*PatchFacilities: 'SpaceCenter/Runway' level 0 -> 1 [\\s\\S]*PatchFacilities: 'SpaceCenter/Runway' level 0 -> 1 ",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*?\\[ScenarioUpgradeableFacilities\\]: Loading[\\s\\S]*PatchFacilities: 'SpaceCenter/Runway' level 1 -> 0 ",
+  # From the rewind to the refusal no load switches a strategy: Transponders stays on (its
+  # deactivation is committed future), Negotiations stays off (its activation is).
+  "MISSIONMARK label=str4-before-rewind ut=(?:(?!MISSIONMARK label=str4-refused )[\\s\\S])*?PatchStrategies: activated=(?:[1-9]|0 deactivated=[1-9])",
+  "Committed strategy activation reached but stock left",
+]
+
+[runtime]
+budgetSeconds = 4800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1,0 +1,172 @@
+schema = 1
+id = "IR-12-multistop-rewind-between-windows"
+tier = "nightly"
+# =====================================================================================
+# IR-12: A TWO-STOP ROUTE AND A REWIND TO A LAUNCH MADE BETWEEN ITS TWO WINDOWS. Todo
+# ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH (fixed 2026-10-25, xUnit only until this lane).
+# AUTHORED 2026-11-06; FIRST FLIGHT 2026-11-06_2341 red on one spec pin, re-pinned; LIVE-PROVEN 2026-11-07_0133.
+#
+# THE PLAYER'S STORY. A relay route picks fuel up at base B and delivers it to base A, one
+# cycle in two windows. Between the pickup and the delivery the player launches (the launch
+# is a rewind point), the delivery happens, and then the player rewinds to that launch. The
+# cycle must resume where the launch left it: one delivery to A under the same cycle, and no
+# second dispatch (a second fuel pickup from B for the same cycle).
+#
+# THE DEFECT. A loop route sets no `CurrentCycleStartUT`, so the reconcile's rebuild of the
+# cycle counters from the kept rows (`RouteRewindClassifier.ReconstructCycleCounters`) counted
+# the part-delivered cycle (as skipped, measured on the first flight), while the loop
+# position came back from the save. The
+# next window then fired under a fresh cycle id: `IsDispatchAlreadyLogged` missed and the
+# cycle was dispatched again. The fix (`RouteLoadReconcile.RestoreCycleCountersFromSave`)
+# puts the save's own counters back with the cursors. In the go-back rewind the save is the
+# rewind save, whose UT is also the route cutoff (`cutoffSource=rewind-save-ut`).
+# An F9 no longer reaches this code (a save-file load is Cold and reads the quicksave's
+# routes whole, IR-1); the go-back rewind is the player path this lane flies.
+#
+# THE HOST is RS-1's / RVR-7's `rover-relay-c-recorded`: rover C loads from B (stop 0,
+# pid 90564594) and delivers 200 LiquidFuel to A (stop 1, pid 4280917262); loop span
+# 162.74 s, stop 0's window about 44.4 s into a cycle, stop 1's at the cycle end. The focused
+# vessel is C, the route's transport; H58 records the transport rover on its host the same
+# way (StartRecording / StopRecording / CommitTree), which is how this lane makes a launch
+# with a rewind save on a landed rover without leaving the scene.
+#
+# THE CLOCK (RS-1's numbers). Route created Paused at the boot UT (~410.4); `TimeJump
+# ut=1000`, `activate` (loop anchor = the activation UT); `TimeJump ut=1090` crosses stop
+# 0's window (~1044.4): cycle-0 dispatches and picks up at B. StartRecording at ~1090
+# writes the rewind save there. `TimeJump ut=1180` crosses stop 1's window (~1163.7):
+# cycle-0 delivers to A and completes. `InvokeRewindToLaunch tree=latest` loads the rewind
+# save at the Space Center with the clock at ~1075 (15 s lead), route cutoff ~1090: the
+# delivery rows are retired, the loop position and THE COUNTERS come back from the rewind
+# save (completed=0). `WarpToUT ut=1180` at the Space Center crosses stop 1's window again.
+#
+# RED WITH THE FIX REVERTED. The `cycle counters ... (saved; next cycle id cycle-0)` line
+# never prints; the after-rewind read-back shows skipped=1; and stop 1's crossing fires
+# `cycle-1` (a second dispatch, or a BLOCKED line because B is nearly empty) instead of
+# delivering `cycle-0`.
+#
+# FIRST FLIGHT `2026-11-06_2341` (FAIL on one spec pin, product correct): the rebuild read
+# `RewindReconcile: ... counters reconstructed completed 1->0 skipped 0->1`, so the restore
+# line read `completed 0->0 skipped 1->0 (saved; next cycle id cycle-0)`, not the guessed
+# `completed 1->0`; both lines are now pinned in that measured shape. Everything else
+# matched: completed=0 skipped=0 after the rewind, one cycle-0 delivery after it.
+#
+# GUESSES (not measured; read a first red against these):
+#   * The TimeJump to 1090 dispatches cycle-0 at stop 0 (RS-1 pins the same read-back
+#     after a jump to 1060); the dispatch row lies at or before the rewind save's UT.
+#   * The rewind holds nothing: C is the rewound recording's own vessel (stripped from the
+#     rewind save and spawned at the ghost's end, ~1091), B and A carry no claim.
+#   * At the Space Center both deliveries after the rewind run `path=unloaded`; not pinned.
+# =====================================================================================
+description = "IR-12, LIVE-PROVEN 2026-11-07: on rover-relay-c-recorded create and activate the two-stop relay route (pickup at B, delivery to A), cross the pickup window (cycle-0 dispatched), record and commit a launch of the transport rover between the windows (a rewind point), cross the delivery window, then Rewind-to-Launch to that launch. The go-back must restore the saved cycle counters (completed=0) with the cursors, and the next delivery window must deliver cycle-0 to A with no second dispatch. Live proof of the ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH fix."
+instanceProfile = "stock-minimal"
+tags = ["IR-12", "logistics", "route", "multi-stop", "rewind-to-launch", "timeline-ops",
+        "recorded-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" },   expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "IR12 Relay" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1000" },                               expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "activate", route = "IR12 Relay" },  expect = "OK", budget = 120 },
+  # Across stop 0's window (~1044.4), short of stop 1's (~1163.7).
+  { cmd = "TimeJump",     args = { ut = "1090" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir12-window0" },                    expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  # THE LAUNCH between the windows: its rewind save holds the half-done cycle.
+  { cmd = "StartRecording",                                                     expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "CommitTree",                                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  # The abandoned future: stop 1's window delivers cycle-0.
+  { cmd = "TimeJump",     args = { ut = "1180" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir12-delivered" },                  expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  # THE REWIND to the launch, at the Space Center.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                   expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir12-rewound" },                    expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  # The re-flown future: stop 1's window must resume cycle-0.
+  { cmd = "WarpToUT",     args = { ut = "1180" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir12-redelivered" },                expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "SaveGame",                                                           expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 10 committed recordings plus the launch recording of C.
+count = { min = 11, max = 12 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='IR12 Relay' status=Paused",
+  "routecommand complete action=activate route=.* name='IR12 Relay' match=name statusBefore=Paused status=Active",
+  # WINDOW 0: cycle-0 dispatched and picked up at B; the delivery is still owed.
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ dispatch fired \\(carrierStopIndex=0\\)",
+  "(?s)MISSIONMARK label=ir12-window0 (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR12 Relay' status=Active completed=0 skipped=0 [^\\r\\n]* dispatched=1 debited=[0-9]+ pickedUp=1 delivered=0 ",
+  # THE LAUNCH between the windows.
+  "Captured rewind save at UT 10[5-9][0-9]",
+  # THE ABANDONED FUTURE: cycle-0 delivered to A.
+  "(?s)MISSIONMARK label=ir12-window0 (?:(?!MISSIONMARK label=ir12-delivered ).)*Delivery: route [0-9a-f]{8} cycle=cycle-0 ",
+  "(?s)MISSIONMARK label=ir12-delivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR12 Relay' status=Active completed=1 skipped=0 [^\\r\\n]* dispatched=1 debited=[0-9]+ pickedUp=1 delivered=1 ",
+  # THE REWIND: the route cutoff is the rewind save's UT, the delivery rows go...
+  "invokerewindtolaunch complete ",
+  "OnLoad: go-back route reconcile at cutoff=10[5-9][0-9][0-9.]* retiredRouteRows=[1-9][0-9]* committedRoutes=1 dormantRoutes=0 cutoffSource=rewind-save-ut ",
+  # ...and THE FIX: the save's cycle counters come back with the cursors.
+  # The shared reconcile's rebuild counts the half-done cycle as skipped (next id cycle-1:
+  # the defect's state), and the restore puts the save's counters back in the same OnLoad.
+  "RewindReconcile: route [0-9a-f]{8} counters reconstructed completed [0-9]+->0 skipped [0-9]+->[1-9][0-9]* [^\\r\\n]*keptInFlightCycle=0",
+  "Route reconcile: route [0-9a-f]{8} cycle counters completed [0-9]+->0 skipped [1-9][0-9]*->0 \\(saved; next cycle id cycle-0\\)",
+  "OnLoad go-back: loop position restored from the loaded save at cutoff=\\S+ loadedSaveUT=\\S+ keptRoutes=1 savedRoutes=1 loopPositionsRestored=1 ",
+  "(?s)MISSIONMARK label=ir12-rewound (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR12 Relay' status=Active completed=0 skipped=0 [^\\r\\n]* dispatched=1 debited=[0-9]+ pickedUp=1 delivered=0 ",
+  # THE RE-FLOWN FUTURE: stop 1 resumes cycle-0's logged dispatch and delivers it once.
+  "(?s)MISSIONMARK label=ir12-rewound (?:(?!MISSIONMARK label=ir12-redelivered ).)*LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ dispatch already logged - firing only the due window\\(s\\), no re-gate",
+  "(?s)MISSIONMARK label=ir12-rewound (?:(?!MISSIONMARK label=ir12-redelivered ).)*Delivery: route [0-9a-f]{8} cycle=cycle-0 ",
+  "(?s)MISSIONMARK label=ir12-rewound (?:(?!MISSIONMARK label=ir12-redelivered ).)*Delivery write: route=\\S+ dest=A pid=4280917262 resource=LiquidFuel ",
+  "(?s)MISSIONMARK label=ir12-redelivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR12 Relay' status=Active completed=1 skipped=0 [^\\r\\n]* dispatched=1 debited=[0-9]+ pickedUp=1 delivered=1 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "routecommand refused",
+  "listhandles rejected",
+  # THE DEFECT: the half-done cycle re-issued under a fresh id after the rewind.
+  "(?s)MISSIONMARK label=ir12-rewound (?:(?!MISSIONMARK label=ir12-redelivered ).)*cycle=cycle-1 ",
+  "(?s)MISSIONMARK label=ir12-rewound (?:(?!MISSIONMARK label=ir12-redelivered ).)*Origin debit: route=",
+  # One delivery per future, no more.
+  "(?s)MISSIONMARK label=ir12-window0 (?:(?!MISSIONMARK label=ir12-delivered ).)*Delivery write: route=[^\\r\\n]*dest=A (?:(?!MISSIONMARK label=ir12-delivered ).)*Delivery write: route=[^\\r\\n]*dest=A ",
+  "(?s)MISSIONMARK label=ir12-rewound (?:(?!MISSIONMARK label=ir12-redelivered ).)*Delivery write: route=[^\\r\\n]*dest=A (?:(?!MISSIONMARK label=ir12-redelivered ).)*Delivery write: route=[^\\r\\n]*dest=A ",
+  # The route's endpoints carry no committed claim.
+  "Rewind held vessel for its committed future: pid=(?:90564594|4280917262) ",
+]
+
+[runtime]
+# Boot LoadGame 300, three TimeJumps 900, StartRecording 180, commit 120, the rewind 300,
+# one warp 300, SaveGame 120, plus the short steps.
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

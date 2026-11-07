@@ -865,6 +865,34 @@ ACTION_MJ_REBIND_ASCENT = "mj_rebind_ascent"               # value = None
 ACTION_MJ_SET_AUTOSTAGE_LIMIT = "mj_set_autostage_limit"           # value = stage number
 ACTION_MJ_SET_SKIP_CIRCULARIZATION = "mj_set_skip_circularization"  # value = 1.0 / 0.0
 ACTION_MJ_SET_ASCENT_TYPE = "mj_set_ascent_type"                   # value = ascent type
+# CS-7's classic-path loft (opt-in, MlrParams.classic_path; every other lane leaves it
+# unset, so no other launch emits these). KRPC.MechJeb (GameData/kRPC/KRPC.MechJeb.json)
+# AscentAutopilot_set_AutoPath / _TurnStartAltitude / _TurnStartVelocity /
+# _TurnEndAltitude / _TurnShapeExponent (0..1) / _TurnEndAngle: the classic path's own
+# shape, read only with AscentType 0 and AutoPath off. Same set-then-READ-BACK contract
+# as the career setters above.
+ACTION_MJ_SET_AUTO_PATH = "mj_set_auto_path"                       # value = 1.0 / 0.0
+ACTION_MJ_SET_TURN_START_ALTITUDE = "mj_set_turn_start_altitude"   # value = m
+ACTION_MJ_SET_TURN_START_VELOCITY = "mj_set_turn_start_velocity"   # value = m/s
+ACTION_MJ_SET_TURN_END_ALTITUDE = "mj_set_turn_end_altitude"       # value = m
+ACTION_MJ_SET_TURN_SHAPE_EXPONENT = "mj_set_turn_shape_exponent"   # value = 0..1
+ACTION_MJ_SET_TURN_END_ANGLE = "mj_set_turn_end_angle"             # value = deg
+# Write back the classic-path values the loft overwrote (the runner read each before its
+# write). MechJeb persists its ascent settings per craft type and globally, so the loft
+# is undone once the Kerbin ascent is over (before the Mun ascent, before the next lane);
+# the runner also restores at close.
+ACTION_MJ_RESTORE_CLASSIC_PATH = "mj_restore_classic_path"         # value = None
+# The B5 phases the loft flies through; mlr restores on the first frame past them.
+MLR_CLASSIC_PATH_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_PAD_ALIGN, B5_MJ_ASCENT,
+                                            B5_CIRCULARIZE)
+# The classic-path spec keys, in the order the launch writes them (after AutoPath off).
+MJ_CLASSIC_PATH_KEYS: Tuple[Tuple[str, str], ...] = (
+    ("mjClassicTurnStartAltitudeMeters", ACTION_MJ_SET_TURN_START_ALTITUDE),
+    ("mjClassicTurnStartVelocityMps", ACTION_MJ_SET_TURN_START_VELOCITY),
+    ("mjClassicTurnEndAltitudeMeters", ACTION_MJ_SET_TURN_END_ALTITUDE),
+    ("mjClassicTurnShapeExponent", ACTION_MJ_SET_TURN_SHAPE_EXPONENT),
+    ("mjClassicTurnEndAngleDeg", ACTION_MJ_SET_TURN_END_ANGLE),
+)
 # Park round-out trim (park_trim_ecc_max > 0): plan a MechJeb circularize node
 # at the next APOAPSIS. Apoapsis, not periapsis, on purpose -- circularizing at
 # periapsis DROPS the park to the periapsis radius, and the interplanetary
@@ -31640,6 +31668,54 @@ def mfr_initial_state(params: MfrParams) -> MfrState:
                     phases_reached=(flight.phase,))
 
 
+def mj_classic_path_actions(classic_path: Optional[Tuple[float, ...]]) -> List[Action]:
+    """The classic-path setters for ``classic_path`` (the MJ_CLASSIC_PATH_KEYS values
+    in order): AutoPath off, then each value. None (every lane but CS-7) = none. Pure."""
+    if classic_path is None:
+        return []
+    out = [Action(ACTION_MJ_SET_AUTO_PATH, 0.0)]
+    for (_, kind), value in zip(MJ_CLASSIC_PATH_KEYS, classic_path):
+        out.append(Action(kind, float(value)))
+    return out
+
+
+def mj_classic_path_from_dict(params: Dict) -> Optional[Tuple[float, ...]]:
+    """The classic-path values from a spec ``missionParams`` dict, or None when no key
+    is set. RAISES unless all of MJ_CLASSIC_PATH_KEYS are set together, on a shape
+    MechJeb's classic path cannot fly (0 <= start < end altitude, 0 < exponent <= 1,
+    0 <= end angle < 90, start velocity >= 0), and unless ascentType 0 (classic) and
+    the launch engage gate are set with them: the values are the classic path's only,
+    and a refused setter must withhold the engage before the stage."""
+    params = params or {}
+    present = [k for k, _ in MJ_CLASSIC_PATH_KEYS if params.get(k) is not None]
+    if not present:
+        return None
+    missing = [k for k, _ in MJ_CLASSIC_PATH_KEYS if params.get(k) is None]
+    if missing:
+        raise ValueError("the classic-path keys go together: %s set without %s"
+                         % ("/".join(present), "/".join(missing)))
+    start, start_v, end, shape, end_angle = (float(params[k]) for k, _ in
+                                              MJ_CLASSIC_PATH_KEYS)
+    if not (0.0 <= start < end):
+        raise ValueError("0 <= mjClassicTurnStartAltitudeMeters < "
+                         "mjClassicTurnEndAltitudeMeters is required (%.0f, %.0f)"
+                         % (start, end))
+    if not (0.0 < shape <= 1.0):
+        raise ValueError("mjClassicTurnShapeExponent must be in (0, 1], got %r" % shape)
+    if not (0.0 <= end_angle < 90.0) or start_v < 0.0:
+        raise ValueError("0 <= mjClassicTurnEndAngleDeg < 90 and "
+                         "mjClassicTurnStartVelocityMps >= 0 are required (%r, %r)"
+                         % (end_angle, start_v))
+    if params.get("ascentType") is None or int(params["ascentType"]) != 0:
+        raise ValueError("the classic-path keys require ascentType = 0 (classic): "
+                         "MechJeb reads them on the classic path only")
+    if int(params.get("mjEngageConfirmFrames", 0)) <= 0:
+        raise ValueError("the classic-path keys require mjEngageConfirmFrames > 0 (the "
+                         "launch engage gate), else the launch can stage before the "
+                         "engage is read")
+    return (start, start_v, end, shape, end_angle)
+
+
 def mfr_inject_launch_actions(params: MfrParams, actions: List[Action]
                               ) -> Tuple[List[Action], bool, Tuple[str, ...]]:
     """B5's launch actions with the career setters inserted before its engage and
@@ -31654,6 +31730,7 @@ def mfr_inject_launch_actions(params: MfrParams, actions: List[Action]
         setters.append(Action(ACTION_MJ_SET_ASCENT_TYPE, float(params.ascent_type)))
     if params.autostage_limit is not None:
         setters.append(Action(ACTION_MJ_SET_AUTOSTAGE_LIMIT, float(params.autostage_limit)))
+    setters.extend(mj_classic_path_actions(getattr(params, "classic_path", None)))
     out: List[Action] = []
     for a in actions:
         if a.kind == ACTION_MJ_ENGAGE_ASCENT:
@@ -32570,7 +32647,7 @@ def evaluate_mor_assertions(frames, params: MorParams,
 #           any left-over node cleared first.
 #   TRIM / HOME / FALL   mfr's blocks, entered at the home SOI as on CS-5 / CS-6.
 # ELECTRIC CHARGE. The lander's Terrier makes no power, so from the core drop on
-# the craft lives on its batteries (and, on CS-7's re-cut, three OX-STAT panels).
+# the craft lives on its batteries (CS-7's fuel re-cut: 250 EC on the pod, no panel).
 # Outside the EVA block (where the active vessel is the kerbal) a reading under
 # electricChargeFloor for electricChargeDebounceFrames frames ends the flight by name
 # before any phase idles to its budget with an attitude it cannot hold.
@@ -32674,6 +32751,9 @@ class MlrParams:
     ascent_type: Optional[int] = None
     autostage_limit: Optional[int] = None
     mj_engage_confirm_frames: int = 0
+    # MechJeb's classic-path shape for the Kerbin launch (mj_classic_path_from_dict;
+    # None = MechJeb's own auto path, untouched).
+    classic_path: Optional[Tuple[float, ...]] = None
     return_periapsis: float = 30000.0
     return_periapsis_min: float = 15000.0
     return_periapsis_max: float = 45000.0
@@ -32752,6 +32832,7 @@ def mlr_params_from_dict(params: Dict) -> MlrParams:
     tail = return_tail_param_kwargs(params)
     p = MlrParams(
         orbit=orbit, **tail,
+        classic_path=mj_classic_path_from_dict(params),
         depart_periapsis=float(params.get("departPeriapsisMeters",
                                           tail["return_periapsis"])),
         depart_max_dv=float(params.get("departMaxDvMps", 600)),
@@ -32874,6 +32955,8 @@ class MlrState:
     ec_min: float = float("nan")
     # The ascent-coast wheel release (one per flight).
     wheels_released: bool = False
+    # The classic-path loft's restore (one per flight).
+    classic_path_restored: bool = False
     wheels_release_ut: Optional[float] = None
     wheels_restore_ut: Optional[float] = None
     wheels_restore_reason: str = ""
@@ -33106,6 +33189,18 @@ def mlr_wheel_release_step(state: MlrState, snapshot: TelemetrySnapshot
                        snapshot.node_count))])
 
 
+def mlr_classic_path_restore_step(state: MlrState) -> Tuple[MlrState, List[Action]]:
+    """The one ACTION_MJ_RESTORE_CLASSIC_PATH, on the first frame B5 is past
+    MLR_CLASSIC_PATH_PHASES with a loft set (state, [] otherwise). Pure."""
+    if (state.params.classic_path is None or state.classic_path_restored
+            or state.flight.phase in MLR_CLASSIC_PATH_PHASES):
+        return state, []
+    return (replace(state, classic_path_restored=True),
+            [Action(ACTION_MJ_RESTORE_CLASSIC_PATH,
+                    text="Kerbin ascent over (B5 phase %s): MechJeb's classic path "
+                         "restored" % state.flight.phase)])
+
+
 def _mlr_land(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, List[Action]]:
     if state.stage_held:
         return return_launch_gate_step(state, snapshot)
@@ -33115,6 +33210,8 @@ def _mlr_land(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, L
                  stage_held=held, setters_injected=setters or state.setters_injected)
     st, wheels = mlr_wheel_release_step(st, snapshot)
     actions = actions + wheels
+    st, restore = mlr_classic_path_restore_step(st)
+    actions = actions + restore
     if flight.phase == B5_SURFACE_COMMIT and not flight.done:
         # THE LANDED-DWELL EXIT FRAME. B5's settled dwell held; it asks for the
         # mid-mission commit. The commit is dropped (the recovery commits at the

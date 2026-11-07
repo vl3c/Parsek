@@ -1100,7 +1100,7 @@ namespace Parsek
 
                     // MergeDiscard's scoped switch-segment step is not run here, so a session
                     // bound to this tree would outlive it and resolve the committed tree on
-                    // the next load (deferred merge dialog). Clear it.
+                    // the next load. Clear it.
                     var session = object.ReferenceEquals(null, scenario)
                         ? null : scenario.ActiveSwitchSegmentSession;
                     if (session != null && string.Equals(session.TreeId, treeId, StringComparison.Ordinal))

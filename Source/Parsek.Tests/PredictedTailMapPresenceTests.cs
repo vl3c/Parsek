@@ -495,6 +495,148 @@ namespace Parsek.Tests
             Assert.Equal(TrackingStationGhostSourceForTest.StateVector, source);
         }
 
+        // =====================================================================
+        // 2b. PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE: a member that borrows its tip's
+        // orbit also takes the tip's ending, so a split crash flight matches an unsplit one.
+        // =====================================================================
+
+        private static GhostMapPresence.MapPresenceChainTipTerminalResolver StubTip(
+            string id, TerminalState? terminal, Action onConsulted = null)
+        {
+            return (IPlaybackTrajectory traj, out string tipId, out TerminalState? tipTerminal) =>
+            {
+                onConsulted?.Invoke();
+                tipId = id;
+                tipTerminal = terminal;
+                return true;
+            };
+        }
+
+        [Fact]
+        public void EligibilityTerminal_HeadWithoutSegments_TakesTheCrashTipsEnding()
+        {
+            var head = ChainMember("rec_head", "chain_x", 0);
+            TerminalState? terminal = GhostMapPresence.ResolveMapPresenceEligibilityTerminal(
+                head, StubTip("rec_tip", TerminalState.Destroyed), out string tipId);
+
+            Assert.Equal(TerminalState.Destroyed, terminal);
+            Assert.Equal("rec_tip", tipId);
+            Assert.False(GhostMapPresence.IsTerminalStateEligibleForMapPresence(terminal));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Orbiting)]
+        [InlineData(TerminalState.SubOrbital)]
+        [InlineData(TerminalState.Docked)]
+        public void EligibilityTerminal_HeadWithoutSegments_EligibleTipKeepsTheHeadsOwn(
+            TerminalState tipTerminal)
+        {
+            var head = ChainMember("rec_head", "chain_x", 0);
+            TerminalState? terminal = GhostMapPresence.ResolveMapPresenceEligibilityTerminal(
+                head, StubTip("rec_tip", tipTerminal), out string tipId);
+
+            Assert.Null(terminal);
+            Assert.Null(tipId);
+        }
+
+        [Fact]
+        public void EligibilityTerminal_MemberWithItsOwnSegments_NeverConsultsTheTip()
+        {
+            // A middle member with an orbit of its own (days in orbit before a fatal reentry)
+            // keeps its own map vessel: same additive condition as the segment lender.
+            var middle = ChainMember("rec_mid", "chain_x", 1);
+            middle.OrbitSegments.Add(TailSegment(CoastStartUT, AtmosphereEntryUT, predicted: false));
+            bool consulted = false;
+
+            TerminalState? terminal = GhostMapPresence.ResolveMapPresenceEligibilityTerminal(
+                middle, StubTip("rec_tip", TerminalState.Destroyed, () => consulted = true),
+                out string tipId);
+
+            Assert.False(consulted);
+            Assert.Null(terminal);
+            Assert.Null(tipId);
+        }
+
+        [Fact]
+        public void EligibilityTerminal_OwnIneligibleTerminal_StaysRefused()
+        {
+            var rec = ChainMember("rec_a", "chain_x", 0);
+            rec.TerminalStateValue = TerminalState.Landed;
+            bool consulted = false;
+
+            TerminalState? terminal = GhostMapPresence.ResolveMapPresenceEligibilityTerminal(
+                rec, StubTip("rec_tip", TerminalState.Orbiting, () => consulted = true), out _);
+
+            Assert.False(consulted);
+            Assert.Equal(TerminalState.Landed, terminal);
+        }
+
+        [Fact]
+        public void EligibilityTerminal_NoTipToBorrow_KeepsTheOwnTerminal()
+        {
+            var rec = ChainMember("rec_a", "chain_x", 0);
+            TerminalState? terminal = GhostMapPresence.ResolveMapPresenceEligibilityTerminal(
+                rec,
+                (IPlaybackTrajectory traj, out string tipId, out TerminalState? tipTerminal) =>
+                {
+                    tipId = null;
+                    tipTerminal = TerminalState.Destroyed;
+                    return false;
+                },
+                out string reported);
+
+            Assert.Null(terminal);
+            Assert.Null(reported);
+        }
+
+        [Fact]
+        public void MapPresenceGhostSource_HeadOfACrashChain_IsRefusedOnTheCoast()
+        {
+            // The measured shape with the TIP carrying the crash: the HEAD used to resolve a
+            // Segment source from the TIP's coast down to impact (the Tracking Station drew a stock
+            // vessel the unsplit flight never gets). It is now refused like the TIP itself.
+            RegisterSplitChain(out Recording head, out Recording tip);
+            tip.TerminalStateValue = TerminalState.Destroyed;
+
+            int cachedIndex = -1;
+            TrackingStationGhostSourceForTest source = Resolve(head, 1500.0, ref cachedIndex,
+                out _, out string skipReason);
+
+            Assert.Equal(TrackingStationGhostSourceForTest.Other, source);
+            Assert.Equal("terminal-Destroyed", skipReason);
+        }
+
+        [Fact]
+        public void MapPresenceGhostSource_HeadOfACrashChain_InsideItsOwnSpan_IsRefusedToo()
+        {
+            // The flight-view flash: at the HEAD's own last points above the atmosphere it took
+            // the state-vector path and seeded an ellipse the vessel never flew.
+            RegisterSplitChain(out Recording head, out Recording tip);
+            tip.TerminalStateValue = TerminalState.Destroyed;
+
+            int cachedIndex = -1;
+            TrackingStationGhostSourceForTest source = Resolve(head, 150.0, ref cachedIndex,
+                out _, out string skipReason);
+
+            Assert.Equal(TrackingStationGhostSourceForTest.Other, source);
+            Assert.Equal("terminal-Destroyed", skipReason);
+        }
+
+        [Fact]
+        public void MapPresenceGhostSource_HeadOfAnOrbitingChain_KeepsTheTipsSegments()
+        {
+            // Mirror direction: a chain that ends in orbit is unchanged.
+            RegisterSplitChain(out Recording head, out Recording tip);
+            tip.TerminalStateValue = TerminalState.Orbiting;
+
+            int cachedIndex = -1;
+            TrackingStationGhostSourceForTest source = Resolve(head, 1500.0, ref cachedIndex,
+                out _, out string skipReason);
+
+            Assert.Equal(TrackingStationGhostSourceForTest.Segment, source);
+            Assert.Null(skipReason);
+        }
+
         [Fact]
         public void MapPresenceChainTipMemo_ReResolvesOnASupersedeOnlyBump()
         {

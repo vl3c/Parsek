@@ -276,5 +276,105 @@ namespace Parsek.Tests
             Assert.True(ParsekScenario.IsTerminalEventTarget(half, tree));
             Assert.False(ParsekScenario.IsTerminalEventTarget(null, tree));
         }
+    
+        // ---- Re-Fly sibling edge: the in-place fork is a sibling of the slot's prior tip,
+        // with the same pid + guid, and both are leaves of the session tree.
+
+        /// <summary>
+        /// Parent P splits into the slot's prior tip O (Orbiting, pid/guid of the vessel) and
+        /// a separated half; the Re-Fly fork F is a sibling of O under the same branch point,
+        /// naming O as its SupersedeTargetId.
+        /// </summary>
+        private static RecordingTree ReFlyShape(
+            out Recording origin, out Recording fork, bool forkNamesOrigin = true)
+        {
+            var parent = Seg("rf-parent", 4000u, 100, 200, vesselName: "Kestrel Stack");
+            parent.RecordedVesselGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            origin = Seg("rf-origin", Pid, 200, 260, terminal: TerminalState.Orbiting);
+            fork = Seg("rf-fork", Pid, 200, 300);
+            fork.MergeState = MergeState.NotCommitted;
+            if (forkNamesOrigin)
+                fork.SupersedeTargetId = origin.RecordingId;
+            var tree = Tree("tree-refly", parent, origin, fork);
+            Link(tree, "bp-refly", BranchPointType.Undock, new[] { parent }, new[] { origin });
+            fork.ParentBranchPointId = "bp-refly";
+            tree.BranchPoints[0].ChildRecordingIds.Add(fork.RecordingId);
+            return tree;
+        }
+
+        // catches: the replaced prior tip being stamped Recovered alongside the fork, its end
+        // stretched to the recovery UT and its snapshot dropped.
+        [Fact]
+        public void ReFlySibling_OnlyTheForkIsStamped()
+        {
+            PendingTreeSlot.StashPendingTree(ReFlyShape(out var origin, out var fork));
+
+            Assert.True(Recover(350.0));
+
+            Assert.Equal(TerminalState.Recovered, fork.TerminalStateValue);
+            Assert.Equal(350.0, fork.ExplicitEndUT);
+            Assert.Null(fork.VesselSnapshot);
+
+            Assert.Equal(TerminalState.Orbiting, origin.TerminalStateValue);
+            Assert.True(double.IsNaN(origin.ExplicitEndUT));
+            Assert.NotNull(origin.VesselSnapshot);
+            Assert.Equal(260.0, origin.EndUT);
+
+            Assert.Single(logLines.Where(l =>
+                l.Contains("[Scenario]") && l.Contains("skippedReplacedByReFly=1")
+                && l.Contains("stamped=1")));
+        }
+
+        // catches: the fix keying only on the live SupersedeTargetId, so a recording a merged
+        // Re-Fly replaced (supersede relation, no target id left on the fork) is stamped again.
+        [Fact]
+        public void ReFlySibling_SupersededByRelation_IsNotATarget()
+        {
+            var tree = ReFlyShape(out var origin, out var fork, forkNamesOrigin: false);
+            var relations = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation
+                {
+                    RelationId = "rel-1", OldRecordingId = origin.RecordingId,
+                    NewRecordingId = fork.RecordingId, UT = 200.0
+                }
+            };
+            Assert.False(ParsekScenario.IsTerminalEventTarget(origin, tree, relations));
+            Assert.True(ParsekScenario.IsTerminalEventTarget(fork, tree, relations));
+            // Without the relation both are leaves: the shape really is ambiguous.
+            Assert.True(ParsekScenario.IsTerminalEventTarget(origin, tree, null));
+        }
+
+        // catches: the replaced prior tip pairing the recovery funds event at commit.
+        [Fact]
+        public void ReFlySibling_TreeCommit_BooksExactlyOneRecoveryFundsRow()
+        {
+            var tree = ReFlyShape(out var origin, out var fork);
+            PendingTreeSlot.StashPendingTree(tree);
+            var evt = new GameStateEvent
+            {
+                ut = 350.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 40000,
+                valueAfter = 46500
+            };
+            GameStateStore.AddEvent(ref evt);
+
+            Assert.True(Recover(350.0));
+
+            var all = new List<GameAction>();
+            foreach (var rec in tree.Recordings.Values.ToList())
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+            foreach (var rec in tree.Recordings.Values.ToList())
+                all.AddRange(LedgerOrchestrator.CreateVesselCostActions(
+                    rec.RecordingId, rec.StartUT, rec.EndUT));
+
+            var recoveryRows = all.Where(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery).ToList();
+            Assert.Single(recoveryRows);
+            Assert.Equal("rf-fork", recoveryRows[0].RecordingId);
+        }
     }
 }

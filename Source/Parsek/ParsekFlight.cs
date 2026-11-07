@@ -1811,7 +1811,7 @@ namespace Parsek
                     // (which offers Revert / Space Center) must surface first so the player can
                     // revert without Parsek pre-committing their mission. The tree gets finalized
                     // + stashed below and either auto-discards on revert (ParsekScenario isRevert
-                    // branch) or surfaces the deferred merge dialog in the destination scene.
+                    // branch) or auto-commits in the destination scene's OnLoad.
                     treeDestructionDialogPending = true;
                     ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
                     StartCoroutine(ShowPostDestructionTreeMergeDialog());

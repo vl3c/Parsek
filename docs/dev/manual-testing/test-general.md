@@ -56,7 +56,7 @@ Before capturing any release bundle, verify that the deployed
   in this file
 - Exported runtime evidence:
   - `RuntimeTests.TreeMergeDialog_DiscardButton_ClearsPendingTree`
-  - `RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`
+  - `RuntimeTests.TreeMergeDialog_MergeButton_CommitsPendingTree`
   - `RuntimeTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce`
 - Runner note: use `Run+` for `MergeDialog`, then run
   `RuntimeTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce` from an
@@ -64,7 +64,7 @@ Before capturing any release bundle, verify that the deployed
 
 ### `release-scene-transitions`
 
-- Manual scope: `Scene Transitions` in this file, specifically the deferred
+- Manual scope: `Scene Transitions` in this file, specifically the pre-transition
   merge-dialog `Space Center` exit path plus the `Missed EndUT` check
 - Exported runtime evidence:
   - `RuntimeTests.RevertToLaunch_SoftUnstashesPendingTree_WithoutMergeDialog`
@@ -125,13 +125,13 @@ Before capturing any release bundle, verify that the deployed
 
 ### Vessel destroyed
 1. Launch, crash into the ground, then exit to Space Center
-2. Verify: deferred dialog shows "Merge to Timeline" and "Discard" buttons
+2. Verify (auto-merge off, harness only): the merge dialog shows "Merge to Timeline" and "Discard" buttons
 3. Pick "Merge to Timeline", rewind / fast-forward back before the recording
    window, then verify: ghost plays back and no vessel spawns
 
 ### Vessel intact
 1. Launch to orbit, stop the recording from the Parsek window, then exit to Space Center
-2. Verify: deferred dialog shows "Merge to Timeline" and "Discard" buttons
+2. Verify (auto-merge off, harness only): the merge dialog shows "Merge to Timeline" and "Discard" buttons
 3. Pick "Merge to Timeline", rewind / fast-forward back before the recording
    window, then verify: vessel appears in Tracking Station after ghost finishes
 
@@ -241,12 +241,12 @@ Before capturing any release bundle, verify that the deployed
 
 ## Scene Transitions
 
-### Exit To Space Center (deferred merge dialog)
-1. Turn `Auto-merge recordings` OFF in Settings first - it is ON by default since
-   0.10.4, and with it on this exit commits silently and no dialog appears (that
-   silent path is the next block)
+### Exit To Space Center (pre-transition merge dialog)
+1. Auto-merge OFF is reachable only through the harness (the setting is hidden and
+   clamped ON for players); with it on this exit commits silently and no dialog
+   appears (that silent path is the next block)
 2. Record a flight, then Esc → Space Center (without reverting)
-3. Verify: the deferred `ParsekMerge` dialog appears
+3. Verify: the `ParsekMerge` dialog appears before the scene changes
 4. Choose `Merge to Timeline` once and verify the pending tree commits
 5. Repeat on a disposable run and choose `Discard` once, verifying the pending
    tree clears without a new committed recording

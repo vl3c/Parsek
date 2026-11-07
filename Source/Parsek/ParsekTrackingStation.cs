@@ -426,6 +426,8 @@ namespace Parsek
                         input.SessionSuppressed = reFlyActive
                             && SessionSuppressionState.IsSuppressedRecordingIndex(i);
                         input.ExternalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(rec, false);
+                        input.RealVesselRelays = !input.ExternalVesselSuppressed
+                            && GhostPlaybackLogic.RealVesselRelaysForRecording(rec);
                         input.HistoricalNeverReplayed = GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
                             loopingLike,
                             reFlyActive,
@@ -1207,12 +1209,18 @@ namespace Parsek
             // then. When the polyline does not own the phase AND the icon is live, the veto keeps its
             // original job: no duplicate marker next to a live proto orbit icon. Decision is the pure
             // ShouldVetoMarkerForActiveOrbitSegment (xUnit truth table).
+            bool hasCoveringOrbitSegment = rec.HasOrbitSegments
+                && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue;
             if (ShouldVetoMarkerForActiveOrbitSegment(
-                    hasCoveringOrbitSegment: rec.HasOrbitSegments
-                        && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue,
+                    hasCoveringOrbitSegment: hasCoveringOrbitSegment,
                     polylineOwnsPhase: Parsek.Display.GhostTrajectoryPolylineRenderer
                         .IsRenderingNonOrbitalLeg(rec.RecordingId),
-                    iconSuppressed: ghostPid != 0 && GhostMapPresence.IsIconSuppressed(ghostPid)))
+                    iconSuppressed: ghostPid != 0 && GhostMapPresence.IsIconSuppressed(ghostPid),
+                    // Only read when a conic covers: a recording the terminal gate refuses (a
+                    // crash, a landing) never gets a proto icon, so the marker is its only one.
+                    protoIconPossible: !hasCoveringOrbitSegment
+                        || GhostMapPresence.IsTerminalStateEligibleForMapPresence(
+                            GhostMapPresence.ResolveMapPresenceEligibilityTerminal(rec, out _))))
                 return AtmosphericMarkerSkipReason.OrbitSegmentActive;
             return AtmosphericMarkerSkipReason.None;
         }
@@ -1224,12 +1232,18 @@ namespace Parsek
         /// polyline does NOT own the phase (ownership hides the icon) AND the icon is NOT suppressed
         /// (a suppressed icon draws nothing; vetoing the marker then leaves the ghost BLANK - the
         /// member-handoff gap where the next member's conic covers the new effUT a few frames before
-        /// the icon-drive un-suppresses). internal + pure for the xUnit truth table.
+        /// the icon-drive un-suppresses) AND the recording can have a proto icon at all
+        /// (<paramref name="protoIconPossible"/> false for a recording the map-presence terminal
+        /// gate refuses, e.g. a flight ending in a crash: vetoing its marker left the Tracking
+        /// Station showing no icon for the whole recorded coast). internal + pure for the xUnit
+        /// truth table.
         /// </summary>
         internal static bool ShouldVetoMarkerForActiveOrbitSegment(
-            bool hasCoveringOrbitSegment, bool polylineOwnsPhase, bool iconSuppressed)
+            bool hasCoveringOrbitSegment, bool polylineOwnsPhase, bool iconSuppressed,
+            bool protoIconPossible)
         {
-            return hasCoveringOrbitSegment && !polylineOwnsPhase && !iconSuppressed;
+            return hasCoveringOrbitSegment && !polylineOwnsPhase && !iconSuppressed
+                && protoIconPossible;
         }
 
         private void OnCommittedRecordingRemoving(int index, Recording removed)

@@ -1322,6 +1322,61 @@ namespace Parsek.Tests
             Assert.Empty(result.HarvestCaps);
         }
 
+        // catches (HARVEST-WINDOW-EDGE-FRAME, MINE-5b's first flight): an
+        // undocked-start mining run whose window start manifest already carries
+        // one physics frame of production. The rover drains its whole Ore into
+        // the depot, so the delivery (and the dock gain) is the witnessed
+        // harvest plus that frame. It must analyze Eligible as a harvest origin
+        // (gain verdict, flow closure and refined undocked-start gate all pass)
+        // while crediting no more than was witnessed and reporting no cap.
+        // Drills at 0.012 Ore/s over 250 s witness 3.0; one 0.02 s frame is 2.4e-4.
+        [Fact]
+        public void AnalyzeTree_DrillRun_HarvestOrigin_OpenEdgeFrame_EligibleAtWitnessedAmount()
+        {
+            const double rate = 0.012;
+            double frame = rate * 0.02;
+            double dockOre = 3.0 + frame;
+            RecordingTree tree = BuildDrillRunTree(
+                out Recording root, out _,
+                rootStartOre: 0.0, dockOre: dockOre, undockOre: 0.0,
+                kscOrigin: false);
+            RouteHarvestWindow window = OreHarvestWindow(150.0, 400.0, frame, dockOre);
+            window.PlausibleRates = new Dictionary<string, double> { ["Ore"] = rate };
+            root.RouteHarvestWindows = new List<RouteHarvestWindow> { window };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsEligible, $"one frame at the window edge must not reject, got {result.Status}");
+            Assert.True(result.IsHarvestOrigin);
+            Assert.Equal(3.0, result.HarvestedManifest["Ore"], 9);
+            Assert.Equal(3.0, result.PlausibleHarvestedManifest["Ore"], 9);
+            Assert.Equal(3.0, result.ResourceDeliveryManifest["Ore"], 9);
+            Assert.Equal(3.0, result.Stops[0].ResourceDeliveryManifest["Ore"], 9);
+            Assert.Empty(result.HarvestCaps);
+        }
+
+        // catches: the edge slack masking a real unwitnessed gain on the same
+        // shape: a full second of production ahead of the start read rejects.
+        [Fact]
+        public void AnalyzeTree_DrillRun_HarvestOrigin_GapBeyondEdgeBound_Rejects()
+        {
+            const double rate = 0.012;
+            double gap = rate * 1.0;
+            double dockOre = 3.0 + gap;
+            RecordingTree tree = BuildDrillRunTree(
+                out Recording root, out _,
+                rootStartOre: 0.0, dockOre: dockOre, undockOre: 0.0,
+                kscOrigin: false);
+            RouteHarvestWindow window = OreHarvestWindow(150.0, 400.0, gap, dockOre);
+            window.PlausibleRates = new Dictionary<string, double> { ["Ore"] = rate };
+            root.RouteHarvestWindows = new List<RouteHarvestWindow> { window };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.UntrackedCargoGain, result.Status);
+        }
+
         // catches: the refined gate admitting an undocked start whose
         // delivery EXCEEDS the witnessed harvest (start cargo of unknown
         // provenance) - it must keep rejecting UndockedStartOrigin.
@@ -1838,6 +1893,41 @@ namespace Parsek.Tests
         }
 
         // ---- ComputeFlowClosure (D3) ----
+
+        // catches (HARVEST-WINDOW-EDGE-FRAME): an over-delivery inside the
+        // windows' edge slack failing the closure, and the slack widening the
+        // closure for a resource it does not name or past its own bound.
+        [Fact]
+        public void ComputeFlowClosure_OverDeliveryWithinEdgeSlack_Closes_BeyondRejects()
+        {
+            var slack = new Dictionary<string, double> { ["Ore"] = 0.001 };
+            FlowClosureResult within = RouteAnalysisEngine.ComputeFlowClosure(
+                OreAmountD(0.0),
+                new List<Dictionary<string, double>> { null },
+                OreAmountD(3.0),
+                new List<Dictionary<string, double>> { OreAmountD(3.0005) },
+                OreAmountD(0.0),
+                slack);
+            Assert.True(within.Closes, $"offending={within.OffendingResource}");
+
+            FlowClosureResult beyond = RouteAnalysisEngine.ComputeFlowClosure(
+                OreAmountD(0.0),
+                new List<Dictionary<string, double>> { null },
+                OreAmountD(3.0),
+                new List<Dictionary<string, double>> { OreAmountD(3.01) },
+                OreAmountD(0.0),
+                slack);
+            Assert.False(beyond.Closes);
+            Assert.Equal("Ore", beyond.OffendingResource);
+
+            FlowClosureResult noSlack = RouteAnalysisEngine.ComputeFlowClosure(
+                OreAmountD(0.0),
+                new List<Dictionary<string, double>> { null },
+                OreAmountD(3.0),
+                new List<Dictionary<string, double>> { OreAmountD(3.0005) },
+                OreAmountD(0.0));
+            Assert.False(noSlack.Closes);
+        }
 
         // byte-identity regression guard for plain KSC delivery: a delivery-only
         // run with a complete run manifest, no harvest, and no pickup must

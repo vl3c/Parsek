@@ -76,3 +76,23 @@ then rewound, a Minmus miner with an engineer (MINE-1's original host).
 
 Order: seam additions and MINE-6, then MINE-7 / MINE-8 / MINE-9, then MINE-10..MINE-15 and the
 routes. Each lane flies on V's PC one at a time.
+
+## Status 2026-11-06
+
+MINE-0 authored (converter pairs on the drill / ISRU showcases, pinned on S1.9). GS-6r3 closed
+by MINE-6's live converter-loop gate. MINE-5's live-drill half is lane
+`MINE-5a-rover-live-drill-harvest-cap` (the plausibility cap against a real window and stock's
+tanks, and the D5 catch-up cell on a drill on ore). MINE-4 and MINE-5's route half wait on a
+dockable craft pair: the miner with a forward docking port or claw and a landed Ore depot it
+can drive into (todo MINING-ISRU-UNTESTED-END-TO-END).
+
+## Status 2026-11-07
+
+The craft pair is scripted, not hand-built: `harness/tools/build_miner_rover_depot.py` derives
+`miner-rover-depot` (V's miner with a Clamp-O-Tron Jr on its front adapter, and an `Ore Depot`
+1.5 m ahead: the same chassis without drills, ports facing, the miner dominant). Two seam modes
+drive it: `DriveVessel untilDocked=true maxSpeed=` (drive until stock couples a Ready port) and
+`PartAction button=transfer partPid= resource=` (a docked vessel's tank-to-tank transfer). MINE-5's
+route half is lane `MINE-5b-rover-dock-depot-harvest-route` (never flown). MINE-4 (a docked-origin
+route across a rewind) is lane `MINE-4-rover-docked-origin-route-rewind` on the scripted
+`miner-rover-relay`, LIVE-PROVEN 2026-11-07 (`2026-11-07_1209`).

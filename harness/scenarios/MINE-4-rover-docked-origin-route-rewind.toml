@@ -1,0 +1,340 @@
+# =============================================================================
+# MINE-4: A MINING-BASE DOCKED-ORIGIN ROUTE, A VISITOR DOCKED AT ITS DESTINATION DURING A
+# DELIVERY, AND A REWIND-TO-LAUNCH OF THE ROUTE'S OWN TREE (MINE-4 + IR-9 + IR-7 in one flight).
+#
+# Authored 2026-11-07 (branch `claude/project-thread-1ckuhv`). Every gate below is a
+# first-flight prediction; the report-only blocks stay report-only until a reading run.
+#
+# FLIGHT LEDGER.
+#   2026-11-07_0921 (+ _a2), branch head 46c1886, automation DLL from main 67a3b22: INVALID
+#     (driver), no Parsek finding. The depot dock, the load (75 moved, 150 conserved) and the
+#     undock worked; then (1) the undock pressed the DEPOT's port, and stock moved the focus
+#     to the depot's half three frames later (`[FLIGHT GLOBALS]: Switching To Vessel Ore
+#     Depot`), and (2) the undock's push rolled the unfocused miner about 2.5 m back into the
+#     silo, which docked by itself at UT 101.6 (the silo was 1.5 m behind). The backwards
+#     drive then drove the depot, which never moved. Fixed in the lane: every undock names
+#     the miner's own port (`partPid=`), the backwards drive starts right after the depot
+#     undock, and the silo stands 4 m behind (`SILO_GAP_METERS`), so neither push can reach a
+#     port it should not. The IR-9 creep is gone (the silo undock's push clears the rear port).
+#   2026-11-07_0931 (+ _a2), head a8af13e, same DLL: INVALID (driver). Stock offers Undock only
+#     on the absorbed half's port: `partaction rejected reason=partaction-event-unavailable
+#     button=undock ... partPid=2411209819 candidates=0`. Reading of the first flight's switch:
+#     V's save carries `ref = 0` (no reference part), so after the undock stock moves the focus
+#     to the pressed port's half. Fixed: `PartAction button=controlfrom` on the miner's probe
+#     core before the recording, and every undock presses the one offered port again. A
+#     `Vessel switch detected: 'Mining Rover RC'` line is now forbidden.
+#   2026-11-07_0942 (+ _0945_a2), head 5d25bfe, same DLL: INVALID. Attempt 1 docked, loaded,
+#     undocked (focus stayed on the miner), docked the silo and unloaded; then RouteCommand
+#     create was REJECTED although the gate said eligible: `BuildRoute rejected:
+#     origin-span-mismatch ... expectedStart=94.94 ... derivedStart=64.58`. A real Parsek
+#     defect (todo ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE): the depot's recording starts at
+#     its first background sample, UT 94.96, so the backing mission's undock edge sits a
+#     frame after the window's 94.94 and the start trim kept the docked-at-depot stretch.
+#     Fixed in `RouteBackingMission.ComputeStartExcludedIntervalKeys`. Attempt 2 drove 70 ms
+#     after the undock while its push had the rover FLYING (`drivevessel-not-on-surface`);
+#     the lane now waits to UT 96 and settles first.
+#   2026-11-07_1003 (+ _1005_a2), head 3d4c0e6, DLL built from it: INVALID, identical twice.
+#     The undock and the settle were clean, but during the settle the braked miner crept
+#     back down the slope and docked the silo by itself (OnPartCouple at UT 105.74), so the
+#     backwards dock drive found only the front port free and pushed the docked pair 51 m
+#     (`did-not-dock ... activeParts=53`). The lane now waits only to UT 95.6 (on the
+#     ground again) and drives back at once.
+#   2026-11-07_1014 (+ _1018_a2), head 4c0077e, same DLL: INVALID, identical twice; 42 of 68
+#     steps. Silo dock, unload, silo undock, seal and route create all passed (the route-origin
+#     fix: `MINE4 Ore Shuttle` Paused, no origin-span-mismatch). The visitor dock failed: the
+#     silo undock left the miner against the silo with its rear port disengaged
+#     (`readyPorts=1`, path 1.6 m at 0.10 m/s). The lane now drives forward 3 s at 0.3 first.
+#   2026-11-07_1028 (+ _1032_a2), head ca9a8c1, same DLL: INVALID (driver-arg), identical
+#     twice; 51 of 68 steps. The forward drive re-armed the rear port (`readyPorts=2`), but
+#     the miner was still rolling forward at 1.26 m/s, the dock drive gave no reverse throttle
+#     above its unsigned `maxSpeed`, and the miner coasted into the DEPOT (couple partnerPid
+#     4220603694 'Ore Depot' at UT 186.70). The route still ran right through that composite
+#     (origin debited through `compositePid=110406740`, the silo written 75 -> 150); the
+#     reads after `und3` then named the wrong vessels. The lane now settles after the
+#     forward drive.
+#   2026-11-07_1041 (+ _1046_a2), head c6b22a7, same DLL: INVALID, identical twice; 65 of 70
+#     steps. MINE-4 and IR-9 clean (visitor dock to the silo; origin debit and the delivery
+#     through the composite, `parts=own=24/53`). IR-7 found a Parsek defect
+#     (ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE): the route was created between the commit's
+#     out-of-band flush and the next save, which advanced a source's sidecar epoch with no
+#     content change, so the materialized route went SourceChanged
+#     (`sidecar-epoch-drift id=baf969f1`) and `send-once` was refused. Fixed in the route
+#     source capture; the DLL must be rebuilt.
+#   2026-11-07_1139 (+ _1144_a2), head 867cd9f, rebuilt DLL: INVALID, identical twice; 69
+#     of 70 steps. IR-7 now materializes the route and `send-once` runs, but the rewind
+#     respawned all three tips with fresh pids and part ids, so both endpoints fell to the
+#     proximity step and the destination went to the respawned MINER (1.56 m away) instead of
+#     the silo: a Parsek defect (ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED, the route's own
+#     transport respawned under a new guid was not recognized as the transport). Fixed by
+#     following the spawn link rows. The last read also named the fixture pids, gone after
+#     the rewind; it is removed (the contracts after `ir7-materialized` carry that proof).
+#   2026-11-07_1209, head a0b28d8, rebuilt DLL: PASS attempt 1 (327 s), every verifier PASS /
+#     SKIPPED. LIVE-PROVEN. After the rewind the destination transferred to the respawned silo
+#     (proximity, 2.30 m), the respawned depot was debited 75 -> 0 and the silo written
+#     75 -> 150; the respawned miner was never a candidate.
+#
+# WHAT IT CLOSES.
+#   * MINE-4 (`docs/dev/research/mining-isru-test-program-2026-10-17.md`, todo
+#     MINING-ISRU-UNTESTED-END-TO-END): a route whose ORIGIN is a landed Ore depot the
+#     transport docks to and loads from. In Parsek terms that is the mid-tree docked origin
+#     (logistics design 19.2.5, M-MIS-5 P2b, `RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin`):
+#     the run starts undocked, its FIRST connection window (the depot) becomes the origin and
+#     the rest are stops. No committed lane had ever printed `midTreeOrigin=1` live.
+#   * IR-9 (todo INTEGRATION-COVERAGE-LOGISTICS-REWIND-LEDGER, roadmap Phase B): a visitor
+#     docked to the route's destination while a delivery is written. The visitor here is the
+#     miner itself, docked back to the silo after the route was created, so the docked
+#     composite carries the MINER's persistentId (it is the heavier, dominant half) and the
+#     silo's own pid is gone from `FlightGlobals`. The route must find the silo by part
+#     identity (`Endpoint resolved through a DOCKED COMPOSITE:`), write into the silo's own
+#     parts only (`parts=own=24/53`, ROUTE-DELIVERY-INTO-DOCKED-VISITOR), and leave the
+#     miner's two EMPTY ore tanks empty: a whole-composite writer would fill them first.
+#   * IR-7 (same todo): a Rewind-to-Launch of the route's OWN backing tree. The route was
+#     created after the launch, so the rewind puts it to sleep (dormant), retires its route
+#     events, and brings it back Paused when the clock reaches its creation; one more cycle
+#     then debits the depot's chain tip and delivers into the silo's chain tip, both spawned
+#     from the tree's end with the Ore they held then. (The "dormant twin dropped" branch,
+#     a new route on the same tree created inside the dormancy, is not flown here.)
+#
+# HOST: `miner-rover-relay` (`harness/tools/build_miner_rover_relay.py`, gated by
+# `harness/lib/test_miner_rover_relay.py`): V's mining rover (pid 110406740) with ports front
+# and rear, ballast in its fuel tank; the `Ore Depot` (pid 3950359723, 150 Ore) 1.5 m ahead;
+# the empty `Ore Silo` (pid 4030840545) 4 m behind; all three landed in one line, ports
+# facing. UT 30. The miner outweighs the full depot (and the silo), so it stays the dominant
+# vessel and the active one through every dock and undock.
+#
+# THE STORY.
+#   1. Record: drive forward until the front port couples with the depot; move Ore into the
+#      miner's first ore tank (75, the tank's capacity; the depot keeps 75); undock; drive
+#      BACKWARDS until the rear port couples with the silo; move the Ore into the silo's first
+#      tank; undock. Ore is read at every step (ReadVesselResources sums).
+#   2. Commit, seal, `RouteCommand create`: eligible with `midTreeOrigin=1` (the depot window
+#      is the origin, the silo window the one stop).
+#   3. IR-9: a short drive forward (re-arms the rear port), back into the silo again,
+#      `send-once`, TimeJump. The depot is debited 75
+#      (path=loaded); the silo is credited 75 through the docked composite; undock and read:
+#      miner Ore 0, silo Ore 150, depot Ore 0.
+#   4. IR-7: `InvokeRewindToLaunch tree=latest` (the route's backing tree, the only commit).
+#      The route goes dormant. A Space Center warp passes the tree end (the depot, silo and
+#      miner chain tips spawn) and the route's creation UT (it materializes Paused);
+#      `send-once` and a second warp run one cycle on the unloaded tips (path=unloaded).
+#
+# FIRST-FLIGHT WATCH ITEMS.
+#   * THE REVERSE DOCK. The rear port and the backwards drive have never flown; the drive is
+#     the same wheel-motor write with a negative throttle. A miss reads ERROR
+#     `drivevessel-did-not-dock` on the `dks` step (driver INVALID).
+#   * THE COMPOSITE DELIVERY. If the silo is NOT found through the composite the route holds
+#     EndpointLost; if found but the scope is undetermined the line reads `parts=whole` and
+#     the miner's tanks take the Ore (a product finding, then).
+#   * THE TIPS AFTER THE REWIND. The depot and silo chain tips must resolve as the route's
+#     endpoints by identity (root part flightID), not by proximity. A hold of kind
+#     EndpointLost after the materialize is a finding.
+#   * The `ListHandles kind=committed` / `kind=routes` answers and the after-rewind reads are
+#     report-only (a tip may carry a fresh pid).
+#
+# wall about 6 min (one LoadGame, about 3 min of 1x, two TimeJumps, a rewind, two SC warps).
+# =============================================================================
+schema = 1
+id = "MINE-4-rover-docked-origin-route-rewind"
+tier = "nightly"
+description = "MINE-4 + IR-9 + IR-7: V's mining rover drives into a full landed Ore depot, loads Ore, undocks, backs into an empty Ore silo, unloads and undocks; the route created from that recording has the depot as its docked origin. With the rover docked back to the silo as a visitor, one cycle debits the depot and credits only the silo's own tanks. A Rewind-to-Launch of the route's own tree puts the route to sleep; it comes back Paused at its creation and one more cycle runs on the spawned chain tips."
+instanceProfile = "stock-minimal"
+tags = ["mining", "logistics", "route", "dock", "docked-origin", "rewind", "MINE-4", "IR-7", "IR-9"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-relay"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # Miner (110406740) 0, depot (3950359723) 150, silo (4030840545) 0 Ore.
+  { cmd = "ReadVesselResources", args = { pid = "110406740,3950359723,4030840545", resources = "Ore", expect = "Ore:150", tolerance = "0.01" }, label = "r0", expect = "OK" },
+  # The control point on the miner's own probe core (2300437286): V's save carries
+  # `ref = 0`, and with no reference part aboard stock moves the focus to the undocked half
+  # after every undock (flight 2026-11-07_0921).
+  { cmd = "PartAction",          args = { button = "controlfrom", part = "probeStackSmall", partPid = "2300437286" }, expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # 1. Forward into the depot until the front ports couple.
+  { cmd = "MissionMark",         args = { label = "mine4-dock-depot" },                   expect = "OK" },
+  { cmd = "DriveVessel",         args = { wheelThrottle = "0.5", seconds = "20", untilDocked = "true", maxSpeed = "0.25" }, label = "dkd", expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "95", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # Load: everything else's Ore into the miner's first ore tank (its capacity, 75).
+  { cmd = "PartAction",          args = { button = "transfer", part = "RadialOreTank", partPid = "3466353313", resource = "Ore" }, label = "tl", expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore", expect = "Ore:150", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine4-undock-depot" },                 expect = "OK" },
+  # Undock. Stock offers the Undock event only on the absorbed half's port (the depot's;
+  # flight 2026-11-07_0931 refused the miner's own port `candidates=0`), so the press names
+  # no port; the control point set above keeps the focus on the miner.
+  { cmd = "PartAction",          args = { button = "undock" }, label = "und1",            expect = "OK" },
+  # A short wait, then straight back into the silo. Driving at once fails: the split leaves
+  # the miner FLYING for a few frames (flight 2026-11-07_0945_a2 drove 70 ms after the
+  # undock: `drivevessel-not-on-surface`; flight `_1003` was back on the ground within
+  # 0.4 s). Waiting longer fails too: brakes on, the miner creeps back down the slope and
+  # docks the silo by itself (`_1003`: undock UT 94.9, settle from 95.8, self-dock at
+  # 105.74, so the dock drive then had nothing to dock). The undock lands at about UT 94.9
+  # (the warp to 95 stops just short), so 95.6 is always ahead.
+  { cmd = "WarpToUT",            args = { ut = "95.6", maxRate = "1" },                   expect = "OK", budget = 60 },
+  { cmd = "MissionMark",         args = { label = "mine4-dock-silo" },                    expect = "OK" },
+  { cmd = "DriveVessel",         args = { wheelThrottle = "-0.5", seconds = "30", untilDocked = "true", maxSpeed = "0.4" }, label = "dks", expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "170", maxRate = "1" },                    expect = "OK", budget = 120 },
+  # The miner (now docked to the empty silo) holds 75, the depot kept 75.
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore", expect = "Ore:75", tolerance = "0.01" }, label = "rm1", expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${und1.newPid}", resources = "Ore", expect = "Ore:75", tolerance = "0.01" }, label = "rdep1", expect = "OK" },
+  # Unload into the silo's first ore tank.
+  { cmd = "PartAction",          args = { button = "transfer", part = "RadialOreTank", partPid = "24625215", resource = "Ore" }, label = "tu", expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore", expect = "Ore:75", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine4-undock-silo" },                  expect = "OK" },
+  { cmd = "PartAction",          args = { button = "undock" }, label = "und2",            expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "180", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore", expect = "Ore:0", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${und2.newPid}", resources = "Ore", expect = "Ore:75", tolerance = "0.01" }, label = "rsilo1", expect = "OK" },
+  # 2. Commit; CommitTree on the still-active miner re-takes the committed tree (a
+  # copy-on-write clone); stop and discard the clone, the committed original stays.
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine4-committed-${c0.count}" },        expect = "OK" },
+  { cmd = "SealSlot",            args = { tree = "${c0.rec0tree}" },                      expect = "OK", budget = 120 },
+  { cmd = "RouteCommand",        args = { action = "create", tree = "${c0.rec0tree}", name = "MINE4 Ore Shuttle" }, expect = "OK", budget = 120 },
+  # 3. IR-9: the miner docks back to the silo as a visitor. The silo undock leaves the
+  # miner resting against the silo, its rear port disengaged (flight `_1014`: the dock drive
+  # saw `readyPorts=1` and pushed 1.6 m in 30 s without a dock), and a stock port re-arms
+  # only once its partner is out of reach. So first a short drive forward (1.8 m, about
+  # 6 m of room to the depot), then a settle to stop it: the dock drive holds its throttle
+  # only below `maxSpeed` and reads speed unsigned, so a miner still rolling forward at
+  # 1.26 m/s got no reverse throttle and coasted 4.3 m into the depot (flight `_1028`). The
+  # settle ends within about a second once the brakes stop it, too short for the slope
+  # creep that docked the silo by itself in flight `_1003` (about 10 s).
+  { cmd = "DriveVessel",         args = { wheelThrottle = "0.3", seconds = "3" },         label = "fwd", expect = "OK" },
+  { cmd = "DriveVessel",         args = { settleBelow = "0.05", seconds = "30" },        expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine4-visitor-dock" },                 expect = "OK" },
+  { cmd = "DriveVessel",         args = { wheelThrottle = "-0.5", seconds = "30", untilDocked = "true", maxSpeed = "0.4" }, label = "dkv", expect = "OK" },
+  { cmd = "DriveVessel",         args = { settleBelow = "0.05", seconds = "30" },        expect = "OK" },
+  { cmd = "RouteCommand",        args = { action = "send-once", route = "MINE4 Ore Shuttle" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",            args = { ut = "3000" },                                  expect = "OK", budget = 300 },
+  { cmd = "ListHandles",         args = { kind = "routes" },                              expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine4-visitor-delivered" },            expect = "OK" },
+  { cmd = "PartAction",          args = { button = "undock" }, label = "und3",            expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "3010", maxRate = "1" },                   expect = "OK", budget = 120 },
+  # The visitor's tanks are unchanged (empty), the silo's own tanks hold the delivery, the
+  # depot gave its 75.
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore", expect = "Ore:0", tolerance = "0.01" }, label = "rvis", expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${und3.newPid}", resources = "Ore", expect = "Ore:150", tolerance = "0.01" }, label = "rsilo2", expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${und1.newPid}", resources = "Ore", expect = "Ore:0", tolerance = "0.01" }, label = "rdep2", expect = "OK" },
+  # 4. IR-7: rewind to the launch of the route's own tree (the only commit).
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "ir7-rewind-${c1.count}" },             expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "ListHandles",         args = { kind = "routes" },                              expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "ir7-rewound" },                        expect = "OK" },
+  # Past the tree end (the tips spawn) and the route's creation (it materializes Paused).
+  { cmd = "WarpToUT",            args = { ut = "600", maxRate = "10" },                   expect = "OK", budget = 300 },
+  { cmd = "ListHandles",         args = { kind = "committed" },                           expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "routes" },                              expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "ir7-materialized" },                   expect = "OK" },
+  { cmd = "RouteCommand",        args = { action = "send-once", route = "MINE4 Ore Shuttle" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",            args = { ut = "3000", maxRate = "100" },                 expect = "OK", budget = 300 },
+  { cmd = "ListHandles",         args = { kind = "routes" },                              expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "ir7-delivered" },                      expect = "OK" },
+  # No read here: the rewind respawned every tip under a fresh persistentId, so the depot
+  # debit and the silo delivery are pinned by the two log contracts after `ir7-materialized`.
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+D5 = ["cross-tree-foreign-dock", "undock-split"]
+D7 = ["dock-undock"]
+D10 = ["dock-producer", "delivery", "resource-cargo"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings.structure]
+# REPORT-ONLY until a reading run: one tree, two docks and two undocks.
+gating = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+# REPORT-ONLY until a reading run: the one route, materialized after the rewind, one cycle
+# completed on the rewound timeline, paused after it.
+gating          = false
+count           = { min = 1, max = 1 }
+completedCycles = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required = [
+  # 1. The recorded run: two docks (forward, then backwards), the miner active throughout.
+  "drivevessel dock start: vessel=Mining Rover RC pid=110406740 wheelThrottle=0\\.50 seconds=20\\.0 maxSpeed=0\\.25 readyPorts=2 ",
+  "drivevessel dock couple: port='dockingPort3' partnerPart='dockingPort3' partnerPid=3950359723 partnerName='Ore Depot' ut=",
+  "drivevessel dock end: outcome=docked vessel=Mining Rover RC pid=110406740 [^\\r\\n]*activePid=110406740 activeName='Mining Rover RC' activeParts=53",
+  "drivevessel dock start: vessel=Mining Rover RC pid=110406740 wheelThrottle=-0\\.50 seconds=30\\.0 maxSpeed=0\\.40 readyPorts=1 ",
+  "drivevessel dock couple: port='dockingPort3' partnerPart='dockingPort3' partnerPid=4030840545 partnerName='Ore Silo' ut=",
+  "partaction applied button=transfer pid=110406740 part='RadialOreTank' [^\\r\\n]* resource=Ore moved=75\\.0000 sources=[1-9] destBefore=0\\.0000 destAfter=75\\.0000 destMax=75\\.0000",
+  "(?s)MISSIONMARK label=mine4-undock-depot (?:(?!partaction applied button=).)*?partaction applied button=undock pid=110406740 part='dockingPort3' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=[0-9]+->[0-9]+ activePid=110406740 ",
+  "(?s)MISSIONMARK label=mine4-undock-silo (?:(?!partaction applied button=).)*?partaction applied button=undock pid=110406740 part='dockingPort3' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=[0-9]+->[0-9]+ activePid=110406740 ",
+  # Ore conserved: 150 before, 150 docked to the depot, 75 + 75 after each undock.
+  "(?s)MISSIONMARK label=mine4-dock-depot (?:(?!MISSIONMARK label=mine4-undock-depot).)*?readvesselresources expect resource=Ore expected=150\\.0000 actual=150\\.0000 diff=-?0\\.00[0-9]{2} tolerance=0\\.0100 match=true",
+  "(?s)MISSIONMARK label=mine4-undock-silo (?:(?!MISSIONMARK label=mine4-committed).)*?readvesselresources expect resource=Ore expected=75\\.0000 actual=75\\.0000 diff=-?0\\.00[0-9]{2} tolerance=0\\.0100 match=true",
+  # 2. The route: the depot window is the docked origin, the silo the one stop.
+  "sealslot complete mode=tree tree=[0-9a-f]{32} ",
+  "routecommand create gate tree=[0-9a-f]{32} treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "RouteAnalysis: mid-tree docked origin resolved originWindowSource=[0-9a-f]{32} window=[^ \\r\\n]+ dockUT=[0-9.E+-]+ undockUT=[0-9.E+-]+ stops=1",
+  "RouteAnalysis eligible: source=[0-9a-f]{32} window=[^ \\r\\n]+ stops=1 resources=1 [^\\r\\n]*harvestOrigin=0 midTreeOrigin=1",
+  "routecommand complete action=create tree=[0-9a-f]{32} route=[^ \\r\\n]+ name='MINE4 Ore Shuttle' status=Paused ",
+  # 3. IR-9: the visitor docked back, the depot debited, the silo credited through the
+  # composite on its own parts only. An undocked half comes back under a NEW persistentId
+  # (flight `_1014`: the depot 1705213322, the silo 3097086691), so these lines take any pid
+  # for the depot and the silo and only pin the miner's.
+  "(?s)MISSIONMARK label=mine4-visitor-dock (?:(?!MISSIONMARK label=mine4-visitor-delivered).)*?drivevessel dock couple: port='dockingPort3' partnerPart='dockingPort3' partnerPid=[1-9][0-9]* partnerName='Ore Silo' ut=",
+  "(?s)MISSIONMARK label=mine4-visitor-dock (?:(?!MISSIONMARK label=mine4-visitor-delivered).)*?Origin debit: route=[^ \\r\\n]+ origin=Ore Depot pid=[1-9][0-9]* resource=Ore requested=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? debited=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? [^\\r\\n]*path=loaded",
+  "(?s)MISSIONMARK label=mine4-visitor-dock (?:(?!MISSIONMARK label=mine4-visitor-delivered).)*?Endpoint resolved through a DOCKED COMPOSITE: rootPartUId=[0-9]+ recordedPid=[0-9]+ compositePid=110406740 ",
+  "(?s)MISSIONMARK label=mine4-visitor-dock (?:(?!MISSIONMARK label=mine4-visitor-delivered).)*?Delivery write: route=[^ \\r\\n]+ dest=Mining Rover RC pid=110406740 resource=Ore requested=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? written=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? tankBefore=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? tankAfter=(?:150|149\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? capacity=150 path=loaded parts=own=24/53",
+  # The visitor's tanks unchanged, the silo full, the depot empty (three reads that match).
+  "(?s)MISSIONMARK label=mine4-visitor-delivered (?:(?!MISSIONMARK label=ir7-rewind).)*?readvesselresources expect resource=Ore expected=0\\.0000 actual=0\\.0000 diff=-?0\\.00[0-9]{2} tolerance=0\\.0100 match=true(?:(?!MISSIONMARK label=ir7-rewind).)*?readvesselresources expect resource=Ore expected=150\\.0000 actual=150\\.0000 diff=-?0\\.00[0-9]{2} tolerance=0\\.0100 match=true(?:(?!MISSIONMARK label=ir7-rewind).)*?readvesselresources expect resource=Ore expected=0\\.0000 actual=0\\.0000 diff=-?0\\.00[0-9]{2} tolerance=0\\.0100 match=true",
+  # 4. IR-7: the rewind puts the route to sleep; it materializes Paused at its creation and
+  # one more cycle runs on the spawned tips.
+  "(?s)MISSIONMARK label=ir7-rewind-[1-9] (?:(?!MISSIONMARK label=ir7-rewound).)*?OnLoad: go-back route reconcile at cutoff=[0-9.E+-]+ retiredRouteRows=[1-9][0-9]* committedRoutes=1 dormantRoutes=0 ",
+  "(?s)MISSIONMARK label=ir7-rewind-[1-9] (?:(?!MISSIONMARK label=ir7-rewound).)*?OnLoad go-back: routes at rewind cutoff [0-9.E+-]+: kept=0 \\(reconciled=0\\) dormant=1 \\(newly=1\\)",
+  "(?s)MISSIONMARK label=ir7-rewound (?:(?!MISSIONMARK label=ir7-materialized).)*?Materialize: 1 dormant route\\(s\\) materialized at ut=[0-9.E+-]+ \\(MINE4 Ore Shuttle\\); 0 dropped occupied; 0 still dormant",
+  "(?s)MISSIONMARK label=ir7-materialized (?:(?!MISSIONMARK label=ir7-delivered).)*?Origin debit: route=[^ \\r\\n]+ origin=Ore Depot pid=[0-9]+ resource=Ore requested=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? debited=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? tankBefore=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? tankAfter=(?:0|[0-9.]+E-[0-9]+) path=unloaded",
+  "(?s)MISSIONMARK label=ir7-materialized (?:(?!MISSIONMARK label=ir7-delivered).)*?Delivery write: route=[^ \\r\\n]+ dest=Ore Silo pid=[0-9]+ resource=Ore requested=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? written=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? tankBefore=(?:75|74\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? tankAfter=(?:150|149\\.9[0-9]*)(?:\\.[0-9]+)?(?:E[+-]?[0-9]+)? capacity=150 path=unloaded",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "routecommand rejected",
+  "BLOCKED kind=DestinationFull",
+  "Built route .* mode=CAREER",
+  "Materialize: dormant route [^\\r\\n]*DROPPED",
+  # The miner keeps the focus through every undock (the first flight lost it to the depot).
+  "Vessel switch detected: 'Mining Rover RC'",
+]
+
+[runtime]
+# One LoadGame (300 s), StartRecording (180 s), about 3 min of 1x and drives, a commit, a
+# seal, a route create, a TimeJump, a rewind and two Space Center warps. Expected wall about
+# 6 min.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

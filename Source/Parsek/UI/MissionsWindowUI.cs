@@ -238,7 +238,7 @@ namespace Parsek
 
         // Collapsed through-line heads, keyed "missionId:headId" so two Missions over
         // the same tree collapse independently. Transient UI state (not persisted). The
-        // include selection lives per-Mission in Mission.ExcludedThroughLineHeadIds.
+        // include selection lives per-Mission in Mission.ExcludedIntervalKeys.
         private readonly HashSet<string> collapsedLegs = new HashSet<string>();
 
         // Loop-period inline edit state (mirrors RecordingsTableUI's loopPeriodFocusedRi /
@@ -4484,8 +4484,7 @@ namespace Parsek
         // The mission span in seconds = (max trimmed end - min trimmed start) over the COMMITTED
         // loop members, computed via the SAME MissionLoopUnitBuilder.ComputeTrimmedMemberWindows the
         // loop builder derives its span from - so the period cell's effective-cadence display matches
-        // the cadence actually running, including interval-level start/end trims (the old path keyed
-        // off ExcludedThroughLineHeadIds, which the UI never writes, so it ignored interval trims).
+        // the cadence actually running, including interval-level start/end trims.
         // Returns 0 when no committed member is included (no overlap; cell shows the raw period).
         private double MissionSpanSeconds(
             MissionThroughLineView view, Mission mission, IReadOnlyList<Recording> committed)
@@ -4642,8 +4641,7 @@ namespace Parsek
             // The TRIMMED loop members keyed by committed index - the SAME set
             // MissionLoopUnitBuilder actually spawns - so a watch target (and the "watching this
             // mission" check) never picks a vessel that the interval-level trim dropped from the
-            // loop. (The old path keyed off ExcludedThroughLineHeadIds, which the UI never writes,
-            // so it considered every vessel regardless of interval trims.)
+            // loop.
             var windows = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
                 view, GetCompositionRoots(tree), committed, mission.ExcludedIntervalKeys,
                 null, out _, out _);
@@ -5024,14 +5022,15 @@ namespace Parsek
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
-            // Reserve the vertical-scrollbar column so the fixed header's right edge
+            // Reserve the vertical scrollbar's footprint so the fixed header's right edge
             // aligns with the row cells' right edges (the scroll view always shows a
-            // vertical scrollbar). Same trick as the recordings window header.
-            float scrollbarWidth = GUI.skin.verticalScrollbar != null
-                ? GUI.skin.verticalScrollbar.fixedWidth
-                : 16f;
-            if (scrollbarWidth <= 0f) scrollbarWidth = 16f;
-            GUILayout.Space(scrollbarWidth);
+            // vertical scrollbar). A scroll view spends fixedWidth + margin.left on the bar
+            // (16 in KSP's skin), not fixedWidth alone: reserving 15 left the header's
+            // expanding column 1 px wider than the rows' and every data column 1 px right of
+            // its cells. This tab's body box has no right padding and its last cell no right
+            // margin, so it owes the bare footprint, not the Recordings tab's gutter
+            // (footprint + one cell margin).
+            GUILayout.Space(ParsekUI.VerticalScrollbarFootprintWidth());
 
             GUILayout.EndHorizontal();
         }

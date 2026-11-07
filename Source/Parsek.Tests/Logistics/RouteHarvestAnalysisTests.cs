@@ -484,6 +484,142 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(50.0, untouched["Ore"], 6);
         }
 
+        // ------------------------------------------------------------------
+        // HARVEST-WINDOW-EDGE-FRAME: one physics frame of production lands
+        // before the harvest poll reads the window's start manifest (MINE-5b's
+        // first flight: gained 3.0634875677206495, harvested 3.0634523481529912,
+        // a 3.52e-5 gap that is MINE-5a's measured rate 0.0017610771798682616 x
+        // 0.0200 s). Synthetic numbers below: drills at 0.012 Ore/s over a 250 s
+        // window witness 3.0 Ore, one 0.02 s frame is 2.4e-4 Ore.
+        // ------------------------------------------------------------------
+
+        private const double EdgeRate = 0.012;
+        private const double OneFrameOre = EdgeRate * 0.02;
+
+        private static RouteHarvestWindow EdgeFrameWindow(double startOre, double endOre, bool withRates = true)
+        {
+            RouteHarvestWindow w = HarvestWindow(150.0, 400.0, Ore(startOre), Ore(endOre));
+            if (withRates)
+                w.PlausibleRates = new Dictionary<string, double> { ["Ore"] = EdgeRate };
+            return w;
+        }
+
+        // catches: a window whose start manifest already carries one frame of
+        // production (the gain is anchored before it) rejecting the whole run
+        // as an untracked cargo gain; and the fix inflating the witnessed or
+        // plausible manifests the D8 debit reduction and the route credit read.
+        [Fact]
+        public void CheckTransportGains_OpenEdgeFrameBeforeStartRead_CoveredWithoutInflatingManifests()
+        {
+            double dockOre = 3.0 + OneFrameOre;
+            RecordingTree tree = BuildKscTree(out Recording root, out Recording merge,
+                rootStartOre: 0.0, rootEndOre: dockOre);
+            root.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                EdgeFrameWindow(OneFrameOre, dockOre)
+            };
+
+            HarvestGainCheckResult result = RouteHarvestAnalysis.CheckTransportGains(
+                tree, merge, ColonyWindow(dockOre, 0.0), RouteAnalysisLogMode.Diagnostic);
+
+            Assert.Equal(HarvestGainOutcome.Covered, result.Outcome);
+            Assert.Equal(3.0, result.HarvestedManifest["Ore"], 9);
+            Assert.Equal(3.0, result.PlausibleHarvestedManifest["Ore"], 9);
+            Assert.Empty(result.HarvestCaps);
+            // The edge slack is the verdict's only extra term: rate x 1.5 x 0.08 s x 2 edges.
+            Assert.Equal(EdgeRate * RouteHarvestCapture.PlausibilityMargin
+                    * RouteHarvestCapture.HarvestEdgeFrameSeconds * RouteHarvestCapture.HarvestWindowEdges,
+                result.HarvestEdgeSlack["Ore"], 12);
+            Assert.Contains(logLines, l => l.Contains("[Route]")
+                && l.Contains("gains covered") && l.Contains("edgeSlackUsed=1"));
+        }
+
+        // catches: the edge slack masking a real untracked gain. A gap of a
+        // full second of production at the window's rate is far outside two
+        // physics frames and must keep rejecting.
+        [Fact]
+        public void CheckTransportGains_GapBeyondEdgeBound_StillRejects()
+        {
+            double gap = EdgeRate * 1.0;
+            double dockOre = 3.0 + gap;
+            RecordingTree tree = BuildKscTree(out Recording root, out Recording merge,
+                rootStartOre: 0.0, rootEndOre: dockOre);
+            root.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                EdgeFrameWindow(gap, dockOre)
+            };
+
+            HarvestGainCheckResult result = RouteHarvestAnalysis.CheckTransportGains(
+                tree, merge, ColonyWindow(dockOre, 0.0), RouteAnalysisLogMode.Diagnostic);
+
+            Assert.Equal(HarvestGainOutcome.UntrackedGain, result.Outcome);
+            Assert.Equal("Ore", result.RejectResource);
+            Assert.Equal(3.0, result.RejectHarvested, 9);
+        }
+
+        // catches: an unbounded window (an unmodeled converter, no rates)
+        // granting edge slack. Without a rate there is no physical bound on a
+        // frame's production (a catch-up burst can land in one frame), so the
+        // check stays fail closed.
+        [Fact]
+        public void CheckTransportGains_OpenEdgeFrame_WindowWithoutRates_FailsClosed()
+        {
+            double dockOre = 3.0 + OneFrameOre;
+            RecordingTree tree = BuildKscTree(out Recording root, out Recording merge,
+                rootStartOre: 0.0, rootEndOre: dockOre);
+            root.RouteHarvestWindows = new List<RouteHarvestWindow>
+            {
+                EdgeFrameWindow(OneFrameOre, dockOre, withRates: false)
+            };
+
+            HarvestGainCheckResult result = RouteHarvestAnalysis.CheckTransportGains(
+                tree, merge, ColonyWindow(dockOre, 0.0), RouteAnalysisLogMode.Diagnostic);
+
+            Assert.Equal(HarvestGainOutcome.UntrackedGain, result.Outcome);
+        }
+
+        // The per-window slack: rated routable resources only, open or unbounded
+        // windows none.
+        [Fact]
+        public void ComputeWindowEdgeSlack_RatedClosedWindowOnly()
+        {
+            RouteHarvestWindow w = EdgeFrameWindow(0.0, 3.0);
+            w.PlausibleRates["ElectricCharge"] = 5.0;
+            Dictionary<string, double> slack = RouteHarvestCapture.ComputeWindowEdgeSlack(w);
+            Assert.Equal(EdgeRate * 1.5 * 0.08 * 2, slack["Ore"], 12);
+            Assert.False(slack.ContainsKey("ElectricCharge"));
+
+            Assert.Empty(RouteHarvestCapture.ComputeWindowEdgeSlack(EdgeFrameWindow(0.0, 3.0, withRates: false)));
+            RouteHarvestWindow open = EdgeFrameWindow(0.0, 3.0);
+            open.EndTransportResources = null;
+            Assert.Empty(RouteHarvestCapture.ComputeWindowEdgeSlack(open));
+            Assert.Empty(RouteHarvestCapture.ComputeWindowEdgeSlack(null));
+        }
+
+        // catches (mirror direction): the edge slack letting the route credit
+        // more than was witnessed, or reporting a "capped" route for a frame of
+        // production. A delivery one frame above the plausible harvest is
+        // trimmed to it, and no cap is reported; a delivery beyond the slack
+        // still reports one.
+        [Fact]
+        public void ClampDeliveriesToPlausibleHarvest_WithinEdgeSlack_TrimsWithoutReportingCap()
+        {
+            var slack = new Dictionary<string, double> { ["Ore"] = 4 * OneFrameOre };
+            var delivery = new Dictionary<string, double> { ["Ore"] = 3.0 + OneFrameOre };
+            List<HarvestCapEntry> caps = RouteHarvestAnalysis.ClampDeliveriesToPlausibleHarvest(
+                new List<Dictionary<string, double>> { delivery },
+                new Dictionary<string, double> { ["Ore"] = 3.0 }, slack);
+            Assert.Equal(3.0, delivery["Ore"], 12);
+            Assert.Empty(caps);
+
+            var beyond = new Dictionary<string, double> { ["Ore"] = 3.5 };
+            caps = RouteHarvestAnalysis.ClampDeliveriesToPlausibleHarvest(
+                new List<Dictionary<string, double>> { beyond },
+                new Dictionary<string, double> { ["Ore"] = 3.0 }, slack);
+            Assert.Equal(3.0, beyond["Ore"], 12);
+            Assert.Single(caps);
+        }
+
         // catches: a boundary delta bridged WITHOUT a window open at the
         // boundary - an unexplained between-leg gain must stay unaccounted.
         [Fact]

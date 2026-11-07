@@ -295,7 +295,6 @@ namespace Parsek.Tests
                 LoopAnchorUT = 1234.5,
                 Collapsed = true,
             };
-            m.ExcludedThroughLineHeadIds.Add("headX");
             m.ExcludedIntervalKeys.Add("intervalY");
 
             var node = new ConfigNode("MISSION");
@@ -312,13 +311,13 @@ namespace Parsek.Tests
             {
                 "id", "treeId", "name", "loopPlayback", "loopIntervalSeconds", "loopTimeUnit",
                 "loopAnchorUT", "collapsed", "selectionSchemaGeneration",
-                "excludedHead", "excludedInterval",
+                "excludedInterval",
             }, names);
             Assert.Equal(new[]
             {
                 "m1", "tb", "B mission", "True", "42.5", "Min",
                 "1234.5", "True", "1",
-                "headX", "intervalY",
+                "intervalY",
             }, values);
         }
 

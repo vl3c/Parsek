@@ -32,6 +32,7 @@ import os
 import re
 import sys
 import tomllib
+import types
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1044,7 +1045,8 @@ class SchemaAndSpecTests(unittest.TestCase):
                                       "evaExitRetrySeconds",
                                       "ascentCoastWheelFloorMeters",
                                       "ascentCoastWheelCeilingMeters",
-                                      "munAscentMaxTiltDeg"}
+                                      "munAscentMaxTiltDeg"} | {
+                                          k for k, _ in mlib.MJ_CLASSIC_PATH_KEYS}
 
     def test_mor_and_b13_keys_are_declared_identically(self):
         mine = _schema("b13_mun_landing_return")["params"]
@@ -1136,7 +1138,13 @@ class SchemaAndSpecTests(unittest.TestCase):
         rollout = re.compile(next(r for r in required if "VesselRollout" in r
                                   and "2932" not in r))
         self.assertFalse(rollout.search("Game state: FundsChanged -2932 (VesselRollout)"))
-        self.assertTrue(rollout.search("Game state: FundsChanged -13452 (VesselRollout)"))
+        # The staging cut's predicted 14327 (builder 14292 + the +35 every CS craft
+        # measured); never the fuel cut's 13127, the outrigger cut's 13302 nor the first
+        # solar cut's 13452.
+        self.assertTrue(rollout.search("Game state: FundsChanged -14327 (VesselRollout)"))
+        self.assertFalse(rollout.search("Game state: FundsChanged -13127 (VesselRollout)"))
+        self.assertFalse(rollout.search("Game state: FundsChanged -13302 (VesselRollout)"))
+        self.assertFalse(rollout.search("Game state: FundsChanged -13452 (VesselRollout)"))
         # The seam's own completion lines, as the C# writes them.
         exit_re = re.compile(next(r for r in required if r.startswith("evaexit complete")))
         self.assertTrue(exit_re.search("evaexit complete kerbal=Jebediah Kerman "
@@ -1384,6 +1392,176 @@ def _trace_digest(decide, state, frames, evaluate):
         out.append(repr(state))
     out.append(repr(evaluate([], state.params, state)))
     return hashlib.sha256("\n".join(out).encode("utf-8")).hexdigest()
+
+
+CLASSIC_PATH = {"mjClassicTurnStartAltitudeMeters": 1000,
+                "mjClassicTurnStartVelocityMps": 90,
+                "mjClassicTurnEndAltitudeMeters": 80000,
+                "mjClassicTurnShapeExponent": 0.55,
+                "mjClassicTurnEndAngleDeg": 0}
+
+
+class ClassicPathTests(unittest.TestCase):
+    """CS-7's loft: the classic-path setters, written after the career setters and
+    before the engage, only when the keys are set."""
+
+    def _launch(self, p):
+        return mlib.mlr_decide(mlib.mlr_initial_state(p),
+                               snap(ut=5.0, situation="PRE_LAUNCH", body="Kerbin"))[1]
+
+    def test_absent_keys_set_nothing(self):
+        p = _params()
+        self.assertIsNone(p.classic_path)
+        self.assertNotIn(mlib.ACTION_MJ_SET_AUTO_PATH, _kinds(self._launch(p)))
+
+    def test_the_setters_go_in_order_before_the_engage(self):
+        actions = self._launch(_params(**CLASSIC_PATH))
+        self.assertEqual([mlib.ACTION_MJ_SET_TARGET_APOAPSIS, mlib.ACTION_MJ_ENABLE_AUTOSTAGE,
+                          mlib.ACTION_MJ_SET_ASCENT_TYPE, mlib.ACTION_MJ_SET_AUTOSTAGE_LIMIT,
+                          mlib.ACTION_MJ_SET_AUTO_PATH,
+                          mlib.ACTION_MJ_SET_TURN_START_ALTITUDE,
+                          mlib.ACTION_MJ_SET_TURN_START_VELOCITY,
+                          mlib.ACTION_MJ_SET_TURN_END_ALTITUDE,
+                          mlib.ACTION_MJ_SET_TURN_SHAPE_EXPONENT,
+                          mlib.ACTION_MJ_SET_TURN_END_ANGLE,
+                          mlib.ACTION_MJ_ENGAGE_ASCENT], _kinds(actions))
+        values = [a.value for a in actions if a.kind in (
+            mlib.ACTION_MJ_SET_AUTO_PATH,) + tuple(k for _, k in mlib.MJ_CLASSIC_PATH_KEYS)]
+        self.assertEqual([0.0, 1000.0, 90.0, 80000.0, 0.55, 0.0], values)
+
+    def test_the_cs7_spec_sets_the_loft(self):
+        p = mlib.mlr_params_from_dict(_spec(CS7_SPEC)["driver"]["missionParams"])
+        self.assertEqual((1000.0, 90.0, 80000.0, 0.55, 0.0), p.classic_path)
+
+    def test_refusals(self):
+        partial = dict(CLASSIC_PATH)
+        del partial["mjClassicTurnEndAngleDeg"]
+        bad = (partial,
+               dict(CLASSIC_PATH, ascentType=None),
+               dict(CLASSIC_PATH, ascentType=1),
+               dict(CLASSIC_PATH, mjEngageConfirmFrames=0),
+               dict(CLASSIC_PATH, mjClassicTurnShapeExponent=0.0),
+               dict(CLASSIC_PATH, mjClassicTurnShapeExponent=1.2),
+               dict(CLASSIC_PATH, mjClassicTurnStartAltitudeMeters=80000),
+               dict(CLASSIC_PATH, mjClassicTurnEndAngleDeg=90),
+               dict(CLASSIC_PATH, mjClassicTurnStartVelocityMps=-1))
+        for over in bad:
+            with self.assertRaises(ValueError, msg=over):
+                _params(**over)
+
+    def test_the_path_is_restored_once_past_the_kerbin_ascent(self):
+        st = mlib.mlr_initial_state(_params(**CLASSIC_PATH))
+        for phase in mlib.MLR_CLASSIC_PATH_PHASES:
+            at = dataclasses.replace(st, flight=dataclasses.replace(st.flight, phase=phase))
+            self.assertEqual((at, []), mlib.mlr_classic_path_restore_step(at))
+        past = dataclasses.replace(st, flight=dataclasses.replace(
+            st.flight, phase=mlib.B5_ORBIT))
+        done, actions = mlib.mlr_classic_path_restore_step(past)
+        self.assertEqual([mlib.ACTION_MJ_RESTORE_CLASSIC_PATH], _kinds(actions))
+        self.assertTrue(done.classic_path_restored)
+        self.assertEqual([], mlib.mlr_classic_path_restore_step(done)[1])
+        plain = mlib.mlr_initial_state(_params())
+        plain = dataclasses.replace(plain, flight=dataclasses.replace(
+            plain.flight, phase=mlib.B5_ORBIT))
+        self.assertEqual([], mlib.mlr_classic_path_restore_step(plain)[1])
+
+    def test_only_mlr_carries_the_path(self):
+        for cls in (mlib.MfrParams, mlib.MorParams, mlib.MscParams):
+            self.assertNotIn("classic_path", {f.name for f in dataclasses.fields(cls)})
+        self.assertEqual([], mlib.mj_classic_path_actions(None))
+
+
+class _ClassicAscent(object):
+    """A fake AscentAutopilot for the classic-path setters: sticky (or not) values,
+    the two get-only auto altitudes, and an optional raise on one property."""
+
+    def __init__(self, sticky=True, raises_on=None):
+        object.__setattr__(self, "_sticky", sticky)
+        object.__setattr__(self, "_raises_on", raises_on)
+        object.__setattr__(self, "enabled", False)
+        object.__setattr__(self, "auto_path", True)
+        object.__setattr__(self, "auto_turn_start_altitude", 3500.0)
+        object.__setattr__(self, "auto_turn_end_altitude", 59500.0)
+        for name in ("turn_start_altitude", "turn_start_velocity", "turn_end_altitude",
+                     "turn_shape_exponent", "turn_end_angle"):
+            object.__setattr__(self, name, 0.4 if name == "turn_shape_exponent" else 0.0)
+
+    def __setattr__(self, name, value):
+        if name == self._raises_on:
+            raise RuntimeError("no such property")
+        if self._sticky or name == "enabled":
+            object.__setattr__(self, name, value)
+
+
+class RunnerClassicPathTests(unittest.TestCase):
+    def setUp(self):
+        self.lines = []
+        self._saved = mission_runner._stdout_sink
+        mission_runner._stdout_sink = self.lines.append
+        self.control = mission_runner.KrpcMissionControl(use_mechjeb=True, client_name="t")
+        self.control._conn = types.SimpleNamespace(space_center=types.SimpleNamespace(
+            active_vessel=types.SimpleNamespace(control=types.SimpleNamespace())))
+
+    def tearDown(self):
+        mission_runner._stdout_sink = self._saved
+
+    def _fly(self, ascent):
+        self.control._ascent = ascent
+        for a in mlib.mj_classic_path_actions((1000.0, 90.0, 80000.0, 0.55, 0.0)):
+            self.control.perform(a)
+        self.control.perform(Action(mlib.ACTION_MJ_ENGAGE_ASCENT))
+
+    def test_the_values_read_back_and_the_engage_runs(self):
+        ascent = _ClassicAscent()
+        self._fly(ascent)
+        self.assertEqual("", self.control._mj_config_refusal)
+        self.assertFalse(ascent.auto_path)
+        self.assertEqual((1000.0, 90.0, 80000.0, 0.55, 0.0),
+                         (ascent.turn_start_altitude, ascent.turn_start_velocity,
+                          ascent.turn_end_altitude, ascent.turn_shape_exponent,
+                          ascent.turn_end_angle))
+        self.assertTrue(ascent.enabled)
+        self.assertTrue(any("auto_turn_start_altitude=3500.0 auto_turn_end_altitude=59500.0"
+                            in l for l in self.lines), self.lines)
+        self.assertTrue(any("turn_shape_exponent=0.55 (read back confirmed)" in l
+                            for l in self.lines), self.lines)
+
+    def test_the_restore_writes_the_originals_back(self):
+        ascent = _ClassicAscent()
+        self._fly(ascent)
+        self.control.perform(Action(mlib.ACTION_MJ_RESTORE_CLASSIC_PATH))
+        self.assertTrue(ascent.auto_path)
+        self.assertEqual((0.0, 0.0, 0.0, 0.4, 0.0),
+                         (ascent.turn_start_altitude, ascent.turn_start_velocity,
+                          ascent.turn_end_altitude, ascent.turn_shape_exponent,
+                          ascent.turn_end_angle))
+        self.assertTrue(any("classic path restored for ascent done" in l
+                            for l in self.lines), self.lines)
+        self.assertEqual({}, self.control._mj_classic_restore)
+
+    def test_close_restores_a_loft_the_flight_never_undid(self):
+        ascent = _ClassicAscent()
+        self._fly(ascent)
+        self.control._conn.close = lambda: None
+        self.control.close()
+        self.assertTrue(ascent.auto_path)
+        self.assertTrue(any("classic path restored for mission end" in l
+                            for l in self.lines), self.lines)
+
+    def test_a_value_that_does_not_stick_withholds_the_engage(self):
+        ascent = _ClassicAscent(sticky=False)
+        self._fly(ascent)
+        self.assertIn("auto_path READ BACK as True, not False",
+                      self.control._mj_config_refusal)
+        self.assertFalse(ascent.enabled)
+        self.assertTrue(any("REFUSING to engage" in l for l in self.lines), self.lines)
+
+    def test_a_setter_that_raises_withholds_the_engage(self):
+        ascent = _ClassicAscent(raises_on="turn_shape_exponent")
+        self._fly(ascent)
+        self.assertIn("mj_set_turn_shape_exponent set FAILED",
+                      self.control._mj_config_refusal)
+        self.assertFalse(ascent.enabled)
 
 
 class OtherMachinesAreUnchangedTests(unittest.TestCase):

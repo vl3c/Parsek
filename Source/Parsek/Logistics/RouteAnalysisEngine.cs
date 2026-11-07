@@ -938,7 +938,8 @@ namespace Parsek.Logistics
                     loadedWindows,
                     gainCheck.HarvestedManifest,
                     deliveredWindows,
-                    residual);
+                    residual,
+                    gainCheck.HarvestEdgeSlack);
                 if (!closure.Closes)
                 {
                     Diag(logMode,
@@ -989,7 +990,12 @@ namespace Parsek.Logistics
                     {
                         double harvestedAmount = 0.0;
                         gainCheck.HarvestedManifest?.TryGetValue(kvp.Key, out harvestedAmount);
-                        if (kvp.Value > harvestedAmount + RouteHarvestAnalysis.GainEpsilon)
+                        // HARVEST-WINDOW-EDGE-FRAME: the same verdict-only edge
+                        // slack as the gain check; the delivery clamp below still
+                        // lowers the credited amount to the plausible harvest.
+                        double edgeSlack = 0.0;
+                        gainCheck.HarvestEdgeSlack?.TryGetValue(kvp.Key, out edgeSlack);
+                        if (kvp.Value > harvestedAmount + RouteHarvestAnalysis.GainEpsilon + edgeSlack)
                         {
                             undockedRejectReason =
                                 $"delivered-exceeds-harvested resource={kvp.Key} " +
@@ -1056,7 +1062,7 @@ namespace Parsek.Logistics
                 for (int i = stopStartIndex; i < built.Count; i++)
                     deliveries.Add(built[i].Resources);
                 harvestCaps = RouteHarvestAnalysis.ClampDeliveriesToPlausibleHarvest(
-                    deliveries, gainCheck.PlausibleHarvestedManifest);
+                    deliveries, gainCheck.PlausibleHarvestedManifest, gainCheck.HarvestEdgeSlack);
                 if (harvestCaps.Count > 0)
                     Diag(logMode,
                         $"RouteAnalysis: harvest-origin delivery capped to plausible harvest " +
@@ -1818,6 +1824,23 @@ namespace Parsek.Logistics
             List<Dictionary<string, double>> deliveredWindows,
             Dictionary<string, double> residual)
         {
+            return ComputeFlowClosure(launched, loadedWindows, harvested, deliveredWindows, residual, null);
+        }
+
+        /// <summary>
+        /// <see cref="ComputeFlowClosure(Dictionary{string, double}, List{Dictionary{string, double}}, Dictionary{string, double}, List{Dictionary{string, double}}, Dictionary{string, double})"/>
+        /// with the harvest windows' edge slack (HARVEST-WINDOW-EDGE-FRAME,
+        /// <see cref="HarvestGainCheckResult.HarvestEdgeSlack"/>) added to the
+        /// over-delivery tolerance per resource. Null means none.
+        /// </summary>
+        internal static FlowClosureResult ComputeFlowClosure(
+            Dictionary<string, double> launched,
+            List<Dictionary<string, double>> loadedWindows,
+            Dictionary<string, double> harvested,
+            List<Dictionary<string, double>> deliveredWindows,
+            Dictionary<string, double> residual,
+            Dictionary<string, double> edgeSlack)
+        {
             // Union of every resource name that appears in any term, skipping
             // the always-ignored environmental resources (EC/IntakeAir never
             // participate in the balance).
@@ -1850,8 +1873,12 @@ namespace Parsek.Logistics
                     launchedAmount + loaded + harvestedAmount - delivered - residualAmount;
 
                 // Over-delivery: more cargo left the transport (delivered +
-                // residual) than ever arrived (launched + loaded + harvested).
-                if (slack < -RouteHarvestAnalysis.GainEpsilon)
+                // residual) than ever arrived (launched + loaded + harvested),
+                // beyond the frame of production the harvest windows' edges
+                // could not witness.
+                double edge = 0.0;
+                edgeSlack?.TryGetValue(name, out edge);
+                if (slack < -(RouteHarvestAnalysis.GainEpsilon + edge))
                 {
                     double over = -slack;
                     return new FlowClosureResult
