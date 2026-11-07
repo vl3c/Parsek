@@ -1102,7 +1102,6 @@ namespace Parsek
             int recordingIndex, double currentUT, double memberStartUT, double memberEndUT, out double loopUT)
             => engine.TryResolveUnitMemberPlaybackUT(
                 recordingIndex, currentUT, memberStartUT, memberEndUT, out loopUT);
-        internal void PositionGhostAtForWatch(GameObject ghost, TrajectoryPoint point) => Positioner.PositionGhostAt(ghost, point);
         internal GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
 
         /// <summary>
