@@ -2862,6 +2862,16 @@ calls directly. One service per PR; the co-change with `ParsekScenario.cs` is th
   - PR 1 (measurement): the two nested types the scanner misread renamed
     (`CareerSettingsLock.LockDecision`, `ProducerSliceBook.HeldSlice`; see
     ARCH-TOOLING-ROSLYN-AND-CI). Ghost -> GameActions 17 -> 1; upward edges 85 (weight 826).
+  - PR 2 (placement, `modules.toml` only): `TrackSection.cs` (TrackSection, ReferenceFrame,
+    SegmentEnvironment, TrackSectionSource; it references only TrajectoryPoint and
+    OrbitSegment) and `TerminalState.cs` (references nothing) move from Recording to
+    Trajectory by one R0 rule ("trajectory data vocabulary"); TerminalState's old R2 rule is
+    dropped. Trajectory -> Recording 10 -> 1 (only `TrajectoryMath.ComputeStats`, PR 3), Core
+    -> Recording 30 -> 23; Trajectory 16 -> 18 files, instability 0.063 -> 0.024; Recording
+    0.249 -> 0.323, just past GameActions (0.321) and Crew, so two pairs flip reading
+    (GameActions -> Recording 37 and Crew -> Recording 6 are now upward; Recording ->
+    GameActions 15 and Recording -> Crew 3 stop being). Ordering, not new coupling: upward
+    edges stay 85, weight 826 -> 835. Knots unchanged.
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
