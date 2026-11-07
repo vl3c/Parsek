@@ -3407,8 +3407,10 @@ class RealTreeSmokeTests(unittest.TestCase):
         # that made the launch-identity cut (dropping its RecordingSidecarStore and
         # VesselNameStore references) beat the flight controller for second
         # place (426 before). The residue ratchet below is immune to this reorder.
+        # File-placement PR 5 (2026-11-07) deleted the Ghost -> GameActions call,
+        # which tightened this cut by one (426 before).
         self.assertEqual(second["sink"], "VesselLaunchIdentity")
-        self.assertEqual(second["sizeAfter"], 426)
+        self.assertEqual(second["sizeAfter"], 425)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
