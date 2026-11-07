@@ -2910,9 +2910,9 @@ each PR lands on the refactor branch, IL-proven a pure move).
     `FindGapGlideSection` / `IsGapGlidePartner` and the consts `GapGlidePairPointNotFound` /
     `GapGlidePairSingleSample` -> `OrbitReseed` (Trajectory). IL: 3 moved bodies identical, 2
     re-pointed call sites, field set identical. Trajectory -> Ghost 1 -> 0; upward edges 84 ->
-    83 (weight 834 -> 833). The knot stays 458, but the greedy second cut is now
-    `VesselLaunchIdentity` (440 -> 423) and the greedy residue rises 285 -> 290; the
-    replayed residue the ratchet also reads stays 285 (see ARCH-TOOLING-ROSLYN-AND-CI).
+    83 (weight 835 -> 834). The knot stays 458, but the greedy second cut is now
+    `VesselLaunchIdentity` (440 -> 423) and the greedy residue rises 287 -> 291; the
+    replayed residue the ratchet also reads stays 287 (see ARCH-TOOLING-ROSLYN-AND-CI).
     `scripts/refactor/split_ghostmappresence.py` still maps these members to
     `.StateVectors`: a re-split from main's single file must re-apply this move.
 
