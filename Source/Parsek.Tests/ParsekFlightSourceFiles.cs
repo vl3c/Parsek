@@ -70,6 +70,7 @@ namespace Parsek.Tests
             "ParsekFlightSpawnHost.cs",
             "ParsekFlightSplitBrancher.cs",
             "ParsekFlightSurfaceCapture.cs",
+            "ParsekFlightSwitchContinuation.cs",
         };
 
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)

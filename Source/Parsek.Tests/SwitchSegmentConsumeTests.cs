@@ -597,7 +597,7 @@ namespace Parsek.Tests
             // isPromotion:false - or dropping its PrepareSessionStateForRecorderStart
             // call - left every gate green.
             int helperStart = source.IndexOf(
-                "private bool BindLiveRecorderToSwitchSegment(", StringComparison.Ordinal);
+                "internal bool BindLiveRecorderToSwitchSegment(", StringComparison.Ordinal);
             Assert.True(helperStart > 0,
                 "BindLiveRecorderToSwitchSegment declaration not found in ParsekFlight.cs");
             // Bounded by the helper's own brace-matched body: ParsekFlight is split into
@@ -606,7 +606,7 @@ namespace Parsek.Tests
             string helperBody = source.Substring(helperStart, helperEnd - helperStart);
 
             Assert.Matches(new Regex(
-                @"recorder = new FlightRecorder\(\);[\s\S]{0,200}?recorder\.ActiveTree = activeTree;[\s\S]{0,400}?recorder\.StartRecording\(isPromotion: true\);[\s\S]{0,1500}?PrepareSessionStateForRecorderStart\(",
+                @"host\.recorder = new FlightRecorder\(\);[\s\S]{0,200}?host\.recorder\.ActiveTree = host\.activeTree;[\s\S]{0,400}?host\.recorder\.StartRecording\(isPromotion: true\);[\s\S]{0,1500}?PrepareSessionStateForRecorderStart\(",
                 RegexOptions.Multiline),
                 helperBody);
 

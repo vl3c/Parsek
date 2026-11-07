@@ -246,7 +246,7 @@ namespace Parsek
         /// anchor. Session-transient (NOT serialized); NaN falls the dialog back to the
         /// safe tree-wide duration.
         /// </summary>
-        private double liveResumeSessionStartUT = double.NaN;
+        internal double liveResumeSessionStartUT = double.NaN;
         internal List<TrajectoryPoint> recording => recorder?.Recording ?? noRecording;
         internal List<OrbitSegment> orbitSegments => recorder?.OrbitSegments ?? noOrbitSegments;
         private static readonly List<TrajectoryPoint> noRecording = new List<TrajectoryPoint>();
@@ -258,13 +258,11 @@ namespace Parsek
         private double lastLandedUT = -1;
         internal const double LandedSettleThreshold = 5.0; // seconds
         private const double PostSwitchManifestEvaluateNextFrameUt = 0.0;
-        private const float CommittedSpawnedRestoreRetryIntervalSeconds = 1.0f;
         internal const double MissedVesselSwitchRecoveryRecStateIntervalSeconds = 5.0;
 
         // Set true in OnSceneChangeRequested — suppresses Update() to prevent
         // ghost spawns and other processing into the dying scene.
         private bool sceneChangeInProgress;
-        private float nextCommittedSpawnedRestoreRetryAt;
         // Marks a world-first the committed timeline credits complete in stock when the
         // flight clock passes its row (no flight recalc runs at 1x, and one under a live
         // recorder is deferred), so a re-earning flight is not paid for it again.
@@ -276,8 +274,8 @@ namespace Parsek
         // retry re-clones it within a second of the discard. Instance-scoped, so a scene
         // load (a new ParsekFlight) drops it; cleared per frame by
         // ResolveCommittedSpawnedRestoreSuppressionClearReason.
-        private uint committedSpawnedRestoreSuppressedPid;
-        private MissedVesselSwitchRecoveryDiagnosticContext currentVesselSwitchRecoveryDiagnosticContext;
+        internal uint committedSpawnedRestoreSuppressedPid;
+        internal MissedVesselSwitchRecoveryDiagnosticContext currentVesselSwitchRecoveryDiagnosticContext;
 
         // Captured at Start when FlightDriver.StartupBehaviour reports a fresh
         // launch. Identifies the one specific vessel that was rolled out from
@@ -998,6 +996,27 @@ namespace Parsek
         private ParsekFlightMergeFlow mergeFlow;
         internal ParsekFlightMergeFlow MergeFlow =>
             mergeFlow ?? (mergeFlow = new ParsekFlightMergeFlow(this));
+        private ParsekFlightSwitchContinuation switchContinuation;
+        internal ParsekFlightSwitchContinuation SwitchContinuation =>
+            switchContinuation ?? (switchContinuation = new ParsekFlightSwitchContinuation(this));
+
+        // Switch-segment entry points MapFocusObjectOnSelectPatch, SceneExitInterceptor and the
+        // merge flow call; the bodies live on SwitchContinuation.
+        internal bool TryEvaluateActiveSwitchSegmentNoOp(
+            out string reason, out SwitchSegmentDisposition disposition) =>
+            SwitchContinuation.TryEvaluateActiveSwitchSegmentNoOp(out reason, out disposition);
+        internal void AutoDiscardNoOpStandaloneSwitchSegment(string reason) =>
+            SwitchContinuation.AutoDiscardNoOpStandaloneSwitchSegment(reason);
+        internal RecordingStore.SwitchSegmentDiscardDisposition
+            DiscardActiveSwitchSegmentAttemptRevertingLiveClone(
+                string reason, string screenMessage, string ledgerRecalcReason,
+                out string discardReason) =>
+            SwitchContinuation.DiscardActiveSwitchSegmentAttemptRevertingLiveClone(
+                reason, screenMessage, ledgerRecalcReason, out discardReason);
+        internal bool TryEvaluateNoSessionCommittedResumeNoOp(out string reason) =>
+            SwitchContinuation.TryEvaluateNoSessionCommittedResumeNoOp(out reason);
+        internal void AutoDiscardNoOpNoSessionCommittedResume(string reason) =>
+            SwitchContinuation.AutoDiscardNoOpNoSessionCommittedResume(reason);
 
         // The MergeDialog.OnTreeCommitted handler (subscribed in Start, removed in OnDestroy) and
         // the entry points other types call (by name too: the in-game tests reflect on the private
@@ -1277,7 +1296,7 @@ namespace Parsek
                 ghostPosEntries.Clear();
 
             ClearStaleConfirmations();
-            HandleMissedVesselSwitchRecovery();
+            SwitchContinuation.HandleMissedVesselSwitchRecovery();
 
             SplitBrancher.HandleTreeDockMerge();
             SplitBrancher.HandleTreeBoardMerge();

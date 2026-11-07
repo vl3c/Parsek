@@ -2985,6 +2985,21 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   when the before body is still there verbatim and exactly one body was added; re-run over PF5
   and PF7 it reads their forwarders the same way. Knot 475 -> 476, replayed residue 283
   unchanged (canaries re-pinned).
+- PF9 landed: `ParsekFlightSwitchContinuation` (1,572 lines, lazy `SwitchContinuation`) is the
+  switch continuation: the stock-action intent consume (`TryConsumeStockActionIntent` and its
+  three branches: committed-spawned clone, BG-member continuation, standalone), the segment
+  session arm and recorder bind, the no-op segment evaluation and auto-discard, the scoped
+  discard that reverts a live restore clone, and the missed-switch recovery with its retry
+  clock: 19 methods (17 instance, 2 statics), one const and one field
+  (`.SwitchContinuation.cs` 2,191 -> 652 lines; ParsekFlight.cs 2,568). ParsekFlight keeps the
+  `onVesselSwitchComplete` handler `OnVesselSwitchComplete` and `DispatchConsumeIntentIfArmed`
+  (the consume call sites, unchanged in order), both `IsInPlaceContinuationArrivalForMarker`
+  overloads, the statics other files name, and five forwarders for the no-op and scoped-discard
+  entry points `MapFocusObjectOnSelectPatch`, `SceneExitInterceptor` and the merge flow call.
+  10 declarations widened private -> internal (7 methods, 3 fields). IL (`--fold`): 0 moved-body
+  differences; the 10 left are the accessor (field, property, getter), the service's host field
+  and constructor and the five `method-forwarder`s. Knot 476 -> 477, replayed residue 283
+  unchanged (canaries re-pinned).
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 
