@@ -1496,6 +1496,7 @@ namespace Parsek
             extendedDeployables.Clear();
             brokenDeployables.Clear();
             activeConverterParts.Clear();
+            damagedWheelParts.Clear();
             jetpackDeployedParts.Clear();
             thrustingJetpackParts.Clear();
             ragdollParts.Clear();
@@ -1827,6 +1828,7 @@ namespace Parsek
                 extendedDeployables = extendedDeployables,
                 brokenDeployables = brokenDeployables,
                 activeConverterParts = activeConverterParts,
+                damagedWheelParts = damagedWheelParts,
                 jetpackDeployedParts = jetpackDeployedParts,
                 ragdollParts = ragdollParts,
                 lightsOn = lightsOn,

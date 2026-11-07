@@ -20,6 +20,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~WHEEL-DAMAGE-NOT-RECORDED: a wheel that breaks or is repaired in flight looks intact on its ghost~~ [FILED 2026-11-07 off the 1.0.1 preparation thread (owner: "check if we're recording wheel damage"). BUILT 2026-11-07, branch `claude/project-thread-5pds6z`; xUnit plus one in-game cell; flight owed: H37-part-event-fidelity (sixth cell) once PC flights resume. product, low (visual only)]
+
+**What was wrong.** Stock `ModuleWheelDamage` swaps a wheel to its busted mesh when it breaks
+(`isDamaged`, persistent) and back when an engineer repairs it. Parsek recorded neither, and the
+ghost builder dropped the busted mesh outright (`IsRendererOnDamagedTransform` filtered it), so a
+ghost always showed an intact wheel, including for a vessel that started its flight broken. The
+2026-08-09 part-action audit had listed this as WON'T; the owner asked for it on 2026-11-07.
+
+**Fix.** Two additive `PartEventType` members, `WheelBroken = 45` and `WheelRepaired = 46` (no
+schema bump: additive enum, same as `DeployableBroken`). The active and background recorders poll
+`isDamaged` per part; `PartStateSeeder` seeds a broken wheel at recording start and the rails-span
+diff emits both directions; the optimizer's split seeds carry the state as its own reversible
+family. The ghost builder now clones the busted mesh hidden when the part has a usable
+damaged / undamaged pair (`WheelDamageGhostInfo`), and only then: a part whose busted mesh does not
+clone with a renderer keeps the old filtered behaviour (a break then has no visual). Playback swaps on the events, the snapshot baseline sets the
+starting state (`ModuleWheelDamage isDamaged`), a loop cycle resets to intact, and a broken wheel no
+longer spins on the ghost. Ghost-only: nothing writes game state.
+
+**Tests.** `WheelDamageRecordingTests` (transition table, seeds, diff, split seeds, classifiers,
+snapshot parse, appliers, spin gate, build decision) and the in-game cell
+`BrokenWheelSwapsToTheBustedMeshAndRepairRestoresIt` in `PartEventFidelity`, which moved
+`H37-part-event-fidelity` to `total=6`.
+
 ## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
 
 **Symptom.** `FlightRecorder.OnVesselSOIChanged` returned at once unless the vessel was on rails,

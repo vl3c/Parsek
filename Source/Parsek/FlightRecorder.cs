@@ -139,6 +139,8 @@ namespace Parsek
         /// harvest window - the running animation belongs to one part's ModuleAnimationGroup.
         /// </summary>
         private HashSet<uint> activeConverterParts = new HashSet<uint>();
+        /// <summary>Pids with at least one broken ModuleWheelDamage (stock <c>isDamaged</c>).</summary>
+        private HashSet<uint> damagedWheelParts = new HashSet<uint>();
         /// <summary>S4: pids whose KerbalEVA has its jetpack extended.</summary>
         private HashSet<uint> jetpackDeployedParts = new HashSet<uint>();
         /// <summary>S4: pids whose KerbalEVA is in a SUSTAINED (post-debounce) thrust burst.</summary>

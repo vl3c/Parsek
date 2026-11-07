@@ -151,7 +151,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below), LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim; predicted on the 2026-09-07 second census, scratch CEN-4, run `2026-09-07_2010`, at 2 of 13 over `depot-route-recorded` - the dock-composition cell plus the station-mission phase-lock cell `RealSave_StationMission_PhaseLocksOrHolds`, which H54's `duna-one-recorded` host does not reach. The two lanes are different slices of ONE category, which is what the archetype note below predicts: no single real save is more than one or two archetypes. The census also read 1 of 13 on `career-earned-pad`, which is why LT-3 does not carry it. Both driving lanes execute a SLICE - H54 3 of 13, LT-4 2 of 13 - so the promotion rule does NOT fire and the bucket stays **B**, the archetype residue being the reason) | B |
 | `Optimizer` | 3 | 0 | 3 | 0 | 0 | 3 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes the whole category at SPACECENTER with zero skips. Its cells mutate the live store and skip whenever a committed recording is present, which is why that lane injects NOTHING. 2 -> 3 on 2026-09-22 (register item C2): `OnRailsBoundarySeam_SuppressesSplit_InGame`, the D3 `boundary-seam` cell; the re-pin's runs are in autotest-status.md) | A |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 1 of 6 - `LightInfosValid` - over the playing `part-showcase` corpus. The FIRST execution of any cell in this category anywhere; the five skips want an active ghost whose engine / chute / fairing / decoupler FX resolve at the batch UT, which the static showcase ghosts do not give, so this is a SLICE at 1 of 6: the promotion rule below does NOT fire on a green flight that drove only part of the category, and the bucket stays **B**) | B |
-| `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
+| `PartEventFidelity` | 6 | 6 | 0 | 0 | 0 | 5 | H37 (sixth cell, wheel damage, added 2026-11-07 and not yet flown) | A |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips; its deployable cell asserted the retired pre-S2 snap on the census and is re-pinned to the shipped animated contract) | A |
 | `Periodicity` | 13 | 1 | 9 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
@@ -231,8 +231,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **137 categories / 689 declarations**. Buckets **A 102 categories
-(390 declarations)**, **B 34 categories (295 declarations)**, **C 1 category (4
+Totals, re-derived: **137 categories / 690 declarations**. Buckets **A 102 categories
+(391 declarations)**, **B 34 categories (295 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -605,7 +605,7 @@ neither Breaking Ground robotics nor deployable prefabs whose clips separate sto
 from deploy; the 2026-08-11 flight measured `total=7 passed=7 failed=0 skipped=0` and
 disproved both, so that pin is whole too.
 
-`PartEventFidelity` (5 declarations, wired as `H37-part-event-fidelity`) is the live
+`PartEventFidelity` (6 declarations since 2026-11-07, wired as `H37-part-event-fidelity`) is the live
 half of P8, and it arrived with its driver on the same ground as the two above. Four
 of its cells cover the wave's new signals - a broken deployable's subtree hide plus
 its repair un-hide and loop-cycle re-show, the converter running loop's motion and
@@ -622,7 +622,9 @@ no usable prefab. `H37` shipped with an interim `passed=` pin and is now LIVE-PR
 after a first flight that red 3/5, the 2026-08-12 re-fly measured `total=5 passed=5
 failed=0 skipped=0`, all five guards satisfied on stock-minimal, so the pin is literal,
 no `RUNTIME_SKIPS` entry is owed and `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` is
-EMPTY again. Bucket A1, same standing as `H36`.
+EMPTY again. Bucket A1, same standing as `H36`. A sixth cell landed 2026-11-07 (a broken
+wheel swaps to its busted mesh on the ghost and a repair swaps it back); the pin moved to
+`total=6 passed=6` and its first flight is owed while PC flights are paused.
 
 WHAT ITS FIRST FLIGHT COST AND BOUGHT, because it is the most useful thing this category
 has produced so far: neither non-green cell was the install shortfall the interim pin was
