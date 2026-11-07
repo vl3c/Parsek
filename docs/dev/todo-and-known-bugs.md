@@ -2993,7 +2993,7 @@ each PR lands on the refactor branch, IL-proven a pure move).
     name), 3 re-pointed call sites; `indexLock`'s initializer moves from
     RecoveredRecordingEvidence's .cctor (removed) to the end of EffectiveState's. Ghost ->
     GameActions 1 -> 0 (the `[forbidden]` VIOLATION is gone), Ghost -> Rewind 23 -> 24. Upward
-    edges stay 83 (weight 812 -> 811). Knot stays 461; second greedy cut 443 -> 426 becomes
+    edges stay 83 (weight 814 -> 813). Knot stays 461; second greedy cut 443 -> 426 becomes
     443 -> 425; greedy residue 291 -> 290, replayed 287. The ledger read is still one hop away
     through Rewind (the graph is one SCC anyway).
 
