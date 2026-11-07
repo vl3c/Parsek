@@ -19,10 +19,10 @@ docs/dev/arch/README.md.
 Every decision function here (assign_module, strip_comments_and_strings,
 declared_types, references, metrics, sccs, type_declarations, type_references,
 type_role, type_levels, type_fanin, knots, knot_hubs, greedy_sink_cuts,
-sublevels, own_body_segments, scan_declaration_members, merge_type_size,
-size_recommendations, size_tier, size_report, parse_growth) is pure: it takes
-data and returns data, and performs no I/O, so the unit tests can drive it
-directly.
+replay_cut_residue, sublevels, own_body_segments, scan_declaration_members,
+merge_type_size, size_recommendations, size_tier, size_report, parse_growth)
+is pure: it takes data and returns data, and performs no I/O, so the unit
+tests can drive it directly.
 """
 
 from __future__ import annotations
@@ -980,6 +980,35 @@ def greedy_sink_cuts(component, type_graph, max_steps=12, candidates=12):
         if size_after < 30:
             break
     return cuts
+
+
+def replay_cut_residue(type_graph, order):
+    """Return the largest strongly connected component left after removing
+    every outgoing edge of each type named in `order`.
+
+    The replayed counterpart of `greedy_sink_cuts`: the cut types are fixed in
+    advance instead of chosen step by step, and a name absent from the graph
+    is skipped. It is monotone where the greedy sequence is not. For a fixed
+    set of cut types, deleting any reference from the graph can only split or
+    shrink the remaining components, never grow one, so this residue cannot
+    rise when a real reference is removed; the greedy residue can, because a
+    deleted edge can change which sink wins an early step and every later
+    step follows from that choice. Adding a reference or a type can still
+    raise it, which is what a ratchet over it should catch. Removing all of a
+    cut type's outgoing edges (not only those into the current largest
+    component, as the greedy step does) changes nothing: an edge into another
+    component cannot close a cycle back into the one it leaves.
+    """
+    removed = set(order)
+    nodes = sorted(type_graph)
+    edges = [
+        (name, target)
+        for name in nodes
+        if name not in removed
+        for target in type_graph[name]
+        if target != name and target in type_graph
+    ]
+    return max((len(part) for part in sccs(nodes, edges)), default=0)
 
 
 def sublevels(component, type_graph, cuts):
