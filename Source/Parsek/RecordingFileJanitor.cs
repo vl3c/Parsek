@@ -4,8 +4,24 @@ using System.IO;
 
 namespace Parsek
 {
-    public static partial class RecordingStore
+    /// <summary>
+    /// The recording file janitor (RecordingStore services plan, service E): deletes a
+    /// recording's on-disk footprint, names the recording sidecar files, and builds the
+    /// known-recording sets that gate the orphan and file-collector deletions. Reads the
+    /// store's committed list, committed trees and pending slots through its accessors; logs
+    /// keep the <c>RecordingStore</c> tag.
+    /// </summary>
+    internal static class RecordingFileJanitor
     {
+        internal static string CleanOrphanFilesDirectoryOverrideForTesting;
+
+        // The test seam above; RecordingStore.ResetForTestingInternal calls this at the point
+        // where it used to clear it itself.
+        internal static void ResetForTesting()
+        {
+            CleanOrphanFilesDirectoryOverrideForTesting = null;
+        }
+
         /// <summary>
         /// Removes a recording's on-disk footprint from the head positions
         /// (design-load-restores-the-save.md 4.4 / 4.5). The three hashed sidecars
@@ -84,7 +100,7 @@ namespace Parsek
                     {
                         SidecarFileCommitBatch.RetainedDelete(absolutePath, recordingId, kind)
                     },
-                    () => SuppressLogging);
+                    () => RecordingStore.SuppressLogging);
                 ParsekLog.Verbose("RecordingStore", $"Retained head as version: {relativePath}");
                 return true;
             }
@@ -114,7 +130,7 @@ namespace Parsek
             }
             if (string.IsNullOrEmpty(absolutePath) || !File.Exists(absolutePath))
                 return true;
-            if (!SidecarFileCommitBatch.TryDeleteUnretained(absolutePath, () => SuppressLogging, out string failure))
+            if (!SidecarFileCommitBatch.TryDeleteUnretained(absolutePath, () => RecordingStore.SuppressLogging, out string failure))
             {
                 ParsekLog.Warn("RecordingStore", $"Failed to delete file '{relativePath}': {failure}");
                 return false;
@@ -190,12 +206,12 @@ namespace Parsek
             var recordings = new List<Recording>();
             var seenIds = new HashSet<string>(StringComparer.Ordinal);
 
-            for (int i = 0; i < committedRecordings.Count; i++)
-                AddKnownRecordingForCleanup(recordings, seenIds, committedRecordings[i]);
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+                AddKnownRecordingForCleanup(recordings, seenIds, RecordingStore.CommittedRecordings[i]);
 
-            if (pendingTree != null && pendingTree.Recordings != null)
+            if (RecordingStore.PendingTree != null && RecordingStore.PendingTree.Recordings != null)
             {
-                foreach (var kvp in pendingTree.Recordings)
+                foreach (var kvp in RecordingStore.PendingTree.Recordings)
                     AddKnownRecordingForCleanup(recordings, seenIds, kvp.Value);
             }
 
@@ -218,83 +234,6 @@ namespace Parsek
 
             if (seenIds.Add(rec.RecordingId))
                 recordings.Add(rec);
-        }
-
-        internal static HashSet<string> BuildKnownRecordingIdsForCleanup()
-        {
-            var knownIds = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < committedRecordings.Count; i++)
-                AddKnownRecordingId(knownIds, committedRecordings[i]);
-
-            AddKnownTreeRecordingIds(knownIds, pendingTree);
-            AddKnownTreeRecordingIds(knownIds, savedPendingTreeDuringActiveRestore);
-            // GC-3: recordings of committed trees kept inert are known (not orphans).
-            InertRecordingTrees.AddRecordingIdsTo(knownIds);
-            return knownIds;
-        }
-
-        private static void AddKnownRecordingId(HashSet<string> knownIds, Recording rec)
-        {
-            if (!string.IsNullOrEmpty(rec?.RecordingId))
-                knownIds.Add(rec.RecordingId);
-        }
-
-        private static int AddKnownTreeRecordingIds(HashSet<string> knownIds, RecordingTree tree)
-        {
-            int count = 0;
-            if (tree == null || tree.Recordings == null)
-                return 0;
-
-            foreach (var kvp in tree.Recordings)
-            {
-                if (!string.IsNullOrEmpty(kvp.Value?.RecordingId))
-                {
-                    AddKnownRecordingId(knownIds, kvp.Value);
-                    count++;
-                }
-            }
-
-            return count;
-        }
-
-        /// <summary>
-        /// Builds the set of all recording IDs that are currently known to the store
-        /// (committed recordings, committed trees, the pending tree, and the recordings of
-        /// committed trees kept inert by <see cref="InertRecordingTrees"/>). Used by
-        /// the OnSave stranded-sidecar warn and the load-fault preserve guard.
-        /// Extracted as <c>internal static</c> for direct testability (#290).
-        /// </summary>
-        internal static HashSet<string> BuildKnownRecordingIds()
-        {
-            return BuildKnownRecordingIds(out _);
-        }
-
-        /// <summary>
-        /// Overload that also reports how many IDs came from the pending tree
-        /// (for diagnostic logging).
-        /// </summary>
-        internal static HashSet<string> BuildKnownRecordingIds(out int pendingTreeIdCount)
-        {
-            var knownIds = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < committedRecordings.Count; i++)
-                AddKnownRecordingId(knownIds, committedRecordings[i]);
-
-            for (int t = 0; t < committedTrees.Count; t++)
-            {
-                var treeRecordings = committedTrees[t]?.Recordings;
-                if (treeRecordings == null) continue;
-                foreach (var kvp in treeRecordings)
-                    AddKnownRecordingId(knownIds, kvp.Value);
-            }
-
-            pendingTreeIdCount = 0;
-            pendingTreeIdCount += AddKnownTreeRecordingIds(knownIds, pendingTree);
-            pendingTreeIdCount += AddKnownTreeRecordingIds(
-                knownIds, savedPendingTreeDuringActiveRestore);
-            // GC-3: recordings of committed trees kept inert are known, so the ledger
-            // reconcile keeps their rows and the sweeps do not treat them as orphans.
-            InertRecordingTrees.AddRecordingIdsTo(knownIds);
-            return knownIds;
         }
 
         /// <summary>
@@ -375,12 +314,12 @@ namespace Parsek
         {
             if (visit == null)
                 return;
-            for (int i = 0; i < committedRecordings.Count; i++)
-                visit(committedRecordings[i]);
-            for (int t = 0; t < committedTrees.Count; t++)
-                VisitTreeRecordings(committedTrees[t], visit);
-            VisitTreeRecordings(pendingTree, visit);
-            VisitTreeRecordings(savedPendingTreeDuringActiveRestore, visit);
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+                visit(RecordingStore.CommittedRecordings[i]);
+            for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
+                VisitTreeRecordings(RecordingStore.CommittedTrees[t], visit);
+            VisitTreeRecordings(RecordingStore.PendingTree, visit);
+            VisitTreeRecordings(RecordingStore.SavedPendingTreeDuringActiveRestore, visit);
         }
 
         private static void VisitTreeRecordings(RecordingTree tree, Action<Recording> visit)

@@ -4183,7 +4183,7 @@ this verb injects the crash inside one boot (supervisor ruling 2026-09-25).
   pattern= baselineDigest= baselinePoints=`.
 - `probe`: read-only. `safewritecrash probe recording= fired= armed= digest= unchanged=
   residue= loaded= loadFailed= points= baselinePoints=`; `residue` counts the recording's
-  `.prec` transient artifacts by `RecordingStore.IsTransientSidecarArtifactFile`.
+  `.prec` transient artifacts by `RecordingFileJanitor.IsTransientSidecarArtifactFile`.
 - `coldreload`: runs `ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore` (the
   in-game runner's isolated-restore prep), so the NEXT `LoadGame` takes the cold OnLoad
   path (sidecars re-read from disk, `CleanOrphanFiles`). A same-process `LoadGame` of the

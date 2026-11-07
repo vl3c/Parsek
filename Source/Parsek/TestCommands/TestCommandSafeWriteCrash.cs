@@ -71,7 +71,7 @@ namespace Parsek.TestCommands
             {
                 if (name != null
                     && name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                    && RecordingStore.IsTransientSidecarArtifactFile(name))
+                    && RecordingFileJanitor.IsTransientSidecarArtifactFile(name))
                     n++;
             }
             return n;

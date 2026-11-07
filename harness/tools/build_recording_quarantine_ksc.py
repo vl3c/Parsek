@@ -97,7 +97,7 @@ O2_EXPIRED = "9f1e5000000000000000000000000002"
 O3_FLAT = "9f1e5000000000000000000000000003"
 O4_VERSION = "9f1e5000000000000000000000000004"
 
-# A recording's five committed files (RecordingStore.RecordingFileSuffixes minus the two
+# A recording's five committed files (RecordingFileJanitor.RecordingFileSuffixes minus the two
 # snapshot mirrors, which no fixture commits).
 SET_SUFFIXES = (".prec", ".prec.txt", ".pann", "_vessel.craft", "_ghost.craft")
 

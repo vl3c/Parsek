@@ -518,7 +518,7 @@ namespace Parsek.Tests
             string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
             Directory.CreateDirectory(recordingsDir);
             RecordingPaths.SaveRootOverrideForTesting = saveDir;
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
             ParsekFileCollector.SaveDirectoryOverrideForTesting = saveDir;
             ParsekFileCollector.UtcNowForTesting = () => new DateTime(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
 
@@ -573,7 +573,7 @@ namespace Parsek.Tests
                 Assert.True(File.Exists(path), "inert sidecar removed: " + f.Key);
                 Assert.True(f.Value.SequenceEqual(File.ReadAllBytes(path)), "inert sidecar rewritten: " + f.Key);
             }
-            string quarantine = Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
+            string quarantine = Path.Combine(recordingsDir, RecordingFileJanitor.OrphanQuarantineDirName);
             string[] quarantined = Directory.Exists(quarantine)
                 ? Directory.GetFiles(quarantine, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray()
                 : new string[0];

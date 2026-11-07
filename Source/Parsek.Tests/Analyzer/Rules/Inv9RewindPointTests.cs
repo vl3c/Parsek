@@ -132,7 +132,7 @@ namespace Parsek.Tests.Analyzer.Rules
 
         // Guards (severity-tuning regression): a recording referencing an absent
         // rewind save -> WARN, NOT FAIL. A missing rewind save is a dangling
-        // reference, not proven corruption (RecordingStore.DeleteRecordingFiles
+        // reference, not proven corruption (RecordingFileJanitor.DeleteRecordingFiles
         // deletes shared rewind saves without reference-counting siblings; sealed
         // recordings can no longer rewind; production treats a missing hint as
         // benign). Fails if a dangling rewind reference reds the run (the s15 /

@@ -32,6 +32,13 @@ Source/Parsek/RecordingChainQueries.cs
 Source/Parsek/RewindSpawnScope.cs
 Source/Parsek/RewindSpawnScope.OwnerStrip.cs
 
+# RecordingFileJanitor holds the orphan / file cleanup moved out of the
+# RecordingStore partials verbatim (the RecordingStore services plan, PR6). The
+# known-recording sets that gate file deletion must name every committed
+# recording, superseded ones included, or a superseded recording's sidecars
+# would read as orphans. No ledger reads.
+Source/Parsek/RecordingFileJanitor.cs
+
 # --- Serialization (I/O not semantics) ---
 Source/Parsek/ParsekScenario.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.

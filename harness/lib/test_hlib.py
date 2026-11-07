@@ -25483,7 +25483,7 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
 class CommittedFixtureQuarantineTests(unittest.TestCase):
     """No fixture may carry `Parsek/Recordings/_quarantine`, except the QR-1 host.
 
-    `RecordingStore.OrphanQuarantineDirName` is where `CleanOrphanFiles` PARKS a
+    `RecordingFileJanitor.OrphanQuarantineDirName` is where `CleanOrphanFiles` PARKS a
     sidecar whose recording the store could no longer resolve, instead of
     deleting it - non-destructive by design, so a save that has been played for a
     while accumulates every such file forever. It is unreachable by construction:

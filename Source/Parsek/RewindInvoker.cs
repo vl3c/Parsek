@@ -2593,7 +2593,7 @@ namespace Parsek
                 }
 
                 // Sidecar files on disk.
-                try { RecordingStore.DeleteRecordingFiles(rec); }
+                try { RecordingFileJanitor.DeleteRecordingFiles(rec); }
                 catch (Exception ex)
                 {
                     ParsekLog.Warn(SessionTag,

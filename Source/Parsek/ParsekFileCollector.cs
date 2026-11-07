@@ -258,7 +258,7 @@ namespace Parsek
                 return Path.GetFullPath(SaveDirectoryOverrideForTesting);
             if (!string.IsNullOrEmpty(RecordingPaths.SaveRootOverrideForTesting))
                 return Path.GetFullPath(RecordingPaths.SaveRootOverrideForTesting);
-            string recordingsOverride = RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting;
+            string recordingsOverride = RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting;
             if (!string.IsNullOrEmpty(recordingsOverride))
             {
                 string parsekDir = Path.GetDirectoryName(Path.GetFullPath(recordingsOverride));
@@ -400,7 +400,7 @@ namespace Parsek
         internal static SaveReferences BuildMemoryReferences(ParsekScenario scenario)
         {
             var refs = new SaveReferences();
-            RecordingStore.ForEachRecordingKnownToMemory(rec => AddRecording(refs, rec));
+            RecordingFileJanitor.ForEachRecordingKnownToMemory(rec => AddRecording(refs, rec));
             // GC-3: committed trees kept inert name their files exactly as their save node does.
             InertRecordingTrees.AddReferencesTo(refs);
             AddFlightSceneReferences(refs);
@@ -470,9 +470,9 @@ namespace Parsek
             for (int i = 0; i < files.Length; i++)
             {
                 string fileName = Path.GetFileName(files[i]);
-                if (RecordingStore.IsTransientSidecarArtifactFile(fileName))
+                if (RecordingFileJanitor.IsTransientSidecarArtifactFile(fileName))
                     continue;
-                string id = RecordingStore.ExtractRecordingIdFromFileName(fileName);
+                string id = RecordingFileJanitor.ExtractRecordingIdFromFileName(fileName);
                 if (!string.IsNullOrEmpty(id))
                     ids.Add(id);
             }
@@ -488,7 +488,7 @@ namespace Parsek
                 fileCount += files.Count;
                 for (int i = 0; i < files.Count; i++)
                 {
-                    string id = RecordingStore.ExtractRecordingIdFromFileName(
+                    string id = RecordingFileJanitor.ExtractRecordingIdFromFileName(
                         QuarantinedHeadFileName(Path.GetFileName(files[i].Key)));
                     if (!string.IsNullOrEmpty(id))
                         ids.Add(id);
@@ -582,7 +582,7 @@ namespace Parsek
                     result.VersionsQuarantined++;
                     ParsekLog.Verbose(Tag,
                         $"Version quarantined: rec={id} kind={SidecarVersions.Label(kind)} hash={hash} -> " +
-                        $"{SidecarVersions.VersionsDirName}/{RecordingStore.OrphanQuarantineDirName}/{Path.GetFileName(todayDir)}/");
+                        $"{SidecarVersions.VersionsDirName}/{RecordingFileJanitor.OrphanQuarantineDirName}/{Path.GetFileName(todayDir)}/");
                 }
                 catch (Exception ex)
                 {
@@ -597,7 +597,7 @@ namespace Parsek
 
         private static string VersionQuarantineDirectory(string versionsDir)
         {
-            return Path.Combine(versionsDir, RecordingStore.OrphanQuarantineDirName);
+            return Path.Combine(versionsDir, RecordingFileJanitor.OrphanQuarantineDirName);
         }
 
         private static bool QuarantinedVersionExists(string versionsDir, string fileName)
@@ -719,12 +719,12 @@ namespace Parsek
             for (int i = 0; i < files.Length; i++)
             {
                 string fileName = Path.GetFileName(files[i]);
-                string id = RecordingStore.ExtractRecordingIdFromFileName(fileName);
+                string id = RecordingFileJanitor.ExtractRecordingIdFromFileName(fileName);
                 if (id == null)
                 {
                     // Transient (.tmp / .stage / .bak) artifacts carry no recorded data:
                     // deleted outright.
-                    if (RecordingStore.IsTransientSidecarArtifactFile(fileName))
+                    if (RecordingFileJanitor.IsTransientSidecarArtifactFile(fileName))
                     {
                         if (TryDelete(files[i], result))
                             result.TransientDeleted++;
@@ -758,7 +758,7 @@ namespace Parsek
                 MoveIntoQuarantineFolder(filePath, datedDir, fileName);
                 ParsekLog.Verbose(Tag,
                     $"Quarantined orphan recording file: {fileName} (id={id}) -> " +
-                    $"{RecordingStore.OrphanQuarantineDirName}/{Path.GetFileName(datedDir)}/");
+                    $"{RecordingFileJanitor.OrphanQuarantineDirName}/{Path.GetFileName(datedDir)}/");
                 return true;
             }
             catch (Exception ex)
@@ -774,7 +774,7 @@ namespace Parsek
 
         private static string QuarantineDirectory(string recordingsDir)
         {
-            return Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
+            return Path.Combine(recordingsDir, RecordingFileJanitor.OrphanQuarantineDirName);
         }
 
         internal static string TodayQuarantineDirectory(string recordingsDir)
@@ -884,7 +884,7 @@ namespace Parsek
             for (int i = 0; i < files.Count; i++)
             {
                 string headName = QuarantinedHeadFileName(Path.GetFileName(files[i].Key));
-                string id = RecordingStore.ExtractRecordingIdFromFileName(headName);
+                string id = RecordingFileJanitor.ExtractRecordingIdFromFileName(headName);
                 if (id == null || !named.RecordingIds.Contains(id))
                     continue;
                 if (!candidates.TryGetValue(headName, out var list))
@@ -899,7 +899,7 @@ namespace Parsek
             for (int h = 0; h < headOrder.Count; h++)
             {
                 string headName = headOrder[h];
-                string id = RecordingStore.ExtractRecordingIdFromFileName(headName);
+                string id = RecordingFileJanitor.ExtractRecordingIdFromFileName(headName);
                 var list = candidates[headName];
                 // Newest first: dated folders descending, an undated copy last.
                 list.Sort((a, b) =>
@@ -980,7 +980,7 @@ namespace Parsek
                 string folderName = files[i].Value;
                 string fileName = Path.GetFileName(path);
                 string headName = QuarantinedHeadFileName(fileName);
-                string id = RecordingStore.ExtractRecordingIdFromFileName(headName);
+                string id = RecordingFileJanitor.ExtractRecordingIdFromFileName(headName);
                 if (id == null)
                 {
                     unrecognized++;

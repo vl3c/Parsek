@@ -6,7 +6,7 @@ id = "QL-6-discard-then-quickload-records-again"
 # loads): the F9 carries `playerLoad=true`, a Cold save-file load, so the discarded flight
 # RESUMES WITH ITS RECORDING, as a KSP restart into the quicksave would. The session reset
 # forgets the discarded-tree set, the discard's reap no longer destroys the bytes
-# (`RecordingStore.DeleteRecordingFiles` files each hashed head into `_versions`, design
+# (`RecordingFileJanitor.DeleteRecordingFiles` files each hashed head into `_versions`, design
 # 4.4), and the quicksave names those hashes, so the restore resolves the trajectory from
 # `_versions` and promotes it back to the head (`Sidecar version resolved ... source=version
 # promoted=True`). The recorder resumes into the SAME tree id the discard noted (a
