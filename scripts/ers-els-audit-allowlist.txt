@@ -61,6 +61,12 @@ Source/Parsek/TreeDiscardService.cs
 Source/Parsek/TreeCommitService.cs
 Source/Parsek/TreeCommitService.SupersedeTerminalSpawn.cs
 
+# RewindCarry holds the rewind carries moved out of RecordingStore (the RecordingStore
+# services plan, PR13 N). The supersede audit a plain rewind logs reads the owner's
+# committed tree and the physical committed recordings by id, as it did inside the store;
+# it changes nothing.
+Source/Parsek/RewindCarry.cs
+
 # --- Serialization (I/O not semantics) ---
 Source/Parsek/ParsekScenario.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.

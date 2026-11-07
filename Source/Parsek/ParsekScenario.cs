@@ -4187,14 +4187,14 @@ namespace Parsek
                 // of unknown age: put back the in-memory list captured when the rewind
                 // started. No-op on every load that is not a rewind.
                 loadPhase = "rewind-point-carry-over";
-                RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(this);
+                RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(this);
 
                 // Same for the supersede, rewind-retirement and tombstone lists and the merge
                 // journal: the recordings and the ledger are kept from memory across a plain
                 // rewind, so these must be too. A rewind keeps every supersede row, the rewound
                 // tree's included (owner ruling 2026-10-24). No-op when not a rewind.
                 loadPhase = "rewind-staged-lists-carry-over";
-                RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(this);
+                RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(this);
 
                 // In-session loads: the same lists, the journal and (on a Discard Re-fly) the marker
                 // come from the scenario instance this load replaces, as the committed recordings

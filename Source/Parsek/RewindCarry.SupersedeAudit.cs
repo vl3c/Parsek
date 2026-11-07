@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Parsek
 {
-    public static partial class RecordingStore
+    internal static partial class RewindCarry
     {
         /// <summary>
         /// What a plain rewind found in the rewound tree's supersede rows. A rewind moves

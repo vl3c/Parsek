@@ -62,7 +62,7 @@ namespace Parsek
         /// Step A of the in-session handoff, in the OnLoad prologue right after the plain-rewind
         /// carries: consumes the handoff, drops it when the load kind owns its lists elsewhere,
         /// otherwise installs memory's supersede rows, rewind retirements and tombstones, the journal per
-        /// <see cref="RecordingStore.ShouldCarryMergeJournal"/>, the marker when the kind decides
+        /// <see cref="RewindCarry.ShouldCarryMergeJournal"/>, the marker when the kind decides
         /// <c>Memory</c> for it, keeps memory's rewind points for step B, and bumps both state
         /// versions. Marks this instance's staged state loaded once it returns normally, on every
         /// path: the instance may then hand its lists to the next load.
@@ -111,13 +111,13 @@ namespace Parsek
             int loadedRetirements = RecordingRewindRetirements?.Count ?? 0;
             int loadedTombstones = LedgerTombstones?.Count ?? 0;
 
-            RecordingSupersedes = RecordingStore.MergeCarriedStagedList(
+            RecordingSupersedes = RewindCarry.MergeCarriedStagedList(
                 handoff.Supersedes, RecordingSupersedes, r => r.RelationId,
                 out int supRestored, out int supStale);
-            RecordingRewindRetirements = RecordingStore.MergeCarriedStagedList(
+            RecordingRewindRetirements = RewindCarry.MergeCarriedStagedList(
                 handoff.Retirements, RecordingRewindRetirements, r => r.RetirementId,
                 out int retRestored, out int retStale);
-            LedgerTombstones = RecordingStore.MergeCarriedStagedList(
+            LedgerTombstones = RewindCarry.MergeCarriedStagedList(
                 handoff.Tombstones, LedgerTombstones, t => t.TombstoneId,
                 out int tombRestored, out int tombStale);
 
@@ -126,7 +126,7 @@ namespace Parsek
             if (LoadReconcilePolicy.DecideEarly(early, LoadStateCategory.MergeJournal).Action
                 == LoadReconcileAction.Memory)
             {
-                journalFromMemory = RecordingStore.ShouldCarryMergeJournal(handoff.Journal);
+                journalFromMemory = RewindCarry.ShouldCarryMergeJournal(handoff.Journal);
                 if (journalFromMemory)
                     ActiveMergeJournal = handoff.Journal;
                 else

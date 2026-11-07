@@ -18,7 +18,7 @@ id = "RB-5-rewind-to-launch-keeps-sealed-retry"
 # open, RB-4's measured reading); act 3 is RF-4's act 3 (reload, recorder stop, SealSlot on
 # the slot, whose effective tip is now A2); act 4 is the bare rewind both lanes drive.
 #
-# THE SUBJECT TOKENS, from `RecordingStore.LogSupersedesKeptAcrossRewind`:
+# THE SUBJECT TOKENS, from `RewindCarry.LogSupersedesKeptAcrossRewind`:
 #   `Rewind keeps supersede rows: rows=N forks=2 sealed=1 open=1 dangling=0` - both forks
 #   kept, A1 still open and A2 still sealed.
 #   `Kept re-fly fork across rewind: rec=... mergeState=Immutable` and the same line with

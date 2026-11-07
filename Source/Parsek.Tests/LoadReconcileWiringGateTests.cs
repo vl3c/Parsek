@@ -128,8 +128,8 @@ namespace Parsek.Tests
             int early = IndexOrFail(body, "LoadReconcilePolicy.ClassifyEarly(");
             int crew = IndexOrFail(body, "LoadCrewAndGroupState(node);");
             int staging = IndexOrFail(body, "LoadRewindStagingState(node);");
-            int rpCarry = IndexOrFail(body, "RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(");
-            int listCarry = IndexOrFail(body, "RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(");
+            int rpCarry = IndexOrFail(body, "RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(");
+            int listCarry = IndexOrFail(body, "RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(");
             int revert = IndexOrFail(body, "RevertDetector.Consume(");
             int isRevert = IndexOrFail(body, "ComputeIsRevertOnLoad(");
             int refined = IndexOrFail(body, "LoadReconcilePolicy.ClassifyRefined(");

@@ -3285,12 +3285,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # CommittedListOptimizer (services PR8), 463 after CommittedTreeRestoreAttempt
         # (services PR9), 464 after PendingTreeSlot (services PR10), 465 after
         # SwitchSegmentAttempts (services PR11), 466 after TreeDiscardService
-        # (services PR12 K), 467 after TreeCommitService (services PR12 L). It was [301, 7, 4, 2, 2] on 2026-09-25,
+        # (services PR12 K), 467 after TreeCommitService (services PR12 L), 468 after
+        # RewindCarry (services PR13 N). It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [467, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [468, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3414,8 +3415,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # second. Same canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
         self.assertEqual(first["sink"], "Route")
-        self.assertEqual(first["sizeBefore"], 467)
-        self.assertEqual(first["sizeAfter"], 449)
+        self.assertEqual(first["sizeBefore"], 468)
+        self.assertEqual(first["sizeAfter"], 450)
         self.assertEqual(
             first["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
@@ -3429,10 +3430,10 @@ class RealTreeSmokeTests(unittest.TestCase):
         # CommittedListOptimizer is one more knot member on the uncut side
         # (425 before), and so are PR9's CommittedTreeRestoreAttempt (426 before),
         # PR10's PendingTreeSlot (427 before), PR11's SwitchSegmentAttempts
-        # (428 before), PR12 K's TreeDiscardService (429 before) and PR12 L's
-        # TreeCommitService (430 before).
+        # (428 before), PR12 K's TreeDiscardService (429 before), PR12 L's
+        # TreeCommitService (430 before) and PR13 N's RewindCarry (431 before).
         self.assertEqual(second["sink"], "VesselLaunchIdentity")
-        self.assertEqual(second["sizeAfter"], 431)
+        self.assertEqual(second["sizeAfter"], 432)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3465,8 +3466,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # drops with it, of 463 after PR9's CommittedTreeRestoreAttempt and of
         # 464 after PR10's PendingTreeSlot and of 465 after PR11's
         # SwitchSegmentAttempts); the bound stayed 287.
-        # Still 283, of 466, after services PR12 K's TreeDiscardService, and of 467
-        # after PR12 L's TreeCommitService.
+        # Still 283, of 466, after services PR12 K's TreeDiscardService, of 467
+        # after PR12 L's TreeCommitService, and of 468 after PR13 N's RewindCarry.
         # The bound ratchets: it is tightened to the measured replayed residue, 283.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy

@@ -108,10 +108,10 @@ namespace Parsek.Tests
         [Fact]
         public void Audit_NullOrEmptyInputs_CountNothing()
         {
-            var a = RecordingStore.AuditSupersedesKeptAcrossRewindPure(null, 0, null, null, null);
+            var a = RewindCarry.AuditSupersedesKeptAcrossRewindPure(null, 0, null, null, null);
             Assert.Equal(0, a.Rows);
             var owner = MakeRec("o", 1.0);
-            a = RecordingStore.AuditSupersedesKeptAcrossRewindPure(
+            a = RewindCarry.AuditSupersedesKeptAcrossRewindPure(
                 owner, 0, null, null, new List<RecordingSupersedeRelation>());
             Assert.Equal(0, a.Rows);
             Assert.Empty(a.ForkIds);
@@ -131,7 +131,7 @@ namespace Parsek.Tests
             var rows = new List<RecordingSupersedeRelation> { MakeRel("a", "a1"), MakeRel("a1", "a2") };
             var before = rows.ToList();
 
-            var audit = RecordingStore.AuditSupersedesKeptAcrossRewindPure(
+            var audit = RewindCarry.AuditSupersedesKeptAcrossRewindPure(
                 owner, 0.0, new List<Recording> { owner, a, a1, a2 }, ById(owner, a, a1, a2), rows);
 
             Assert.Equal(2, audit.Rows);
@@ -153,7 +153,7 @@ namespace Parsek.Tests
             var c = MakeRec("c", 30.0, MergeState.Immutable);
             var rows = new List<RecordingSupersedeRelation> { MakeRel("a", "b", ut: 30.0), MakeRel("b", "c") };
 
-            var audit = RecordingStore.AuditSupersedesKeptAcrossRewindPure(
+            var audit = RewindCarry.AuditSupersedesKeptAcrossRewindPure(
                 owner, 0.0, new List<Recording> { owner, c }, ById(owner, c), rows);
 
             Assert.Equal(1, audit.Dangling);
@@ -170,7 +170,7 @@ namespace Parsek.Tests
             var canon = MakeRec("canon", 15.0, MergeState.Immutable);
             var rows = new List<RecordingSupersedeRelation> { MakeRel("prior", "canon") };
 
-            var audit = RecordingStore.AuditSupersedesKeptAcrossRewindPure(
+            var audit = RewindCarry.AuditSupersedesKeptAcrossRewindPure(
                 canon, 15.0, new List<Recording> { prior, canon }, ById(prior, canon), rows);
 
             Assert.Equal(1, audit.Rows);
@@ -200,7 +200,7 @@ namespace Parsek.Tests
                 MakeRel("orig", "", ut: 33.0),          // malformed
             };
 
-            var audit = RecordingStore.AuditSupersedesKeptAcrossRewindPure(
+            var audit = RewindCarry.AuditSupersedesKeptAcrossRewindPure(
                 owner, 6.5, new List<Recording> { owner, branch, forkOwner, forkBranch, early },
                 ById(owner, branch, forkOwner, forkBranch, early, foreignOld, foreignNew), rows);
 
@@ -223,7 +223,7 @@ namespace Parsek.Tests
             var fork = MakeRec("fork", 20.0, MergeState.CommittedProvisional);
             var rows = new List<RecordingSupersedeRelation> { MakeRel("booster", "fork"), MakeRel("debris", "fork") };
 
-            var audit = RecordingStore.AuditSupersedesKeptAcrossRewindPure(
+            var audit = RewindCarry.AuditSupersedesKeptAcrossRewindPure(
                 owner, 0.0, new List<Recording> { owner, booster, debris, fork }, ById(owner, booster, debris, fork), rows);
 
             Assert.Equal(2, audit.Rows);
@@ -245,7 +245,7 @@ namespace Parsek.Tests
             var rowsBefore = scenario.RecordingSupersedes.ToList();
             int versionBefore = scenario.SupersedeStateVersion;
 
-            int rows = RecordingStore.LogSupersedesKeptAcrossRewind(owner, 0.0);
+            int rows = RewindCarry.LogSupersedesKeptAcrossRewind(owner, 0.0);
 
             Assert.Equal(2, rows);
             Assert.Equal(rowsBefore, scenario.RecordingSupersedes);
@@ -277,7 +277,7 @@ namespace Parsek.Tests
             InstallCommittedTreeForTesting("tree-root", owner, booster);
             var scenario = InstallScenario(MakeRel("booster", "lost-refly", ut: 31.0));
 
-            RecordingStore.LogSupersedesKeptAcrossRewind(owner, 0.0);
+            RewindCarry.LogSupersedesKeptAcrossRewind(owner, 0.0);
 
             Assert.Single(scenario.RecordingSupersedes);
             Assert.Empty(scenario.RecordingRewindRetirements);
@@ -295,7 +295,7 @@ namespace Parsek.Tests
             InstallCommittedTreeForTesting("tree-solo", owner);
             InstallScenario(MakeRel("elsewhere", "elsewhere-fork", ut: 50.0));
 
-            Assert.Equal(0, RecordingStore.LogSupersedesKeptAcrossRewind(owner, 0.0));
+            Assert.Equal(0, RewindCarry.LogSupersedesKeptAcrossRewind(owner, 0.0));
 
             Assert.Contains(logLines, l => l.Contains("[Rewind]")
                 && l.Contains("Rewind keeps supersede rows: none in scope") && l.Contains("treeResolved=True"));
@@ -305,10 +305,10 @@ namespace Parsek.Tests
         [Fact]
         public void Live_NoScenarioOrNoRows_IsANoOp()
         {
-            Assert.Equal(0, RecordingStore.LogSupersedesKeptAcrossRewind(null, 0.0));
-            Assert.Equal(0, RecordingStore.LogSupersedesKeptAcrossRewind(MakeRec("x", 1.0), 0.0));
+            Assert.Equal(0, RewindCarry.LogSupersedesKeptAcrossRewind(null, 0.0));
+            Assert.Equal(0, RewindCarry.LogSupersedesKeptAcrossRewind(MakeRec("x", 1.0), 0.0));
             InstallScenario();
-            Assert.Equal(0, RecordingStore.LogSupersedesKeptAcrossRewind(MakeRec("x", 1.0), 0.0));
+            Assert.Equal(0, RewindCarry.LogSupersedesKeptAcrossRewind(MakeRec("x", 1.0), 0.0));
             Assert.DoesNotContain(logLines, l => l.Contains("Rewind keeps supersede rows"));
         }
 

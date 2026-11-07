@@ -14,8 +14,8 @@ namespace Parsek.Tests
     /// <para>Survival: the rewind's OnLoad reads persistent.sfs as last written
     /// (<c>SpaceCenterMain.Start</c> reloads it), so the RP list was of unknown age - GS-4
     /// lost an RP created after the last persistent write, RF-4 got back one the reaper had
-    /// already removed. <see cref="RecordingStore.CaptureRewindPointsForRewind"/> +
-    /// <see cref="RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad"/> carry the
+    /// already removed. <see cref="RewindCarry.CaptureRewindPointsForRewind"/> +
+    /// <see cref="RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad"/> carry the
     /// in-memory list across instead.</para>
     ///
     /// <para>Gate: <see cref="RewindInvoker.CanInvoke"/> refuses an RP whose UT is later
@@ -190,14 +190,14 @@ namespace Parsek.Tests
             var scenario = InstallScenario(rp);
             BeginPlainRewind();
 
-            RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
             SimulateStagingStateLoad(scenario);
-            int installed = RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
+            int installed = RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
 
             Assert.Equal(1, installed);
             Assert.Single(scenario.RewindPoints);
             Assert.Same(rp, scenario.RewindPoints[0]);
-            Assert.False(RecordingStore.HasRewindCarriedRewindPoints);
+            Assert.False(RewindCarry.HasRewindCarriedRewindPoints);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO][Rewind]")
                 && l.Contains("Rewind: carrying 1 rewind point(s) across the rewind load")
@@ -217,9 +217,9 @@ namespace Parsek.Tests
             var scenario = InstallScenario();
             BeginPlainRewind();
 
-            RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
             SimulateStagingStateLoad(scenario, reaped);
-            int installed = RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
+            int installed = RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
 
             Assert.Equal(0, installed);
             Assert.Empty(scenario.RewindPoints);
@@ -237,9 +237,9 @@ namespace Parsek.Tests
             var scenario = InstallScenario(live);
             BeginPlainRewind();
 
-            RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
             SimulateStagingStateLoad(scenario, fromSave);
-            RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
+            RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
 
             Assert.Single(scenario.RewindPoints);
             Assert.Same(live, scenario.RewindPoints[0]);
@@ -254,10 +254,10 @@ namespace Parsek.Tests
             var scenario = InstallScenario(a);
             BeginPlainRewind();
 
-            RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
             scenario.RewindPoints.Add(Rp("rp_late", 20.0));
             SimulateStagingStateLoad(scenario);
-            RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
+            RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
 
             Assert.Equal(new[] { "rp_a" }, scenario.RewindPoints.Select(r => r.RewindPointId));
         }
@@ -270,16 +270,16 @@ namespace Parsek.Tests
             // decided elsewhere: the in-session owner partition (InSessionStagedListsCarryTests),
             // the Re-Fly bundle, or the loaded node on a cold load, which is what this cell leaves.
             var scenario = InstallScenario(Rp("rp_mem", 10.0));
-            RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
             var fromQuicksave = Rp("rp_quicksave", 5.0);
             SimulateStagingStateLoad(scenario, fromQuicksave);
 
-            int installed = RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
+            int installed = RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
 
             Assert.Equal(-1, installed);
             Assert.Single(scenario.RewindPoints);
             Assert.Same(fromQuicksave, scenario.RewindPoints[0]);
-            Assert.False(RecordingStore.HasRewindCarriedRewindPoints);
+            Assert.False(RewindCarry.HasRewindCarriedRewindPoints);
             Assert.Contains(logLines, l =>
                 l.Contains("Dropped 1 carried rewind point(s) without reinstalling them (reason=load-is-not-a-rewind)"));
         }
@@ -291,14 +291,14 @@ namespace Parsek.Tests
             // abort) call ResetRewindFlags; nothing may be reinstalled by a later load.
             var scenario = InstallScenario(Rp("rp_a", 10.0));
             BeginPlainRewind();
-            RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
 
             RecordingStore.ResetRewindFlags();
 
-            Assert.False(RecordingStore.HasRewindCarriedRewindPoints);
+            Assert.False(RewindCarry.HasRewindCarriedRewindPoints);
             var loaded = Rp("rp_loaded", 1.0);
             SimulateStagingStateLoad(scenario, loaded);
-            Assert.Equal(-1, RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario));
+            Assert.Equal(-1, RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario));
             Assert.Same(loaded, scenario.RewindPoints.Single());
             Assert.Contains(logLines, l => l.Contains("reason=rewind-flags-reset"));
         }
@@ -312,9 +312,9 @@ namespace Parsek.Tests
             var rp = Rp("rp_a", 10.0);
             var scenario = InstallScenario(rp);
             BeginPlainRewind();
-            RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
             SimulateStagingStateLoad(scenario);
-            RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
+            RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
             RewindContext.EndRewind();   // HandleRewindOnLoad's EndRewind
 
             // The list OnSave wrote from memory round-trips through the next load.
@@ -323,7 +323,7 @@ namespace Parsek.Tests
             var reloaded = RewindPoint.LoadFrom(node.GetNodes("POINT").Single());
             SimulateStagingStateLoad(scenario, reloaded);
 
-            Assert.Equal(-1, RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario));
+            Assert.Equal(-1, RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario));
             Assert.Equal("rp_a", scenario.RewindPoints.Single().RewindPointId);
             Assert.Equal(10.0, scenario.RewindPoints.Single().UT);
         }
@@ -332,11 +332,11 @@ namespace Parsek.Tests
         public void NoScenarioAtCapture_CapturesNothing_LoadedListStands()
         {
             BeginPlainRewind();
-            RecordingStore.CaptureRewindPointsForRewind(null, "Warp-to-game-start");
+            RewindCarry.CaptureRewindPointsForRewind(null, "Warp-to-game-start");
 
-            Assert.False(RecordingStore.HasRewindCarriedRewindPoints);
+            Assert.False(RewindCarry.HasRewindCarriedRewindPoints);
             var scenario = InstallScenario(Rp("rp_loaded", 1.0));
-            Assert.Equal(-1, RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario));
+            Assert.Equal(-1, RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario));
             Assert.Single(scenario.RewindPoints);
         }
 
@@ -346,7 +346,7 @@ namespace Parsek.Tests
             var carried = new List<RewindPoint> { Rp("a", 1), null, Rp("b", 2) };
             var loaded = new List<RewindPoint> { Rp("b", 2), Rp("c", 3), Rp("d", 4) };
 
-            var merged = RecordingStore.MergeCarriedRewindPoints(
+            var merged = RewindCarry.MergeCarriedRewindPoints(
                 carried, loaded, out int restored, out int staleDropped);
 
             Assert.Equal(new[] { "a", "b" }, merged.Select(r => r.RewindPointId));
@@ -372,9 +372,9 @@ namespace Parsek.Tests
             var done = Rp("rp_done", 100.0, Slot(0, "rec_done_a"), Slot(1, "rec_done_b"));
             var scenario = InstallScenario(open, done);
             BeginPlainRewind();
-            RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
             SimulateStagingStateLoad(scenario);
-            RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
+            RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
             RewindContext.EndRewind();
 
             int reaped = RewindPointReaper.ReapOrphanedRPs();
@@ -595,7 +595,7 @@ namespace Parsek.Tests
             string body = MethodBody(ReadSource("ParsekScenario.cs"),
                 "public override void OnLoad(ConfigNode node)");
             int staging = body.IndexOf("LoadRewindStagingState(node);", StringComparison.Ordinal);
-            int reinstall = body.IndexOf("RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(this);", StringComparison.Ordinal);
+            int reinstall = body.IndexOf("RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(this);", StringComparison.Ordinal);
             int rewindBranch = body.IndexOf("HandleRewindOnLoad(node, recordings);", StringComparison.Ordinal);
             Assert.True(staging >= 0 && reinstall > staging,
                 "OnLoad must reinstall the carried RPs after LoadRewindStagingState rebuilds the list");
