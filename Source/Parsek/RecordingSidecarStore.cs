@@ -7,6 +7,20 @@ namespace Parsek
 {
     internal static class RecordingSidecarStore
     {
+        // VesselLaunchIdentity hydrates a dropped end snapshot through a rule this store
+        // installs, so that pure identity module does not reference the sidecar I/O.
+        private static readonly bool launchIdentityHydrateRuleInstalled = EnsureLaunchIdentityHydrateRuleInstalled();
+
+        internal static bool LaunchIdentityHydrateRuleInstalledForTesting => launchIdentityHydrateRuleInstalled;
+
+        /// <summary>Idempotent installer for <see cref="VesselLaunchIdentity.SnapshotHydrateRule"/>.
+        /// Returns true so a static field initialiser can call it.</summary>
+        internal static bool EnsureLaunchIdentityHydrateRuleInstalled()
+        {
+            VesselLaunchIdentity.SnapshotHydrateRule = TryHydrateVesselSnapshotFromSidecar;
+            return true;
+        }
+
         internal static bool SaveRecordingFiles(Recording rec, bool incrementEpoch = true)
         {
             if (rec == null)
