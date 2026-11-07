@@ -192,7 +192,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", ".."));
             string scenarioPath = Path.Combine(projectRoot,
                 "Source", "Parsek", "ParsekScenario.cs");
-            string source = File.ReadAllText(scenarioPath);
+            string source = ParsekScenarioSourceFiles.ReadText(scenarioPath);
 
             // Save: SWITCH_SEGMENT_SESSION removed and re-emitted.
             Assert.Contains(

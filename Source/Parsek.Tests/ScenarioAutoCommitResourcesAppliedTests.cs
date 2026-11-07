@@ -346,7 +346,7 @@ namespace Parsek.Tests
             string path = LocateParsekScenarioSource();
             Assert.True(File.Exists(path), $"ParsekScenario.cs not found at {path}");
 
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
             const string signature = "void CommitPendingTreeAsApplied(RecordingTree tree)";
             int sigIdx = prepared.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(sigIdx >= 0, "CommitPendingTreeAsApplied(RecordingTree) no longer exists");
