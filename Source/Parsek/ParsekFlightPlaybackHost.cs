@@ -2818,12 +2818,12 @@ namespace Parsek
         /// on the despawned pid, so that recording brings the vessel back at its end. Returns
         /// the entries actually held.
         /// </summary>
-        internal List<ReFlyInvokeHold.Entry> HoldReFlyInvokeVessels(
-            IList<ReFlyInvokeHold.Entry> entries, out int notLive, out int alreadyHeld)
+        internal List<ReFlyHoldEntry> HoldReFlyInvokeVessels(
+            IList<ReFlyHoldEntry> entries, out int notLive, out int alreadyHeld)
         {
             notLive = 0;
             alreadyHeld = 0;
-            var held = new List<ReFlyInvokeHold.Entry>();
+            var held = new List<ReFlyHoldEntry>();
             if (entries == null || entries.Count == 0)
                 return held;
             if (host.vesselGhoster == null)
@@ -2831,7 +2831,7 @@ namespace Parsek
 
             for (int i = 0; i < entries.Count; i++)
             {
-                ReFlyInvokeHold.Entry entry = entries[i];
+                ReFlyHoldEntry entry = entries[i];
                 if (entry == null || entry.Pid == 0u) continue;
                 if (host.vesselGhoster.IsGhosted(entry.Pid))
                 {
@@ -2853,7 +2853,7 @@ namespace Parsek
             return held;
         }
 
-        private void AddReFlyInvokeHold(ReFlyInvokeHold.Entry entry, string logContext)
+        private void AddReFlyInvokeHold(ReFlyHoldEntry entry, string logContext)
         {
             host.reFlyInvokeHolds[entry.Pid] = new ChainClaimedVessel
             {
@@ -2899,7 +2899,7 @@ namespace Parsek
             int restored = 0, heldLive = 0, alreadyHeld = 0, claimPassed = 0, noSnapshot = 0, otherLaunch = 0;
             for (int i = 0; i < marker.InvokeHolds.Count; i++)
             {
-                ReFlyInvokeHold.Entry entry = marker.InvokeHolds[i];
+                ReFlyHoldEntry entry = marker.InvokeHolds[i];
                 if (entry == null || entry.Pid == 0u) continue;
                 Vessel live = FlightRecorder.FindVesselByPid(entry.Pid);
                 string liveGuid = live != null && live.id != Guid.Empty ? live.id.ToString("N") : null;
@@ -2975,7 +2975,7 @@ namespace Parsek
             for (int i = 0; i < holds.Count; i++)
             {
                 RewindVesselHold.Hold hold = holds[i];
-                ReFlyInvokeHold.Entry entry = hold?.Entry;
+                ReFlyHoldEntry entry = hold?.Entry;
                 if (entry == null || entry.Pid == 0u) continue;
                 Vessel live = FlightRecorder.FindVesselByPid(entry.Pid);
                 string liveGuid = live != null && live.id != Guid.Empty ? live.id.ToString("N") : null;
