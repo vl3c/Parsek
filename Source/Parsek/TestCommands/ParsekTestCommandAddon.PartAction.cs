@@ -58,6 +58,20 @@ namespace Parsek.TestCommands
                 RejectPartAction(reason, $"pid={pidArg ?? string.Empty}");
                 return;
             }
+            string partPidArg = ArgOrNull(cmd, TestCommandPartAction.PartPidKey);
+            reason = TestCommandPartAction.ParsePartPid(partPidArg, out uint partPid, out bool hasPartPid);
+            if (reason != null)
+            {
+                RejectPartAction(reason, $"partPid={partPidArg ?? string.Empty}");
+                return;
+            }
+            string resourceArg = ArgOrNull(cmd, TestCommandPartAction.ResourceKey);
+            reason = TestCommandPartAction.ParseResource(resourceArg, kind, out string resourceName);
+            if (reason != null)
+            {
+                RejectPartAction(reason, $"button={actArg} resource={resourceArg ?? string.Empty}");
+                return;
+            }
 
             string expectSnapshotArg = ArgOrNull(cmd, TestCommandPartAction.ExpectSnapshotKey);
             string recArg = ArgOrNull(cmd, TestCommandPartAction.RecKey);
@@ -103,6 +117,8 @@ namespace Parsek.TestCommands
             int radiatorModules = 0;
             int engineModules = 0;
             int parachuteModules = 0;
+            int resourceParts = 0;
+            bool transferKind = TestCommandPartAction.IsTransferKind(kind);
             bool radiatorKind = TestCommandPartAction.IsRadiatorKind(kind);
             bool engineKind = TestCommandPartAction.IsEngineKind(kind);
             bool parachuteKind = TestCommandPartAction.IsParachuteKind(kind);
@@ -112,10 +128,22 @@ namespace Parsek.TestCommands
             {
                 Part p = v.parts[i];
                 if (p == null) continue;
+                if (hasPartPid && p.persistentId != partPid) continue;
                 string runtimeName = p.partInfo != null ? p.partInfo.name : p.name;
                 if (partName != null && !string.Equals(runtimeName, partName, StringComparison.Ordinal))
                     continue;
                 namedParts++;
+                if (transferKind)
+                {
+                    // Only a named part that can hold the resource is a destination.
+                    if (p.Resources == null || p.Resources.Get(resourceName) == null) continue;
+                    resourceParts++;
+                    found.Add(new PartActionCandidate
+                    {
+                        Part = p, EventName = TestCommandPartAction.TransferEventName,
+                    });
+                    continue;
+                }
                 if (TestCommandPartAction.IsWholePartKind(kind))
                 {
                     found.Add(new PartActionCandidate
@@ -197,7 +225,7 @@ namespace Parsek.TestCommands
                 foreach (int k in TestCommandPartAction.FoldUndockPairs(ports)) candidates.Add(found[k]);
             }
 
-            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : -1;
+            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : -1;
             reason = TestCommandPartAction.DecideCandidates(kind, partName, namedParts, converterName,
                 matchingConverters, experimentModules, typedModules,
                 candidates.Count, all);
@@ -207,7 +235,8 @@ namespace Parsek.TestCommands
                     $"converter={converterName ?? string.Empty} all={all} namedParts={namedParts} " +
                     $"matchingConverters={matchingConverters} experimentModules={experimentModules} " +
                     $"radiatorModules={radiatorModules} engineModules={engineModules} " +
-                    $"parachuteModules={parachuteModules} " +
+                    $"parachuteModules={parachuteModules} resourceParts={resourceParts} " +
+                    $"partPid={(hasPartPid ? partPid.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty)} " +
                     $"candidates={candidates.Count}");
                 return;
             }
@@ -225,6 +254,40 @@ namespace Parsek.TestCommands
                 {
                     RejectPartAction(reason, $"button={actArg} pid={vesselPid} part='{cPartName}' " +
                         $"activePid={(activeNow != null ? activeNow.persistentId : 0u)}");
+                    return;
+                }
+            }
+
+            // The transfer is planned before anything changes, so a plan that moves nothing is a
+            // refusal with no side effects.
+            var transferSources = new List<PartResource>();
+            double[] transferTakes = null;
+            double transferMoved = 0.0;
+            double destBefore = 0.0, destMax = 0.0;
+            if (transferKind)
+            {
+                PartResource dest = first.Part.Resources.Get(resourceName);
+                destBefore = dest.amount;
+                destMax = dest.maxAmount;
+                var amounts = new List<double>();
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p == null || p == first.Part || p.Resources == null) continue;
+                    PartResource r = p.Resources.Get(resourceName);
+                    if (r == null || !(r.amount > 0.0)) continue;
+                    transferSources.Add(r);
+                    amounts.Add(r.amount);
+                }
+                transferTakes = TestCommandPartAction.PlanTransfer(destMax - destBefore, amounts,
+                    out transferMoved);
+                reason = TestCommandPartAction.DecideTransfer(transferMoved);
+                if (reason != null)
+                {
+                    RejectPartAction(reason, $"button={actArg} pid={vesselPid} part='{cPartName}' " +
+                        $"resource={resourceName} destAmount={destBefore.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"destMax={destMax.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"sources={transferSources.Count}");
                     return;
                 }
             }
@@ -266,6 +329,19 @@ namespace Parsek.TestCommands
                     else if (kind == PartActionKind.Explode)
                         // Stock's crash path on the part itself: FX, then Die().
                         c.Part.explode();
+                    else if (transferKind)
+                    {
+                        // What each source gives, the destination gains: the amounts move as
+                        // stock's transfer moves them, so the vessel total is unchanged.
+                        PartResource dest = c.Part.Resources.Get(resourceName);
+                        for (int i = 0; i < transferSources.Count; i++)
+                        {
+                            double take = transferTakes[i];
+                            if (!(take > 0.0)) continue;
+                            transferSources[i].amount -= take;
+                            dest.amount += take;
+                        }
+                    }
                     else if (c.Event != null)
                         // The part-menu button's own handler, as the PAW invokes it.
                         c.Event.Invoke();
@@ -333,6 +409,17 @@ namespace Parsek.TestCommands
             {
                 appliedLine += TestCommandPartAction.FormatLabTail(labRoutes, labValues);
                 payload.AddRange(TestCommandPartAction.LabPayloadFields(labRoutes, labValues));
+            }
+            else if (transferKind)
+            {
+                double destAfter = first.Part.Resources.Get(resourceName).amount;
+                int sourceCount = 0;
+                for (int i = 0; i < transferTakes.Length; i++)
+                    if (transferTakes[i] > 0.0) sourceCount++;
+                appliedLine += TestCommandPartAction.FormatTransferTail(resourceName, transferMoved,
+                    sourceCount, destBefore, destAfter, destMax);
+                payload.AddRange(TestCommandPartAction.TransferPayloadFields(resourceName, transferMoved,
+                    sourceCount, destBefore, destAfter, destMax));
             }
             else if (kind == PartActionKind.Inspect)
             {

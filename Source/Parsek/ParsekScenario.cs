@@ -9228,7 +9228,11 @@ namespace Parsek
                 var pendingTree = RecordingStore.PendingTree;
                 int stampedCount = 0;
                 int skippedEarlierSegmentCount = 0;
+                int skippedReplacedCount = 0;
                 int stampedRenamedCount = 0;
+                var scenario = Instance;
+                IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                    object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes;
                 foreach (var rec in pendingTree.Recordings.Values)
                 {
                     VesselMatchKind matchKind = ClassifyVesselMatch(rec, identity, vesselPid);
@@ -9242,7 +9246,12 @@ namespace Parsek
                     // Stamping it would stretch its EndUT to the event UT, drop its
                     // snapshot, and pair the same recovery funds event a second time at
                     // commit (AddVesselRecoveryCostActions keys by recording id).
-                    if (!IsTerminalEventTarget(rec, pendingTree))
+                    if (IsReplacedByReFly(rec, pendingTree, supersedes))
+                    {
+                        skippedReplacedCount++;
+                        continue;
+                    }
+                    if (!IsTerminalEventTarget(rec, pendingTree, supersedes))
                     {
                         skippedEarlierSegmentCount++;
                         continue;
@@ -9264,6 +9273,14 @@ namespace Parsek
                         "stampedByLaunchIdentity={3} under a different recorded name " +
                         "(matched by launch guid; a vessel name is not its identity)",
                         identity.DisplayName, vesselPid, state, stampedRenamedCount));
+                }
+
+                if (skippedReplacedCount > 0)
+                {
+                    ParsekLog.Info("Scenario", string.Format(CultureInfo.InvariantCulture,
+                        "UpdateRecordingsForTerminalEvent: vessel='{0}' pid={1} state={2} stamped={3} " +
+                        "skippedReplacedByReFly={4} (a recording a Re-Fly replaced keeps its own end)",
+                        identity.DisplayName, vesselPid, state, stampedCount, skippedReplacedCount));
                 }
 
                 if (skippedEarlierSegmentCount > 0)
@@ -9316,11 +9333,55 @@ namespace Parsek
         /// </summary>
         internal static bool IsTerminalEventTarget(Recording rec, RecordingTree tree)
         {
+            var scenario = Instance;
+            return IsTerminalEventTarget(rec, tree,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+        }
+
+        /// <summary>
+        /// <see cref="IsTerminalEventTarget(Recording, RecordingTree)"/> with the supersede
+        /// relations passed in. A recording a Re-Fly replaced is never the target either: the
+        /// in-place fork is a SIBLING of the slot's prior tip with the same pid + launch guid,
+        /// and both are leaves of the session tree, so without this a recovery stamped the
+        /// replaced prior tip too (stretching its end to the recovery UT, dropping its
+        /// snapshot, and pairing the recovery funds event a second time at commit). During the
+        /// session the fork names the replaced recording in <c>SupersedeTargetId</c>; after a
+        /// merge the replaced recording is superseded by relation.
+        /// </summary>
+        internal static bool IsTerminalEventTarget(
+            Recording rec, RecordingTree tree, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
             if (rec == null)
+                return false;
+            if (IsReplacedByReFly(rec, tree, supersedes))
                 return false;
             if (string.IsNullOrEmpty(rec.ChildBranchPointId))
                 return true;
             return GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, tree);
+        }
+
+        /// <summary>
+        /// True when another recording of <paramref name="tree"/> names <paramref name="rec"/>
+        /// as its <c>SupersedeTargetId</c> (a live Re-Fly fork), or a supersede relation
+        /// replaces it.
+        /// </summary>
+        internal static bool IsReplacedByReFly(
+            Recording rec, RecordingTree tree, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+            if (tree?.Recordings != null)
+            {
+                foreach (var other in tree.Recordings.Values)
+                {
+                    if (other == null || object.ReferenceEquals(other, rec))
+                        continue;
+                    if (string.Equals(other.SupersedeTargetId, rec.RecordingId, StringComparison.Ordinal)
+                        && !string.Equals(other.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                        return true;
+                }
+            }
+            return EffectiveState.IsSupersededByRelation(rec, supersedes);
         }
 
         /// <summary>

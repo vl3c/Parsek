@@ -6,8 +6,8 @@ using Xunit;
 namespace Parsek.Tests
 {
     // Phase C: the pure adapter that turns a looping Mission's selection into a span-clock
-    // LoopUnitSet, plus the shared MissionSelection include cascade it depends on. No engine
-    // wiring (Phase D); these drive the pure logic with directly constructed inputs.
+    // LoopUnitSet. No engine wiring (Phase D); these drive the pure logic with directly
+    // constructed inputs.
     [Collection("Sequential")]
     public class MissionLoopUnitBuilderTests : IDisposable
     {

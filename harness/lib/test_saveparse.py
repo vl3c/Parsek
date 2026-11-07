@@ -855,6 +855,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # the MINE-11 hosts). Both inherit the node.
         "miner-rover-full": True,
         "miner-rover-starved": True,
+        # `miner-rover-landed` with a docking port on the miner's front and an Ore Depot
+        # (the miner without drills, ports facing) 1.5 m ahead of it
+        # (harness/tools/build_miner_rover_depot.py, the MINE-5b host). Inherits the node.
+        "miner-rover-depot": True,
         "fresh-career": False,
         "fresh-sandbox": False,
         # `fresh-sandbox` plus the HH1 Hitchhiker Drop craft in the VAB (CX-2).
@@ -866,6 +870,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # CreateNewGame writes every AddToAllGames module, ParsekScenario among them.
         "cs-science-new": True,
         "cs-career-new": True,
+        # `cs-career-new` plus a second Offered copy of its 'reach space' exploration
+        # offer under another guid and seed (harness/tools/build_career_new_goal_twin.py,
+        # the CTW-1 host). Inherits the node.
+        "career-new-goal-twin": True,
         # `fresh-career` WITH A REPUTATION SEED and nothing else - two lines of
         # the save differ. It inherits the base's deliberate ABSENCE of a
         # ParsekScenario node (False) along with everything else, which is right

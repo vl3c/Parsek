@@ -1,4 +1,4 @@
-# In-game test category inventory (all 135 categories)
+# In-game test category inventory (all 137 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -47,7 +47,7 @@ re-derive and gate. When the two disagree, read the table and fix the heading.
 
   | Flags | Count | Batch-reachable? |
   |---|---|---|
-  | `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true` | 68 | Yes, on an ISOLATED batch (R5) |
+  | `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true` | 70 | Yes, on an ISOLATED batch (R5) |
   | `AllowBatchExecution = false`, no restore flag | 3 (all `Periodicity`) | No - genuinely manual-only |
   | `RestoreBatchFlightBaselineAfterExecution = true` with `AllowBatchExecution` left true | 5 (`Contracts` 2, `TestCommands` 1, `LedgerGroundTruth` 2) | Yes, on EITHER path - not counted in this column |
 
@@ -146,6 +146,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `MapRender` | 23 | 22 | 0 | 0 | 1 | 14 | S1.7 | B |
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 (flown 2026-08-28, executes 4 of 4) | A |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | H63-merge-dialog-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2012`: PASS attempt 1, 58 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MergeDialog scene=FLIGHT` pinned whole. EXECUTED 2 of 2. The merge popup's own two branches driven in place over a FABRICATED pending tree - Discard clears it, Merge commits it through the real `Merge to Timeline` path - which is a different seam from H21's, where a real stock scene exit spawns the same popup. Boots `gloops-airshow`: neither cell stages or spawns, so the requirement is `loaded-vessel`. Neither REFLECTION guard fired, so the merge-dialog helpers and `ParsekScenario.Instance` both resolve at run time on KSP 1.12.5) | A |
+| `MiningHarvest` | 2 | 0 | 0 | 0 | 2 | 2 | MINE-5a-rover-live-drill-harvest-cap (ISOLATED, authored 2026-11-06, LIVE-PROVEN 2026-11-07 `2026-11-07_0022`; pinned whole 2 / 0 / 0). The D5 catch-up cell's own body (`HarvestCapture_CatchUpOnLoad`, which skips on every `Logistics` host) and the live plausibility-cap measurement, on `miner-rover-landed` with its four drills deployed by the lane. Its own category so `Logistics`' pinned total=47 does not move | A |
 | `MissionPhasing` | 4 | 4 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 4; the residue wants an airborne vessel) | B |
 | `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below), LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim; predicted on the 2026-09-07 second census, scratch CEN-4, run `2026-09-07_2010`, at 2 of 13 over `depot-route-recorded` - the dock-composition cell plus the station-mission phase-lock cell `RealSave_StationMission_PhaseLocksOrHolds`, which H54's `duna-one-recorded` host does not reach. The two lanes are different slices of ONE category, which is what the archetype note below predicts: no single real save is more than one or two archetypes. The census also read 1 of 13 on `career-earned-pad`, which is why LT-3 does not carry it. Both driving lanes execute a SLICE - H54 3 of 13, LT-4 2 of 13 - so the promotion rule does NOT fire and the bucket stays **B**, the archetype residue being the reason) | B |
 | `Optimizer` | 3 | 0 | 3 | 0 | 0 | 3 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes the whole category at SPACECENTER with zero skips. Its cells mutate the live store and skip whenever a committed recording is present, which is why that lane injects NOTHING. 2 -> 3 on 2026-09-22 (register item C2): `OnRailsBoundarySeam_SuppressesSplit_InGame`, the D3 `boundary-seam` cell; the re-pin's runs are in autotest-status.md) | A |
@@ -230,8 +231,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **136 categories / 687 declarations**. Buckets **A 101 categories
-(388 declarations)**, **B 34 categories (295 declarations)**, **C 1 category (4
+Totals, re-derived: **137 categories / 689 declarations**. Buckets **A 102 categories
+(390 declarations)**, **B 34 categories (295 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
