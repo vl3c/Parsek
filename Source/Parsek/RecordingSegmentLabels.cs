@@ -2,7 +2,12 @@ using System.Collections.Generic;
 
 namespace Parsek
 {
-    public static partial class RecordingStore
+    /// <summary>
+    /// Pure display labels for a recording's segment phase and body path (Recordings tab
+    /// phase column, Missions body path). Reads only the recording it is given; the caches
+    /// live on the Recording itself.
+    /// </summary>
+    internal static class RecordingSegmentLabels
     {
         /// <summary>
         /// Returns a human-readable phase label like "Kerbin atmo" or "exo".

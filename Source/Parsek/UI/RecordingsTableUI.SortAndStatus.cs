@@ -145,7 +145,7 @@ namespace Parsek
         {
             if (rec == null) return null;
 
-            if (RecordingStore.ShouldSuppressEvaBoundaryPhaseLabel(rec)
+            if (RecordingSegmentLabels.ShouldSuppressEvaBoundaryPhaseLabel(rec)
                 && rec.TrackSections != null)
             {
                 for (int i = rec.TrackSections.Count - 1; i >= 0; i--)
@@ -357,8 +357,8 @@ namespace Parsek
                     cmp = 0; // stable -- Array.Sort preserves original order for equal elements
                     break;
                 case SortColumn.Phase:
-                    string pa = RecordingStore.GetSegmentPhaseLabel(ra);
-                    string pb = RecordingStore.GetSegmentPhaseLabel(rb);
+                    string pa = RecordingSegmentLabels.GetSegmentPhaseLabel(ra);
+                    string pb = RecordingSegmentLabels.GetSegmentPhaseLabel(rb);
                     cmp = string.Compare(pa, pb, StringComparison.OrdinalIgnoreCase);
                     break;
                 case SortColumn.Name:

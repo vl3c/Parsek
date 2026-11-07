@@ -20825,7 +20825,7 @@ namespace Parsek
                     isActiveChainMember = false,
                     isChainLooping = chainLooping,
                     isChainSeamSuccessor = IsChainSeamSuccessorAtFrame(rec, currentUT),
-                    segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
+                    segmentLabel = RecordingSegmentLabels.GetSegmentPhaseLabel(rec),
                     recordingId = rec.RecordingId,
                     vesselPersistentId = rec.VesselPersistentId,
                     sessionSuppressedRenderCarveOutEligible =

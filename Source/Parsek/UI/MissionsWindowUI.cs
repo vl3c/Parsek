@@ -1757,7 +1757,7 @@ namespace Parsek
         // order, for the T2.1 narrative body path. primaryHeadId names the vessel (the same
         // composition roots[0] owner the terminal word is derived from; null falls back to the
         // through-line view's first root). Each leg's sequence comes from its committed
-        // Recording via RecordingStore.GetBodyTransitionSequence; a leg with no recording
+        // Recording via RecordingSegmentLabels.GetBodyTransitionSequence; a leg with no recording
         // contributes nothing. Returns null when no through-line resolves (the body-path
         // builder then yields null and the summary line falls back to span dates). Internal
         // static for direct testability (Testing Requirements).
@@ -1780,7 +1780,7 @@ namespace Parsek
                     && tree.Recordings.TryGetValue(tl.MemberLegIds[i], out Recording rec)
                     && rec != null)
                 {
-                    sequences.Add(RecordingStore.GetBodyTransitionSequence(rec));
+                    sequences.Add(RecordingSegmentLabels.GetBodyTransitionSequence(rec));
                 }
             }
             return sequences;
