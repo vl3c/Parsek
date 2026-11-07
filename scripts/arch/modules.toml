@@ -255,9 +255,11 @@ name = "Recording"
 prefix = "^SceneEntryVesselScope[.]cs$"
 placement = "R0"
 
-# live vessel capture at recorder stop and split time (TryBackupSnapshot, SnapshotVessel),
-# the body-name / body-index registry the snapshots read, and the max-distance family;
-# moved out of VesselSpawner by file-placement PR 8 (2026-11-06)
+# live snapshot support for the recorders: the snapshot normalizers, the body-name /
+# body-index registry the snapshots read, and the max-distance family; moved out of
+# VesselSpawner by file-placement PR 8 (2026-11-06). The capture entry points
+# (TryBackupSnapshot, SnapshotVessel) live on FlightRecorder, which keeps this type
+# off the type knot
 [[module]]
 name = "Recording"
 prefix = "^LiveVesselSnapshot[.]cs$"

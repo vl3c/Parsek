@@ -4,7 +4,7 @@ tier = "nightly"
 # BATCH-ONLY scenario, H7-H20 shape (H31's in particular). The live half of
 # KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN (docs/dev/todo-and-known-bugs.md, PR #1899):
 # `CrewInventorySnapshot` captures each crew member's inventory with every recorded
-# snapshot (`LiveVesselSnapshot.TryBackupSnapshot`) and restores it onto the roster at
+# snapshot (`FlightRecorder.TryBackupSnapshot`) and restores it onto the roster at
 # spawn. The pure codec, stand-in renames and restore planning are xUnit
 # (`CrewInventorySnapshotTests`); what only a live game has is the two halves this
 # category drives, `KerbalInventorySpawnInGameTest.cs`:

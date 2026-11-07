@@ -358,7 +358,7 @@ rank = 7
 item = "VesselSpawner split: kernel ops, spawn planner, live ops"
 evidence = "On 2026-09-14: 6,897 lines; 103 pure, 30 live, 50 model and 17 glue members; the ledger uses the pure members only."
 size = "5 steps"
-status = "Done. Step 1 was PR #1686 (plan in <code>docs/dev/research/vesselspawner-split-plan-2026-09-14.md</code>); the 2026-11-06 file-placement plan replaced steps 2-5 with its PRs 6-10: PR 6 (#2405) moved the crew-in-snapshot and situation helpers to VesselSnapshotOps, PR 7 (#2413) the position-stamp, rotation-node, validation and canonical-orbit writers, PR 8 (#2419) the live capture, body registry and max-distance family to a new LiveVesselSnapshot (Recording), PR 9 placed VesselSpawner itself in Controllers, off the Core kernel list, and PR 10 split it into partial files by area."
+status = "Done. Step 1 was PR #1686 (plan in <code>docs/dev/research/vesselspawner-split-plan-2026-09-14.md</code>); the 2026-11-06 file-placement plan replaced steps 2-5 with its PRs 6-10: PR 6 (#2405) moved the crew-in-snapshot and situation helpers to VesselSnapshotOps, PR 7 (#2413) the position-stamp, rotation-node, validation and canonical-orbit writers, PR 8 (#2419) the live snapshot normalizers, body registry and max-distance family to a new LiveVesselSnapshot (Recording; its capture entry points went to FlightRecorder in a follow-up that kept the residue ratchet at 287), PR 9 placed VesselSpawner itself in Controllers, off the Core kernel list, and PR 10 split it into partial files by area."
 types = ["VesselSpawner"]
 
 [[opportunities]]

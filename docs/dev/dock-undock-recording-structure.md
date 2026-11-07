@@ -169,7 +169,7 @@ There are five distinct kinds of "snapshot" in the dock/undock pipeline. Don't c
 
 ### 5.2 Merged-vessel snapshot — `mergedSnapshot`
 
-**Captured in:** `CreateMergeBranch`, via `LiveVesselSnapshot.TryBackupSnapshot(mergedVessel)` after `FlightRecorder.FindVesselByPid(mergedPid)`.
+**Captured in:** `CreateMergeBranch`, via `FlightRecorder.TryBackupSnapshot(mergedVessel)` after `FlightRecorder.FindVesselByPid(mergedPid)`.
 
 **Of what:** the post-couple merged vessel (`data.to.vessel`), which by this point holds all parts from both pre-couple sides.
 

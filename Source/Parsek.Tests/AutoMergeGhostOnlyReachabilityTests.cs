@@ -395,7 +395,7 @@ namespace Parsek.Tests
 
         /// <summary>
         /// A snapshot node carrying a `sit`, because a real one always does — they are
-        /// written by <c>LiveVesselSnapshot.TryBackupSnapshot</c> -> <c>ProtoVessel.Save</c>.
+        /// written by <c>FlightRecorder.TryBackupSnapshot</c> -> <c>ProtoVessel.Save</c>.
         /// The default is ORBITING (stable and spawnable) so a cell that does not care
         /// about the situation still exercises a shape the product actually produces.
         /// The un-finalized spawn gate reads this field, so a sit-less node would

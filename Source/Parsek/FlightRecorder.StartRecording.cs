@@ -533,7 +533,7 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"StartRecording: captured launch guid={pendingRecordedVesselGuid ?? "(none)"}");
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
-                : LiveVesselSnapshot.TryBackupSnapshot(v);
+                : FlightRecorder.TryBackupSnapshot(v);
             ApplyStartRecordingTreeBackstop(
                 ActiveTree, pendingStartControllers, pendingStartCrew, pendingRecordedVesselGuid,
                 StartBodyName, StartBiome, StartSituation, LaunchSiteName,
