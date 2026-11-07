@@ -2347,7 +2347,7 @@ namespace Parsek
         /// <summary>
         /// A committed recording left the list: every index above <paramref name="index"/>
         /// shifted down, so every index-keyed slot (engine dicts, held ghosts, map presence,
-        /// watch-mode index, orbit and map-marker caches) shifts with
+        /// watch-mode index, loop-seam traces, orbit and map-marker caches) shifts with
         /// it. <paramref name="absorbedInto"/> is the optimizer merge target that now carries
         /// the removed trajectory, null for a plain delete.
         /// </summary>
@@ -2360,6 +2360,7 @@ namespace Parsek
             // Orbit cache keys are index-derived (i * 10000 + segIdx); the map marker
             // waypoint cache and the diagnostic guards are index-keyed too.
             Positioner.ClearOrbitPlaybackCaches();
+            Positioner.ShiftLoopSeamTracesAfterDelete(index);
             ui?.ClearMapMarkerCache();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
@@ -2386,6 +2387,7 @@ namespace Parsek
             GhostMapPresence.ReindexPresenceAfterInsert(index);
             watchMode.OnRecordingInserted(index);
             Positioner.ClearOrbitPlaybackCaches();
+            Positioner.ShiftLoopSeamTracesAfterInsert(index);
             ui?.ClearMapMarkerCache();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
