@@ -13,7 +13,7 @@ namespace Parsek.Analyzer.Rules
     // Rewind-to-Launch quicksave captured at recording start. Production stores
     // it at Parsek/Saves/<id>.sfs (RecordingPaths.BuildRewindSaveRelativePath; see
     // FlightRecorder.CaptureRewindSave / CleanupOrphanedRewindSave and
-    // RecordingStore.DeleteRecordingFiles, all of which resolve the file through
+    // RecordingFileJanitor.DeleteRecordingFiles, all of which resolve the file through
     // BuildRewindSaveRelativePath) with the fixed "parsek_rw_" filename prefix
     // (FlightRecorder.cs `$"parsek_rw_{shortId}"`; ParsekScenario's stale-sweep
     // globs "parsek_rw_*.sfs"). It is NOT the newer RewindPoint (rp_*) quicksave
@@ -41,7 +41,7 @@ namespace Parsek.Analyzer.Rules
     //        human reason to recover.
     //      * Immutable / anything else -> WARN (token "missing-rewind-save"). A
     //        missing rewind save on a sealed recording is far likelier a dangling
-    //        reference than proven corruption: RecordingStore.DeleteRecordingFiles
+    //        reference than proven corruption: RecordingFileJanitor.DeleteRecordingFiles
     //        deletes a rewind save with the recording being discarded WITHOUT
     //        reference-counting sibling recordings that share the same save via
     //        ParsekFlight.CopyRewindSaveToRoot ("first recorder wins"), so a

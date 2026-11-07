@@ -3095,7 +3095,7 @@ namespace Parsek.InGameTests
         /// Pure: the recording sidecar file names under <c>Parsek/Recordings</c> that the
         /// batch itself created and nothing still uses. A file qualifies when it was absent
         /// from the batch-start snapshot, its name parses as a recording sidecar
-        /// (<see cref="RecordingStore.ExtractRecordingIdFromFileName"/>), and the running
+        /// (<see cref="RecordingFileJanitor.ExtractRecordingIdFromFileName"/>), and the running
         /// game does not name its recording (<paramref name="memoryRecordingIds"/>). An
         /// unrecognised name is never selected. Sorted, ordinal.
         /// </summary>
@@ -3119,7 +3119,7 @@ namespace Parsek.InGameTests
             foreach (string name in currentFileNames)
             {
                 if (string.IsNullOrEmpty(name) || baseline.Contains(name)) continue;
-                string id = RecordingStore.ExtractRecordingIdFromFileName(name);
+                string id = RecordingFileJanitor.ExtractRecordingIdFromFileName(name);
                 if (string.IsNullOrEmpty(id)) { keptUnrecognized++; continue; }
                 if (memoryRecordingIds != null && memoryRecordingIds.Contains(id)) { keptReferenced++; continue; }
                 result.Add(name);

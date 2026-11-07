@@ -2908,6 +2908,22 @@ each PR lands on the refactor branch, IL-proven a pure move).
   288). `ResetAllPlaybackState`, `CollectSpawnedVesselInfo` and the `PendingCleanup*` sets wait
   for PR13. `RecordingStore` partials 8,964 -> 8,400 lines, 279 -> 267 IL
   methods; knot 459 -> 460 (the new type sits on a cycle with the store), cut residue 287.
+- PR6 (service E) landed: the orphan / file cleanup left the store as `RecordingFileJanitor`
+  (the former `RecordingStore.OrphanCleanup.cs`): `DeleteRecordingFiles` and its two head
+  helpers, `RecordingFileSuffixes`, `ExtractRecordingIdFromFileName`,
+  `IsTransientSidecarArtifactFile`, `BuildKnownRecordingsForCleanup`,
+  `ResolveRecordingsDirectoryForCurrentSave`, `CollectSidecarIdsOnDisk`,
+  `OrphanQuarantineDirName` and `ForEachRecordingKnownToMemory`, bodies verbatim apart from
+  reading the committed list, trees and pending slots through the store's accessors. The
+  `CleanOrphanFilesDirectoryOverrideForTesting` seam moved with them
+  (`RecordingFileJanitor.ResetForTesting`, `InventoryTypes`, allowlist renamed with
+  `RecordingFileSuffixes`). No forwarder; 14 production files (3 in-game) and 14 xUnit files
+  call the new type. `BuildKnownRecordingIds` (both overloads) and
+  `BuildKnownRecordingIdsForCleanup` stay on the store, in
+  `RecordingStore.KnownRecordingIds.cs`: they read `InertRecordingTrees`, and on the janitor
+  that edge closes a cycle through `GroupHierarchyStore` around the `RecordingStore` cut
+  (residue 287 -> 288). The janitor is on the ERS / ELS allowlist. `RecordingStore` partials
+  8,400 -> 8,095 lines, 267 -> 255 IL methods; knot 460 -> 461, cut residue 287.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

@@ -158,7 +158,7 @@ namespace Parsek
             // management rows. Pending rows matter during active-tree restore:
             // the mission tree can be temporarily detached from committed
             // storage while still awaiting a deferred merge dialog.
-            var cleanupRecordings = RecordingStore.BuildKnownRecordingsForCleanup();
+            var cleanupRecordings = RecordingFileJanitor.BuildKnownRecordingsForCleanup();
             var scenario = ParsekScenario.Instance;
             var timelineInactiveIds = EffectiveState.ComputeTimelineInactiveRecordingIds(
                 cleanupRecordings,

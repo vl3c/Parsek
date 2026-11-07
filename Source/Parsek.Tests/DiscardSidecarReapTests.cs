@@ -73,7 +73,7 @@ namespace Parsek.Tests
         // ----- fixture: a real recordings directory with real staged sidecars -----
 
         /// <summary>
-        /// The seven sidecar suffixes <c>RecordingStore.DeleteRecordingFiles</c> unlinks
+        /// The seven sidecar suffixes <c>RecordingFileJanitor.DeleteRecordingFiles</c> unlinks
         /// under <c>Parsek/Recordings/</c>. Its EIGHTH limb - the per-recording
         /// quickload-resume save at <c>Parsek/Saves/&lt;RewindSaveFileName&gt;.sfs</c> -
         /// lives in a different directory and is staged separately (see
@@ -137,7 +137,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Stands in for <c>RecordingStore.DeleteRecordingFiles</c>, which resolves
+        /// Stands in for <c>RecordingFileJanitor.DeleteRecordingFiles</c>, which resolves
         /// paths through <c>KSPUtil.ApplicationRootPath</c> and throws outside KSP.
         /// Deletes exactly the recording's footprint from the staged save - the seven
         /// sidecars AND the quickload-resume save when the recording carries one - so
@@ -402,7 +402,7 @@ namespace Parsek.Tests
         [Fact]
         public void Reap_LockedFile_CountsAsFailed_AndTheBatchContinues()
         {
-            // This is the PRODUCTION degrade path. RecordingStore.DeleteRecordingFiles
+            // This is the PRODUCTION degrade path. RecordingFileJanitor.DeleteRecordingFiles
             // swallows each per-file exception (logging its own Warn) and reports the
             // outcome through its RETURN VALUE: false means at least one file is still
             // on disk. The reap must count that as failed rather than assume success,
@@ -446,9 +446,9 @@ namespace Parsek.Tests
             // production delete resolves no paths and unlinks nothing - that is
             // "nothing left behind", so it must report success; a null / invalid-id
             // recording is unusable and must report failure.
-            Assert.False(RecordingStore.DeleteRecordingFiles(null));
-            Assert.False(RecordingStore.DeleteRecordingFiles(new Recording { RecordingId = "../nope" }));
-            Assert.True(RecordingStore.DeleteRecordingFiles(Rec("rec-no-save-context")));
+            Assert.False(RecordingFileJanitor.DeleteRecordingFiles(null));
+            Assert.False(RecordingFileJanitor.DeleteRecordingFiles(new Recording { RecordingId = "../nope" }));
+            Assert.True(RecordingFileJanitor.DeleteRecordingFiles(Rec("rec-no-save-context")));
         }
 
         [Fact]
@@ -488,7 +488,7 @@ namespace Parsek.Tests
             StageRewindSave("resume-rec-with-save");
             string rpQuicksave = StageRewindPointQuicksave("rp-untouched");
 
-            // No deleter override here: the REAL RecordingStore.DeleteRecordingFiles
+            // No deleter override here: the REAL RecordingFileJanitor.DeleteRecordingFiles
             // runs, with its save-root resolution pointed at the staged temp save.
             // Every unlink below is production's.
             RecordingPaths.SaveRootOverrideForTesting = lastSaveRoot;

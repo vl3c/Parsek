@@ -196,7 +196,7 @@ namespace Parsek.Tests
             // The producer and the sweeper must agree on the temp name; a crash hook would
             // leave exactly the file the sweep deletes.
             Assert.Equal(".tmp", FileIOUtils.SafeWriteTempSuffix);
-            Assert.True(RecordingStore.IsTransientSidecarArtifactFile("abc.prec" + FileIOUtils.SafeWriteTempSuffix));
+            Assert.True(RecordingFileJanitor.IsTransientSidecarArtifactFile("abc.prec" + FileIOUtils.SafeWriteTempSuffix));
         }
 
         // ----- Store load paths -----

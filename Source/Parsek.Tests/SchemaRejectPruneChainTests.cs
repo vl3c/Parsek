@@ -242,7 +242,7 @@ namespace Parsek.Tests
             // The store now knows only the two survivors, exactly as it would after
             // ParsekScenario.LoadRecordingTrees.
             RecordingStore.AddCommittedTreeForTesting(loaded);
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
 
             Assert.True(File.Exists(PrecPath(MidId)));
             logLines.Clear();

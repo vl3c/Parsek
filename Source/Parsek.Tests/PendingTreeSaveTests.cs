@@ -33,7 +33,7 @@ namespace Parsek.Tests
         {
             HighLogic.SaveFolder = originalSaveFolder;
             HighLogic.LoadedScene = originalScene;
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = null;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = null;
             for (int i = 0; i < cleanupRoots.Count; i++)
             {
                 try
@@ -509,7 +509,7 @@ namespace Parsek.Tests
             string recordingsDir = Path.Combine(root, "Parsek", "Recordings");
             Directory.CreateDirectory(recordingsDir);
             cleanupRoots.Add(root);
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
             return recordingsDir;
         }
 

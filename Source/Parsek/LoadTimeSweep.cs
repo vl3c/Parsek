@@ -946,7 +946,7 @@ namespace Parsek
                     removed++;
                     // A zombie never committed, so nothing else reads its sidecars; a Retry
                     // otherwise leaves the first attempt's files in the save.
-                    if (RecordingStore.DeleteRecordingFiles(rec))
+                    if (RecordingFileJanitor.DeleteRecordingFiles(rec))
                         deletedFiles++;
                 }
                 else
