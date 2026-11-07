@@ -1163,6 +1163,37 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "fcb6f503102a4b2785b76ee9cafd47f0"],
             "schemaGeneration": 4,
         },
+        # --- THE LONE-MOON ARRIVAL HOLD SUBJECT: JOOL + LAYTHE IN ONE TREE --
+        # PROVENANCE: jool-laythe-recorded <- B38-jool-laythe-continuation, run
+        # 2026-11-07_2230, PASS attempt 1 (wall 632 s, branch head a45c46f,
+        # automation DLL sha256 prefix deeb466b), --keep-parsek, from the run's
+        # own `_save` snapshot. B25's Jool->Laythe machine flown from the
+        # UNSTRIPPED `jool-orbit-recorded` with no kill pair, so the hop joined
+        # B22's committed tree 6ec68e87 (already=true; SOI line Jool to Laythe,
+        # activeRec=ddcc6d00 the root, after the load-time split).
+        #
+        # SEVEN recordings, jool-orbit-recorded's five plus two: the commit-time
+        # optimizer re-split the resumed root into ddcc6d00 the pad head
+        # [26.3..224.5] (no terminal), 6ec75480 Kerbin->Jool (Orbiting Jool) and
+        # 96d1d5b9 the Jool->Laythe hop [27,787,319.5..28,816,903.4] (Orbiting
+        # Laythe). Like the other two Group A fixtures, the save also carries the
+        # `isActive = True` in-flight copy of the tree; saveparse dedupes it.
+        "jool-laythe-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 7,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 4, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 28,
+            "recordingIds": ["1d6fa27e66bd47fc85baffe90522bef3",
+                             "6ec754809cdd40bd99a98ede1ecb8f9b",
+                             "96d1d5b93f6e49dabd42473955c90e8e",
+                             "98c11e0d19804aecb1b7e66a94f8ede7",
+                             "ad34ea8948ba4c1fb839bbc691f21deb",
+                             "b13418e758764bb8adf061cff8236f1b",
+                             "ddcc6d007ff54a9c8246c7958011883a"],
+            "schemaGeneration": 4,
+        },
         # --- THE ECCENTRIC-MOON LOOP SUBJECT -----------------------------
         # PROVENANCE: gilly-orbit-recorded <- B24-gilly-orbit, run
         # 2026-08-19_1655, PASS attempt 1 (mission wall 1,075 s, every assertion

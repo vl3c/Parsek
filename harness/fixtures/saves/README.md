@@ -1663,3 +1663,17 @@ subject of the lone-moon arrival hold loop lanes V32M / V32T. New recordings ove
 (Orbiting Gilly); `75a6ab25` is now the pad head only. The tree is also written a second
 time as the `isActive = True` in-flight copy. Payload pinned in
 `harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.
+
+## jool-laythe-recorded (GAME Mode = SANDBOX, 1 VESSEL, 7 recordings in 1 committed tree)
+
+PROVENANCE: `B38-jool-laythe-continuation`, run `2026-11-07_2230`, PASS attempt 1 (branch
+`claude/project-thread-ni23y9` head a45c46f, automation DLL sha256 prefix deeb466b),
+harvested `--keep-parsek --expect-situation ORBITING` from the run's own `_save` snapshot.
+The Duna Rocket of `jool-orbit-recorded` (B22) flew B25's Jool->Laythe hop with no kill
+pair, so the hop is recorded into B22's committed tree `6ec68e87b782476f970a71df8c8b4685`:
+one tree that crosses Jool's SOI and then Laythe's, the subject of the lone-moon arrival
+hold loop lane V33M. New recordings over `jool-orbit-recorded`: `6ec75480` Kerbin->Jool
+(Orbiting Jool) and `96d1d5b9` the Jool->Laythe hop (Orbiting Laythe); `ddcc6d00` is now
+the pad head only. The tree is also written a second time as the `isActive = True`
+in-flight copy. Craft come from the shared library (`../shared-ships.toml`). Payload
+pinned in `harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.
