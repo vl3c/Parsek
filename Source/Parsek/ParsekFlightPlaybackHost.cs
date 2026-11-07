@@ -113,15 +113,15 @@ namespace Parsek
             if (e.bodyBefore == null || e.bodyAfter == null) return;
 
             // Phase 1 + Phase 4 spline re-evaluation (design doc
-            // §6.1 / §6.2 / §18 Phase 1+4 / HR-9). Without the
+            // section 6.1 / section 6.2 / section 18 Phase 1+4 / HR-9). Without the
             // re-eval, the raw lat/lon/alt bracket lerp on the
             // fallback path would overwrite the spline-positioned
-            // transform on every LateUpdate — Phase 1's smoothing
+            // transform on every LateUpdate - Phase 1's smoothing
             // would only survive a single Update frame before
             // FloatingOrigin re-positioning snapped it back.
-            // Frame-tag dispatch matches the Update path: tag 0 →
-            // body-fixed surface lookup, tag 1 → inertial re-lower
-            // at the playback UT, unknown → NaN (silent fallthrough
+            // Frame-tag dispatch matches the Update path: tag 0 ->
+            // body-fixed surface lookup, tag 1 -> inertial re-lower
+            // at the playback UT, unknown -> NaN (silent fallthrough
             // here; the Warn fires from the Update path's
             // unknownFrameTagWarned dedup so LateUpdate doesn't
             // double-emit).
@@ -161,14 +161,14 @@ namespace Parsek
                 }
             }
             // Phase 2 + Phase 3 anchor correction (design doc
-            // §6.3 / §6.4 / §18 Phase 2-3): re-apply the world-
-            // space ε so the FloatingOrigin frame-velocity shift
+            // section 6.3 / section 6.4 / section 18 Phase 2-3): re-apply the world-
+            // space eps so the FloatingOrigin frame-velocity shift
             // cannot snap the ghost back to the un-corrected
             // lerped position. Phase 3: the lookup is re-fetched
-            // each LateUpdate so the lerp interval (§6.4 Both
+            // each LateUpdate so the lerp interval (section 6.4 Both
             // case) progresses with the playback UT instead of
             // freezing to the value captured at Update time.
-            // The ε is additive on top of either the spline-
+            // The eps is additive on top of either the spline-
             // positioned or the raw-lerp position above.
             if (ParsekFlight.allowRenderAnchorCorrectionInterval(
                     e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
@@ -218,7 +218,7 @@ namespace Parsek
 
                 // FRAME: lifted to Y-up WORLD at the read, so every LookRotation in
                 // this block pairs a world forward axis with the world radial built
-                // from getPositionAtUT — the same orbital-frame contract
+                // from getPositionAtUT - the same orbital-frame contract
                 // ComputeOrbitalRotation states and every producer encodes in. This
                 // block is a hand-inlined copy of that decode (LateUpdate re-apply
                 // after FloatingOrigin shifts) and MUST move with it.
@@ -297,12 +297,12 @@ namespace Parsek
             Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                 e.latAfter, e.lonAfter, e.altAfter);
             Vector3d rawCheckpointPos = Vector3d.Lerp(posBefore, posAfter, e.t);
-            // §7.7 (and any §7.x anchor that lands on a
-            // Checkpoint section): re-apply the world-space ε
+            // section 7.7 (and any section 7.x anchor that lands on a
+            // Checkpoint section): re-apply the world-space eps
             // here so the FloatingOrigin shift between Update
             // and LateUpdate cannot snap the ghost back to the
-            // bare lerp position. Phase 3 evaluates ε at the
-            // current playback UT — the lerp interval (§6.4
+            // bare lerp position. Phase 3 evaluates eps at the
+            // current playback UT - the lerp interval (section 6.4
             // Both case) progresses each frame, not freezes.
             if (ParsekFlight.allowRenderAnchorCorrectionInterval(
                     e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
@@ -475,7 +475,7 @@ namespace Parsek
             }
             else
             {
-                // Anchor not loaded — hide ghost (offsets are meters, not lat/lon/alt)
+                // Anchor not loaded - hide ghost (offsets are meters, not lat/lon/alt)
                 e.ghost.SetActive(false);
             }
         }
@@ -508,11 +508,7 @@ namespace Parsek
         {
             double delta = Vector3d.Distance(before, after);
 
-            string recordingId =
-                !string.IsNullOrEmpty(entry.recordingId) ? entry.recordingId :
-                !string.IsNullOrEmpty(entry.anchorRecordingId) ? entry.anchorRecordingId :
-                !string.IsNullOrEmpty(entry.relativeAnchorRecordingId) ? entry.relativeAnchorRecordingId :
-                null;
+            string recordingId = ResolveGhostPosEntryRecordingId(entry);
             double currentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : entry.pointUT;
             GhostRenderTrace.EmitReapply(
                 recordingId,
@@ -1404,7 +1400,7 @@ namespace Parsek
         /// and one that stops skipping logs its None transition once and leaves the set.
         /// </summary>
         internal static void LogGhostSkipReasonChangeIfNeededCore(
-            HashSet<string> activeGhostSkipReasonLogIdentities,
+            HashSet<string> activeIdentities,
             int index,
             Recording rec,
             GhostPlaybackSkipReason reason,
@@ -1414,7 +1410,7 @@ namespace Parsek
             bool rewindRetired)
         {
             string identity = BuildGhostSkipReasonIdentity(index, rec?.RecordingId);
-            bool hasLoggedActiveSkip = activeGhostSkipReasonLogIdentities.Contains(identity);
+            bool hasLoggedActiveSkip = activeIdentities.Contains(identity);
             if (reason == GhostPlaybackSkipReason.None && !hasLoggedActiveSkip)
                 return;
 
@@ -1430,9 +1426,9 @@ namespace Parsek
                 rewindRetired);
 
             if (reason == GhostPlaybackSkipReason.None)
-                activeGhostSkipReasonLogIdentities.Remove(identity);
+                activeIdentities.Remove(identity);
             else
-                activeGhostSkipReasonLogIdentities.Add(identity);
+                activeIdentities.Add(identity);
         }
 
         private static void LogFastForwardWatchHandoff(
@@ -1798,9 +1794,6 @@ namespace Parsek
                 // the per-reason histogram; the batched summary is emitted after the loop.
                 if (!finalNeedsSpawn && !rec.IsDebris)
                 {
-                    // A loop member keeps its spawn-gate reason first (its render is not
-                    // history-gated); the history gate names itself only when it is the
-                    // gate that actually held a loop member's first-run spawn.
                     string reason = ResolveSpawnSuppressedReason(
                         liveFlownRecording,
                         historicalNeverReplayed,
