@@ -805,6 +805,62 @@ namespace Parsek.Tests.Logistics
                 l.Contains("originUndockChildren=2"));
         }
 
+        // catches (MINE-4 flight 2026-11-07_0942): the background origin-undock
+        // child's StartUT is its first committed sample, a frame or two AFTER the
+        // undock UT the route window stamps, so the composition edge sits at
+        // 1500.02. A boundary at exactly the window UT kept the docked-at-A
+        // stretch [1000..1500.02] and the span check rejected the route
+        // (derivedStart = the origin dock).
+        [Fact]
+        public void ComputeStartExcluded_OriginChildStartsAFrameLate_DockedStretchExcluded()
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+            tree.Recordings["depotA"].ExplicitStartUT = 1500.02;
+
+            HashSet<string> startExcluded =
+                RouteBackingMission.ComputeStartExcludedIntervalKeys(tree, ShuttleOriginUndockUT);
+
+            Assert.Contains("root", startExcluded);
+            Assert.Contains("root@dock1", startExcluded);
+            Assert.Contains("depotA", startExcluded);
+            Assert.DoesNotContain("root/seg1", startExcluded);
+
+            HashSet<string> excluded = ShuttleCreationExclusions(tree);
+            Assert.True(RouteBackingMission.TryComputeSelectionSpan(
+                tree, excluded, out double spanStartUT, out double spanEndUT));
+            Assert.Equal(1500.02, spanStartUT, 6);
+            Assert.Equal(ShuttleDockBUT, spanEndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("ComputeStartExcludedIntervalKeys") && l.Contains("edgeUT=1500.02"));
+        }
+
+        // catches: the edge slack reaching past one physics hiccup - a child
+        // starting beyond OriginUndockEdgeSlackSeconds is not the same undock
+        // edge, so the boundary stays at the window UT and the span check can
+        // still fail closed.
+        [Theory]
+        [InlineData(1500.02, 1500.02)]
+        [InlineData(1500.0 + RouteBackingMission.OriginUndockEdgeSlackSeconds, 1501.0)]
+        [InlineData(1502.0, 1500.0)]
+        [InlineData(1499.9, 1500.0)]
+        public void ResolveOriginUndockEdgeUT_TakesLatestChildStartWithinSlack(
+            double childStart, double expectedEdge)
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+            tree.Recordings["depotA"].ExplicitStartUT = childStart;
+            var children = new HashSet<string> { "transit", "depotA" };
+
+            Assert.Equal(expectedEdge,
+                RouteBackingMission.ResolveOriginUndockEdgeUT(tree, children, ShuttleOriginUndockUT), 6);
+        }
+
+        [Fact]
+        public void OriginUndockEdgeSlack_MatchesTheBuilderSpanTolerance()
+        {
+            Assert.Equal(RouteBuilder.OriginSpanMatchToleranceSeconds,
+                RouteBackingMission.OriginUndockEdgeSlackSeconds);
+        }
+
         // catches: bad inputs throwing or producing a non-empty set instead of
         // the honest no-start-trim fallback.
         [Theory]

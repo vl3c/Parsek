@@ -19,6 +19,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE: a route from a depot the transport docked to is refused when the depot's recording starts a frame after the undock~~ [FILED 2026-11-07 from MINE-4's first full flight (`2026-11-07_0942`, head 5d25bfe, INVALID at `RouteCommand create`); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; flight owed: MINE-4; product, high (no live docked-origin flight could become a supply route)]
+
+**Symptom.** The miner docked to the Ore depot at UT 64.58, loaded, undocked at 94.94, docked to
+the silo at 102.04 and unloaded. The tree passed analysis (`RouteAnalysis eligible: ...
+midTreeOrigin=1`, gate `eligible=True`), then the build refused it: `BuildRoute rejected:
+origin-span-mismatch ... expectedStart=94.9399999999988 expectedEnd=102.03999999999739
+derivedStart=64.580000000004844`.
+
+**Cause.** The backing mission's origin-undock edge is the peeled depot recording's StartUT, its
+first committed background sample (`TrimBoringTail: stamped explicit bounds ... startUT=
+94.9599999999988`), one physics frame after the route window's undock UT. The start trim excluded
+only intervals ending by the window UT plus 1e-6 s, so the docked-at-depot stretch
+`[64.58 .. 94.96]` stayed selected and the fail-closed span check rejected the route. The unit
+fixtures put every child's start exactly on the undock UT, so nothing caught it.
+
+**Fix.** `RouteBackingMission.ComputeStartExcludedIntervalKeys` moves its boundary to the latest
+origin-undock child start within `OriginUndockEdgeSlackSeconds` (1 s, equal to the builder's span
+tolerance; `ResolveOriginUndockEdgeUT`, logged as `edgeUT=`). Creation and the per-route render
+trim share the helper, so both agree. A child starting more than 1 s late is not the same edge and
+still fails closed. Tests: `ComputeStartExcluded_OriginChildStartsAFrameLate_DockedStretchExcluded`,
+`ResolveOriginUndockEdgeUT_TakesLatestChildStartWithinSlack`,
+`Build_MidTreeOrigin_OffshootStartsAFrameLate_Builds` (both fail with the fix reverted).
+
 ## ~~HARVEST-WINDOW-EDGE-FRAME: a live mining flight cannot become a harvest route, the window misses the drills' first frame~~ [FILED 2026-11-07 from MINE-5b's first flight (two attempts INVALID at `RouteCommand create`, head e1d07eb), measured by MINE-5a `2026-11-07_0022`; FIXED 2026-11-07, branch `harvest-gain-gap`; xUnit; LIVE-PROVEN by MINE-5b `2026-11-07_0448` (`uncovered=3.52E-05` inside `edgeSlack=4.23E-04`, route eligible, delivered) and MINE-5a `2026-11-07_0450` (`oreEdgeGap=3.52E-05`); product, high (no live drill run could become a supply route)]
 
 **Symptom.** MINE-5b mined, docked to the depot, moved the Ore across and undocked; the route
@@ -650,7 +673,7 @@ depot; it now forbids a reported delivery cap.
 
 ---
 
-## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (AUTHORED 2026-11-07 as `MINE-4-rover-docked-origin-route-rewind` on the scripted `miner-rover-relay`, never flown); the lab lane XS-5 is covered by LAB-7 / LAB-9a / LAB-9b / LAB-10 / LAB-10b (live-proven 2026-10-19); MINE-0 (S1.9 `2026-11-07_0023`), MINE-5a (`2026-11-07_0022`) and MINE-5b (`2026-11-07_0448`) LIVE-PROVEN; harness / fixture]
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (AUTHORED 2026-11-07 as `MINE-4-rover-docked-origin-route-rewind` on the scripted `miner-rover-relay`; its flights found ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE, not yet green); the lab lane XS-5 is covered by LAB-7 / LAB-9a / LAB-9b / LAB-10 / LAB-10b (live-proven 2026-10-19); MINE-0 (S1.9 `2026-11-07_0023`), MINE-5a (`2026-11-07_0022`) and MINE-5b (`2026-11-07_0448`) LIVE-PROVEN; harness / fixture]
 
 Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
 from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a

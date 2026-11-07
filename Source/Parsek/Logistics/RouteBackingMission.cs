@@ -252,6 +252,15 @@ namespace Parsek.Logistics
             // rejected by the RouteBuilder span check — fail closed.
             var originUndockChildLegIds = CollectTerminalUndockChildLegIds(tree, segmentStartUT);
 
+            // The composition's origin-undock edge sits at the peeled child's
+            // StartUT, which is its first committed sample: a background child
+            // starts a physics frame or two after the undock UT the route window
+            // stamps (and the optimizer re-stamps its explicit start to that
+            // sample). Move the boundary up to the latest origin-undock child
+            // start within OriginUndockEdgeSlackSeconds so the docked origin
+            // stretch, which ends at that edge, is still excluded.
+            double edgeUT = ResolveOriginUndockEdgeUT(tree, originUndockChildLegIds, segmentStartUT);
+
             // Exclude every selectable interval that ENDS at/before the origin
             // start (symmetric epsilon rule: an interval ending exactly at the
             // origin undock — the docked origin stretch — is excluded; an interval
@@ -259,7 +268,7 @@ namespace Parsek.Logistics
             int scanned = 0;
             int excludedCount = 0;
             int keptCount = 0;
-            double boundary = segmentStartUT + BoundaryEpsilonSeconds;
+            double boundary = edgeUT + BoundaryEpsilonSeconds;
             for (int i = 0; i < roots.Count; i++)
             {
                 WalkAndClassifyStart(roots[i], boundary, originUndockChildLegIds, excluded,
@@ -269,9 +278,43 @@ namespace Parsek.Logistics
             ParsekLog.Verbose(Tag,
                 $"ComputeStartExcludedIntervalKeys: tree={tree.Id ?? "<null>"} " +
                 $"segmentStartUT={segmentStartUT.ToString("R", ic)} " +
+                $"edgeUT={edgeUT.ToString("R", ic)} " +
                 $"scanned={scanned.ToString(ic)} excluded={excludedCount.ToString(ic)} " +
                 $"kept={keptCount.ToString(ic)} originUndockChildren={originUndockChildLegIds.Count.ToString(ic)}");
             return excluded;
+        }
+
+        /// <summary>
+        /// How far past the origin undock UT an origin-undock child's StartUT may
+        /// sit and still be read as the same undock edge. Equal to
+        /// <c>RouteBuilder.OriginSpanMatchToleranceSeconds</c>, the span check the
+        /// trimmed selection must pass.
+        /// </summary>
+        internal const double OriginUndockEdgeSlackSeconds = 1.0;
+
+        /// <summary>
+        /// The UT of the composition's origin-undock edge: the latest StartUT of
+        /// an origin-undock child that lies in
+        /// <c>[segmentStartUT .. segmentStartUT + OriginUndockEdgeSlackSeconds]</c>,
+        /// else <paramref name="segmentStartUT"/>. Pure.
+        /// </summary>
+        internal static double ResolveOriginUndockEdgeUT(
+            RecordingTree tree, HashSet<string> originUndockChildLegIds, double segmentStartUT)
+        {
+            double edgeUT = segmentStartUT;
+            if (tree == null || tree.Recordings == null || originUndockChildLegIds == null)
+                return edgeUT;
+            foreach (string id in originUndockChildLegIds)
+            {
+                if (!tree.Recordings.TryGetValue(id, out Recording child) || child == null)
+                    continue;
+                double start = child.StartUT;
+                if (double.IsNaN(start) || double.IsInfinity(start))
+                    continue;
+                if (start > edgeUT && start <= segmentStartUT + OriginUndockEdgeSlackSeconds)
+                    edgeUT = start;
+            }
+            return edgeUT;
         }
 
         /// <summary>

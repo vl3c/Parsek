@@ -16,6 +16,10 @@ All notable changes to Parsek are documented here.
   (GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP)
 - **The Missions tab's column headings sit exactly over their columns.** The headings right of
   the name column were drawn 1 px to the right of the values under them.
+- **A supply route can now start at a depot the transport docked to.** A flight that docked to
+  a depot, loaded cargo, undocked and delivered it was refused when the route was created, because
+  the depot's recording started one physics frame after the undock.
+  (ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE)
 - **A mining flight can now be turned into a supply route.** A rover that mined Ore and docked
   to deliver it was refused as "cargo of unknown origin", because the drills' first moment of
   production was not counted. The route now accepts it and still delivers only the Ore it saw

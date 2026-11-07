@@ -23,6 +23,16 @@
 #     to the pressed port's half. Fixed: `PartAction button=controlfrom` on the miner's probe
 #     core before the recording, and every undock presses the one offered port again. A
 #     `Vessel switch detected: 'Mining Rover RC'` line is now forbidden.
+#   2026-11-07_0942 (+ _0945_a2), head 5d25bfe, same DLL: INVALID. Attempt 1 docked, loaded,
+#     undocked (focus stayed on the miner), docked the silo and unloaded; then RouteCommand
+#     create was REJECTED although the gate said eligible: `BuildRoute rejected:
+#     origin-span-mismatch ... expectedStart=94.94 ... derivedStart=64.58`. A real Parsek
+#     defect (todo ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE): the depot's recording starts at
+#     its first background sample, UT 94.96, so the backing mission's undock edge sits a
+#     frame after the window's 94.94 and the start trim kept the docked-at-depot stretch.
+#     Fixed in `RouteBackingMission.ComputeStartExcludedIntervalKeys`. Attempt 2 drove 70 ms
+#     after the undock while its push had the rover FLYING (`drivevessel-not-on-surface`);
+#     the lane now waits to UT 96 and settles first.
 #
 # WHAT IT CLOSES.
 #   * MINE-4 (`docs/dev/research/mining-isru-test-program-2026-10-17.md`, todo
@@ -125,8 +135,13 @@ steps = [
   # flight 2026-11-07_0931 refused the miner's own port `candidates=0`), so the press names
   # no port; the control point set above keeps the focus on the miner.
   { cmd = "PartAction",          args = { button = "undock" }, label = "und1",            expect = "OK" },
-  # Backwards into the silo at once, before the undock's push settles: the first flight's
-  # miner rolled about 2.5 m back on its own while the lane waited.
+  # Let the undock's push settle before backing into the silo: flight 2026-11-07_0945_a2
+  # drove 70 ms after the undock while the push had the rover FLYING
+  # (`drivevessel-not-on-surface`). The brakes stay on, and the focused miner no longer
+  # rolls the way the unfocused one did in the first flight. The undock lands at about
+  # UT 94.9 (the warp to 95 stops just short), so 96 is always ahead.
+  { cmd = "WarpToUT",            args = { ut = "96", maxRate = "1" },                     expect = "OK", budget = 60 },
+  { cmd = "DriveVessel",         args = { settleBelow = "0.05", seconds = "30" },        expect = "OK" },
   { cmd = "MissionMark",         args = { label = "mine4-dock-silo" },                    expect = "OK" },
   { cmd = "DriveVessel",         args = { wheelThrottle = "-0.5", seconds = "30", untilDocked = "true", maxSpeed = "0.4" }, label = "dks", expect = "OK" },
   { cmd = "WarpToUT",            args = { ut = "170", maxRate = "1" },                    expect = "OK", budget = 120 },
