@@ -35,6 +35,10 @@ All notable changes to Parsek are documented here.
   a depot, loaded cargo, undocked and delivered it was refused when the route was created, because
   the depot's recording started one physics frame after the undock.
   (ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE)
+- **A contract you accept twice on the timeline keeps its offer after a rewind.** If two of
+  your flights accept the same goal (say a flag on the Mun that failed, then a second try), a
+  rewind to before the first no longer removes that first offer early from Mission Control.
+  (CONTRACT-TWIN-GUID-SEEDED-TYPES)
 - **A mining flight can now be turned into a supply route.** A rover that mined Ore and docked
   to deliver it was refused as "cargo of unknown origin", because the drills' first moment of
   production was not counted. The route now accepts it and still delivers only the Ore it saw
