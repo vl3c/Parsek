@@ -16,6 +16,9 @@ All notable changes to Parsek are documented here.
   (GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP)
 - **The Missions tab's column headings sit exactly over their columns.** The headings right of
   the name column were drawn 1 px to the right of the values under them.
+- **After a rewind, a supply route no longer delivers into its own transport.** When the
+  rewound flight's vessels came back, the route could pick the respawned transport, parked next
+  to the destination, and deliver the cargo there instead. (ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED)
 - **A supply route made right after a flight is merged no longer pauses itself.** The next save
   marked it "source changed", a state it never leaves, so the route had to be deleted and made
   again. (ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE)

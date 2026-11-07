@@ -60,6 +60,14 @@
 #     content change, so the materialized route went SourceChanged
 #     (`sidecar-epoch-drift id=baf969f1`) and `send-once` was refused. Fixed in the route
 #     source capture; the DLL must be rebuilt.
+#   2026-11-07_1139 (+ _1144_a2), head 867cd9f, rebuilt DLL: INVALID, identical twice; 69
+#     of 70 steps. IR-7 now materializes the route and `send-once` runs, but the rewind
+#     respawned all three tips with fresh pids and part ids, so both endpoints fell to the
+#     proximity step and the destination went to the respawned MINER (1.56 m away) instead of
+#     the silo: a Parsek defect (ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED, the route's own
+#     transport respawned under a new guid was not recognized as the transport). Fixed by
+#     following the spawn link rows. The last read also named the fixture pids, gone after
+#     the rewind; it is removed (the contracts after `ir7-materialized` carry that proof).
 #
 # WHAT IT CLOSES.
 #   * MINE-4 (`docs/dev/research/mining-isru-test-program-2026-10-17.md`, todo
@@ -236,7 +244,8 @@ steps = [
   { cmd = "WarpToUT",            args = { ut = "3000", maxRate = "100" },                 expect = "OK", budget = 300 },
   { cmd = "ListHandles",         args = { kind = "routes" },                              expect = "OK" },
   { cmd = "MissionMark",         args = { label = "ir7-delivered" },                      expect = "OK" },
-  { cmd = "ReadVesselResources", args = { pid = "3950359723,4030840545", resources = "Ore" }, expect = "OK" },
+  # No read here: the rewind respawned every tip under a fresh persistentId, so the depot
+  # debit and the silo delivery are pinned by the two log contracts after `ir7-materialized`.
   { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                                 expect = "OK" },
 ]

@@ -19,6 +19,26 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED: after a rewind, a route delivers into its own respawned transport~~ [FILED 2026-11-07 from MINE-4 flight `2026-11-07_1139` (+ `_1144_a2`, head 867cd9f, INVALID at the last post-rewind read); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; flight owed: MINE-4; product, high (the cargo lands in the wrong vessel and the route rebinds its stop to it)]
+
+**Symptom.** After `InvokeRewindToLaunch` of the route's own tree the three tips (depot, miner,
+silo) spawned again, and the materialized route ran one cycle. Both endpoints missed the
+root-part step (a spawn regenerates part ids) and fell to proximity, and the destination went
+to the respawned miner, 1.56 m from the recorded silo position: `Route endpoint transferred:
+... role=destination from=4030840545 to=3834393315/'Mining Rover RC' step=proximity
+distance=1.56`, then `Delivery write: ... dest=Mining Rover RC ... tankBefore=0 tankAfter=75`.
+The respawned silo sat a few metres further out and got nothing.
+
+**Cause.** The proximity step excludes the route's own transports (ruling 2026-09-04), but
+`RouteEndpointTransfer.IsRouteTransport` matched only the recorded pid and guid. A Parsek spawn
+gives the vessel a fresh pid and guid and records a link row pointing back at the recorded guid
+(`Link added: kind=Spawn guid=c67f0ecf... -> e5850798...`), which the test never read.
+
+**Fix.** `IsRouteTransport` also counts a candidate whose guid continues a transport's guid
+through the link rows (`VesselNameStore.GuidContinuesIdentity`: a spawn, a resumed spawn or an
+undock). Tests: `IsRouteTransport_SpawnLinkedGuid_IsTheTransport`,
+`SurfaceFallback_ExcludesASpawnOfTheTransport` (both fail with the new check removed).
+
 ## ~~ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE: a route created right after a commit pauses itself as SourceChanged at the next save~~ [FILED 2026-11-07 from MINE-4 flight `2026-11-07_1041` (+ `_1046_a2`, head c6b22a7, INVALID at the post-rewind `send-once`); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; flight owed: MINE-4; product, high (the route is stuck: design 7.4 never auto-recovers SourceChanged, so it must be deleted and recreated)]
 
 **Symptom.** The route was created in flight right after `CommitTree`, delivered once, then the
@@ -696,7 +716,7 @@ depot; it now forbids a reported delivery cap.
 
 ---
 
-## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (AUTHORED 2026-11-07 as `MINE-4-rover-docked-origin-route-rewind` on the scripted `miner-rover-relay`; its flights found ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE and ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE, not yet green); the lab lane XS-5 is covered by LAB-7 / LAB-9a / LAB-9b / LAB-10 / LAB-10b (live-proven 2026-10-19); MINE-0 (S1.9 `2026-11-07_0023`), MINE-5a (`2026-11-07_0022`) and MINE-5b (`2026-11-07_0448`) LIVE-PROVEN; harness / fixture]
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (AUTHORED 2026-11-07 as `MINE-4-rover-docked-origin-route-rewind` on the scripted `miner-rover-relay`; its flights found ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE, ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE and ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED, not yet green); the lab lane XS-5 is covered by LAB-7 / LAB-9a / LAB-9b / LAB-10 / LAB-10b (live-proven 2026-10-19); MINE-0 (S1.9 `2026-11-07_0023`), MINE-5a (`2026-11-07_0022`) and MINE-5b (`2026-11-07_0448`) LIVE-PROVEN; harness / fixture]
 
 Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
 from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a

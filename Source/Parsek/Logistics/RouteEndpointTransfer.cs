@@ -167,7 +167,10 @@ namespace Parsek.Logistics
         /// Pure transport test: is this candidate one of the route's own transports? Guid
         /// first, pid fallback - a pid match counts unless a known guid on BOTH sides
         /// conclusively disagrees, which is the same rule every other identity site in Parsek
-        /// uses. <paramref name="reason"/> is <c>route-own-transport</c> on a hit and empty
+        /// uses. A candidate whose guid continues a transport's guid through the identity link
+        /// rows (<see cref="VesselNameStore.GuidContinuesIdentity"/>: a Parsek spawn, a resumed
+        /// spawn or an undock re-keys a ship) is that transport too, whatever its pid.
+        /// <paramref name="reason"/> is <c>route-own-transport</c> on a hit and empty
         /// otherwise, so callers log one stable token.
         /// </summary>
         internal static bool IsRouteTransport(
@@ -183,11 +186,20 @@ namespace Parsek.Logistics
             for (int i = 0; i < transports.Count; i++)
             {
                 VesselIdentity t = transports[i];
-                if (t.Pid == 0u || t.Pid != candidatePid) continue;
-                if (VesselLaunchIdentity.GuidsConclusivelyDiffer(t.LaunchGuid, candidateLaunchGuid))
-                    continue;
-                reason = "route-own-transport";
-                return true;
+                if (t.Pid != 0u && t.Pid == candidatePid
+                    && !VesselLaunchIdentity.GuidsConclusivelyDiffer(t.LaunchGuid, candidateLaunchGuid))
+                {
+                    reason = "route-own-transport";
+                    return true;
+                }
+                // A Parsek spawn of the transport's chain tip (after a rewind, the tree's end
+                // spawns it again) carries a fresh pid and guid; its identity link row points
+                // back at the recorded guid.
+                if (VesselNameStore.GuidContinuesIdentity(candidateLaunchGuid, t.LaunchGuid))
+                {
+                    reason = "route-own-transport";
+                    return true;
+                }
             }
 
             return false;
