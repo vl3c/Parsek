@@ -1095,6 +1095,39 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["05ceee33806d4079a1d9d125a1359115"],
             "schemaGeneration": 4,
         },
+        # --- THE LONE-MOON ARRIVAL HOLD SUBJECT: DUNA + IKE IN ONE TREE --
+        # PROVENANCE: duna-ike-recorded <- B36-duna-ike-continuation, run
+        # 2026-11-07_2214, PASS attempt 1 (mission wall 212 s, branch head
+        # d25869f, automation DLL sha256 prefix deeb466b), --keep-parsek, from
+        # the run's own `_save` snapshot. B23's Duna->Ike machine flown from the
+        # UNSTRIPPED `duna-direct-recorded` with no kill pair, so the hop joined
+        # B17's committed tree ccb5e4af: ONE tree that crosses Duna's SOI and
+        # Ike's, the shape the lone-moon hold engages on.
+        #
+        # FOUR recordings, not B17's two: the load-time split left the restore
+        # on the root 311d98e3 (activeRec on the SOI line), and the commit-time
+        # optimizer re-split the resumed recording into 311d98e3 the pad head
+        # [4,653,504..4,653,682] (no terminal), cb6acf4e Kerbin->Duna
+        # (Orbiting Duna), 9e2f5bfa the Duna->Ike hop [9,160,396.8..9,181,507.7]
+        # (Orbiting Ike), plus B17's booster debris 3397c2e5 (Destroyed).
+        #
+        # The save also carries the tree a SECOND time as `isActive = True`:
+        # after the commit the committed-spawned restore resumed the tree on the
+        # live probe and FlushAndQuit wrote it (SaveActiveTreeIfAny). saveparse
+        # dedupes it, so `trees` stays 1.
+        "duna-ike-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 4,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 2, "Destroyed": 1},
+            "branchPoints": {"JointBreak": 1},
+            "minAuthoritativeSidecars": 16,
+            "recordingIds": ["311d98e32547491e8dd37aec2526d25d",
+                             "cb6acf4e1f4043878db57c89ffc9948f",
+                             "9e2f5bfae0b6414893f2c4a0be740a57",
+                             "3397c2e5d9f2433caca2e419d7e356b7"],
+            "schemaGeneration": 4,
+        },
         # --- THE ECCENTRIC-MOON LOOP SUBJECT -----------------------------
         # PROVENANCE: gilly-orbit-recorded <- B24-gilly-orbit, run
         # 2026-08-19_1655, PASS attempt 1 (mission wall 1,075 s, every assertion

@@ -1634,3 +1634,18 @@ single status authority - see its "Operator items outstanding" item 1. `career-p
 is LIVE-PROVEN as of 2026-07-28: its consumer `CL-1-pod-impact` flew green on its
 second flight and is re-tiered `nightly`. Flight 1 red and found a real defect in this
 fixture - the missing `ParsekScenario` node, edit 3 above.
+
+## duna-ike-recorded (GAME Mode = SANDBOX, 1 VESSEL, 4 recordings in 1 committed tree)
+
+PROVENANCE: `B36-duna-ike-continuation`, run `2026-11-07_2214`, PASS attempt 1 (branch
+`claude/project-thread-ni23y9` head d25869f, automation DLL sha256 prefix deeb466b),
+harvested `--keep-parsek --expect-situation ORBITING` from the run's own `_save` snapshot.
+The DD1 probe of `duna-direct-recorded` (B17) flew B23's Duna->Ike hop with no kill pair,
+so the hop is recorded into B17's committed tree `ccb5e4afd7974dbe9118090468ac00ae`: one
+tree that crosses Duna's SOI and then Ike's, the subject of the lone-moon arrival hold
+loop lanes V31M / V31T. Recordings: `311d98e3` pad head, `cb6acf4e` Kerbin->Duna (Orbiting
+Duna), `9e2f5bfa` the Duna->Ike hop (Orbiting Ike), `3397c2e5` booster debris (Destroyed).
+The tree is also written a second time as the `isActive = True` in-flight copy (the
+committed-spawned restore resumed it after the commit). Craft come from the shared
+library (`../shared-ships.toml`). Payload pinned in
+`harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.
