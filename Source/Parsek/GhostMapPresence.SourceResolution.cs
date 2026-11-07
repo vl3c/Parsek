@@ -950,11 +950,40 @@ namespace Parsek
         {
             tipRecordingId = null;
             tipSegments = null;
+            Recording tip = ResolveLiveSegmentBearingChainTip(traj);
+            if (tip == null) return false;
+            tipRecordingId = tip.RecordingId;
+            tipSegments = tip.OrbitSegments;
+            return true;
+        }
 
+        /// <summary>
+        /// Live <see cref="MapPresenceChainTipTerminalResolver"/>: the SAME tip
+        /// <see cref="ResolveLiveChainTipSegments"/> lends its segments from, reporting its terminal.
+        /// </summary>
+        private static bool ResolveLiveChainTipTerminal(
+            IPlaybackTrajectory traj, out string tipRecordingId, out TerminalState? tipTerminal)
+        {
+            tipRecordingId = null;
+            tipTerminal = null;
+            Recording tip = ResolveLiveSegmentBearingChainTip(traj);
+            if (tip == null) return false;
+            tipRecordingId = tip.RecordingId;
+            tipTerminal = tip.TerminalStateValue;
+            return true;
+        }
+
+        /// <summary>
+        /// The committed effective tip of <paramref name="traj"/>'s chain when it is a different
+        /// recording that carries orbit segments, else null. Shared by the segment lender and the
+        /// eligibility lender so the two can never name different tips.
+        /// </summary>
+        private static Recording ResolveLiveSegmentBearingChainTip(IPlaybackTrajectory traj)
+        {
             var rec = traj as Recording;
             if (rec == null || string.IsNullOrEmpty(rec.ChainId)
                 || string.IsNullOrEmpty(rec.RecordingId))
-                return false;
+                return null;
 
             int liveSupersedeVersion = ParsekScenario.Instance?.SupersedeStateVersion ?? 0;
             if (chainTipSegmentsCacheVersion != RecordingStore.StateVersion
@@ -980,22 +1009,71 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(tipId)
                 || string.Equals(tipId, rec.RecordingId, StringComparison.Ordinal))
-                return false;
+                return null;
 
             IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return false;
+            if (committed == null) return null;
             for (int i = 0; i < committed.Count; i++)
             {
                 Recording candidate = committed[i];
                 if (candidate == null) continue;
                 if (!string.Equals(candidate.RecordingId, tipId, StringComparison.Ordinal)) continue;
                 if (candidate.OrbitSegments == null || candidate.OrbitSegments.Count == 0)
-                    return false;
-                tipRecordingId = tipId;
-                tipSegments = candidate.OrbitSegments;
-                return true;
+                    return null;
+                return candidate;
             }
-            return false;
+            return null;
+        }
+
+        /// <summary>
+        /// Test seam / alternate source for the chain tip's terminal, mirroring
+        /// <see cref="MapPresenceChainTipResolver"/>: false when the recording borrows no tip.
+        /// </summary>
+        internal delegate bool MapPresenceChainTipTerminalResolver(
+            IPlaybackTrajectory traj, out string tipRecordingId, out TerminalState? tipTerminal);
+
+        /// <summary>
+        /// PURE (PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE): the terminal the map-presence
+        /// eligibility gate (<see cref="IsTerminalStateEligibleForMapPresence"/>) reads.
+        ///
+        /// A chain member with no orbit segments of its own borrows its effective tip's segments
+        /// (<see cref="ResolveMapPresenceChainSegments"/>), so it stands in for that tip on the map
+        /// and must take the tip's ending along with its orbit. Without that, the climb HEAD of a
+        /// flight the optimizer split at the atmosphere edge (terminal moved to the TIP, HEAD's
+        /// nulled) passed the gate the Destroyed TIP fails, and drew a stock map vessel along the
+        /// crash coast that the same flight stored unsplit never gets.
+        ///
+        /// Same additive condition as the segment lender: a recording with segments of its own
+        /// never consults the tip and keeps its own terminal, so a middle member with its own orbit
+        /// keeps its map vessel whatever the flight's ending. A recording whose own terminal already
+        /// fails the gate stays refused.
+        /// </summary>
+        internal static TerminalState? ResolveMapPresenceEligibilityTerminal(
+            IPlaybackTrajectory traj,
+            MapPresenceChainTipTerminalResolver resolveChainTip,
+            out string tipRecordingId)
+        {
+            tipRecordingId = null;
+            if (traj == null) return null;
+            TerminalState? own = traj.TerminalStateValue;
+            if (!IsTerminalStateEligibleForMapPresence(own)) return own;
+            if (traj.OrbitSegments != null && traj.OrbitSegments.Count > 0) return own;
+            if (resolveChainTip == null) return own;
+            if (!resolveChainTip(traj, out string tipId, out TerminalState? tipTerminal))
+                return own;
+            if (IsTerminalStateEligibleForMapPresence(tipTerminal)) return own;
+            tipRecordingId = tipId;
+            return tipTerminal;
+        }
+
+        /// <summary>
+        /// Live form of <see cref="ResolveMapPresenceEligibilityTerminal"/> over the committed store.
+        /// </summary>
+        internal static TerminalState? ResolveMapPresenceEligibilityTerminal(
+            IPlaybackTrajectory traj, out string tipRecordingId)
+        {
+            return ResolveMapPresenceEligibilityTerminal(
+                traj, ResolveLiveChainTipTerminal, out tipRecordingId);
         }
 
         internal static TrackingStationGhostSource ResolveMapPresenceGhostSource(
@@ -1182,14 +1260,16 @@ namespace Parsek
                     5.0);
             }
 
-            var terminal = traj.TerminalStateValue;
+            var terminal = ResolveMapPresenceEligibilityTerminal(traj, out string terminalTipId);
             if (!IsTerminalStateEligibleForMapPresence(terminal))
             {
                 skipReason = "terminal-" + terminal.Value;
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
-                    string.Format(ic, "terminal={0}", terminal.Value));
+                    string.IsNullOrEmpty(terminalTipId)
+                        ? string.Format(ic, "terminal={0}", terminal.Value)
+                        : string.Format(ic, "terminal={0} chainTip={1}", terminal.Value, terminalTipId));
             }
 
             double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
