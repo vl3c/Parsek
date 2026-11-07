@@ -10,7 +10,7 @@ namespace Parsek
 {
     internal static partial class TreeCommitService
     {
-        private static bool HasRecordingTopologyDifference(
+        internal static bool HasRecordingTopologyDifference(
             RecordingTree existing,
             RecordingTree incoming)
         {
@@ -43,7 +43,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool HasRecordingPayloadDifference(
+        internal static bool HasRecordingPayloadDifference(
             RecordingTree existing,
             RecordingTree incoming)
         {
@@ -67,7 +67,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool HasRecordingPayloadDifference(Recording existing, Recording incoming)
+        internal static bool HasRecordingPayloadDifference(Recording existing, Recording incoming)
         {
             return CountOf(existing.Points) != CountOf(incoming.Points) ||
                 CountOf(existing.OrbitSegments) != CountOf(incoming.OrbitSegments) ||
@@ -86,12 +86,12 @@ namespace Parsek
                 !string.Equals(existing.TerminalOrbitBody, incoming.TerminalOrbitBody, StringComparison.Ordinal);
         }
 
-        private static int CountOf<T>(ICollection<T> items)
+        internal static int CountOf<T>(ICollection<T> items)
         {
             return items?.Count ?? 0;
         }
 
-        private static bool SameDouble(double left, double right)
+        internal static bool SameDouble(double left, double right)
         {
             if (double.IsNaN(left) && double.IsNaN(right))
                 return true;
@@ -99,7 +99,7 @@ namespace Parsek
             return left.Equals(right);
         }
 
-        private static bool HasBranchPointTopologyDifference(
+        internal static bool HasBranchPointTopologyDifference(
             RecordingTree existing,
             RecordingTree incoming)
         {
@@ -130,7 +130,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool SameStringSet(List<string> left, List<string> right)
+        internal static bool SameStringSet(List<string> left, List<string> right)
         {
             if (left == null || left.Count == 0)
                 return right == null || right.Count == 0;
