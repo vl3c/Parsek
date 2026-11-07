@@ -26,37 +26,58 @@ id = "CS-7-career-mun-landing"
 # CS-6b bought the Astronaut Complex (EVA off Kerbin and flags: decompiled
 # GameVariables, UnlockedEVA(lvl) `lvl > 0.2`, UnlockedEVAFlags(lvl) `lvl >= 0.4`) and
 # advRocketry (the Terrier, the FL-T400), CS-6c earned and researched basicScience (the
-# Z-100) and electrics (the OX-STAT). Earlier hosts: `cs-career-mun2` (CS-6's save, with
+# Z-100) and electrics (the OX-STAT and the Z-200 this craft carries). Earlier hosts: `cs-career-mun2` (CS-6's save, with
 # CS-6b's walk replayed), `cs-career-mun3` (CS-6b's save, the first flight below).
 #
 # THE CRAFT, `CS Mun Solar Lander` (harness/tools/build_cs_orbiter_craft.py --variant
-# solar, gate harness/lib/test_cs_orbiter_craft.py): 30 parts, 47.695 t, 22.17 m, cost
-# 13417. CS Mun Lander (the first cut, `--variant lander`) with the three Thumper nose
-# cones off, four legs for its three, and two OX-STAT panels (the lander's top FL-T400,
-# azimuths 0 / 180, 90 deg off the hatch) and a Z-100 (the second FL-T400) on the lander
-# stage. Mk1 pod, Mk16, heat shield on a TD-12, then the lander: 2 x FL-T400 + 1 x
-# FL-T200 on a Terrier, four LT-05 legs (the same height, the same 0.88 m bell
-# clearance); below it a TD-12, 7 x FL-T400 on a Swivel core and three cone-less
-# Thumpers at 60% on TT-38Ks. Stages: 4 launch, 3 the Thumpers' drop, 2 the core drop
-# and the Terrier, 1 the pod's separation (the return's one owed stage), 0 the chute.
-# Delta-v (vacuum unless marked): launch stage 1251 (sea level), core 1939, lander 3838
-# (Mun TWR 5.0 full); CS-6's flight put LKO at about 3130 m/s on this basis (the lower
-# stages give 3190; the open Thumper tops cost an estimated 30-60 m/s more), and the
-# lander from LKO needs about 3110: the injection 860, corrections up to 300, the
-# capture 280, the descent 700, the ascent 650, the departure 220 (CS-6 measured 216.9),
-# the trim 100.
-# ELECTRIC CHARGE (the builder's header carries the whole budget): 150 EC aboard (the
-# pod's 50 + the Z-100's 100) until the pod's separation; the two OX-STATs make
-# 0-0.350 EC/s with the sun broadside to the stack (0.223 average over the roll),
-# less off broadside, nothing in shadow; KSP charges them through rails warp too. The
-# draw that emptied the first flight (below) is the Kerbin ascent coast on the long
-# stack, 0.42-0.47 EC/s; the lander-only holds after the core drop drew 0.002-0.045
-# EC/s on CS-6c's same-sized upper stage. Expected: ~60-120 EC between two sunlit
-# coasts against 150 stored. Worst case (no sun from the descent to orbit, the wheel
-# saturated end to end): ~150 EC short late in the Mun ascent, named by the watchdog.
-# RISKS A FLIGHT FALSIFIES: the LT-05s may not reach below the Terrier's bell (0.88 m
-# below their attach points against the leg's ~0.8 m stroke); then they stand as
-# outriggers round it. The landing site's sun angle and the powered Mun phases' draw.
+# solar, gate harness/lib/test_cs_orbiter_craft.py), RE-CUT 2026-11-07 for the fuel and
+# 2026-11-08 for the staging (todo CS7-LANDER-TIPS-AT-BOARD): 30 parts, 48.890 t, 17.47 m,
+# cost 14292. Mk1 pod with
+# a Z-200 under its Mk16, heat shield on a TD-12, then the lander: ONE FL-T400 on a
+# Terrier, three FL-T400 outriggers off its wall (azimuths 90 / 210 / 330, 60 deg or more
+# off the hatch, 1.428 m out, bottoms level with the FL-T400's), each with an LT-05 on its
+# outer wall (the same 0.88 m bell clearance) and a nose cone on its top; below the lander
+# a TD-12, 6 x FL-T400 on a Swivel core with CS Mun Lander's three Thumpers (60%) on
+# TT-38Ks on its second tank from the bottom, between the outriggers. Stages: 4 launch
+# (the Swivel and the Thumpers), 3 the Thumpers' drop (the TT-38Ks, pushing them out),
+# 2 the core drop and the Terrier, 1 the pod's separation (the return's
+# one owed stage), 0 the chute. The stance is the outrigger cut's, wider: feet 2.05 m out,
+# tips at 27 deg (`--report`, conservative read).
+# Delta-v (vacuum unless marked): launch stage 1207 (sea level), core 1304 (thrust-to-
+# weight 1.04 at its ignition), lander 4545 (4464 with Jeb; Mun TWR 3.4 full).
+# THE FUEL, measured on the outrigger cut (`2026-11-07_0104_..._a2`): the lower stages
+# left the lander suborbital (core drop at 31.6 km, apoapsis 35.6 km) and it spent 1227
+# m/s of its 3754 finishing LKO, so the ascent cost 4418 m/s on the builder's basis
+# against CS-6's clean 3130: nine blunt faces off the axis (three open Thumper tops,
+# three outrigger tops on the launch stage, the outrigger tops again on the core's). From
+# LKO the flight's burns were the injection 842, two corrections 126, the capture 266,
+# the descent 710 and a Mun ascent needing 753 (217 to a 20.1 km apoapsis, a ~536
+# circularization); it ran dry 168 m/s short. This cut closes the six outrigger faces
+# (cones), keeps the three open Thumper tops the first solar cut flew (its ascent cost
+# about 3392 m/s: core drop at 43.8 km, apoapsis 69.3 km, 39 LF of the lander's), and
+# moves 3 t of propellant from the core to the lander, which reaches LKO with the
+# flight's from-orbit burns plus 25% over the landing, the Mun ascent, the departure 220
+# and the trim 100 (3463 m/s) for any ascent costing up to 3512 m/s (it may spend about
+# 1000 of its own on the way up); at the first cut's 3392 it keeps a 32% margin, on
+# CS-6's clean 3130 46%.
+# ELECTRIC CHARGE: 250 EC (the pod's 50 + the Z-200's 200), all of it on the pod, so the
+# return keeps what the Mun phases leave; no panel (the cut's two OX-STATs and the Z-100
+# went for the cones' part count). The budget is MEASURED: the telemetry rows of the two
+# panelled flights (`2026-10-31_0654_a2`, `2026-11-07_0104_a2`, 150 EC and two OX-STATs
+# each), from the core drop to the departure burn, per phase the worse flight's drop
+# plus the panels' share it no longer gets (each 1x second credited at the phase's
+# steepest 10 s rise plus CS-6c's 0.045 EC/s hold; rails draw nothing). Kerbin ascent
+# finish 27.0, transfer 11.4, corrections 4.7, coasts 0.3, capture 6.0, park 2.7,
+# descent 42.6, landed settle 9.3 (SAS on the ground, 0.32 EC/s on 2026-10-31; the
+# lander stayed flat while the kerbal was out, so its panels made nothing there), EVA 0,
+# Mun ascent 43.1, departure 4.2, the trim (not flown) 4.7 as a correction: 156 EC, x1.25
+# = 195 against 249.5 above the 0.5 floor, a 60% margin (the builder's --report and
+# gate). The reentry, outside the watchdog, keeps ~94. Not covered: a panel square to
+# the sun through every burn with the wheel eating it all (283 EC).
+# RISKS A FLIGHT FALSIFIES: the stack's ascent cost (the margin holds to 3512; the coned
+# outriggers' open bottoms are the one drag term no flight has measured), the lander's
+# low thrust-to-weight (0.57 full) finishing the ascent (it burned off a leg: STATUS), and the electric charge above (the lowest reading in the Mun
+# phases is the one to read: the budget predicts at least ~94 left at the trim).
 #
 # THE 2026-11-04 REDS (full lane run, `2026-11-04_0447_CS-7` and `_a2`, both INVALID
 # vessel-lost in MUN-ASCENT; todo CS7-LANDER-TIPS-AT-BOARD): no Parsek line touches the
@@ -72,8 +93,11 @@ id = "CS-7-career-mun-landing"
 # (`2026-11-04_1803` / `_1823_a2`) settled it: the lander touches down upright (pitch 89.9,
 # alt 4.1) and then FALLS OVER on its legs at zero throttle, once during LANDED-SETTLE and
 # once mid-EVA (pitch to -11..-17, alt to ~1.1); the ascent then slides it to vessel-lost.
-# A craft-stability problem (the LT-05 stance), not Parsek; the gate is armed below so the
-# lane reads `mun-lander-tipped`. Todo CS7-LANDER-TIPS-AT-BOARD.
+# A craft-stability problem (the LT-05 stance), not Parsek; the gate stays armed below so
+# a tip reads `mun-lander-tipped`. The craft was re-cut 2026-11-06 with an outrigger
+# stance, which stood on the Mun (`2026-11-07_0104`, read on `_a2`: upright touchdown,
+# EVA, flag and board, no tip) and ran out of fuel in the Mun ascent; re-cut again
+# 2026-11-07 for the fuel (THE CRAFT); re-flight owed. Todo CS7-LANDER-TIPS-AT-BOARD.
 #
 # THE ROUTE, mission `b13_mun_landing_return` (mlib.mlr_decide): B5's machine VERBATIM
 # with captureEnabled and landingEnabled (B11's capture, a 60 s park, B13's untargeted
@@ -90,9 +114,11 @@ id = "CS-7-career-mun-landing"
 # (autostage stays limited to stage 2), then mor's departure (aimed at 30 km) and mfr's
 # return tail VERBATIM.
 #
-# THE MONEY, read from the host: the rollout 13452 measured (the builder's cost 13417; the
-# first cut measured 13742 for a builder cost of 13707 and CS-5 11612 for 11577, so
-# 13327 is predicted), leaving about 144200. Stock pays four new Mun milestones:
+# THE MONEY, read from the host: the first solar cut's rollout measured 13452 for a
+# builder cost of 13417 (the first cut 13742 for 13707, CS-5 11612 for 11577, the fuel
+# cut 13127 for 13092 on 2026-11-07: +35 every time), so the staging cut's 14292 (the
+# TT-38Ks cost 400 more than the TD-12s each) predicts 14327, pinned as a 143xx window;
+# leaving about 143200. Stock pays four new Mun milestones:
 # Mun/Landing at the touchdown, Mun/SurfaceEVA at the EVA (decompiled SurfaceEVA: an EVA
 # from a LandedOrSplashed vessel; Spacewalk is the ORBITING / SUB_ORBITAL one, completed
 # by CS-6c), Mun/FlagPlant at the flag and Mun/ReturnFromSurface at the splashdown
@@ -123,7 +149,26 @@ id = "CS-7-career-mun-landing"
 # not in the nightly instance set); (9) `flight_efficiency.py` read after the green
 # flight: 213 s recoverable in the DESCENT coast, not taken here.
 #
-# STATUS: LIVE-PROVEN 2026-10-31, `2026-10-31_0654_a2` PASS on attempt 2 (DLL 43f6f82e, main
+# STATUS: FLOWN ON `850babd`, INVALID ON BOTH ATTEMPTS (mun-lander-tipped); A LOFT IS OWED.
+# The staging, fuel and power held (three Thumper debris at 11.1 km, the core drop at
+# 31.8 km, LKO with 413.5 LF, rollout 14327), but the LT-05 opposite the hatch exploded at
+# 33.8 km and 2103 m/s (overheating: heating index sqrt(rho) v^3 5.6e8 against the 2.4e8
+# the surviving flights read); the stack flies too flat under MechJeb classic's pitch, and
+# no craft change in reach clears it (todo CS7-LANDER-TIPS-AT-BOARD). Before it,
+# CRAFT RE-CUT 2026-11-08 (THE STAGING). The fuel cut (hung
+# Thumpers, coned FL-T400 outriggers, a Z-200) flew on `baf036d`: both attempts lost in
+# MJ-ASCENT at about 257 s wall. The three TD-12s dropped the Thumpers at 12.4 km as
+# staged, four fuelTank pieces left the core within 0.2 s, MechJeb fired the core drop and
+# the Terrier 0.84 s later and the lander (its 720 LF full) fell back from a 26.3 km
+# apoapsis; rollout 13127 as predicted. The read: the Thumpers, sliding back along the
+# core 0.18 m beside it, struck and broke it. This cut puts them back on TT-38Ks on the
+# core, as every earlier cut flew them, and the builder now simulates the staging on the
+# written part tree (each stage drops its group only, each engine feeds from its own
+# tanks, no off-axis part drops along the axis within 1 m of the stack). The outrigger cut (2026-11-06) flew `2026-11-07_0104` (read on
+# `_a2`): the stance held through the touchdown, EVA, flag and board and the outriggers
+# crossfed (all 450 LF drained), but the lander reached LKO with 245.5 of its 450 LF and
+# ran dry in the Mun ascent 168 m/s short of orbit (THE FUEL). Before it:
+# LIVE-PROVEN 2026-10-31 on the first solar cut, `2026-10-31_0654_a2` PASS on attempt 2 (DLL 43f6f82e, main
 # 6ce354c plus this lane; mission 1763 s, wall 1851 s). Landed at lat 0.789 lon -166.948 on
 # the four legs (touchdown 0.06 m/s down, 0.17 m/s across), EVA, flag, boarding, liftoff
 # 220102.8, 21.6 km Mun orbit, departure 268 m/s, entry periapsis 29979 m, splashdown,
@@ -136,7 +181,7 @@ id = "CS-7-career-mun-landing"
 # the ascent coast (hence the host, the power and the wheel release), and the three-legged
 # solar cut fell over or lost a tank at liftoff (`2026-10-28_0432_a2`, `_0626`, `_0649_a2`).
 tier = "operator"
-description = "Scripted campaign stage 7 (Career): on CS-6c's produced save (Astronaut Complex level 1; Advanced Rocketry, Basic Science and Electrics researched), launch the CS Mun Solar Lander (three OX-STAT panels and a Z-100 on the lander stage) from the VAB, fly B5's ascent (the reaction wheels released on the in-atmosphere coast) and Mun transfer, B11's capture and park and B13's landing, step out onto the Mun, plant a flag and board through the seam from inside the flight, fly a Mun ascent to orbit, depart on MechJeb's moon-return planner, trim the Kerbin return periapsis, reenter on the heat shield and splash down, recover, auto-commit, then run the ledger ground truth against KSP's own career save."
+description = "Scripted campaign stage 7 (Career): on CS-6c's produced save (Astronaut Complex level 1; Advanced Rocketry, Basic Science and Electrics researched), launch the CS Mun Solar Lander (an FL-T400 on a Terrier with three coned FL-T400 outriggers, an LT-05 on each, the Thumpers on TT-38Ks on the core, a Z-200 on the pod) from the VAB, fly B5's ascent (the reaction wheels released on the in-atmosphere coast) and Mun transfer, B11's capture and park and B13's landing, step out onto the Mun, plant a flag and board through the seam from inside the flight, fly a Mun ascent to orbit, depart on MechJeb's moon-return planner, trim the Kerbin return periapsis, reenter on the heat shield and splash down, recover, auto-commit, then run the ledger ground truth against KSP's own career save."
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-7", "career", "editor", "mechjeb", "electric-charge",
         "mun", "cross-soi", "capture", "landing", "eva", "flag", "board", "reentry",
@@ -202,7 +247,12 @@ periErrorMeters            = 5000
 # 720, not CS-5/6's 480: run `2026-10-28_0144` (both attempts) timed out at exactly 480 s of
 # game time mid-circularization (MechJeb's own node executing, pe -34 km -> -13 km, nodeDv 94 -> 85)
 # on this heavier, cone-less stack; EC held at 150 throughout.
-ascentTimeoutSeconds       = 720
+# 1100, not 720: the outrigger re-cut (2026-11-06) flies a draggier ascent; both attempts of
+# the first flight on it timed out at 720 s of game time still coasting on rails to MechJeb's
+# 55 m/s circularization node (ap 80 km, pe 17.5 km), so the stack was fine and the clock short.
+# The 2026-11-07 flight's ascent took ~815 s at 1100. Kept for the fuel re-cut: its cleaner
+# stack should climb faster, but its heavier lander (TWR 0.57 full) finishes the ascent.
+ascentTimeoutSeconds       = 1100
 circularizeTimeoutSeconds  = 300
 targetBodyName             = "Mun"
 homeBodyName               = "Kerbin"
@@ -243,7 +293,7 @@ commitTimeoutSeconds       = 300
 landingEnabled             = true
 descentTimeoutSeconds      = 2200
 landingTouchdownSpeedMps   = 0.5
-# Three LT-05s on the lander (the Gear action group MechJeb's landing fires).
+# Three LT-05s on the lander's outriggers (the Gear action group MechJeb's landing fires).
 landingDeployGears         = true
 landingDeployChutes        = false
 landingRcsAdjustment       = false
@@ -284,7 +334,7 @@ munAscentEngageConfirmFrames = 20
 munAscentLiftoffWindowSeconds = 60
 munAscentTimeoutSeconds    = 900
 munCircularizeTimeoutSeconds = 900
-# --- the electric-charge watchdog (150 EC aboard, two OX-STATs) ---
+# --- the electric-charge watchdog (250 EC aboard, all on the pod, no panel) ---
 electricChargeFloor        = 0.5
 electricChargeDebounceFrames = 20
 # --- the Kerbin ascent coast: every reaction wheel off from the first coasting frame
@@ -358,9 +408,10 @@ count = { min = 49, max = 55 }
 required = [
   # The flight.
   "launchfromeditor complete scene=FLIGHT vessel=CS Mun Solar Lander pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
-  # The craft's rollout, measured; five digits, so the ground-truth Flea's -2932 cannot
-  # satisfy it.
-  "Game state: FundsChanged -13452 \\(VesselRollout\\)",
+  # The craft's rollout, predicted 14327 (THE MONEY), a 143xx window; five digits, so the
+  # ground-truth Flea's -2932 cannot satisfy it, nor the fuel cut's 13127, the outrigger
+  # cut's 13302 or the first solar cut's 13452.
+  "Game state: FundsChanged -143[0-9]{2} \\(VesselRollout\\)",
   "Recording started",
   # The Mun landing, captured in flight.
   "Milestone enriched: 'Mun/Landing' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",

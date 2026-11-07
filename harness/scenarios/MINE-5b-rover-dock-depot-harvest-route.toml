@@ -1,0 +1,238 @@
+# =============================================================================
+# MINE-5b: A LIVE-DRILL HARVEST-ORIGIN ROUTE, RECORDED BY DRIVING INTO A DEPOT.
+# AUTHORED 2026-11-07. FIRST FLOWN 2026-11-07 (both attempts INVALID at the route create on
+# a Parsek defect, since fixed); READY TO RE-FLY on a DLL carrying HARVEST-WINDOW-EDGE-FRAME.
+#
+# FIRST FLIGHT (two attempts, head e1d07eb). The drive, the dock, the transfer and the undock
+# all worked; `RouteCommand action=create` answered REJECTED `candidate-ineligible
+# UntrackedCargoGain` both times, a driver-gate INVALID: `RouteAnalysis rejected: untracked
+# cargo gain resource=Ore gained=3.0634875677206495 harvested=3.0634523481529912` (attempt
+# 2: 3.0639216621163863 / 3.0638864425172376). The 3.52e-5 gap is one 0.02 s physics frame
+# at the four drills' rate (0.0017610771798682616 Ore/s, MINE-5a's measurement): the drills'
+# first production frame lands before the harvest poll reads the window's start manifest,
+# so the window witnesses one frame less than the dock gain. A PRODUCT defect (todo
+# HARVEST-WINDOW-EDGE-FRAME): no live mining flight could become a harvest route. The fix
+# gives each rated window a verdict-only edge slack (rate x 1.5 x 0.08 s x 2 edges, 4.2e-4
+# Ore here) in the gain verdict, the flow closure and the refined undocked-start gate; the
+# route still credits only the witnessed harvest and reports no cap inside the slack.
+# PREMISES THE FIRST FLIGHT DISPROVED:
+#   * "The batteries run down partway through the half hour and the drills slow": the
+#     mined 3.063 Ore is the full rate x the ~1740 s window (ratio 1.0). They did not slow.
+#   * "Cold drills produce well under rate x duration": MINE-5a measured ratio=1.000 too.
+#     So the cap watch item below now expects the delivery EQUAL to the witnessed harvest,
+#     uncapped, and about 3.06 Ore, never more.
+# RE-FLY WATCH: `gains covered ... edgeSlackUsed=1` and `gain within window edge slack
+# resource=Ore ... uncovered=` about 3.5e-5, then the create gate `eligible=True`.
+#
+# WHAT IT CLOSES. The route half of the roadmap's MINE-5 (MINE-5a measured the cap without
+# it): todo MINING-ISRU-UNTESTED-END-TO-END said a harvest-origin route from a live drill
+# needs a craft pair first, because a route's delivery is a connection window and the only
+# producer of one is a dock couple. This lane records that whole run on V's real miner:
+# mine, drive into a landed depot until the ports couple, move the Ore into the depot,
+# undock, commit, create a route from the recording (HARVEST origin: the run started
+# undocked and every unit it delivered was mined), send it once and read the depot.
+#
+# THE HOST, `miner-rover-depot` (harness/tools/build_miner_rover_depot.py). V's Mining Rover
+# RC with a Clamp-O-Tron Jr on the adapter at its front (+y, the driving direction), and an
+# `Ore Depot` 1.5 m ahead, face to face: the same chassis without its four drills, so the two
+# ports sit at one height and the miner (heavier, same vessel type) is the dominant vessel.
+#
+# THE TWO NEW SEAM MODES this lane is the first user of (both 2026-11-07):
+#   DriveVessel untilDocked=true maxSpeed=<m/s>: wheelThrottle until stock couples one of
+#     the active vessel's Ready docking ports (onPartCouple), the throttle cut above
+#     maxSpeed so the capture's 0.3 m/s relative-speed limit holds. No couple within
+#     seconds= is ERROR drivevessel-did-not-dock.
+#   PartAction button=transfer part=RadialOreTank partPid=<p> resource=Ore: every other
+#     part's Ore moved into that one part of the docked vessel (the depot's first tank,
+#     picked by part persistentId because the miner's tanks share the name); the vessel
+#     total is unchanged and the applied line carries moved= / destBefore= / destAfter=.
+#
+# CONSERVATION, all through ReadVesselResources expect= (absolute 0.01): the mined Ore (rm,
+# read after the drills stop) equals the docked vessel's Ore (dock merges), still equals it
+# after the transfer, and equals the miner + depot sum after the undock. The depot alone
+# holds the transfer's destAfter. After the route's one cycle the depot reads ABOVE that
+# by a positive diff: the route's delivery (the run's delivered Ore, capped to what the
+# drills could plausibly mine; HARVEST-ROUTE-PLAUSIBILITY-CAP).
+#
+# WHAT THE FIRST FLIGHT MUST WATCH (each one is a reading this lane exists to take).
+#   * THE DOCK. A drive that never couples answers ERROR drivevessel-did-not-dock after 20
+#     game s: on this seam-only driver that is a driver INVALID (driver-verdict-mismatch,
+#     retried once), the drive stops there and only the cleanup tail runs, so a geometry
+#     miss costs about 2.5 min, never a PARSEK-FAIL. Read the `drivevessel dock end:` line:
+#     maxSrfSpeed and pathMeters say whether the rover moved toward the depot (pathMeters
+#     about 1.5 with no couple: lateral or roll misalignment, captureMinFwdDot 0.998; near
+#     0: the wheels did not drive; a large path: the rover drove away, so the wheel motors
+#     drive toward -y and the throttle sign flips).
+#   * THE DOMINANT VESSEL. `activePid=110406740 activeName='Mining Rover RC'` on the end
+#     line; a depot-dominant couple renames the merged vessel and the reads by pid miss.
+#   * THE MINED AMOUNT. rm's Ore: about 3.06 on the first flight (full rate; the predicted
+#     battery slow-down did not happen). Anything above zero carries the lane; zero refuses
+#     the transfer (`transfer-nothing-moved`, driver-gate INVALID) and names the drills.
+#   * THE ROUTE. `routecommand create gate ... eligible=True status=Eligible` with the
+#     harvest-origin and `harvestOrigin=1` analysis lines. An ineligible tree answers
+#     REJECTED candidate-ineligible, which maps to driver-gate: INVALID, not PARSEK-FAIL,
+#     so read its `status=` (the RouteAnalysisStatus) and file it if it is Parsek's.
+#   * THE CAP. `harvest-origin delivery capped to plausible harvest` must NOT fire (the
+#     drills run at rate, far under rate x duration x 1.5, and the one-frame excess of the
+#     tank over the witnessed harvest sits inside the edge slack, which trims it silently).
+#     The delivered diff equals the witnessed harvest, 3.5e-5 under rdep's Ore: inside
+#     every 0.01 tolerance.
+#   * THE TIMING. TimeJump ut=8000 is past two route intervals after creation (interval =
+#     the root-to-undock span, about 1810 s); read the `Delivery write:` UT and tighten.
+#   Then pin the measured numbers whole and decide whether to arm the structure / routes
+#   blocks.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1. Reuse a flight - CONSIDERED, NOT APPLIED: no committed lane records a dock on the
+#      surface, and MINE-5a ends in an isolated batch that restores its baseline.
+#   2. Explicit-UT waits only: WarpToUT 60 (drill deploy animation, MINE-2's value), 75
+#      (first production at 1x), 1800 at 100x (the half hour), 1815 (retract), 1840 (after
+#      the drive, whose 20 game s end by about 1836), 1850 (after the undock).
+#   3. Minimal dwells: the 1x stretches above are the least that let stock finish an
+#      animation or a dock; the half hour is on rails.
+#   4-5. No burns, no coasts.
+#   6. Fail fast: the dock fails at 20 game s, the transfer refuses with nothing to move,
+#      and the route create refuses an ineligible tree, all as driver INVALID.
+#   7-9. Pin counts, tier and flight_efficiency after the first green flight.
+#
+# PRECONDITIONS: provision stock-minimal with this branch's DLL (DriveVessel's dock mode and
+# PartAction's transfer button are new); fixture `miner-rover-depot` is committed. Expected
+# wall about 5 min (one LoadGame, about 100 s of 1x, 18 s of 100x, the TimeJump).
+# =============================================================================
+schema = 1
+id = "MINE-5b-rover-dock-depot-harvest-route"
+tier = "nightly"
+description = "MINE-5b: V's real mining rover mines for half an hour, drives into a landed Ore depot until the docking ports couple, moves its Ore into the depot, undocks and commits; a supply route created from the recording is a HARVEST-origin route, and its one dispatched cycle delivers Ore into the depot. Ore is conserved through the dock, the transfer and the undock (ReadVesselResources sums), and the delivery reads as a positive diff on the depot."
+instanceProfile = "stock-minimal"
+tags = ["mining", "logistics", "harvest", "route", "dock", "MINE-5b"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-depot"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # Miner (110406740) and depot (3950359723) start with no Ore.
+  { cmd = "ReadVesselResources", args = { pid = "110406740,3950359723", resources = "Ore", expect = "Ore:0", tolerance = "0.01" }, label = "r0", expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "PartAction",          args = { button = "deploy", part = "MiniDrill", all = "true" },   expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "startconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "75", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # Half an hour of mining on rails.
+  { cmd = "WarpToUT",            args = { ut = "1800", maxRate = "100" },                 expect = "OK", budget = 300 },
+  { cmd = "PartAction",          args = { button = "stopconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,ElectricCharge" }, label = "rm", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "retract", part = "MiniDrill", all = "true" },  expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "1815", maxRate = "1" },                   expect = "OK", budget = 120 },
+  # Drive into the depot until the ports couple.
+  { cmd = "MissionMark",         args = { label = "mine5b-dock" },                        expect = "OK" },
+  { cmd = "DriveVessel",         args = { wheelThrottle = "0.5", seconds = "20", untilDocked = "true", maxSpeed = "0.25" }, label = "dk", expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "1840", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore", expect = "Ore:${rm.Ore}", tolerance = "0.01" }, label = "rd", expect = "OK" },
+  # The depot's first ore tank (build_miner_rover_depot.py prints it).
+  { cmd = "PartAction",          args = { button = "transfer", part = "RadialOreTank", partPid = "864846284", resource = "Ore" }, label = "tr", expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore", expect = "Ore:${rm.Ore}", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine5b-undock" },                      expect = "OK" },
+  { cmd = "PartAction",          args = { button = "undock" }, label = "und",             expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "1850", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "ReadVesselResources", args = { pid = "110406740,${und.newPid}", resources = "Ore", expect = "Ore:${rm.Ore}", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${und.newPid}", resources = "Ore", expect = "Ore:${tr.destAfter}", tolerance = "0.01" }, label = "rdep", expect = "OK" },
+  # Commit; CommitTree on the still-active miner re-takes the committed tree (a
+  # copy-on-write clone); stop and discard the clone, the committed original stays.
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine5b-committed-${c0.count}" },       expect = "OK" },
+  # The route: harvest origin, one cycle.
+  { cmd = "SealSlot",            args = { tree = "${c0.rec0tree}" },                      expect = "OK", budget = 120 },
+  { cmd = "RouteCommand",        args = { action = "create", tree = "${c0.rec0tree}", name = "MINE5b Ore Run" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand",        args = { action = "send-once", route = "MINE5b Ore Run" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",            args = { ut = "8000" },                                  expect = "OK", budget = 300 },
+  { cmd = "ListHandles",         args = { kind = "routes" },                              expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "mine5b-delivered" },                   expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${und.newPid}", resources = "Ore", expect = "Ore:${rdep.Ore}", tolerance = "0.01" }, label = "rdel", expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+D5 = ["cross-tree-foreign-dock", "undock-split"]
+D7 = ["dock-undock"]
+D10 = ["harvest-provenance", "dock-producer", "delivery", "resource-cargo"]
+D14 = ["kerbin", "sandbox", "scene-flight", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings.structure]
+# REPORT-ONLY until a reading run: one tree, one dock and one undock.
+gating = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
+
+[expectations.routes]
+# REPORT-ONLY until a reading run: one route, one completed cycle, paused after it.
+gating          = false
+count           = { min = 1, max = 1 }
+completedCycles = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required = [
+  "readvesselresources complete vessels=2 missing=0 uidCollisions=0 [^\\r\\n]*match=true",
+  "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  "partaction applied button=startconverter pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  "Harvest window opened: window=[^ \\r\\n]+ ut=[0-9.]+ converters=\\[[^\\]\\r\\n]+\\] res=[0-9]+ atStart=0 trigger=toggle",
+  # The dock: the miner's one Ready port couples with the depot's, the miner stays active.
+  "drivevessel dock start: vessel=Mining Rover RC pid=110406740 wheelThrottle=0\\.50 seconds=20\\.0 maxSpeed=0\\.25 readyPorts=1 ",
+  "drivevessel dock couple: port='dockingPort3' partnerPart='dockingPort3' partnerPid=3950359723 partnerName='Ore Depot' ut=",
+  "drivevessel dock end: outcome=docked vessel=Mining Rover RC pid=110406740 [^\\r\\n]*activePid=110406740 activeName='Mining Rover RC' activeParts=52",
+  # The transfer into the depot's tank, and the undock splitting the depot off.
+  "partaction applied button=transfer pid=110406740 part='RadialOreTank' [^\\r\\n]* resource=Ore moved=[0-9]+\\.[0-9]{4} sources=[12] destBefore=0\\.0000 destAfter=[0-9]+\\.[0-9]{4} destMax=75\\.0000",
+  "(?s)MISSIONMARK label=mine5b-undock (?:(?!partaction applied button=).)*?partaction applied button=undock pid=110406740 part='dockingPort3' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=[0-9]+->[0-9]+ activePid=110406740 ",
+  # Ore conserved: the docked vessel, the transfer and the undock all hold the mined total.
+  "(?s)MISSIONMARK label=mine5b-dock (?:(?!MISSIONMARK label=mine5b-undock).)*?readvesselresources expect resource=Ore expected=[0-9]+\\.[0-9]{4} actual=[0-9]+\\.[0-9]{4} diff=-?0\\.00[0-9]{2} tolerance=0\\.0100 match=true",
+  "(?s)MISSIONMARK label=mine5b-undock (?:(?!MISSIONMARK label=mine5b-committed).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 [^\\r\\n]*match=true",
+  # The route: the committed tree is eligible as a harvest origin and the one cycle delivers.
+  "sealslot complete mode=tree tree=[0-9a-f]{32} ",
+  "routecommand create gate tree=[0-9a-f]{32} treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "RouteAnalysis: undocked start fully harvest-covered -> harvest origin originRec=[0-9a-f]{32} resources=1",
+  "RouteAnalysis eligible: source=[0-9a-f]{32} window=[^ \\r\\n]+ stops=1 resources=1 [^\\r\\n]*harvestData=1 harvestOrigin=1 midTreeOrigin=0",
+  "routecommand complete action=create tree=[0-9a-f]{32} route=[^ \\r\\n]+ name='MINE5b Ore Run' status=Paused ",
+  "Delivery write: route=[^ \\r\\n]+ dest=[^\\r\\n]+ pid=[0-9]+ resource=Ore requested=[0-9][0-9.E+-]* written=[0-9][0-9.E+-]* [^\\r\\n]*path=loaded",
+  "(?s)MISSIONMARK label=mine5b-delivered (?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources expect resource=Ore expected=[0-9]+\\.[0-9]{4} actual=[0-9]+\\.[0-9]{4} diff=(?:0\\.(?:0[1-9]|[1-9][0-9])[0-9]{2}|[1-9][0-9]{0,2}\\.[0-9]{4}) tolerance=0\\.0100 match=false",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "routecommand rejected",
+  "BLOCKED kind=DestinationFull",
+  "Built route .* mode=CAREER",
+  # HARVEST-WINDOW-EDGE-FRAME mirror direction: the tank's one-frame excess over the
+  # witnessed harvest is trimmed inside the edge slack, never reported as a cap.
+  "harvest-origin delivery capped to plausible harvest",
+]
+
+[runtime]
+# One LoadGame (300 s), StartRecording (180 s), about 100 s of 1x, the half hour at 100x
+# (about 18 s), the drive (20 game s), a commit, a seal, a route create, a TimeJump and a
+# save (120 to 300 s each). Expected wall about 5 min.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

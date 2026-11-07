@@ -776,8 +776,12 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # (design-vessel-and-mission-names.md 15.3).
     #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
     #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    #     activate|explode|chute|runtest [part=<part name>]
-    #     [converter=<ConverterName>] [all=true] [pid=<pid>]
+    #     activate|explode|chute|runtest|transfer [part=<part name>]
+    #     [converter=<ConverterName>] [all=true] [pid=<pid>] [partPid=<part persistentId>]
+    #     [resource=<R>] (transfer only: moves R from every other part of the vessel into
+    #     the one named part, the vessel total unchanged; OK adds `resource= moved=
+    #     sources= destBefore= destAfter= destMax=`; refusals
+    #     resource-not-found / transfer-nothing-moved),
     #     [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>] (inspect only), FLIGHT,
     #     SINGLE-PHASE, default 60 s: one
     #     button of one part's stock right-click menu (ModuleDockingNode.Undock,
@@ -808,6 +812,12 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     until the game clock covered the span. OK only when the vessel really moved (max
     #     srfSpeed >= 0.5 m/s): `moved=true gameSeconds= maxSrfSpeed= pathMeters=
     #     displacementMeters= situation=`; otherwise ERROR drivevessel-did-not-move.
+    #     Dock mode (2026-11-07): `untilDocked=true [maxSpeed=<m/s, (0, 1]>]` with
+    #     wheelThrottle drives (throttle cut above maxSpeed, default 0.25) until stock couples
+    #     one of the vessel's Ready docking ports (onPartCouple), then stops: OK `docked=true
+    #     gameSeconds= maxSrfSpeed= pathMeters= dockUT= partnerPid= partnerName= activePid=
+    #     activeName= activeParts=`; seconds spent with no couple is ERROR
+    #     drivevessel-did-not-dock; no Ready port refuses no-docking-port.
     "DriveVessel",
     # ADDITIVE (51 -> 52 implemented, reserved unchanged at 4), roadmap TC-1.
     #   ReadVesselResources (pid=<p>[,<p>...] | rec=<id>[,<id>...]) [resources=<R>[,<R>...]]
@@ -3999,6 +4009,8 @@ def validate_rename_vessel_step(index: int, step_args: Dict) -> List[str]:
 # decouple / controlfrom; `pid=` is OPTIONAL with Recover's grammar. `expectSnapshot=` (true |
 # false), `rec=` (a recording id) and `tolerance=` (a decimal >= 0) are for inspect only;
 # expectSnapshot=true needs rec=, and rec= / tolerance= need expectSnapshot=true.
+# `partPid=` (any button) is OPTIONAL with the same uint grammar as `pid=`; `resource=` is
+# REQUIRED on transfer and refused on every other button.
 PARTACTION_VERB = "PartAction"
 PARTACTION_BUTTON_KEY = "button"
 PARTACTION_PART_KEY = "part"
@@ -4007,12 +4019,15 @@ PARTACTION_CONVERTER_KEY = "converter"
 PARTACTION_EXPECT_SNAPSHOT_KEY = "expectSnapshot"
 PARTACTION_REC_KEY = "rec"
 PARTACTION_TOLERANCE_KEY = "tolerance"
+PARTACTION_PART_PID_KEY = "partPid"
+PARTACTION_RESOURCE_KEY = "resource"
+PARTACTION_BUTTONS_ACCEPTING_RESOURCE: Tuple[str, ...] = ("transfer",)
 PARTACTION_EXPECT_SNAPSHOT_VALUES: Tuple[str, ...] = ("true", "false")
 PARTACTION_BUTTONS_ACCEPTING_SNAPSHOT: Tuple[str, ...] = ("inspect",)
 PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
     "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-    "radiatoroff", "activate", "explode", "chute", "runtest",
+    "radiatoroff", "activate", "explode", "chute", "runtest", "transfer",
 )
 PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
     b for b in PARTACTION_BUTTON_VALUES if b != "undock")
@@ -4020,12 +4035,14 @@ PARTACTION_BUTTONS_ACCEPTING_CONVERTER: Tuple[str, ...] = ("startconverter", "st
 PARTACTION_ALL_KEY = "all"
 PARTACTION_ALL_VALUES: Tuple[str, ...] = ("true",)
 PARTACTION_BUTTONS_ACCEPTING_ALL: Tuple[str, ...] = tuple(
-    b for b in PARTACTION_BUTTON_VALUES if b not in ("undock", "decouple", "controlfrom", "explode"))
+    b for b in PARTACTION_BUTTON_VALUES
+    if b not in ("undock", "decouple", "controlfrom", "explode", "transfer"))
 PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-button-arg-missing", "partaction-button-arg-invalid",
     "partaction-part-arg-missing", "partaction-converter-arg-unexpected",
     "partaction-all-arg-invalid", "partaction-all-arg-unexpected",
-    "partaction-pid-arg-invalid",
+    "partaction-pid-arg-invalid", "partaction-part-pid-arg-invalid",
+    "partaction-resource-arg-missing", "partaction-resource-arg-unexpected",
     "partaction-expect-snapshot-arg-invalid", "partaction-snapshot-arg-unexpected",
     "partaction-expect-snapshot-needs-rec", "partaction-rec-arg-invalid",
     "partaction-tolerance-arg-invalid",
@@ -4037,7 +4054,8 @@ PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-experiment-no-data", "partaction-lab-not-active-vessel",
     "partaction-lab-page-missing", "partaction-lab-value-zero", "partaction-lab-unavailable",
     "partaction-radiator-not-found", "partaction-engine-not-found",
-    "partaction-parachute-not-found",
+    "partaction-parachute-not-found", "partaction-resource-not-found",
+    "partaction-transfer-nothing-moved",
 )
 
 
@@ -4098,6 +4116,27 @@ def validate_part_action_step(index: int, step_args: Dict) -> List[str]:
             "driver.steps[%d].args.%s: %r is not a positive decimal persistentId; the "
             "seam answers REJECTED partaction-pid-arg-invalid"
             % (index, PARTACTION_PID_KEY, raw_pid))
+    raw_part_pid = step_args.get(PARTACTION_PART_PID_KEY)
+    if raw_part_pid is not None and str(raw_part_pid) != "" and "${" not in str(raw_part_pid) \
+            and not (re.fullmatch(r"[0-9]+", str(raw_part_pid))
+                     and 0 < int(str(raw_part_pid)) <= RECOVER_PID_MAX):
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not a positive decimal part persistentId; the "
+            "seam answers REJECTED partaction-part-pid-arg-invalid"
+            % (index, PARTACTION_PART_PID_KEY, raw_part_pid))
+    raw_resource = step_args.get(PARTACTION_RESOURCE_KEY)
+    has_resource = raw_resource is not None and str(raw_resource) != ""
+    if act is not None and "${" not in str(act) and str(act) in PARTACTION_BUTTON_VALUES:
+        if str(act) in PARTACTION_BUTTONS_ACCEPTING_RESOURCE and not has_resource:
+            errors.append(
+                "driver.steps[%d].args.%s: button=%s REQUIRES it; the seam answers REJECTED "
+                "partaction-resource-arg-missing" % (index, PARTACTION_RESOURCE_KEY, act))
+        elif str(act) not in PARTACTION_BUTTONS_ACCEPTING_RESOURCE and has_resource:
+            errors.append(
+                "driver.steps[%d].args.%s: only %s reads it, but this step is button=%s; the "
+                "seam answers REJECTED partaction-resource-arg-unexpected"
+                % (index, PARTACTION_RESOURCE_KEY,
+                   " / ".join(PARTACTION_BUTTONS_ACCEPTING_RESOURCE), act))
     errors.extend(_validate_part_action_snapshot_args(index, step_args, act))
     return errors
 
@@ -4189,22 +4228,33 @@ def validate_revert_to_launch_step(index: int, step_args: Dict) -> List[str]:
 # other than 0 and `seconds=` a finite span of game seconds in (0, 30], both REQUIRED.
 # Settle mode: `settleBelow=` (m/s, finite, in (0, 0.1]) in place of `wheelThrottle=`,
 # with the same `seconds=` as its bound; giving both is refused.
+# Dock mode: the drive mode plus `untilDocked=true` (closed; refused with `settleBelow=`) and
+# an OPTIONAL `maxSpeed=` (m/s, finite, in (0, 1]; only with `untilDocked=`). It ends OK at
+# stock's first couple of one of the vessel's Ready docking ports, else ERROR
+# drivevessel-did-not-dock when the span runs out.
 DRIVEVESSEL_VERB = "DriveVessel"
 DRIVEVESSEL_THROTTLE_KEY = "wheelThrottle"
 DRIVEVESSEL_SECONDS_KEY = "seconds"
 DRIVEVESSEL_SETTLE_KEY = "settleBelow"
+DRIVEVESSEL_UNTIL_DOCKED_KEY = "untilDocked"
+DRIVEVESSEL_MAX_SPEED_KEY = "maxSpeed"
+DRIVEVESSEL_UNTIL_DOCKED_VALUES: Tuple[str, ...] = ("true",)
 DRIVEVESSEL_MAX_SECONDS = 30.0
 DRIVEVESSEL_MAX_SETTLE_BELOW = 0.1
+DRIVEVESSEL_MAX_DOCK_SPEED = 1.0
 DRIVEVESSEL_REASONS: Tuple[str, ...] = (
     "drivevessel-throttle-arg-missing", "drivevessel-throttle-arg-invalid",
     "drivevessel-settle-arg-conflict", "drivevessel-settle-arg-invalid",
     "drivevessel-seconds-arg-missing", "drivevessel-seconds-arg-invalid",
+    "drivevessel-dock-arg-invalid", "drivevessel-dock-arg-conflict",
+    "drivevessel-maxspeed-arg-invalid", "drivevessel-maxspeed-arg-unexpected",
     "drivevessel-no-active-vessel", "drivevessel-vessel-packed",
     "drivevessel-not-on-surface", "drivevessel-no-wheel-motor",
+    "drivevessel-no-docking-port",
 )
 DRIVEVESSEL_ERROR_REASONS: Tuple[str, ...] = (
     "drivevessel-vessel-lost", "drivevessel-did-not-move", "drivevessel-timeout",
-    "drivevessel-did-not-settle",
+    "drivevessel-did-not-settle", "drivevessel-did-not-dock",
 )
 
 
@@ -4338,7 +4388,8 @@ def validate_read_vessel_resources_step(index: int, step_args: Dict) -> List[str
 def validate_drive_vessel_step(index: int, step_args: Dict) -> List[str]:
     """Pre-launch shape check for one ``DriveVessel`` step: ``wheelThrottle=`` (drive) or
     ``settleBelow=`` (settle), never both, plus ``seconds=``, each REQUIRED and in range
-    (the C# validators' bounds), and no other key (the verb reads none, so it would be
+    (the C# validators' bounds); the dock mode's ``untilDocked=true`` (not with settle) and
+    its optional ``maxSpeed=``; and no other key (the verb reads none, so it would be
     sent and silently ignored)."""
     errors: List[str] = []
     raw = step_args.get(DRIVEVESSEL_THROTTLE_KEY)
@@ -4381,14 +4432,37 @@ def validate_drive_vessel_step(index: int, step_args: Dict) -> List[str]:
                 "driver.steps[%d].args.%s: %r is not a game-second span in (0, %g]; the "
                 "seam answers REJECTED drivevessel-seconds-arg-invalid"
                 % (index, DRIVEVESSEL_SECONDS_KEY, raw, DRIVEVESSEL_MAX_SECONDS))
-    extra = sorted(str(k) for k in step_args
-                   if k not in (DRIVEVESSEL_THROTTLE_KEY, DRIVEVESSEL_SECONDS_KEY,
-                                DRIVEVESSEL_SETTLE_KEY))
+    docked = step_args.get(DRIVEVESSEL_UNTIL_DOCKED_KEY)
+    max_speed = step_args.get(DRIVEVESSEL_MAX_SPEED_KEY)
+    if docked is None:
+        if max_speed is not None:
+            errors.append(
+                "driver.steps[%d].args.%s: only a dock drive (%s=true) reads it; the seam "
+                "answers REJECTED drivevessel-maxspeed-arg-unexpected"
+                % (index, DRIVEVESSEL_MAX_SPEED_KEY, DRIVEVESSEL_UNTIL_DOCKED_KEY))
+    elif isinstance(docked, bool) or str(docked) not in DRIVEVESSEL_UNTIL_DOCKED_VALUES:
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not the string 'true'; the seam answers REJECTED "
+            "drivevessel-dock-arg-invalid" % (index, DRIVEVESSEL_UNTIL_DOCKED_KEY, docked))
+    elif settle is not None:
+        errors.append(
+            "driver.steps[%d].args: %s takes %s or %s, not both; the seam answers REJECTED "
+            "drivevessel-dock-arg-conflict"
+            % (index, DRIVEVESSEL_VERB, DRIVEVESSEL_UNTIL_DOCKED_KEY, DRIVEVESSEL_SETTLE_KEY))
+    elif max_speed is not None:
+        value = _finite_float_or_none(max_speed)
+        if value is None or not 0.0 < value <= DRIVEVESSEL_MAX_DOCK_SPEED:
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not a speed in (0, %g] m/s; the seam answers "
+                "REJECTED drivevessel-maxspeed-arg-invalid"
+                % (index, DRIVEVESSEL_MAX_SPEED_KEY, max_speed, DRIVEVESSEL_MAX_DOCK_SPEED))
+    known = (DRIVEVESSEL_THROTTLE_KEY, DRIVEVESSEL_SECONDS_KEY, DRIVEVESSEL_SETTLE_KEY,
+             DRIVEVESSEL_UNTIL_DOCKED_KEY, DRIVEVESSEL_MAX_SPEED_KEY)
+    extra = sorted(str(k) for k in step_args if k not in known)
     if extra:
-        errors.append("driver.steps[%d].args: %s reads only %s, %s and %s, so %s would be "
+        errors.append("driver.steps[%d].args: %s reads only %s, so %s would be "
                       "silently ignored"
-                      % (index, DRIVEVESSEL_VERB, DRIVEVESSEL_THROTTLE_KEY,
-                         DRIVEVESSEL_SETTLE_KEY, DRIVEVESSEL_SECONDS_KEY, ", ".join(extra)))
+                      % (index, DRIVEVESSEL_VERB, ", ".join(known), ", ".join(extra)))
     return errors
 
 
@@ -12406,6 +12480,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "partaction-all-arg-invalid": "driver-arg",
     "partaction-all-arg-unexpected": "driver-arg",
     "partaction-pid-arg-invalid": "driver-arg",
+    # partPid= malformed, resource= missing on a transfer or given on another button.
+    "partaction-part-pid-arg-invalid": "driver-arg",
+    "partaction-resource-arg-missing": "driver-arg",
+    "partaction-resource-arg-unexpected": "driver-arg",
     # The inspect-only snapshot args: malformed, on another button, or incomplete.
     "partaction-expect-snapshot-arg-invalid": "driver-arg",
     "partaction-snapshot-arg-unexpected": "driver-arg",
@@ -12437,6 +12515,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "partaction-engine-not-found": "driver-arg",
     # The chute button on a part carrying no ModuleParachute: the same spec typo.
     "partaction-parachute-not-found": "driver-arg",
+    # A transfer into a named part that cannot hold the resource: the same spec typo. A plan
+    # that moves nothing (destination full, no other part holding it) is a live state.
+    "partaction-resource-not-found": "driver-arg",
+    "partaction-transfer-nothing-moved": "driver-gate",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-target-arg-invalid": "driver-arg",
@@ -12452,10 +12534,16 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "drivevessel-settle-arg-invalid": "driver-arg",
     "drivevessel-seconds-arg-missing": "driver-arg",
     "drivevessel-seconds-arg-invalid": "driver-arg",
+    "drivevessel-dock-arg-invalid": "driver-arg",
+    "drivevessel-dock-arg-conflict": "driver-arg",
+    "drivevessel-maxspeed-arg-invalid": "driver-arg",
+    "drivevessel-maxspeed-arg-unexpected": "driver-arg",
     "drivevessel-no-active-vessel": "driver-gate",
     "drivevessel-vessel-packed": "driver-gate",
     "drivevessel-not-on-surface": "driver-gate",
     "drivevessel-no-wheel-motor": "driver-gate",
+    # A dock drive whose vessel has no docking port in stock's Ready state.
+    "drivevessel-no-docking-port": "driver-gate",
     # ReadVesselResources: every refusal is the SPEC's fault (a malformed arg, a recording
     # id the store does not hold, a pid naming no live vessel or a ghost). A rec= vessel
     # that is not live is NOT a refusal: it is `missing=` on an OK answer, so a spawn that
@@ -13215,6 +13303,8 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "drivevessel-seconds-arg-invalid", "drivevessel-seconds-arg-missing",
     "drivevessel-settle-arg-conflict", "drivevessel-settle-arg-invalid",
     "drivevessel-throttle-arg-invalid", "drivevessel-throttle-arg-missing",
+    "drivevessel-dock-arg-invalid", "drivevessel-dock-arg-conflict",
+    "drivevessel-maxspeed-arg-invalid", "drivevessel-maxspeed-arg-unexpected",
     "crewtransfer-kerbal-arg-missing", "crewtransfer-part-arg-missing",
     "cyclevessel-direction-arg-invalid", "cyclevessel-direction-arg-missing",
     "cyclevessel-forceghost-arg-invalid",
@@ -13233,6 +13323,8 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "partaction-all-arg-unexpected", "partaction-button-arg-invalid",
     "partaction-button-arg-missing", "partaction-converter-arg-unexpected",
     "partaction-part-arg-missing", "partaction-pid-arg-invalid",
+    "partaction-part-pid-arg-invalid", "partaction-resource-arg-missing",
+    "partaction-resource-arg-unexpected",
     "partaction-expect-snapshot-arg-invalid", "partaction-snapshot-arg-unexpected",
     "partaction-expect-snapshot-needs-rec", "partaction-rec-arg-invalid",
     "partaction-tolerance-arg-invalid", "picker-arg-conflict", "picker-arg-missing",

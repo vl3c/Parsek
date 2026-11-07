@@ -19,6 +19,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~HARVEST-WINDOW-EDGE-FRAME: a live mining flight cannot become a harvest route, the window misses the drills' first frame~~ [FILED 2026-11-07 from MINE-5b's first flight (two attempts INVALID at `RouteCommand create`, head e1d07eb), measured by MINE-5a `2026-11-07_0022`; FIXED 2026-11-07, branch `harvest-gain-gap`; xUnit; LIVE-PROVEN by MINE-5b `2026-11-07_0448` (`uncovered=3.52E-05` inside `edgeSlack=4.23E-04`, route eligible, delivered) and MINE-5a `2026-11-07_0450` (`oreEdgeGap=3.52E-05`); product, high (no live drill run could become a supply route)]
+
+**Symptom.** MINE-5b mined, docked to the depot, moved the Ore across and undocked; the route
+create then refused the tree `candidate-ineligible UntrackedCargoGain`: `RouteAnalysis rejected:
+untracked cargo gain resource=Ore gained=3.0634875677206495 harvested=3.0634523481529912`
+(attempt 2: 3.0639216621163863 / 3.0638864425172376). The 3.52e-5 gap is far above
+`GainEpsilon` (1e-6). MINE-5a measured the same gap on its own window: tanks 0.095591264895251327,
+window 0.0955560455349057, exactly its rate 0.0017610771798682616 x 0.0200 s.
+
+**Cause.** A harvest window's start manifest is read at the harvest poll (the recorder's physics
+frame postfix), which runs after the drills' first `FixedUpdate` has already produced: one physics
+frame of production precedes the window, so the dock gain is one frame above the witnessed harvest.
+The close edge can lose a frame the same way. Rails edges are physics frames too (windows open and
+close only on unpacked polls; a window stays open across rails), so no edge straddles a warp step.
+The stock catch-up burst on unpack lands inside an open window, or across a D5 bridge; a converter
+switched on during a warp whose catch-up lands before the rails-exit poll stays rejected (fail
+closed, a larger amount than any frame bound).
+
+**Fix.** A verdict-only edge slack per harvest window (`RouteHarvestCapture.ComputeWindowEdgeSlack`):
+per rated routable resource, the window's plausible rate x `PlausibilityMargin` (1.5) x 0.08 s (the
+0.02 s step at the top 4x physics warp) x 2 edges, summed over the in-span windows
+(`HarvestGainCheckResult.HarvestEdgeSlack`). The gain verdict, the flow closure and the refined
+undocked-start gate add it to their epsilon (logged: `gain within window edge slack`, and
+`edgeSlackUsed=` on the covered line). A window without rates (an unmodeled converter) gets none:
+one of its frames has no bound. Mirror direction: the slack never enters `HarvestedManifest` or
+`PlausibleHarvestedManifest`, so the D8 debit reduction and the route credit stay at the witnessed
+amount; the harvest-origin delivery clamp still trims a delivery to the plausible harvest and only
+stops REPORTING a cap inside the slack. Rejected alternative: re-reading the start manifest one
+frame earlier needs a per-frame manifest scan on every recording vessel, against the poll's
+zero-allocation steady state. For MINE-5a's rig the slack is 4.2e-4 Ore. MINE-5a's cap cell now
+asserts the tank gap inside the slack (was 0.05 + 2%, which hid this) and a whole-tank delivery
+credited at the witnessed amount uncapped. Both lanes re-flown green on the fix (`2026-11-07_0448`, `_0450`).
+
 ## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
 
 **Symptom.** `FlightRecorder.OnVesselSOIChanged` returned at once unless the vessel was on rails,
@@ -70,7 +103,7 @@ background split line `at SOI boundary ... pid=<wingman>` and one section per bo
 wingman's recording (a wingman that close likely records Relative to the active vessel, so expect
 `closingSample=0` and two Relative sections, not two Absolute ones); not built.
 
-## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; OPEN, needs a steadier lander craft, deferred until after the release bugs (owner ruling 2026-11-04); test harness, low; no Parsek defect]
+## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; craft re-cut 2026-11-06 with an outrigger stance (branch `cs7lander`), which stood on the Mun in flight `2026-11-07_0104` and ran out of fuel in the Mun ascent; re-cut 2026-11-07 for the fuel (branch `cs7fuel`), which flew on `baf036d` and broke its core at the booster drop; re-cut 2026-11-08 for the staging, which flew on `850babd` and burned off a leg in the Kerbin ascent; loft owed (mission side), see the last paragraph; test harness, low; no Parsek defect]
 
 From the run's KSP.log and mission rows: no Parsek line spawns, packs or moves the lander in
 the window (the only spawn lines are the periodic `Spawn suppressed`, as in the green run). Both
@@ -86,6 +119,88 @@ and, when `munAscentMaxTiltDeg` is set, a settled lander leaning more than that 
 flakes `mun-lander-tipped` instead of engaging the ascent. That turns a doomed ascent into a named,
 fast INVALID; it does not make the lane pass. If the re-flight tips again, the `pitch=` rows show
 whether it tipped at the touchdown, the EVA, the flag or the board, which decides the next step.
+
+Fix (2026-11-06, craft re-cut, re-flight owed): the stance, not the mission. A lander tips at atan(e / h), e the
+feet polygon's nearest edge from the axis and h its centre of mass over the feet. Every cut had its legs on the
+1.25 m stack at 0.625 m under a 6.9 m lander (e 0.44 m on four legs, h about 4.4 m: under 6 deg, against the
+7-14 deg slopes measured at the flown site). `build_cs_orbiter_craft.py --variant solar` now builds the lander as
+ONE FL-T400 on the Terrier with three FL-T200 outriggers on its wall (azimuths 90 / 210 / 330, 60 deg or more off
+the hatch, bottoms level with the FL-T400's) and an LT-05 on each outrigger's outer wall: the same 5.0 t of
+propellant on the same tank mass (so the same delta-v, 3843 m/s), 30 parts, the same 0.88 m bell clearance, the
+stack 3.0 m shorter. Feet 1.875 m out (e 0.94 m), landed centre of mass about 2.0 m over the bell: tips at about
+25 deg (`--report` prints both stances; the gate `SOLAR_MIN_TIP_DEG = 20`). The one new assumption is stock
+crossfeed through the surface attachment (outrigger to stack tank, no decoupler); were it wrong the lander would
+run dry near the capture. CS-7 keeps `munAscentMaxTiltDeg = 30`; its rollout pin is a 133xx window (predicted
+13302). No mission change: the touchdown already reads 0.06 m/s, and B5's SAS hold is shared with B13. The
+re-flight should watch the core drop's lander delta-v, the ascent's drag, the settled `pitch=` rows (expect a
+lean up to the site's slope, not a fall) and the surface stay's EC draw (SAS holds the touchdown attitude).
+
+Flight 2026-11-07 (`2026-11-07_0104`, read on `_a2`, the outrigger cut): the stance worked (upright touchdown,
+EVA, flag and board, no tip) and the outriggers crossfed (all 450 LF drained), but the fuel did not: the lower
+stages left the lander suborbital (Thumpers off at 11.0 km, apoapsis 14.4 km; core off at 31.6 km, apoapsis
+35.6 km) and it spent 1227 m/s (204 LF) finishing a 78.7 x 81 km orbit. From LKO it flew the injection 842, two
+corrections 126, the capture 266 and the descent 710, then a Mun ascent needing 753 (217 to a 20.1 km apoapsis,
+a ~536 circularization) and ran dry 168 m/s short. On the builder's basis the ascent to LKO cost 4418 m/s against
+CS-6's 3130: nine blunt faces off the stack axis (three open Thumper tops and three outrigger tops on the launch
+stage, the outrigger tops again on the core's).
+
+Fix (2026-11-07, craft re-cut for the fuel, re-flight owed): close every face and move propellant to the lander,
+within the 30 parts. Each Thumper hangs under its outrigger on a TD-12 (stack nodes close the outrigger's bottom
+and the Thumper's top; the TD-12s replace the TT-38Ks and leave with the Thumpers), each outrigger carries a nose
+cone, the outriggers move out to 1.428 m (Science Jr.'s Thumper axis, so a dropped Thumper falls back 0.18 m
+clear of the core) and grow to FL-T400, the core loses one FL-T400, and the two OX-STATs and the Z-100 become one
+Z-200 between the pod and the Mk16 (250 EC, all on the pod; no panel). The lander now carries 8 t of propellant,
+4464 m/s with Jeb, and reaches LKO with the flight's from-orbit burns plus 25% over the landing, the Mun ascent,
+the departure and the trim (3463 m/s) for any ascent costing up to 3516 m/s (CS-6's clean 3130 leaves it a 47%
+margin; the flown 4418 would not). The stance widens (feet 2.05 m out, tips at about 27 deg). `--report` prints
+the open-face count, the budget and the flown figures; gates: no open face, break-even at least 3400, core TWR at
+least 1. CS-7's rollout pin moves to a 131xx window (predicted 13127). The re-flight should watch the core drop's
+altitude and apoapsis and the lander's LF at LKO (the budget's claim), the Thumpers' drop past the core (axial,
+0.18 m clear), the lander's finishing burn at TWR 0.57, and the lowest EC reading (no panel now).
+The EC budget is measured, not assumed: the telemetry rows of the two panelled flights (`2026-10-31_0654_a2`,
+`2026-11-07_0104_a2`; lowest 138.7 and 147.2 of 150), core drop to departure burn, per phase the worse flight's
+drop plus the panels' share this cut loses (each 1x second credited at the phase's steepest 10 s rise plus CS-6c's
+0.045 EC/s hold). Worst case 156 EC (descent 42.6, Mun ascent 43.1, the lander's Kerbin ascent finish 27.0, the
+landed SAS settle 9.3, burns and holds the rest); x1.25 = 195 against 249.5 above the 0.5 floor, a 60% margin.
+The builder now gates the pod's charge on 1.25 x that table. Not covered: a panel square to the sun on every
+burning second, all of it eaten by the wheel (283 EC).
+Flight 2026-11-07 on `baf036d` (the fuel cut; both attempts lost in MJ-ASCENT, about 257 s wall): the three
+TD-12s dropped the hung Thumpers at 12.4 km as staged, four fuelTank pieces left within 0.2 s, MechJeb's
+autostage fired the core decoupler and the Terrier 0.84 s later (the Swivel left with no shutdown line), and the
+lander, its four tanks full (720 LF), fell back from a 26.3 km apoapsis. Rollout 13127 as predicted. The part
+tree was right (each TD-12 took only its Thumper); the read is the drop path: the Thumpers slid back along the
+core 0.18 m beside it with nothing pushing them clear and broke it up, and the starved Swivel let MechJeb stage.
+Fix (2026-11-08, the staging cut): the Thumpers go back on TT-38Ks on the core, CS Mun Lander's placement that
+the 2026-10-31 and 2026-11-07 flights both dropped cleanly; 30 parts, cost 14292 (rollout pin 143xx). Their
+three open tops are the first solar cut's, whose ascent cost about 3392 m/s; the lander's 25% margin holds to
+3512 (32% at 3392). New builder gate (`solar_staging`): it fires the stages on the WRITTEN craft's part tree as
+KSP's decouplers do, requires each stage to drop exactly its group while the lander keeps its four tanks,
+three legs and three cones, each liquid engine to feed from its own stage's tanks only, and no part dropped off
+the axis by a stack decoupler within 1.0 m of the stack it slides past; it refuses the flown fuel cut (0.18 m).
+The re-flight should watch the booster drop (three Thumper debris, no other piece) and the core drop's altitude.
+
+2026-11-08, the `850babd` flight: the staging and the fuel held (three Thumper debris at 11.1 km, the core
+drop at 31.8 km, 413.5 LF at LKO, lowest Mun EC about 232 of 250, rollout 14327), but both attempts went
+INVALID `mun-lander-tipped` (97 and 143 deg) on three legs: the LT-05 at azimuth 90 (`miniLandingLeg`
+pid 1700185208, on outrigger 0, opposite the hatch) EXPLODED in the Kerbin ascent (KSP.log `miniLandingLeg
+Exploded!!`, alt 33.8 km, 2103 m/s across, 50 m/s up, ap 36.2 km) on both attempts. Read: overheating. The
+LT-05 is rated 1200 K (wiki; the cfg read is owed); a heating index sqrt(rho) v^3 (rho = 1.225 exp(-h/5.8 km))
+reads 5.6e8 there against at most 2.4e8 on the two flights whose legs survived (2.37e8 at 44.6 km on
+`2026-11-07_0104_a2`, 2.11e8 on `2026-10-31_0654_a2`). The same leg both times: three legs 120 deg apart
+with each at least 60 deg off the hatch put one exactly opposite it, and MechJeb's roll put that side to
+windward at the classic profile's ~18 deg angle of attack, so no leg placement clears it. A lander-only
+point-mass model (MechJeb classic pitch, turn end 59.5 km, no drag) fitted on the `0104_a2` lander rows
+(altitude within 0.5 km over 350 s; its peak index reads about 13% high) says the CRAFT fixes do not help:
+every core-drop state that reaches the failure point is flat and fast (1560 to 1780 m/s with 0 to 120 m/s up
+at 31.8 km, against `0104_a2`'s 1346 and 203), whose index at the drop is already about 3.2e8; from it a
+lander at thrust-to-weight 0.81 (FL-T200 outriggers) still peaks at 5.3e8, a core with 2 to 6 t left at
+5.5e8, and the lander alone lofted harder 3.4e8. From `0104_a2`'s steeper drop the 0.81 lander reads 2.8e8
+(as flown) and today's 0.56 one 5.1e8. So the whole ascent has to be lofted: under MechJeb classic's
+altitude-keyed pitch this cleaner, stronger stack runs flatter than the draggy outrigger cut did. The spec
+exposes no turn-shape knob (only ascentType / autostageLimit / targetApoapsisMeters, and the turn ends at
+min(59.5 km, target)); the fix is a classic turn-shape setter in the CS-4 setter family (set, read back,
+withhold the engage on a refusal) with a value sized on this flight's full MJ-ASCENT rows, or a flown
+trial of ascentType 1 / 2. Offline gate owed with it: a heating-index ceiling in a whole-ascent model.
 
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 
@@ -107,6 +222,12 @@ and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5
   silently when two slots resolve to one recording.
 - [ ] C1 remainder: no per-resource conservation check (origin debit = delivered + by-design loss)
   in an in-game category or the harness (HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES).
+  Progress 2026-11-06 (branch `routecons`): lane `RCN-1-route-conservation-across-loads` (LIVE-PROVEN
+  `2026-11-07_0010`) reads both ends of the two-stop relay route on `rover-relay-c-recorded` and gates
+  origin + destination against the equation from the route's own windows (debit 154.4 + transport
+  launch-cargo drawdown 45.6 = credit 200, no by-design loss there) across two F9s and a go-back
+  rewind. Still open: no in-game category, and no host with a nonzero loss term (the relay on
+  `rover-relay-recorded` would show the 73.2 residual, but its endpoints are post-relay, B empty).
 - [ ] B3 / item 3: route render lanes still pin counts and log lines, not where the route ghost or
   its line is (only the SLM lanes read a loop ghost's position).
 - [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode.
@@ -207,6 +328,8 @@ rebuild; the pure pair restore). Lane `IR-12-multistop-rewind-between-windows` (
 transport rover committed between the windows, the delivery window crossed, Rewind-to-Launch, and
 the delivery window must resume cycle-0 with no second dispatch. An F9 no longer reaches this code
 (a save-file load is Cold and reads the quicksave's routes whole, IR-1).
+The origin-and-destination conservation half is `RCN-1-route-conservation-across-loads` (LIVE-PROVEN
+`2026-11-07_0010`): both ends' tanks read across two F9s and a go-back rewind, the sum exact at every mark.
 
 Follow-up (review, 2026-10-25): the two exits that still key their cutoff to the floor alone (a
 go-back to a rewind save written inside an earlier go-back's window, a Re-Fly start from an RP
@@ -444,16 +567,16 @@ or a ghost's shape. The items below are code reads, not reproductions; each beco
 with a red test once confirmed.
 
 - [x] ~~STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.~~ Same defect as STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD, fixed 2026-10-16 in PR #2123 (the door tags its rows like the award, `GameStateRecorder.ResolveStrategyConversionRecordingTag`; live-proven by QL-2c `2026-10-16_2239`). Re-checked 2026-10-24 on main f3a22ce: the F9 half is moot since save-file loads are cold (PR #2155; the save's own ledger never held the share, QL-2c reshaped), and the Re-Fly half holds (`TombstoneEligibility.IsSupersedeTombstoneEligible` takes every tagged conversion row type; `StrategyConversionTimelineTests.ReFlyMerge_TombstonesTheConvertedShareOfTheSupersededFlight`).
-- [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1. Traced 2026-10-24 (branch `claude/project-thread-dkcvpn`): rewind / F9 / revert hold through the expiry gate and the patch's future guards; three gaps found and fixed, STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED, STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION, STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT. Lanes authored 2026-10-25 (branch `claude/project-thread-eo3rd8`): STR-1 (Bail-Out Grant + Appreciation Campaign across a Rewind-to-Launch and an F9), STR-2 (an activation crossed inside a Re-Fly), STR-3 (Leadership Initiative's shares taken back by a stock revert); QL-2c already covers the share across an F9, and LedgerGroundTruth now compares the strategy list. Still open: expiry across a timeline operation (stock 1.12.5 durations read 0 without KSPCF, so no stock-only lane can reach an expiry), Aggressive Negotiations and Recovery Transponder.
-- [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked.
+- [x] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1. Traced 2026-10-24 (branch `claude/project-thread-dkcvpn`): rewind / F9 / revert hold through the expiry gate and the patch's future guards; three gaps found and fixed, STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED, STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION, STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT. Lanes authored 2026-10-25 (branch `claude/project-thread-eo3rd8`): STR-1 (Bail-Out Grant + Appreciation Campaign across a Rewind-to-Launch and an F9), STR-2 (an activation crossed inside a Re-Fly), STR-3 (Leadership Initiative's shares taken back by a stock revert); QL-2c already covers the share across an F9, and LedgerGroundTruth now compares the strategy list. Still open: expiry across a timeline operation (stock 1.12.5 durations read 0 without KSPCF, so no stock-only lane can reach an expiry). Aggressive Negotiations ran in game since (RW-9 repair, RW-23 part purchase, RW-24, RW-10, all LIVE-PROVEN 2026-10-28 / 10-31). Traced 2026-11-06 (branch `str4`, no defect): a facility upgrade under it books the observed net debit with no funds leg and its reputation leg as its own uncaused row, both applied once at the crossing; Recovery Transponder Fitting has no currency effect (stock folds it into the recovery factor, factor 1 on the pad or runway either way), so the recovery is the observed payout. Lane STR-4 (LIVE-PROVEN `2026-11-07_0408`, its first flight red only on two over-broad spec forbids) runs both across a Rewind-to-Launch, with a committed deactivation crossed by time, the nearest stock-reachable stand-in for an expiry. DONE for stock: every stock strategy has now run across a timeline operation; an expiry stays unreachable without KSPCF.
+- [x] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked. Progress 2026-11-06: routes have a lane, `RCN-1-route-conservation-across-loads` (LIVE-PROVEN `2026-11-07_0010`; origin + destination summed at ten points across two F9s and a go-back rewind).
 - [x] ~~Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run.~~ Roadmap TC-4, GP-1. DONE 2026-10-25: L8 covers repeated rewinds; the harness walked past the clock (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK, fixed), and L13 runs it after a Re-Fly merge and an F9, live-proven `2026-10-25_0228` after its second flight found EDITOR-LOAD-WALKS-PAST-THE-CLOCK.
-- [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
+- [x] ~~Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.~~ DONE: all six re-flown green on main 412d48e (`2026-10-16_2155` .. `_2208`), and green again in the 2026-11-06 full run.
 - [x] ~~EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.~~ Same defect as CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE, fixed 2026-10-16 (live-proven by EVA-11 `2026-10-16_2322`); re-confirmed by code reading 2026-10-23.
 - [x] ~~CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER (suspected defect): `VesselGhoster.GhostVessel` despawns the claimed vessel and creates no ghost (`VesselGhoster.cs:155-168`), so it is missing after a rewind until its member recording starts. Roadmap XS-3.~~ Same defect as CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM, fixed 2026-10-16 (`ParsekFlight.UpdateClaimedVesselHoldGhosts`; live-proven by EVA-11 `2026-10-16_2322`). Re-checked 2026-10-24 on main f3a22ce against PR #2181: the plain rewind's holds feed the same hold ghost on every flight load (`RestoreRewindVesselHolds`; EVA-11 / RC-6 `2026-10-22_1431` / `_1432`), and outside flight a held vessel is hidden by owner ruling 2026-10-22. The two cases still uncovered are filed on their own: REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL and DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS.
 - [x] ~~Lab science and the ledger: science reaches the ledger only with a subject (`GameStateEventConverter.cs:326-345`, `GameStateRecorder.cs:1063`, `:1153`); whether stock's lab transmit carries one needs a decompile. Roadmap XS-4, XS-5 (GC-8).~~ Decompiled 2026-10-17: it carries none; filed and fixed as LAB-SCIENCE-NEVER-LEDGERED (xUnit; lane LAB-1 live-proven 2026-10-17).
 - [x] ~~TA-6 outside the physics bubble: see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND. Roadmap MINE-3.~~ Fixed 2026-10-17 (xUnit; lane LAB-1 live-proven 2026-10-17).
 - [x] ~~Contracts x Re-Fly never executes (the in-game cell skips on every host). Roadmap XS-6.~~ 2026-10-24: the state it looked for is unreachable by design (a contract row seals its slot, design 2.12) and it drove the legacy `CommitSupersede`; the cell is rewritten to assert today's rule in a live session (no contract row in the retire set, nothing accepted after the clock Active). The trace found REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER and REFLY-DEADLINE-EXPIRY-REFUSES-THE-MERGE (both fixed); lane RF-C1.
-- [ ] EVA hop across 2-3 vessels and a crew transfer while docked then undock: never flown (no spec passes `EvaBoard targetPid`, no crew-transfer verb); a crew transfer is not recorded by design (`SwitchSegmentNoOpClassifier.cs:146-161`), and a kerbal moved into another tree's vessel keeps the first tree's hold (`KerbalsModule.cs:1318-1335`). Roadmap XS-7.
+- [x] ~~EVA hop across 2-3 vessels and a crew transfer while docked then undock: never flown (no spec passes `EvaBoard targetPid`, no crew-transfer verb); a crew transfer is not recorded by design (`SwitchSegmentNoOpClassifier.cs:146-161`), and a kerbal moved into another tree's vessel keeps the first tree's hold (`KerbalsModule.cs:1318-1335`). Roadmap XS-7.~~ DONE: the `CrewTransfer` verb and lanes CX-1 (docked crew transfer, then an EVA hop through `EvaBoard targetPid`), CX-2 .. CX-6 (crew swapped at a dock, the foreign-tree hold, idle visits) are live-proven and green in the 2026-11-06 full run.
 
 Fix: the register in `docs/dev/autotest-roadmap.md` ("The cross-system gap program (2026-10-16)"),
 worked in its rank order.
@@ -480,13 +603,23 @@ deliveries are clamped to the plausible totals and the D8 debit reduction subtra
 resources persist as `Route.HarvestCaps` and the from/to hover names them. Design: logistics
 19.4 M2 "Plausibility cap". In-game: `HarvestCapScanLedgerInGameTests.StockDrillAndIsruRatesAreModeled`
 (lane HV-2) reads every stock drill / ISRU prefab through `FlightRecorder.ReadHarvestConverterRate`;
-writing it found the asteroid drill left every stock mining window unbounded. Still open: lane
-MINE-5 (a live drill) to measure a real window's rates against stock's own production; a delivery that clamps to nothing leaves its stop with an
-empty manifest rather than refusing the route.
+writing it found the asteroid drill left every stock mining window unbounded. The live
+measurement is lane `MINE-5a-rover-live-drill-harvest-cap` (LIVE-PROVEN 2026-11-07,
+`2026-11-07_0022`): the four drills on V's rover mine across a rails warp while recording, and the
+in-game cell asserts each window's harvest under its own rate x duration x 1.5, no cap on the
+run's plausible totals, a whole-harvest delivery unchanged by the clamp, and the window's Ore
+matching stock's tank gain up to the window edge slack. Measured `ratio=1.000` (54.26 s at
+0.0017610771798682616 Ore/s): live drills run at their rated output, so honest mining sits at
+two thirds of the cap. The same flight measured the one-frame window edge gap
+(HARVEST-WINDOW-EDGE-FRAME). Still open: a delivery that clamps to nothing leaves its stop with an
+empty manifest rather than refusing the route. The route itself is lane
+`MINE-5b-rover-dock-depot-harvest-route` (LIVE-PROVEN `2026-11-07_0448` on the
+HARVEST-WINDOW-EDGE-FRAME fix, no cap): a real harvest-origin route from the miner docking a
+depot; it now forbids a reported delivery cap.
 
 ---
 
-## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-0, MINE-4 and MINE-5 (no spec), GS-6 revision 3, the lab lane XS-5, and `HarvestCapture_CatchUpOnLoad` on a host with a drill on ore; harness / fixture]
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (unblocked 2026-11-07 by the scripted `miner-rover-depot` pair, not written), the lab lane XS-5; MINE-0 (S1.9 `2026-11-07_0023`), MINE-5a (`2026-11-07_0022`) and MINE-5b (`2026-11-07_0448`) LIVE-PROVEN; harness / fixture]
 
 Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
 from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a
@@ -534,6 +667,60 @@ toggles, Space Center exit, the watched replay to the spawn): first flight `2026
 INVALID, found IDLE-ON-PAD-DISCARDS-A-STATIONARY-MINER, and answered the open question: an ISRU
 toggled during rails warp on the landed rover is recorded at the toggle UT (every edge about
 10 ms after its packed press), so an on-and-off inside one warp is not lost.
+
+Progress 2026-11-06 (branch `mine5`, nothing flown yet):
+- MINE-0: the `Drill Junior`, `Drill-O-Matic` and `ISRU` part showcases nest a
+  ConverterActivated / ConverterDeactivated pair in every deploy span
+  (`BuildPartShowcaseRecording` `innerOnEvent`; xUnit `AssertNestedConverterCycles`), and S1.9
+  pins `apply family=ConverterActivated|ConverterDeactivated surface=converter-loop ...
+  applied=[1-9]` and `Converter loops driven` on one of the three. S1.9 must re-fly.
+- GS-6 revision 3 is CLOSED by MINE-6 rather than by a sweep-craft revision: its live-proven
+  flights (`2026-10-17_1431_a2`, re-pinned `2026-10-24_1006`) gate `apply family=ConverterActivated
+  surface=converter-loop ... applied=[1-9]` and `Converter loops driven` on the miner's ghost,
+  the "converter loop live on a flight ghost" GS6-CONVERTER-LOOP-NEEDS-AN-ANIMATION-GROUP-PART-ABOARD
+  asked for.
+- `HarvestCapture_CatchUpOnLoad`'s body now runs on a drill on ore: it moved into a shared core
+  (`RunCatchUpOnLoad`, the Logistics declaration unchanged so `total=47` holds) that the new
+  isolated `MiningHarvest` category calls on lane `MINE-5a-rover-live-drill-harvest-cap`
+  (`miner-rover-landed`, drills deployed by the lane). Two test-side fixes on the way: the cell
+  picks the `ModuleResourceHarvester` before any `BaseDrill` (each stock drill part also carries a
+  `ModuleAsteroidDrill`, which activates and mines nothing with no asteroid aboard), and its
+  provocation warp goes through the settle + HIGH-mode helper (a bare `SetRate` in LOW mode
+  never packs). The same lane's second cell is the plausibility-cap measurement
+  (HARVEST-ROUTE-PLAUSIBILITY-CAP).
+- MINE-5's ROUTE half (and MINE-4) is blocked on hardware, not on Parsek: a route's delivery is a
+  connection window, produced only by a docking-port or claw couple (`RouteProofCapture`).
+  The miner rover has neither, no fixture has a landed Ore depot it could dock to, and no seam
+  verb or mission docks two landed vessels (`DriveVessel` throttles straight with no steering;
+  the kRPC dock missions are orbital). Needed: a craft pair V builds as he built the rover (the
+  miner with a forward docking port or a claw, and a landed depot with a matching port and an Ore
+  tank, parked in line within a straight drive), then a lane that mines, drives in, docks,
+  transfers, undocks, commits, creates the route (`RouteCommand create`) and dispatches it.
+
+Progress 2026-11-07 (branch `mine4`; MINE-5b LIVE-PROVEN `2026-11-07_0448`): the craft pair is SCRIPTED instead of
+built by hand, and MINE-5's route half is lane `MINE-5b-rover-dock-depot-harvest-route`.
+- Fixture `miner-rover-depot` (`harness/tools/build_miner_rover_depot.py`, gated by
+  `harness/lib/test_miner_rover_depot.py`): `miner-rover-landed` with a `dockingPort3` stacked on
+  the miner's free front adapter node (+y, the driving direction; port state Ready, derived
+  ids), plus an `Ore Depot` at index 2: the ported miner without its four drills, turned 180
+  degrees about its ground normal and placed 1.5 m face to face ahead (root lat / lon / alt and
+  `srfRelRotation` derived from the decompiled ProtoVessel placement, committed as literals). The
+  miner is heavier with the same vessel type, so it is the dominant side of the dock.
+- Seam: `DriveVessel untilDocked=true maxSpeed=<m/s>` drives until stock couples one of the
+  vessel's Ready ports (`onPartCouple`), the throttle cut above maxSpeed; no couple in `seconds`
+  is ERROR `drivevessel-did-not-dock` (a fast driver INVALID). `PartAction button=transfer
+  part= resource= [partPid=]` moves a resource from every other part of the vessel into one
+  named part (the stock docked-vessel transfer; total unchanged); `partPid=` picks one of several
+  same-named parts on any button.
+- The lane: half an hour of mining at 100x, the drive and dock, the transfer, the undock (Ore
+  conserved at each step through ReadVesselResources sums), commit, `SealSlot`, `RouteCommand
+  create` (gated `eligible=True`, `harvest origin`, `harvestOrigin=1`), `send-once`, a TimeJump,
+  and the depot's Ore read above its pre-route amount. First-flight watch items are in the spec
+  header (dock geometry, wheel drive direction, the mined amount on 3 EC/s of RTGs, the cap line).
+- First flight 2026-11-07 (two attempts, head e1d07eb): drive, dock, transfer and undock all
+  worked; the route create refused the tree on the product defect HARVEST-WINDOW-EDGE-FRAME (fixed,
+  branch `harvest-gain-gap`). The drills did not slow on 3 EC/s (3.06 Ore is the full rate over the
+  ~1740 s window). Re-flight owed on a DLL carrying the fix.
 
 ---
 
@@ -792,6 +979,16 @@ route), then the IR-1..IR-11 pair lanes and the IC-1..IC-4 campaign lanes.
 
 Progress: Phase A rows A2 (ROUTE-ENDPOINT-CHAIN-GHOST-PROXIMITY-REBIND) and A5
 (ROUTE-DELIVERY-INTO-DOCKED-VISITOR) landed with their fixes on `fix-route-endpoint-writes`.
+
+Checked 2026-11-06 (branch `routecons`): `H58-route-rewind-to-launch` is NOT IR-7. It rewinds a
+tree the lane records itself (`InvokeRewindToLaunch tree=latest`), never the route's backing tree
+`73e50f1e`, which has no rewind save (C4, ROUTE-REWIND-TO-LAUNCH-UNREACHABLE-ON-COMMITTED-FIXTURES).
+IR-9 is not reachable either: no seam verb docks two vessels, and no committed route host has a
+visitor docked at a route endpoint. It needs a harvested fixture: a route host (sealed, route
+candidate) whose destination has a SECOND vessel, not a route transport, hard-docked to it at
+save time, with known fill on both, so a lane can create the route, deliver, and read the visitor
+unchanged and the endpoint's own parts credited. Docking a visitor rover onto `rover-route-recorded`'s
+`rover fuel 0` (its one `dockingPort2`, `Ready` at save time) by hand and harvesting is the shortest path.
 
 ---
 

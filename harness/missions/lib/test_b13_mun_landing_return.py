@@ -1136,7 +1136,13 @@ class SchemaAndSpecTests(unittest.TestCase):
         rollout = re.compile(next(r for r in required if "VesselRollout" in r
                                   and "2932" not in r))
         self.assertFalse(rollout.search("Game state: FundsChanged -2932 (VesselRollout)"))
-        self.assertTrue(rollout.search("Game state: FundsChanged -13452 (VesselRollout)"))
+        # The staging cut's predicted 14327 (builder 14292 + the +35 every CS craft
+        # measured); never the fuel cut's 13127, the outrigger cut's 13302 nor the first
+        # solar cut's 13452.
+        self.assertTrue(rollout.search("Game state: FundsChanged -14327 (VesselRollout)"))
+        self.assertFalse(rollout.search("Game state: FundsChanged -13127 (VesselRollout)"))
+        self.assertFalse(rollout.search("Game state: FundsChanged -13302 (VesselRollout)"))
+        self.assertFalse(rollout.search("Game state: FundsChanged -13452 (VesselRollout)"))
         # The seam's own completion lines, as the C# writes them.
         exit_re = re.compile(next(r for r in required if r.startswith("evaexit complete")))
         self.assertTrue(exit_re.search("evaexit complete kerbal=Jebediah Kerman "

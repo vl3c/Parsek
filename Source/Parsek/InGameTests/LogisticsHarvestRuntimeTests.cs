@@ -119,6 +119,13 @@ namespace Parsek.InGameTests
         /// </summary>
         private const double SettledSurfaceSpeedMetersPerSecond = 0.5;
 
+        /// <summary>Real seconds the live-drill measurement mines at 1x before its rails warp.</summary>
+        private const float LiveDrillLiveSeconds = 3f;
+
+        /// <summary>Real seconds the live-drill measurement holds rails warp (about 50 game s at 10x).</summary>
+        private const float LiveDrillRailsHoldSeconds = 5f;
+
+
         /// <summary>Rails-warp rate index the warp test requests (10x stock).</summary>
         private const int RailsWarpRateIndex = 2;
 
@@ -264,6 +271,17 @@ namespace Parsek.InGameTests
             Description = "D5 investigation: with a drill already active at recording start (after a provocation warp so the stock lastUpdateTime catch-up burst races the start snapshot), the window opens AT start and every positive full-run resource gain is covered by witnessed window deltas - the burst lands inside the open-at-start window or before the start baseline, never unaccounted. Requires a drill-equipped save (BaseDrill-derived module); skips otherwise")]
         public IEnumerator HarvestCapture_CatchUpOnLoad_AttributesInsideWindowOrBridges()
         {
+            return RunCatchUpOnLoad("HarvestCapture_CatchUp");
+        }
+
+        /// <summary>
+        /// The body of the D5 catch-up investigation, shared by the Logistics declaration
+        /// (which skips on every craft without a drill) and the MiningHarvest one that lane
+        /// MINE-5a runs on the miner rover with its drills deployed on ore.
+        /// <paramref name="label"/> prefixes the result and cleanup lines.
+        /// </summary>
+        private static IEnumerator RunCatchUpOnLoad(string label)
+        {
             // Post-restore unpack wait (yields BEFORE any mutation).
             IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
             while (unpackWait.MoveNext())
@@ -272,7 +290,11 @@ namespace Parsek.InGameTests
             // PRECONDITIONS --------------------------------------------------
             ParsekFlight flight = RequireFlightWithUnpackedVessel(out Vessel vessel);
             List<BaseConverter> converters = FindConverters(vessel);
-            BaseConverter drill = converters.Find(c => c is BaseDrill);
+            // A stock surface drill part also carries a ModuleAsteroidDrill (a BaseDrill
+            // too), which activates with no asteroid aboard and produces nothing; the
+            // surface harvester is the module that mines, so it wins.
+            BaseConverter drill = converters.Find(c => c is ModuleResourceHarvester)
+                ?? converters.Find(c => c is BaseDrill);
             if (drill == null)
                 InGameAssert.Skip(
                     $"Active vessel '{vessel.vesselName}' carries no BaseDrill-derived module " +
@@ -283,6 +305,7 @@ namespace Parsek.InGameTests
             var captured = new List<string>();
             var priorObserver = ParsekLog.TestObserverForTesting;
             int warpIndexBefore = TimeWarp.CurrentRateIndex;
+            TimeWarp.Modes warpModeBefore = TimeWarp.WarpMode;
 
             try
             {
@@ -311,13 +334,16 @@ namespace Parsek.InGameTests
                 //    catch-up fires within the first frames, exactly the race
                 //    the D5 bridging rule covers. Best-effort: a refused warp
                 //    degrades the provocation, not the mechanics assertions.
+                //    Driven through the settle + assert-HIGH-mode helper: a bare
+                //    SetRate in LOW (physics) mode never packs the vessel.
                 bool warped = false;
                 if (TimeWarp.fetch != null)
                 {
-                    TimeWarp.SetRate(2, true);
-                    yield return WaitUntil(() => vessel.packed,
-                        RailsTransitionTimeoutSeconds, "rails entry (catch-up provocation)");
-                    warped = vessel.packed;
+                    var provocation = new RailsWarpAttempt();
+                    IEnumerator provocationDrive = EnterRailsWarpWithRetry(vessel, provocation);
+                    while (provocationDrive.MoveNext())
+                        yield return provocationDrive.Current;
+                    warped = provocation.Packed;
                     if (warped)
                     {
                         float holdUntil = Time.realtimeSinceStartup + 2f;
@@ -331,7 +357,7 @@ namespace Parsek.InGameTests
                 if (!(vessel.loaded && !vessel.packed))
                     InGameAssert.Skip("Vessel never unpacked after the provocation warp; cannot race the start snapshot");
                 ParsekLog.Verbose("TestRunner",
-                    $"HarvestCapture_CatchUp: provocation warp {(warped ? "applied" : "refused (degraded run)")}");
+                    $"{label}: provocation warp {(warped ? "applied" : "refused (degraded run)")}");
 
                 // 3. Record immediately: the start snapshot races the burst.
                 flight.StartRecording(suppressStartScreenMessage: true);
@@ -394,16 +420,25 @@ namespace Parsek.InGameTests
                     }
                 }
 
+                // REPORT-ONLY: what the plausibility cap would credit of this run
+                // (HARVEST-ROUTE-PLAUSIBILITY-CAP). A catch-up burst landing inside the
+                // open-at-start window is exactly what the cap exists to bound.
+                SumWindowHarvest(windows, out Dictionary<string, double> witnessedTotals,
+                    out Dictionary<string, double> plausibleTotals);
+                List<HarvestCapEntry> caps =
+                    RouteHarvestAnalysis.ComputeHarvestCaps(witnessedTotals, plausibleTotals);
+
                 ParsekLog.Info("TestRunner",
-                    $"HarvestCapture_CatchUp: PASS warped={warped} windows={windows.Count.ToString(IC)} " +
+                    $"{label}: PASS warped={warped} windows={windows.Count.ToString(IC)} " +
                     $"gainedResources={gainedResources.ToString(IC)} (all covered within " +
-                    $"{ResourceTolerance.ToString("R", IC)})");
+                    $"{ResourceTolerance.ToString("R", IC)}) plausibility " +
+                    RouteHarvestAnalysis.FormatCapsForLog(caps));
             }
             finally
             {
                 ParsekLog.TestObserverForTesting = priorObserver;
-                TryRestoreWarpIndex(warpIndexBefore, "HarvestCapture_CatchUp");
-                CleanupRecordingAndTree("HarvestCapture_CatchUp");
+                TryRestoreWarpIndex(warpIndexBefore, label, warpModeBefore);
+                CleanupRecordingAndTree(label);
                 RestoreActivation(converters, originalActivation);
             }
         }
@@ -628,6 +663,237 @@ namespace Parsek.InGameTests
                 $"harvestedOre={result.HarvestedManifest["Ore"].ToString("R", IC)} " +
                 $"deliveredOre={result.ResourceDeliveryManifest["Ore"].ToString("R", IC)} " +
                 $"originBody={result.FirstHarvestWindow.BodyName}");
+        }
+
+        // ==================================================================
+        // 5. MiningHarvest: the same captures on a real drill rig on ore
+        //    (lane MINE-5a on the miner rover, drills deployed by the lane)
+        // ==================================================================
+
+        [InGameTest(Category = "MiningHarvest", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = IsolatedOnlyBatchSkipReason,
+            Description = "The D5 catch-up investigation (HarvestCapture_CatchUpOnLoad) on a real drill rig whose drills are deployed on ore: a drill active at recording start after a provocation rails warp opens the window at start, and every full-run gain is covered by witnessed window deltas. Skips without a drill")]
+        public IEnumerator LiveDrill_CatchUpOnLoad_AttributesInsideWindowOrBridges()
+        {
+            return RunCatchUpOnLoad("LiveDrill_CatchUp");
+        }
+
+        [InGameTest(Category = "MiningHarvest", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = IsolatedOnlyBatchSkipReason,
+            Description = "HARVEST-ROUTE-PLAUSIBILITY-CAP measured on a live drill: every surface drill is started while recording, mines at 1x and through a rails warp, and the recorded window's harvest stays under its own plausible rate x duration x 1.5, so a harvest-origin route built from the run would credit and deliver all of it; the window delta matches what stock put in the tanks within the window edge slack (HARVEST-WINDOW-EDGE-FRAME), and a delivery of the whole tank credits the witnessed amount uncapped. Skips without a deployed surface drill")]
+        public IEnumerator LiveDrill_HarvestWindowWithinPlausibilityCap()
+        {
+            const string label = "LiveDrillHarvestCap";
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
+            // PRECONDITIONS --------------------------------------------------
+            ParsekFlight flight = RequireFlightWithUnpackedVessel(out Vessel vessel);
+            List<BaseConverter> converters = FindConverters(vessel);
+            var harvesters = new List<BaseConverter>();
+            for (int i = 0; i < converters.Count; i++)
+                if (converters[i] is ModuleResourceHarvester)
+                    harvesters.Add(converters[i]);
+            if (harvesters.Count == 0)
+                InGameAssert.Skip(
+                    $"Active vessel '{vessel.vesselName}' carries no ModuleResourceHarvester; " +
+                    "the live plausibility measurement needs a surface drill rig landed on ore");
+
+            bool[] originalActivation = SnapshotActivation(converters);
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            int warpIndexBefore = TimeWarp.CurrentRateIndex;
+            TimeWarp.Modes warpModeBefore = TimeWarp.WarpMode;
+
+            try
+            {
+                DiscardSessionRecordingForSelfSetup(flight);
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                // 1. Quiet start: nothing runs before the recording, so the window
+                //    opens on the toggle and the tank read below is its baseline.
+                DeactivateAll(converters);
+                yield return null;
+                Dictionary<string, double> tankBefore = ReadVesselResourceTotals(vessel);
+
+                flight.StartRecording(suppressStartScreenMessage: true);
+                yield return WaitUntil(() => flight.IsRecording,
+                    RecordingStartTimeoutSeconds, "recording start");
+                InGameAssert.IsTrue(flight.IsRecording,
+                    $"StartRecording did not start within {RecordingStartTimeoutSeconds.ToString("R", IC)}s");
+
+                // 2. Start every surface drill (the player's "start all").
+                for (int i = 0; i < harvesters.Count; i++)
+                    if (!harvesters[i].IsActivated)
+                        harvesters[i].StartResourceConverter();
+                yield return null;
+                int running = 0;
+                for (int i = 0; i < harvesters.Count; i++)
+                    if (harvesters[i].IsActivated)
+                        running++;
+                if (running == 0)
+                    InGameAssert.Skip(
+                        $"None of the {harvesters.Count.ToString(IC)} surface drill(s) accepted activation " +
+                        "(retracted, no ground contact or no harvestable resource); deploy the drills on ore first");
+                yield return WaitUntil(() => captured.Exists(IsWindowOpenedLine),
+                    LogWaitTimeoutSeconds, "harvest window open on the drill toggle");
+                InGameAssert.IsTrue(
+                    captured.Exists(l => IsWindowOpenedLine(l) && l.Contains("trigger=toggle")),
+                    "Starting the drills while recording must open a harvest window (trigger=toggle)");
+
+                // 3. Mine: a short 1x span, then a rails warp (the window stays open
+                //    across rails entry), back to 1x.
+                float liveUntil = Time.realtimeSinceStartup + LiveDrillLiveSeconds;
+                while (Time.realtimeSinceStartup < liveUntil)
+                    yield return null;
+                var rails = new RailsWarpAttempt();
+                IEnumerator railsDrive = EnterRailsWarpWithRetry(vessel, rails);
+                while (railsDrive.MoveNext())
+                    yield return railsDrive.Current;
+                if (rails.Packed)
+                {
+                    float holdUntil = Time.realtimeSinceStartup + LiveDrillRailsHoldSeconds;
+                    while (Time.realtimeSinceStartup < holdUntil)
+                        yield return null;
+                }
+                TimeWarp.SetRate(0, true);
+                yield return WaitUntil(() => vessel.loaded && !vessel.packed,
+                    RailsTransitionTimeoutSeconds, "rails exit after the mining warp");
+                InGameAssert.IsTrue(vessel.loaded && !vessel.packed,
+                    "The rover must unpack after the mining warp");
+                float settleUntil = Time.realtimeSinceStartup + 1f;
+                while (Time.realtimeSinceStartup < settleUntil)
+                    yield return null;
+                ParsekLog.Verbose("TestRunner",
+                    $"{label}: mining span done drillsRunning={running.ToString(IC)} " +
+                    $"railsWarp={(rails.Packed ? "applied" : "refused")} [{rails.Diagnostics}]");
+
+                // 4. Stop (the window closes at the stop) and read the tanks in the
+                //    same frame: stock's own production over the window.
+                RecordingTree tree = flight.ActiveTreeForSerialization;
+                InGameAssert.IsNotNull(tree, "Active tree should exist while recording");
+                string recId = tree.ActiveRecordingId;
+                flight.StopRecording();
+                Dictionary<string, double> tankAfter = ReadVesselResourceTotals(vessel);
+                FlushStoppedRecorderIntoTree(flight, tree, "RouteHarvestWindows");
+
+                Recording stopped = null;
+                InGameAssert.IsTrue(
+                    !string.IsNullOrEmpty(recId) && tree.Recordings.TryGetValue(recId, out stopped) && stopped != null,
+                    $"Stopped recording '{recId ?? "<null>"}' not found in the test tree");
+                List<RouteHarvestWindow> windows = stopped.RouteHarvestWindows;
+                InGameAssert.IsTrue(windows != null && windows.Count >= 1,
+                    "The mining recording must carry at least one harvest window");
+
+                // 5. THE PER-WINDOW BOUND: each window's witnessed harvest against its
+                //    own rates x duration x margin.
+                for (int w = 0; w < windows.Count; w++)
+                {
+                    RouteHarvestWindow window = windows[w];
+                    InGameAssert.IsFalse(window.IsOpen, $"Window {window.WindowId} must be closed after the stop");
+                    InGameAssert.IsNotNull(window.PlausibleRates,
+                        $"Window {window.WindowId} carries no plausible rates: every converter on a stock " +
+                        "drill rig is modeled, so the window must be bounded (HARVEST-ROUTE-PLAUSIBILITY-CAP)");
+                    double seconds = window.EndUT - window.StartUT;
+                    Dictionary<string, double> harvested =
+                        RouteHarvestCapture.ComputeWindowHarvestedManifest(window);
+                    foreach (KeyValuePair<string, double> kvp in harvested)
+                    {
+                        window.PlausibleRates.TryGetValue(kvp.Key, out double rate);
+                        double limit = RouteHarvestCapture.ComputePlausibleLimit(
+                            window.PlausibleRates, kvp.Key, seconds);
+                        double nominal = rate * seconds;
+                        double ratio = nominal > 0.0 ? kvp.Value / nominal : double.PositiveInfinity;
+                        ParsekLog.Info("TestRunner",
+                            $"{label}: window={window.WindowId} resource={kvp.Key} " +
+                            $"rate={rate.ToString("R", IC)} seconds={seconds.ToString("F2", IC)} " +
+                            $"witnessed={kvp.Value.ToString("R", IC)} limit={limit.ToString("R", IC)} " +
+                            $"ratio={ratio.ToString("F3", IC)}");
+                        InGameAssert.IsTrue(kvp.Value <= limit + ResourceTolerance,
+                            $"{kvp.Key}: stock produced {kvp.Value.ToString("R", IC)} in window " +
+                            $"{window.WindowId} over {seconds.ToString("F2", IC)}s, above the plausible limit " +
+                            $"{limit.ToString("R", IC)} (rate {rate.ToString("R", IC)}/s x 1.5): the cap " +
+                            "would clip honest live mining");
+                    }
+                }
+
+                // 6. THE ROUTE VIEW: what a harvest-origin route built from this run
+                //    would credit and deliver per run - all of it, nothing capped.
+                SumWindowHarvest(windows, out Dictionary<string, double> witnessedTotals,
+                    out Dictionary<string, double> plausibleTotals);
+                witnessedTotals.TryGetValue("Ore", out double witnessedOre);
+                InGameAssert.IsTrue(witnessedOre > ResourceTolerance,
+                    $"The drills mined no Ore inside the window (witnessed {witnessedOre.ToString("R", IC)}); " +
+                    "the measurement measured nothing");
+                List<HarvestCapEntry> caps =
+                    RouteHarvestAnalysis.ComputeHarvestCaps(witnessedTotals, plausibleTotals);
+                InGameAssert.IsTrue(caps.Count == 0,
+                    "Live mining must not be capped: " + RouteHarvestAnalysis.FormatCapsForLog(caps));
+                var delivery = new Dictionary<string, double>(witnessedTotals, StringComparer.Ordinal);
+                List<HarvestCapEntry> deliveryCaps = RouteHarvestAnalysis.ClampDeliveriesToPlausibleHarvest(
+                    new List<Dictionary<string, double>> { delivery }, plausibleTotals);
+                delivery.TryGetValue("Ore", out double deliveredOre);
+                InGameAssert.IsTrue(deliveryCaps.Count == 0
+                        && Math.Abs(deliveredOre - witnessedOre) <= ResourceTolerance,
+                    $"A delivery of the whole harvest must survive the clamp: delivered " +
+                    $"{deliveredOre.ToString("R", IC)} of {witnessedOre.ToString("R", IC)} Ore, " +
+                    RouteHarvestAnalysis.FormatCapsForLog(deliveryCaps));
+
+                // 7. STOCK'S OWN PRODUCTION: the tanks moved by what the windows witnessed
+                //    plus at most the production the window edges cannot witness
+                //    (HARVEST-WINDOW-EDGE-FRAME: the start manifest is read at the harvest
+                //    poll, after the drills' first production frame). The gap must sit
+                //    inside the edge slack the route analysis grants, and a delivery of
+                //    the whole tank must clamp to the witnessed amount with no cap.
+                tankBefore.TryGetValue("Ore", out double oreBefore);
+                tankAfter.TryGetValue("Ore", out double oreAfter);
+                double tankOre = oreAfter - oreBefore;
+                double oreEdgeSlack = 0.0;
+                for (int w = 0; w < windows.Count; w++)
+                {
+                    RouteHarvestCapture.ComputeWindowEdgeSlack(windows[w])
+                        .TryGetValue("Ore", out double windowSlack);
+                    oreEdgeSlack += windowSlack;
+                }
+                double oreEdgeGap = tankOre - witnessedOre;
+                InGameAssert.IsTrue(
+                    oreEdgeGap >= -RouteHarvestAnalysis.GainEpsilon
+                        && oreEdgeGap <= oreEdgeSlack + RouteHarvestAnalysis.GainEpsilon,
+                    $"The Ore tanks gained {tankOre.ToString("R", IC)} but the windows witnessed " +
+                    $"{witnessedOre.ToString("R", IC)}: gap {oreEdgeGap.ToString("R", IC)} outside " +
+                    $"[0, edge slack {oreEdgeSlack.ToString("R", IC)}]");
+                var tankDelivery = new Dictionary<string, double>(StringComparer.Ordinal) { ["Ore"] = tankOre };
+                var edgeSlackTotals = new Dictionary<string, double>(StringComparer.Ordinal) { ["Ore"] = oreEdgeSlack };
+                List<HarvestCapEntry> tankCaps = RouteHarvestAnalysis.ClampDeliveriesToPlausibleHarvest(
+                    new List<Dictionary<string, double>> { tankDelivery }, plausibleTotals, edgeSlackTotals);
+                tankDelivery.TryGetValue("Ore", out double tankCredited);
+                InGameAssert.IsTrue(tankCaps.Count == 0
+                        && tankCredited <= witnessedOre + RouteHarvestAnalysis.GainEpsilon
+                        && Math.Abs(tankCredited - witnessedOre) <= ResourceTolerance,
+                    $"A delivery of the whole tank ({tankOre.ToString("R", IC)} Ore) must credit the witnessed " +
+                    $"{witnessedOre.ToString("R", IC)} with no cap reported: credited " +
+                    $"{tankCredited.ToString("R", IC)}, {RouteHarvestAnalysis.FormatCapsForLog(tankCaps)}");
+
+                ParsekLog.Info("TestRunner",
+                    $"{label}: PASS windows={windows.Count.ToString(IC)} drills={running.ToString(IC)} " +
+                    $"railsWarp={(rails.Packed ? "1" : "0")} oreWitnessed={witnessedOre.ToString("R", IC)} " +
+                    $"oreTank={tankOre.ToString("R", IC)} oreDelivered={deliveredOre.ToString("R", IC)} " +
+                    RouteHarvestAnalysis.FormatCapsForLog(caps) +
+                    $" oreEdgeGap={oreEdgeGap.ToString("R", IC)} oreEdgeSlack={oreEdgeSlack.ToString("R", IC)} " +
+                    $"tankCredited={tankCredited.ToString("R", IC)}");
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                TryRestoreWarpIndex(warpIndexBefore, label, warpModeBefore);
+                CleanupRecordingAndTree(label);
+                RestoreActivation(converters, originalActivation);
+            }
         }
 
         // ==================================================================
@@ -1000,6 +1266,55 @@ namespace Parsek.InGameTests
                 ParsekLog.Warn("TestRunner",
                     $"{label} cleanup: failed to restore time warp ({ex.GetType().Name}: {ex.Message})");
             }
+        }
+
+        /// <summary>
+        /// Witnessed and plausible harvest summed over every window, per resource (the
+        /// per-window terms a harvest-origin route's credit is built from).
+        /// </summary>
+        private static void SumWindowHarvest(
+            List<RouteHarvestWindow> windows,
+            out Dictionary<string, double> witnessed,
+            out Dictionary<string, double> plausible)
+        {
+            witnessed = new Dictionary<string, double>(StringComparer.Ordinal);
+            plausible = new Dictionary<string, double>(StringComparer.Ordinal);
+            if (windows == null) return;
+            for (int i = 0; i < windows.Count; i++)
+            {
+                foreach (KeyValuePair<string, double> kvp in
+                    RouteHarvestCapture.ComputeWindowHarvestedManifest(windows[i]))
+                {
+                    witnessed.TryGetValue(kvp.Key, out double sum);
+                    witnessed[kvp.Key] = sum + kvp.Value;
+                }
+                foreach (KeyValuePair<string, double> kvp in
+                    RouteHarvestCapture.ComputeWindowPlausibleHarvest(windows[i]))
+                {
+                    plausible.TryGetValue(kvp.Key, out double sum);
+                    plausible[kvp.Key] = sum + kvp.Value;
+                }
+            }
+        }
+
+        /// <summary>Per-resource amount summed over the loaded vessel's parts.</summary>
+        private static Dictionary<string, double> ReadVesselResourceTotals(Vessel vessel)
+        {
+            var totals = new Dictionary<string, double>(StringComparer.Ordinal);
+            if (vessel == null || vessel.parts == null) return totals;
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part p = vessel.parts[i];
+                if (p == null || p.Resources == null) continue;
+                for (int r = 0; r < p.Resources.Count; r++)
+                {
+                    PartResource res = p.Resources[r];
+                    if (res == null) continue;
+                    totals.TryGetValue(res.resourceName, out double sum);
+                    totals[res.resourceName] = sum + res.amount;
+                }
+            }
+            return totals;
         }
 
         private static double SumWitnessedHarvest(List<RouteHarvestWindow> windows, string resourceName)

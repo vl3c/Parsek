@@ -390,6 +390,46 @@ namespace Parsek
             return harvested;
         }
 
+        /// <summary>
+        /// The longest physics step a harvest window edge can straddle: the stock
+        /// 0.02 s fixed step times 4, the top physics-warp rate. A window opens
+        /// and closes only on an unpacked frame (the harvest poll skips packed
+        /// frames, and the rails-entry open runs before the vessel packs), so no
+        /// rails-warp step ever sits at an edge.
+        /// </summary>
+        internal const double HarvestEdgeFrameSeconds = 0.08;
+
+        /// <summary>A window has two edges (open and close) that can each straddle one frame.</summary>
+        internal const int HarvestWindowEdges = 2;
+
+        /// <summary>
+        /// The production a window can miss at its edges (HARVEST-WINDOW-EDGE-FRAME):
+        /// the start manifest is read at the harvest poll, which can run after the
+        /// converters' first production frame (MINE-5b measured exactly one 0.02 s
+        /// frame), and likewise one frame at the close. Per rated routable resource:
+        /// <see cref="ComputePlausibleLimit"/> over <see cref="HarvestEdgeFrameSeconds"/>
+        /// times <see cref="HarvestWindowEdges"/>. Empty for an open window and for a
+        /// window without <see cref="RouteHarvestWindow.PlausibleRates"/>: an
+        /// unmodeled converter has no bound on what one frame produces (a catch-up
+        /// burst lands in one frame), so it gets no slack. Pure.
+        /// </summary>
+        internal static Dictionary<string, double> ComputeWindowEdgeSlack(RouteHarvestWindow window)
+        {
+            var slack = new Dictionary<string, double>(System.StringComparer.Ordinal);
+            if (window == null || window.EndTransportResources == null || window.PlausibleRates == null)
+                return slack;
+
+            foreach (KeyValuePair<string, double> kvp in window.PlausibleRates)
+            {
+                if (!ResourceTransferability.IsRoutableResource(kvp.Key, out _))
+                    continue;
+                double perEdge = ComputePlausibleLimit(window.PlausibleRates, kvp.Key, HarvestEdgeFrameSeconds);
+                if (perEdge > 0.0 && !double.IsInfinity(perEdge) && !double.IsNaN(perEdge))
+                    slack[kvp.Key] = perEdge * HarvestWindowEdges;
+            }
+            return slack;
+        }
+
         private static bool IsUsableFactor(double value)
         {
             return !double.IsNaN(value) && !double.IsInfinity(value) && value >= 0.0;

@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Threading;
 using Parsek.TestCommands;
 using Xunit;
 
@@ -79,6 +81,7 @@ namespace Parsek.Tests
         [InlineData("explode", "Explode")]
         [InlineData("chute", "ChuteDeploy")]
         [InlineData("runtest", "RunTest")]
+        [InlineData("transfer", "Transfer")]
         public void ParseButton_AcceptsTheClosedVocabulary(string raw, string expected)
         {
             Assert.Null(TestCommandPartAction.ParseButton(raw, out PartActionKind kind));
@@ -112,7 +115,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(new[] { "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
                 "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-                "radiatoroff", "activate", "explode", "chute", "runtest" },
+                "radiatoroff", "activate", "explode", "chute", "runtest", "transfer" },
                 TestCommandPartAction.ButtonValues);
             foreach (string v in TestCommandPartAction.ButtonValues)
                 Assert.Null(TestCommandPartAction.ParseButton(v, out _));
@@ -223,7 +226,7 @@ namespace Parsek.Tests
             {
                 Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
                 Assert.Equal(token != "undock" && token != "decouple" && token != "controlfrom"
-                    && token != "explode",
+                    && token != "explode" && token != "transfer",
                     TestCommandPartAction.AcceptsAll(kind));
             }
             Assert.False(TestCommandPartAction.AcceptsAll(PartActionKind.Unknown));
@@ -844,24 +847,149 @@ namespace Parsek.Tests
                 42, "Miner", null, "radiator:cooling=1", 1, new PartActionWarpContext(true, 5, 1000.0, 86400.25)));
         }
 
+        // ----- transfer / partPid -----
+
+        [Theory]
+        [InlineData(null, true, 0u, false)]
+        [InlineData("", true, 0u, false)]
+        [InlineData("1158021052", true, 1158021052u, true)]
+        [InlineData("0", false, 0u, false)]
+        [InlineData("-5", false, 0u, false)]
+        [InlineData("12x", false, 0u, false)]
+        [InlineData("4294967296", false, 0u, false)]
+        public void ParsePartPid_IsANonzeroInvariantUint(string raw, bool ok, uint expected, bool has)
+        {
+            string reason = TestCommandPartAction.ParsePartPid(raw, out uint partPid, out bool hasPartPid);
+            Assert.Equal(ok ? null : "partaction-part-pid-arg-invalid", reason);
+            Assert.Equal(expected, partPid);
+            Assert.Equal(has, hasPartPid);
+            Assert.Equal("partPid", TestCommandPartAction.PartPidKey);
+        }
+
+        [Fact]
+        public void ParseResource_IsRequiredOnTransfer_AndRefusedElsewhere()
+        {
+            Assert.Equal("partaction-resource-arg-missing",
+                TestCommandPartAction.ParseResource(null, PartActionKind.Transfer, out string none));
+            Assert.Null(none);
+            Assert.Null(TestCommandPartAction.ParseResource("Ore", PartActionKind.Transfer, out string ore));
+            Assert.Equal("Ore", ore);
+            Assert.Equal("partaction-resource-arg-unexpected",
+                TestCommandPartAction.ParseResource("Ore", PartActionKind.Inspect, out string dropped));
+            Assert.Null(dropped);
+            Assert.Null(TestCommandPartAction.ParseResource(null, PartActionKind.Deploy, out _));
+            Assert.Equal("resource", TestCommandPartAction.ResourceKey);
+        }
+
+        [Fact]
+        public void Transfer_NeedsAPart_IsWholePart_TakesNoAll_AndPressesNoEvent()
+        {
+            Assert.Null(TestCommandPartAction.ParseButton("transfer", out PartActionKind kind));
+            Assert.True(TestCommandPartAction.RequiresPart(kind));
+            Assert.True(TestCommandPartAction.IsWholePartKind(kind));
+            Assert.True(TestCommandPartAction.IsTransferKind(kind));
+            Assert.False(TestCommandPartAction.IsTransferKind(PartActionKind.Inspect));
+            Assert.Equal("partaction-all-arg-unexpected",
+                TestCommandPartAction.ParseAll("true", kind, out _));
+            Assert.Empty(TestCommandPartAction.EventNamesFor(kind));
+            Assert.Equal("partaction-part-arg-missing", TestCommandPartAction.ParsePart(null, kind, out _));
+        }
+
+        [Fact]
+        public void DecideCandidates_Transfer_NoResourceIsNotFound_TwoTanksAreAmbiguous()
+        {
+            // The named part does not carry the resource.
+            Assert.Equal("partaction-resource-not-found", TestCommandPartAction.DecideCandidates(
+                PartActionKind.Transfer, "RadialOreTank", 2, null, 0, 0, 0, 0, false));
+            // Two tanks of one name, no partPid: never a silent first pick.
+            Assert.Equal("partaction-part-ambiguous", TestCommandPartAction.DecideCandidates(
+                PartActionKind.Transfer, "RadialOreTank", 4, null, 0, 0, 4, 4, false));
+            // partPid kept one.
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                PartActionKind.Transfer, "RadialOreTank", 1, null, 0, 0, 1, 1, false));
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                PartActionKind.Transfer, "RadialOreTank", 0, null, 0, 0, 0, 0, false));
+        }
+
+        [Fact]
+        public void PlanTransfer_FillsTheDestination_InSourceOrder_NeverNegative()
+        {
+            double[] takes = TestCommandPartAction.PlanTransfer(75.0, new[] { 40.0, 50.0, 10.0 }, out double moved);
+            Assert.Equal(new[] { 40.0, 35.0, 0.0 }, takes);
+            Assert.Equal(75.0, moved, 9);
+
+            takes = TestCommandPartAction.PlanTransfer(100.0, new[] { 12.5, 0.0, -3.0, 7.5 }, out moved);
+            Assert.Equal(new[] { 12.5, 0.0, 0.0, 7.5 }, takes);
+            Assert.Equal(20.0, moved, 9);
+
+            takes = TestCommandPartAction.PlanTransfer(0.0, new[] { 5.0 }, out moved);
+            Assert.Equal(new[] { 0.0 }, takes);
+            Assert.Equal(0.0, moved);
+            Assert.Equal("partaction-transfer-nothing-moved", TestCommandPartAction.DecideTransfer(moved));
+
+            takes = TestCommandPartAction.PlanTransfer(-1.0, new[] { 5.0 }, out moved);
+            Assert.Equal(0.0, moved);
+            takes = TestCommandPartAction.PlanTransfer(double.NaN, new[] { 5.0 }, out moved);
+            Assert.Equal(0.0, moved);
+            takes = TestCommandPartAction.PlanTransfer(10.0, null, out moved);
+            Assert.Empty(takes);
+            Assert.Equal("partaction-transfer-nothing-moved", TestCommandPartAction.DecideTransfer(moved));
+            Assert.Null(TestCommandPartAction.DecideTransfer(0.5));
+        }
+
+        [Fact]
+        public void TransferTailAndPayload_AreInvariantAndInWireOrder()
+        {
+            CultureInfo prior = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.Equal(" resource=Ore moved=12.5000 sources=2 destBefore=0.0000 destAfter=12.5000 destMax=75.0000",
+                    TestCommandPartAction.FormatTransferTail("Ore", 12.5, 2, 0.0, 12.5, 75.0));
+                var fields = TestCommandPartAction.TransferPayloadFields("Ore", 12.5, 2, 0.0, 12.5, 75.0);
+                Assert.Equal(new[] { "resource", "moved", "sources", "destBefore", "destAfter", "destMax" },
+                    fields.Select(kv => kv.Key).ToArray());
+                Assert.Equal("12.5000", fields[1].Value);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = prior;
+            }
+        }
+
+        [Fact]
+        public void TheTransferArgsReachTheVerb()
+        {
+            ParsedCommand cmd = Cmd("button=transfer part=RadialOreTank partPid=1158021052 resource=Ore");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal("transfer", cmd.Args["button"]);
+            Assert.Equal("1158021052", cmd.Args["partPid"]);
+            Assert.Equal("Ore", cmd.Args["resource"]);
+        }
+
         [Fact]
         public void Reasons_AreTheGateOrder_AndDisjointFromTheErrors()
         {
-            Assert.Equal(29, TestCommandPartAction.Reasons.Length);
+            Assert.Equal(34, TestCommandPartAction.Reasons.Length);
             Assert.Equal("partaction-button-arg-missing", TestCommandPartAction.Reasons[0]);
             Assert.Equal("partaction-converter-arg-unexpected", TestCommandPartAction.Reasons[3]);
             Assert.Equal("partaction-all-arg-invalid", TestCommandPartAction.Reasons[4]);
             Assert.Equal("partaction-all-arg-unexpected", TestCommandPartAction.Reasons[5]);
             Assert.Equal("partaction-pid-arg-invalid", TestCommandPartAction.Reasons[6]);
-            Assert.Equal("partaction-expect-snapshot-arg-invalid", TestCommandPartAction.Reasons[7]);
-            Assert.Equal("partaction-tolerance-arg-invalid", TestCommandPartAction.Reasons[11]);
-            Assert.Equal("partaction-unknown-recording", TestCommandPartAction.Reasons[16]);
-            Assert.Equal("partaction-converter-not-found", TestCommandPartAction.Reasons[18]);
-            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.Reasons[20]);
-            Assert.Equal("partaction-lab-not-active-vessel", TestCommandPartAction.Reasons[22]);
-            Assert.Equal("partaction-lab-unavailable", TestCommandPartAction.Reasons[25]);
-            Assert.Equal("partaction-radiator-not-found", TestCommandPartAction.Reasons[26]);
-            Assert.Equal("partaction-engine-not-found", TestCommandPartAction.Reasons[27]);
+            Assert.Equal("partaction-part-pid-arg-invalid", TestCommandPartAction.Reasons[7]);
+            Assert.Equal("partaction-resource-arg-missing", TestCommandPartAction.Reasons[8]);
+            Assert.Equal("partaction-resource-arg-unexpected", TestCommandPartAction.Reasons[9]);
+            Assert.Equal("partaction-resource-not-found", TestCommandPartAction.Reasons[32]);
+            Assert.Equal("partaction-transfer-nothing-moved", TestCommandPartAction.Reasons[33]);
+            Assert.Equal("partaction-expect-snapshot-arg-invalid", TestCommandPartAction.Reasons[10]);
+            Assert.Equal("partaction-tolerance-arg-invalid", TestCommandPartAction.Reasons[14]);
+            Assert.Equal("partaction-unknown-recording", TestCommandPartAction.Reasons[19]);
+            Assert.Equal("partaction-converter-not-found", TestCommandPartAction.Reasons[21]);
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.Reasons[23]);
+            Assert.Equal("partaction-lab-not-active-vessel", TestCommandPartAction.Reasons[25]);
+            Assert.Equal("partaction-lab-unavailable", TestCommandPartAction.Reasons[28]);
+            Assert.Equal("partaction-radiator-not-found", TestCommandPartAction.Reasons[29]);
+            Assert.Equal("partaction-engine-not-found", TestCommandPartAction.Reasons[30]);
             Assert.DoesNotContain("partaction-lab-method-missing", TestCommandPartAction.Reasons);
             Assert.Equal(TestCommandPartAction.Reasons.Length, TestCommandPartAction.Reasons.Distinct().Count());
             foreach (string r in new[]
