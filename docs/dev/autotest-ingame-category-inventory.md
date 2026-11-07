@@ -1,4 +1,4 @@
-# In-game test category inventory (all 137 categories)
+# In-game test category inventory (all 138 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -110,6 +110,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `DisabledHoverEcho` | 1 | 1 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, added as a 31st constituent 2026-09-08, flown run `2026-09-08_1041`, executes 1 of 1 - the whole category at FLIGHT with zero skips. Its cell measures an IMGUI hover, which Unity samples from the OS pointer, so nothing inside the engine can fake it and an unattended batch used to read "not measured" and skip; the cell now PARKS the OS pointer over its own probe button for the measurement (Windows `user32` `SetCursorPos` through a P/Invoke inside the test, previous position restored in the `finally`) and every failure mode - not Windows, no usable `user32`, no game window handle - degrades to "not placed" and leaves the original skip. Measured 1 of 1 by census CEN-12 (scratch, run `2026-09-08_1035`) on `gloops-airshow`, the lane's own host. THE B5 READING - "interactive-only, nothing available" - was a bound on the SEAM, and the seam was the wrong place to look: no harness verb can move the pointer, but the test process is inside the same window and can. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below. The self-skip column stays 1: the placement can still fail and the skip is what it falls back to) | A |
 | `Diagnostics` | 6 | 6 | 3 | 3 | 0 | 1 | H27 | A |
 | `EvaSpawnPosition` | 2 | 2 | 0 | 0 | 0 | 2 | H20 | A |
+| `FairingGhostVisual` | 1 | 1 | 0 | 0 | 0 | 1 | FGV-1-fairing-ghost-visual (authored 2026-11-07, NEVER FLOWN at authoring time, interim pin `total=1`). One FLIGHT IEnumerator cell that spawns four small stock fairing vessels co-orbital with the active vessel (closed nose, interstage truss, open top, colour variant), builds each one's Parsek ghost from the real vessel's own backup snapshot beside it, and photographs the pair intact, after stock `DeployFairing` + `ApplyFairingJettisonedState`, and (interstage only) after separation + `RefreshFairingStructureVisibility`, into `Screenshots/fgv-*.png`. A visual-confirmation lane: its product is the images. Self-skips without an orbiting host or the stock fairing parts | A |
 | `FinalizeBackfill` | 7 | 7 | 0 | 0 | 0 | 0 | H10 | A |
 | `FinalizeLimbo` | 2 | 2 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `Flight` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
@@ -231,8 +232,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **137 categories / 690 declarations**. Buckets **A 102 categories
-(391 declarations)**, **B 34 categories (295 declarations)**, **C 1 category (4
+Totals, re-derived: **138 categories / 691 declarations**. Buckets **A 103 categories
+(392 declarations)**, **B 34 categories (295 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -260,7 +261,9 @@ the same standing, A 97 -> 98 categories, 382 -> 383 declarations. The 2026-10-2
 CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT's `ClockCauseScope` (CLK-1, one FLIGHT cell) landed WITH
 its lane (live-proven the same day) into **A** on the same standing, A 98 -> 99 categories, 383 -> 384 declarations. The
 2026-10-31 fix for RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP's `StandaloneLoopMap` (SLM-1 / SLM-2 / SLM-1T, one AnyScene
-cell) landed WITH its lanes (live-proven 2026-11-01) into **A** on the same standing, A 99 -> 100 categories, 384 -> 385 declarations. All re-derived
+cell) landed WITH its lanes (live-proven 2026-11-01) into **A** on the same standing, A 99 -> 100 categories, 384 -> 385 declarations. The
+2026-11-07 fairing snapshot lane's `FairingGhostVisual` (FGV-1, one FLIGHT cell) landed WITH its never-flown lane into **A**
+on the same standing, A 102 -> 103 categories, 391 -> 392 declarations. All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;

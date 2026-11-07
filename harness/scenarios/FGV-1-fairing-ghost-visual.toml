@@ -1,0 +1,145 @@
+schema = 1
+id = "FGV-1-fairing-ghost-visual"
+tier = "operator"
+# FAIRING GHOSTS NEXT TO THE REAL STOCK VESSEL, IN PICTURES. The owner wants to SEE how
+# Parsek's ghost renders a stock procedural fairing and the fairing interstage truss, side
+# by side with the real stock part, before and after the fairing is jettisoned. This lane
+# produces those images; it gates mechanics only loosely (the cell passed, every image was
+# written, the ghost was built, the truss refresh ran). The images are for the owner's eyes.
+#
+# WHAT THE LANE FLIES. `eva2-lko-crewed` (sandbox, every part available, the 13-part Kerbal
+# X Probe ORBITING Kerbin at ~100 km) boots into FLIGHT, warps on rails to UT 1900, then
+# runs the in-game `FairingGhostVisual` category: ONE IEnumerator cell
+# (`Source/Parsek/InGameTests/FairingGhostVisualInGameTests.cs`). For each of four
+# configurations it authors a small stock vessel, spawns it co-orbital with the active
+# vessel (70 or 140 m along-track; the GrappleCapture co-orbital pattern, so no ground
+# physics and near-zero relative drift), takes the REAL vessel's own backup snapshot
+# (`VesselSpawner.TryBackupSnapshot`, what a recording stores), builds the ghost from it
+# (`GhostVisualBuilder.BuildTimelineGhostFromSnapshot`), and parents the ghost root to the
+# real root part with a sideways offset (two fairing radii + 1.2 m), so the floating origin
+# and Krakensbane carry both together. The flight camera's own update is suspended while
+# the cell poses it on the pair; KSP's UI is hidden (F2) for the captures.
+#
+# READING THE IMAGES: REAL STOCK VESSEL ON THE LEFT, PARSEK GHOST ON THE RIGHT, vessel axis
+# up, camera on the sun side of the pair. Files (harvested into results/<runId>_shots/,
+# contact sheet via the ordinary harvest):
+#   fgv-1-intact / fgv-1-jettisoned   fairingSize1, closed nose (4 XSECTIONs, the last at the
+#                                     part's capRadius), default white, OKTO probe on `top`.
+#   fgv-2-intact / fgv-2-jettisoned / fgv-2-separated
+#                                     fairingSize2 with Interstage Nodes on and Truss
+#                                     Structure on, an FL-T200 on the up-facing
+#                                     interstage02 node (02a / 02b chosen by the prefab's node
+#                                     orientation, logged), closed nose. `separated`: stock
+#                                     Part.decouple() on the real tank (the new vessel is then
+#                                     removed); on the ghost the decoupled-subtree hide plus
+#                                     logical-presence removal, then
+#                                     GhostPlaybackLogic.RefreshFairingStructureVisibility.
+#   fgv-2-separated-rule (OPTIONAL, not pinned)
+#                                     taken only when the real truss is STILL shown after
+#                                     stock's decouple: stock fires the parent's
+#                                     IActivateOnDecouple before it clears the node's
+#                                     attachedPart (decompiled Part.Decoupling, KSP 1.12.5),
+#                                     so the cell re-runs ModuleStructuralNode's own rule on
+#                                     the real part and shoots again. Its presence is itself a
+#                                     reading: what a player sees vs what the rule says.
+#   fgv-3-intact / fgv-3-jettisoned   fairingSize2, OPEN TOP (last XSECTION r != capRadius,
+#                                     isCapped = False), camera raised to 25 deg.
+#   fgv-4-intact / fgv-4-jettisoned   fairingSize1 closed nose in a colour variant
+#                                     (BlackAndWhite / Black / Orange / ... whichever the
+#                                     prefab offers first, logged), OKTO payload.
+# The KSP.log `[FairingGhostVisual]` lines say per configuration: the authored XSECTIONs,
+# every real ModuleStructuralNode's rootObject / attach nodes / on-off, the ghost's shell and
+# Truss*/Cap* transforms active per phase, the jettison outcome, and whether each capture
+# was SUNLIT.
+#
+# THE WARP TO UT 1900 IS FOR LIGHT. The fixture loads at UT 421.19 on a ~1957 s orbit; with
+# stock Kerbin (sma 13599840256, mean anomaly 3.14 at epoch 0) and this vessel's ORBIT
+# block, the pair is sunlit until ~UT 721, in Kerbin's shadow ~721-1366 and sunlit again
+# ~1366-2676. The test needs ~1-2 min of game time after the batch starts, so UT 1900 sits
+# ~530 s inside the lit window with ~770 s to spare. If a capture logs `sunlit=false` the
+# arithmetic was wrong; the images will be dark, nothing else changes.
+#
+# PRODUCT CONTEXT. Written against the fairing rework landing in parallel: the ghost shell is
+# rebuilt with stock's ProceduralFairings panel builder under FairingGhostInfo.fairingMeshObject,
+# jettison is GhostPlaybackLogic.ApplyFairingJettisonedState, and the truss follows stock's
+# ModuleStructuralNode rule via GhostPlaybackLogic.RefreshFairingStructureVisibility. The cell
+# binds that last method BY NAME (reflection) so it builds before the method exists; on a
+# build without it every image is still taken and the cell then FAILS naming the method, and
+# the `truss refresh invoked` token below reds the run.
+#
+# FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied - no
+# committed lane flies a fairing in orbit, and folding this into an eva2-lko-crewed EVA lane
+# would put its EVA kerbal in the pictures. (2) No idle waits: the one game-time wait is an
+# explicit-UT WarpToUT on rails. (3) Holds are the minimum the pictures need: 1.5 s settle
+# after unpack, 0.6 s camera hold, 2.5 s for the stock panels to clear the frame after
+# DeployFairing. (4)/(5) no burns, no coasts. (6) `[retry] policy = "none"`: a red is
+# deterministic and the images are harvested on a red run too, so a second flight buys
+# nothing. (7) Recording count pinned at 0. (8)/(9) after the first flight.
+#
+# NEVER FLOWN at authoring time (2026-11-07). The batch pin is INTERIM (`total=1` literal,
+# split regexed) per IngameBatchWiringGroupTests.INTERIM_PIN_IDS; it is pinned whole on the
+# first flight.
+description = "AUTHORED 2026-11-07, NEVER FLOWN: four stock procedural fairings (closed nose, interstage truss, open top, colour variant) photographed beside their Parsek ghosts in LKO, intact / jettisoned / separated, into results/<runId>_shots/fgv-*.png for the owner's visual review."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "fairing", "ghost-visual", "screenshots", "FGV-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # `Ghost built:` is verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Into the sunlit window (see the header arithmetic). Rails warp, explicit UT.
+  { cmd = "WarpToUT",   args = { ut = "1900" }, expect = "OK", budget = 120 },
+  { cmd = "RunTests",   args = { category = "FairingGhostVisual" }, expect = "OK", budget = 420 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D7 `fairing` claim: that value is the recorded FairingJettisoned EVENT replayed by
+# playback, and this lane calls the applier directly on a stand-alone ghost.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: autoRecordOnLaunch is off and the spawned fixtures are never recorded.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=FairingGhostVisual scene=FLIGHT",
+  # The ghost of each configuration was built from the real vessel's snapshot.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[GhostVisual\\] Ghost built: [0-9]+/[0-9]+ parts with visuals",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] config 2 interstage-truss: truss refresh invoked RefreshFairingStructureVisibility",
+  # Every pinned image was written and settled (the optional fgv-2-separated-rule is not pinned).
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-1-intact path=Screenshots/fgv-1-intact\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-1-jettisoned path=Screenshots/fgv-1-jettisoned\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-2-intact path=Screenshots/fgv-2-intact\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-2-jettisoned path=Screenshots/fgv-2-jettisoned\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-2-separated path=Screenshots/fgv-2-separated\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-3-intact path=Screenshots/fgv-3-intact\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-3-jettisoned path=Screenshots/fgv-3-jettisoned\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-4-intact path=Screenshots/fgv-4-intact\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] capture ok label=fgv-4-jettisoned path=Screenshots/fgv-4-jettisoned\\.png bytes=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[FairingGhostVisual\\] summary: configs=4 captures=[0-9]+ failures=0",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+budgetSeconds = 1020
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""
