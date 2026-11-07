@@ -412,7 +412,7 @@ namespace Parsek
             // recovery of an older flight, or a save from before the in-flight Recover
             // committed Recovered). The recovery row credits the payout once at its UT;
             // spawning the vessel too would let the player recover it a second time.
-            if (RecoveredRecordingLiveIndex.IsRecoveredByLedgerRowLive(rec))
+            if (EffectiveState.IsRecoveredByLedgerRowLive(rec))
             {
                 return (false,
                     "recovered after commit (recovery ledger row, terminal " +

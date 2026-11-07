@@ -3,13 +3,10 @@ using System.Collections.Generic;
 
 namespace Parsek
 {
-    /// <summary>
-    /// The live half of <see cref="RecoveredRecordingEvidence"/>: whether the effective ledger
-    /// (<see cref="EffectiveState.ComputeELS"/>) holds a recovery row for a recording, through an
-    /// index cached per ELS list instance. It reads effective state, so it lives with the rewind
-    /// and supersede resolution; the pure row predicates stay with the ledger.
-    /// </summary>
-    internal static class RecoveredRecordingLiveIndex
+    // The live half of RecoveredRecordingEvidence: whether the effective ledger (ComputeELS)
+    // holds a recovery row for a recording, through an index cached per ELS list instance.
+    // It reads effective state, so it lives here; the pure row predicates stay in GameActions.
+    public static partial class EffectiveState
     {
         // Live index over the effective ledger, keyed by the ELS list instance:
         // EffectiveState.ComputeELS returns the same cached list until the ledger or the
@@ -30,7 +27,7 @@ namespace Parsek
             if (!ResurrectionRetirementEligibility.VesselOutlivedTerminal(rec.TerminalStateValue))
                 return false;
 
-            IReadOnlyList<GameAction> els = EffectiveState.ComputeELS();
+            IReadOnlyList<GameAction> els = ComputeELS();
             lock (indexLock)
             {
                 if (!object.ReferenceEquals(els, indexedEls) || recoveryRowRecordingIds == null)
@@ -53,7 +50,7 @@ namespace Parsek
             }
         }
 
-        internal static void ResetForTesting()
+        internal static void ResetRecoveredIndexForTesting()
         {
             lock (indexLock)
             {

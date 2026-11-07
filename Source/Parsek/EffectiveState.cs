@@ -32,7 +32,7 @@ namespace Parsek
     /// switching marker identity (or null -> non-null) changes the
     /// <see cref="SessionSuppressedSubtree(ReFlySessionMarker)"/> closure.
     /// </summary>
-    public static class EffectiveState
+    public static partial class EffectiveState
     {
         private static readonly object syncRoot = new object();
 

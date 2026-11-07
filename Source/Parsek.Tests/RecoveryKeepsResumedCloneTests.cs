@@ -33,7 +33,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             Ledger.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
-            RecoveredRecordingLiveIndex.ResetForTesting();
+            EffectiveState.ResetRecoveredIndexForTesting();
             InFlightRecoveryRequest.ResetForTesting();
             GhostMapPresence.ResetForTesting();
         }
@@ -41,7 +41,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             InFlightRecoveryRequest.ResetForTesting();
-            RecoveredRecordingLiveIndex.ResetForTesting();
+            EffectiveState.ResetRecoveredIndexForTesting();
             EffectiveState.ResetCachesForTesting();
             Ledger.ResetForTesting();
             GhostMapPresence.ResetForTesting();

@@ -238,14 +238,6 @@ name = "Trajectory"
 prefix = "^FlatPointFrameDispatch[.]cs$"
 placement = "R0"
 
-# the live recovered-recording index: an effective-ledger (ELS) read through EffectiveState,
-# split from the pure RecoveredRecordingEvidence predicates so Ghost reads it without
-# crossing into GameActions (file-placement PR 5, 2026-11-07)
-[[module]]
-name = "Rewind"
-prefix = "^RecoveredRecordingLiveIndex[.]cs$"
-placement = "R0"
-
 # trajectory data vocabulary, next to TrajectoryPoint / OrbitSegment: a TrackSection
 # (and the ReferenceFrame / SegmentEnvironment / TrackSectionSource it declares)
 # references only TrajectoryPoint and OrbitSegment, and TerminalState references
