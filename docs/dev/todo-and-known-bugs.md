@@ -2866,6 +2866,17 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   negative scans and the recovery-crew count (still 2) read `ParsekFlightSourceFiles`; the
   non-loop live-PID audit names every split file; the ERS / ELS and UI-complexity allowlists
   list the partials that read what ParsekFlight.cs read.
+- PF1b landed: the recording side of ParsekFlight.cs is in nine new partial files, written by
+  the same script on the services tip: `.SplitBranching.cs` (4,283 lines), `.SplitEvents.cs`
+  (1,469), `.PostSwitchAutoRecord.cs` (1,213), `.Flags.cs` (242), `.RecorderSession.cs`
+  (1,128), `.MergeFlow.cs` (2,569), `.PadEvidence.cs` (653), `.TreeRestore.cs` (2,497),
+  `.SwitchContinuation.cs` (2,191); 370 declarations of 357 names, every byte verbatim.
+  ParsekFlight.cs 18,668 -> 2,557 lines. IL identical (3,920 types, 23,950 fields, 25,880
+  methods, 0 differences). Knot 469 and the cut residue 283 unchanged. Gates re-pointed: the
+  source readers of ParsekFlight.cs go through `ParsekFlightSourceFiles.ReadText` (the whole
+  class when the path is ParsekFlight.cs), four SwitchSegmentConsume ordering gates bound by
+  the brace-matched method body instead of the next method's text, the non-loop live-PID audit
+  and the ERS / ELS allowlist name the new files, two harness source anchors follow the moves.
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 

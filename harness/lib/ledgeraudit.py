@@ -102,7 +102,7 @@ SRC_ORCHESTRATOR = "Source/Parsek/GameActions/LedgerOrchestrator*.cs"
 SRC_LOAD_POLICY = "Source/Parsek/LoadReconcilePolicy.cs"
 SRC_SCENARIO = "Source/Parsek/ParsekScenario.cs"
 SRC_TERMINAL_ORBIT = "Source/Parsek/ParsekFlight.TerminalOrbit.cs"
-SRC_FLIGHT = "Source/Parsek/ParsekFlight.cs"
+SRC_FLIGHT_TREE_RESTORE = "Source/Parsek/ParsekFlight.TreeRestore.cs"
 SRC_CONCLUSION = "Source/Parsek/ReFlyConclusionRoute.cs"
 SRC_DOMINANCE = "Source/Parsek/ReFlyMergeDominance.cs"
 SRC_CHAIN_WALKER = "Source/Parsek/GhostChainWalker.cs"
@@ -207,7 +207,7 @@ SOURCE_ANCHORS: Tuple[Tuple[str, str, str], ...] = (
     ("load-kind", SRC_LOAD_POLICY, LIT_CLASSIFIED),
     ("load-kind", SRC_SCENARIO, LIT_ONLOAD_DONE),
     ("refly-leftover", SRC_SCENARIO, LIT_UNBOUND),
-    ("refly-leftover", SRC_FLIGHT, LIT_UNBOUND),
+    ("refly-leftover", SRC_FLIGHT_TREE_RESTORE, LIT_UNBOUND),
     ("refly-leftover", SRC_TERMINAL_ORBIT, "outcome=" + LIT_RETIRED),
     ("refly-leftover", SRC_CONCLUSION, LIT_RETIRED),
     ("merge-refused", SRC_DOMINANCE, LIT_DOMINANCE),

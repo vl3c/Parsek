@@ -374,7 +374,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
                 "Source", "Parsek", "Patches", "MapFocusObjectOnSelectPatch.cs");
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
 
         // Fails if: a future refactor drops the explicit clear in the
@@ -483,7 +483,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", ".."));
             string storePath = Path.Combine(projectRoot,
                 "Source", "Parsek", "SwitchSegmentAttempts.cs");
-            string storeSource = File.ReadAllText(storePath);
+            string storeSource = ParsekFlightSourceFiles.ReadText(storePath);
             // TryDiscardActiveSwitchSegmentAttempt's success path always
             // calls ClearSwitchSegmentSession("scoped-discard") before
             // returning.
@@ -644,7 +644,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", ".."));
             string flightPath = Path.Combine(projectRoot,
                 "Source", "Parsek", "ParsekFlight.cs");
-            string flightSource = File.ReadAllText(flightPath);
+            string flightSource = ParsekFlightSourceFiles.ReadText(flightPath);
 
             // The new entry point exists.
             Assert.Contains(
@@ -771,7 +771,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", ".."));
             string mergeDialogPath = Path.Combine(projectRoot,
                 "Source", "Parsek", "MergeDialog.cs");
-            string mergeDialogSource = File.ReadAllText(mergeDialogPath);
+            string mergeDialogSource = ParsekFlightSourceFiles.ReadText(mergeDialogPath);
 
             // The override parameter is the load-bearing seam between
             // the session-aware and Case B paths.

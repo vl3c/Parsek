@@ -220,9 +220,9 @@ namespace Parsek.Tests
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "Source", "Parsek"));
             string interceptor = SourceScanText.StripCommentsAndMaskLiterals(
-                File.ReadAllText(Path.Combine(root, "SceneExitInterceptor.cs")));
+                ParsekFlightSourceFiles.ReadText(Path.Combine(root, "SceneExitInterceptor.cs")));
             string flight = SourceScanText.StripCommentsAndMaskLiterals(
-                File.ReadAllText(Path.Combine(root, "ParsekFlight.cs")));
+                ParsekFlightSourceFiles.ReadText(Path.Combine(root, "ParsekFlight.cs")));
 
             Assert.Equal(1, Regex.Matches(interceptor, @"ParsekScenario\.IsAutoMerge\b").Count);
             int helper = interceptor.IndexOf(

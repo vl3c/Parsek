@@ -174,7 +174,7 @@ namespace Parsek.Tests
         {
             string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string flight = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            string flight = ParsekFlightSourceFiles.ReadText(System.IO.Path.Combine(
                 root, "Source", "Parsek", "ParsekFlight.cs")).Replace("\r\n", "\n");
             int start = flight.IndexOf("internal bool IsActiveTreeIdleOnPad()\n", StringComparison.Ordinal);
             Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
@@ -184,7 +184,7 @@ namespace Parsek.Tests
             Assert.Contains("TreeHasLabPayoutsForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", head);
             Assert.Contains("TreeHasPendingLabRecoveryForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", head);
 
-            string scenario = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            string scenario = ParsekFlightSourceFiles.ReadText(System.IO.Path.Combine(
                 root, "Source", "Parsek", "ParsekScenario.cs")).Replace("\r\n", "\n");
             int handler = scenario.IndexOf("private void OnVesselRecoveryRequested(Vessel v)", StringComparison.Ordinal);
             Assert.True(handler >= 0, "OnVesselRecoveryRequested not found");

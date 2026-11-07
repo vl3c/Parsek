@@ -391,7 +391,7 @@ namespace Parsek.Tests
         [Fact]
         public void LaunchAutoRecord_UsesCustomToastWithoutGenericStartToast()
         {
-            string source = File.ReadAllText(FindParsekFlightSource());
+            string source = ParsekFlightSourceFiles.ReadText(FindParsekFlightSource());
             string methodBody = ExtractMethodBody(source, "void OnVesselSituationChange");
 
             AssertCustomToastSuppressesGenericStart(
@@ -403,7 +403,7 @@ namespace Parsek.Tests
         [Fact]
         public void PostSwitchFreshAutoRecord_UsesCustomToastWithoutGenericStartToast()
         {
-            string source = File.ReadAllText(FindParsekFlightSource());
+            string source = ParsekFlightSourceFiles.ReadText(FindParsekFlightSource());
             string methodBody = ExtractMethodBody(source, "private bool TryStartPostSwitchAutoRecord");
 
             AssertCustomToastSuppressesGenericStart(
@@ -415,7 +415,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaFromPadAutoRecord_UsesCustomToastWithoutGenericStartToast()
         {
-            string source = File.ReadAllText(FindParsekFlightSource());
+            string source = ParsekFlightSourceFiles.ReadText(FindParsekFlightSource());
             string methodBody = ExtractMethodBody(source, "private void HandleDeferredAutoRecordEva");
 
             AssertCustomToastSuppressesGenericStart(
@@ -488,7 +488,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnFlightReady_ChecksTheStoppedTreeKeep_AfterTheLiveSkip_BeforeTheReset()
         {
-            string src = File.ReadAllText(FindParsekFlightSource());
+            string src = ParsekFlightSourceFiles.ReadText(FindParsekFlightSource());
             int method = src.IndexOf("void OnFlightReady()", StringComparison.Ordinal);
             int live = src.IndexOf("ShouldIgnoreFlightReadyReset(", method, StringComparison.Ordinal);
             int keep = src.IndexOf("ShouldKeepStoppedTreeAcrossFlightReadyReset(", method, StringComparison.Ordinal);

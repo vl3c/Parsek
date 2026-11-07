@@ -596,7 +596,7 @@ namespace Parsek.Tests
             parts.AddRange(relativeParts);
             string path = Path.Combine(parts.ToArray());
             Assert.True(File.Exists(path), $"source not found at {path}");
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
 
         private static string ReadAutoDiscardCoreBody()
@@ -759,7 +759,7 @@ namespace Parsek.Tests
             var optOutFiles = new List<string>();
             foreach (string path in EnumerateModSources())
             {
-                if (Regex.IsMatch(File.ReadAllText(path), @"reapSidecars:\s*false"))
+                if (Regex.IsMatch(ParsekFlightSourceFiles.ReadText(path), @"reapSidecars:\s*false"))
                     optOutFiles.Add(Path.GetFileName(path));
             }
             Assert.Equal(new[] { "ParsekTestCommandAddon.cs" }, optOutFiles.ToArray());

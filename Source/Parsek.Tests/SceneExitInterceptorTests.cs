@@ -291,7 +291,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", ".."));
             string mergeDialogPath = System.IO.Path.Combine(
                 projectRoot, "Source", "Parsek", "MergeDialog.cs");
-            string source = System.IO.File.ReadAllText(mergeDialogPath);
+            string source = ParsekFlightSourceFiles.ReadText(mergeDialogPath);
 
             // The committed-slot guard must exist verbatim.
             Assert.Contains(
@@ -717,7 +717,7 @@ namespace Parsek.Tests
             parts.AddRange(relativeParts);
             string path = Path.Combine(parts.ToArray());
             Assert.True(File.Exists(path), $"source not found at {path}");
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
 
         // Fails if: AutoDiscardActiveTreeCore stops clearing the armed

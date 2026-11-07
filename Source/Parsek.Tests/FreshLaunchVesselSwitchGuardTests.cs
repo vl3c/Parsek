@@ -177,7 +177,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(root, "Source", "Parsek", file);
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path).Replace("\r\n", "\n");
+            return ParsekFlightSourceFiles.ReadText(path).Replace("\r\n", "\n");
         }
 
         private static string MethodBody(string source, string declaration)

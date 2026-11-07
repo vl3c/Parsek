@@ -849,7 +849,7 @@ namespace Parsek.Tests
             // VesselSpawner is a partial class; read every split file as one text.
             string raw = relPath == "VesselSpawner.cs"
                 ? VesselSpawnerSourceFiles.ReadAll(ParsekSourceRoot())
-                : File.ReadAllText(Path.Combine(ParsekSourceRoot(), relPath));
+                : ParsekFlightSourceFiles.ReadText(Path.Combine(ParsekSourceRoot(), relPath));
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(raw.Replace("\r\n", "\n"));
             int sig = prepared.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(sig >= 0, "signature not found in " + relPath + ": " + signature);

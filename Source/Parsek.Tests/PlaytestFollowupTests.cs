@@ -236,7 +236,7 @@ namespace Parsek.Tests
                 $"Could not locate {fileName} for source scrape. " +
                 "Update LocateSourceFile if the project layout changed.");
 
-            string src = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            string src = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
             int sigIdx = src.IndexOf(methodSignature, StringComparison.Ordinal);
             Assert.True(sigIdx >= 0,
                 $"Method '{methodSignature}' not found in {fileName}. " +

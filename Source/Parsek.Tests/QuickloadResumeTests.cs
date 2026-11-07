@@ -1609,7 +1609,7 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            string scenarioSrc = System.IO.File.ReadAllText(
+            string scenarioSrc = ParsekFlightSourceFiles.ReadText(
                 System.IO.Path.Combine(srcRoot, "ParsekScenario.cs"));
 
             int methodStart = scenarioSrc.IndexOf(
@@ -1642,7 +1642,7 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            string flightSrc = System.IO.File.ReadAllText(
+            string flightSrc = ParsekFlightSourceFiles.ReadText(
                 System.IO.Path.Combine(srcRoot, "ParsekFlight.cs"));
 
             Assert.Contains("CopyRewindSaveToRoot(activeTree, recorder,", flightSrc);
@@ -1656,7 +1656,7 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            string flightSrc = System.IO.File.ReadAllText(
+            string flightSrc = ParsekFlightSourceFiles.ReadText(
                 System.IO.Path.Combine(srcRoot, "ParsekFlight.cs"));
 
             int methodStart = flightSrc.IndexOf(

@@ -154,7 +154,7 @@ namespace Parsek.Tests
                 dir = System.IO.Path.GetDirectoryName(dir);
             }
             Assert.True(path != null, "ParsekFlight.cs not found above " + AppDomain.CurrentDomain.BaseDirectory);
-            string src = System.IO.File.ReadAllText(path);
+            string src = ParsekFlightSourceFiles.ReadText(path);
             Assert.Contains("GameEvents.onEditorPartEvent.Add(OnEditorPartEventForConstructionDrop);", src);
             Assert.Contains("GameEvents.onEditorPartEvent.Remove(OnEditorPartEventForConstructionDrop);", src);
         }

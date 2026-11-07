@@ -227,7 +227,7 @@ namespace Parsek.Tests.Logistics
         public void TargetAbsorbed_OnPartCoupleTargetBranch_RoutesThroughResolver()
         {
             string src = StripLineComments(
-                File.ReadAllText(FindParsekFlightSource()).Replace("\r\n", "\n"));
+                ParsekFlightSourceFiles.ReadText(FindParsekFlightSource()).Replace("\r\n", "\n"));
             int branch = src.IndexOf("if (isTarget)", StringComparison.Ordinal);
             Assert.True(branch >= 0, "OnPartCouple no longer branches on isTarget");
             int resolve = src.IndexOf(

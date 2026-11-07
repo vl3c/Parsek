@@ -281,7 +281,7 @@ namespace Parsek.Tests
             foreach (string file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories))
             {
                 string text = SourceScanText.StripCommentsAndMaskLiterals(
-                    File.ReadAllText(file).Replace("\r\n", "\n"));
+                    ParsekFlightSourceFiles.ReadText(file).Replace("\r\n", "\n"));
                 if (text.Contains(".SuppressCommittedSpawnedRestoreForActiveVessel("))
                     callers.Add(Path.GetFileName(file));
             }
@@ -293,7 +293,7 @@ namespace Parsek.Tests
             string path = Path.Combine(LocateRepoRoot(), Path.Combine(relative));
             Assert.True(File.Exists(path), $"source not found at {path}");
             return SourceScanText.StripCommentsAndMaskLiterals(
-                File.ReadAllText(path).Replace("\r\n", "\n"));
+                ParsekFlightSourceFiles.ReadText(path).Replace("\r\n", "\n"));
         }
 
         private static string LocateRepoRoot()

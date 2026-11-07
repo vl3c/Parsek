@@ -24036,7 +24036,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # asserted because the five spec comment blocks and the reachability
         # cell below all cite it by name and level as the path NOT taken, and a
         # silent rename would leave that evidentiary record pointing at nothing.
-        fg = self._source("ParsekFlight.cs")
+        fg = self._source("ParsekFlight.SplitBranching.cs")
         self.assertRegex(
             fg, r'ParsekLog\.Info\(\s*"Coalescer",\s*\$"ProcessBreakupEvent: '
                 r'debris child created: pid=')
@@ -24121,7 +24121,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # to START the line catches a single-line `if (x) Call();`.
         call = "Recording.ApplyParentAnchorContract(childRec, parentRecordingId);"
         body = self._member_body(
-            self._source("ParsekFlight.cs"),
+            self._source("ParsekFlight.SplitBranching.cs"),
             "internal static Recording CreateBreakupChildRecording(")
         idx = body.index(call)
         line_start = body.rindex("\n", 0, idx) + 1
