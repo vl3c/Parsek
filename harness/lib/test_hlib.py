@@ -10928,6 +10928,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V31M-duna-ike-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B36's harvested `duna-ike-recorded` (one tree crossing Duna's SOI and Ike's), reading the lone-moon arrival hold and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
         "V32M-eve-gilly-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B37's harvested `eve-gilly-recorded` (one tree crossing Eve's SOI and Gilly's), reading the lone-moon arrival hold on the eccentric Gilly and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
         "V33M-jool-laythe-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B38's harvested `jool-laythe-recorded` (one tree crossing Jool's SOI and Laythe's, one Jool moon only), reading the lone-moon arrival hold and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
+        "V31T-duna-ike-continuation-ts-arrival.toml": "tier=operator by the calibration discipline (its one jump derived off V31M's reading and the harvested fixture bytes, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the Tracking Station half on `duna-ike-recorded`, the ghost icon on Ike after a jump past the replayed Ike SOI entry; what is open is the flight, not a human review call",
         "V28M-tylo-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `tylo-orbit-recorded`; what is open is the flight, not a human review call",
         "V29M-bop-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `bop-orbit-recorded`; what is open is the flight, not a human review call",
         "V30M-pol-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `pol-orbit-recorded`; what is open is the flight, not a human review call",
@@ -13882,6 +13883,9 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     # [M] moon flight-test program Group A (2026-11-07):
                                     # bare, reading-pending, on B36's duna-ike-recorded.
                                     "V31M-duna-ike-continuation-player-loop.toml",
+                                    # [T] its Tracking Station half (one jump past the
+                                    # replayed Ike SOI entry).
+                                    "V31T-duna-ike-continuation-ts-arrival.toml",
                                     # [M] the same on B37's eve-gilly-recorded.
                                     "V32M-eve-gilly-continuation-player-loop.toml",
                                     # [M] the same on B38's jool-laythe-recorded.
@@ -25315,8 +25319,16 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
     SNAPSHOT_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
 
     def _committed(self):
+        # Retained sidecar versions (`Parsek/Recordings/_versions/<id>.<hash>.prec`)
+        # are older BODIES of a head sidecar, not recordings of their own: the collector
+        # never writes a mirror or a snapshot for one. A fixture keeps one only when its
+        # save names it (harvest_bdock_station.named_version_files), so they are left out
+        # of the one-to-one head-sidecar pairing below.
         out = []
         for dirpath, _, filenames in os.walk(FIXTURE_SAVES_DIR):
+            rel_dir = os.path.relpath(dirpath, FIXTURE_SAVES_DIR).replace("\\", "/")
+            if "/Parsek/Recordings/_versions" in "/" + rel_dir:
+                continue
             for fn in filenames:
                 out.append(os.path.relpath(os.path.join(dirpath, fn),
                                            FIXTURE_SAVES_DIR).replace("\\", "/"))

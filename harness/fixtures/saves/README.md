@@ -1647,7 +1647,9 @@ loop lanes V31M / V31T. Recordings: `311d98e3` pad head, `cb6acf4e` Kerbin->Duna
 Duna), `9e2f5bfa` the Duna->Ike hop (Orbiting Ike), `3397c2e5` booster debris (Destroyed).
 The tree is also written a second time as the `isActive = True` in-flight copy (the
 committed-spawned restore resumed it after the commit). Craft come from the shared
-library (`../shared-ships.toml`). Payload pinned in
+library (`../shared-ships.toml`). It also carries ONE retained `Parsek/Recordings/_versions` body: the older
+root `.prec` the committed copy names (the in-flight copy names the head); the
+harvest keeps exactly the versions the save names. Payload pinned in
 `harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.
 
 ## eve-gilly-recorded (GAME Mode = SANDBOX, 1 VESSEL, 10 recordings in 1 committed tree)
@@ -1661,7 +1663,9 @@ no kill pair, so the hop is recorded into B16's committed tree
 subject of the lone-moon arrival hold loop lanes V32M / V32T. New recordings over
 `eve-orbit-recorded`: `e3b89e4d` Kerbin->Eve (Orbiting Eve) and `fcb6f503` the Eve->Gilly hop
 (Orbiting Gilly); `75a6ab25` is now the pad head only. The tree is also written a second
-time as the `isActive = True` in-flight copy. Payload pinned in
+time as the `isActive = True` in-flight copy. It also carries ONE retained `Parsek/Recordings/_versions` body: the older
+root `.prec` the committed copy names (the in-flight copy names the head); the
+harvest keeps exactly the versions the save names. Payload pinned in
 `harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.
 
 ## jool-laythe-recorded (GAME Mode = SANDBOX, 1 VESSEL, 7 recordings in 1 committed tree)
@@ -1675,5 +1679,7 @@ one tree that crosses Jool's SOI and then Laythe's, the subject of the lone-moon
 hold loop lane V33M. New recordings over `jool-orbit-recorded`: `6ec75480` Kerbin->Jool
 (Orbiting Jool) and `96d1d5b9` the Jool->Laythe hop (Orbiting Laythe); `ddcc6d00` is now
 the pad head only. The tree is also written a second time as the `isActive = True`
-in-flight copy. Craft come from the shared library (`../shared-ships.toml`). Payload
+in-flight copy. Craft come from the shared library (`../shared-ships.toml`). It also carries ONE retained `Parsek/Recordings/_versions` body: the older
+root `.prec` the committed copy names (the in-flight copy names the head); the
+harvest keeps exactly the versions the save names. Payload
 pinned in `harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.
