@@ -108,7 +108,7 @@ count = { min = 1, max = 1 }
 
 # Literal sources (C#, file:line): `partaction applied button=` TestCommandPartAction.cs:626,
 # `<ConverterName>:active=` TestCommandPartAction.cs:512; `Part event: ` FlightRecorder.cs:2304;
-# `Optimization pass: TrimBoringTail skipped ` and `<category>=<n>` RecordingStore.Optimization.cs:428
+# `Optimization pass: TrimBoringTail skipped ` and `<category>=<n>` CommittedListOptimizer.cs:398
 # (category `resource-changing-tail` RecordingOptimizer.TailTrim.cs:843); `MISSIONMARK label=`
 # TestCommandMissionMark.cs:22; `exec id= cmd=<verb> start` TestCommandDiagnostics.cs:45;
 # `readvesselresources complete vessels=` TestCommandReadVesselResources.cs:590;

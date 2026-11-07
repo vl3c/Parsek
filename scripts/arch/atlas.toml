@@ -175,6 +175,9 @@ meaning = "The ghost's map and tracking-station presence: its ProtoVessel, orbit
 [glossary.GameActionType]
 meaning = "The kind of ledger row: which economy, roster or facility effect it records (science, funds, milestones, contracts, reputation, crew, facilities, strategies and route cycles)."
 
+[glossary.FlightRecorder]
+meaning = "The active vessel's recorder: samples the flight each physics frame into track sections and part events, and takes the live vessel snapshots."
+
 [[upward_readings]]
 edge = "Recording -> Trajectory"
 reading = "Not upward since the 2026-09-14 placements (Trajectory reads near 0.02 since TrackSection and TerminalState joined it on 2026-11-06). The recorder is Trajectory's main client: the extrapolator, the sample math and the section vocabulary."

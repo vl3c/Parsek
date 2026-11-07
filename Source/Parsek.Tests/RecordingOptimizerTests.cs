@@ -3310,7 +3310,7 @@ namespace Parsek.Tests
             debris.Points.Add(new TrajectoryPoint { ut = 35 });
 
             var recordings = new List<Recording> { parent, debris };
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(0, debris.LoopSyncParentIdx);
             Assert.Equal(-1, parent.LoopSyncParentIdx);
@@ -3346,7 +3346,7 @@ namespace Parsek.Tests
             partner.Points.Add(new TrajectoryPoint { ut = 60 });
 
             var recordings = new List<Recording> { rec, partner };
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(-1, rec.LoopSyncParentIdx);
             Assert.Equal(-1, partner.LoopSyncParentIdx);
@@ -3367,7 +3367,7 @@ namespace Parsek.Tests
 
             // No parent recording in the list
             var recordings = new List<Recording> { debris };
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(-1, debris.LoopSyncParentIdx);
         }
@@ -3403,7 +3403,7 @@ namespace Parsek.Tests
             partner.Points.Add(new TrajectoryPoint { ut = 50 });
 
             var recordings = new List<Recording> { debris, partner };
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(-1, debris.LoopSyncParentIdx);
         }
@@ -3440,7 +3440,7 @@ namespace Parsek.Tests
             debris2.Points.Add(new TrajectoryPoint { ut = 75 });
 
             var recordings = new List<Recording> { parent1, parent2, debris1, debris2 };
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(0, debris1.LoopSyncParentIdx); // parent1 covers UT 30
             Assert.Equal(1, debris2.LoopSyncParentIdx); // parent2 covers UT 70
@@ -3511,7 +3511,7 @@ namespace Parsek.Tests
                 debrisAfterHold
             };
 
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(-1, debrisDuringHold.LoopSyncParentIdx);
             Assert.Equal(-1, debrisAfterHold.LoopSyncParentIdx);
@@ -5468,7 +5468,7 @@ namespace Parsek.Tests
                 && l.Contains("ecc delta"));
         }
 
-        // Bulk-pass logging contract: when `RecordingStore.TrimBoringTailsForOptimization`
+        // Bulk-pass logging contract: when `CommittedListOptimizer.TrimBoringTailsForOptimization`
         // walks every committed recording, it now passes `logSkipReason: false` and
         // aggregates skip categories into a single summary line. Direct callers (and
         // the existing per-recording skip-reason tests above) keep the verbose detail

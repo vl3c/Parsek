@@ -80,6 +80,31 @@ $checks = @(
         Label = "recorded-relative flight playback live PID read"
     },
     @{
+        Path = "Source/Parsek/ParsekFlight.Accessors.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.GhostPositioner.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.GhostPositioning.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.Spawning.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.TimelinePlayback.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
         Path = "Source/Parsek/GhostRenderTrace.cs"
         Pattern = "context\.AnchorVesselId\s*=|section\.AnchorVesselId"
         Label = "recorded-relative trace section PID propagation"
@@ -143,12 +168,12 @@ $checks = @(
 
 $requiredChecks = @(
     @{
-        Path = "Source/Parsek/ParsekFlight.cs"
+        Path = "Source/Parsek/ParsekFlight.GhostPositioning.cs"
         Pattern = "relativeLoopLiveAnchor\s*=\s*true"
         Label = "loop-only LateUpdate live-anchor flag"
     },
     @{
-        Path = "Source/Parsek/ParsekFlight.cs"
+        Path = "Source/Parsek/ParsekFlight.TimelinePlayback.cs"
         Pattern = "NonLoopLivePidGuard\.NonLoopRelativeLivePidLookupAttempted"
         Label = "non-loop LateUpdate live-PID DEBUG guard"
     }

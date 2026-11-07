@@ -52,7 +52,7 @@ namespace Parsek.Tests
         [Fact]
         public void ParsekFlight_PushesItsCachedSetIntoTheEngine_AndExposesTheSameField()
         {
-            string source = ReadSource("Source", "Parsek", "ParsekFlight.cs");
+            string source = ParsekFlightSourceFiles.ReadAll(Path.Combine(ProjectRoot, "Source", "Parsek"));
 
             // One build site: the signature-gated DriveMissionLoopUnits pushes the cached set into the
             // engine every frame...

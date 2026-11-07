@@ -10,12 +10,13 @@ namespace Parsek
         // watch-mode index, KSC ghost slots) mirrors
         // committedRecordings by position. Every mid-list mutation of that list must raise
         // these so the scene controller (ParsekFlight / ParsekKSC / ParsekTrackingStation)
-        // can shift that state in step. Raised by RunOptimizationPass (merge removal +
-        // split insert), InsertCommittedAfter, and every removal helper through
-        // RemoveCommittedAtWithNotifications (RemoveRecordingAt, RemoveCommittedInternal,
-        // RemoveCommittedById, RemoveCommittedTreeById,
-        // ClearCommittedInternal - the last one removes top-down one item at a time, because
-        // the failed-rewind-load bundle restore reaches it in FLIGHT with ghosts alive).
+        // can shift that state in step. Raised by the two primitives RemoveCommittedAt and
+        // InsertCommittedAt, which the optimization pass (CommittedListOptimizer: merge
+        // removal + split insert), InsertCommittedAfter, and every removal helper route
+        // through (RemoveRecordingAt, RemoveCommittedInternal, RemoveCommittedById,
+        // RemoveCommittedTreeById, ClearCommittedInternal - the last one removes top-down one
+        // item at a time, because the failed-rewind-load bundle restore reaches it in FLIGHT
+        // with ghosts alive).
 
         /// <summary>
         /// Raised immediately BEFORE a committed recording leaves the list. The index still

@@ -253,7 +253,7 @@ namespace Parsek
         /// Scans committed recordings for consecutive chain segments that can be merged.
         /// Returns pairs of indices (a, b) where b can be merged into a.
         /// </summary>
-        internal static List<(int, int)> FindMergeCandidates(List<Recording> committed)
+        internal static List<(int, int)> FindMergeCandidates(IReadOnlyList<Recording> committed)
         {
             var candidates = new List<(int, int)>();
             if (committed == null || committed.Count < 2) return candidates;
@@ -762,7 +762,7 @@ namespace Parsek
         /// reads `original.TrackSections[sectionIndex].startUT` off the SAME live list before
         /// running its own Ensure, so analysis and split must see one section list.
         /// </remarks>
-        internal static List<(int, int)> FindSplitCandidatesForOptimizer(List<Recording> committed)
+        internal static List<(int, int)> FindSplitCandidatesForOptimizer(IReadOnlyList<Recording> committed)
         {
             var candidates = new List<(int, int)>();
             if (committed == null) return candidates;
@@ -2224,7 +2224,7 @@ namespace Parsek
         /// only the 0.0 fallback), then by the previous ChainIndex and the recording id for a
         /// deterministic order on ties, and assigns sequential indices starting from 0.
         /// </summary>
-        internal static void ReindexChain(List<Recording> committed, string chainId)
+        internal static void ReindexChain(IReadOnlyList<Recording> committed, string chainId)
         {
             if (committed == null || string.IsNullOrEmpty(chainId)) return;
 

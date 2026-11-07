@@ -39,6 +39,13 @@ Source/Parsek/RewindSpawnScope.OwnerStrip.cs
 # would read as orphans. No ledger reads.
 Source/Parsek/RecordingFileJanitor.cs
 
+# CommittedListOptimizer holds the optimization pass moved out of
+# RecordingStore.Optimization.cs (the RecordingStore services plan, PR8). The pass
+# merges, splits and trims the physical committed list, superseded recordings
+# included, as it did inside the store; it changes the list only through the
+# store's primitives. No Ledger.Actions reads (it retags rows through Ledger).
+Source/Parsek/CommittedListOptimizer.cs
+
 # --- Serialization (I/O not semantics) ---
 Source/Parsek/ParsekScenario.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.
@@ -103,6 +110,13 @@ Source/Parsek/GhostMapPresence.StateVectors.cs
 Source/Parsek/GhostMapPresence.TrackingStationLifecycle.cs
 Source/Parsek/WatchModeController.cs
 Source/Parsek/ParsekFlight.cs
+# The ParsekFlight partials below hold members moved verbatim out of ParsekFlight.cs
+# (a pure file split, scripts/refactor/split_parsekflight.py); same index-keyed
+# exemption as above.
+Source/Parsek/ParsekFlight.GhostPositioner.cs
+Source/Parsek/ParsekFlight.GhostPositioning.cs
+Source/Parsek/ParsekFlight.Spawning.cs
+Source/Parsek/ParsekFlight.TimelinePlayback.cs
 # The blocked chain tip ghost partial reads the committed list by INDEX to pair a
 # policy-held slot with its engine ghost (the engine's index-keyed contract), not to
 # decide visibility; supersede is honoured through the policy's hold release.

@@ -3281,12 +3281,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # capture entry points (TryBackupSnapshot, SnapshotVessel) on FlightRecorder,
         # whose crew-name reverse map and terminal-state calls reach KerbalsModule,
         # CrewReservationManager and RecordingTree, so LiveVesselSnapshot references
-        # no knot member and stays outside: still 461. It was [301, 7, 4, 2, 2] on 2026-09-25,
+        # no knot member and stays outside: still 461; 462 after
+        # CommittedListOptimizer (services PR8). It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [461, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [462, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3358,12 +3359,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # reservation files landed at the root; the 2026-11-01 refresh placed
         # 50 more by hand, the first 2026-11-04 merge of main three more, the
         # second two more while main deleted one, and the RecordingStore
-        # services plan's SceneEntryVesselScope, which no family prefix names,
-        # one more, file-placement PR 8's LiveVesselSnapshot one more, and PR 10's
-        # eight VesselSpawner.<Area>.cs partial files eight more); 8
-        # after, the kernel list as it stands today (9 until file-placement PR 9
-        # placed VesselSpawner.cs in Controllers).
-        self.assertIn("| Core | 206 | 8 |", fresh)
+        # services plan's SceneEntryVesselScope and CommittedListOptimizer, which
+        # no family prefix names, two more, file-placement PR 8's LiveVesselSnapshot
+        # one more, and PR 10's eight VesselSpawner.<Area>.cs partial files eight
+        # more; PR 8's follow-up FlightRecorder.LiveSnapshot.cs matches a family
+        # prefix and adds none); 8 after, the kernel list as it stands today (9 until
+        # file-placement PR 9 placed VesselSpawner.cs in Controllers).
+        self.assertIn("| Core | 207 | 8 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -3405,8 +3407,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # second. Same canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
         self.assertEqual(first["sink"], "Route")
-        self.assertEqual(first["sizeBefore"], 461)
-        self.assertEqual(first["sizeAfter"], 443)
+        self.assertEqual(first["sizeBefore"], 462)
+        self.assertEqual(first["sizeAfter"], 444)
         self.assertEqual(
             first["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
@@ -3416,9 +3418,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # VesselNameStore references) beat the flight controller for second
         # place (426 before). The residue ratchet below is immune to this reorder.
         # File-placement PR 5 (2026-11-07) deleted the Ghost -> GameActions call,
-        # which tightened this cut by one (426 before).
+        # which tightened this cut by one (426 before); services PR8's
+        # CommittedListOptimizer is one more knot member on the uncut side
+        # (425 before).
         self.assertEqual(second["sink"], "VesselLaunchIdentity")
-        self.assertEqual(second["sizeAfter"], 425)
+        self.assertEqual(second["sizeAfter"], 426)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3446,7 +3450,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         # PR 8's LiveVesselSnapshot did that (288 of 462), and its follow-up
         # moved the capture entry points that carry the knot edges onto
         # FlightRecorder, a cut type, which takes LiveVesselSnapshot out of the
-        # knot. The replayed residue is then 283 of 461; the bound stays 287.
+        # knot. The replayed residue is then 283 of 461 (still 283 of 462 after
+        # services PR8's CommittedListOptimizer, which the RecordingStore cut
+        # drops with it); the bound stays 287.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which

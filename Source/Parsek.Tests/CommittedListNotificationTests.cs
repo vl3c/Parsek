@@ -145,6 +145,99 @@ namespace Parsek.Tests
             }, sequence);
         }
 
+        // Two adjacent exo segments of one chain (the merge pass collapses them) and one
+        // recording spanning an exo -> atmo boundary (the split pass cuts it), the shapes
+        // OptimizationPassInvalidationTests uses.
+        private static Recording MakeMergeableSegment(string id, int chainIndex, double startUT, double endUT)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                VesselName = "Chain",
+                ChainId = "chain-opt",
+                ChainIndex = chainIndex,
+                ChainBranch = 0,
+                SegmentPhase = "exo",
+                SegmentBodyName = "Mun",
+                LoopPlayback = false,
+                PlaybackEnabled = true,
+                Hidden = false,
+                LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel,
+                LoopAnchorVesselId = 0,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = startUT, altitude = 50000, bodyName = "Mun" });
+            rec.Points.Add(new TrajectoryPoint { ut = endUT, altitude = 50000, bodyName = "Mun" });
+            return rec;
+        }
+
+        private static Recording MakeSplittableRecording(string id)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                VesselName = "Rocket",
+                VesselPersistentId = 42,
+                TerminalStateValue = TerminalState.Destroyed,
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                RecordingFormatVersion = 0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 17000, altitude = 80000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17029, altitude = 40000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17030, altitude = 30000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 17060, altitude = 100, bodyName = "Kerbin" });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 17000, endUT = 17030,
+                frames = new List<TrajectoryPoint>()
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 17030, endUT = 17060,
+                frames = new List<TrajectoryPoint>()
+            });
+            return rec;
+        }
+
+        [Fact]
+        public void OptimizationPass_RaisesRemovingRemovedInsertedThroughThePrimitives_InOrder_BumpingBetween()
+        {
+            // The optimization pass (CommittedListOptimizer) changes the committed list only
+            // through RecordingStore.RemoveCommittedAt / InsertCommittedAt: the merge raises
+            // Removing on the unshifted list, then Removed naming the merge target, and the
+            // split raises Inserted after the shift. StateVersion moves by exactly one between
+            // Removing and Removed (the removal itself) and again before Inserted.
+            RecordingStore.AddRecordingWithTreeForTesting(MakeMergeableSegment("seg-a", 0, 17000, 17030));
+            RecordingStore.AddRecordingWithTreeForTesting(MakeMergeableSegment("seg-b", 1, 17030, 17060));
+            RecordingStore.AddRecordingWithTreeForTesting(MakeSplittableRecording("rec-split"));
+            var versions = new List<int>();
+            RecordingStore.CommittedRecordingRemoving += (index, removed) =>
+                versions.Add(RecordingStore.StateVersion);
+            RecordingStore.CommittedRecordingRemoved += (index, removed, absorbedInto) =>
+                versions.Add(RecordingStore.StateVersion);
+            RecordingStore.CommittedRecordingInserted += index =>
+            {
+                sequence.Add($"inserted:{index}:count={RecordingStore.CommittedRecordings.Count}");
+                versions.Add(RecordingStore.StateVersion);
+            };
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(new[]
+            {
+                "removing:1:seg-b:count=3",
+                "removed:1:seg-b:target=seg-a:count=2",
+                "inserted:2:count=3",
+            }, sequence);
+            Assert.Equal(3, versions.Count);
+            Assert.Equal(versions[0] + 1, versions[1]);
+            Assert.True(versions[2] > versions[1],
+                $"StateVersion must move before Inserted: removed={versions[1]} inserted={versions[2]}");
+            Assert.Equal("seg-a", RecordingStore.CommittedRecordings[0].RecordingId);
+            Assert.Equal("rec-split", RecordingStore.CommittedRecordings[1].RecordingId);
+        }
+
         [Fact]
         public void IndexOfRecordingId_FindsOrdinalMatch_ElseMinusOne()
         {

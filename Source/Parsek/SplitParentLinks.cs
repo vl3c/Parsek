@@ -7,7 +7,7 @@ namespace Parsek
     /// <summary>
     /// Parent links across a recording split. A split cuts one recording at UT t into a head
     /// (the original id, [start, t]) and a tail (a new id, [t, end]): the optimizer's environment
-    /// / body split (<c>RecordingStore.RunOptimizationSplitPass</c>) and the Re-Fly HEAD/TIP split
+    /// / body split (<c>CommittedListOptimizer.RunOptimizationSplitPass</c>) and the Re-Fly HEAD/TIP split
     /// (<see cref="RecordingTreeSplitter"/>). Every link that names the split recording as a
     /// PARENT of something that happened at or after t belongs to the tail:
     /// <list type="bullet">
@@ -25,7 +25,7 @@ namespace Parsek
     /// tail. <see cref="BoundaryEpsilonSeconds"/> is the tolerance the optimizer already used for
     /// the moved <c>ChildBranchPointId</c>.
     ///
-    /// The merge that reverses a split (<c>RecordingStore.RunOptimizationMergePass</c>) points
+    /// The merge that reverses a split (<c>CommittedListOptimizer.RunOptimizationMergePass</c>) points
     /// every link that names the absorbed recording back at the survivor.
     /// <see cref="RepairStaleParents"/> applies the same rule on load to trees written before the
     /// split moved these links.

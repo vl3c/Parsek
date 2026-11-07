@@ -93,7 +93,7 @@ required = [
   "PostWalk summary: reservations=[0-9]+ permanent=0 ",
   # THE 11TH RECORDING: the load-time split of the re-fly, and only that one.
   # Producers: RecordingOptimizer.FindSplitCandidatesForOptimizer (Verbose) and
-  # RecordingStore.RunOptimizationSplitPass (Info).
+  # CommittedListOptimizer.RunOptimizationSplitPass (Info).
   "\\[Optimizer\\] Split candidate \\(PersistedPhaseChange\\): rec=rec_92498045bde0451ebb7a7a1038a0d06c sec=1 splitUT=186\\.12 prev=Atmospheric next=ExoBallistic",
   "\\[RecordingStore\\] Optimization pass: split 1 recording\\(s\\)",
 ]
