@@ -388,7 +388,7 @@ namespace Parsek.Tests
         public void Wiring_FlightArmResolvesTheHold_OnLoadDropsIt()
         {
             string take = Collapse(PreparedMethodBody("ParsekFlight.cs", "internal static bool TryTakeCommittedTreeForSpawnedVesselRestore("));
-            int arm = IndexOrFail(take, "RecordingStore.ArmCommittedTreeRestoreAttempt(");
+            int arm = IndexOrFail(take, "CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(");
             int resolve = IndexOrFail(take, "ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(committedTree.Id)");
             Assert.True(arm < resolve);
 

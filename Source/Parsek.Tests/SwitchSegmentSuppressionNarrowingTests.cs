@@ -266,7 +266,7 @@ namespace Parsek.Tests
 
             RecordingStore.ArmCommittedTreeRestoreAttempt(
                 attemptTree, "test-arm");
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttemptForTesting);
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
 
             // Stamp the new segment recording with the active session id
             // and add it to committed storage so the lookup succeeds.

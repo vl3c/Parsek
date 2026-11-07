@@ -90,16 +90,16 @@ namespace Parsek.Tests
         [Fact]
         public void PureDecision_SameTreeId_MatchesTheArmedClone()
         {
-            Assert.True(RecordingStore.DroppedTreeMatchesArmedRestoreAttempt(
+            Assert.True(CommittedTreeRestoreAttempt.DroppedTreeMatchesArmedRestoreAttempt(
                 CloneTreeId, CloneTreeId));
         }
 
         [Fact]
         public void PureDecision_DifferentTreeIds_DoNotMatch()
         {
-            Assert.False(RecordingStore.DroppedTreeMatchesArmedRestoreAttempt(
+            Assert.False(CommittedTreeRestoreAttempt.DroppedTreeMatchesArmedRestoreAttempt(
                 CloneTreeId, OtherTreeId));
-            Assert.False(RecordingStore.DroppedTreeMatchesArmedRestoreAttempt(
+            Assert.False(CommittedTreeRestoreAttempt.DroppedTreeMatchesArmedRestoreAttempt(
                 OtherTreeId, CloneTreeId));
         }
 
@@ -111,7 +111,7 @@ namespace Parsek.Tests
         public void PureDecision_MissingIdOnEitherSide_NeverMatches(
             string armedAttemptTreeId, string droppedTreeId)
         {
-            Assert.False(RecordingStore.DroppedTreeMatchesArmedRestoreAttempt(
+            Assert.False(CommittedTreeRestoreAttempt.DroppedTreeMatchesArmedRestoreAttempt(
                 armedAttemptTreeId, droppedTreeId));
         }
 
