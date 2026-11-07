@@ -205,7 +205,7 @@ reading = "The kernel vocabulary reaching up into the model; mostly the spawner,
 
 [[upward_readings]]
 edge = "GameActions -> Recording"
-reading = "Ordering, not new coupling: upward since 2026-11-06, when moving TrackSection and TerminalState into Trajectory lifted Recording's instability just past the ledger's (both near 0.32). The ledger reads recordings, trees and the store to tag rows; Recording &rarr; GameActions, the lighter reverse, stopped reading upward. The two sit close enough that a one-reference change flips them (the RecordingStore moves turned it back for a day; closing Ghost &rarr; GameActions on 2026-11-07 turned it again)."
+reading = "Ordering, not new coupling: upward since 2026-11-06, when moving TrackSection and TerminalState into Trajectory lifted Recording's instability just past the ledger's (both near 0.32). The ledger reads recordings, trees and the store to tag rows; Recording &rarr; GameActions, the lighter reverse, stopped reading upward."
 
 [[upward_readings]]
 edge = "Crew -> Recording"

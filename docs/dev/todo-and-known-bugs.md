@@ -2893,6 +2893,21 @@ each PR lands on the refactor branch, IL-proven a pure move).
   RelativeAnchorResolver -> TrajectoryTextSidecarCodec` cycle survives the `RecordingStore` cut
   (8 types). `RecordingStore` partials 9,249 -> 8,964 lines, 294 -> 279 IL methods; knot 459 and
   cut residue 287 unchanged.
+- PR5 (service M, pure half) landed: the rewind spawn-scope predicates left the store as
+  `RewindSpawnScope` (`RewindSpawnScope.cs` + `RewindSpawnScope.OwnerStrip.cs`, the two former
+  `RecordingStore` partials moved whole, plus `IsStableState`): `WillReplayAfterRewind`, the
+  strip scope (`ResolveRewindSpawnStripScope`, `IsSpawnedVesselReproducedByRewindReplay`,
+  `FliesTransferAdoptedVessel`, `ResolveRewindStripSpawnedPids`,
+  `ResolveRewindClaimedVesselPids`, `CollectHeldBackVesselPids`), the owner strip
+  (`BuildRewindOwnerStrip`, `RewindOwnerStripIsAnchored`, `ClassifyRewindOwnerStripVessel`) and
+  the nested `RewindSpawnStripScope` / `RewindOwnerStrip` / `RewindOwnerStripDecision` types. No
+  statics, no forwarder; `PreProcessRewindSave` and `ParsekScenario.RewindVesselHold` call the
+  new type, as do 10 xUnit files. Both files are on the ERS / ELS allowlist (raw committed
+  reads, as inside the store). `CountFutureRecordings` stays on the store: the recordings table
+  calls it, and on the new type that edge pulls `RewindSpawnScope` into the cut residue (287 ->
+  288). `ResetAllPlaybackState`, `CollectSpawnedVesselInfo` and the `PendingCleanup*` sets wait
+  for PR13. `RecordingStore` partials 8,964 -> 8,400 lines, 279 -> 267 IL
+  methods; knot 459 -> 460 (the new type sits on a cycle with the store), cut residue 287.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -2945,15 +2960,14 @@ each PR lands on the refactor branch, IL-proven a pure move).
     `EffectiveState` (Rewind) as the partial `EffectiveState.RecoveredRecordingIndex.cs`; the
     reset is renamed `ResetRecoveredIndexForTesting`. The pure row predicates stay in
     GameActions. The plan named a new type (`RecoveredRecordingLiveIndex`), but a new type in
-    the cycle adds a knot node (459 -> 460) and loosens the ratchet by one (replayed residue
+    the cycle adds a knot node and loosens the ratchet by one (replayed residue
     287 -> 288); the partial adds none. IL: 2 moved bodies identical (the reset under its new
     name), 3 re-pointed call sites; `indexLock`'s initializer moves from
     RecoveredRecordingEvidence's .cctor (removed) to the end of EffectiveState's. Ghost ->
     GameActions 1 -> 0 (the `[forbidden]` VIOLATION is gone), Ghost -> Rewind 23 -> 24. Upward
-    edges stay 83, weight 812 -> 833: GameActions and Recording (both near 0.32) swap order
-    again, so GameActions -> Recording 37 reads upward instead of Recording -> GameActions 15.
-    Knot 459; second greedy cut 441 -> 423; greedy residue 291 -> 290, replayed 287. The
-    ledger read is still one hop away through Rewind (the graph is one SCC anyway).
+    edges stay 83 (weight 812 -> 811). Knot stays 460; second greedy cut 442 -> 425 becomes
+    442 -> 424; greedy residue 291 -> 290, replayed 287. The ledger read is still one hop away
+    through Rewind (the graph is one SCC anyway).
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;

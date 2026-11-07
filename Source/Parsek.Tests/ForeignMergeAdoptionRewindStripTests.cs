@@ -205,7 +205,7 @@ namespace Parsek.Tests
         public void Scope_LeavesTheBoardedVesselForTheHold()
         {
             BuildBoardShape();
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), AdjustedUT, MemberIds());
 
             Assert.DoesNotContain(KerbalXPid, scope.StripPids);
@@ -221,7 +221,7 @@ namespace Parsek.Tests
         {
             // The pre-fix member set: the board child replays, so its adopted pid is stripped.
             BuildBoardShape();
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), AdjustedUT,
                 ForeignInventoryTransfer.CollectTransferMemberRecordingIds(RecordingStore.CommittedTrees));
             Assert.Contains(KerbalXPid, scope.StripPids);
@@ -235,8 +235,8 @@ namespace Parsek.Tests
             string sfs = WriteRewindQuicksave();
 
             RecordingStore.PreProcessRewindSave(
-                sfs, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
-                RecordingStore.ResolveRewindStripSpawnedPids,
+                sfs, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
+                RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds,
                 ut => new HashSet<uint> { KerbalXPid });
 

@@ -65,7 +65,7 @@ id = "RW-4-claimed-vessel-disposal"
 #   rewind UT and never replays, PlaybackScopeTracker.IsHistoricalNeverReplayed with the
 #   2 s tolerance), so the rewind save keeps V (the owner strip keeps a same-named vessel of
 #   another launch, RecordingStore.cs:6479, RR-1's live proof; the PID strip scope keeps a
-#   holder that does not replay, RecordingStore.RewindHistorySpawnScope.cs:216), and the
+#   holder that does not replay, RewindSpawnScope.cs), and the
 #   hold then removes V with evidence `recovery`: R1 matches V by positive launch identity
 #   (pid AND guid, R1's guid forwarded at StartRecording, FlightRecorder.cs:7395), R1 ends
 #   before the rewind UT (not `flies`), its terminal Landed is an outlived terminal and its
@@ -142,7 +142,7 @@ id = "RW-4-claimed-vessel-disposal"
 #   Rewind-to-Launch initiated to UT         RecordingStore.cs:5651
 #   Rewind owner strip: keeping vessel       RecordingStore.cs:6479
 #   Stripped N vessel(s) from save (...)     RecordingStore.cs:6503
-#   Rewind strip scope: strip spawned pid=   RecordingStore.RewindHistorySpawnScope.cs:192
+#   Rewind strip scope: strip spawned pid=   RewindSpawnScope.cs
 #   Keeping vessel '<n>' ... pre-existing    ParsekScenario.cs:7792 (reason :7712; dash non-ASCII: `.{1,3}`)
 #   Stripping orphaned spawned vessel        ParsekScenario.cs:7798
 #   Rewind held vessel for its committed future
