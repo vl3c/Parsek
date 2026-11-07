@@ -83,377 +83,23 @@ namespace Parsek
                 switch (e.mode)
                 {
                     case ParsekFlight.GhostPosMode.PointInterp:
-                    {
-                        if (e.bodyBefore == null || e.bodyAfter == null) break;
-
-                        // Phase 1 + Phase 4 spline re-evaluation (design doc
-                        // §6.1 / §6.2 / §18 Phase 1+4 / HR-9). Without the
-                        // re-eval, the raw lat/lon/alt bracket lerp on the
-                        // fallback path would overwrite the spline-positioned
-                        // transform on every LateUpdate — Phase 1's smoothing
-                        // would only survive a single Update frame before
-                        // FloatingOrigin re-positioning snapped it back.
-                        // Frame-tag dispatch matches the Update path: tag 0 →
-                        // body-fixed surface lookup, tag 1 → inertial re-lower
-                        // at the playback UT, unknown → NaN (silent fallthrough
-                        // here; the Warn fires from the Update path's
-                        // unknownFrameTagWarned dedup so LateUpdate doesn't
-                        // double-emit).
-                        Vector3d pos;
-                        if (!host.Positioner.TryComputeLateUpdateSplineWorldPosition(e, out pos))
-                        {
-                            Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
-                                e.latBefore, e.lonBefore, e.altBefore);
-                            Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
-                                e.latAfter, e.lonAfter, e.altAfter);
-                            if (!ParsekFlight.allowPointHermiteInterpolation(
-                                    false,
-                                    splineApplied: false,
-                                    allowNormalPlaybackHermite: ParsekFlight.NormalPlaybackPointHermiteEnabled,
-                                    out _))
-                            {
-                                pos = Vector3d.Lerp(posBefore, posAfter, e.t);
-                            }
-                            else
-                            {
-                                double hermiteMaxDeviationMeters =
-                                    ParsekFlightGhostPositioner.ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
-                                if (!TrajectoryMath.TryInterpolateWorldHermite(
-                                        posBefore,
-                                        e.velocityBefore,
-                                        posAfter,
-                                        e.velocityAfter,
-                                        e.pointDeltaTimeSeconds,
-                                        e.t,
-                                        hermiteMaxDeviationMeters,
-                                        out pos,
-                                        out _,
-                                        out _))
-                                {
-                                    pos = Vector3d.Lerp(posBefore, posAfter, e.t);
-                                }
-                            }
-                        }
-                        // Phase 2 + Phase 3 anchor correction (design doc
-                        // §6.3 / §6.4 / §18 Phase 2-3): re-apply the world-
-                        // space ε so the FloatingOrigin frame-velocity shift
-                        // cannot snap the ghost back to the un-corrected
-                        // lerped position. Phase 3: the lookup is re-fetched
-                        // each LateUpdate so the lerp interval (§6.4 Both
-                        // case) progresses with the playback UT instead of
-                        // freezing to the value captured at Update time.
-                        // The ε is additive on top of either the spline-
-                        // positioned or the raw-lerp position above.
-                        if (ParsekFlight.allowRenderAnchorCorrectionInterval(
-                                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
-                                false,
-                                out Vector3d lateEps, out _))
-                        {
-                            pos += lateEps;
-                        }
-                        ApplyGhostReapplyTransform(
-                            e,
-                            pos,
-                            e.bodyBefore.bodyTransform.rotation * e.interpolatedRot,
-                            phase);
+                        ReapplyPointInterpEntry(ref e, phase);
                         break;
-                    }
                     case ParsekFlight.GhostPosMode.SinglePoint:
-                    {
-                        if (e.bodyBefore == null) break;
-                        Vector3d pos = e.bodyBefore.GetWorldSurfacePosition(
-                            e.latBefore, e.lonBefore, e.altBefore);
-                        ApplyGhostReapplyTransform(
-                            e,
-                            pos,
-                            e.bodyBefore.bodyTransform.rotation * e.interpolatedRot,
-                            phase);
+                        ReapplySinglePointEntry(ref e, phase);
                         break;
-                    }
                     case ParsekFlight.GhostPosMode.Orbit:
-                    {
-                        Orbit orbit;
-                        if (host.orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
-                        {
-                            // Keep the raw orbit position for rotation math
-                            // (orbital frame derives radialOut from
-                            // pos - orbitBody.position; if pos carries the
-                            // tree offset the radial vector is shifted and the
-                            // ghost's orbit-frame attitude rolls/pitches
-                            // incorrectly). Orbit-tail continuity is also a
-                            // rigid render translation from the last authored
-                            // point into the predicted tail. Both corrections
-                            // are applied to transform.position, not to the
-                            // orbital rotation inputs.
-                            Vector3d rawOrbitPos = orbit.getPositionAtUT(e.orbitUT);
-                            Vector3d orbitContinuityOffset = ParsekFlightGhostPositioner.ResolveOrbitContinuityOffset(e, e.orbitUT);
-                            Vector3d targetPos = rawOrbitPos + orbitContinuityOffset;
-                            Quaternion targetRot = e.ghost.transform.rotation;
-
-                            // FRAME: lifted to Y-up WORLD at the read, so every LookRotation in
-                            // this block pairs a world forward axis with the world radial built
-                            // from getPositionAtUT — the same orbital-frame contract
-                            // ComputeOrbitalRotation states and every producer encodes in. This
-                            // block is a hand-inlined copy of that decode (LateUpdate re-apply
-                            // after FloatingOrigin shifts) and MUST move with it.
-                            Vector3d vel = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
-                                orbit.getOrbitalVelocityAtUT(e.orbitUT));
-
-                            if (e.isSpinning)
-                            {
-                                // Spin-forward: recompute boundary world rotation (positions may have shifted by FloatingOrigin)
-                                Vector3d velAtStart = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
-                                    orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT));
-                                Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
-
-                                if (e.orbitBody != null)
-                                {
-                                    Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
-                                    Quaternion orbFrameAtStart;
-                                    if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
-                                    else
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
-
-                                    Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
-                                    double dt = e.orbitUT - e.orbitSegmentStartUT;
-                                    Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
-                                    float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
-                                    targetRot = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
-                                }
-                                else
-                                {
-                                    // Body null fallback
-                                    if (vel.sqrMagnitude > 0.001)
-                                        targetRot = Quaternion.LookRotation(vel);
-                                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
-                                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
-                                }
-                            }
-                            else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
-                            {
-                                // Orbital-frame-relative path
-                                if (e.orbitBody != null)
-                                {
-                                    // Use rawOrbitPos for radialOut so the
-                                    // tree offset doesn't alter orbital-frame
-                                    // attitude.
-                                    Vector3d radialOut = (rawOrbitPos - (Vector3d)e.orbitBody.position).normalized;
-                                    Quaternion orbFrame;
-                                    if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
-                                        orbFrame = Quaternion.LookRotation(vel, Vector3.up);
-                                    else
-                                        orbFrame = Quaternion.LookRotation(vel, radialOut);
-
-                                    targetRot = orbFrame * e.orbitFrameRot;
-                                }
-                                else
-                                {
-                                    targetRot = Quaternion.LookRotation(vel);
-                                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
-                                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
-                                }
-                            }
-                            else if (vel.sqrMagnitude > 0.001)
-                            {
-                                // Prograde fallback (old recordings)
-                                targetRot = Quaternion.LookRotation(vel);
-                            }
-                            ApplyGhostReapplyTransform(e, targetPos, targetRot, phase);
-                        }
+                        ReapplyOrbitEntry(ref e, phase);
                         break;
-                    }
                     case ParsekFlight.GhostPosMode.CheckpointPoint:
-                    {
-                        if (e.bodyBefore == null || e.bodyAfter == null) break;
-                        Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
-                            e.latBefore, e.lonBefore, e.altBefore);
-                        Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
-                            e.latAfter, e.lonAfter, e.altAfter);
-                        Vector3d rawCheckpointPos = Vector3d.Lerp(posBefore, posAfter, e.t);
-                        // §7.7 (and any §7.x anchor that lands on a
-                        // Checkpoint section): re-apply the world-space ε
-                        // here so the FloatingOrigin shift between Update
-                        // and LateUpdate cannot snap the ghost back to the
-                        // bare lerp position. Phase 3 evaluates ε at the
-                        // current playback UT — the lerp interval (§6.4
-                        // Both case) progresses each frame, not freezes.
-                        if (ParsekFlight.allowRenderAnchorCorrectionInterval(
-                                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
-                                false,
-                                out Vector3d cpLateEps, out _))
-                        {
-                            rawCheckpointPos += cpLateEps;
-                        }
-                        Vector3d targetPos = rawCheckpointPos;
-                        Quaternion targetRot = e.ghost.transform.rotation;
-
-                        Orbit orbit;
-                        if (host.orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
-                        {
-                            // FRAME: same world/world orbital-frame contract as the Orbit-mode
-                            // block above (and as ComputeOrbitalRotation); the Zup velocity is
-                            // lifted at the read so nothing downstream can pair it with the
-                            // world radial by accident.
-                            Vector3d vel = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
-                                orbit.getOrbitalVelocityAtUT(e.orbitUT));
-
-                            if (e.isSpinning)
-                            {
-                                Vector3d velAtStart = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
-                                    orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT));
-                                Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
-
-                                if (e.orbitBody != null)
-                                {
-                                    Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
-                                    Quaternion orbFrameAtStart;
-                                    if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
-                                    else
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
-
-                                    Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
-                                    double dt = e.orbitUT - e.orbitSegmentStartUT;
-                                    Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
-                                    float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
-                                    targetRot = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
-                                }
-                                else if (vel.sqrMagnitude > 0.001)
-                                {
-                                    targetRot = Quaternion.LookRotation(vel);
-                                }
-                            }
-                            else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
-                            {
-                                if (e.orbitBody != null)
-                                {
-                                    // Use rawCheckpointPos for radialOut so the
-                                    // tree offset doesn't alter orbital-frame
-                                    // attitude.
-                                    Vector3d radialOut = (rawCheckpointPos - (Vector3d)e.orbitBody.position).normalized;
-                                    Quaternion orbFrame;
-                                    if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
-                                        orbFrame = Quaternion.LookRotation(vel, Vector3.up);
-                                    else
-                                        orbFrame = Quaternion.LookRotation(vel, radialOut);
-
-                                    targetRot = orbFrame * e.orbitFrameRot;
-                                }
-                                else
-                                {
-                                    targetRot = Quaternion.LookRotation(vel);
-                                }
-                            }
-                            else if (vel.sqrMagnitude > 0.001)
-                            {
-                                targetRot = Quaternion.LookRotation(vel);
-                            }
-                        }
-                        else
-                        {
-                            targetRot = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
-                        }
-                        ApplyGhostReapplyTransform(e, targetPos, targetRot, phase);
+                        ReapplyCheckpointPointEntry(ref e, phase);
                         break;
-                    }
                     case ParsekFlight.GhostPosMode.Surface:
-                    {
-                        if (e.bodyBefore == null) break;
-                        Vector3d surfacePos = e.bodyBefore.GetWorldSurfacePosition(
-                            e.latBefore, e.lonBefore, e.altBefore);
-                        ApplyGhostReapplyTransform(
-                            e,
-                            surfacePos,
-                            e.bodyBefore.bodyTransform.rotation * e.surfaceRot,
-                            phase);
+                        ReapplySurfaceEntry(ref e, phase);
                         break;
-                    }
                     case ParsekFlight.GhostPosMode.Relative:
-                    {
-                        Vector3d anchorPos = Vector3d.zero;
-                        Quaternion anchorRotation = Quaternion.identity;
-                        bool haveAnchor = false;
-
-                        if (!string.IsNullOrEmpty(e.relativeAnchorRecordingId))
-                        {
-                            haveAnchor = host.Positioner.TryResolveRecordedRelativeAnchorPose(
-                                e.anchorRecordingId,
-                                e.relativeAnchorRecordingId,
-                                e.anchorSectionIndex,
-                                e.pointUT,
-                                out ParsekFlight.RelativeAnchorPose lateRecordedPose);
-                            if (haveAnchor)
-                            {
-                                anchorPos = lateRecordedPose.worldPos;
-                                anchorRotation = lateRecordedPose.worldRotation;
-                            }
-                        }
-                        else if (e.relativeRecordedAnchorPose != null)
-                        {
-                            haveAnchor = TryResolveStoredRecordedAnchorPose(
-                                e.relativeRecordedAnchorPose, out anchorPos, out anchorRotation);
-                        }
-                        else if (e.relativeLoopLiveAnchor)
-                        {
-                            // Loop-relative entries keep the explicit live
-                            // loop-anchor contract. Non-loop recorded-relative
-                            // entries set relativeAnchorRecordingId and resolve
-                            // through the branch above.
-                            if (host.Positioner.TryResolveLoopLiveAnchorPose(
-                                    e.anchorVesselId,
-                                    e.recordingId,
-                                    e.pointUT,
-                                    out ParsekFlight.RelativeAnchorPose liveLoopAnchorPose))
-                            {
-                                anchorPos = liveLoopAnchorPose.worldPos;
-                                anchorRotation = liveLoopAnchorPose.worldRotation;
-                                haveAnchor = true;
-                            }
-                            else
-                            {
-                                // LateUpdate only reapplies the pose chosen in Update for
-                                // the post-FloatingOrigin frame. If the live anchor vanishes
-                                // between Update and LateUpdate, the next Update pass reruns
-                                // the full live-or-recorded resolver.
-                                anchorPos = Vector3d.zero;
-                                anchorRotation = Quaternion.identity;
-                            }
-                        }
-                        else
-                        {
-                            if (e.anchorVesselId != 0u)
-                            {
-                                Rendering.NonLoopLivePidGuard.NonLoopRelativeLivePidLookupAttempted(
-                                    "LateUpdate.Relative");
-                            }
-                            anchorPos = Vector3d.zero;
-                            anchorRotation = Quaternion.identity;
-                        }
-
-                        if (haveAnchor)
-                        {
-                            Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
-                                anchorPos,
-                                anchorRotation,
-                                e.relDx,
-                                e.relDy,
-                                e.relDz);
-                            ApplyGhostReapplyTransform(
-                                e,
-                                ghostPos,
-                                TrajectoryMath.ResolveRelativePlaybackRotation(
-                                    anchorRotation,
-                                    e.relativeRot),
-                                phase);
-                        }
-                        else
-                        {
-                            // Anchor not loaded — hide ghost (offsets are meters, not lat/lon/alt)
-                            e.ghost.SetActive(false);
-                        }
+                        ReapplyRelativeEntry(ref e, phase);
                         break;
-                    }
                 }
 
                 TraceGhostPositionReapply(e, phase, positionBeforeReapply, e.ghost.transform.position);
@@ -462,6 +108,377 @@ namespace Parsek
             LogSkippedNonReFlyCameraPreCull("reapply", skippedNonReFlyPreCull);
         }
 
+        private void ReapplyPointInterpEntry(ref ParsekFlight.GhostPosEntry e, ParsekFlight.GhostPositionReapplyPhase phase)
+        {
+            if (e.bodyBefore == null || e.bodyAfter == null) return;
+
+            // Phase 1 + Phase 4 spline re-evaluation (design doc
+            // §6.1 / §6.2 / §18 Phase 1+4 / HR-9). Without the
+            // re-eval, the raw lat/lon/alt bracket lerp on the
+            // fallback path would overwrite the spline-positioned
+            // transform on every LateUpdate — Phase 1's smoothing
+            // would only survive a single Update frame before
+            // FloatingOrigin re-positioning snapped it back.
+            // Frame-tag dispatch matches the Update path: tag 0 →
+            // body-fixed surface lookup, tag 1 → inertial re-lower
+            // at the playback UT, unknown → NaN (silent fallthrough
+            // here; the Warn fires from the Update path's
+            // unknownFrameTagWarned dedup so LateUpdate doesn't
+            // double-emit).
+            Vector3d pos;
+            if (!host.Positioner.TryComputeLateUpdateSplineWorldPosition(e, out pos))
+            {
+                Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
+                    e.latBefore, e.lonBefore, e.altBefore);
+                Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
+                    e.latAfter, e.lonAfter, e.altAfter);
+                if (!ParsekFlight.allowPointHermiteInterpolation(
+                        false,
+                        splineApplied: false,
+                        allowNormalPlaybackHermite: ParsekFlight.NormalPlaybackPointHermiteEnabled,
+                        out _))
+                {
+                    pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                }
+                else
+                {
+                    double hermiteMaxDeviationMeters =
+                        ParsekFlightGhostPositioner.ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
+                    if (!TrajectoryMath.TryInterpolateWorldHermite(
+                            posBefore,
+                            e.velocityBefore,
+                            posAfter,
+                            e.velocityAfter,
+                            e.pointDeltaTimeSeconds,
+                            e.t,
+                            hermiteMaxDeviationMeters,
+                            out pos,
+                            out _,
+                            out _))
+                    {
+                        pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                    }
+                }
+            }
+            // Phase 2 + Phase 3 anchor correction (design doc
+            // §6.3 / §6.4 / §18 Phase 2-3): re-apply the world-
+            // space ε so the FloatingOrigin frame-velocity shift
+            // cannot snap the ghost back to the un-corrected
+            // lerped position. Phase 3: the lookup is re-fetched
+            // each LateUpdate so the lerp interval (§6.4 Both
+            // case) progresses with the playback UT instead of
+            // freezing to the value captured at Update time.
+            // The ε is additive on top of either the spline-
+            // positioned or the raw-lerp position above.
+            if (ParsekFlight.allowRenderAnchorCorrectionInterval(
+                    e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
+                    false,
+                    out Vector3d lateEps, out _))
+            {
+                pos += lateEps;
+            }
+            ApplyGhostReapplyTransform(
+                e,
+                pos,
+                e.bodyBefore.bodyTransform.rotation * e.interpolatedRot,
+                phase);
+        }
+
+        private void ReapplySinglePointEntry(ref ParsekFlight.GhostPosEntry e, ParsekFlight.GhostPositionReapplyPhase phase)
+        {
+            if (e.bodyBefore == null) return;
+            Vector3d pos = e.bodyBefore.GetWorldSurfacePosition(
+                e.latBefore, e.lonBefore, e.altBefore);
+            ApplyGhostReapplyTransform(
+                e,
+                pos,
+                e.bodyBefore.bodyTransform.rotation * e.interpolatedRot,
+                phase);
+        }
+
+        private void ReapplyOrbitEntry(ref ParsekFlight.GhostPosEntry e, ParsekFlight.GhostPositionReapplyPhase phase)
+        {
+            Orbit orbit;
+            if (host.orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
+            {
+                // Keep the raw orbit position for rotation math
+                // (orbital frame derives radialOut from
+                // pos - orbitBody.position; if pos carries the
+                // tree offset the radial vector is shifted and the
+                // ghost's orbit-frame attitude rolls/pitches
+                // incorrectly). Orbit-tail continuity is also a
+                // rigid render translation from the last authored
+                // point into the predicted tail. Both corrections
+                // are applied to transform.position, not to the
+                // orbital rotation inputs.
+                Vector3d rawOrbitPos = orbit.getPositionAtUT(e.orbitUT);
+                Vector3d orbitContinuityOffset = ParsekFlightGhostPositioner.ResolveOrbitContinuityOffset(e, e.orbitUT);
+                Vector3d targetPos = rawOrbitPos + orbitContinuityOffset;
+                Quaternion targetRot = e.ghost.transform.rotation;
+
+                // FRAME: lifted to Y-up WORLD at the read, so every LookRotation in
+                // this block pairs a world forward axis with the world radial built
+                // from getPositionAtUT — the same orbital-frame contract
+                // ComputeOrbitalRotation states and every producer encodes in. This
+                // block is a hand-inlined copy of that decode (LateUpdate re-apply
+                // after FloatingOrigin shifts) and MUST move with it.
+                Vector3d vel = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                    orbit.getOrbitalVelocityAtUT(e.orbitUT));
+
+                if (e.isSpinning)
+                {
+                    // Spin-forward: recompute boundary world rotation (positions may have shifted by FloatingOrigin)
+                    Vector3d velAtStart = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                        orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT));
+                    Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
+
+                    if (e.orbitBody != null)
+                    {
+                        Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
+                        Quaternion orbFrameAtStart;
+                        if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
+                            orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
+                        else
+                            orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
+
+                        Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
+                        double dt = e.orbitUT - e.orbitSegmentStartUT;
+                        Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
+                        float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
+                        targetRot = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
+                    }
+                    else
+                    {
+                        // Body null fallback
+                        if (vel.sqrMagnitude > 0.001)
+                            targetRot = Quaternion.LookRotation(vel);
+                        ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
+                            $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
+                    }
+                }
+                else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
+                {
+                    // Orbital-frame-relative path
+                    if (e.orbitBody != null)
+                    {
+                        // Use rawOrbitPos for radialOut so the
+                        // tree offset doesn't alter orbital-frame
+                        // attitude.
+                        Vector3d radialOut = (rawOrbitPos - (Vector3d)e.orbitBody.position).normalized;
+                        Quaternion orbFrame;
+                        if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
+                            orbFrame = Quaternion.LookRotation(vel, Vector3.up);
+                        else
+                            orbFrame = Quaternion.LookRotation(vel, radialOut);
+
+                        targetRot = orbFrame * e.orbitFrameRot;
+                    }
+                    else
+                    {
+                        targetRot = Quaternion.LookRotation(vel);
+                        ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
+                            $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
+                    }
+                }
+                else if (vel.sqrMagnitude > 0.001)
+                {
+                    // Prograde fallback (old recordings)
+                    targetRot = Quaternion.LookRotation(vel);
+                }
+                ApplyGhostReapplyTransform(e, targetPos, targetRot, phase);
+            }
+        }
+
+        private void ReapplyCheckpointPointEntry(ref ParsekFlight.GhostPosEntry e, ParsekFlight.GhostPositionReapplyPhase phase)
+        {
+            if (e.bodyBefore == null || e.bodyAfter == null) return;
+            Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
+                e.latBefore, e.lonBefore, e.altBefore);
+            Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
+                e.latAfter, e.lonAfter, e.altAfter);
+            Vector3d rawCheckpointPos = Vector3d.Lerp(posBefore, posAfter, e.t);
+            // §7.7 (and any §7.x anchor that lands on a
+            // Checkpoint section): re-apply the world-space ε
+            // here so the FloatingOrigin shift between Update
+            // and LateUpdate cannot snap the ghost back to the
+            // bare lerp position. Phase 3 evaluates ε at the
+            // current playback UT — the lerp interval (§6.4
+            // Both case) progresses each frame, not freezes.
+            if (ParsekFlight.allowRenderAnchorCorrectionInterval(
+                    e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
+                    false,
+                    out Vector3d cpLateEps, out _))
+            {
+                rawCheckpointPos += cpLateEps;
+            }
+            Vector3d targetPos = rawCheckpointPos;
+            Quaternion targetRot = e.ghost.transform.rotation;
+
+            Orbit orbit;
+            if (host.orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
+            {
+                // FRAME: same world/world orbital-frame contract as the Orbit-mode
+                // block above (and as ComputeOrbitalRotation); the Zup velocity is
+                // lifted at the read so nothing downstream can pair it with the
+                // world radial by accident.
+                Vector3d vel = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                    orbit.getOrbitalVelocityAtUT(e.orbitUT));
+
+                if (e.isSpinning)
+                {
+                    Vector3d velAtStart = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                        orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT));
+                    Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
+
+                    if (e.orbitBody != null)
+                    {
+                        Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
+                        Quaternion orbFrameAtStart;
+                        if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
+                            orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
+                        else
+                            orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
+
+                        Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
+                        double dt = e.orbitUT - e.orbitSegmentStartUT;
+                        Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
+                        float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
+                        targetRot = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
+                    }
+                    else if (vel.sqrMagnitude > 0.001)
+                    {
+                        targetRot = Quaternion.LookRotation(vel);
+                    }
+                }
+                else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
+                {
+                    if (e.orbitBody != null)
+                    {
+                        // Use rawCheckpointPos for radialOut so the
+                        // tree offset doesn't alter orbital-frame
+                        // attitude.
+                        Vector3d radialOut = (rawCheckpointPos - (Vector3d)e.orbitBody.position).normalized;
+                        Quaternion orbFrame;
+                        if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
+                            orbFrame = Quaternion.LookRotation(vel, Vector3.up);
+                        else
+                            orbFrame = Quaternion.LookRotation(vel, radialOut);
+
+                        targetRot = orbFrame * e.orbitFrameRot;
+                    }
+                    else
+                    {
+                        targetRot = Quaternion.LookRotation(vel);
+                    }
+                }
+                else if (vel.sqrMagnitude > 0.001)
+                {
+                    targetRot = Quaternion.LookRotation(vel);
+                }
+            }
+            else
+            {
+                targetRot = e.bodyBefore.bodyTransform.rotation * e.interpolatedRot;
+            }
+            ApplyGhostReapplyTransform(e, targetPos, targetRot, phase);
+        }
+
+        private void ReapplySurfaceEntry(ref ParsekFlight.GhostPosEntry e, ParsekFlight.GhostPositionReapplyPhase phase)
+        {
+            if (e.bodyBefore == null) return;
+            Vector3d surfacePos = e.bodyBefore.GetWorldSurfacePosition(
+                e.latBefore, e.lonBefore, e.altBefore);
+            ApplyGhostReapplyTransform(
+                e,
+                surfacePos,
+                e.bodyBefore.bodyTransform.rotation * e.surfaceRot,
+                phase);
+        }
+
+        private void ReapplyRelativeEntry(ref ParsekFlight.GhostPosEntry e, ParsekFlight.GhostPositionReapplyPhase phase)
+        {
+            Vector3d anchorPos = Vector3d.zero;
+            Quaternion anchorRotation = Quaternion.identity;
+            bool haveAnchor = false;
+
+            if (!string.IsNullOrEmpty(e.relativeAnchorRecordingId))
+            {
+                haveAnchor = host.Positioner.TryResolveRecordedRelativeAnchorPose(
+                    e.anchorRecordingId,
+                    e.relativeAnchorRecordingId,
+                    e.anchorSectionIndex,
+                    e.pointUT,
+                    out ParsekFlight.RelativeAnchorPose lateRecordedPose);
+                if (haveAnchor)
+                {
+                    anchorPos = lateRecordedPose.worldPos;
+                    anchorRotation = lateRecordedPose.worldRotation;
+                }
+            }
+            else if (e.relativeRecordedAnchorPose != null)
+            {
+                haveAnchor = TryResolveStoredRecordedAnchorPose(
+                    e.relativeRecordedAnchorPose, out anchorPos, out anchorRotation);
+            }
+            else if (e.relativeLoopLiveAnchor)
+            {
+                // Loop-relative entries keep the explicit live
+                // loop-anchor contract. Non-loop recorded-relative
+                // entries set relativeAnchorRecordingId and resolve
+                // through the branch above.
+                if (host.Positioner.TryResolveLoopLiveAnchorPose(
+                        e.anchorVesselId,
+                        e.recordingId,
+                        e.pointUT,
+                        out ParsekFlight.RelativeAnchorPose liveLoopAnchorPose))
+                {
+                    anchorPos = liveLoopAnchorPose.worldPos;
+                    anchorRotation = liveLoopAnchorPose.worldRotation;
+                    haveAnchor = true;
+                }
+                else
+                {
+                    // LateUpdate only reapplies the pose chosen in Update for
+                    // the post-FloatingOrigin frame. If the live anchor vanishes
+                    // between Update and LateUpdate, the next Update pass reruns
+                    // the full live-or-recorded resolver.
+                    anchorPos = Vector3d.zero;
+                    anchorRotation = Quaternion.identity;
+                }
+            }
+            else
+            {
+                if (e.anchorVesselId != 0u)
+                {
+                    Rendering.NonLoopLivePidGuard.NonLoopRelativeLivePidLookupAttempted(
+                        "LateUpdate.Relative");
+                }
+                anchorPos = Vector3d.zero;
+                anchorRotation = Quaternion.identity;
+            }
+
+            if (haveAnchor)
+            {
+                Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                    anchorPos,
+                    anchorRotation,
+                    e.relDx,
+                    e.relDy,
+                    e.relDz);
+                ApplyGhostReapplyTransform(
+                    e,
+                    ghostPos,
+                    TrajectoryMath.ResolveRelativePlaybackRotation(
+                        anchorRotation,
+                        e.relativeRot),
+                    phase);
+            }
+            else
+            {
+                // Anchor not loaded — hide ghost (offsets are meters, not lat/lon/alt)
+                e.ghost.SetActive(false);
+            }
+        }
         private void ApplyGhostReapplyTransform(
             ParsekFlight.GhostPosEntry entry,
             Vector3d targetPosition,
@@ -475,7 +492,7 @@ namespace Parsek
             entry.ghost.transform.rotation = targetRotation;
         }
 
-        private static string ResolveGhostPosEntryRecordingId(ParsekFlight.GhostPosEntry entry)
+        internal static string ResolveGhostPosEntryRecordingId(ParsekFlight.GhostPosEntry entry)
         {
             if (!string.IsNullOrEmpty(entry.recordingId)) return entry.recordingId;
             if (!string.IsNullOrEmpty(entry.anchorRecordingId)) return entry.anchorRecordingId;
@@ -522,19 +539,31 @@ namespace Parsek
             ParsekLog.VerboseRateLimited(
                 "Playback",
                 key,
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Ghost camera pre-cull reapply: rec={0} mode={1} ut={2:F3} deltaMeters={3:F2} before=({4:F2},{5:F2},{6:F2}) after=({7:F2},{8:F2},{9:F2})",
-                    shortRecordingId,
-                    entry.mode,
-                    entry.pointUT,
-                    delta,
-                    before.x, before.y, before.z,
-                    after.x, after.y, after.z),
+                BuildCameraPreCullReapplyMessage(
+                    shortRecordingId, entry.mode, entry.pointUT, delta, before, after),
                 1.0);
         }
 
-        private static void LogSkippedNonReFlyCameraPreCull(string operation, int count)
+        internal static string BuildCameraPreCullReapplyMessage(
+            string shortRecordingId,
+            ParsekFlight.GhostPosMode mode,
+            double pointUT,
+            double delta,
+            Vector3d before,
+            Vector3d after)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "Ghost camera pre-cull reapply: rec={0} mode={1} ut={2:F3} deltaMeters={3:F2} before=({4:F2},{5:F2},{6:F2}) after=({7:F2},{8:F2},{9:F2})",
+                shortRecordingId,
+                mode,
+                pointUT,
+                delta,
+                before.x, before.y, before.z,
+                after.x, after.y, after.z);
+        }
+
+        internal static void LogSkippedNonReFlyCameraPreCull(string operation, int count)
         {
             if (count <= 0)
                 return;
@@ -1004,7 +1033,7 @@ namespace Parsek
             return null;
         }
 
-        private static Recording FindNextChainRecording(RecordingTree tree, Recording rec)
+        internal static Recording FindNextChainRecording(RecordingTree tree, Recording rec)
         {
             if (tree == null || rec == null || string.IsNullOrEmpty(rec.ChainId))
                 return null;
@@ -1023,7 +1052,7 @@ namespace Parsek
             return null;
         }
 
-        private static Recording FindPreferredChildRecording(RecordingTree tree, Recording rec)
+        internal static Recording FindPreferredChildRecording(RecordingTree tree, Recording rec)
         {
             if (tree == null || rec == null || string.IsNullOrEmpty(rec.ChildBranchPointId))
                 return null;
@@ -1138,7 +1167,7 @@ namespace Parsek
             return HasSurfaceCoverageAtUT(rec, currentUT);
         }
 
-        private static bool HasOrbitCoverageAtUT(Recording rec, double currentUT)
+        internal static bool HasOrbitCoverageAtUT(Recording rec, double currentUT)
         {
             if (rec == null || !rec.HasOrbitSegments)
                 return false;
@@ -1152,7 +1181,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool HasSurfaceCoverageAtUT(Recording rec, double currentUT)
+        internal static bool HasSurfaceCoverageAtUT(Recording rec, double currentUT)
         {
             return rec != null
                 && rec.SurfacePos.HasValue
@@ -1276,7 +1305,7 @@ namespace Parsek
                 host.activeTree?.ActiveRecordingId);
         }
 
-        private static string BuildGhostSkipReasonIdentity(int index, string recordingId)
+        internal static string BuildGhostSkipReasonIdentity(int index, string recordingId)
         {
             return !string.IsNullOrEmpty(recordingId)
                 ? recordingId
@@ -1357,6 +1386,32 @@ namespace Parsek
             bool externalVesselSuppressed,
             bool supersededByRelation = false,
             bool rewindRetired = false)
+        {
+            LogGhostSkipReasonChangeIfNeededCore(
+                activeGhostSkipReasonLogIdentities,
+                index,
+                rec,
+                reason,
+                hasRenderableData,
+                externalVesselSuppressed,
+                supersededByRelation,
+                rewindRetired);
+        }
+
+        /// <summary>
+        /// Logs a skip-reason change for one recording and keeps the set of identities whose
+        /// last logged state was an active skip: a recording that never skipped logs nothing,
+        /// and one that stops skipping logs its None transition once and leaves the set.
+        /// </summary>
+        internal static void LogGhostSkipReasonChangeIfNeededCore(
+            HashSet<string> activeGhostSkipReasonLogIdentities,
+            int index,
+            Recording rec,
+            GhostPlaybackSkipReason reason,
+            bool hasRenderableData,
+            bool externalVesselSuppressed,
+            bool supersededByRelation,
+            bool rewindRetired)
         {
             string identity = BuildGhostSkipReasonIdentity(index, rec?.RecordingId);
             bool hasLoggedActiveSkip = activeGhostSkipReasonLogIdentities.Contains(identity);
@@ -1445,55 +1500,92 @@ namespace Parsek
 
         private void RecordReFlyAnchorHoldCandidate(string anchorRecordingId, string reason)
         {
+            RecordReFlyAnchorHoldCandidateCore(
+                host.reFlyAnchorHoldCountsThisFrame,
+                host.reFlyAnchorHoldReasonsThisFrame,
+                anchorRecordingId,
+                reason);
+        }
+
+        /// <summary>
+        /// Counts one ghost held for the anchor this frame; the first reason recorded for the
+        /// anchor this frame wins.
+        /// </summary>
+        internal static void RecordReFlyAnchorHoldCandidateCore(
+            Dictionary<string, int> countsThisFrame,
+            Dictionary<string, string> reasonsThisFrame,
+            string anchorRecordingId,
+            string reason)
+        {
             if (string.IsNullOrEmpty(anchorRecordingId))
                 return;
 
             int count;
-            host.reFlyAnchorHoldCountsThisFrame.TryGetValue(anchorRecordingId, out count);
-            host.reFlyAnchorHoldCountsThisFrame[anchorRecordingId] = count + 1;
-            if (!host.reFlyAnchorHoldReasonsThisFrame.ContainsKey(anchorRecordingId))
-                host.reFlyAnchorHoldReasonsThisFrame[anchorRecordingId] = reason ?? "(none)";
+            countsThisFrame.TryGetValue(anchorRecordingId, out count);
+            countsThisFrame[anchorRecordingId] = count + 1;
+            if (!reasonsThisFrame.ContainsKey(anchorRecordingId))
+                reasonsThisFrame[anchorRecordingId] = reason ?? "(none)";
         }
 
         private void LogReFlyAnchorHoldTransitions(int frame)
         {
-            foreach (var kvp in host.reFlyAnchorHoldCountsThisFrame)
+            LogReFlyAnchorHoldTransitionsCore(
+                host.reFlyAnchorHoldCountsThisFrame,
+                host.reFlyAnchorHoldReasonsThisFrame,
+                host.reFlyAnchorHoldStartFrameByAnchor,
+                host.reFlyAnchorHoldReleaseScratch,
+                frame);
+        }
+
+        /// <summary>
+        /// Engages a hold (Info line, start frame stamped) for every anchor counted this frame
+        /// that was not already held, and releases (Info line, start frame dropped) every held
+        /// anchor not counted this frame.
+        /// </summary>
+        internal static void LogReFlyAnchorHoldTransitionsCore(
+            Dictionary<string, int> countsThisFrame,
+            Dictionary<string, string> reasonsThisFrame,
+            Dictionary<string, int> holdStartFrameByAnchor,
+            List<string> releaseScratch,
+            int frame)
+        {
+            foreach (var kvp in countsThisFrame)
             {
-                if (host.reFlyAnchorHoldStartFrameByAnchor.ContainsKey(kvp.Key))
+                if (holdStartFrameByAnchor.ContainsKey(kvp.Key))
                     continue;
 
-                host.reFlyAnchorHoldStartFrameByAnchor[kvp.Key] = frame;
+                holdStartFrameByAnchor[kvp.Key] = frame;
                 string reason;
-                host.reFlyAnchorHoldReasonsThisFrame.TryGetValue(kvp.Key, out reason);
+                reasonsThisFrame.TryGetValue(kvp.Key, out reason);
                 ParsekLog.Info("ReFlySettle",
                     $"Anchor ghost visibility hold engaged: anchorRec={ParsekFlightGhostPositioner.ShortRecordingId(kvp.Key)} " +
                     $"ghosts={kvp.Value.ToString(CultureInfo.InvariantCulture)} " +
                     $"reason={reason ?? "(none)"} frame={frame.ToString(CultureInfo.InvariantCulture)}");
             }
 
-            host.reFlyAnchorHoldReleaseScratch.Clear();
-            foreach (var kvp in host.reFlyAnchorHoldStartFrameByAnchor)
+            releaseScratch.Clear();
+            foreach (var kvp in holdStartFrameByAnchor)
             {
-                if (!host.reFlyAnchorHoldCountsThisFrame.ContainsKey(kvp.Key))
-                    host.reFlyAnchorHoldReleaseScratch.Add(kvp.Key);
+                if (!countsThisFrame.ContainsKey(kvp.Key))
+                    releaseScratch.Add(kvp.Key);
             }
 
-            for (int i = 0; i < host.reFlyAnchorHoldReleaseScratch.Count; i++)
+            for (int i = 0; i < releaseScratch.Count; i++)
             {
-                string anchorId = host.reFlyAnchorHoldReleaseScratch[i];
-                int startFrame = host.reFlyAnchorHoldStartFrameByAnchor[anchorId];
+                string anchorId = releaseScratch[i];
+                int startFrame = holdStartFrameByAnchor[anchorId];
                 int heldFrames = Math.Max(0, frame - startFrame);
                 ParsekLog.Info("ReFlySettle",
                     $"Anchor ghost visibility hold released: anchorRec={ParsekFlightGhostPositioner.ShortRecordingId(anchorId)} " +
                     $"heldFrames={heldFrames.ToString(CultureInfo.InvariantCulture)} " +
                     $"frame={frame.ToString(CultureInfo.InvariantCulture)}");
-                host.reFlyAnchorHoldStartFrameByAnchor.Remove(anchorId);
+                holdStartFrameByAnchor.Remove(anchorId);
             }
 
-            host.reFlyAnchorHoldReleaseScratch.Clear();
+            releaseScratch.Clear();
         }
 
-        private static bool HasAnchorReFlyUnstableFlag(TrajectoryPlaybackFlags[] flags)
+        internal static bool HasAnchorReFlyUnstableFlag(TrajectoryPlaybackFlags[] flags)
         {
             if (flags == null)
                 return false;
@@ -1630,12 +1722,8 @@ namespace Parsek
                     liveAnchorSuppressedCount++;
                     ParsekLog.VerboseRateLimited(
                         "Anchor",
-                        "step2-live-bind-suppress|" + (rec.RecordingId ?? "(none)"),
-                        "Step-2 suppressed live-anchor double (live-bind event): rec="
-                            + (rec.RecordingId ?? "(none)")
-                            + " vessel=\"" + (rec.VesselName ?? "(none)") + "\""
-                            + " liveBoundThisOrLastFrame=true"
-                            + " (own ghost hidden while a delivery member is docking its launch-matched live vessel)",
+                        BuildStep2LiveBindSuppressKey(rec.RecordingId),
+                        BuildStep2LiveBindSuppressMessage(rec.RecordingId, rec.VesselName),
                         5.0);
                 }
                 TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;
@@ -1713,17 +1801,15 @@ namespace Parsek
                     // A loop member keeps its spawn-gate reason first (its render is not
                     // history-gated); the history gate names itself only when it is the
                     // gate that actually held a loop member's first-run spawn.
-                    string reason = liveFlownRecording
-                        ? GhostPlaybackLogic.LiveFlownRecordingSpawnReason
-                        : historicalNeverReplayed
-                        ? "historical-never-replayed"
-                        : !spawnResult.needsSpawn ? spawnResult.reason
-                        : chainSuppressed.suppressed ? chainSuppressed.reason
-                        : spawnHistoricalNeverReplayed ? "historical-never-replayed"
-                        : chainSuppressed.reason;
-                    string reasonKey = string.IsNullOrEmpty(reason) ? "(none)" : reason;
-                    spawnSuppressedByReason.TryGetValue(reasonKey, out int reasonCount);
-                    spawnSuppressedByReason[reasonKey] = reasonCount + 1;
+                    string reason = ResolveSpawnSuppressedReason(
+                        liveFlownRecording,
+                        historicalNeverReplayed,
+                        spawnResult.needsSpawn,
+                        spawnResult.reason,
+                        chainSuppressed.suppressed,
+                        chainSuppressed.reason,
+                        spawnHistoricalNeverReplayed);
+                    TallySpawnSuppressedReason(spawnSuppressedByReason, reason);
                     spawnSuppressedCount++;
                 }
 
@@ -1825,13 +1911,65 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited(
                     "Anchor",
                     "step2-live-anchor-double-summary",
-                    () => "Step-2 live-anchor-double: suppressed="
-                        + suppressedThisFrame.ToString(CultureInfo.InvariantCulture)
-                        + " this frame (gate=live-bind-event)",
+                    () => BuildStep2LiveAnchorDoubleSummary(suppressedThisFrame),
                     2.0);
             }
             LogReFlyAnchorHoldTransitions(frame);
             return flags;
+        }
+
+        /// <summary>
+        /// The spawn-suppression reason a non-debris recording whose final needsSpawn is false
+        /// is counted under in the per-frame histogram. A loop member keeps its spawn-gate
+        /// reason first (its render is not history-gated); the history gate names itself only
+        /// when it is the gate that actually held a loop member's first-run spawn.
+        /// </summary>
+        internal static string ResolveSpawnSuppressedReason(
+            bool liveFlownRecording,
+            bool historicalNeverReplayed,
+            bool spawnNeedsSpawn,
+            string spawnReason,
+            bool chainSuppressed,
+            string chainReason,
+            bool spawnHistoricalNeverReplayed)
+        {
+            return liveFlownRecording
+                ? GhostPlaybackLogic.LiveFlownRecordingSpawnReason
+                : historicalNeverReplayed
+                ? "historical-never-replayed"
+                : !spawnNeedsSpawn ? spawnReason
+                : chainSuppressed ? chainReason
+                : spawnHistoricalNeverReplayed ? "historical-never-replayed"
+                : chainReason;
+        }
+
+        /// <summary>Adds one count under the reason's histogram key ("(none)" for an empty reason).</summary>
+        internal static void TallySpawnSuppressedReason(Dictionary<string, int> byReason, string reason)
+        {
+            string reasonKey = string.IsNullOrEmpty(reason) ? "(none)" : reason;
+            byReason.TryGetValue(reasonKey, out int reasonCount);
+            byReason[reasonKey] = reasonCount + 1;
+        }
+
+        internal static string BuildStep2LiveBindSuppressKey(string recordingId)
+        {
+            return "step2-live-bind-suppress|" + (recordingId ?? "(none)");
+        }
+
+        internal static string BuildStep2LiveBindSuppressMessage(string recordingId, string vesselName)
+        {
+            return "Step-2 suppressed live-anchor double (live-bind event): rec="
+                + (recordingId ?? "(none)")
+                + " vessel=\"" + (vesselName ?? "(none)") + "\""
+                + " liveBoundThisOrLastFrame=true"
+                + " (own ghost hidden while a delivery member is docking its launch-matched live vessel)";
+        }
+
+        internal static string BuildStep2LiveAnchorDoubleSummary(int suppressedThisFrame)
+        {
+            return "Step-2 live-anchor-double: suppressed="
+                + suppressedThisFrame.ToString(CultureInfo.InvariantCulture)
+                + " this frame (gate=live-bind-event)";
         }
 
         /// <summary>
