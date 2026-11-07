@@ -129,7 +129,7 @@ namespace Parsek.Tests
             var rp = InstallScenario();
 
             logLines.Clear();
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(MergeState.CommittedProvisional,
                 tree.Recordings["rec_origin"].MergeState);
@@ -388,7 +388,7 @@ namespace Parsek.Tests
                 "rec_origin", NoSupersedes, recById: null, treeContext: tree));
 
             logLines.Clear();
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(MergeState.CommittedProvisional,
                 tree.Recordings["rec_segment"].MergeState);

@@ -144,7 +144,7 @@ namespace Parsek.Tests
         ///   <item><description><c>FinalizeIndividualRecording</c> nulls
         ///     <c>rec.VesselSnapshot</c> in the vessel-gone branch at
         ///     <c>ParsekFlight.cs:~6137</c>.</description></item>
-        ///   <item><description>The dispatch flow then calls <c>RecordingStore.CommitPendingTree</c>
+        ///   <item><description>The dispatch flow then calls <c>TreeCommitService.CommitPendingTree</c>
         ///     → <c>CommitTree</c> → <c>FinalizeTreeCommit</c>.</description></item>
         ///   <item><description><c>FinalizeTreeCommit</c> at <c>RecordingStore.cs:~503</c>
         ///     sets <c>rec.FilesDirty = true</c> for every recording, then calls

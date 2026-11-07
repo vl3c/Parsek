@@ -349,7 +349,7 @@ allowedAnomalies = []
 # cells commits a tree (they call the live seam and the pure classifier with an EMPTY
 # committed list). A `.prec` in the produced save therefore means something leaked -
 # which is exactly the pin that earned M1 its first flight, when in-game tests driving
-# the real `RecordingStore.CommitTree` left orphan sidecars behind. Also selects the
+# the real `TreeCommitService.CommitTree` left orphan sidecars behind. Also selects the
 # recording-rule suppression in the log-validation profile.
 count = { min = 0, max = 0 }
 

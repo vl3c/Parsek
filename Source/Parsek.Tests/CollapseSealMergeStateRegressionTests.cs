@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// Regression tests for collapse-seal-into-mergestate (plan section 8):
     /// open/closed is read solely from a slot's effective tip MergeState, and
     /// the first-commit guard in
-    /// <see cref="RecordingStore.ApplyRewindProvisionalMergeStates"/> must never
+    /// <see cref="TreeCommitService.ApplyRewindProvisionalMergeStates"/> must never
     /// re-open a concluded (Immutable) tip on a later re-commit. Each test name
     /// states the hole it pins.
     /// </summary>
@@ -162,7 +162,7 @@ namespace Parsek.Tests
             var scenario = InstallScenario(rp);
 
             // First commit: both crashed children promote to CP (open).
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child_a"].MergeState);
             Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child_b"].MergeState);
 
@@ -175,7 +175,7 @@ namespace Parsek.Tests
             // Run promotion again directly: the sealed tip (Immutable, in a
             // committed tree) must NOT be re-opened, and the still-open peer
             // stays CP. This is the clobber guard.
-            RecordingStore.ApplyRewindProvisionalMergeStatesForTesting(tree);
+            TreeCommitService.ApplyRewindProvisionalMergeStatesForTesting(tree);
             Assert.Equal(MergeState.Immutable, tree.Recordings["child_a"].MergeState);
             Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child_b"].MergeState);
 
@@ -245,7 +245,7 @@ namespace Parsek.Tests
             // supersede-fork-identity skip is the load-bearing guard here.
             InstallScenario(rp, supersedes);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // The fork is a supersede fork (NewRecordingId) -> promotion skips
             // it -> stays Immutable (canon).
@@ -330,7 +330,7 @@ namespace Parsek.Tests
             // First CommitTree of this tree: the crash tip is in the flat list
             // but NOT in any committed tree and not a fork -> promotion demotes
             // it to CP (open).
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             Assert.Equal(MergeState.CommittedProvisional, crashTip.MergeState);
 
             // The crash slot is open (CP tip) -> RP is NOT reaped.
@@ -400,7 +400,7 @@ namespace Parsek.Tests
             };
             InstallScenario(rp, supersedes);
 
-            RecordingStore.CommitTree(forkTree);
+            TreeCommitService.CommitTree(forkTree);
 
             // Caught by the supersede-fork-identity skip (NOT tree membership):
             // the fork stays Immutable, never re-demoted/un-sealed.
@@ -648,7 +648,7 @@ namespace Parsek.Tests
             var rp = Rp("optsplit", "bp_o", 0, slot0, Slot(1, "child_b"));
             var scenario = InstallScenario(rp);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // Crashed qualifies regardless of focus, so the focus slot promotes.
             Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child_a"].MergeState);

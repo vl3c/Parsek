@@ -256,7 +256,7 @@ placement = "R0"
 # removal
 [[module]]
 name = "Recording"
-prefix = "^SceneEntryVesselScope[.]cs$|^CommittedListOptimizer[.]cs$|^CommittedTreeRestoreAttempt[.]cs$|^PendingTreeSlot[.]cs$|^TreeDiscardService[.]cs$"
+prefix = "^SceneEntryVesselScope[.]cs$|^CommittedListOptimizer[.]cs$|^CommittedTreeRestoreAttempt[.]cs$|^PendingTreeSlot[.]cs$|^TreeDiscardService[.]cs$|^TreeCommitService[.]cs$|^TreeCommitService[.]TreeReplaceDiff[.]cs$|^TreeCommitService[.]SupersedeTerminalSpawn[.]cs$"
 placement = "R0"
 
 # live snapshot support for the recorders: the snapshot normalizers, the body-name /

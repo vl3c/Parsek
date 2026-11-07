@@ -34,7 +34,7 @@ id = "RW-5-rewind-refly-discard"
 # the pod and the stand gets one child recording, VN-8 measured 2 legs for a pad decouple).
 # G's flight is held under UT 185800 (WarpToUT 185797 at 1x) so it ends before H's ghost
 # starts on the same pad. G is committed IN FLIGHT (CommitTree), which promotes the staging
-# rewind point to persistent (RecordingStore.PromoteNormalStagingRewindPoints).
+# rewind point to persistent (TreeCommitService.PromoteNormalStagingRewindPoints).
 #
 # WHY THE STASH, AND WHY IN FLIGHT. Both of G's slots end Landed on the pad, a stable
 # terminal (UnfinishedFlightClassifier.TryQualify, UnfinishedFlightClassifier.cs:417), so

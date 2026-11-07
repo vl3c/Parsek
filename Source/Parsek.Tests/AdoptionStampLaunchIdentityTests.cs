@@ -215,14 +215,14 @@ namespace Parsek.Tests
             var live = new HashSet<uint> { BakedPid };
             bool otherLaunch;
 
-            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(adopted, null, null, out otherLaunch));
-            Assert.True(RecordingStore.IsSpawnStampStaleForReplace(
+            Assert.False(TreeCommitService.IsSpawnStampStaleForReplace(adopted, null, null, out otherLaunch));
+            Assert.True(TreeCommitService.IsSpawnStampStaleForReplace(
                 adopted, new HashSet<uint> { 1u }, null, out otherLaunch));
             Assert.False(otherLaunch);
-            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(adopted, live, null, out otherLaunch));
-            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(
+            Assert.False(TreeCommitService.IsSpawnStampStaleForReplace(adopted, live, null, out otherLaunch));
+            Assert.False(TreeCommitService.IsSpawnStampStaleForReplace(
                 adopted, live, new Dictionary<uint, string> { { BakedPid, LaunchOneGuid } }, out otherLaunch));
-            Assert.True(RecordingStore.IsSpawnStampStaleForReplace(
+            Assert.True(TreeCommitService.IsSpawnStampStaleForReplace(
                 adopted, live, new Dictionary<uint, string> { { BakedPid, LaunchTwoGuid } }, out otherLaunch));
             Assert.True(otherLaunch);
         }
@@ -239,7 +239,7 @@ namespace Parsek.Tests
                 RecordedVesselGuid = LaunchOneGuid,
             };
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out _,
                 new HashSet<uint> { BakedPid },
                 new Dictionary<uint, string> { { BakedPid, LaunchTwoGuid } });
@@ -263,7 +263,7 @@ namespace Parsek.Tests
                 RecordedVesselGuid = LaunchOneGuid,
             };
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out _,
                 new HashSet<uint> { BakedPid },
                 new Dictionary<uint, string> { { BakedPid, LaunchOneGuid } });
@@ -276,12 +276,12 @@ namespace Parsek.Tests
         public void AddLiveVesselGuidForReplaceGate_DisagreeingSourcesRecordUnknown()
         {
             var map = new Dictionary<uint, string>();
-            RecordingStore.AddLiveVesselGuidForReplaceGate(map, 7u, LaunchOneGuid);
-            RecordingStore.AddLiveVesselGuidForReplaceGate(map, 7u, LaunchOneGuid);
+            TreeCommitService.AddLiveVesselGuidForReplaceGate(map, 7u, LaunchOneGuid);
+            TreeCommitService.AddLiveVesselGuidForReplaceGate(map, 7u, LaunchOneGuid);
             Assert.Equal(LaunchOneGuid, map[7u]);
-            RecordingStore.AddLiveVesselGuidForReplaceGate(map, 7u, LaunchTwoGuid);
+            TreeCommitService.AddLiveVesselGuidForReplaceGate(map, 7u, LaunchTwoGuid);
             Assert.Null(map[7u]);
-            RecordingStore.AddLiveVesselGuidForReplaceGate(map, 7u, LaunchOneGuid);
+            TreeCommitService.AddLiveVesselGuidForReplaceGate(map, 7u, LaunchOneGuid);
             Assert.Null(map[7u]);
         }
 
@@ -322,7 +322,7 @@ namespace Parsek.Tests
 
             var livePids = new HashSet<uint> { 200u };
             var guids = new Dictionary<uint, string> { { 200u, SpawnGuid } };
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 committed, resumed, out _, out _, livePids, guids);
             Assert.True(resumed.VesselSpawned);
             Assert.Equal(200u, resumed.SpawnedVesselPersistentId);
@@ -330,7 +330,7 @@ namespace Parsek.Tests
             Assert.True(ParsekPlaybackPolicy.IsSpawnClaimHeldByLiveVessel(resumed, 200u, SpawnGuid));
             Assert.True(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, SpawnGuid));
             Assert.False(ParsekFlight.IsOtherLaunchSpawnStamp(resumed, 200u, SpawnGuid));
-            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(resumed, livePids, guids, out _));
+            Assert.False(TreeCommitService.IsSpawnStampStaleForReplace(resumed, livePids, guids, out _));
         }
 
         [Fact]
@@ -346,7 +346,7 @@ namespace Parsek.Tests
 
             Assert.True(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, SpawnGuid));
             Assert.True(ParsekPlaybackPolicy.IsSpawnClaimHeldByLiveVessel(resumed, 200u, SpawnGuid));
-            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(
+            Assert.False(TreeCommitService.IsSpawnStampStaleForReplace(
                 resumed, new HashSet<uint> { 200u }, new Dictionary<uint, string> { { 200u, SpawnGuid } }, out _));
             // A relaunch with no link stays refused.
             Assert.False(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, LaunchTwoGuid));
@@ -425,7 +425,7 @@ namespace Parsek.Tests
 
             Assert.True(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, SpawnGuid));
             Assert.True(ParsekPlaybackPolicy.IsSpawnClaimHeldByLiveVessel(resumed, 200u, SpawnGuid));
-            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(
+            Assert.False(TreeCommitService.IsSpawnStampStaleForReplace(
                 resumed, new HashSet<uint> { 200u }, new Dictionary<uint, string> { { 200u, SpawnGuid } }, out _));
 
             VesselNameStore.BackfillResult again = VesselNameStore.BackfillSpawnLinks(recs, vessels, "test");
@@ -474,7 +474,7 @@ namespace Parsek.Tests
             // replace gate need positive evidence before declaring the vessel gone.
             Assert.False(ParsekFlight.IsCommittedSpawnStampMatch(resumed, 200u, SpawnGuid));
             Assert.True(ParsekPlaybackPolicy.IsSpawnClaimHeldByLiveVessel(resumed, 200u, SpawnGuid, _ => null));
-            Assert.False(RecordingStore.IsSpawnStampStaleForReplace(
+            Assert.False(TreeCommitService.IsSpawnStampStaleForReplace(
                 resumed, new HashSet<uint> { 200u }, new Dictionary<uint, string> { { 200u, SpawnGuid } },
                 out bool otherLaunch, _ => null));
             Assert.False(otherLaunch);

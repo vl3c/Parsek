@@ -149,7 +149,7 @@ namespace Parsek.Tests
                 sections: sections);
             var tree = MakeTree("Merge Test", "tree-merge", rec);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // After commit, the recording in the committed list should have
             // resolved (non-overlapping) sections
@@ -189,7 +189,7 @@ namespace Parsek.Tests
 
             var tree = MakeTree("Transient Test", "tree-transient", rec);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             var committed = RecordingStore.CommittedRecordings[0];
             Assert.NotNull(committed.VesselSnapshot);
@@ -213,7 +213,7 @@ namespace Parsek.Tests
                 sections: new List<TrackSection> { MakeSection(0, 100) });
             var tree = MakeTree("Log Test", "tree-log", rec);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // SessionMerger logs should appear
             Assert.Contains(logLines, l =>
@@ -241,7 +241,7 @@ namespace Parsek.Tests
 
             var tree = MakeTree("Multi Test", "tree-multi", rec1, rec2);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
 
@@ -267,7 +267,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("rec-empty", "tree-empty", "Empty Vessel");
             var tree = MakeTree("Empty Test", "tree-empty", rec);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Empty(RecordingStore.CommittedRecordings[0].TrackSections);
@@ -286,7 +286,7 @@ namespace Parsek.Tests
                 sections: sections);
             var tree = MakeTree("Replace Test", "tree-replace", rec);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // The tree's own recordings dict should have the merged version
             var treeRec = tree.Recordings["rec-replace"];
@@ -404,7 +404,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("rec-1", "tree-own", "Jumping Flea", pid: 9000,
                 sections: new List<TrackSection> { MakeSection(100, 200) });
             var tree = MakeTree("Jumping Flea", "tree-own", rec);
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                 "tree-own", 9000, false));
@@ -420,7 +420,7 @@ namespace Parsek.Tests
             var rec2 = MakeRecording("rec-eva", "tree-eva", "Jeb", pid: 7000,
                 sections: new List<TrackSection> { MakeSection(200, 300) });
             var tree = MakeTree("Ship", "tree-eva", rec1, rec2);
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // Both PIDs should be recorded by the tree
             Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
@@ -437,7 +437,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("rec-1", "tree-A", "Station", pid: 5000,
                 sections: new List<TrackSection> { MakeSection(100, 200) });
             var tree = MakeTree("Station", "tree-A", rec);
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // PID 6000 is NOT in tree-A's recordings (tree-A has PID 5000)
             Assert.True(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
@@ -467,8 +467,8 @@ namespace Parsek.Tests
             var treeB = MakeTree("Kerbal X B", "tree-B",
                 MakeRecording("rec-b", "tree-B", "Kerbal X", pid: 9000));
 
-            RecordingStore.CommitTree(treeA);
-            RecordingStore.CommitTree(treeB);
+            TreeCommitService.CommitTree(treeA);
+            TreeCommitService.CommitTree(treeB);
 
             Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                 "tree-A", 9000, false));
@@ -547,7 +547,7 @@ namespace Parsek.Tests
                 });
             var tree = MakeTree("Verbose Test", "tree-verb", rec);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Merger]") &&
@@ -568,7 +568,7 @@ namespace Parsek.Tests
                 events: events);
             var tree = MakeTree("Event Test", "tree-ev", rec);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             var committed = RecordingStore.CommittedRecordings[0];
             Assert.Equal(2, committed.PartEvents.Count);
@@ -591,7 +591,7 @@ namespace Parsek.Tests
                 sections: new List<TrackSection> { MakeSection(0, 100) });
             var tree = MakeTree("Dup Test", "tree-dup", rec);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             int firstMergeCount = 0;
             for (int i = 0; i < logLines.Count; i++)
                 if (logLines[i].Contains("[Merger]") && logLines[i].Contains("starting merge"))
@@ -601,7 +601,7 @@ namespace Parsek.Tests
 
             // Second commit of same tree ID — should be skipped
             logLines.Clear();
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             int secondMergeCount = 0;
             for (int i = 0; i < logLines.Count; i++)

@@ -9,7 +9,7 @@ tier = "daily"
 #
 # WHAT THIS GATES, AND WHAT IT DOES NOT. This gates the mission-loop PLAN, not the
 # playback. The five batch-eligible tests build synthetic committed trees, register
-# them through the REAL RecordingStore.CommitTree, drive the REAL
+# them through the REAL TreeCommitService.CommitTree, drive the REAL
 # MissionCrossTreeDock.FindLinks / MissionStore include+normalize mutations / the REAL
 # MissionLoopUnitBuilder against LIVE stock ephemerides (FlightGlobalsBodyInfo.Instance
 # reading real FlightGlobals bodies), and assert the resulting LoopUnit's shared span
@@ -99,7 +99,7 @@ allowedAnomalies = []
 # THIS PIN ALREADY EARNED ITS KEEP. On the first live run (2026-07-26) it red'd
 # `recordings.count 5 > max 0` on a REAL defect: the produced persistent.sfs carried ZERO
 # RECORDING_TREE / RECORDING nodes (the in-memory teardown works), but five orphan
-# mmis8-xdock-* .prec / .pann / .prec.txt sidecars sat on disk. RecordingStore.CommitTree
+# mmis8-xdock-* .prec / .pann / .prec.txt sidecars sat on disk. TreeCommitService.CommitTree
 # flushes SaveRecordingFiles per recording; RemoveCommittedTreeById is memory-only and
 # cannot reach them; once their ids leave the store CleanOrphanFiles preserves them
 # forever. Same class as the S0.5 discard residue. Fixed by the shared

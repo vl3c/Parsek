@@ -9,7 +9,7 @@ namespace Parsek.Tests
     /// <summary>
     /// Unit tests for <see cref="InGameTestSidecarReaper"/>, the shared helper that
     /// deletes the orphan sidecars an in-game test leaves on disk after it drives a
-    /// REAL recording-pipeline write (<c>RecordingStore.CommitTree</c>'s per-recording
+    /// REAL recording-pipeline write (<c>TreeCommitService.CommitTree</c>'s per-recording
     /// <c>SaveRecordingFiles</c> flush, or <c>RunOptimizationPass</c>'s dirty-file
     /// flush over synthetic + split-half recordings).
     ///

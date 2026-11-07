@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Parsek
 {
-    public static partial class RecordingStore
+    internal static partial class TreeCommitService
     {
         private static bool HasRecordingTopologyDifference(
             RecordingTree existing,

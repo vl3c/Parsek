@@ -317,7 +317,7 @@ namespace Parsek.Tests
             rec.ChainBranch = 0;
             rec.PlaybackEnabled = false;
             rec.LoopPlayback = true;
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             Assert.True(RecordingChainQueries.IsChainLooping("chain-disabled-loop"));
         }

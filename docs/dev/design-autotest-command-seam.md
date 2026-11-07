@@ -1362,7 +1362,7 @@ act.
 **One tree-mode outcome deserves its own reading, because it looks like a handler failure
 and is not.** `TrySeal` never seals the recording it is handed - it flips that recording's
 slot's EFFECTIVE chain+supersede tip. A tree can therefore carry an open member that is not
-its own slot's tip (`RecordingStore.CommitTree` demotes both a qualifying HEAD and a chain
+its own slot's tip (`TreeCommitService.CommitTree` demotes both a qualifying HEAD and a chain
 tip), and for such a member every `TrySeal` SUCCEEDS while the member stays
 `CommittedProvisional` forever. The pass reports `ERROR seal-incomplete member-not-slot-tip`
 with `failed=0 remaining=N` - the distinct token exists precisely so an operator does not go

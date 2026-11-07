@@ -451,7 +451,7 @@ namespace Parsek.Tests
                 rec.ChainIndex = chainIndex;
                 rec.ChainBranch = chainBranch;
             }
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
         }
 
         [Fact]

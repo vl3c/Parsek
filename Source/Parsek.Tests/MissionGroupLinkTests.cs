@@ -71,7 +71,7 @@ namespace Parsek.Tests
             };
             foreach (var r in recs)
                 tree.Recordings[r.RecordingId] = r;
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
             return RecordingStore.CommittedTrees.Find(t => t.Id == treeId);
         }

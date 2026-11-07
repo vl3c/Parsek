@@ -147,6 +147,67 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReplaceCommittedAt_IsIndexStable_RaisesNothing_AndLeavesTheBumpToTheCaller()
+        {
+            // The in-place replacement primitive (RecordingStore services plan, PR12 L): no
+            // index shifts, so no Removing / Removed / Inserted; the tree commit that calls it
+            // bumps StateVersion once after its batch.
+            AddThree();
+            var inserted = new List<int>();
+            RecordingStore.CommittedRecordingInserted += index => inserted.Add(index);
+            int versionBefore = RecordingStore.StateVersion;
+            var replacement = MakeRecording("b");
+
+            RecordingStore.ReplaceCommittedAt(1, replacement);
+
+            Assert.Same(replacement, RecordingStore.CommittedRecordings[1]);
+            Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
+            Assert.Equal(versionBefore, RecordingStore.StateVersion);
+            Assert.Empty(sequence);
+            Assert.Empty(inserted);
+        }
+
+        [Fact]
+        public void TreeCommitReplace_SwapsTheRowInPlaceThroughThePrimitive_RaisingNothing_BumpingOnce()
+        {
+            // TreeCommitService.FinalizeTreeCommit replaces an already committed recording of
+            // the same id at its own index (ReplaceCommittedAt) and appends the tree's new ones
+            // (AppendCommittedUnbumped): index-keyed ghost state keeps its slots, so no
+            // notification fires, and StateVersion moves.
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingStore.AddRecordingWithTreeForTesting(MakeRecording("other"));
+            var first = new RecordingTree { Id = "tree-r", TreeName = "R", RootRecordingId = "a", ActiveRecordingId = "a" };
+            var a1 = MakeRecording("a");
+            a1.TreeId = first.Id;
+            first.AddOrReplaceRecording(a1);
+            TreeCommitService.CommitTree(first);
+            int indexOfA = RecordingStore.IndexOfRecordingId(RecordingStore.CommittedRecordings, "a");
+            Assert.True(indexOfA >= 0, "fixture: a must be committed");
+
+            var second = new RecordingTree { Id = "tree-r", TreeName = "R", RootRecordingId = "a", ActiveRecordingId = "b" };
+            var a2 = MakeRecording("a");
+            a2.TreeId = second.Id;
+            var b = MakeRecording("b");
+            b.TreeId = second.Id;
+            second.AddOrReplaceRecording(a2);
+            second.AddOrReplaceRecording(b);
+            var inserted = new List<int>();
+            RecordingStore.CommittedRecordingInserted += index => inserted.Add(index);
+            sequence.Clear();
+            int versionBefore = RecordingStore.StateVersion;
+
+            TreeCommitService.CommitTree(second);
+
+            Assert.Same(a2, RecordingStore.CommittedRecordings[indexOfA]);
+            Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
+            Assert.Equal("b", RecordingStore.CommittedRecordings[2].RecordingId);
+            Assert.Same(second, Assert.Single(RecordingStore.CommittedTrees, t => t.Id == "tree-r"));
+            Assert.NotEqual(versionBefore, RecordingStore.StateVersion);
+            Assert.Empty(sequence);
+            Assert.Empty(inserted);
+        }
+
+        [Fact]
         public void RemoveCommittedTreeById_RaisesForEachOfTheTreesRecordings()
         {
             var tree = new RecordingTree { Id = "tree-1", TreeName = "T" };

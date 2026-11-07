@@ -70,7 +70,7 @@ id = "GS-1-auto-chute-booster"
 # WHAT PROVES THE R5 CLASSIFIER VERDICT, and why it is the REAP rather than the verdict
 # lines. This is the one place where the obvious token is the weak one.
 #
-# `RecordingStore.ApplyRewindProvisionalMergeStates` (RecordingStore.cs:1145) runs
+# `TreeCommitService.ApplyRewindProvisionalMergeStates` (RecordingStore.cs:1145) runs
 # inside CommitTree. For each RP-child recording it calls
 # `UnfinishedFlightClassifier.TryQualify`; a LANDED chain tip that is not an EVA, not
 # stashed, and not Orbiting / SubOrbital falls through to `reason = "stableTerminal"`

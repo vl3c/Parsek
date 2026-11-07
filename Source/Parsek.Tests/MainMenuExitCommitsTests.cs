@@ -240,7 +240,7 @@ namespace Parsek.Tests
         public void Session_CommittedTree_ClearsTheSessionAndShowsNoDialog(GameScenes destination)
         {
             var scenario = InstallScenario();
-            RecordingStore.CommitTree(FinishedTree("committed"));
+            TreeCommitService.CommitTree(FinishedTree("committed"));
             ArmSession(scenario, "committed");
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
@@ -297,7 +297,7 @@ namespace Parsek.Tests
         {
             ParsekScenario.SetCachedAutoMergeForTesting(false);
             var scenario = InstallScenario();
-            RecordingStore.CommitTree(FinishedTree("committed"));
+            TreeCommitService.CommitTree(FinishedTree("committed"));
             ArmSession(scenario, "committed");
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;

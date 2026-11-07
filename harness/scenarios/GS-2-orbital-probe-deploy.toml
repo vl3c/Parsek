@@ -85,7 +85,7 @@ id = "GS-2-orbital-probe-deploy"
 # =====================================================================================
 # WHAT PROVES THE VERDICT, and the honest split between what is Info and what is not.
 #
-# THE POSITIVE HALF IS INFO AND IS REQUIRED. `RecordingStore.ApplyRewindProvisionalMergeStates`
+# THE POSITIVE HALF IS INFO AND IS REQUIRED. `TreeCommitService.ApplyRewindProvisionalMergeStates`
 # emits, at Info, on a demotion to CommittedProvisional (RecordingStore.cs:1235):
 #     CommitTree promoted rec=<id> vessel='<name>' slot=<n> rp=<rp> reason=<r> to CommittedProvisional
 # and its chain-tip twin (RecordingStore.cs:1265). The required pattern below accepts

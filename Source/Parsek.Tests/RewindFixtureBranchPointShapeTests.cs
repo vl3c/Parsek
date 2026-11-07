@@ -11,7 +11,7 @@ namespace Parsek.Tests
     /// Every injected rewind corpus is production-shaped at its rewind point (todo
     /// REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT): the committed tree carries the split
     /// BranchPoint that names the point (<c>RewindPointAuthor.Begin</c> stamps it), and the
-    /// point is persistent, the state <c>RecordingStore.PromoteNormalStagingRewindPoints</c>
+    /// point is persistent, the state <c>TreeCommitService.PromoteNormalStagingRewindPoints</c>
     /// leaves a committed tree's staging point in. Without the link the in-session owner
     /// partition read the point as the save's (QL-3 `2026-10-07_1920`
     /// `rp_cl_root:FollowSave:kept-loaded`, QL-5 `2026-10-07_2035`

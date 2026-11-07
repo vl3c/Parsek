@@ -155,7 +155,7 @@ namespace Parsek.Tests.Generators
         /// what this corpus injects: a staging point is born SessionProvisional with no
         /// creating session (<c>RewindPointAuthor.Begin</c>), and the commit of its tree
         /// promotes it to persistent through the tree's branch point
-        /// (<c>RecordingStore.PromoteNormalStagingRewindPoints</c>: SessionProvisional false,
+        /// (<c>TreeCommitService.PromoteNormalStagingRewindPoints</c>: SessionProvisional false,
         /// CreatingSessionId null). A persistent point is a durable split point to
         /// <c>LoadTimeSweep</c>, which only ever considers SessionProvisional points for
         /// discard; the reaper keeps it while the pod slot is open (CommittedProvisional).</para>

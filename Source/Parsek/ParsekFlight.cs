@@ -5358,7 +5358,7 @@ namespace Parsek
         /// <see cref="Recording.VesselPersistentId"/> and a Parsek-spawned vessel is live
         /// under its KSP-unique <c>SpawnedVesselPersistentId</c>. That narrow set is
         /// nonetheless exactly what
-        /// <see cref="RecordingStore.MarkTerminalSpawnSupersededByDockMerge"/> matches on
+        /// <see cref="TreeCommitService.MarkTerminalSpawnSupersededByDockMerge"/> matches on
         /// its spawn-pid route, so it is real phantom exposure — the change is a strict
         /// widening, never a re-aim.
         /// </para>
@@ -6739,7 +6739,7 @@ namespace Parsek
                      && pendingDockPartnerSnapshotPid == spawnSuppressionPid)
                         ? VesselLaunchIdentity.TryReadVesselGuid(pendingDockPartnerSnapshot)
                         : null;
-                int superseded = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+                int superseded = TreeCommitService.MarkTerminalSpawnSupersededByDockMerge(
                     spawnSuppressionPid,
                     absorbedLaunchGuid,
                     mergedVesselPid,
@@ -6935,7 +6935,7 @@ namespace Parsek
             string recId = rec.RecordingId;
             double sUT = rec.StartUT;
             double eUT = rec.EndUT;
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
             double ledgerStartUT = LedgerOrchestrator.ResolveStandaloneCommitWindowStartUt(rec, sUT);
             int pendingBefore = GameStateRecorder.PendingScienceSubjects.Count;
             IReadOnlyList<PendingScienceSubject> pendingForCommit =
@@ -14111,7 +14111,7 @@ namespace Parsek
             var spawnableLeaves = activeTree.GetSpawnableLeaves();
 
             // Commit tree to storage
-            RecordingStore.CommitTree(activeTree);
+            TreeCommitService.CommitTree(activeTree);
 
             // Same position as MergeDialog.MergeCommit: after the commit + MarkTreeAsApplied,
             // before the ledger notify. Without it a tree committed in flight kept its idle
@@ -15086,7 +15086,7 @@ namespace Parsek
         /// MarkTreeAsApplied, the optimizer, the ledger commit, the crew swap, the
         /// switch-segment / restore-attempt clear and OnTreeCommitted. A resumed copy that
         /// shares its tree id with a committed tree goes through
-        /// <see cref="RecordingStore.CommitTree"/>'s same-id replace branch, exactly as a
+        /// <see cref="TreeCommitService.CommitTree"/>'s same-id replace branch, exactly as a
         /// resumed committed tree does when it is committed at scene exit: the committed
         /// tree slot and each shared recording slot are replaced in place, so no second tree
         /// with that id and no duplicate recording is created. The quicksave is not
@@ -15818,7 +15818,7 @@ namespace Parsek
         // KSP's craft-file-derived persistentId is deterministic enough that
         // re-launching the same .craft tends to recycle the previous mission's pid,
         // and Re-Fly merges preserve the prior SpawnedVesselPersistentId
-        // (RecordingStore.PreserveLiveRuntimeFieldsOnReplace). Without this gate,
+        // (TreeCommitService.PreserveLiveRuntimeFieldsOnReplace). Without this gate,
         // a fresh VAB/SPH launch would silently attach to the prior committed tree
         // and merge two distinct missions under one auto-generated group.
         //

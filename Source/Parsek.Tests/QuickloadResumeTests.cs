@@ -385,7 +385,7 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
             Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
 
-            RecordingStore.CommitPendingTree();
+            TreeCommitService.CommitPendingTree();
 
             Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
             Assert.False(RecordingStore.HasPendingTree);
@@ -1727,7 +1727,7 @@ namespace Parsek.Tests
             // with the same id. TryRestoreActiveTreeNode must remove the committed
             // copy before stashing the active copy.
             var committedTree = MakeTree("tree_x", "Duplicate Id", 2);
-            RecordingStore.CommitTree(committedTree);
+            TreeCommitService.CommitTree(committedTree);
             Assert.Contains(committedTree, RecordingStore.CommittedTrees);
 
             // Build a save node with an isActive=True tree using the SAME id

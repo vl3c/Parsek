@@ -882,7 +882,7 @@ namespace Parsek.Tests
 
             var rec = RecordingStore.CreateRecordingFromFlightData(points, "Ship", segments);
             Assert.NotNull(rec);
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Single(RecordingStore.CommittedRecordings[0].OrbitSegments);

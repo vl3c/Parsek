@@ -159,7 +159,7 @@ namespace Parsek.InGameTests
                 // Commit the tree the production way: CommitTree adds every recording
                 // to CommittedRecordings (the engine alignment list ResolveLoopUnit
                 // reads) AND the tree to CommittedTrees (RouteTreeGuard.FindCommittedTree).
-                RecordingStore.CommitTree(tree);
+                TreeCommitService.CommitTree(tree);
                 treeCommitted = true;
 
                 // Build the backing Route by hand (RouteFixtureBuilder lives in the

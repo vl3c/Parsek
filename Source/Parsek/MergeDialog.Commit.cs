@@ -59,7 +59,7 @@ namespace Parsek
                 return;
             }
 
-            // M1 (PR #876 round-5 review): RecordingStore.CommitPendingTree
+            // M1 (PR #876 round-5 review): TreeCommitService.CommitPendingTree
             // operates on the global pendingTree slot. If a caller routes a
             // session-resolved tree from CommittedTrees (Bug-C dialog path),
             // CommitPendingTree would no-op on null/mismatch and the dialog

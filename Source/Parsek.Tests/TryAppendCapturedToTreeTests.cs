@@ -234,7 +234,7 @@ namespace Parsek.Tests
                 partEvents: captured.PartEvents,
                 flagEvents: captured.FlagEvents);
             ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording(standalone, captured);
-            RecordingStore.CommitRecordingDirect(standalone);
+            TreeCommitService.CommitRecordingDirect(standalone);
 
             Assert.Equal(1, RecordingStore.CommittedRecordings.Count);
             Recording committed = RecordingStore.CommittedRecordings[0];

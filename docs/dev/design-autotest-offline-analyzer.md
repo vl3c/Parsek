@@ -624,7 +624,7 @@ lose the run-happened evidence; it only moves it out of the findings list.
   `REWIND_POINTS` node at all. The offline model does not load scenario RewindPoints
   in any case (see INV9). The chain HEAD/TIP pair is the surviving witness, and it is
   sufficient: `MergeState.CommittedProvisional` is MINTED for a slot origin only by
-  `RecordingStore.ApplyRewindProvisionalMergeStates` over RewindPoint slot tips (the
+  `TreeCommitService.ApplyRewindProvisionalMergeStates` over RewindPoint slot tips (the
   other writers - `RecordingOptimizer.MergeInto`, the split carry itself,
   `UnfinishedFlightStashHandler`, `ParsekScenario.HydrationRepair` - PROPAGATE an
   existing one rather than mint it), so a `CommittedProvisional` HEAD traces back to a

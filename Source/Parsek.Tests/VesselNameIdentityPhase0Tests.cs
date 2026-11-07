@@ -473,13 +473,13 @@ namespace Parsek.Tests
         }
 
         // ============================================================
-        // RecordingStore.IsSameVesselForContinuationRepair (SupersedeTerminalSpawn)
+        // TreeCommitService.IsSameVesselForContinuationRepair (SupersedeTerminalSpawn)
         // ============================================================
 
         [Fact]
         public void ContinuationRepair_SameNameDifferentLaunch_NotSuperseded()
         {
-            Assert.False(RecordingStore.IsSameVesselForContinuationRepair(
+            Assert.False(TreeCommitService.IsSameVesselForContinuationRepair(
                 MakeRec("prior", "Rover", 1u, GuidA), MakeRec("cont", "Rover", 2u, GuidB),
                 out string reason));
             Assert.Null(reason);
@@ -488,7 +488,7 @@ namespace Parsek.Tests
         [Fact]
         public void ContinuationRepair_RenamedSameLaunch_Superseded()
         {
-            Assert.True(RecordingStore.IsSameVesselForContinuationRepair(
+            Assert.True(TreeCommitService.IsSameVesselForContinuationRepair(
                 MakeRec("prior", "Rover", 1u, GuidA), MakeRec("cont", "Base Rover", 2u, GuidA),
                 out string reason));
             Assert.Equal("same-launch-overlapping-continuation-tree", reason);
@@ -497,11 +497,11 @@ namespace Parsek.Tests
         [Fact]
         public void ContinuationRepair_GuidlessLegacy_StillMatchedByName()
         {
-            Assert.True(RecordingStore.IsSameVesselForContinuationRepair(
+            Assert.True(TreeCommitService.IsSameVesselForContinuationRepair(
                 MakeRec("prior", "Rover", 1u, null), MakeRec("cont", "Rover", 2u, GuidB),
                 out string reason));
             Assert.Equal("same-name-overlapping-continuation-tree", reason);
-            Assert.False(RecordingStore.IsSameVesselForContinuationRepair(
+            Assert.False(TreeCommitService.IsSameVesselForContinuationRepair(
                 MakeRec("prior", "Rover", 1u, null), MakeRec("cont", "Other", 2u, null),
                 out _));
         }

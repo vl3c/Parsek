@@ -27,7 +27,7 @@ namespace Parsek.Analyzer.Rules
     // AnalyzerModel does not load scenario RewindPoints either (see Inv9RewindPoint's
     // class comment). The chain HEAD/TIP pair is the surviving witness and the one the
     // model can read. MergeState.CommittedProvisional is MINTED FOR A SLOT ORIGIN only by
-    // RecordingStore.ApplyRewindProvisionalMergeStates (:1260 / :1290) over RewindPoint
+    // TreeCommitService.ApplyRewindProvisionalMergeStates (:1260 / :1290) over RewindPoint
     // slot tips; the other writers PROPAGATE an existing one rather than mint it
     // (RecordingOptimizer.MergeInto :866 and the split carry :1407,
     // UnfinishedFlightStashHandler :85 re-opening a tip, ParsekScenario.HydrationRepair).

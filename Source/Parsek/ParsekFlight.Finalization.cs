@@ -342,7 +342,7 @@ namespace Parsek
             string liveGuid = vessel.id != Guid.Empty
                 ? vessel.id.ToString("N", CultureInfo.InvariantCulture)
                 : null;
-            return RecordingStore.FindLaterCommittedSpawnOwner(rec, vessel.persistentId, liveGuid);
+            return TreeCommitService.FindLaterCommittedSpawnOwner(rec, vessel.persistentId, liveGuid);
         }
 
         private static bool IsTreeActiveRecording(Recording rec, RecordingTree tree)
