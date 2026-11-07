@@ -95,31 +95,10 @@ namespace Parsek
             // tree can intentionally reference a committed recording ID; those events,
             // milestone entries, contract snapshots, and sidecars belong to committed
             // history and must survive discard.
-            var idsToPurge = new HashSet<string>();
-            int skippedCommittedEventPurges = 0;
-            int skippedByDurableHint = 0;
-            foreach (var rec in PendingTreeSlot.PendingTree.Recordings.Values)
-            {
-                string recordingId = rec?.RecordingId;
-                if (string.IsNullOrEmpty(recordingId))
-                    continue;
-
-                // Committed-overlap guard. On a COLD load the in-memory store is not
-                // populated yet (DiscardStalePendingState runs before LoadRecordingTrees),
-                // so the save node's declared ids are consulted as well - see
-                // SetDurableCommittedRecordingIdHint.
-                bool committedInMemory = RecordingStore.IsCommittedRecordingId(recordingId);
-                bool durableHint = RecordingStore.IsDurableCommittedRecordingIdHint(recordingId);
-                if (ShouldPreserveCommittedOverlapOnPendingDiscard(committedInMemory, durableHint))
-                {
-                    skippedCommittedEventPurges++;
-                    if (!committedInMemory)
-                        skippedByDurableHint++;
-                    continue;
-                }
-
-                idsToPurge.Add(recordingId);
-            }
+            var idsToPurge = CollectPendingOnlyRecordingIds(
+                PendingTreeSlot.PendingTree,
+                out int skippedCommittedEventPurges,
+                out int skippedByDurableHint);
 
             // Phase 11 of Rewind-to-Staging (design §3.5 invariant 7 / §6.10):
             // tree discard is the ONLY purge path for RewindPoints, supersede
@@ -263,6 +242,42 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The ids of <paramref name="tree"/>'s recordings a discard may purge: every recording
+        /// with an id that neither the in-memory committed store nor the save's durable
+        /// committed-id hint claims. On a COLD load the in-memory store is not populated yet
+        /// (DiscardStalePendingState runs before LoadRecordingTrees), so the save node's
+        /// declared ids are consulted as well - see SetDurableCommittedRecordingIdHint.
+        /// <paramref name="skippedCommitted"/> counts the committed-overlap ids kept and
+        /// <paramref name="skippedByDurableHint"/> those only the hint claimed.
+        /// </summary>
+        internal static HashSet<string> CollectPendingOnlyRecordingIds(
+            RecordingTree tree, out int skippedCommitted, out int skippedByDurableHint)
+        {
+            var idsToPurge = new HashSet<string>();
+            skippedCommitted = 0;
+            skippedByDurableHint = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                string recordingId = rec?.RecordingId;
+                if (string.IsNullOrEmpty(recordingId))
+                    continue;
+
+                bool committedInMemory = RecordingStore.IsCommittedRecordingId(recordingId);
+                bool durableHint = RecordingStore.IsDurableCommittedRecordingIdHint(recordingId);
+                if (ShouldPreserveCommittedOverlapOnPendingDiscard(committedInMemory, durableHint))
+                {
+                    skippedCommitted++;
+                    if (!committedInMemory)
+                        skippedByDurableHint++;
+                    continue;
+                }
+
+                idsToPurge.Add(recordingId);
+            }
+            return idsToPurge;
+        }
+
+        /// <summary>
         /// Removes a single committed recording by index, deleting its external files.
         /// If the recording is part of a chain, all remaining chain siblings are degraded to standalone.
         /// Raises <see cref="RecordingStore.CommittedRecordingRemoving"/> before and
@@ -350,74 +365,11 @@ namespace Parsek
                 var tree = RecordingStore.CommittedTrees[t];
                 if (tree?.Recordings == null) continue;
 
-                int prunedHere = 0;
-                foreach (var id in ids)
-                {
-                    if (string.IsNullOrEmpty(id)) continue;
-                    if (tree.Recordings.Remove(id))
-                        prunedHere++;
-                }
+                int prunedHere = PruneTaggedRecordingsFromTree(
+                    tree, ids, fallbackActiveRecordingId,
+                    out int scrubbedRefs, out int droppedBpsHere, out int clearedRecordingBpRefs);
                 if (prunedHere == 0) continue;
 
-                bool useFallback =
-                    !string.IsNullOrEmpty(fallbackActiveRecordingId)
-                    && tree.Recordings.ContainsKey(fallbackActiveRecordingId);
-                if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
-                    && !tree.Recordings.ContainsKey(tree.ActiveRecordingId))
-                {
-                    string oldActive = tree.ActiveRecordingId;
-                    tree.ActiveRecordingId = useFallback
-                        ? fallbackActiveRecordingId
-                        : null;
-                    ParsekLog.Info("RecordingStore",
-                        $"PruneTaggedRecordingsFromCommittedTrees: reset stale " +
-                        $"tree.ActiveRecordingId from '{oldActive}' to " +
-                        $"'{tree.ActiveRecordingId ?? "<null>"}' on tree={tree.Id ?? "<none>"}");
-                }
-                if (!string.IsNullOrEmpty(tree.RootRecordingId)
-                    && !tree.Recordings.ContainsKey(tree.RootRecordingId))
-                {
-                    string oldRoot = tree.RootRecordingId;
-                    tree.RootRecordingId = useFallback
-                        ? fallbackActiveRecordingId
-                        : null;
-                    ParsekLog.Warn("RecordingStore",
-                        $"PruneTaggedRecordingsFromCommittedTrees: reset stale " +
-                        $"tree.RootRecordingId from '{oldRoot}' to " +
-                        $"'{tree.RootRecordingId ?? "<null>"}' on tree={tree.Id ?? "<none>"} " +
-                        "(rollback removed the prior root — verify the resulting tree is consistent)");
-                }
-
-                int scrubbedRefs = ScrubBranchPointEndpointsAndDropEmpty(tree, ids,
-                    out HashSet<string> droppedBranchPointIds);
-                int droppedBpsHere = droppedBranchPointIds?.Count ?? 0;
-                int clearedRecordingBpRefs = 0;
-                if (droppedBpsHere > 0)
-                {
-                    foreach (var rec in tree.Recordings.Values)
-                    {
-                        if (rec == null) continue;
-                        if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
-                            && droppedBranchPointIds.Contains(rec.ParentBranchPointId))
-                        {
-                            rec.ParentBranchPointId = null;
-                            clearedRecordingBpRefs++;
-                        }
-                        if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
-                            && droppedBranchPointIds.Contains(rec.ChildBranchPointId))
-                        {
-                            rec.ChildBranchPointId = null;
-                            clearedRecordingBpRefs++;
-                        }
-                    }
-                    ParsekLog.Verbose("RecordingStore",
-                        $"PruneTaggedRecordingsFromCommittedTrees: dropped " +
-                        $"{droppedBpsHere} branch point(s) with empty endpoint sets " +
-                        $"on tree={tree.Id ?? "<none>"} " +
-                        $"ids=[{string.Join(",", droppedBranchPointIds)}]");
-                }
-
-                tree.RebuildBackgroundMap();
                 prunedTotal += prunedHere;
                 scrubbedRefsTotal += scrubbedRefs;
                 clearedRecordingBpRefsTotal += clearedRecordingBpRefs;
@@ -442,6 +394,102 @@ namespace Parsek
         }
 
         /// <summary>
+        /// One tree's share of <see cref="PruneTaggedRecordingsFromCommittedTrees"/>: removes
+        /// the ids from <paramref name="tree"/>'s recordings and, when any was there, resets a
+        /// stale active / root id to the fallback (or null), scrubs and drops branch points,
+        /// clears recording links to the dropped ones and rebuilds the background map.
+        /// Returns the recordings removed; the counters are zero when none was.
+        /// </summary>
+        internal static int PruneTaggedRecordingsFromTree(
+            RecordingTree tree, HashSet<string> ids, string fallbackActiveRecordingId,
+            out int scrubbedRefs, out int droppedBpsHere, out int clearedRecordingBpRefs)
+        {
+            scrubbedRefs = 0;
+            droppedBpsHere = 0;
+            clearedRecordingBpRefs = 0;
+            int prunedHere = 0;
+            foreach (var id in ids)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                if (tree.Recordings.Remove(id))
+                    prunedHere++;
+            }
+            if (prunedHere == 0) return prunedHere;
+
+            bool useFallback =
+                !string.IsNullOrEmpty(fallbackActiveRecordingId)
+                && tree.Recordings.ContainsKey(fallbackActiveRecordingId);
+            if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && !tree.Recordings.ContainsKey(tree.ActiveRecordingId))
+            {
+                string oldActive = tree.ActiveRecordingId;
+                tree.ActiveRecordingId = useFallback
+                    ? fallbackActiveRecordingId
+                    : null;
+                ParsekLog.Info("RecordingStore",
+                    $"PruneTaggedRecordingsFromCommittedTrees: reset stale " +
+                    $"tree.ActiveRecordingId from '{oldActive}' to " +
+                    $"'{tree.ActiveRecordingId ?? "<null>"}' on tree={tree.Id ?? "<none>"}");
+            }
+            if (!string.IsNullOrEmpty(tree.RootRecordingId)
+                && !tree.Recordings.ContainsKey(tree.RootRecordingId))
+            {
+                string oldRoot = tree.RootRecordingId;
+                tree.RootRecordingId = useFallback
+                    ? fallbackActiveRecordingId
+                    : null;
+                ParsekLog.Warn("RecordingStore",
+                    $"PruneTaggedRecordingsFromCommittedTrees: reset stale " +
+                    $"tree.RootRecordingId from '{oldRoot}' to " +
+                    $"'{tree.RootRecordingId ?? "<null>"}' on tree={tree.Id ?? "<none>"} " +
+                    "(rollback removed the prior root — verify the resulting tree is consistent)");
+            }
+
+            scrubbedRefs = ScrubBranchPointEndpointsAndDropEmpty(tree, ids,
+                out HashSet<string> droppedBranchPointIds);
+            droppedBpsHere = droppedBranchPointIds?.Count ?? 0;
+            if (droppedBpsHere > 0)
+            {
+                clearedRecordingBpRefs = ClearRecordingBranchPointRefs(tree, droppedBranchPointIds);
+                ParsekLog.Verbose("RecordingStore",
+                    $"PruneTaggedRecordingsFromCommittedTrees: dropped " +
+                    $"{droppedBpsHere} branch point(s) with empty endpoint sets " +
+                    $"on tree={tree.Id ?? "<none>"} " +
+                    $"ids=[{string.Join(",", droppedBranchPointIds)}]");
+            }
+
+            tree.RebuildBackgroundMap();
+            return prunedHere;
+        }
+
+        /// <summary>
+        /// Clears every recording's parent / child branch point link that names one of
+        /// <paramref name="droppedBranchPointIds"/>; returns the links cleared.
+        /// </summary>
+        internal static int ClearRecordingBranchPointRefs(
+            RecordingTree tree, HashSet<string> droppedBranchPointIds)
+        {
+            int clearedRecordingBpRefs = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
+                    && droppedBranchPointIds.Contains(rec.ParentBranchPointId))
+                {
+                    rec.ParentBranchPointId = null;
+                    clearedRecordingBpRefs++;
+                }
+                if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
+                    && droppedBranchPointIds.Contains(rec.ChildBranchPointId))
+                {
+                    rec.ChildBranchPointId = null;
+                    clearedRecordingBpRefs++;
+                }
+            }
+            return clearedRecordingBpRefs;
+        }
+
+        /// <summary>
         /// Walks <paramref name="tree"/>'s <c>BranchPoints</c> and removes any
         /// occurrences of <paramref name="ids"/> from each branch point's
         /// <c>ParentRecordingIds</c> / <c>ChildRecordingIds</c> lists. A BP is
@@ -452,7 +500,7 @@ namespace Parsek
         /// surviving recordings' BP back-references. Returns the number of
         /// id occurrences scrubbed out of endpoint lists.
         /// </summary>
-        private static int ScrubBranchPointEndpointsAndDropEmpty(
+        internal static int ScrubBranchPointEndpointsAndDropEmpty(
             RecordingTree tree,
             HashSet<string> ids,
             out HashSet<string> droppedBranchPointIds)

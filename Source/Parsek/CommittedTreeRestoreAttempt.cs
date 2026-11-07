@@ -275,7 +275,7 @@ namespace Parsek
                     committedTreeRestoreAttemptTreeId);
         }
 
-        private static bool TreeContainsRecordingId(
+        internal static bool TreeContainsRecordingId(
             RecordingTree tree,
             string treeId,
             string recordingId)
@@ -287,7 +287,7 @@ namespace Parsek
                 && tree.Recordings.ContainsKey(recordingId);
         }
 
-        private static HashSet<string> BuildCommittedTreeRestoreRecordingIds(RecordingTree tree)
+        internal static HashSet<string> BuildCommittedTreeRestoreRecordingIds(RecordingTree tree)
         {
             var result = new HashSet<string>(StringComparer.Ordinal);
             if (tree?.Recordings == null)
@@ -302,7 +302,7 @@ namespace Parsek
             return result;
         }
 
-        private static Dictionary<string, double> BuildCommittedTreeRestoreEventCutoffs(
+        internal static Dictionary<string, double> BuildCommittedTreeRestoreEventCutoffs(
             RecordingTree tree)
         {
             var result = new Dictionary<string, double>(StringComparer.Ordinal);
