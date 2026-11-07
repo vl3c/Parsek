@@ -27,6 +27,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **A looped trip that goes on to a moon of another planet meets the moon.** A looped mission
+  that flies to Duna and on to Ike (or to Laythe, Gilly or any one moon) now waits at the edge of
+  the planet's area until the moon is back where it was in your flight, so the ghost reaches the
+  moon instead of jumping to it. (LOOP-LONE-MOON-ARRIVAL-NOT-ALIGNED)
 - **The Kerbals window says when a stand-in flew a kerbal's last flight.** A flight a stand-in
   flew is listed under the kerbal it stood in for; the Roster's Last flight cell now adds
   "(flown by <stand-in>)" as the Flights tab already did, instead of reading as the kerbal's own
