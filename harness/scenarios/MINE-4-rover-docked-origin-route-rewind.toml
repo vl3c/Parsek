@@ -52,6 +52,14 @@
 #     (origin debited through `compositePid=110406740`, the silo written 75 -> 150); the
 #     reads after `und3` then named the wrong vessels. The lane now settles after the
 #     forward drive.
+#   2026-11-07_1041 (+ _1046_a2), head c6b22a7, same DLL: INVALID, identical twice; 65 of 70
+#     steps. MINE-4 and IR-9 clean (visitor dock to the silo; origin debit and the delivery
+#     through the composite, `parts=own=24/53`). IR-7 found a Parsek defect
+#     (ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE): the route was created between the commit's
+#     out-of-band flush and the next save, which advanced a source's sidecar epoch with no
+#     content change, so the materialized route went SourceChanged
+#     (`sidecar-epoch-drift id=baf969f1`) and `send-once` was refused. Fixed in the route
+#     source capture; the DLL must be rebuilt.
 #
 # WHAT IT CLOSES.
 #   * MINE-4 (`docs/dev/research/mining-isru-test-program-2026-10-17.md`, todo

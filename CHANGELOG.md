@@ -16,6 +16,9 @@ All notable changes to Parsek are documented here.
   (GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP)
 - **The Missions tab's column headings sit exactly over their columns.** The headings right of
   the name column were drawn 1 px to the right of the values under them.
+- **A supply route made right after a flight is merged no longer pauses itself.** The next save
+  marked it "source changed", a state it never leaves, so the route had to be deleted and made
+  again. (ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE)
 - **A supply route can now start at a depot the transport docked to.** A flight that docked to
   a depot, loaded cargo, undocked and delivered it was refused when the route was created, because
   the depot's recording started one physics frame after the undock.

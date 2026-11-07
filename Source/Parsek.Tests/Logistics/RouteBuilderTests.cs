@@ -2538,6 +2538,28 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(MidTreeOriginUndockUT, outcome.Route.RecordedOriginUndockUT);
         }
 
+        // catches (ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE): a member whose commit flush left
+        // its epoch advance pending must be captured at the epoch the next OnSave writes.
+        [Fact]
+        public void Build_MidTreeOrigin_PendingEpochAdvance_CapturesNextEpoch()
+        {
+            RecordingTree tree = BuildMidTreeShuttleTree(
+                out Recording originCarrier, out Recording deliveryLeaf,
+                out RouteConnectionWindow originWindow);
+            originCarrier.SidecarEpoch = 2;
+            originCarrier.SidecarEpochAdvancePending = true;
+            RouteAnalysisResult analysis =
+                MidTreeEligibleAnalysis(originCarrier, deliveryLeaf, originWindow);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 1000.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            RouteSourceRef carrierRef = outcome.Route.SourceRefs.Find(r => r.RecordingId == "dockedA");
+            Assert.NotNull(carrierRef);
+            Assert.Equal(3, carrierRef.SidecarEpoch);
+        }
+
         // catches: a mid-tree analysis result reaching the builder with a null
         // tree (the inputs degraded between analysis and build) silently
         // falling back to a launch-rooted span instead of failing fast.

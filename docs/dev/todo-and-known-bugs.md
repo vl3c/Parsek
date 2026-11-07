@@ -19,6 +19,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE: a route created right after a commit pauses itself as SourceChanged at the next save~~ [FILED 2026-11-07 from MINE-4 flight `2026-11-07_1041` (+ `_1046_a2`, head c6b22a7, INVALID at the post-rewind `send-once`); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; flight owed: MINE-4; product, high (the route is stuck: design 7.4 never auto-recovers SourceChanged, so it must be deleted and recreated)]
+
+**Symptom.** The route was created in flight right after `CommitTree`, delivered once, then the
+tree was rewound to launch. When the dormant route came back it went straight to SourceChanged:
+`Route 59052518 Paused->SourceChanged reason=dormant-materialize/SourceChanged/sidecar-epoch-drift
+id=baf969f1`, and `send-once` was refused (`statusBefore=SourceChanged`).
+
+**Cause.** The commit's `FlushDirtyFiles` is an out-of-band write: it keeps a positive sidecar
+epoch and sets `SidecarEpochAdvancePending`, and the next OnSave rewrites the recording with the
+epoch advanced (`OnSave: advancing deferred sidecar epoch ... epoch=2 (content was flushed
+out-of-band without advancing it)`, same `.prec` hash). The route captured epoch 2 between the
+two, so that save alone read as a source change. Here the first save came with the rewind; in
+play, any save after a route made before the first save following a commit does the same.
+
+**Fix.** `RouteSourceRef.EffectiveSidecarEpoch`: a route captures and compares
+`SidecarEpoch + 1` while the advance is pending, the epoch the save is about to write
+(`RouteBuilder.BuildRouteSourceRefs` and `RouteStore.BuildLiveSourceRefForComparison`).
+Accepted cost: a second out-of-band rewrite before that save (no epoch change of its own) is no
+longer seen through the epoch; the start / end UT and the route-proof hash still are. Tests:
+`Revalidate_EpochAdvancePendingAtCapture_SaveAdvanceIsNotDrift`,
+`Build_MidTreeOrigin_PendingEpochAdvance_CapturesNextEpoch` (each fails with its site reverted),
+`EffectiveSidecarEpoch_AddsOneWhileAnAdvanceIsPending`.
+
 ## ~~ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE: a route from a depot the transport docked to is refused when the depot's recording starts a frame after the undock~~ [FILED 2026-11-07 from MINE-4's first full flight (`2026-11-07_0942`, head 5d25bfe, INVALID at `RouteCommand create`); FIXED 2026-11-07, branch `claude/project-thread-1ckuhv`; xUnit; flight owed: MINE-4; product, high (no live docked-origin flight could become a supply route)]
 
 **Symptom.** The miner docked to the Ore depot at UT 64.58, loaded, undocked at 94.94, docked to
@@ -673,7 +696,7 @@ depot; it now forbids a reported delivery cap.
 
 ---
 
-## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (AUTHORED 2026-11-07 as `MINE-4-rover-docked-origin-route-rewind` on the scripted `miner-rover-relay`; its flights found ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE, not yet green); the lab lane XS-5 is covered by LAB-7 / LAB-9a / LAB-9b / LAB-10 / LAB-10b (live-proven 2026-10-19); MINE-0 (S1.9 `2026-11-07_0023`), MINE-5a (`2026-11-07_0022`) and MINE-5b (`2026-11-07_0448`) LIVE-PROVEN; harness / fixture]
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (AUTHORED 2026-11-07 as `MINE-4-rover-docked-origin-route-rewind` on the scripted `miner-rover-relay`; its flights found ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE and ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE, not yet green); the lab lane XS-5 is covered by LAB-7 / LAB-9a / LAB-9b / LAB-10 / LAB-10b (live-proven 2026-10-19); MINE-0 (S1.9 `2026-11-07_0023`), MINE-5a (`2026-11-07_0022`) and MINE-5b (`2026-11-07_0448`) LIVE-PROVEN; harness / fixture]
 
 Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
 from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a

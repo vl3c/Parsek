@@ -851,7 +851,7 @@ namespace Parsek.Logistics
                     TreeOrder = memberRec.TreeOrder,
                     RecordingFormatVersion = memberRec.RecordingFormatVersion,
                     RecordingSchemaGeneration = memberRec.RecordingSchemaGeneration,
-                    SidecarEpoch = memberRec.SidecarEpoch,
+                    SidecarEpoch = RouteSourceRef.EffectiveSidecarEpoch(memberRec),
                     StartUT = memberRec.StartUT,
                     EndUT = memberRec.EndUT,
                     RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(memberRec)
