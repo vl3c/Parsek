@@ -766,7 +766,7 @@ namespace Parsek
                             if (loggedParentGuidRejects.Add(probe.RecordingId ?? string.Empty))
                                 ParsekLog.Info("Flight",
                                     $"RestoreActiveTreeFromPending: parent-walk guid gate " +
-                                    $"rejected rec={ShortRecordingId(probe.RecordingId)} " +
+                                    $"rejected rec={ParsekFlightGhostPositioner.ShortRecordingId(probe.RecordingId)} " +
                                     $"(recordedGuid differs conclusively from live vessel)");
                             walkDepth++;
                             continue;

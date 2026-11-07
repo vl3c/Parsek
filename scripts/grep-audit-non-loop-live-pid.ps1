@@ -150,6 +150,11 @@ $checks = @(
         Label = "recorded-relative flight playback live PID read"
     },
     @{
+        Path = "Source/Parsek/ParsekFlightGhostPositioner.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
         Path = "Source/Parsek/GhostRenderTrace.cs"
         Pattern = "context\.AnchorVesselId\s*=|section\.AnchorVesselId"
         Label = "recorded-relative trace section PID propagation"
@@ -213,7 +218,7 @@ $checks = @(
 
 $requiredChecks = @(
     @{
-        Path = "Source/Parsek/ParsekFlight.GhostPositioning.cs"
+        Path = "Source/Parsek/ParsekFlightGhostPositioner.cs"
         Pattern = "relativeLoopLiveAnchor\s*=\s*true"
         Label = "loop-only LateUpdate live-anchor flag"
     },

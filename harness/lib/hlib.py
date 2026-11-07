@@ -952,7 +952,7 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
     "clock-not-ready", "retire-not-held", "anchor-resolve-fail",
     # Gated at birth 2026-08-07 (flight-arrival lane): the FLIGHT-scene
     # loop-seam teleport instrument (GhostRenderTrace.EmitAnomaly, raised from
-    # ParsekFlight.TrackLoopSeamTeleport at orbit-segment changes, faithful
+    # ParsekFlightGhostPositioner.TrackLoopSeamTeleport at orbit-segment changes, faithful
     # AND re-aimed members). Calibration is the pure predicate itself
     # (IsLoopSeamTeleport, unit-tested against the two measured populations:
     # healthy seams 7-10 km vs the 49-88 THOUSAND km re-aim defect class,

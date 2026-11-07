@@ -24,7 +24,9 @@ Normalization, always on:
 - compiler-generated ordinals that follow declaration order (``<>c__DisplayClass12_0``,
   ``<M>b__12_0``, ``<>9__12_0``, ``<M>d__12``, local functions, ``CS$<>8__locals1``,
   ``<>u__1``) are blanked;
-- IL offsets (``IL_0000:``) and ``// end of method`` trailers are dropped;
+- IL offsets (``IL_0000:``), the ``// Code size`` comment and ``// end of method`` trailers
+  are dropped, a branch target names its instruction's ordinal instead of its offset, and
+  runs of whitespace are collapsed;
 - the blob of an iterator / async state machine attribute is dropped, because it spells the
   generated class name with its ordinal (every other attribute blob is compared);
 - the RVA of a mapped data field (``at I_...``) is dropped: the field's name is the SHA-256 of
@@ -37,8 +39,14 @@ moved body reaching the host) reads ``ldarg.0``, and ``ldarg.0`` + ``call instan
 OLD::get_*`` (a host body reaching the service through its lazy accessor) reads ``ldarg.0``, and
 a ``callvirt instance`` on OLD or NEW reads ``call`` (``this.M()`` compiles to call, ``host.M()``
 and ``service.M()`` to callvirt).
+Under a fold the two hops are the identity wherever they appear (a lambda's display class or a
+host static reaching the service through a local, too), and every other NEW token, nested
+paths included, reads OLD; NEW's own header is printed, not compared. A member or nested type
+under OLD whose declaration differs only in ``private`` -> ``assembly`` (internal) is listed as
+widened, not as a difference; its body is still compared. ``--show TEXT`` prints the folded
+body diff of each differing method whose signature holds TEXT.
 Whatever still differs after the fold is listed: the forwarders, the accessor, the host field
-and constructor, widened accessibility. A PR lists each of those by name.
+and constructor. A PR lists each of those by name.
 
 Exit code 0 when nothing differs, 1 otherwise, 2 on a usage or tool error.
 Plain stdlib.
@@ -46,6 +54,7 @@ Plain stdlib.
 
 import argparse
 import collections
+import difflib
 import hashlib
 import re
 import subprocess
@@ -109,29 +118,63 @@ def normalize_name(text):
     return text
 
 
+_LABEL_DEF = re.compile(r"^\s*(IL_[0-9a-f]{4}):")
+_LABEL_REF = re.compile(r"\bIL_[0-9a-f]{4}\b")
+_CODE_SIZE = re.compile(r"^\s*// Code size\b.*$", re.M)
+
+
+def _ordinal_labels(text):
+    """Branch targets name the target's instruction ordinal instead of its byte offset, so
+    dropping a fold hop (which shifts every later offset) leaves the branches equal."""
+    ordinal = {}
+    for line in text.split("\n"):
+        m = _LABEL_DEF.match(line)
+        if m:
+            ordinal[m.group(1)] = "L%d" % len(ordinal)
+    out = []
+    for line in text.split("\n"):
+        m = _LABEL_DEF.match(line)
+        head, rest = (line[:m.end()], line[m.end():]) if m else ("", line)
+        out.append(head + _LABEL_REF.sub(lambda r: ordinal.get(r.group(0), r.group(0)), rest))
+    return "\n".join(out)
+
+
 def normalize_body(text):
     text = _drop_state_machine_blobs(text)
+    text = _CODE_SIZE.sub("", text)
+    text = _ordinal_labels(text)
     for rx, rep in BODY_ONLY:
         text = rx.sub(rep, text)
     text = normalize_name(text)
-    return "\n".join(l for l in (x.strip() for x in text.split("\n")) if l)
+    # Operand padding follows the opcode's width (callvirt -> call under a fold).
+    return "\n".join(" ".join(l.split()) for l in text.split("\n") if l.strip())
 
 
 def apply_folds(text, folds, host_field):
     """Rewrite NEW-type tokens back to OLD and drop the host hop instructions."""
     for old, new in folds:
         o, n = re.escape(old), re.escape(new)
-        # A moved body reaching the host: ldarg.0; ldfld class OLD NEW::host
-        text = re.sub(r"(ldarg\.0\s*\n\s*(?:IL_[0-9a-f]{4}:\s*)?)ldfld\s+class\s+%s\s+%s::%s\s*\n"
-                      % (o, n, re.escape(host_field)), r"\1", text)
-        # A host body reaching the service: ldarg.0; call instance class NEW OLD::get_X()
-        text = re.sub(r"(ldarg\.0\s*\n\s*(?:IL_[0-9a-f]{4}:\s*)?)call\s+instance\s+class\s+%s\s+%s::get_\w+\(\)\s*\n"
-                      % (n, o), r"\1", text)
+        # Under the fold the service IS the host, so the two hops between them are the
+        # identity wherever they occur (a moved body, a lambda's display class, a host
+        # static reaching the service of a local `instance`):
+        # the host field load `ldfld class OLD NEW::host` ...
+        text = re.sub(r"\n\s*(?:IL_[0-9a-f]{4}:\s*)?ldfld\s+class\s+%s\s+%s::%s[ \t]*(?=\n)"
+                      % (o, n, re.escape(host_field)), "", text)
+        # ... and the lazy accessor `call(virt) instance class NEW OLD::get_X()`.
+        text = re.sub(r"\n\s*(?:IL_[0-9a-f]{4}:\s*)?call(?:virt)?\s+instance\s+class\s+%s\s+%s::get_\w+\(\)[ \t]*(?=\n)"
+                      % (n, o), "", text)
         # this.M() compiles to call, service.M() / host.M() to callvirt.
-        text = re.sub(r"callvirt(\s+instance\s+[^\n]*?\s(?:%s|%s)::)" % (o, n), r"call\1", text)
-        text = re.sub(r"%s::" % n, "%s::" % old, text)
+        text = re.sub(r"callvirt(\s+instance\s+[^\n]*?\s(?:%s|%s)(?:/[^\s:]+)?::)" % (o, n), r"call\1", text)
+        # Every remaining NEW token (member owner, field / local / parameter type, nested
+        # display class path) reads OLD. NEW's own `.class` line keeps its name, so
+        # fold_types can tell its header from OLD's.
+        token = re.compile(r"(?<![\w.])%s(?![\w])" % n)
+        text = "\n".join(l if l.lstrip().startswith(".class") else token.sub(old, l)
+                         for l in text.split("\n"))
     return text
 
+
+BODIES = {}  # body hash -> normalized (folded) body text, for --show
 
 TypeInfo = collections.namedtuple("TypeInfo", "header fields props methods")  # header: Counter
 
@@ -169,7 +212,12 @@ def parse_il(text):
                 path = stack[-1][0] if stack else "<module>"
                 if path not in types:
                     types[path] = _new_type()
-                types[path].methods[sig].append(hashlib.sha256(normalize_body(body).encode()).hexdigest())
+                # The header is the key; the hash covers what follows it, so a widened
+                # method (only its header changed) keeps its hash.
+                norm = normalize_body("{" + body.split("{", 1)[1])
+                digest = hashlib.sha256(norm.encode()).hexdigest()
+                BODIES[digest] = norm
+                types[path].methods[sig].append(digest)
                 method = None
             continue
         if s.startswith(".class"):
@@ -224,7 +272,9 @@ def fold_types(types, folds):
         if target not in out:
             out[target] = _new_type()
         dst = out[target]
-        if target == path:
+        if target == path or "/" in target:
+            # A nested type of NEW (a display class, a lambda cache) keeps its header; NEW's
+            # own header is the one thing the fold drops (main prints it).
             dst.header.update(info.header)
         dst.fields.update(info.fields)
         dst.props.update(info.props)
@@ -233,8 +283,54 @@ def fold_types(types, folds):
     return out
 
 
-def compare(a, b):
-    """Return a list of (kind, type path, detail) differences."""
+_ACCESS = re.compile(r"\b(private|assembly)\b ?")
+
+
+def _strip_access(sig):
+    return _ACCESS.sub("", sig).strip()
+
+
+def widenings(a, b, paths):
+    """(kind, path, before-key, after-key) for every member or nested type under `paths`
+    whose declaration differs only in private -> internal (assembly) accessibility."""
+    found = []
+    for path in sorted(set(a) & set(b)):
+        if not any(path == p or path.startswith(p + "/") for p in paths):
+            continue
+        ta, tb = a[path], b[path]
+        for kind, ca, cb in (("type", ta.header, tb.header), ("field", ta.fields, tb.fields),
+                             ("method", ta.methods, tb.methods)):
+            only_a = [k for k in ca if k not in cb]
+            only_b = [k for k in cb if k not in ca]
+            by_neutral = {}
+            for k in only_b:
+                by_neutral.setdefault(_strip_access(k), []).append(k)
+            for k in only_a:
+                if " private " not in " %s " % k.replace("(", " ("):
+                    continue
+                for kb in by_neutral.get(_strip_access(k), []):
+                    # A widened method's body is still compared (under its new key).
+                    if " assembly " in " %s " % kb.replace("(", " (") and \
+                            (kind == "method" or ca[k] == cb[kb]):
+                        found.append((kind, path, k, kb))
+                        break
+    return found
+
+
+def compare(a, b, widened=()):
+    """Return a list of (kind, type path, detail) differences, leaving out the
+    private -> internal widenings listed in `widened` (from widenings())."""
+    a = {p: TypeInfo(collections.Counter(t.header), collections.Counter(t.fields),
+                     collections.Counter(t.props), collections.defaultdict(list, t.methods))
+         for p, t in a.items()}
+    for kind, path, ka, kb in widened:
+        ta = a[path]
+        if kind == "type":
+            ta.header[kb] += ta.header.pop(ka)
+        elif kind == "field":
+            ta.fields[kb] += ta.fields.pop(ka)
+        else:
+            ta.methods[kb] = ta.methods.pop(ka)
     diffs = []
     for path in sorted(set(a) | set(b)):
         if path not in b:
@@ -286,6 +382,8 @@ def main(argv=None):
                     help="fold a member move from type OLD into type NEW back onto OLD (repeatable)")
     ap.add_argument("--host-field", default="host", help="the service's host field name (default: host)")
     ap.add_argument("--limit", type=int, default=200, help="differences printed (default 200)")
+    ap.add_argument("--show", action="append", default=[], metavar="TEXT",
+                    help="print the folded body diff of each differing method whose signature holds TEXT")
     args = ap.parse_args(argv)
     folds = []
     for f in args.fold:
@@ -300,14 +398,33 @@ def main(argv=None):
         else:
             texts.append(disassemble(p))
     a = parse_il(apply_folds(texts[0], folds, args.host_field))
-    b = fold_types(parse_il(apply_folds(texts[1], folds, args.host_field)), folds)
-    diffs = compare(a, b)
+    b_raw = parse_il(apply_folds(texts[1], folds, args.host_field))
+    b = fold_types(b_raw, folds)
+    widened = widenings(a, b, [old for old, _ in folds]) if folds else []
+    diffs = compare(a, b, widened)
     for label, types in (("before", a), ("after", b)):
         print("%-6s types %d  fields %d  methods %d" % ((label,) + summarize(types)))
+    for old, new in folds:
+        if new in b_raw:
+            print("folded %s onto %s: %s" % (new, old, " | ".join(sorted(b_raw[new].header))))
+    if widened:
+        print("widened private -> internal: %d %s" % (
+            len(widened), dict(sorted(collections.Counter(w[0] for w in widened).items()))))
+        for kind, path, ka, kb in widened[:args.limit]:
+            print("  widened %-6s %s :: %s" % (kind, path, kb[:200]))
     counts = collections.Counter(d[0] for d in diffs)
     print("differences: %d %s" % (len(diffs), dict(sorted(counts.items())) if diffs else ""))
     for kind, path, detail in diffs[:args.limit]:
         print("  %-18s %s :: %s" % (kind, path, detail[:200]))
+    for kind, path, detail in diffs:
+        if kind != "method-body" or not any(s in detail for s in args.show):
+            continue
+        ba = [BODIES[h] for h in sorted(a[path].methods[detail])]
+        bb = [BODIES[h] for h in sorted(b[path].methods[detail])]
+        print("\n=== %s :: %s" % (path, detail[:160]))
+        for x, y in zip(ba, bb):
+            sys.stdout.writelines(l + "\n" for l in difflib.unified_diff(
+                x.split("\n"), y.split("\n"), "before", "after", n=2, lineterm=""))
     return 1 if diffs else 0
 
 

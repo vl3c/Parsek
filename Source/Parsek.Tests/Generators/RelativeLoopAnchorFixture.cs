@@ -29,7 +29,7 @@ namespace Parsek.Tests.Generators
     /// <para><b>Production shape: a recorded anchor as well as a live one.</b> The recorder never
     /// writes a RELATIVE section without <c>anchorRecordingId</c> (it forces the section back to
     /// Absolute on <c>anchor-recording-id-missing</c>), and the flight engine's zone distance
-    /// (<c>ParsekFlight.TryResolvePlaybackWorldPosition</c>) resolves a RELATIVE section through
+    /// (<c>ParsekFlightGhostPositioner.TryResolvePlaybackWorldPosition</c>) resolves a RELATIVE section through
     /// that RECORDED anchor. A loop section without one reads as unresolved distance, is hidden
     /// by the zone LOD before any positioning, and the live-PID loop positioner never runs
     /// (measured, RL-1 attempt <c>2026-09-23_2034</c>). So the tree also carries

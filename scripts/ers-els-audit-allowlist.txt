@@ -159,6 +159,10 @@ Source/Parsek/ParsekFlight.BlockedChainTipGhost.cs
 # ghost (index-keyed ghostStates) drawing a recording id, the same pairing the proximity
 # scan does; it decides no visibility.
 Source/Parsek/ParsekFlight.PlacementJump.cs
+# ParsekFlight's IGhostPositioner, lifted out of the positioning partials with its bodies
+# verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF2); it reads the committed list by INDEX to
+# resolve anchor recordings for the engine's index-keyed slots, the same exemption.
+Source/Parsek/ParsekFlightGhostPositioner.cs
 Source/Parsek/ParsekPlaybackPolicy.cs
 Source/Parsek/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs

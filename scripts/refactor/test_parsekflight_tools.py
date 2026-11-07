@@ -174,6 +174,115 @@ class IlCompareTests(unittest.TestCase):
         diffs = self.diffs(before, after, [("Parsek.Host", "Parsek.HostService")])
         self.assertEqual([], [d for d in diffs if d[0] == "method-body"])
 
+    FOLD = [("Parsek.Host", "Parsek.HostService")]
+
+    LAMBDA_BEFORE = """\
+.class public auto ansi beforefieldinit Parsek.Host
+  extends [mscorlib]System.Object
+{
+  .field private int32 count
+  .class nested private auto ansi sealed beforefieldinit '<>c__DisplayClass3_0'
+    extends [mscorlib]System.Object
+  {
+    .field public class Parsek.Host '<>4__this'
+    .method assembly hidebysig instance int32 '<Read>b__0'() cil managed
+    {
+      // Code size       12 (0xc)
+      IL_0000:  ldarg.0
+      IL_0001:  ldfld      class Parsek.Host Parsek.Host/'<>c__DisplayClass3_0'::'<>4__this'
+      IL_0006:  ldfld      int32 Parsek.Host::count
+      IL_000b:  ret
+    } // end of method '<>c__DisplayClass3_0'::'<Read>b__0'
+
+  } // end of class '<>c__DisplayClass3_0'
+
+} // end of class Parsek.Host
+"""
+
+    def test_fold_maps_a_moved_lambda_display_class_and_its_host_hop(self):
+        after = """\
+.class public auto ansi beforefieldinit Parsek.Host
+  extends [mscorlib]System.Object
+{
+  .field private int32 count
+} // end of class Parsek.Host
+.class private auto ansi sealed beforefieldinit Parsek.HostService
+  extends [mscorlib]System.Object
+{
+  .class nested private auto ansi sealed beforefieldinit '<>c__DisplayClass9_0'
+    extends [mscorlib]System.Object
+  {
+    .field public class Parsek.HostService '<>4__this'
+    .method assembly hidebysig instance int32 '<Read>b__0'() cil managed
+    {
+      // Code size       17 (0x11)
+      IL_0000:  ldarg.0
+      IL_0001:  ldfld      class Parsek.HostService Parsek.HostService/'<>c__DisplayClass9_0'::'<>4__this'
+      IL_0006:  ldfld      class Parsek.Host Parsek.HostService::host
+      IL_000b:  ldfld      int32 Parsek.Host::count
+      IL_0010:  ret
+    } // end of method '<>c__DisplayClass9_0'::'<Read>b__0'
+
+  } // end of class '<>c__DisplayClass9_0'
+
+} // end of class Parsek.HostService
+"""
+        self.assertEqual([], self.diffs(self.LAMBDA_BEFORE, after, self.FOLD))
+
+    def test_fold_drops_the_accessor_reached_through_a_local(self):
+        before = """\
+.class public auto ansi beforefieldinit Parsek.Host
+  extends [mscorlib]System.Object
+{
+  .method assembly hidebysig static bool Go(class Parsek.Host h) cil managed
+  {
+    // Code size       12 (0xc)
+    IL_0000:  ldarg.0
+    IL_0001:  brfalse.s  IL_000a
+    IL_0003:  ldarg.0
+    IL_0004:  callvirt   instance bool Parsek.Host::Step()
+    IL_0009:  ret
+    IL_000a:  ldc.i4.0
+    IL_000b:  ret
+  } // end of method Host::Go
+
+} // end of class Parsek.Host
+"""
+        after = before.replace(
+            "    IL_0004:  callvirt   instance bool Parsek.Host::Step()\n"
+            "    IL_0009:  ret\n"
+            "    IL_000a:  ldc.i4.0\n"
+            "    IL_000b:  ret\n",
+            "    IL_0004:  callvirt   instance class Parsek.HostService Parsek.Host::get_Service()\n"
+            "    IL_0009:  callvirt   instance bool Parsek.HostService::Step()\n"
+            "    IL_000e:  ret\n"
+            "    IL_000f:  ldc.i4.0\n"
+            "    IL_0010:  ret\n").replace("brfalse.s  IL_000a", "brfalse.s  IL_000f")
+        self.assertEqual([], [d for d in self.diffs(before, after, self.FOLD) if d[0] == "method-body"])
+
+    def test_a_retargeted_branch_is_still_a_difference(self):
+        changed = self.LAMBDA_BEFORE.replace(
+            "      IL_0006:  ldfld      int32 Parsek.Host::count\n",
+            "      IL_0006:  ldfld      int32 Parsek.Host::count\n"
+            "      IL_0007:  brtrue.s   IL_0001\n")
+        self.assertEqual(["method-body"], [d[0] for d in self.diffs(self.LAMBDA_BEFORE, changed)])
+
+    def test_widening_is_listed_not_a_difference_and_the_body_is_still_compared(self):
+        widened = IL_BASE.replace(".field private int32 count", ".field assembly int32 count")
+        a = il_compare.parse_il(IL_BASE)
+        b = il_compare.parse_il(widened)
+        w = il_compare.widenings(a, b, ["Parsek.Host"])
+        self.assertEqual([("field", "Parsek.Host")], [(k, p) for k, p, _, _ in w])
+        self.assertEqual([], il_compare.compare(a, b, w))
+        both = widened.replace("method public hidebysig instance void Tick",
+                               "method assembly hidebysig instance void Tick")
+        both_src = IL_BASE.replace("method public hidebysig instance void Tick",
+                                   "method private hidebysig instance void Tick")
+        changed = both.replace('ldstr "a { brace"', 'ldstr "b { brace"')
+        a2, b2 = il_compare.parse_il(both_src), il_compare.parse_il(changed)
+        w2 = il_compare.widenings(a2, b2, ["Parsek.Host"])
+        self.assertEqual(["method-body"], [d[0] for d in il_compare.compare(a2, b2, w2)])
+
 
 SRC = """\
 using System;

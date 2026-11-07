@@ -335,7 +335,7 @@ namespace Parsek
         /// <summary>
         /// Resolves the world rotation the recording implies for a ghost at a playback UT,
         /// through the positioner's own frame conventions. Installed by the flight scene
-        /// (<c>ParsekFlight.TryResolveRecordedAttitudeForTrace</c>); null outside it. Called
+        /// (<c>ParsekFlightGhostPositioner.TryResolveRecordedAttitudeForTrace</c>); null outside it. Called
         /// only while tracing is on and an <c>AfterUpdate</c> line is being written, so it
         /// costs nothing when <c>ghostRenderTracing</c> is off. <paramref name="rotRef"/> names
         /// the decode used (e.g. <c>surface</c>, <c>checkpoint-orbit-ofr</c>) or, on a false

@@ -11695,7 +11695,7 @@ namespace Parsek.InGameTests
 
             var body = activeVessel.mainBody;
 
-            // ParsekFlight.TryResolveExplosionAnchorPosition returns the raw, buried root
+            // ParsekFlightGhostPositioner.TryResolveExplosionAnchorPosition returns the raw, buried root
             // position untouched when the body carries no PQS terrain, so there is no clamp
             // to observe from an orbit around a gas giant or the Sun.
             if (body.pqsController == null)
@@ -11716,7 +11716,7 @@ namespace Parsek.InGameTests
                 lat, lon, terrainAlt - ExplosionAnchorFixtureBelowTerrainMeters);
 
             // Mirror the engine's own clearance basis: distance from the ghost's raw world
-            // position to the active vessel (ParsekFlight.TryResolveExplosionAnchorPosition).
+            // position to the active vessel (ParsekFlightGhostPositioner.TryResolveExplosionAnchorPosition).
             double distanceToVessel = Vector3d.Distance(rawWorldPos, activeVessel.GetWorldPos3D());
 
             // ComputeTerrainClearance steps discontinuously (0.5 m -> 2.0 m) as the ghost
@@ -11804,7 +11804,7 @@ namespace Parsek.InGameTests
                 velocity = Vector3.zero,
             });
 
-            var engine = new GhostPlaybackEngine(flight);
+            var engine = new GhostPlaybackEngine(flight.Positioner);
             engine.ghostStates[525] = state;
             var cameraEvents = new List<CameraActionEvent>();
             var restartedEvents = new List<LoopRestartedEvent>();
@@ -22991,7 +22991,7 @@ namespace Parsek.InGameTests
             if (flight.WatchedRecordingIndex >= 0)
                 flight.ExitWatchMode(skipCameraRestore: true);
 
-            var engine = new GhostPlaybackEngine(flight);
+            var engine = new GhostPlaybackEngine(flight.Positioner);
             double renderDistance = hiddenByZone ? 1.0e9 : 0.0;
             engine.ResolvePlaybackDistanceOverride =
                 (recordingIndex, playbackTrajectory, ghostState, playbackUT) => renderDistance;
@@ -24291,14 +24291,14 @@ namespace Parsek.InGameTests
         // Mock positioner that mimics ParsekFlight's relative-frame retire
         // branch. When SetsRetireFlag is true, InterpolateAndPositionRelative
         // sets state.ghost.SetActive(false) AND state.anchorRetiredThisFrame=true,
-        // exactly as ParsekFlight.InterpolateAndPositionRelative /
+        // exactly as ParsekFlightGhostPositioner.InterpolateAndPositionRelative /
         // PositionGhostRelativeAt do at line ~15413 / ~15510 when
         // FindVesselByPid returns null.
         private sealed class Bug613RetireBranchPositioner : IGhostPositioner
         {
             internal bool SetsRetireFlag;
             // PR #594 P1 round 2: loop-endpoint side-effect gates also need
-            // to mimic ParsekFlight.PositionLoopGhost's retire branch when
+            // to mimic ParsekFlightGhostPositioner.PositionLoopGhost's retire branch when
             // the recorded LoopAnchor pid is unresolvable. Independent flag
             // so tests can drive a relative-frame retire without also
             // retiring the loop-endpoint path (and vice-versa).
@@ -25103,7 +25103,7 @@ namespace Parsek.InGameTests
         /// §18 Phase 4 done-condition, §26.1 HR-3 / HR-9). Builds a synthetic
         /// 30-minute LKO ExoBallistic recording, fits the spline through
         /// SmoothingPipeline (Phase 4 path lifts to inertial), then walks the
-        /// consumer-side dispatch the way ParsekFlight.InterpolateAndPosition
+        /// consumer-side dispatch the way ParsekFlightGhostPositioner.InterpolateAndPosition
         /// does: evaluate spline at UT, dispatch on FrameTag, lower back to
         /// world via FrameTransform.LowerFromInertialToWorld at the playback
         /// UT. Probe is comparing the round-tripped world position against a
