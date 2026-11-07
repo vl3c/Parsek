@@ -40,9 +40,12 @@ Source/Parsek/CareerStartSnapshot.cs 2
 Source/Parsek/FlightRecorder.StartRecording.cs 2
 # Ledger baselines under Parsek/GameState.
 Source/Parsek/GameStateStore.cs 1
-# Test-batch crash reconcile (snapshot dir, persistent.sfs .bak artifacts) and the
-# save-root parsek_rw_*.sfs temp copies a crashed rewind left behind.
-Source/Parsek/ParsekScenario.cs 4
+# The save-root parsek_rw_*.sfs temp copies a crashed rewind left behind (LoadExternalFiles,
+# split out of ParsekScenario.cs).
+Source/Parsek/ParsekScenario.LoadSteps.cs 1
+# Test-batch crash reconcile (snapshot dir, persistent.sfs .bak artifacts; split out of
+# ParsekScenario.cs).
+Source/Parsek/ParsekScenario.TestBatchReconcile.cs 3
 # Pre-Parsek backup staging directories (outside Parsek/).
 Source/Parsek/PreParsekBackup.cs 2
 # Discard Re-fly save-root temps.
