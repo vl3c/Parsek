@@ -1128,6 +1128,41 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "3397c2e5d9f2433caca2e419d7e356b7"],
             "schemaGeneration": 4,
         },
+        # --- THE LONE-MOON ARRIVAL HOLD SUBJECT: EVE + GILLY IN ONE TREE --
+        # PROVENANCE: eve-gilly-recorded <- B37-eve-gilly-continuation, run
+        # 2026-11-07_2220, PASS attempt 1 (wall 510 s, branch head 9bd50bf,
+        # automation DLL sha256 prefix deeb466b), --keep-parsek, from the run's
+        # own `_save` snapshot. B24's Eve->Gilly machine flown from the
+        # UNSTRIPPED `eve-orbit-recorded` with no kill pair, so the hop joined
+        # B16's committed tree 16af6b5e (already=true; SOI line Eve to Gilly,
+        # activeRec=75a6ab25 the root, after the load-time split).
+        #
+        # TEN recordings, eve-orbit-recorded's eight plus two: the commit-time
+        # optimizer re-split the resumed root into 75a6ab25 the pad head
+        # [34.7..187.0] (no terminal), e3b89e4d Kerbin->Eve (Orbiting Eve) and
+        # fcb6f503 the Eve->Gilly hop [15,764,031.8..15,879,276.7] (Orbiting
+        # Gilly). The five JointBreak branches and six Destroyed debris are B16's.
+        # Like duna-ike-recorded, the save also carries the `isActive = True`
+        # in-flight copy of the tree; saveparse dedupes it.
+        "eve-gilly-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 10,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 6},
+            "branchPoints": {"JointBreak": 5},
+            "minAuthoritativeSidecars": 40,
+            "recordingIds": ["081b06e81737471fb5d85f3e0e92d49b",
+                             "0b4193a0540e4fa7af9890fe4ba5c10d",
+                             "2f3bf43348534202b226afbb6ae00ce9",
+                             "75a6ab25a0f445219a82b7b841e44ba8",
+                             "7d373f22d0a04ff2a58d43bbcca47757",
+                             "8eda6186afcd46db81551ada10dcef9a",
+                             "c5403bf4a1144815bfa0d8691e38a587",
+                             "e3b89e4d1a9b4333ba533e08409bb3f6",
+                             "fbc705e91fcd4b5a8176cf5493807a0b",
+                             "fcb6f503102a4b2785b76ee9cafd47f0"],
+            "schemaGeneration": 4,
+        },
         # --- THE ECCENTRIC-MOON LOOP SUBJECT -----------------------------
         # PROVENANCE: gilly-orbit-recorded <- B24-gilly-orbit, run
         # 2026-08-19_1655, PASS attempt 1 (mission wall 1,075 s, every assertion
