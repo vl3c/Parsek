@@ -275,8 +275,8 @@ reference is wrong, only that it holds a cycle together. Nothing in this phase
 changes any dependency; it reports them.
 
 The residue after the last cut is a ratchet in `scripts/arch/test_archview.py`
-(`test_cut_sequence_halves_the_largest_knot`, bound 287; the replayed residue
-is 283 of 464 on the current tree): refactor work must not loosen it, not even
+(`test_cut_sequence_halves_the_largest_knot`, bound 283, tightened to the
+replayed residue, 283 of 464 on the current tree): refactor work must not loosen it, not even
 for a new type that only splits an existing residue member - keep such a type
 off the cycle or make it a partial of a type already in the knot. Because the greedy sequence is a heuristic,
 deleting a real reference can change which sink wins an early step and leave a
