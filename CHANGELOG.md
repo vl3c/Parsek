@@ -23,7 +23,7 @@ All notable changes to Parsek are documented here.
   the upper stage leaves, as it does on the real craft. (T25)
 - **Ghost engine plates and engine shrouds look like the real ones.** A ghost engine plate shows
   only the engine mount pattern you picked, and a plate or engine shows only the shroud length
-  of its chosen variant, instead of every option stacked on top of each other.
+  of its chosen variant, instead of every option stacked on top of each other. (T25)
 
 ### Fixed
 
