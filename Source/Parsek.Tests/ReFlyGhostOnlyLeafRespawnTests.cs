@@ -27,7 +27,7 @@ namespace Parsek.Tests
 
         public ReFlyGhostOnlyLeafRespawnTests()
         {
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();

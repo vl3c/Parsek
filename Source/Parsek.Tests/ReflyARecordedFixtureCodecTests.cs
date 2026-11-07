@@ -19,7 +19,7 @@ namespace Parsek.Tests
     /// `SaveDirectoryLoader.Load` is the analyzer's own directory walk, but the two
     /// decoders it drives are the shipping ones: the tree walk is
     /// `RecordingTreeRecordCodec.LoadRecordingFrom`, and the sidecar hydration is
-    /// `RecordingStore.LoadTrajectorySidecarForTesting`, i.e. the same
+    /// `RecordingSidecarStore.LoadTrajectorySidecarForTesting`, i.e. the same
     /// `DeserializeTrajectorySidecar` production reads a save with. Worded that way on
     /// purpose: what is pinned here is what those bytes DECODE to, not what a live
     /// `ParsekScenario.OnLoad` would then do with them - the shell is not the game's

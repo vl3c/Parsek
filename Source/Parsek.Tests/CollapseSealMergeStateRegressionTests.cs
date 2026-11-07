@@ -28,7 +28,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             RewindPointReaper.ResetTestOverrides();

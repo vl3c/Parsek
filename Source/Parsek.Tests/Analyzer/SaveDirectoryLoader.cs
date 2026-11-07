@@ -375,7 +375,7 @@ namespace Parsek.Tests.Analyzer
                 return;
 
             TrajectorySidecarProbe probe;
-            bool probed = RecordingStore.TryProbeTrajectorySidecar(precPath, out probe);
+            bool probed = RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe);
             if (!probed)
             {
                 // Header could not be read at all (e.g. truncated before the magic).
@@ -398,7 +398,7 @@ namespace Parsek.Tests.Analyzer
 
             try
             {
-                if (!RecordingStore.LoadTrajectorySidecarForTesting(precPath, rec))
+                if (!RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, rec))
                 {
                     loadFaults.Add(new LoadFault(precPath, "trajectory",
                         string.IsNullOrEmpty(probe.FailureReason) ? "load-failed" : probe.FailureReason,
@@ -424,7 +424,7 @@ namespace Parsek.Tests.Analyzer
             try
             {
                 ConfigNode node;
-                if (RecordingStore.LoadSnapshotSidecarForTesting(path, out node) && node != null)
+                if (RecordingSidecarStore.LoadSnapshotSidecarForTesting(path, out node) && node != null)
                 {
                     assign(node);
                     return;
@@ -432,7 +432,7 @@ namespace Parsek.Tests.Analyzer
 
                 string reason = "snapshot-load-failed";
                 SnapshotSidecarProbe probe;
-                if (RecordingStore.TryProbeSnapshotSidecar(path, out probe)
+                if (RecordingSidecarStore.TryProbeSnapshotSidecar(path, out probe)
                     && !string.IsNullOrEmpty(probe.FailureReason))
                 {
                     reason = probe.FailureReason;
@@ -468,7 +468,7 @@ namespace Parsek.Tests.Analyzer
                     continue;
 
                 TrajectorySidecarProbe probe;
-                sidecarSchema[id] = RecordingStore.TryProbeTrajectorySidecar(precFile, out probe)
+                sidecarSchema[id] = RecordingSidecarStore.TryProbeTrajectorySidecar(precFile, out probe)
                     ? (probe.SchemaGeneration, probe.FormatVersion)
                     : (0, 0);
             }

@@ -279,7 +279,7 @@ namespace Parsek.Tests
         public void InertNode_IsSkippedWhenACommittedTreeWithTheSameIdExists()
         {
             Load(Scenario(BuildTreeNode(TreeA, OlderGeneration, OlderGeneration, RecA1)));
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             var committed = new RecordingTree { Id = TreeA, TreeName = "Current A", RootRecordingId = "cur-1" };
             committed.AddOrReplaceRecording(new Recording { RecordingId = "cur-1", TreeId = TreeA, VesselName = "Cur" });
             RecordingStore.AddCommittedTreeForTesting(committed);

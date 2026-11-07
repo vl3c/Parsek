@@ -916,7 +916,7 @@ namespace Parsek.Tests.Generators
                 VesselSnapshot = vesselSnapshot,
                 GhostVisualSnapshot = ghostVisualSnapshot ?? vesselSnapshot
             };
-            GhostSnapshotMode ghostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(snapshotModeRecording);
+            GhostSnapshotMode ghostSnapshotMode = RecordingSidecarStore.DetermineGhostSnapshotMode(snapshotModeRecording);
             if (ghostSnapshotMode != GhostSnapshotMode.Unspecified)
                 node.AddValue("ghostSnapshotMode", ghostSnapshotMode.ToString());
             node.AddValue("loopPlayback", loopPlayback.ToString());

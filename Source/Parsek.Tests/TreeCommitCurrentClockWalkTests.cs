@@ -35,7 +35,7 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
 
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             RecordingStore.SaveGameForTesting = null;
             GameStateStore.ResetForTesting();
             GameStateRecorder.ResetForTesting();

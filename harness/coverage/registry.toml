@@ -741,7 +741,7 @@ values = ["timeline-projection"]
 #
 # `alias-mode` IS KEPT. A retirement was proposed on the premise that no such feature
 # exists; it does: `GhostSnapshotMode.AliasVessel` (Recording.cs:7), chosen by
-# `RecordingStore.DetermineGhostSnapshotMode` (RecordingStore.cs:270) when the ghost
+# `RecordingSidecarStore.DetermineGhostSnapshotMode` (RecordingSidecarStore.cs) when the ghost
 # snapshot equals the vessel snapshot, in which case no `_ghost.craft` sidecar is
 # written. CLAIMED by coverage wave 5 (2026-09-26): DECLARER ST-3-snapshot-sidecars-bdock,
 # whose host `bdock-recorded` carries a committed AliasVessel recording with no

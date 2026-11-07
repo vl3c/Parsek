@@ -29,7 +29,7 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -44,7 +44,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             RecordingStore.ResetForTesting();
 
             if (Directory.Exists(tempDir))
@@ -255,7 +255,7 @@ namespace Parsek.Tests
             Assert.Equal(originalPrecMtime, File.GetLastWriteTimeUtc(precPath));
 
             var restored = new Recording { RecordingId = original.RecordingId };
-            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+            Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, restored));
             Assert.Equal(2, restored.Points.Count);
             Assert.Equal(7.6, restored.Points[0].ut, 6);
             Assert.Equal(10.5, restored.Points[1].ut, 6);
@@ -264,7 +264,7 @@ namespace Parsek.Tests
             // file). The skipped save left it untouched -- the in-memory `stale`
             // recording's epoch=2 must not have been written to disk.
             TrajectorySidecarProbe diskProbe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out diskProbe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out diskProbe));
             Assert.Equal(originalEpoch, diskProbe.SidecarEpoch);
 
             // STEP 5: log assertion -- the skip emitted a structured WARN so
@@ -321,7 +321,7 @@ namespace Parsek.Tests
             // The .prec must exist with the new data (recorder's repopulation).
             Assert.True(File.Exists(precPath));
             var restored = new Recording { RecordingId = fresh.RecordingId };
-            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+            Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, restored));
             Assert.Equal(2, restored.Points.Count);
             Assert.Equal(165.0, restored.Points[0].ut, 6);
             Assert.Equal(200.0, restored.Points[1].ut, 6);
@@ -391,12 +391,12 @@ namespace Parsek.Tests
             Assert.Equal(originalEpoch + 1, shrink.SidecarEpoch);
 
             var restored = new Recording { RecordingId = original.RecordingId };
-            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+            Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, restored));
             Assert.Single(restored.Points);
             Assert.Equal(onlyPoint.ut, restored.Points[0].ut, 6);
 
             TrajectorySidecarProbe diskProbe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out diskProbe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out diskProbe));
             Assert.Equal(originalEpoch + 1, diskProbe.SidecarEpoch);
 
             Assert.Contains(logLines, l =>
