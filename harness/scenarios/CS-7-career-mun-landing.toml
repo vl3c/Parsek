@@ -31,7 +31,7 @@ id = "CS-7-career-mun-landing"
 #
 # THE CRAFT, `CS Mun Solar Lander` (harness/tools/build_cs_orbiter_craft.py --variant
 # solar, gate harness/lib/test_cs_orbiter_craft.py), RE-CUT 2026-11-07 for the fuel and
-# 2026-11-08 for the staging (todo CS7-LANDER-TIPS-AT-BOARD): 30 parts, 48.890 t, 17.47 m,
+# 2026-11-07 for the staging (todo CS7-LANDER-TIPS-AT-BOARD): 30 parts, 48.890 t, 17.47 m,
 # cost 14292. Mk1 pod with
 # a Z-200 under its Mk16, heat shield on a TD-12, then the lander: ONE FL-T400 on a
 # Terrier, three FL-T400 outriggers off its wall (azimuths 90 / 210 / 330, 60 deg or more
@@ -149,16 +149,16 @@ id = "CS-7-career-mun-landing"
 # not in the nightly instance set); (9) `flight_efficiency.py` read after the green
 # flight: 213 s recoverable in the DESCENT coast, not taken here.
 #
-# STATUS: ASCENT LOFTED 2026-11-08 (the mjClassic* missionParams), RE-FLIGHT OWED. The
-# re-flight should read the `auto path before the loft` line, six `read back confirmed`
-# lines and `classic path restored for ascent done` before the transfer, the core drop (the model: 45 to 48 km), three legs at the Mun and
-# about 443 LF at LKO. Flown on `850babd`, INVALID on both attempts (mun-lander-tipped):
+# STATUS: ASCENT LOFTED 2026-11-07 (the mjClassic* missionParams), LIVE-PROVEN
+# `2026-11-07_0741` PASS attempt 1 (2396 s): six read-backs confirmed, the classic path
+# restored before the transfer, core drop 49.2 km (model 45 to 48), LKO with 468.6 LF
+# (model about 443), three legs (16 parts) to the Mun, no part lost. Earlier, flown on `850babd`, INVALID on both attempts (mun-lander-tipped):
 # The staging, fuel and power held (three Thumper debris at 11.1 km, the core drop at
 # 31.8 km, LKO with 413.5 LF, rollout 14327), but the LT-05 opposite the hatch exploded at
 # 33.8 km and 2103 m/s (overheating: heating index sqrt(rho) v^3 5.6e8 against the 2.4e8
 # the surviving flights read): the 0.57 lander could not hold MechJeb's auto path and sank
 # to 33.3 km while it built speed (todo CS7-LANDER-TIPS-AT-BOARD). Before it,
-# CRAFT RE-CUT 2026-11-08 (THE STAGING). The fuel cut (hung
+# CRAFT RE-CUT 2026-11-07 (THE STAGING). The fuel cut (hung
 # Thumpers, coned FL-T400 outriggers, a Z-200) flew on `baf036d`: both attempts lost in
 # MJ-ASCENT at about 257 s wall. The three TD-12s dropped the Thumpers at 12.4 km as
 # staged, four fuelTank pieces left the core within 0.2 s, MechJeb fired the core drop and

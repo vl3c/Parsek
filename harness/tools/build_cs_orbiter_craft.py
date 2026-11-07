@@ -1676,7 +1676,7 @@ def munsci_report():
 #      with nose cones, the Thumpers hang under them on TD-12s, the core loses one
 #      FL-T400 and the power is one Z-200 on the pod. Its Thumpers, dropped along the
 #      core 0.18 m beside it, broke the core apart at 12.4 km: THE STAGING below.
-#   4. this cut (2026-11-08): the fuel cut with the Thumpers back where every earlier
+#   4. this cut (2026-11-07): the fuel cut with the Thumpers back where every earlier
 #      cut flew them, on TT-38Ks on the core (CS Mun Lander's placement). 30 parts.
 #
 # THE FUEL (flight `2026-11-07_0104_..._a2`, vessel-total LiquidFuel read off the
@@ -2485,7 +2485,7 @@ SOLAR_HEAT_MARGIN = 1.5
 SOLAR_HEAT_CEILING = SOLAR_HEAT_SURVIVED / SOLAR_HEAT_MARGIN
 SOLAR_TARGET_APOAPSIS_M = 80000.0
 # (fit error, turn start m, turn end m, shape, CdA launch / core / lander m^2,
-#  max AoA deg, AoA fade-out Pa), fitted 2026-11-08 on 2026-11-07_0620_a2.
+#  max AoA deg, AoA fade-out Pa), fitted 2026-11-07 on 2026-11-07_0620_a2.
 SOLAR_ASCENT_CALIBRATIONS = (
     (2.20, 1807.74, 71331.93, 0.3736, 9.0370, 1.4621, 1.1579, 25.997, 2600.20),
     (2.36, 355.80, 68619.19, 0.4142, 7.1170, 2.4741, 0.7156, 24.393, 4944.80),
