@@ -103,7 +103,7 @@ background split line `at SOI boundary ... pid=<wingman>` and one section per bo
 wingman's recording (a wingman that close likely records Relative to the active vessel, so expect
 `closingSample=0` and two Relative sections, not two Absolute ones); not built.
 
-## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; craft re-cut 2026-11-06 with an outrigger stance (branch `cs7lander`), which stood on the Mun in flight `2026-11-07_0104` and ran out of fuel in the Mun ascent; re-cut 2026-11-07 for the fuel (branch `cs7fuel`), which flew on `baf036d` and broke its core at the booster drop; re-cut 2026-11-08 for the staging, re-flight owed; test harness, low; no Parsek defect]
+## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; craft re-cut 2026-11-06 with an outrigger stance (branch `cs7lander`), which stood on the Mun in flight `2026-11-07_0104` and ran out of fuel in the Mun ascent; re-cut 2026-11-07 for the fuel (branch `cs7fuel`), which flew on `baf036d` and broke its core at the booster drop; re-cut 2026-11-08 for the staging, which flew on `850babd` and burned off a leg in the Kerbin ascent; loft owed (mission side), see the last paragraph; test harness, low; no Parsek defect]
 
 From the run's KSP.log and mission rows: no Parsek line spawns, packs or moves the lander in
 the window (the only spawn lines are the periodic `Spawn suppressed`, as in the green run). Both
@@ -178,6 +178,29 @@ KSP's decouplers do, requires each stage to drop exactly its group while the lan
 three legs and three cones, each liquid engine to feed from its own stage's tanks only, and no part dropped off
 the axis by a stack decoupler within 1.0 m of the stack it slides past; it refuses the flown fuel cut (0.18 m).
 The re-flight should watch the booster drop (three Thumper debris, no other piece) and the core drop's altitude.
+
+2026-11-08, the `850babd` flight: the staging and the fuel held (three Thumper debris at 11.1 km, the core
+drop at 31.8 km, 413.5 LF at LKO, lowest Mun EC about 232 of 250, rollout 14327), but both attempts went
+INVALID `mun-lander-tipped` (97 and 143 deg) on three legs: the LT-05 at azimuth 90 (`miniLandingLeg`
+pid 1700185208, on outrigger 0, opposite the hatch) EXPLODED in the Kerbin ascent (KSP.log `miniLandingLeg
+Exploded!!`, alt 33.8 km, 2103 m/s across, 50 m/s up, ap 36.2 km) on both attempts. Read: overheating. The
+LT-05 is rated 1200 K (wiki; the cfg read is owed); a heating index sqrt(rho) v^3 (rho = 1.225 exp(-h/5.8 km))
+reads 5.6e8 there against at most 2.4e8 on the two flights whose legs survived (2.37e8 at 44.6 km on
+`2026-11-07_0104_a2`, 2.11e8 on `2026-10-31_0654_a2`). The same leg both times: three legs 120 deg apart
+with each at least 60 deg off the hatch put one exactly opposite it, and MechJeb's roll put that side to
+windward at the classic profile's ~18 deg angle of attack, so no leg placement clears it. A lander-only
+point-mass model (MechJeb classic pitch, turn end 59.5 km, no drag) fitted on the `0104_a2` lander rows
+(altitude within 0.5 km over 350 s; its peak index reads about 13% high) says the CRAFT fixes do not help:
+every core-drop state that reaches the failure point is flat and fast (1560 to 1780 m/s with 0 to 120 m/s up
+at 31.8 km, against `0104_a2`'s 1346 and 203), whose index at the drop is already about 3.2e8; from it a
+lander at thrust-to-weight 0.81 (FL-T200 outriggers) still peaks at 5.3e8, a core with 2 to 6 t left at
+5.5e8, and the lander alone lofted harder 3.4e8. From `0104_a2`'s steeper drop the 0.81 lander reads 2.8e8
+(as flown) and today's 0.56 one 5.1e8. So the whole ascent has to be lofted: under MechJeb classic's
+altitude-keyed pitch this cleaner, stronger stack runs flatter than the draggy outrigger cut did. The spec
+exposes no turn-shape knob (only ascentType / autostageLimit / targetApoapsisMeters, and the turn ends at
+min(59.5 km, target)); the fix is a classic turn-shape setter in the CS-4 setter family (set, read back,
+withhold the engage on a refusal) with a value sized on this flight's full MJ-ASCENT rows, or a flown
+trial of ascentType 1 / 2. Offline gate owed with it: a heating-index ceiling in a whole-ascent model.
 
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 

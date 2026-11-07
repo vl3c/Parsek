@@ -76,7 +76,7 @@ id = "CS-7-career-mun-landing"
 # the sun through every burn with the wheel eating it all (283 EC).
 # RISKS A FLIGHT FALSIFIES: the stack's ascent cost (the margin holds to 3512; the coned
 # outriggers' open bottoms are the one drag term no flight has measured), the lander's
-# low thrust-to-weight (0.57 full) finishing the ascent, and the electric charge above (the lowest reading in the Mun
+# low thrust-to-weight (0.57 full) finishing the ascent (it burned off a leg: STATUS), and the electric charge above (the lowest reading in the Mun
 # phases is the one to read: the budget predicts at least ~94 left at the trim).
 #
 # THE 2026-11-04 REDS (full lane run, `2026-11-04_0447_CS-7` and `_a2`, both INVALID
@@ -149,7 +149,13 @@ id = "CS-7-career-mun-landing"
 # not in the nightly instance set); (9) `flight_efficiency.py` read after the green
 # flight: 213 s recoverable in the DESCENT coast, not taken here.
 #
-# STATUS: CRAFT RE-CUT 2026-11-08 (THE STAGING), RE-FLIGHT OWED. The fuel cut (hung
+# STATUS: FLOWN ON `850babd`, INVALID ON BOTH ATTEMPTS (mun-lander-tipped); A LOFT IS OWED.
+# The staging, fuel and power held (three Thumper debris at 11.1 km, the core drop at
+# 31.8 km, LKO with 413.5 LF, rollout 14327), but the LT-05 opposite the hatch exploded at
+# 33.8 km and 2103 m/s (overheating: heating index sqrt(rho) v^3 5.6e8 against the 2.4e8
+# the surviving flights read); the stack flies too flat under MechJeb classic's pitch, and
+# no craft change in reach clears it (todo CS7-LANDER-TIPS-AT-BOARD). Before it,
+# CRAFT RE-CUT 2026-11-08 (THE STAGING). The fuel cut (hung
 # Thumpers, coned FL-T400 outriggers, a Z-200) flew on `baf036d`: both attempts lost in
 # MJ-ASCENT at about 257 s wall. The three TD-12s dropped the Thumpers at 12.4 km as
 # staged, four fuelTank pieces left the core within 0.2 s, MechJeb fired the core drop and
