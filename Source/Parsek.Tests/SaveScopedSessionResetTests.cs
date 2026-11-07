@@ -41,6 +41,7 @@ namespace Parsek.Tests
             typeof(RecordingSidecarStore),
             typeof(RecordingFileJanitor),
             typeof(SceneEntryVesselScope),
+            typeof(CommittedTreeRestoreAttempt),
         };
 
         private readonly List<string> logLines = new List<string>();

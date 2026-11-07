@@ -4,11 +4,13 @@ namespace Parsek
 {
     public static partial class RecordingStore
     {
-        /// <summary>The tree id of the live committed-tree restore attempt, or null.</summary>
-        internal static string CommittedTreeRestoreAttemptTreeId => committedTreeRestoreAttemptTreeId;
+        /// <summary>Forwarder to <see cref="CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId"/>.</summary>
+        internal static string CommittedTreeRestoreAttemptTreeId =>
+            CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId;
 
-        /// <summary>The arm reason of the live committed-tree restore attempt, or null.</summary>
-        internal static string CommittedTreeRestoreAttemptReason => committedTreeRestoreAttemptReason;
+        /// <summary>Forwarder to <see cref="CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptReason"/>.</summary>
+        internal static string CommittedTreeRestoreAttemptReason =>
+            CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptReason;
 
         /// <summary>
         /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>,
@@ -53,10 +55,7 @@ namespace Parsek
             PendingStashedThisTransition = false;
 
             treesDiscardedThisSession.Clear();
-            committedTreeRestoreAttemptTreeId = null;
-            committedTreeRestoreAttemptReason = null;
-            committedTreeRestoreAttemptRecordingIds = null;
-            committedTreeRestoreAttemptEventCutoffs = null;
+            CommittedTreeRestoreAttempt.ResetForLoad();
             durableCommittedRecordingIdHint = null;
 
             SceneEntryVesselScope.ResetForLoad();

@@ -2954,6 +2954,23 @@ each PR lands on the refactor branch, IL-proven a pure move).
   the new type that edge closes a cycle around the `RecordingStore` cut: residue 287 -> 289).
   The optimizer is on the ERS / ELS allowlist. `RecordingStore` partials 8,041 -> 7,522
   lines, 253 -> 247 IL methods; knot 461 -> 462, cut residue 287.
+- PR9 (service H) landed: the committed-tree restore attempt left the store as
+  `CommittedTreeRestoreAttempt`: its four save-scoped statics (tree id, reason, recording ids,
+  event cutoffs) and the 16 members that arm, clear, discard, match and purge it, bodies
+  verbatim apart from reading the pending slot through `RecordingStore.PendingTree` /
+  `SavedPendingTreeDuringActiveRestore`. It has `ResetForLoad` (called by
+  `RecordingStore.ResetSaveScopedStateForLoad`) and `ResetForTesting` (called by
+  `ResetForTestingInternal`) at the points where the store cleared the fields, so the reset
+  order is unchanged, and it is in `SaveScopedSessionResetTests.InventoryTypes` (no field
+  allowlisted). `ParsekFlight` calls the new type; the store keeps forwarders for `Has`, `Arm`,
+  `Clear`, `Discard`, `ClearForDroppedTree`, the two id predicates, the suppression predicate
+  and the tree-id / reason accessors, because the other callers (`GameStateStore`,
+  `RouteRunPrompt`, `MergeDialog.Commit`, `RewindInvoker`, `SceneExitInterceptor`,
+  `MapFocusObjectOnSelectPatch`, `ParsekScenario`) sit outside the cuts: calling the new type
+  directly closes cycles around the `RecordingStore` cut (residue 287 -> 288).
+  `IsMarkerOwnedSwitchSegmentRecordingId` and `FindRecordingByIdAcrossStores` stay on the
+  store (service J). `RecordingStore` partials 7,650 -> 7,339 lines, 247 -> 237 IL methods;
+  knot 462 -> 463, cut residue unchanged.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
