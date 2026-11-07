@@ -64,8 +64,8 @@ namespace Parsek.Tests
 
             AssertSemanticTrajectoryEqual(original, restored);
             AssertRecordingStatsEqual(
-                TrajectoryMath.ComputeStats(original, LookupBody),
-                TrajectoryMath.ComputeStats(restored, LookupBody));
+                RecordingStatsCalculator.ComputeStats(original, LookupBody),
+                RecordingStatsCalculator.ComputeStats(restored, LookupBody));
         }
 
         [Theory]
