@@ -106,6 +106,10 @@ Source/Parsek/GameActions/CaptureSequence.cs
 # is a physical pid+site identity correlation, not a recording-id walk).
 Source/Parsek/GameActions/LedgerRolloutAdoption.cs
 Source/Parsek/KerbalsModule.cs
+# KerbalsModule's partial-class split (scripts/refactor/split_kerbalsmodule.py): the
+# raw read KerbalsModule.cs held (PrePass's recording-metadata cache) now sits in this
+# partial, same trust scope.
+Source/Parsek/KerbalsModule.Walk.cs
 
 # --- Internal game-state-event suppression check ---
 Source/Parsek/GameStateRecorder.cs
@@ -464,6 +468,10 @@ Source/Parsek/RecordingTreeSplitter.cs
 # CommittedRecordings/CommittedTrees read only. Documented at the call site with
 # an inline [ERS-exempt] comment.
 Source/Parsek/Logistics/RouteOrchestrator.cs
+# RouteOrchestrator's partial-class split (scripts/refactor/split_routeorchestrator.py):
+# the raw read RouteOrchestrator.cs held (ResolveLoopUnit) now sits in this partial,
+# same exemption.
+Source/Parsek/Logistics/RouteOrchestrator.LoopClock.cs
 
 # [ERS-exempt] MissionConfig seam verb (test-command surface, unreachable
 # without PARSEK_TEST_COMMANDS=1): passes RecordingStore.CommittedTrees /

@@ -2914,6 +2914,17 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `RecordingStore` type initialiser that installs `Recording.GhostHiddenRule` keeps
   `LaunchSiteOnlyGhost` inside), first cuts `Route` (439) and `ParsekFlight` (424), cut-residue
   ratchet 306 -> 282.
+- Wave 2 W8c on this branch (S3, pure move, IL identical): `Logistics/RouteOrchestrator.cs`
+  (5,521 lines, a static class) is a partial class over 7 files
+  (`scripts/refactor/split_routeorchestrator.py`; every field and constant stays in the main
+  file): `RouteOrchestrator.cs` 1,144 lines (operator API, tick, per-route dispatch, shared
+  helpers), `.LoopCrossings` 1,126, `.Debits` 1,090, `.Delivery` 895, `.Holds` 579,
+  `.LoopClock` 389, `.Escrow` 358. `KerbalsModule.cs` (5,120 lines) is a partial class over 7
+  files (`scripts/refactor/split_kerbalsmodule.py`; every field, property, constant and the
+  constructor stay in the main file, with the nested data types): `KerbalsModule.cs` 754,
+  `.Roster` 1,244, `.Walk` 946, `.CrewEndStates` 900, `.Handoffs` 505, `.Queries` 427,
+  `.HoldClock` 404. The ERS / ELS allowlist adds the partial that now holds each raw read
+  (`RouteOrchestrator.LoopClock.cs`, `KerbalsModule.Walk.cs`).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
