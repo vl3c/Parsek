@@ -238,10 +238,10 @@ namespace Parsek.Tests
             chain.ClaimedVessels.Add(new ChainClaimedVessel { Pid = 99u, FirstClaimUT = 50.0 });
             chain.ClaimedVessels.Add(new ChainClaimedVessel { Pid = 0u, FirstClaimUT = 50.0 });
             var chains = new Dictionary<uint, GhostChain> { { RoverPid, chain }, { 5u, null } };
-            HashSet<uint> pids = RecordingStore.CollectHeldBackVesselPids(chains);
+            HashSet<uint> pids = RewindSpawnScope.CollectHeldBackVesselPids(chains);
             Assert.Equal(new HashSet<uint> { RoverPid, 99u }, pids);
-            Assert.Empty(RecordingStore.CollectHeldBackVesselPids(null));
-            Assert.Null(RecordingStore.ResolveRewindClaimedVesselPids(double.NaN));
+            Assert.Empty(RewindSpawnScope.CollectHeldBackVesselPids(null));
+            Assert.Null(RewindSpawnScope.ResolveRewindClaimedVesselPids(double.NaN));
         }
     }
 }

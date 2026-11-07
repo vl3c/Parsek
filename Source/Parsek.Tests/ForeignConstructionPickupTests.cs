@@ -250,7 +250,7 @@ namespace Parsek.Tests
             // The hold ghost shows the rewind save's loose part until the pick-up.
             Assert.Equal(PickupUT, entry.FirstClaimUT);
             Assert.Contains(member.RecordingId, entry.FlyingRecordingIds);
-            Assert.True(RecordingStore.WillReplayAfterRewind(member, LaunchUT));
+            Assert.True(RewindSpawnScope.WillReplayAfterRewind(member, LaunchUT));
 
             // The member ends Disassembled: never a spawnable leaf, so the hold is never undone.
             Assert.False(GhostPlaybackLogic.IsSpawnableTerminal(member.TerminalStateValue.Value));
@@ -336,7 +336,7 @@ namespace Parsek.Tests
             var trees = new List<RecordingTree> { earlierTree, tree };
             var all = new List<Recording> { drop };
             all.AddRange(tree.Recordings.Values);
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 all, LaunchUT, ForeignInventoryTransfer.CollectTransferMemberRecordingIds(trees));
 
             Assert.DoesNotContain(LoosePid, scope.StripPids);

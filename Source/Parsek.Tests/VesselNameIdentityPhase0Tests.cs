@@ -546,7 +546,7 @@ namespace Parsek.Tests
         }
 
         // ============================================================
-        // RecordingStore.RewindOwnerStrip (unchanged in Phase 0): why its name fallback stays
+        // RewindSpawnScope.RewindOwnerStrip (unchanged in Phase 0): why its name fallback stays
         // ============================================================
 
         // Settles design 7.9's open check: the PID strip does NOT cover a re-keyed owner copy
@@ -561,29 +561,29 @@ namespace Parsek.Tests
             owner.VesselSpawned = false;
             owner.SpawnedVesselPersistentId = 0u;
 
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 new List<Recording> { owner }, double.NaN);
             Assert.DoesNotContain(90001u, scope.StripPids);
 
-            var strip = RecordingStore.BuildRewindOwnerStrip(owner);
+            var strip = RewindSpawnScope.BuildRewindOwnerStrip(owner);
             // The quicksave holds only the re-keyed copy (fresh spawn guid): no vessel carries
             // the owner guid, so the strip is unanchored and the name decides.
-            bool anchored = RecordingStore.RewindOwnerStripIsAnchored(strip, new[] { GuidB });
+            bool anchored = RewindSpawnScope.RewindOwnerStripIsAnchored(strip, new[] { GuidB });
             Assert.False(anchored);
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Relay", GuidB, strip, anchored));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripName,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Relay", GuidB, strip, anchored));
             // Neither the name nor the guid reaches a copy under another name without a link.
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.NotMatched,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Relay-2", GuidB, strip, anchored));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.NotMatched,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Relay-2", GuidB, strip, anchored));
 
             // Phase 2b: the Resume link puts the copy's guid in the owner's identity guid set,
             // so the copy is found by guid under any name.
             Assert.True(VesselNameStore.AddLink(GuidB, GuidA, VesselIdentityLinkKind.Resume, "test"));
-            var linked = RecordingStore.BuildRewindOwnerStrip(owner);
-            bool linkedAnchored = RecordingStore.RewindOwnerStripIsAnchored(linked, new[] { GuidB });
+            var linked = RewindSpawnScope.BuildRewindOwnerStrip(owner);
+            bool linkedAnchored = RewindSpawnScope.RewindOwnerStripIsAnchored(linked, new[] { GuidB });
             Assert.True(linkedAnchored);
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripOwnerGuid,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Relay-2", GuidB, linked, linkedAnchored));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripOwnerGuid,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Relay-2", GuidB, linked, linkedAnchored));
         }
 
         // ============================================================

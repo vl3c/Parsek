@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Parsek
 {
-    public static partial class RecordingStore
+    internal static partial class RewindSpawnScope
     {
         /// <summary>
         /// What the plain rewind's pre-load strip removes by owner identity: the rewind owner's
@@ -139,7 +139,7 @@ namespace Parsek
             }
             if (!string.IsNullOrEmpty(owner.ChainId))
             {
-                foreach (var committed in committedRecordings)
+                foreach (var committed in RecordingStore.CommittedRecordings)
                 {
                     if (committed.ChainId == owner.ChainId &&
                         !string.IsNullOrEmpty(committed.EvaCrewName) &&
@@ -149,12 +149,12 @@ namespace Parsek
                         strip.NameOnly.Add(committed.VesselName);
                     }
                 }
-                if (strip.NameOnly.Count > 0 && !SuppressLogging)
+                if (strip.NameOnly.Count > 0 && !RecordingStore.SuppressLogging)
                     ParsekLog.Info("Rewind",
                         $"Rewind strip includes {strip.NameOnly.Count} EVA child vessel name(s) from chain '{owner.ChainId}'");
             }
 
-            if (!SuppressLogging)
+            if (!RecordingStore.SuppressLogging)
                 ParsekLog.Verbose("Rewind",
                     $"Rewind owner strip: owner='{strip.OwnerName}' guid={strip.OwnerGuid ?? "(none, name-only)"} " +
                     $"evaChildNames={strip.NameOnly.Count} identityGuids={strip.OwnerIdentityGuids.Count} ownerAliases={strip.OwnerAliasNames.Count}");
