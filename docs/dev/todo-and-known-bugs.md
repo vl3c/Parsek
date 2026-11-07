@@ -3034,6 +3034,13 @@ compare).
   Core -> Recording 25 -> 12, Core -> Controllers 13 -> 1, Core -> Crew and Core -> Ghost gone;
   Ghost -> Controllers 50 -> 58, Recording -> Controllers 39 -> 43, Rewind and Crew -> Controllers
   +1 each. Knots and residue unchanged. No Source file changes.
+- PR 10: S3 partial-file split of `VesselSpawner` inside Controllers by
+  `scripts/refactor/split_vesselspawner.py`: `VesselSpawner.cs` keeps every field, constant and
+  property plus the shared spawn core, and `.SourceIdentity` (the `MaterializedSourceVesselExists`
+  pid / guid pair stays together), `.Respawn`, `.EndOfRecording`, `.KscRetirement`, `.CrewRoster`,
+  `.TerminalOrbit`, `.SpawnRotation` and `.Validation` take the rest. The five source gates that
+  read `VesselSpawner.cs` read the split set through `VesselSpawnerSourceFiles`. IL identical;
+  arch unchanged. This closes the VesselSpawner placement (atlas opportunity 7).
 
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

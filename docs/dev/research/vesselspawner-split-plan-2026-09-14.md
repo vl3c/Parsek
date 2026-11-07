@@ -12,7 +12,8 @@ moved the crew-in-snapshot, situation, position-stamp, rotation-node,
 validation and canonical-orbit families to `VesselSnapshotOps`, and PR 8 the
 live capture, body registry and max-distance family to a new
 `LiveVesselSnapshot` (placed in Recording); PR 9 placed `VesselSpawner.cs`
-itself in Controllers, off the Core kernel list. Read this file as the
+itself in Controllers, off the Core kernel list, and PR 10 split it into
+partial files by area (`scripts/refactor/split_vesselspawner.py`). Read this file as the
 2026-09-14 member inventory only; the placement and the split are recorded in
 that todo entry.
 

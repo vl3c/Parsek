@@ -78,6 +78,8 @@ namespace Parsek.Tests
                 GhostTrajectoryPolylineRendererSourceFiles.Paths(Path.Combine(parsek, "Display")).Count);
             Assert.Equal(1 + RecordingsTableUISourceFiles.SplitFileNames.Length,
                 RecordingsTableUISourceFiles.Paths(Path.Combine(parsek, "UI")).Count);
+            Assert.Equal(1 + VesselSpawnerSourceFiles.SplitFileNames.Length,
+                VesselSpawnerSourceFiles.Paths(parsek).Count);
         }
     }
 }
