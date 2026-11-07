@@ -1984,6 +1984,10 @@ were placed, it merged into the kernel knot (584). The fix direction below is un
   `AppendReason` onto `StockUiText` (simulated on a scratch copy) gives knots [459, 9, 4, 3],
   replayed residue 283 -> 265 and greedy residue 290 -> 238. As an extra cut,
   `StrategyReservationPredicates` is worth 283 -> 282 only.
+- Done (W3b, MOVE, 2026-11-07): `ReasonColorHex` and `AppendReason` now live on `StockUiText`.
+  Measured after W1a (base 272 of 459): knots [441, 9, 4, 3, 2], greedy residue 272 -> 228
+  (the greedy sequence now cuts `ParsekUI` at step 11). The ratchet order is re-pinned to that
+  sequence and the bound tightened to 228.
 
 **Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
 explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
