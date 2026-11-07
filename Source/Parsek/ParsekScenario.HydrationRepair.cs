@@ -12,9 +12,9 @@ namespace Parsek
         {
             return staleEpochHydrationFailures > 0
                 && loadedTree != null
-                && RecordingStore.HasPendingTree
-                && RecordingStore.PendingTree != null
-                && RecordingStore.PendingTree.Id == loadedTree.Id;
+                && PendingTreeSlot.HasPendingTree
+                && PendingTreeSlot.PendingTree != null
+                && PendingTreeSlot.PendingTree.Id == loadedTree.Id;
         }
 
         internal const string StaleSidecarEpochReason = "stale-sidecar-epoch";
@@ -22,14 +22,14 @@ namespace Parsek
         internal static int RestoreHydrationFailedRecordingsFromPendingTree(RecordingTree loadedTree)
         {
             if (loadedTree == null
-                || !RecordingStore.HasPendingTree
-                || RecordingStore.PendingTree == null
-                || RecordingStore.PendingTree.Id != loadedTree.Id)
+                || !PendingTreeSlot.HasPendingTree
+                || PendingTreeSlot.PendingTree == null
+                || PendingTreeSlot.PendingTree.Id != loadedTree.Id)
             {
                 return 0;
             }
 
-            var pendingTree = RecordingStore.PendingTree;
+            var pendingTree = PendingTreeSlot.PendingTree;
             var failedIds = new List<string>();
             foreach (var kvp in loadedTree.Recordings)
             {

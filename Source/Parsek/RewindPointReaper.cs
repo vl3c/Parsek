@@ -365,7 +365,7 @@ namespace Parsek
 
             // Also check the pending tree (if any) — an RP can be reaped
             // after its owning tree drops back to pending via OnLoad.
-            var pending = RecordingStore.PendingTree;
+            var pending = PendingTreeSlot.PendingTree;
             if (pending != null && pending.BranchPoints != null)
             {
                 for (int b = 0; b < pending.BranchPoints.Count; b++)

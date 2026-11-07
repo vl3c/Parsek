@@ -514,7 +514,7 @@ namespace Parsek.Tests
 
             ParsekScenario.ResetSaveScopedSessionState("main-menu");
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.False(TreeDiscardService.WasTreeDiscardedThisSession(treeId));
             foreach (string file in files)
                 Assert.True(File.Exists(file), "the reset deleted " + file);
@@ -532,14 +532,14 @@ namespace Parsek.Tests
         {
             TreeDiscardService.NoteTreeDiscardedThisSession("tree-gone", "Gone", 1);
             var attemptTree = new RecordingTree { Id = "tree-attempt", TreeName = "Attempt" };
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(attemptTree, "test");
             Assert.True(TreeDiscardService.WasTreeDiscardedThisSession("tree-gone"));
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
 
             ParsekScenario.ResetSaveScopedSessionState("main-menu");
 
             Assert.False(TreeDiscardService.WasTreeDiscardedThisSession("tree-gone"));
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
         }
 
         // catches: a reset that nulls the committed-list notification events (the batch reset

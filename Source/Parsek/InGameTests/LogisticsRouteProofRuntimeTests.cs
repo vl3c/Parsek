@@ -261,7 +261,7 @@ namespace Parsek.InGameTests
             if (activeTree != null)
                 yield return activeTree;
 
-            RecordingTree pendingTree = RecordingStore.PendingTree;
+            RecordingTree pendingTree = PendingTreeSlot.PendingTree;
             if (pendingTree != null && !ReferenceEquals(pendingTree, activeTree))
                 yield return pendingTree;
 

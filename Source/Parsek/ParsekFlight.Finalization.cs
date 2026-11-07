@@ -35,25 +35,25 @@ namespace Parsek
                 ParsekScenario.IsReFlyInPlaceContinuationActive()
                 || RewindInvokeContext.Pending;
             if (ShouldShowOnFlightReadyMergeDialog(
-                    hasPendingTree: RecordingStore.HasPendingTree,
+                    hasPendingTree: PendingTreeSlot.HasPendingTree,
                     restoringActiveTree: restoringActiveTree,
                     reFlyInPlaceContinuationActive: reFlyOwnsPendingTree))
             {
-                var pt = RecordingStore.PendingTree;
+                var pt = PendingTreeSlot.PendingTree;
                 ParsekLog.Warn("Flight",
                     $"Pending tree '{pt.TreeName}' reached OnFlightReady — showing tree merge dialog (fallback)");
                 MergeDialog.ShowTreeDialog(pt);
             }
-            else if (RecordingStore.HasPendingTree && restoringActiveTree)
+            else if (PendingTreeSlot.HasPendingTree && restoringActiveTree)
             {
                 ParsekLog.Info("Flight",
-                    $"Pending tree '{RecordingStore.PendingTree.TreeName}' skipped — " +
+                    $"Pending tree '{PendingTreeSlot.PendingTree.TreeName}' skipped — " +
                     "restore coroutine in progress (#293)");
             }
-            else if (RecordingStore.HasPendingTree && reFlyOwnsPendingTree)
+            else if (PendingTreeSlot.HasPendingTree && reFlyOwnsPendingTree)
             {
                 ParsekLog.Info("Flight",
-                    $"Pending tree '{RecordingStore.PendingTree.TreeName}' reached OnFlightReady — " +
+                    $"Pending tree '{PendingTreeSlot.PendingTree.TreeName}' reached OnFlightReady — " +
                     "skipping merge dialog: in-place Re-Fly session owns the pending tree (Retry/initial invoke)");
             }
         }

@@ -121,7 +121,7 @@ namespace Parsek.Tests
             Assert.Equal(1, reaped);
             Assert.Null(FindCommitted("rec_orphan_pending"));
             Assert.DoesNotContain("rec_orphan_pending",
-                RecordingStore.PendingTree.Recordings.Keys);
+                PendingTreeSlot.PendingTree.Recordings.Keys);
             Assert.Contains(logLines, l =>
                 l.Contains("[Parsek][INFO][ReFlySession]") &&
                 l.Contains("ReapPriorProvisional: removed orphan rec=rec_orphan_pending") &&

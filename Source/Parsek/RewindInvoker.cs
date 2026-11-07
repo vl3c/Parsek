@@ -2427,7 +2427,7 @@ namespace Parsek
         /// the in-place fork (issue #734) can attach itself to the tree the
         /// recorder will eventually flush into. AtomicMarkerWrite usually
         /// runs after <c>TryRestoreActiveTreeNode</c> stashes the saved tree
-        /// as pending-Limbo, so <see cref="RecordingStore.PendingTree"/> is
+        /// as pending-Limbo, so <see cref="PendingTreeSlot.PendingTree"/> is
         /// the common target. The lookup additionally falls back to
         /// <see cref="RecordingStore.CommittedTrees"/> for sessions whose
         /// committed copy was never detached, and finally to
@@ -2448,7 +2448,7 @@ namespace Parsek
             if (string.IsNullOrEmpty(treeId))
                 return null;
 
-            RecordingTree pending = RecordingStore.PendingTree;
+            RecordingTree pending = PendingTreeSlot.PendingTree;
             if (pending != null
                 && string.Equals(pending.Id, treeId, StringComparison.Ordinal))
             {
@@ -2576,7 +2576,7 @@ namespace Parsek
 
                 // Pending tree.
                 bool fromPendingTree = false;
-                var pending = RecordingStore.PendingTree;
+                var pending = PendingTreeSlot.PendingTree;
                 if (pending?.Recordings != null && pending.Recordings.Remove(id))
                 {
                     pending.RebuildBackgroundMap();

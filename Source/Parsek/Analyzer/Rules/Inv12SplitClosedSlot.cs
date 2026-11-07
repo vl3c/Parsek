@@ -10,7 +10,7 @@ namespace Parsek.Analyzer.Rules
     // TIP is Immutable. It is the on-disk residue of the defect PR #1658 fixed
     // (OPTIMIZER-SPLIT-DROPS-MERGESTATE-AND-CLOSES-AN-OPEN-REFLY-SLOT):
     // MergeDialog.MergeCommit promotes a re-flyable slot's tip to CommittedProvisional
-    // and only THEN runs RecordingStore.RunOptimizationPass(); when the phase-change
+    // and only THEN runs CommittedListOptimizer.RunOptimizationPass(); when the phase-change
     // split cut the just-promoted recording, RecordingOptimizer.
     // TransferTerminalFieldsToSecondHalf moved the terminal onto a brand-new chain TIP
     // but not the MergeState, and Recording.MergeState defaults to Immutable. A slot's

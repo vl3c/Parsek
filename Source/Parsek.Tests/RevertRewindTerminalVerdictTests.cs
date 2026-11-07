@@ -181,13 +181,13 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Destroyed,
             };
             PendingTreeSlot.StashPendingTree(reverted, PendingTreeState.Finalized);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             // The two OnLoad revert steps this change sits between.
             PendingTreeSlot.UnstashPendingTreeOnRevert();
             ParsekScenario.ResetTreeRecordingMutableStateForLoad(RecordingStore.CommittedRecordings);
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Equal(committedBefore, RecordingStore.CommittedRecordings.Count);
             foreach (var rec in RecordingStore.CommittedRecordings)
                 Assert.NotEqual("rec-reverted", rec.RecordingId);

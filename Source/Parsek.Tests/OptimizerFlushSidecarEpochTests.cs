@@ -148,7 +148,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(loaded);
             loaded.MarkFilesDirty();
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.False(loaded.FilesDirty);
             Assert.Contains(logLines, l =>
@@ -216,7 +216,7 @@ namespace Parsek.Tests
 
             CommitInTree(flown, "optflushepochtree1");
             flown.MarkFilesDirty();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.False(flown.FilesDirty);
             Assert.True(flown.SidecarEpochAdvancePending);
@@ -251,7 +251,7 @@ namespace Parsek.Tests
             Assert.True(RecordingSidecarStore.SaveRecordingFiles(flown, incrementEpoch: true));
             CommitInTree(flown, "optflushepochtree3");
             flown.MarkFilesDirty();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.True(flown.SidecarEpochAdvancePending);
 
             Assert.Equal("2", RealOnSave(id).GetValue("sidecarEpoch"));

@@ -4582,8 +4582,8 @@ namespace Parsek
                 }
             }
 
-            RecordingTree pending = RecordingStore.HasPendingTree
-                ? RecordingStore.PendingTree
+            RecordingTree pending = PendingTreeSlot.HasPendingTree
+                ? PendingTreeSlot.PendingTree
                 : null;
             if (pending?.Recordings != null && pending.Recordings.ContainsKey(recordingId))
             {

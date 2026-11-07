@@ -317,7 +317,7 @@ namespace Parsek.Tests
 
             Assert.True(ended);
             Assert.Null(s.Scenario.ActiveReFlySessionMarker);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.True(CommittedTreeHas(TreeId));
             Assert.False(CommittedHas(ProvisionalId));
             // An unrelated live tree takes the ordinary scene-exit commit.

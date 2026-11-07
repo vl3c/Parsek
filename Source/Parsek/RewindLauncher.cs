@@ -275,7 +275,7 @@ namespace Parsek
                 return false;
             }
 
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
                 // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
@@ -356,7 +356,7 @@ namespace Parsek
                 return false;
             }
 
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
                 // Per-frame logging removed (was 20% of all log output); reason returned to caller

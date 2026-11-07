@@ -114,12 +114,12 @@ namespace Parsek.Tests
         {
             var tree = MakeSimpleTree("pending_tree");
             PendingTreeSlot.StashPendingTree(tree);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             RecordingStore.SuppressLogging = false;
             TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
 
         [Fact]

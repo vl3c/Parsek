@@ -965,7 +965,7 @@ namespace Parsek
                 return PreTransitionOutcome.FinalizeThrew;
             }
 
-            var pending = RecordingStore.PendingTree;
+            var pending = PendingTreeSlot.PendingTree;
             if (pending == null)
             {
                 ParsekLog.Warn("MergeDialog",
@@ -1011,8 +1011,8 @@ namespace Parsek
             {
                 MergeCommit(pending, decisions, spawnCount, playerRequestedSeal,
                     reShowDialogOnRefusal: reShowDialogOnRefusal);
-                // CommitPendingTree nulls RecordingStore.PendingTree on success.
-                actionCompleted = (RecordingStore.PendingTree == null);
+                // CommitPendingTree nulls PendingTreeSlot.PendingTree on success.
+                actionCompleted = (PendingTreeSlot.PendingTree == null);
             }
             else
             {

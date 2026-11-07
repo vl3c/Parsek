@@ -474,7 +474,7 @@ namespace Parsek.Tests
             string discardBody = mapPatchSource.Substring(
                 discardStart, discardEnd - discardStart);
             Assert.Contains(
-                "RecordingStore.TryDiscardActiveSwitchSegmentAttempt",
+                "SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt",
                 discardBody);
 
             // Pin the helper still clears the session.

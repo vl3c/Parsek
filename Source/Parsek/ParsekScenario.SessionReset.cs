@@ -60,7 +60,7 @@ namespace Parsek
 
             // A quit without saving's stashed flight: capture its recordings before the drop,
             // so the cold branch deletes its files once the save's lists are loaded.
-            NoSaveSceneExit.CaptureDroppedFlight(RecordingStore.PendingTree, NoSaveSceneExit.CurrentSaveFolder());
+            NoSaveSceneExit.CaptureDroppedFlight(PendingTreeSlot.PendingTree, NoSaveSceneExit.CurrentSaveFolder());
             bool pendingTreeDropped = RecordingStore.ResetSaveScopedStateForLoad(out string pendingSummary);
             storesReset++;
             if (pendingTreeDropped)
@@ -435,7 +435,7 @@ namespace Parsek
             }
 
             string reason = BuildSaveAttemptRearmReason(savedReason);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committedCopy, reason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committedCopy, reason);
             ParsekLog.Info("Scenario",
                 "OnLoad: re-armed the save's committed-tree restore attempt for tree '"
                 + (tree.TreeName ?? "<unnamed>") + "' id=" + tree.Id
@@ -498,9 +498,9 @@ namespace Parsek
 
             string savedId = attempt.GetValue(GameStateStore.AttemptTreeIdKey);
             string armedId = RecordingStore.CommittedTreeRestoreAttemptTreeId;
-            string activeId = (RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                    || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch)
-                ? RecordingStore.PendingTree?.Id
+            string activeId = (PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Limbo
+                    || PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch)
+                ? PendingTreeSlot.PendingTree?.Id
                 : null;
             int count = attempt.GetNodes("GAME_STATE_EVENT").Length;
             bool committedTreeLoaded = !string.IsNullOrEmpty(savedId)
@@ -585,7 +585,7 @@ namespace Parsek
             // tree) is not one it would keep off the file: drop it rather than let the next
             // save write it outside a merge (#866).
             int restored = GameStateStore.RestoreAttemptEventsToMemory(
-                held, RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence,
+                held, CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence,
                 out int dropped);
             ParsekLog.Info("Scenario",
                 "Restored the held ATTEMPT_EVENTS into memory only on the flight's re-arm: attemptTreeId="

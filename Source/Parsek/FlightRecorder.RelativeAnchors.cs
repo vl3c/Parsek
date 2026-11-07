@@ -998,7 +998,7 @@ namespace Parsek
                 focusRecordingId: ActiveTree?.ActiveRecordingId,
                 focusTreeId: ActiveTree?.Id,
                 activeReFlyMarker: ParsekScenario.Instance?.ActiveReFlySessionMarker,
-                pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
+                pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveRecordedPointWorldPosition,
                 bodyWorldRotationResolver: ResolveRecordedPointBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPoseForRecorder);

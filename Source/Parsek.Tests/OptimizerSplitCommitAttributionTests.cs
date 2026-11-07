@@ -205,7 +205,7 @@ namespace Parsek.Tests
             AddPendingScience("other@Kerbin", 45.0, "rec_other");
 
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
@@ -248,7 +248,7 @@ namespace Parsek.Tests
                 53.0, "rec_fresh", valueBefore: 20.0, valueAfter: 10.0);
             AddPendingScience("crewReport@KerbinSrfLanded", 45.0, "rec_fresh");
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
             string seg1 = list[0].RecordingId;
@@ -326,7 +326,7 @@ namespace Parsek.Tests
             AddPendingScience("mysteryGoo@KerbinFlying", 15.0, "rec_quiet");
 
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal("rec_quiet", TagOf("RecordsSpeed"));
             Assert.Equal("rec_quiet", PendingTagOf("mysteryGoo@KerbinFlying"));
@@ -409,7 +409,7 @@ namespace Parsek.Tests
             Ledger.AddAction(science);
 
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.False(tree.Recordings.ContainsKey("seg-b"));
             Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.RecordingId == "seg-b");

@@ -1386,7 +1386,7 @@ namespace Parsek
         {
             bool hasActiveUncommittedTree = GameStateRecorder.HasActiveUncommittedTree();
             bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
-            bool hasPendingTree = RecordingStore.HasPendingTree;
+            bool hasPendingTree = PendingTreeSlot.HasPendingTree;
             if (!hasActiveUncommittedTree && !hasPendingTree)
                 return null;
 
@@ -1398,10 +1398,10 @@ namespace Parsek
 
             if (hasPendingTree)
             {
-                string treeName = RecordingStore.PendingTree?.TreeName;
+                string treeName = PendingTreeSlot.PendingTree?.TreeName;
                 string pendingReason = string.IsNullOrEmpty(treeName)
-                    ? $"pending tree state={RecordingStore.PendingTreeStateValue}"
-                    : $"pending tree '{treeName}' state={RecordingStore.PendingTreeStateValue}";
+                    ? $"pending tree state={PendingTreeSlot.PendingTreeStateValue}"
+                    : $"pending tree '{treeName}' state={PendingTreeSlot.PendingTreeStateValue}";
                 reason = string.IsNullOrEmpty(reason)
                     ? pendingReason
                     : reason + "; " + pendingReason;

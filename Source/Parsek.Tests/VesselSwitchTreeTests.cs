@@ -502,7 +502,7 @@ namespace Parsek.Tests
                 action);
             Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
             Assert.True(RecordingStore.IsCommittedRecordingId("rec_tip"));
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptRecordingId("rec_tip"));
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptRecordingId("rec_tip"));
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Same(tree, RecordingStore.CommittedTrees[0]);
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
@@ -579,9 +579,9 @@ namespace Parsek.Tests
             GameStateStore.AddEvent(ref historicalEvent);
             GameStateStore.AddEvent(ref attemptEvent);
             Assert.False(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(historicalEvent));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(historicalEvent));
             Assert.True(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(attemptEvent));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(attemptEvent));
             Assert.True(ParsekScenario.ShouldDeferPendingEventMilestoneFlushForSave());
 
             liveTree.Recordings["rec_tip"].VesselPersistentId = 200;
@@ -592,7 +592,7 @@ namespace Parsek.Tests
 
             TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
             Assert.False(ParsekScenario.ShouldDeferPendingEventMilestoneFlushForSave());
             Assert.Single(RecordingStore.CommittedTrees);
@@ -630,7 +630,7 @@ namespace Parsek.Tests
             var attemptTree = MakeTree("rec_attempt");
             attemptTree.Id = "tree_attempt_other";
             attemptTree.RootRecordingId = "rec_attempt";
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
             Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
 
             var attemptTail = MakeEvent(
@@ -640,7 +640,7 @@ namespace Parsek.Tests
                 "rec_attempt");
             GameStateStore.AddEvent(ref attemptTail);
             Assert.True(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
                     attemptTail));
 
             var pendingTree = MakeTree("rec_pending");
@@ -649,12 +649,12 @@ namespace Parsek.Tests
 
             TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             // The attempt belongs to ANOTHER tree: neither its suppressed tail nor its
             // arm may go with this discard.
             Assert.Contains(GameStateStore.Events, e => e.key == "attempt-tail");
             Assert.True(
-                RecordingStore.IsCommittedTreeRestoreAttemptTree("tree_attempt_other"));
+                CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree("tree_attempt_other"));
         }
 
         [Fact]
@@ -702,10 +702,10 @@ namespace Parsek.Tests
                 250.0,
                 "rec_other");
 
-            Assert.False(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(before));
-            Assert.False(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(boundary));
-            Assert.True(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(after));
-            Assert.False(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(otherRecording));
+            Assert.False(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(before));
+            Assert.False(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(boundary));
+            Assert.True(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(after));
+            Assert.False(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(otherRecording));
         }
 
         [Fact]
@@ -751,7 +751,7 @@ namespace Parsek.Tests
                 220.0,
                 "rec_attempt_child");
             Assert.True(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(activePendingOnlyEvent));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(activePendingOnlyEvent));
 
             SetParsekFlightInstanceForTesting(null);
             PendingTreeSlot.StashPendingTree(liveTree);
@@ -762,7 +762,7 @@ namespace Parsek.Tests
                 225.0,
                 "rec_attempt_child");
             Assert.True(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(stashedPendingOnlyEvent));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(stashedPendingOnlyEvent));
 
             var unrelatedPendingOnlyEvent = MakeEvent(
                 GameStateEventType.TechResearched,
@@ -770,7 +770,7 @@ namespace Parsek.Tests
                 225.0,
                 "rec_unrelated");
             Assert.False(
-                RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(unrelatedPendingOnlyEvent));
+                CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(unrelatedPendingOnlyEvent));
         }
 
         [Fact]

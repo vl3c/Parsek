@@ -123,13 +123,13 @@ namespace Parsek.InGameTests
                 return;
             }
             ParsekLog.Info(Tag, $"ground-truth game mode={mode} pools={GroundTruthPoolsForMode(mode)}");
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {
                 ParsekLog.Verbose(Tag,
                     "Skip: a live/pending tree would defer patching " +
-                    $"(pendingTree={RecordingStore.HasPendingTree.ToString(IC)} " +
+                    $"(pendingTree={PendingTreeSlot.HasPendingTree.ToString(IC)} " +
                     $"activeUncommittedTree={GameStateRecorder.HasActiveUncommittedTree().ToString(IC)} " +
                     $"liveRecorder={GameStateRecorder.HasLiveRecorder().ToString(IC)})");
                 InGameAssert.Skip(

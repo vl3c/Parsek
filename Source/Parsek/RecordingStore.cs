@@ -169,34 +169,13 @@ namespace Parsek
 
         public static IReadOnlyList<Recording> CommittedRecordings => committedRecordings;
         public static List<RecordingTree> CommittedTrees => committedTrees;
-        // Forwarders to PendingTreeSlot (RecordingStore services plan, PR10): 35 / 25 / 8
-        // production files read these three, and LoadReconcileWiringGateTests pins the
-        // ParsekScenario text `RecordingStore.PendingTree`.
-        public static bool HasPendingTree => PendingTreeSlot.HasPendingTree;
-        public static RecordingTree PendingTree => PendingTreeSlot.PendingTree;
-        public static PendingTreeState PendingTreeStateValue => PendingTreeSlot.PendingTreeStateValue;
-        internal static bool HasCommittedTreeRestoreAttempt =>
-            CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt;
-
         // Forwarders to CommittedTreeRestoreAttempt (RecordingStore services plan, PR9). The
         // service purges game-state events, so it reaches GameStateStore; a caller that the
-        // RecordingStore cut does not remove (GameStateStore, MergeDialog, RewindInvoker,
-        // SceneExitInterceptor, RouteRunPrompt, the map-focus patch) would close a cycle
-        // through it around that cut, so those callers and ParsekScenario stay on these.
-        internal static void ArmCommittedTreeRestoreAttempt(RecordingTree tree, string reason)
-        {
-            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, reason);
-        }
-
-        internal static bool IsCommittedTreeRestoreAttemptTree(string treeId)
-        {
-            return CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(treeId);
-        }
-
-        internal static bool IsCommittedTreeRestoreAttemptRecordingId(string recordingId)
-        {
-            return CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptRecordingId(recordingId);
-        }
+        // RecordingStore cut does not remove and that the service reaches back (GameStateStore,
+        // MergeDialog, RewindInvoker, RouteRunPrompt) would close a cycle through it around
+        // that cut, so those callers stay on these four. Every other caller calls the service.
+        internal static bool HasCommittedTreeRestoreAttempt =>
+            CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt;
 
         internal static bool ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
             GameStateEvent evt)
@@ -214,13 +193,6 @@ namespace Parsek
         {
             CommittedTreeRestoreAttempt.DiscardCommittedTreeRestoreAttempt(
                 reason, preserveIrreversibleTails);
-        }
-
-        internal static bool ClearCommittedTreeRestoreAttemptForDroppedTree(
-            string droppedTreeId, string reason, bool preserveIrreversibleTails)
-        {
-            return CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                droppedTreeId, reason, preserveIrreversibleTails);
         }
 
         /// <summary>
@@ -586,8 +558,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Forwarder to <see cref="CommittedListOptimizer.RunOptimizationPass"/>, kept while
-        /// its call sites move (RecordingStore services plan, PR8).
+        /// Forwarder to <see cref="CommittedListOptimizer.RunOptimizationPass"/> (RecordingStore
+        /// services plan, PR8) for <c>MergeDialog</c>'s commit: a direct call from it closes a cycle
+        /// through the optimizer around the RecordingStore cut. Every other caller calls the service.
         /// </summary>
         internal static void RunOptimizationPass()
         {
@@ -771,20 +744,15 @@ namespace Parsek
             TreeDiscardService.RefreshSaveAndQuicksaveAfterDiscard(reason, discardedRecordingCount);
         }
 
-        // Forwarders to SwitchSegmentAttempts (RecordingStore services plan, PR11). The service
+        // Forwarder to SwitchSegmentAttempts (RecordingStore services plan, PR11). The service
         // purges game-state events and route events and preserves the irreversible ledger tail,
-        // so it reaches GameStateStore, RouteEventLog and LedgerOrchestrator; a caller the
-        // RecordingStore cut does not remove (MergeDialog, the map-focus patch, the restore
-        // attempt) would close a cycle through it around that cut, so those callers stay on these.
+        // so it reaches GameStateStore, RouteEventLog and LedgerOrchestrator; MergeDialog, which
+        // the RecordingStore cut does not remove, would close a cycle through it around that cut,
+        // so its Re-Fly discard stays on this. Every other caller calls the service.
         internal static SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt(
             out string reason)
         {
             return SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
-        }
-
-        internal static bool IsMarkerOwnedSwitchSegmentRecordingId(string recordingId)
-        {
-            return SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId(recordingId);
         }
 
         /// <summary>

@@ -37,7 +37,7 @@ namespace Parsek
         /// <summary>
         /// #611: composes the search-tree list for the Re-Fly suppression
         /// predicate. Production callers pass <see cref="RecordingStore.CommittedTrees"/>
-        /// and (when present) <see cref="RecordingStore.PendingTree"/>; tests
+        /// and (when present) <see cref="PendingTreeSlot.PendingTree"/>; tests
         /// pass an explicit list. Pure-static so unit tests can construct
         /// arbitrary topologies without touching <c>RecordingStore</c>.
         /// <para>

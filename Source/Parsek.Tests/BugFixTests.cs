@@ -40,7 +40,7 @@ namespace Parsek.Tests
             var tree = new RecordingTree { Id = "test-tree-64" };
             PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
         }
 
         [Fact]
@@ -49,11 +49,11 @@ namespace Parsek.Tests
             var tree = new RecordingTree { Id = "test-tree-64-discard" };
             PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
 
         [Fact]
@@ -80,13 +80,13 @@ namespace Parsek.Tests
             var tree = new RecordingTree { Id = "test-tree-64-both" };
             PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             // Simulate the revert guard from ParsekScenario.OnLoad
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
                 TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
     }
 
@@ -733,15 +733,15 @@ namespace Parsek.Tests
             var tree = new RecordingTree { TreeName = "FreshTree" };
             PendingTreeSlot.StashPendingTree(tree);
             Assert.True(PendingTreeSlot.PendingStashedThisTransition);
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal("FreshTree", RecordingStore.PendingTree.TreeName);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal("FreshTree", PendingTreeSlot.PendingTree.TreeName);
 
             Assert.Equal(
                 ParsekScenario.RevertPendingTreeDisposition.KeepFreshlyStashed,
                 ParsekScenario.ClassifyRevertPendingTreeDisposition(
                     PendingTreeSlot.PendingStashedThisTransition,
-                    RecordingStore.HasPendingTree,
-                    RecordingStore.PendingTreeStateValue));
+                    PendingTreeSlot.HasPendingTree,
+                    PendingTreeSlot.PendingTreeStateValue));
         }
 
         [Fact]

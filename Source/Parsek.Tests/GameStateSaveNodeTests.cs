@@ -407,7 +407,7 @@ namespace Parsek.Tests
             Assert.Null(noAttempt.AttemptEvents);
             Assert.Equal(3, noAttempt.Root.GetNodes("GAME_STATE_EVENT").Length);
 
-            RecordingStore.ArmCommittedTreeRestoreAttempt(AttemptTree(), "test");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(AttemptTree(), "test");
             RecordingPaths.SaveRootOverrideForTesting = NewTempRoot();
             var build = GameStateStore.BuildEventsNode(RecordingStore.CommittedTreeRestoreAttemptTreeId);
 
@@ -445,7 +445,7 @@ namespace Parsek.Tests
         public void AttemptEvents_AttemptNotArmedAfterLoad_Dropped()
         {
             AddAttemptEvents();
-            RecordingStore.ArmCommittedTreeRestoreAttempt(AttemptTree(), "test");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(AttemptTree(), "test");
             RecordingPaths.SaveRootOverrideForTesting = NewTempRoot();
             ConfigNode scenario = SaveScenarioNodeThroughText();
 
@@ -472,12 +472,12 @@ namespace Parsek.Tests
         public void AttemptEvents_SameAttemptRestored_MemoryOnly()
         {
             AddAttemptEvents();
-            RecordingStore.ArmCommittedTreeRestoreAttempt(AttemptTree(), "test");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(AttemptTree(), "test");
             RecordingPaths.SaveRootOverrideForTesting = NewTempRoot();
             ConfigNode scenario = SaveScenarioNodeThroughText();
 
             ResetStores();
-            RecordingStore.ArmCommittedTreeRestoreAttempt(AttemptTree(), "re-armed");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(AttemptTree(), "re-armed");
             PendingTreeSlot.StashPendingTree(AttemptTree(), PendingTreeState.Limbo);
             logLines.Clear();
             ParsekScenario.LoadGameStateFromNodeOrFiles(scenario);

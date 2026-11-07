@@ -2434,7 +2434,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("requires an idle crewed vessel (recording already active)");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no pending tree before the EVA branch canary");
                 yield break;
@@ -4637,7 +4637,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("requires an idle active vessel (recording already active)");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no pending tree before staging");
                 yield break;
@@ -4782,7 +4782,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("requires an idle active vessel (recording already active)");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no pending tree before staging");
                 yield break;
@@ -4818,7 +4818,7 @@ namespace Parsek.InGameTests
                 yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
 
                 // Capture the focused parent recording id BEFORE staging. The live in-progress
-                // recording tree is the ACTIVE tree on ParsekFlight, NOT RecordingStore.PendingTree
+                // recording tree is the ACTIVE tree on ParsekFlight, NOT PendingTreeSlot.PendingTree
                 // (which is null during steady FLIGHT recording — it only holds a tree stashed across a
                 // scene change, so reading it here always saw null and failed this precondition).
                 var activeTreePre = flight.ActiveTreeForSerialization;
@@ -4872,7 +4872,7 @@ namespace Parsek.InGameTests
                 return null;
 
             // The controlled-decoupled child lands in the live ACTIVE recording tree, not
-            // RecordingStore.PendingTree (null during steady FLIGHT recording).
+            // PendingTreeSlot.PendingTree (null during steady FLIGHT recording).
             var activeTree = ParsekFlight.Instance?.ActiveTreeForSerialization;
             if (activeTree?.Recordings == null)
                 return null;
@@ -5036,7 +5036,7 @@ namespace Parsek.InGameTests
             Description = "Tree merge popup shows both actions and the discard button clears the pending tree")]
         public IEnumerator TreeMergeDialog_DiscardButton_ClearsPendingTree()
         {
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no existing pending tree");
                 yield break;
@@ -5091,7 +5091,7 @@ namespace Parsek.InGameTests
 
                 yield return WaitForPopupDialogToClose("ParsekMerge", 2f);
 
-                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                InGameAssert.IsFalse(PendingTreeSlot.HasPendingTree,
                     "Discard button should clear the pending tree");
                 InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
                     "Discard button should clear the deferred merge-dialog flag");
@@ -5102,7 +5102,7 @@ namespace Parsek.InGameTests
             finally
             {
                 MergeDialog.DismissAndClearPendingFlag("runtime merge discard cleanup");
-                if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
+                if (PendingTreeSlot.HasPendingTree && object.ReferenceEquals(PendingTreeSlot.PendingTree, tree))
                     TreeDiscardService.DiscardPendingTree();
                 ParsekScenario.MergeDialogPending = originalMergeDialogPending;
             }
@@ -5115,7 +5115,7 @@ namespace Parsek.InGameTests
             Description = "Deferred merge popup commits a pending tree through the real Merge to Timeline path")]
         public IEnumerator TreeMergeDialog_DeferredMergeButton_CommitsPendingTree()
         {
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no existing pending tree");
                 yield break;
@@ -5181,7 +5181,7 @@ namespace Parsek.InGameTests
                 yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
                 yield return null;
 
-                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                InGameAssert.IsFalse(PendingTreeSlot.HasPendingTree,
                     "Merge to Timeline should consume the pending tree");
                 InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
                     "Merge to Timeline should clear the deferred merge-dialog flag");
@@ -5202,7 +5202,7 @@ namespace Parsek.InGameTests
             finally
             {
                 MergeDialog.DismissAndClearPendingFlag("runtime deferred merge commit cleanup");
-                if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
+                if (PendingTreeSlot.HasPendingTree && object.ReferenceEquals(PendingTreeSlot.PendingTree, tree))
                     TreeDiscardService.DiscardPendingTree();
                 RemoveCommittedTreeByIdForRuntimeTest(tree.Id);
                 ParsekScenario.MergeDialogPending = originalMergeDialogPending;
@@ -11357,7 +11357,7 @@ namespace Parsek.InGameTests
 
             if (removedAny && recalculateAfterRemoval)
             {
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
                 LedgerOrchestrator.RecalculateAndPatch();
             }
 
@@ -13761,7 +13761,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(postVessel, "Active vessel must exist after stock revert");
                 InGameAssert.IsFalse(postFlight.IsRecording,
                     "Stock revert should end the pre-revert live recording instead of resuming it");
-                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                InGameAssert.IsFalse(PendingTreeSlot.HasPendingTree,
                     "Stock revert should soft-unstash the pending tree instead of surfacing the merge dialog");
                 InGameAssert.AreEqual(committedBefore, RecordingStore.CommittedRecordings.Count,
                     "Revert-to-launch must not commit the reverted recording into the timeline");
@@ -13878,7 +13878,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("requires an idle vessel (recording already active)");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no existing pending tree");
                 yield break;
@@ -13968,7 +13968,7 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(GameScenes.SPACECENTER, HighLogic.LoadedScene,
                     "Save-and-exit should land at the Space Center");
 
-                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                InGameAssert.IsFalse(PendingTreeSlot.HasPendingTree,
                     "The silent auto-commit should consume the pending tree on the Space Center load");
                 InGameAssert.AreEqual(committedTreesBefore + 1, RecordingStore.CommittedTrees.Count,
                     "The silent auto-commit should add exactly one committed tree");
@@ -14013,7 +14013,7 @@ namespace Parsek.InGameTests
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoMerge = originalAutoMerge;
                 ParsekLog.TestObserverForTesting = priorObserver;
-                if (RecordingStore.HasPendingTree && RecordingStore.PendingTree?.Id == treeId)
+                if (PendingTreeSlot.HasPendingTree && PendingTreeSlot.PendingTree?.Id == treeId)
                     ParsekScenario.DiscardPendingTreeAndRecalculate("auto-merge full-fidelity canary cleanup");
                 RemoveCommittedTreeByIdForRuntimeTest(treeId, recalculateAfterRemoval: true);
                 if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
@@ -14066,7 +14066,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no existing pending tree");
                 yield break;
@@ -14159,7 +14159,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(discardButton, "Discard button should exist");
                 InGameAssert.AreEqual(GameScenes.FLIGHT, HighLogic.LoadedScene,
                     "Pre-transition merge dialog should block the Space Center scene change until a button is clicked");
-                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                InGameAssert.IsFalse(PendingTreeSlot.HasPendingTree,
                     "Pre-transition merge dialog should keep the live tree unfinalized before the merge click");
                 InGameAssert.IsTrue(ParsekScenario.MergeDialogPending,
                     "Pre-transition merge dialog should keep the pending-dialog flag armed until the click");
@@ -14169,7 +14169,7 @@ namespace Parsek.InGameTests
                 yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
                 yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
 
-                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                InGameAssert.IsFalse(PendingTreeSlot.HasPendingTree,
                     "Merge to Timeline should consume the pending tree after real scene exit");
                 InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
                     "Merge to Timeline should clear the deferred merge-dialog flag");
@@ -14206,7 +14206,7 @@ namespace Parsek.InGameTests
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoMerge = originalAutoMerge;
                 ParsekLog.TestObserverForTesting = priorObserver;
-                if (RecordingStore.HasPendingTree && RecordingStore.PendingTree?.Id == treeId)
+                if (PendingTreeSlot.HasPendingTree && PendingTreeSlot.PendingTree?.Id == treeId)
                     ParsekScenario.DiscardPendingTreeAndRecalculate("scene-exit merge commit canary cleanup");
                 RemoveCommittedTreeByIdForRuntimeTest(treeId, recalculateAfterRemoval: true);
                 if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
@@ -14261,7 +14261,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no existing pending tree");
                 yield break;
@@ -14354,7 +14354,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(discardButton, "Discard button should exist");
                 InGameAssert.AreEqual(GameScenes.FLIGHT, HighLogic.LoadedScene,
                     "Pre-transition merge dialog should block the Space Center scene change until a button is clicked");
-                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                InGameAssert.IsFalse(PendingTreeSlot.HasPendingTree,
                     "Pre-transition merge dialog should keep the live tree unfinalized before the discard click");
                 InGameAssert.IsTrue(ParsekScenario.MergeDialogPending,
                     "Pre-transition merge dialog should keep the pending-dialog flag armed until the click");
@@ -14364,7 +14364,7 @@ namespace Parsek.InGameTests
                 yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
                 yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
 
-                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                InGameAssert.IsFalse(PendingTreeSlot.HasPendingTree,
                     "Discard should clear the pending tree after the real scene exit");
                 InGameAssert.IsFalse(ParsekScenario.MergeDialogPending,
                     "Discard should clear the deferred merge-dialog flag");
@@ -14395,7 +14395,7 @@ namespace Parsek.InGameTests
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.autoMerge = originalAutoMerge;
                 ParsekLog.TestObserverForTesting = priorObserver;
-                if (RecordingStore.HasPendingTree && RecordingStore.PendingTree?.Id == treeId)
+                if (PendingTreeSlot.HasPendingTree && PendingTreeSlot.PendingTree?.Id == treeId)
                     ParsekScenario.DiscardPendingTreeAndRecalculate("scene-exit merge discard canary cleanup");
                 RemoveCommittedTreeByIdForRuntimeTest(treeId, recalculateAfterRemoval: true);
                 if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
@@ -17777,7 +17777,7 @@ namespace Parsek.InGameTests
             // singleton patching while a live/pending tree exists - the pool assertions
             // below would then read a half-applied state. Same guard the ground-truth
             // harness uses.
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {
@@ -18535,7 +18535,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("Funding / ResearchAndDevelopment singletons not initialized");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {
@@ -18827,7 +18827,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("Funding / ResearchAndDevelopment singletons not initialized");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {
@@ -19131,7 +19131,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("Funding / ResearchAndDevelopment singletons not initialized");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {
@@ -19397,7 +19397,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("Funding / ResearchAndDevelopment / Reputation singletons not initialized");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {
@@ -19772,7 +19772,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("Funding / ResearchAndDevelopment / Reputation singletons not initialized");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {
@@ -20172,7 +20172,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("Funding / ResearchAndDevelopment / Reputation singletons not initialized");
                 yield break;
             }
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {
@@ -20799,7 +20799,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("Funding/R&D/Reputation singletons are not all initialized");
                 return;
             }
-            if (RecordingStore.HasPendingTree || GameStateRecorder.HasActiveUncommittedTree())
+            if (PendingTreeSlot.HasPendingTree || GameStateRecorder.HasActiveUncommittedTree())
             {
                 InGameAssert.Skip("RecalculateAndPatch would defer KSP singleton patching while a live/pending tree exists");
                 return;

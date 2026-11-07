@@ -148,7 +148,7 @@ namespace Parsek.Tests
             var rec = MakeL5Shape();
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             var committed = RecordingStore.CommittedRecordings;
             Assert.Equal(2, committed.Count);
@@ -188,7 +188,7 @@ namespace Parsek.Tests
                 (SegmentEnvironment.SurfaceMobile, 60, "Kerbin", false)));    // landing
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             var starts = RecordingStore.CommittedRecordings
                 .Select(r => r.StartUT).OrderBy(u => u).ToArray();
@@ -213,7 +213,7 @@ namespace Parsek.Tests
             AssertSplits(rec, 3);
 
             RecordingStore.AddRecordingWithTreeForTesting(rec);
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             var starts = RecordingStore.CommittedRecordings
                 .Select(r => r.StartUT).OrderBy(u => u).ToArray();

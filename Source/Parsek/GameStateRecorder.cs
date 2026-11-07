@@ -226,7 +226,7 @@ namespace Parsek
                 $"Emit: {evt.eventType} key='{evt.key}' tag='{evt.recordingId}' source='{source ?? ""}'");
 
             bool inFlight = HighLogic.LoadedScene == GameScenes.FLIGHT;
-            bool midSwitch = RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
+            bool midSwitch = PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
             bool flightAlive = ParsekFlight.Instance != null;
             // Drift A: non-empty tag with no live flight context. During FLIGHT -> KSC transitions,
             // ParsekFlight.Instance lingers for a few frames while the scene enum already reads
@@ -299,7 +299,7 @@ namespace Parsek
         /// <summary>
         /// #431: resolves the current recording id for event tagging.
         /// Primary source is <see cref="ParsekFlight.GetActiveRecordingIdForTagging"/>; the fallback
-        /// reads <see cref="RecordingStore.PendingTree"/>.ActiveRecordingId while the pending tree is in
+        /// reads <see cref="PendingTreeSlot.PendingTree"/>.ActiveRecordingId while the pending tree is in
         /// <see cref="PendingTreeState.LimboVesselSwitch"/> — events captured during a vessel-switch stash
         /// belong to the outgoing recording. While a Re-Fly session's provisional has no recorder
         /// bound, an in-flight tag that is empty or names the superseded origin is replaced by the
@@ -347,9 +347,9 @@ namespace Parsek
             var live = ParsekFlight.GetActiveRecordingIdForTagging();
             if (!string.IsNullOrEmpty(live)) return live;
 
-            if (RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch)
+            if (PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch)
             {
-                var pend = RecordingStore.PendingTree?.ActiveRecordingId;
+                var pend = PendingTreeSlot.PendingTree?.ActiveRecordingId;
                 if (!string.IsNullOrEmpty(pend)) return pend;
             }
 

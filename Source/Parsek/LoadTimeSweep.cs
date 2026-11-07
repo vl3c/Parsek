@@ -916,7 +916,7 @@ namespace Parsek
                             }
                         }
                     }
-                    var pending = RecordingStore.PendingTree;
+                    var pending = PendingTreeSlot.PendingTree;
                     if (pending?.Recordings != null && pending.Recordings.Remove(rec.RecordingId))
                     {
                         pending.RebuildBackgroundMap();

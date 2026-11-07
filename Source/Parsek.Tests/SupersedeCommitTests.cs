@@ -3139,7 +3139,7 @@ namespace Parsek.Tests
 
         // ---------- Optimizer-split chain-tip resolve (review follow-up) --
         // Bug fix (review follow-up to in-place-supersede): MergeCommit runs
-        // RecordingStore.RunOptimizationPass() BEFORE TryCommitReFlySupersede.
+        // CommittedListOptimizer.RunOptimizationPass() BEFORE TryCommitReFlySupersede.
         // If the in-place provisional crossed an env boundary, the optimizer's
         // SplitAtSection moves VesselSnapshot + TerminalStateValue from the
         // HEAD to a fresh TIP recording (RecordingOptimizer.cs lines 513-514

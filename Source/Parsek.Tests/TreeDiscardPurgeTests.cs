@@ -466,7 +466,7 @@ namespace Parsek.Tests
 
             TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(scenario.RewindPoints, rp => rp.RewindPointId == "rp_committed");
             Assert.DoesNotContain(scenario.RewindPoints, rp => rp.RewindPointId == "rp_pending");
             Assert.Contains("rp_pending", deletedRpIds);

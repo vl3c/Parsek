@@ -88,7 +88,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 100.0,
                 ExplicitEndUT = CutoffUT,
             });
-            RecordingStore.ArmCommittedTreeRestoreAttempt(clone, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(clone, "test-arm");
             return clone;
         }
 
@@ -158,7 +158,7 @@ namespace Parsek.Tests
             // The tails are still purged after the re-home; the history event stays.
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "guid-tail");
             Assert.Contains(GameStateStore.Events, e => e.key == "RecordsSpeed");
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
             Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]")
                 && l.Contains("PreserveIrreversibleRestoreAttemptTailsOnDiscard (test-live): re-homed 3 direct action(s)")
                 && l.Contains("contract=1") && l.Contains("milestone=1") && l.Contains("science=1"));

@@ -695,7 +695,7 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Issue #734 race fix: when AtomicMarkerWrite finds the live tree
-        /// already in <see cref="RecordingStore.PendingTree"/> (the common
+        /// already in <see cref="PendingTreeSlot.PendingTree"/> (the common
         /// async-load path), the fork is eagerly attached to that tree's
         /// <c>Recordings</c> dictionary and the background map is rebuilt
         /// so the fork's pid does not double-register as both active
@@ -880,7 +880,7 @@ namespace Parsek.Tests
             // Belt-and-braces: confirm there is no pending tree so the
             // helper's pending-first lookup misses and the committed
             // fallback fires.
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             RewindInvoker.AtomicMarkerWrite(
                 rp, slot, MakeStripResult(selectedPid: kOriginPid), "sess_committed_attach");
@@ -1420,7 +1420,7 @@ namespace Parsek.Tests
             };
             tree.BranchPoints.Add(new BranchPoint { Id = "bp_pre_x", UT = 10.0 });
             RecordingStore.AddCommittedTreeForTesting(tree);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             var snapshot = RewindInvoker.SnapshotTreeBranchPointIds(treeId);
 

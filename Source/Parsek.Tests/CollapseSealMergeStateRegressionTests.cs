@@ -658,7 +658,7 @@ namespace Parsek.Tests
             Assert.False(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
             Assert.False(RewindPointReaper.IsReapEligible(rp, scenario.RecordingSupersedes));
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // The split really happened and really moved the terminal off child_a.
             Assert.Equal(3, tree.Recordings.Count);

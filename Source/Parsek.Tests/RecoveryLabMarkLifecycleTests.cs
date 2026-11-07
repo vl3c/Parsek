@@ -135,7 +135,7 @@ namespace Parsek.Tests
 
             TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.False(InFlightRecoveryRequest.LabScienceAwaitingRecovery.ContainsKey(RecId));
             Assert.Contains(logLines, l => l.Contains("[Recovery]")
                 && l.Contains("cleared 1 lab mark(s) context=discard:"));

@@ -138,7 +138,7 @@ namespace Parsek.Tests
             var attemptTree = MakeTreeWithRecordings(AttemptTreeId, shared);
             RecordingStore.AddCommittedTreeForTesting(attemptTree);
             RecordingStore.AddCommittedInternal(shared);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
             Assert.NotNull(scenario.ActiveSwitchSegmentSession);
 
             var activeTree = MakeTreeWithRecordings(LiveTreeId, shared);
@@ -298,7 +298,7 @@ namespace Parsek.Tests
             var attemptTree = MakeTreeWithRecordings(AttemptTreeId, overlap);
             RecordingStore.AddCommittedTreeForTesting(attemptTree);
             RecordingStore.AddCommittedInternal(overlap);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
 
             segment = MakeRecording(SegmentRecordingId, AttemptTreeId,
                 switchSegmentSessionId: ToSessionString(session.SessionId));

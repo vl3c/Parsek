@@ -87,7 +87,7 @@ namespace Parsek
             }
 
             // M1 (PR #876 round-5 review): the whole-pending-tree branch
-            // below reads RecordingStore.PendingTree as its canonical input
+            // below reads PendingTreeSlot.PendingTree as its canonical input
             // (DiscardPendingTreeAndRecalculate, RefreshSaveAndQuicksaveAfterDiscard
             // and friends). A session-resolved tree from the CommittedTrees
             // slot would diverge here and we'd discard the wrong tree (or
@@ -95,7 +95,7 @@ namespace Parsek
             // switch-segment scoped branches already had their chance — at
             // this point a tree != pending is genuinely the misrouted Bug-C
             // case the round-5 review flagged. Refuse with Warn.
-            var pendingForGuard = RecordingStore.PendingTree;
+            var pendingForGuard = PendingTreeSlot.PendingTree;
             if (pendingForGuard == null
                 || !object.ReferenceEquals(pendingForGuard, tree))
             {
@@ -109,7 +109,7 @@ namespace Parsek
             }
 
             bool refreshSerializedPendingMarker =
-                RecordingStore.HasPendingTree
+                PendingTreeSlot.HasPendingTree
                 && PendingTreeSlot.PendingTreeSerializedForSave;
             int discardedRecordingCount = tree.Recordings?.Count ?? 0;
 
@@ -333,7 +333,7 @@ namespace Parsek
                 return false;
             }
 
-            bool wasPending = object.ReferenceEquals(tree, RecordingStore.PendingTree);
+            bool wasPending = object.ReferenceEquals(tree, PendingTreeSlot.PendingTree);
             bool restored = RestoreSanitizedPendingTreeIfDetached(
                 tree, marker, summary.AttemptIds ?? new HashSet<string>(System.StringComparer.Ordinal));
             if (restored && wasPending)
@@ -631,7 +631,7 @@ namespace Parsek
                     ? liveActiveTree
                     : RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
             bool treeWasPending = tree != null
-                && object.ReferenceEquals(tree, RecordingStore.PendingTree);
+                && object.ReferenceEquals(tree, PendingTreeSlot.PendingTree);
             bool dropLiveTree = ShouldDropLiveTreeOnRewindSceneExit(tree, liveActiveTree);
 
             var discard = DiscardReFlyAttemptRecordingsAndRewindPoints(
