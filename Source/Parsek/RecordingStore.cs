@@ -214,17 +214,6 @@ namespace Parsek
         private static RecordingTree savedPendingTreeDuringActiveRestore;
         private static bool savedPendingTreeDuringActiveRestoreSerializedForSave;
 
-        // One-shot context for the committed-spawned-vessel restore path. That
-        // path keeps the original committed tree durable and gives the live
-        // flight a copy-on-write clone. While the clone is unmerged, dirty
-        // overlap sidecars must not be written over committed history, and
-        // Discard must remove same-id game-state event tails authored after the
-        // committed recording's original end UT.
-        private static string committedTreeRestoreAttemptTreeId;
-        private static string committedTreeRestoreAttemptReason;
-        private static HashSet<string> committedTreeRestoreAttemptRecordingIds;
-        private static Dictionary<string, double> committedTreeRestoreAttemptEventCutoffs;
-
         public static IReadOnlyList<Recording> CommittedRecordings => committedRecordings;
         public static List<RecordingTree> CommittedTrees => committedTrees;
         public static bool HasPendingTree => pendingTree != null;
@@ -238,9 +227,52 @@ namespace Parsek
         internal static bool SavedPendingTreeDuringActiveRestoreSerializedForSave =>
             savedPendingTreeDuringActiveRestoreSerializedForSave;
         internal static bool HasCommittedTreeRestoreAttempt =>
-            committedTreeRestoreAttemptTreeId != null;
-        internal static bool HasCommittedTreeRestoreAttemptForTesting =>
-            HasCommittedTreeRestoreAttempt;
+            CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt;
+
+        // Forwarders to CommittedTreeRestoreAttempt (RecordingStore services plan, PR9). The
+        // service purges game-state events, so it reaches GameStateStore; a caller that the
+        // RecordingStore cut does not remove (GameStateStore, MergeDialog, RewindInvoker,
+        // SceneExitInterceptor, RouteRunPrompt, the map-focus patch) would close a cycle
+        // through it around that cut, so those callers and ParsekScenario stay on these.
+        internal static void ArmCommittedTreeRestoreAttempt(RecordingTree tree, string reason)
+        {
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, reason);
+        }
+
+        internal static bool IsCommittedTreeRestoreAttemptTree(string treeId)
+        {
+            return CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(treeId);
+        }
+
+        internal static bool IsCommittedTreeRestoreAttemptRecordingId(string recordingId)
+        {
+            return CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptRecordingId(recordingId);
+        }
+
+        internal static bool ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+            GameStateEvent evt)
+        {
+            return CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(evt);
+        }
+
+        internal static void ClearCommittedTreeRestoreAttempt(string reason)
+        {
+            CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttempt(reason);
+        }
+
+        internal static void DiscardCommittedTreeRestoreAttempt(
+            string reason, bool preserveIrreversibleTails)
+        {
+            CommittedTreeRestoreAttempt.DiscardCommittedTreeRestoreAttempt(
+                reason, preserveIrreversibleTails);
+        }
+
+        internal static bool ClearCommittedTreeRestoreAttemptForDroppedTree(
+            string droppedTreeId, string reason, bool preserveIrreversibleTails)
+        {
+            return CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                droppedTreeId, reason, preserveIrreversibleTails);
+        }
 
         /// <summary>
         /// Slot identifier returned by <see cref="TryResolveTreeById"/> so
@@ -898,7 +930,7 @@ namespace Parsek
             AdoptOrphanedRecordingsIntoTreeGroup(tree);
             MarkSupersededTerminalSpawnsForContinuedSources(tree);
             FinalizeTreeCommit(tree, replaceCommittedTreeIndex);
-            ClearCommittedTreeRestoreAttemptForTree(tree.Id, "CommitTree accepted restored active tree");
+            CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForTree(tree.Id, "CommitTree accepted restored active tree");
             SceneEntryVesselScope.ClearRewindReplayTargetScope();
         }
 
@@ -2256,193 +2288,6 @@ namespace Parsek
             return true;
         }
 
-        internal static void ArmCommittedTreeRestoreAttempt(RecordingTree tree, string reason)
-        {
-            if (tree == null || string.IsNullOrEmpty(tree.Id))
-            {
-                ParsekLog.Warn("RecordingStore",
-                    $"ArmCommittedTreeRestoreAttempt skipped: tree={(tree == null ? "<null>" : "<no-id>")} " +
-                    $"reason={reason ?? "<none>"}");
-                return;
-            }
-
-            if (!string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
-            {
-                ParsekLog.Warn("RecordingStore",
-                    $"ArmCommittedTreeRestoreAttempt: replacing stale context " +
-                    $"tree={committedTreeRestoreAttemptTreeId} " +
-                    $"reason={committedTreeRestoreAttemptReason ?? "<none>"}");
-            }
-
-            committedTreeRestoreAttemptTreeId = tree.Id;
-            committedTreeRestoreAttemptReason = reason ?? "<unspecified>";
-            committedTreeRestoreAttemptRecordingIds =
-                BuildCommittedTreeRestoreRecordingIds(tree);
-            committedTreeRestoreAttemptEventCutoffs =
-                BuildCommittedTreeRestoreEventCutoffs(tree);
-            ParsekLog.Info("RecordingStore",
-                $"Armed committed-tree restore attempt for '{tree.TreeName ?? "<unnamed>"}' " +
-                $"(id={tree.Id}, recordings={tree.Recordings?.Count ?? 0}, " +
-                $"cutoffs={committedTreeRestoreAttemptEventCutoffs.Count}, " +
-                $"reason={committedTreeRestoreAttemptReason})");
-        }
-
-        internal static void ClearCommittedTreeRestoreAttempt(string reason)
-        {
-            if (string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
-                return;
-
-            ParsekLog.Verbose("RecordingStore",
-                $"Cleared committed-tree restore attempt " +
-                $"tree={committedTreeRestoreAttemptTreeId} " +
-                $"reason={reason ?? "<none>"} " +
-                $"armedReason={committedTreeRestoreAttemptReason ?? "<none>"}");
-            committedTreeRestoreAttemptTreeId = null;
-            committedTreeRestoreAttemptReason = null;
-            committedTreeRestoreAttemptRecordingIds = null;
-            committedTreeRestoreAttemptEventCutoffs = null;
-        }
-
-        /// <summary>
-        /// Discards the armed committed-tree restore attempt as a whole: purges the
-        /// attempt's same-id post-cutoff game-state event tails FIRST (see
-        /// <see cref="PurgeCommittedTreeRestoreAttemptEventTails"/> - the clear nulls
-        /// the cutoff map), then clears it. No-op when no attempt is armed.
-        /// <paramref name="preserveIrreversibleTails"/> is true on a LIVE discard (KSP keeps
-        /// what the player did in the attempt, so its irreversible tail events and science
-        /// become direct ledger rows before the purge) and false on a rollback (a rewind or a
-        /// load reverts KSP with the save).
-        /// Discard paths whose caller drops the attempt's clone tree before any
-        /// drop-site id match can run (the no-op no-session resume revert, the
-        /// switch-segment scoped discard, the pre-switch dialog discard) must call
-        /// THIS, not the bare clear: the caller-side clear leaves the clone's
-        /// suppressed post-cutoff events to become durable on the next save.
-        /// </summary>
-        internal static void DiscardCommittedTreeRestoreAttempt(
-            string reason, bool preserveIrreversibleTails)
-        {
-            if (string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
-                return;
-
-            PurgeCommittedTreeRestoreAttemptEventTails(
-                reason ?? "<none>", preserveIrreversibleTails);
-            ClearCommittedTreeRestoreAttempt(reason);
-        }
-
-        private static void ClearCommittedTreeRestoreAttemptForTree(string treeId, string reason)
-        {
-            if (!DroppedTreeMatchesArmedRestoreAttempt(committedTreeRestoreAttemptTreeId, treeId))
-                return;
-
-            ClearCommittedTreeRestoreAttempt(reason);
-        }
-
-        /// <summary>
-        /// Pure: true when a tree a scene reset is about to drop is the clone the armed
-        /// committed-tree restore attempt guards (same tree id), so the attempt must be
-        /// cleared with it. An attempt armed for a different tree id stays armed; a null
-        /// or empty id on either side never clears.
-        /// </summary>
-        internal static bool DroppedTreeMatchesArmedRestoreAttempt(
-            string armedAttemptTreeId, string droppedTreeId)
-        {
-            if (string.IsNullOrEmpty(armedAttemptTreeId) || string.IsNullOrEmpty(droppedTreeId))
-                return false;
-
-            return string.Equals(armedAttemptTreeId, droppedTreeId, StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Clears the armed committed-tree restore attempt when <paramref name="droppedTreeId"/>
-        /// is its clone, so a reset that drops the clone tree (for example
-        /// <c>ParsekFlight.ResetFlightReadyState</c>) leaves no stale attempt armed: while it
-        /// stays armed every OnSave defers the pending-event milestone flush and the next arm
-        /// logs a replacing-stale-context warn. The attempt's same-id post-cutoff event tails
-        /// are purged FIRST through <see cref="DiscardCommittedTreeRestoreAttempt"/> (the same
-        /// purge-then-clear order DiscardPendingTree uses), because the clear nulls the cutoff
-        /// map and the clone's abandoned post-restore events must not become durable on the
-        /// next save. An attempt for another tree id, or no attempt at all, is left untouched.
-        /// <paramref name="preserveIrreversibleTails"/> as in
-        /// <see cref="DiscardCommittedTreeRestoreAttempt"/>: true when the drop is a live discard,
-        /// false when a load or rewind already reverted KSP. Returns true when an attempt was
-        /// cleared.
-        /// </summary>
-        internal static bool ClearCommittedTreeRestoreAttemptForDroppedTree(
-            string droppedTreeId, string reason, bool preserveIrreversibleTails)
-        {
-            if (!DroppedTreeMatchesArmedRestoreAttempt(
-                    committedTreeRestoreAttemptTreeId, droppedTreeId))
-                return false;
-
-            ParsekLog.Info("RecordingStore",
-                $"ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree={droppedTreeId} " +
-                $"matches the armed restore attempt; clearing it reason={reason ?? "<none>"} " +
-                $"preserveIrreversibleTails={preserveIrreversibleTails}");
-            DiscardCommittedTreeRestoreAttempt(reason, preserveIrreversibleTails);
-            return true;
-        }
-
-        /// <summary>
-        /// True when <paramref name="treeId"/> is the tree currently armed as a
-        /// committed-tree restore attempt (a copy-on-write clone of a committed
-        /// tree is the live active tree). Used by the in-flight discard helper to
-        /// detect a live committed clone BEFORE the discard clears the attempt,
-        /// so it can tear the clone down (the committed original survives in
-        /// committedTrees) instead of leaving it to strand.
-        /// </summary>
-        internal static bool IsCommittedTreeRestoreAttemptTree(string treeId)
-        {
-            return !string.IsNullOrEmpty(treeId)
-                && string.Equals(committedTreeRestoreAttemptTreeId, treeId,
-                    StringComparison.Ordinal);
-        }
-
-        internal static bool IsCommittedTreeRestoreAttemptRecordingId(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)
-                || committedTreeRestoreAttemptRecordingIds == null)
-                return false;
-
-            return committedTreeRestoreAttemptRecordingIds.Contains(recordingId);
-        }
-
-        internal static bool ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
-            GameStateEvent evt)
-        {
-            string recordingId = evt.recordingId;
-            if (string.IsNullOrEmpty(recordingId)
-                || string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
-            {
-                return false;
-            }
-
-            // Switch-segment narrowing (segment-scoped-switch-fly-autorecord Phase D):
-            // a marker-owned new recording id created by SwitchSegmentSession is real
-            // pending state and must survive F5/save/reload, even when a #866
-            // committed-tree restore attempt is concurrently armed. Bypass before the
-            // existing same-id cutoff / pending-only checks so the suppression contract
-            // for original committed recording ids remains unchanged.
-            if (IsMarkerOwnedSwitchSegmentRecordingId(recordingId))
-            {
-                var session = ParsekScenario.Instance?.ActiveSwitchSegmentSession;
-                ParsekLog.Verbose("RecordingStore",
-                    $"event persistence not-suppressed reason=marker-owned-switch-segment " +
-                    $"recId={recordingId} " +
-                    $"sessionId={(session != null ? session.SessionId.ToString("D", CultureInfo.InvariantCulture) : "<null>")}");
-                return false;
-            }
-
-            if (committedTreeRestoreAttemptEventCutoffs != null
-                && committedTreeRestoreAttemptEventCutoffs.TryGetValue(
-                    recordingId,
-                    out double cutoffUT))
-            {
-                return evt.ut > cutoffUT;
-            }
-
-            return IsPendingOnlyCommittedTreeRestoreAttemptRecordingId(recordingId);
-        }
-
         /// <summary>
         /// Returns true when <paramref name="recordingId"/> identifies a recording
         /// owned by the currently active <see cref="SwitchSegmentSession"/> — i.e.
@@ -2520,158 +2365,6 @@ namespace Parsek
             }
 
             return null;
-        }
-
-        private static bool IsPendingOnlyCommittedTreeRestoreAttemptRecordingId(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)
-                || string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
-            {
-                return false;
-            }
-
-            if (committedTreeRestoreAttemptRecordingIds != null
-                && committedTreeRestoreAttemptRecordingIds.Contains(recordingId))
-            {
-                return false;
-            }
-
-            if (IsCommittedRecordingId(recordingId))
-                return false;
-
-            return TreeContainsRecordingId(
-                    pendingTree,
-                    committedTreeRestoreAttemptTreeId,
-                    recordingId)
-                || TreeContainsRecordingId(
-                    savedPendingTreeDuringActiveRestore,
-                    committedTreeRestoreAttemptTreeId,
-                    recordingId)
-                || ParsekFlight.IsActiveTreeRecordingIdForTree(
-                    recordingId,
-                    committedTreeRestoreAttemptTreeId);
-        }
-
-        private static bool TreeContainsRecordingId(
-            RecordingTree tree,
-            string treeId,
-            string recordingId)
-        {
-            return tree != null
-                && !string.IsNullOrEmpty(treeId)
-                && string.Equals(tree.Id, treeId, StringComparison.Ordinal)
-                && tree.Recordings != null
-                && tree.Recordings.ContainsKey(recordingId);
-        }
-
-        private static HashSet<string> BuildCommittedTreeRestoreRecordingIds(RecordingTree tree)
-        {
-            var result = new HashSet<string>(StringComparer.Ordinal);
-            if (tree?.Recordings == null)
-                return result;
-
-            foreach (Recording rec in tree.Recordings.Values)
-            {
-                if (!string.IsNullOrEmpty(rec?.RecordingId))
-                    result.Add(rec.RecordingId);
-            }
-
-            return result;
-        }
-
-        private static Dictionary<string, double> BuildCommittedTreeRestoreEventCutoffs(
-            RecordingTree tree)
-        {
-            var result = new Dictionary<string, double>(StringComparer.Ordinal);
-            if (tree?.Recordings == null)
-                return result;
-
-            foreach (Recording rec in tree.Recordings.Values)
-            {
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
-                    continue;
-                if (!rec.HasActualTrajectoryBounds && double.IsNaN(rec.ExplicitEndUT))
-                    continue;
-
-                double cutoff = rec.EndUT;
-                if (double.IsNaN(cutoff) || double.IsInfinity(cutoff))
-                    continue;
-
-                result[rec.RecordingId] = cutoff;
-            }
-
-            return result;
-        }
-
-        private static bool PendingTreeMatchesCommittedTreeRestoreAttempt()
-        {
-            return pendingTree != null
-                && !string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId)
-                && string.Equals(
-                    pendingTree.Id,
-                    committedTreeRestoreAttemptTreeId,
-                    StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Purges the armed attempt's same-id post-cutoff game-state event tails - the events
-        /// <see cref="ShouldSuppressCommittedTreeRestoreAttemptEventPersistence"/> keeps off
-        /// disk while the attempt is armed - keyed by the cutoff map built at arm time. Call
-        /// BEFORE <see cref="ClearCommittedTreeRestoreAttempt"/>: the clear nulls that map.
-        /// <paramref name="contextLabel"/> is the per-recording reason GameStateStore logs,
-        /// <paramref name="warnLabel"/> prefixes the summary line (emitted only when
-        /// something was purged). When <paramref name="preserveIrreversibleTails"/> (a live
-        /// discard), the tails' irreversible events and science subjects are re-homed to the
-        /// direct ledger first (<see cref="LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard"/>).
-        /// Returns the number of events purged.
-        /// </summary>
-        private static int PurgeCommittedTreeRestoreAttemptEventTails(
-            string contextLabel, bool preserveIrreversibleTails, string warnLabel = null)
-        {
-            if (committedTreeRestoreAttemptEventCutoffs == null
-                || committedTreeRestoreAttemptEventCutoffs.Count == 0)
-            {
-                return 0;
-            }
-
-            if (preserveIrreversibleTails)
-                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard(
-                    committedTreeRestoreAttemptEventCutoffs, contextLabel);
-
-            int purged = 0;
-            foreach (var kvp in committedTreeRestoreAttemptEventCutoffs)
-            {
-                purged += GameStateStore.PurgeEventsForRecordingAfterUT(
-                    kvp.Key,
-                    kvp.Value,
-                    contextLabel);
-            }
-
-            if (purged > 0)
-            {
-                ParsekLog.Warn("RecordingStore",
-                    $"{warnLabel ?? contextLabel}: purged {purged} same-id game-state event tail(s) " +
-                    $"for committed-tree restore attempt tree={committedTreeRestoreAttemptTreeId} " +
-                    $"armedReason={committedTreeRestoreAttemptReason ?? "<none>"}");
-            }
-
-            return purged;
-        }
-
-        private static int PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard(
-            bool preserveIrreversibleTails)
-        {
-            if (!PendingTreeMatchesCommittedTreeRestoreAttempt()
-                || committedTreeRestoreAttemptEventCutoffs == null
-                || committedTreeRestoreAttemptEventCutoffs.Count == 0)
-            {
-                return 0;
-            }
-
-            return PurgeCommittedTreeRestoreAttemptEventTails(
-                $"DiscardPendingTree committed-spawned-vessel attempt '{pendingTree.TreeName}'",
-                preserveIrreversibleTails,
-                "DiscardPendingTree");
         }
 
         /// <summary>
@@ -2815,11 +2508,11 @@ namespace Parsek
             }
 
             bool pendingMatchesCommittedRestoreAttempt =
-                PendingTreeMatchesCommittedTreeRestoreAttempt();
+                CommittedTreeRestoreAttempt.PendingTreeMatchesCommittedTreeRestoreAttempt();
             // A live discard re-homes the attempt's irreversible tails before they are
             // purged; the abandon path (preserve=false) has its economy rolled back.
             int purgedSameIdAttemptEventTails =
-                PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard(
+                CommittedTreeRestoreAttempt.PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard(
                     preserveIrreversibleLiveGameplay);
 
             // #431: purge tagged events for pending-only recording IDs first. A pending
@@ -2991,7 +2684,7 @@ namespace Parsek
             pendingTreeState = PendingTreeState.Finalized;
             pendingTreeSerializedForSave = false;
             if (pendingMatchesCommittedRestoreAttempt)
-                ClearCommittedTreeRestoreAttempt("DiscardPendingTree abandoned restored active copy");
+                CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttempt("DiscardPendingTree abandoned restored active copy");
             SceneEntryVesselScope.ClearRewindReplayTargetScope();
         }
 
@@ -3069,10 +2762,10 @@ namespace Parsek
 
             string sessionIdStr = session.SessionId.ToString("D", CultureInfo.InvariantCulture);
             bool isCommittedRestoreClone =
-                !string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId)
-                && (string.Equals(committedTreeRestoreAttemptTreeId, session.TreeId,
+                !string.IsNullOrEmpty(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId)
+                && (string.Equals(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId, session.TreeId,
                     StringComparison.Ordinal)
-                    || string.Equals(committedTreeRestoreAttemptTreeId, session.CommittedTreeId,
+                    || string.Equals(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId, session.CommittedTreeId,
                         StringComparison.Ordinal));
 
             // Locate the tree the marker-owned recordings actually live in.
@@ -3227,7 +2920,7 @@ namespace Parsek
                 // committed tree remains untouched in committedTrees.
                 bool droppedPending = false;
                 if (pendingTree != null
-                    && string.Equals(pendingTree.Id, committedTreeRestoreAttemptTreeId,
+                    && string.Equals(pendingTree.Id, CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId,
                         StringComparison.Ordinal))
                 {
                     pendingTree = null;
@@ -3236,7 +2929,7 @@ namespace Parsek
                     droppedPending = true;
                 }
 
-                DiscardCommittedTreeRestoreAttempt(
+                CommittedTreeRestoreAttempt.DiscardCommittedTreeRestoreAttempt(
                     "switch-segment-scoped-discard committed-restore-clone",
                     preserveIrreversibleTails: true);
                 // Pending science was already scoped-removed for this segment subtree by
@@ -3250,7 +2943,7 @@ namespace Parsek
                 ParsekLog.Info("SwitchSegment",
                     $"TryDiscardActiveSwitchSegmentAttempt disposition=committed-restore-clone " +
                     $"sessionId={sessionIdStr} droppedPendingClone={droppedPending} " +
-                    $"committedTreeId={committedTreeRestoreAttemptTreeId ?? "<null>"}");
+                    $"committedTreeId={CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId ?? "<null>"}");
                 return SwitchSegmentDiscardDisposition.CommittedRestoreClone;
             }
 
@@ -3333,10 +3026,10 @@ namespace Parsek
 
             // Disposition for the scene-exit teardown choice.
             bool isCommittedClone =
-                !string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId)
-                && (string.Equals(committedTreeRestoreAttemptTreeId, session.TreeId,
+                !string.IsNullOrEmpty(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId)
+                && (string.Equals(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId, session.TreeId,
                         StringComparison.Ordinal)
-                    || string.Equals(committedTreeRestoreAttemptTreeId, session.CommittedTreeId,
+                    || string.Equals(CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId, session.CommittedTreeId,
                         StringComparison.Ordinal));
             if (isCommittedClone)
                 disposition = SwitchSegmentDisposition.CommittedRestoreClone;
@@ -4395,10 +4088,7 @@ namespace Parsek
             pendingTreeSerializedForSave = false;
             savedPendingTreeDuringActiveRestore = null;
             savedPendingTreeDuringActiveRestoreSerializedForSave = false;
-            committedTreeRestoreAttemptTreeId = null;
-            committedTreeRestoreAttemptReason = null;
-            committedTreeRestoreAttemptRecordingIds = null;
-            committedTreeRestoreAttemptEventCutoffs = null;
+            CommittedTreeRestoreAttempt.ResetForTesting();
             RecordingFileJanitor.ResetForTesting();
             RecordingSidecarStore.ResetForTesting();
             SceneEntryVesselScope.ResetForTesting();

@@ -500,7 +500,7 @@ namespace Parsek.Tests
             Assert.Equal(
                 ParsekFlight.CommittedSpawnedVesselRestoreAction.PromoteFromBackground,
                 action);
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttemptForTesting);
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
             Assert.True(RecordingStore.IsCommittedRecordingId("rec_tip"));
             Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptRecordingId("rec_tip"));
             Assert.Single(RecordingStore.CommittedTrees);
@@ -523,7 +523,7 @@ namespace Parsek.Tests
 
             RecordingStore.CommitTree(liveTree);
 
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttemptForTesting);
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Same(liveTree, RecordingStore.CommittedTrees[0]);
             Assert.Equal(liveTree.Recordings.Count, RecordingStore.CommittedRecordings.Count);
@@ -564,7 +564,7 @@ namespace Parsek.Tests
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Same(tree, RecordingStore.CommittedTrees[0]);
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttemptForTesting);
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
 
             var historicalEvent = MakeEvent(
                 GameStateEventType.TechResearched,
@@ -593,7 +593,7 @@ namespace Parsek.Tests
             RecordingStore.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttemptForTesting);
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
             Assert.False(ParsekScenario.ShouldDeferPendingEventMilestoneFlushForSave());
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
@@ -631,7 +631,7 @@ namespace Parsek.Tests
             attemptTree.Id = "tree_attempt_other";
             attemptTree.RootRecordingId = "rec_attempt";
             RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttemptForTesting);
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttemptForTesting);
 
             var attemptTail = MakeEvent(
                 GameStateEventType.TechResearched,

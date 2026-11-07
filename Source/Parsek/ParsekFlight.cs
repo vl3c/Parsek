@@ -2076,7 +2076,7 @@ namespace Parsek
                 // a LOADED background member accrues per-frame data the checkpoint
                 // does not flush, so keep (the no-session resume's guard).
                 bool committedClone = activeTree != null
-                    && RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id);
+                    && CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(activeTree.Id);
                 if (committedClone && backgroundRecorder != null)
                 {
                     if (backgroundRecorder.HasLoadedBackgroundMembers)
@@ -2153,7 +2153,7 @@ namespace Parsek
         {
             string cloneTreeId =
                 activeTree != null
-                && RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id)
+                && CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(activeTree.Id)
                     ? activeTree.Id
                     : null;
 
@@ -2235,7 +2235,7 @@ namespace Parsek
                 reason = "no-active-tree";
                 return false;
             }
-            if (!RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id))
+            if (!CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(activeTree.Id))
             {
                 reason = "not-committed-restore-clone";
                 return false;
@@ -2334,7 +2334,7 @@ namespace Parsek
         /// </summary>
         internal void AutoDiscardNoOpNoSessionCommittedResume(string reason)
         {
-            RecordingStore.DiscardCommittedTreeRestoreAttempt(
+            CommittedTreeRestoreAttempt.DiscardCommittedTreeRestoreAttempt(
                 "noop-no-session-committed-resume-revert",
                 preserveIrreversibleTails: true);
             AutoDiscardActiveTreeWithMessage(
@@ -2485,7 +2485,7 @@ namespace Parsek
             // id-matched: it no-ops when a caller already discarded the attempt (the
             // no-op revert, the switch-segment discard, the pre-switch dialog discard)
             // or when the tree is another attempt's clone.
-            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+            CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 activeTree?.Id, "auto-discard dropped the restore clone",
                 preserveIrreversibleTails: true);
             activeTree = null;
@@ -2753,7 +2753,7 @@ namespace Parsek
             // null below): a stale attempt keeps deferring the OnSave milestone flush.
             // A suppressed scene exit is the Discard Re-fly / rewind load: the loaded save
             // reverts KSP, so nothing of the attempt is preserved.
-            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+            CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 activeTree?.Id, "suppressed scene exit dropped the restore clone",
                 preserveIrreversibleTails: false);
             activeTree = null;
@@ -12675,7 +12675,7 @@ namespace Parsek
                 hasStoppedRecorderBoundToActiveTree: recorder != null && !recorder.IsRecording
                     && activeTree != null && object.ReferenceEquals(recorder.ActiveTree, activeTree),
                 activeTreeIsCommittedRestoreClone: activeTree != null
-                    && RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id),
+                    && CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(activeTree.Id),
                 hasPendingTree: RecordingStore.HasPendingTree,
                 restoreMode: restoreMode))
             {
@@ -12929,7 +12929,7 @@ namespace Parsek
             }
 
             // The flight scene was just loaded from a save, which KSP's career came from too.
-            RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+            CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 activeTree?.Id, "flight-ready reset dropped the restore clone",
                 preserveIrreversibleTails: false);
             activeTree = null;
@@ -13923,7 +13923,7 @@ namespace Parsek
                     // pending, so its armed committed-tree restore attempt must be
                     // cleared with it; the clear is id-matched and reads the id here,
                     // before the null.
-                    RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+                    CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                         activeTree?.Id, "start-recording cleanup dropped the restore clone",
                         preserveIrreversibleTails: true);
                     activeTree = null;
@@ -15012,7 +15012,7 @@ namespace Parsek
                         $"Fresh-rollout refusal ({site}): discarding resumed copy of committed tree " +
                         $"'{pending.TreeName}' (id={treeId}, state={RecordingStore.PendingTreeStateValue}, " +
                         $"recordings={total}, droppedSpan={span}, droppedPoints={tail.TailPointCount}, " +
-                        $"restoreAttemptArmed={RecordingStore.IsCommittedTreeRestoreAttemptTree(treeId)}, " +
+                        $"restoreAttemptArmed={CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(treeId)}, " +
                         $"serialized={serialized}, refusedPid={refusedVesselPid}) - committed history " +
                         "stays as committed, only the idle resumed seconds after the load are dropped");
                     ParsekScenario.DiscardPendingTreeAndRecalculate(
@@ -16106,7 +16106,7 @@ namespace Parsek
                 return false;
             }
 
-            RecordingStore.ArmCommittedTreeRestoreAttempt(
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
                 committedTree,
                 "TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write");
             // A save made inside an attempt that resumed in place holds no active tree, so its
