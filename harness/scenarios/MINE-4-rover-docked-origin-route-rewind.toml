@@ -44,6 +44,14 @@
 #     fix: `MINE4 Ore Shuttle` Paused, no origin-span-mismatch). The visitor dock failed: the
 #     silo undock left the miner against the silo with its rear port disengaged
 #     (`readyPorts=1`, path 1.6 m at 0.10 m/s). The lane now drives forward 3 s at 0.3 first.
+#   2026-11-07_1028 (+ _1032_a2), head ca9a8c1, same DLL: INVALID (driver-arg), identical
+#     twice; 51 of 68 steps. The forward drive re-armed the rear port (`readyPorts=2`), but
+#     the miner was still rolling forward at 1.26 m/s, the dock drive gave no reverse throttle
+#     above its unsigned `maxSpeed`, and the miner coasted into the DEPOT (couple partnerPid
+#     4220603694 'Ore Depot' at UT 186.70). The route still ran right through that composite
+#     (origin debited through `compositePid=110406740`, the silo written 75 -> 150); the
+#     reads after `und3` then named the wrong vessels. The lane now settles after the
+#     forward drive.
 #
 # WHAT IT CLOSES.
 #   * MINE-4 (`docs/dev/research/mining-isru-test-program-2026-10-17.md`, todo
@@ -181,10 +189,14 @@ steps = [
   # 3. IR-9: the miner docks back to the silo as a visitor. The silo undock leaves the
   # miner resting against the silo, its rear port disengaged (flight `_1014`: the dock drive
   # saw `readyPorts=1` and pushed 1.6 m in 30 s without a dock), and a stock port re-arms
-  # only once its partner is out of reach. So first a short drive forward (the depot is
-  # about 4 m ahead), then back in at once, with no settle: a braked miner creeps back down
-  # the slope and can dock the silo by itself (flight `_1003`).
+  # only once its partner is out of reach. So first a short drive forward (1.8 m, about
+  # 6 m of room to the depot), then a settle to stop it: the dock drive holds its throttle
+  # only below `maxSpeed` and reads speed unsigned, so a miner still rolling forward at
+  # 1.26 m/s got no reverse throttle and coasted 4.3 m into the depot (flight `_1028`). The
+  # settle ends within about a second once the brakes stop it, too short for the slope
+  # creep that docked the silo by itself in flight `_1003` (about 10 s).
   { cmd = "DriveVessel",         args = { wheelThrottle = "0.3", seconds = "3" },         label = "fwd", expect = "OK" },
+  { cmd = "DriveVessel",         args = { settleBelow = "0.05", seconds = "30" },        expect = "OK" },
   { cmd = "MissionMark",         args = { label = "mine4-visitor-dock" },                 expect = "OK" },
   { cmd = "DriveVessel",         args = { wheelThrottle = "-0.5", seconds = "30", untilDocked = "true", maxSpeed = "0.4" }, label = "dkv", expect = "OK" },
   { cmd = "DriveVessel",         args = { settleBelow = "0.05", seconds = "30" },        expect = "OK" },
