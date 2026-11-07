@@ -2914,6 +2914,15 @@ each PR lands on the refactor branch, IL-proven a pure move).
     the pair / frame / segment helpers stay on `TrajectoryMath`; the log tag stays
     "TrajectoryMath". IL: 2 moved bodies identical, 1 re-pointed call site. Trajectory ->
     Recording 1 -> 0; upward edges 85 -> 84 (weight 835 -> 834).
+  - PR 4 (pure move): `GhostMapPresence.TrySelectGapGlidePair` with its private
+    `FindGapGlideSection` / `IsGapGlidePartner` and the consts `GapGlidePairPointNotFound` /
+    `GapGlidePairSingleSample` -> `OrbitReseed` (Trajectory). IL: 3 moved bodies identical, 2
+    re-pointed call sites, field set identical. Trajectory -> Ghost 1 -> 0; upward edges 84 ->
+    83 (weight 813 -> 812). The knot stays 459, but the greedy second cut is now
+    `VesselLaunchIdentity` (441 -> 424) and the greedy residue rises 287 -> 291; the
+    replayed residue the ratchet also reads stays 287 (see ARCH-TOOLING-ROSLYN-AND-CI).
+    `scripts/refactor/split_ghostmappresence.py` still maps these members to
+    `.StateVectors`: a re-split from main's single file must re-apply this move.
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
