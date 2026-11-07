@@ -17,6 +17,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **A coast that starts right after a burn no longer counts as part of the burn.** Time warp
+  taken just after cutting the engines used to mark the whole warped coast as thrusting, so a
+  loop kept the coast and an idle tail was not trimmed. New recordings mark it as a coast.
+  (RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE)
 - **A crashed flight's ghost looks the same on the map whether it was stored whole or in pieces.**
   The climb part of a crash flight no longer shows as a KSP vessel on an orbit it never flew; in
   the Tracking Station a crash flight's ghost now keeps Parsek's marker along its coast instead of

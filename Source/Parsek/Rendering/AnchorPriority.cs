@@ -33,16 +33,16 @@ namespace Parsek.Rendering
             /* 5 BubbleEntry        */ 6, // §7.7
             /* 6 BubbleExit         */ 6, // §7.7
             /* 7 Reserved7          */ 5, // formerly §7.8 CoBubblePeer; slot reserved
-            /* 8 SurfaceContinuous  */ 6, // §7.9, terrain reference. Demoted in
-                                          // Phase 6 from rank 2 to rank 6 so a
-                                          // Phase-7-pending ε = 0 stub cannot
-                                          // outrank a real OrbitalCheckpoint /
-                                          // SoiTransition ε. Phase 7 will
-                                          // promote back to rank 2 when the
-                                          // per-frame terrain raycast lands;
-                                          // that bump must accompany an
-                                          // AlgorithmStampVersion bump so
-                                          // existing .pann files re-resolve.
+            /* 8 SurfaceContinuous  */ 6, // Sec 7.9, terrain reference. Its epsilon
+                                          // is always a zero stub: terrain
+                                          // correction shipped as the per-sample
+                                          // recordedGroundClearance applied at
+                                          // positioning time, not as an anchor
+                                          // epsilon. Rank 6 keeps the stub from
+                                          // outranking a real OrbitalCheckpoint /
+                                          // SoiTransition epsilon. Changing it
+                                          // needs an AlgorithmStampVersion bump
+                                          // so existing .pann files re-resolve.
             /* 9 Loop               */ 2, // §7.10
         };
 

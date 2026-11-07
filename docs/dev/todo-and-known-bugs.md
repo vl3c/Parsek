@@ -5626,7 +5626,7 @@ scope (the derivation is pinned by synthetic in-game cells); file when docking
 coverage next expands. Also missing per BDOCK-1's own header note: an
 orbital-rendezvous-dock D10 value and a same-craft-twice identity D18 value.
 
-## MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**. **THEN TWICE SILENT: `V17T-laythe-vall-ts-arrival` 2026-08-20 and `V19T-laythe-jool-ts-arrival` 2026-08-21, so the raise is DETERMINISTIC ONLY WITHIN THE V14T/V15T/V16T SUBJECT SHAPE and NOT across the family** - an earlier version of this bracket named only those three lanes and called the behaviour deterministic full stop, which the body has now contradicted twice. V19T was authored as the discriminator between V17T's two simultaneous variables and NARROWS THE CAUSE: nested-SOI is EXCLUDED, self-overlap is the surviving candidate, no mechanism claimed (see the table in the body). **AND SHARPENED 2026-08-27 BY `V20M-jool-kerbin-player-loop` reading run 1 - see TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS, which is the same family: on a 32.6 Ms span the frame every proto settles on is SEGMENT ZERO rather than its own CREATION frame (the two coincide on short spans and separated for 36 of 41 protos there), and the reversion is PERMANENT under the instrument rather than the transient V17M measured. No mechanism claimed for either.** REPORT-ONLY: self-correcting, tolerated by name in the three specs that raise it, `allowedAnomalies` deliberately EMPTY on the silent lanes; NO product change is proposed]
+## ~~MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP: a ghost's proto ICON sits tens of degrees around its own orbit line on the CREATION frame, after a single large TimeJump onto an epoch just inside a foreign moon's SOI~~ [MEASURED 2026-08-18 by `V14T-ike-ts-arrival`, REPRODUCED on its armed run, shown PARENT-INDEPENDENT by `V15T-gilly-ts-arrival`, and measured at a THIRD parent 2026-08-19 by `V16T-laythe-ts-arrival` (Jool/Laythe, 129.15 deg) - which also produced the FIRST count > 1 reading (TWO raises, one frame, two proto pids) and a SECOND LENS showing the same creation-frame binding gap. **RECURRED AT COUNT 2 ON V16T's ARMED RUN `2026-08-19_2212` (PASS attempt 1, the tolerance doing its job)**. **THEN TWICE SILENT: `V17T-laythe-vall-ts-arrival` 2026-08-20 and `V19T-laythe-jool-ts-arrival` 2026-08-21, so the raise is DETERMINISTIC ONLY WITHIN THE V14T/V15T/V16T SUBJECT SHAPE and NOT across the family** - an earlier version of this bracket named only those three lanes and called the behaviour deterministic full stop, which the body has now contradicted twice. V19T was authored as the discriminator between V17T's two simultaneous variables and NARROWS THE CAUSE: nested-SOI is EXCLUDED, self-overlap is the surviving candidate, no mechanism claimed (see the table in the body). **AND SHARPENED 2026-08-27 BY `V20M-jool-kerbin-player-loop` reading run 1 - see TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS, which is the same family: on a 32.6 Ms span the frame every proto settles on is SEGMENT ZERO rather than its own CREATION frame (the two coincide on short spans and separated for 36 of 41 protos there), and the reversion is PERMANENT under the instrument rather than the transient V17M measured. No mechanism claimed for either.** REPORT-ONLY: self-correcting, tolerated by name in the three specs that raise it, `allowedAnomalies` deliberately EMPTY on the silent lanes; NO product change is proposed; CLOSED 2026-11-07 (owner ruling: fix or close): the mechanism was found and handled by PR #2111 (the probe skips icon-off-orbit for the time-jump frame and one more, pinned by `TimeJumpSettleFrameTests`); what is left is a one-frame tracer reading, no player-visible defect and no work owed]
 
 `V14T-ike-ts-arrival` run `2026-08-18_2337` came back PARSEK-FAIL(anomaly) on
 attempt 1 with **all sixteen steps green** - every tracking-station route line
@@ -5935,9 +5935,29 @@ latitude. The probe now skips icon-off-orbit on the jump frame and one more; `20
 offset that outlives the settle window still raises. The lanes that tolerate this token keep their
 allowance; it is now unused there.
 
+**CLOSED 2026-11-07 (owner ruling "fix or close").** Re-checked against main: the settle-window skip
+is live (`MapRenderTrace` time-jump settle constant, `MapRenderProbe` `icon-off-orbit check skipped
+on time-jump settle` Verbose, `TimeJumpManager` jump-frame stamp, `TimeJumpSettleFrameTests`), and the
+separate creation-frame loop-shift bake (`GhostMapPresence.ProtoVesselLifecycle` "Bug 3") is in too.
+Every open item above is closed with it:
+- *Which surface is wrong, and the frame-by-frame V7T comparison:* answered by the mechanism (the clock
+  moved mid-frame before body rotation and `Planetarium.Zup` caught up), so neither surface is wrong
+  once the next physics tick lands. Nothing to compare further.
+- *The jump-shape vs scene discriminating experiment, and the self-overlap reading:* not owed. Both
+  were ways to find the mechanism, which is found; they would cost flights for a tracer-only answer.
+- *The `maxCount` ceiling and the bare `allowedAnomalies` tokens in V14T / V15T / V16T:* not owed. The
+  skip makes the raise not fire (V16T `2026-10-15_2215`: 0 raises, 1 skip), so a ceiling has nothing
+  to bound. Removing the now-unused bare tokens would need a re-flight to prove the lanes stay green
+  for no player benefit, so they stay as written.
+- *The long-pitch segment-zero reversion seen by `V20M`:* owned by
+  TIMEJUMP-CANNOT-OBSERVE-LIVE-FRAME-OVERLAP-PROTOS-ON-LONG-PITCH-SUBJECTS (archived in
+  `done/todo-and-known-bugs-v11.md`), not by this entry.
+No player sees any of this: the raise was one creation frame after a large time jump, self-corrected
+on the next frame, and touched no recorded data.
+
 ---
 
-## REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS: the re-aim classifier needs the whole transfer inside ONE member, so any legitimate split silently produces FAITHFUL with a misleading reason [FILED 2026-08-12 as the defense-in-depth follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 2 of docs/dev/done/plans/optimizer-split-transfer-cohesion.md, recommendation accepted). NOT a regression - the cohesion fix removed the only measured instance; this is the class of failure it does not cure]
+## ~~REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS: the re-aim classifier needs the whole transfer inside ONE member, so any legitimate split silently produces FAITHFUL with a misleading reason~~ [FILED 2026-08-12 as the defense-in-depth follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 2 of docs/dev/done/plans/optimizer-split-transfer-cohesion.md, recommendation accepted). NOT a regression - the cohesion fix removed the only measured instance; this is the class of failure it does not cure; CLOSED 2026-11-07 (owner ruling: fix or close): no recording in the corpus reaches the residual split shape, its outcome is the safe faithful replay with a decline line that now names the split, and Design C is a multi-member rework with no measured instance to justify it]
 
 **The residual.** `ReaimClassifier.Classify` requires parking orbit + heliocentric
 coast + direct-child arrival among the segments of a SINGLE loop-unit member. The
@@ -6028,7 +6048,26 @@ half with parking + coast but no arrival would emit `no target arrival leg after
 heliocentric coast`), and those stay unannotated -- widening the predicate without a
 measured instance would be guessing.
 
-## RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed. **Operator ruling 2026-09-26: keep filed; act only when a second consumer is misled by the label.**]
+**CLOSED 2026-11-07 (owner ruling "fix or close").** Every open item above is closed, not deferred:
+- *Design C (per-chain-group classification) and the downstream single-transfer-member assumptions:*
+  not owed. The only shape that still splits a transfer is a PHYSICS-frame burn that is still running
+  when the vessel crosses an SOI boundary (the preserved calibration row). An interplanetary ejection
+  burn ends deep inside the launch body's SOI - leaving Kerbin's 84,159 km SOI takes days of coast -
+  so that shape needs a burn lasting the whole climb out of the SOI, and no committed fixture or flown
+  lane has one on an interplanetary transfer (`SOI-1-mun-exit-physics-burn` flies the shape on
+  purpose, but a Mun exit is the `[Mun orbit] + [Kerbin orbit]` case above, not a re-aim transfer). Rebuilding `ApplyReaim`, `ReaimPlaybackResolver` and the descent gating around a
+  multi-member plan for an unmeasured shape is the high-cost re-aim seam work the render backlog warns
+  against.
+- *What a player sees if it ever happens:* the loop unit declines re-aim and replays FAITHFULLY - the
+  recorded flight, exactly as flown, which is the documented safe fallback for every declined unit -
+  and the `[ReaimDiag]` decline line carries the `split-sibling-transfer` clause naming the split
+  (`ReaimSplitSiblingDiagTests`), so the cause is no longer misleading.
+- *The product-visible member seam:* same answer; it exists only for that unmeasured shape.
+- *Annotating other decline classes:* not owed; as stated above, widening it without an instance
+  would be guessing.
+The `split-sibling-transfer` clause keeps citing this id, which stays readable in the archive.
+
+## ~~RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive~~ [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed. **Operator ruling 2026-09-26: keep filed; act only when a second consumer is misled by the label.**; FIXED 2026-11-07, branch cleanup-3, xUnit: the consumer grep found three more readers misled by the label, which meets the 2026-09-26 condition]
 
 **The observation.** On `dres-orbit-recorded`, track section 28 is
 `env=ExoPropulsive ref=OrbitalCheckpoint`, spans 25,921 s, and its single
@@ -6048,6 +6087,36 @@ one predicate reads it, for no measured benefit today.
 If that happens, the fix is at
 `FlightRecorder`'s checkpoint re-emission path, and the test is that a packed section
 never carries a propulsive env.
+
+**FIXED 2026-11-07 (branch `cleanup-3`), because the condition was already met.** A grep of every
+`TrackSection.environment` reader found three more consumers, besides the optimizer split, that
+read ExoPropulsive as "the vessel did something" through `GhostPlaybackLogic.IsBoringEnvironment`:
+`RecordingOptimizer.TrimBoringTail` / `FindLastInterestingUT` (a packed coast tail labelled
+ExoPropulsive is never trimmed), `GhostPlaybackLogic.ComputeAutoLoopRange` (the loop toggle keeps
+that coast inside the auto loop range) and `SwitchSegmentNoOpClassifier.IsBoringSection` (a switch
+segment that only coasted on rails is kept as `non-boring-section:ExoPropulsive` instead of
+auto-discarded). Readers that the label cannot move were checked too: the split-class users
+(optimizer, segment labels, recordings table) map both Exo labels to one class; smoothing,
+outlier classification, `OrbitSeedResolver` and `TimeJumpPlacement` read only Absolute / Relative
+frames, never an OrbitalCheckpoint section.
+The cause: `environmentHysteresis` is frozen while packed (`OnPhysicsFrame` returns early on
+rails), so a warp taken inside a burn's debounce window hands every checkpoint section of that
+warp, SOI handoffs included, the burn's label. The fix is at the one choke point every
+recorder section opens through: `FlightRecorder.StartNewTrackSection` passes the environment
+through the pure `ResolveTrackSectionEnvironment`, which maps ExoPropulsive to ExoBallistic for an
+OrbitalCheckpoint section (go-on-rails, start on rails, on-rails SOI handoff, cheat / time-jump
+recapture, save-seam reopen) and passes everything else through, with one Verbose
+`TrackSection env normalized:` line. That is the label `BackgroundRecorder` and
+`OrbitSegmentCheckpointBridge` already write for checkpoint sections. The hysteresis itself is
+untouched, so the physics section after the warp keeps its own debounce. Recordings already on
+disk keep their labels (no migration, save-format policy); optimizer rule 3's
+both-OrbitalCheckpoint clause still covers them at the split.
+Tests (`ReferenceFrameTrackingTests`): `OnRailsTransition_OrbitalCheckpointSection_NeverCarriesExoPropulsive`,
+`OnRailsSoiTransition_HysteresisStillPropulsive_OpensBallisticCheckpoint` and the
+`ResolveTrackSectionEnvironment_OnlyPackedPropulsiveChanges` theory fail with the mapping reverted;
+`OffRailsSoiTransition_PropulsiveAbsoluteSection_KeepsItsLabel` and
+`OnRailsTransition_OrbitalCheckpointSection_PreservesNonPropulsiveEnvironment` guard the pass-through
+(the old `..._PreservesEnvironment` cell pinned the defect and was rewritten).
 
 ## PART-ACTION-RECORDING-COVERAGE: audit backlog for what Parsek records vs the stock part-action surface [OPEN 2026-08-09]
 
@@ -7467,7 +7536,7 @@ recorded since 2026-10-09; close on the next green TS lane. Harness only, not a 
 
 **Sighting 3 (2026-08-11, V8T-eve-ts-arrival reading run `2026-08-11_0835` attempt 1, branch `eve-loop-lanes`) - a THIRD lane, same shape, mitigation present.** The Eve TS lane's first outing died identically: every step met through the re-kill pair, then the TS `LoadGame` (step 13) `verdict=REJECTED`, run `INVALID(driver-verdict-mismatch)`, retry-once absorbed it (`_0836` attempt 2 PASS, every step met, clean sweep). Artifacts: `harness/results/2026-08-11_0835_V8T-eve-ts-arrival.json` + the collected `logs/2026-08-11_1136_V8T-eve-ts-arrival/` folder. This corroborates the ~1-in-4 nondeterminism estimate on a THIRD fixture (eve-orbit-recorded) and a third spec carrying the documented mitigation; recorded per V6T's contract (a corroboration, not a re-diagnosis).
 
-## LINE-BLINK-EXEMPTION-DOES-NOT-PIN-THE-BOUNDARY - the window-transition exemption proves "one half read Outside, the other Inside", not "the SAME boundary was crossed" (found by review 2026-08-14, branch `line-blink-census`; UNEVIDENCED across all 13 archived raises; filed rather than fixed, and the OBVIOUS fix is measurably the wrong one)
+## ~~LINE-BLINK-EXEMPTION-DOES-NOT-PIN-THE-BOUNDARY - the window-transition exemption proves "one half read Outside, the other Inside", not "the SAME boundary was crossed"~~ (found by review 2026-08-14, branch `line-blink-census`; UNEVIDENCED across all 13 archived raises; filed rather than fixed, and the OBVIOUS fix is measurably the wrong one; CLOSED 2026-11-07 (owner ruling: fix or close): a precision gap in a tracer-only anomaly exemption, never observed in 13 raises, whose only correct fix needs a flight corpus that buys no player benefit)
 
 **The gap.** `MapRenderTrace.ResolveWindowTransitionExempt` exempts a `line-blink` pair
 when one half classifies `WindowExitOff` and the other `InsideWindowOn`. Each half is a
@@ -7535,6 +7604,18 @@ LINE-BLINK-JUMP-STRADDLE-DETECTOR-GAP entry below; this entry is the one thing t
 review left standing, and it is a sharpening of the exemption's PREMISE rather than a
 hole in its implementation.
 
+**CLOSED 2026-11-07 (owner ruling "fix or close").** No work is owed. Re-checked against main:
+`ResolveWindowTransitionExempt` only decides whether `MapRenderProbe` raises the `line-blink`
+Tier-C anomaly in a gated tracer run (`mapRenderTracing`, off by default); it changes no render
+decision, so the worst case of the gap - a genuine one-frame dark flash of an orbit line read as
+exempt - is a missed TRACER reading of a sub-visual event, never a different picture. The gap was
+unevidenced on all 13 archived raises (all six exempted pairs carry byte-identical bounds), and the
+entry itself shows the only cheap fix (bounds equality) is wrong; the right one (a coherence rule
+designed from a measured drift distribution) needs new tracer flights to build the corpus, a test-only
+benefit while flights are paused. Adding the bounds to `LineRenderIntent` would also mean new
+stamp-site plumbing on the pinned `GhostOrbitLinePatch` channel, which the tracer contract
+(`design-map-ts-render-tracer.md` Appendix A) rules out without such evidence.
+
 ## TODO - D11 `loiter-compression` is UNCOVERED and ~~CANNOT be covered by any committed fixture~~ NOW REACHABLE (first non-zero measurement 2026-08-11, branch `eve-loop-lanes`; the cell itself stays UNCLAIMED until a lane pins a cut token)
 
 **SUPERSEDING MEASUREMENT (2026-08-11, branch `eve-loop-lanes`).** The
@@ -7580,13 +7661,13 @@ The map/TS render cutover is COMPLETE (see the DONE entry above): the modular Di
 
 ---
 
-## Phase 6 known gaps (deferred to later phases)
+## ~~Phase 6 known gaps (deferred to later phases)~~ [FIXED / CLOSED 2026-11-07, branch cleanup-3, xUnit: the HR-9 magnitude check is FIXED; the other three items are CLOSED (owner ruling: fix or close), reasons in each bullet]
 
-- ~~§7.7 BubbleEntry / BubbleExit candidates are not emitted by the Phase 6 builder.~~ Shipped: `AnchorCandidateBuilder.EmitBubbleEntryExitCandidates` walks adjacent `TrackSection` pairs and emits at every `Active|Background ↔ Checkpoint` source-class transition; `IAnchorWorldFrameResolver.TryResolveBubbleEntryExitWorldPos` reads the LAST/FIRST physics-active sample as the high-fidelity world reference. Mainline shipped this at `AlgorithmStampVersion=5`; on the Phase 5 stack it lands inside the v8 alg-stamp window. Residual gap: RELATIVE-frame physics-active sections adjacent to a Checkpoint segment are deferred with a `bubble-entry-exit-relative-section-deferred` Verbose (uncommon in practice — vessel docked to its anchor while a Checkpoint splices in).
+- ~~§7.7 BubbleEntry / BubbleExit candidates are not emitted by the Phase 6 builder.~~ Shipped: `AnchorCandidateBuilder.EmitBubbleEntryExitCandidates` walks adjacent `TrackSection` pairs and emits at every `Active|Background ↔ Checkpoint` source-class transition; `IAnchorWorldFrameResolver.TryResolveBubbleEntryExitWorldPos` reads the LAST/FIRST physics-active sample as the high-fidelity world reference. Mainline shipped this at `AlgorithmStampVersion=5`; on the Phase 5 stack it lands inside the v8 alg-stamp window. Residual gap: RELATIVE-frame physics-active sections adjacent to a Checkpoint segment are deferred with a `bubble-entry-exit-relative-section-deferred` Verbose (uncommon in practice — vessel docked to its anchor while a Checkpoint splices in). **Residual CLOSED 2026-11-07:** anchors exist only inside a Re-Fly session (`RenderSessionState.RebuildFromMarker`), the shape needs a Relative physics section to hand straight over to an on-rails checkpoint, and a miss leaves that checkpoint section at its recorded Kepler position (what every non-Re-Fly playback shows), never a wrong one. Resolving the anchor-local sample to world needs the anchor's live position at that UT, which no headless test can pin, so it is not worth the risk for an uncorrected-but-correct render.
 - ~~§7.8 CoBubblePeer anchors are reserved in the enum but emit no candidates.~~ Obsolete: the co-bubble subsystem was retired in PR #912 (v0.9.3). The enum slot 7 (formerly `CoBubblePeer`) is now `Reserved7`, kept only to preserve the persisted `.pann` `AnchorCandidatesList` byte layout; there is no co-bubble pipeline. Close-formation accuracy is delivered by the parent-anchored debris contract instead.
-- The 2.5 km bubble-radius HR-9 Warn (`RenderSessionState.cs:836-848`) only fires from the LiveSeparation path inside `RebuildFromMarker`. Anchors written via `AnchorPropagator.TryWriteAnchor → PutAnchorWithPriority` (§7.4 / §7.5 / §7.6 / §7.7 / §7.10) skip the magnitude check, so a non-LiveSeparation ε of, say, 12 km lands silently. Lift the magnitude check into `PutAnchorWithPriority` (or the per-source dispatch) in a follow-up PR so all anchor types are uniformly guarded — pre-existing gap, not introduced by §7.7.
-- §7.9 SurfaceContinuous emits a marker only with ε = 0; the per-frame terrain raycast that resolves ε is Phase 7 work. Phase 6 demoted the rank from 2 to 6 to prevent the zero stub from winning ties against real OrbitalCheckpoint ε; Phase 7 must promote back to rank 2 once the resolver ships and bump `AlgorithmStampVersion` so existing `.pann` re-resolve.
-- The split anchor sources (Undock / EVA / JointBreak) currently share the `DockOrMerge` enum byte (priority rank 4 either way). Logs label them by `BranchPointType` rather than by enum value to preserve telemetry granularity. If a future phase needs to differentiate split priorities from dock priorities, expand the `AnchorSource` enum and bump `AlgorithmStampVersion`.
+- The 2.5 km bubble-radius HR-9 Warn (`RenderSessionState.cs:836-848`) only fires from the LiveSeparation path inside `RebuildFromMarker`. Anchors written via `AnchorPropagator.TryWriteAnchor → PutAnchorWithPriority` (§7.4 / §7.5 / §7.6 / §7.7 / §7.10) skip the magnitude check, so a non-LiveSeparation ε of, say, 12 km lands silently. ~~Lift the magnitude check into `PutAnchorWithPriority` (or the per-source dispatch) in a follow-up PR so all anchor types are uniformly guarded — pre-existing gap, not introduced by §7.7.~~ **FIXED 2026-11-07 (branch `cleanup-3`):** the check is one helper, `RenderSessionState.WarnIfEpsilonExceedsBubbleRadius` over the pure `EpsilonExceedsBubbleRadius` (NaN / infinity count as exceeding), called from the LiveSeparation path and from `PutAnchorWithPriority` for every anchor that LANDS (a candidate that loses the priority comparison stays silent; the value is kept, never zeroed). Same Warn text, now naming the real `anchorSource`. Tests in `RenderSessionStateLoggingTests`: `PutAnchorWithPriority_OversizedNonLiveSeparationEpsilon_EmitsWarn` (fails with the new call removed), `PutAnchorWithPriority_InRangeEpsilon_NoBubbleWarn`, `PutAnchorWithPriority_OversizedCandidateThatLosesPriority_NoBubbleWarn`, `EpsilonExceedsBubbleRadius_Boundary`; the existing `EpsilonExceedsBubbleRadius_EmitsWarn` still pins the LiveSeparation path.
+- §7.9 SurfaceContinuous emits a marker only with ε = 0; the per-frame terrain raycast that resolves ε is Phase 7 work. Phase 6 demoted the rank from 2 to 6 to prevent the zero stub from winning ties against real OrbitalCheckpoint ε; ~~Phase 7 must promote back to rank 2 once the resolver ships and bump `AlgorithmStampVersion` so existing `.pann` re-resolve.~~ **CLOSED 2026-11-07:** Phase 7 shipped terrain correction as the per-sample `recordedGroundClearance` applied at positioning time (`ParsekFlight.TailLift`, design Phase 7), not as an anchor epsilon, so no raycast resolver for this anchor will ever ship. Its epsilon stays a zero stub, and rank 6 is the correct permanent rank: promoting it would let the zero stub outrank a real OrbitalCheckpoint / SoiTransition epsilon. The stale "Phase 7 will promote" comments in `AnchorPriority`, `AnchorCandidateBuilder` and `AnchorPropagator` were corrected in the same commit.
+- The split anchor sources (Undock / EVA / JointBreak) currently share the `DockOrMerge` enum byte (priority rank 4 either way). Logs label them by `BranchPointType` rather than by enum value to preserve telemetry granularity. If a future phase needs to differentiate split priorities from dock priorities, expand the `AnchorSource` enum and bump `AlgorithmStampVersion`. **CLOSED 2026-11-07:** no work is owed. Nothing reads a split anchor differently from a dock anchor: the priority rank is 4 either way and the propagation rule is the same edge walk, and the telemetry already names the branch type (`Edge propagated: ... bpType=`). Splitting the enum would change the persisted `.pann` candidate bytes and force an `AlgorithmStampVersion` bump for no behaviour change.
 
 ---
 
