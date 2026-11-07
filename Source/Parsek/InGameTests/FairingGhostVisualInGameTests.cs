@@ -803,7 +803,7 @@ namespace Parsek.InGameTests
             var ghost = new List<string>();
             for (int i = 0; i < names.Count; i++)
             {
-                if (IsShown(run.FairingPart.FindModelTransform(names[i]))) real.Add(names[i]);
+                if (IsShown(FindRealSkirtTransform(run.FairingPart, jets, names[i]))) real.Add(names[i]);
                 if (ghostPart != null && IsShown(FindDescendant(ghostPart, names[i]))) ghost.Add(names[i]);
             }
             string r = string.Join(",", real.ToArray());
@@ -813,6 +813,20 @@ namespace Parsek.InGameTests
                 $"real=[{r}] ghost=[{g}] match={match} candidates={names.Count.ToString(IC)}");
             if (!match)
                 failures.Add($"config {run.Config.Number} {run.Config.Name}: {phase} skirt real=[{r}] ghost=[{g}]");
+        }
+
+        // In flight stock ModuleJettison re-parents an isFairing shroud to the part on its
+        // bottom node (OnStart, when decoupling is enabled), so the live shroud is no longer
+        // under this part's model; the module keeps the reference. The ghost keeps it on the
+        // engine part, which renders in the same place.
+        private static Transform FindRealSkirtTransform(Part part, List<ModuleJettison> jets, string name)
+        {
+            for (int i = 0; i < jets.Count; i++)
+            {
+                Transform t = jets[i] != null ? jets[i].jettisonTransform : null;
+                if (t != null && t.name == name) return t;
+            }
+            return part.FindModelTransform(name);
         }
 
         private static bool IsShown(Transform t)
