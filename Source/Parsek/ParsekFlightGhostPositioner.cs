@@ -1719,6 +1719,58 @@ namespace Parsek
             predictedOrbitTailContinuityCache?.Clear();
         }
 
+        // The two loop-seam trace dictionaries are keyed by committed-list index, so they move with
+        // the list through IndexShift like every other index-keyed slot. Without the shift a member's
+        // first seam check after a mid-list change compares against the frame of the recording that
+        // used to hold its index.
+        internal void ShiftLoopSeamTracesAfterDelete(int removedIndex)
+        {
+            int reaimShifted = CountKeysAbove(reaimLastGhostFrame, removedIndex);
+            int seamShifted = CountKeysAbove(loopSeamLastGhostFrame, removedIndex);
+            bool reaimDropped = reaimLastGhostFrame.ContainsKey(removedIndex);
+            bool seamDropped = loopSeamLastGhostFrame.ContainsKey(removedIndex);
+            IndexShift.DictAfterDelete(reaimLastGhostFrame, removedIndex);
+            IndexShift.DictAfterDelete(loopSeamLastGhostFrame, removedIndex);
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Verbose("Flight",
+                "Loop-seam traces reindexed after delete at #" + removedIndex.ToString(ic)
+                + ": reaim shifted=" + reaimShifted.ToString(ic)
+                + " dropped=" + (reaimDropped ? "1" : "0")
+                + " count=" + reaimLastGhostFrame.Count.ToString(ic)
+                + ", loopSeam shifted=" + seamShifted.ToString(ic)
+                + " dropped=" + (seamDropped ? "1" : "0")
+                + " count=" + loopSeamLastGhostFrame.Count.ToString(ic));
+        }
+
+        internal void ShiftLoopSeamTracesAfterInsert(int insertedIndex)
+        {
+            int reaimShifted = CountKeysAbove(reaimLastGhostFrame, insertedIndex - 1);
+            int seamShifted = CountKeysAbove(loopSeamLastGhostFrame, insertedIndex - 1);
+            IndexShift.DictAfterInsert(reaimLastGhostFrame, insertedIndex);
+            IndexShift.DictAfterInsert(loopSeamLastGhostFrame, insertedIndex);
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Verbose("Flight",
+                "Loop-seam traces reindexed after insert at #" + insertedIndex.ToString(ic)
+                + ": reaim shifted=" + reaimShifted.ToString(ic)
+                + " count=" + reaimLastGhostFrame.Count.ToString(ic)
+                + ", loopSeam shifted=" + seamShifted.ToString(ic)
+                + " count=" + loopSeamLastGhostFrame.Count.ToString(ic));
+        }
+
+        private static int CountKeysAbove<T>(Dictionary<int, T> dict, int index)
+        {
+            int count = 0;
+            foreach (int key in dict.Keys)
+                if (key > index) count++;
+            return count;
+        }
+
+        internal Dictionary<int, (int segIdx, Vector3 pos, double loopUT)> ReaimLastGhostFrameForTesting
+            => reaimLastGhostFrame;
+
+        internal Dictionary<int, (int segIdx, Vector3 pos, double loopUT, double currentUT, int frame)>
+            LoopSeamLastGhostFrameForTesting => loopSeamLastGhostFrame;
+
         void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey,
             string recordingId = null, IPlaybackTrajectory traj = null)
         {
