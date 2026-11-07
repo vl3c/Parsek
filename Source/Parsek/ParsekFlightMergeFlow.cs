@@ -147,21 +147,8 @@ namespace Parsek
                 || ParsekFlight.TreeHasPendingLabRecoveryForIdle(host.activeTree, "IsActiveTreeIdleOnPad"))
                 return false;
 
-            bool anyHasPoints = false;
-            foreach (var rec in host.activeTree.Recordings.Values)
-            {
-                if (rec == null) continue;
-                LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
-                if (rec.Points != null && rec.Points.Count > 0)
-                    anyHasPoints = true;
-                if (!ParsekFlight.IsIdleOnPad(rec))
-                {
-                    ParsekLog.Verbose("Flight",
-                        $"IsActiveTreeIdleOnPad: '{rec.VesselName}' maxDist=" +
-                        $"{rec.MaxDistanceFromLaunch:F1}m - not idle");
-                    return false;
-                }
-            }
+            if (!AllRecordingsIdleOnPadAfterBackfill(host.activeTree, out bool anyHasPoints))
+                return false;
 
             // Bug #290d safeguard: a tree where no recording has trajectory
             // points is data-loss, not idle-on-pad. Don't auto-discard.
@@ -182,6 +169,34 @@ namespace Parsek
             ParsekLog.Verbose("Flight",
                 $"IsActiveTreeIdleOnPad: all {host.activeTree.Recordings.Count} recordings " +
                 "within 30m - idle on pad");
+            return true;
+        }
+
+        /// <summary>
+        /// The per-recording walk of <see cref="IsActiveTreeIdleOnPad"/>: backfills each
+        /// recording's max distance from its body-fixed surfaces, notes whether any recording
+        /// has trajectory points, and returns false (logging the vessel) at the first
+        /// recording that is not idle on the pad. Null slots are skipped. On a false return
+        /// <paramref name="anyHasPoints"/> covers only the recordings walked so far.
+        /// </summary>
+        internal static bool AllRecordingsIdleOnPadAfterBackfill(
+            RecordingTree tree, out bool anyHasPoints)
+        {
+            anyHasPoints = false;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null) continue;
+                LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
+                if (rec.Points != null && rec.Points.Count > 0)
+                    anyHasPoints = true;
+                if (!ParsekFlight.IsIdleOnPad(rec))
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"IsActiveTreeIdleOnPad: '{rec.VesselName}' maxDist=" +
+                        $"{rec.MaxDistanceFromLaunch:F1}m - not idle");
+                    return false;
+                }
+            }
             return true;
         }
 
@@ -337,10 +352,7 @@ namespace Parsek
             // post-cutoff tails only.
             if (host.activeTree?.Recordings != null && host.activeTree.Recordings.Count > 0)
             {
-                var rehomeIds = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var rid in host.activeTree.Recordings.Keys)
-                    if (!string.IsNullOrEmpty(rid))
-                        rehomeIds.Add(rid);
+                var rehomeIds = CollectRehomeRecordingIds(host.activeTree);
                 if (rehomeIds.Count > 0)
                     LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
                         rehomeIds, $"AutoDiscardActiveTreeCore: {reason}");
@@ -434,6 +446,19 @@ namespace Parsek
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                 ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
                 ledgerRecalcReason);
+        }
+
+        /// <summary>
+        /// The ids <see cref="AutoDiscardActiveTreeCore"/> hands to the irreversible-gameplay
+        /// re-home: every non-empty recording key of the tree, ordinal.
+        /// </summary>
+        internal static HashSet<string> CollectRehomeRecordingIds(RecordingTree tree)
+        {
+            var rehomeIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var rid in tree.Recordings.Keys)
+                if (!string.IsNullOrEmpty(rid))
+                    rehomeIds.Add(rid);
+            return rehomeIds;
         }
 
         private void FinalizeTreeOnSceneChangeCore(
@@ -562,15 +587,7 @@ namespace Parsek
                 // before the next OnLoad runs TryRestoreActiveTreeNode, which hydrates the
                 // restored tree from those sidecars. Force-write them now so the post-finalize
                 // state survives the round-trip.
-                int forcedWrites = 0;
-                foreach (var rec in host.activeTree.Recordings.Values)
-                {
-                    if (rec.FilesDirty)
-                    {
-                        if (RecordingSidecarStore.SaveRecordingFiles(rec, incrementEpoch: false))
-                            forcedWrites++;
-                    }
-                }
+                int forcedWrites = ForceWriteDirtySidecarFiles(host.activeTree);
                 if (forcedWrites > 0)
                 {
                     ParsekLog.Info("Flight",
@@ -971,23 +988,7 @@ namespace Parsek
             // Bug #271: preserve GhostVisualSnapshot before nulling VesselSnapshot so ghost
             // rendering still has vessel geometry. Without this, the ghost mesh builder falls
             // back to the green sphere for any recording whose VesselSnapshot was nulled here.
-            foreach (var rec in host.activeTree.Recordings.Values)
-            {
-                bool keepForSpawn = rec.TerminalStateValue.HasValue
-                    && (rec.TerminalStateValue.Value == TerminalState.Landed
-                        || rec.TerminalStateValue.Value == TerminalState.Splashed
-                        || rec.TerminalStateValue.Value == TerminalState.Orbiting);
-                if (!keepForSpawn)
-                {
-                    if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
-                        rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
-                    // Unreserve crew before nulling, matching the dialog path's
-                    // ApplyVesselDecisions ghost-only branch: a non-spawnable leaf must
-                    // not keep its kerbals reserved (silent full-fidelity crew parity).
-                    CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                    rec.VesselSnapshot = null;
-                }
-            }
+            ReleaseNonSpawnableSceneExitSnapshots(host.activeTree);
 
             // #289 (silent full-fidelity auto-commit): force-write dirty sidecars now,
             // mirroring the autoMerge=OFF scene-exit branch. KSP's auto-save already
@@ -997,15 +998,7 @@ namespace Parsek
             // silent full-fidelity commit's spawn-at-end could not re-hydrate the
             // finalized _vessel.craft on a cold load — see
             // docs/dev/done/plans/silent-full-fidelity-autocommit.md.
-            int forcedWrites = 0;
-            foreach (var rec in host.activeTree.Recordings.Values)
-            {
-                if (rec.FilesDirty)
-                {
-                    if (RecordingSidecarStore.SaveRecordingFiles(rec, incrementEpoch: false))
-                        forcedWrites++;
-                }
-            }
+            int forcedWrites = ForceWriteDirtySidecarFiles(host.activeTree);
             if (forcedWrites > 0)
             {
                 ParsekLog.Info("Flight",
@@ -1019,6 +1012,62 @@ namespace Parsek
 
             ParsekLog.Info("Flight", $"CommitTreeSceneExit: stashed pending tree '{host.activeTree.TreeName}'");
             RecorderStateLog.RecState("CommitTreeSceneExit:post", host.CaptureRecorderState());
+        }
+
+        /// <summary>
+        /// True for the stable terminals (Landed / Splashed / Orbiting) whose vessel snapshot
+        /// the auto-merge scene-exit commit keeps for spawn-at-end.
+        /// </summary>
+        internal static bool ShouldKeepVesselSnapshotForSpawnAtEnd(Recording rec)
+        {
+            return rec.TerminalStateValue.HasValue
+                && (rec.TerminalStateValue.Value == TerminalState.Landed
+                    || rec.TerminalStateValue.Value == TerminalState.Splashed
+                    || rec.TerminalStateValue.Value == TerminalState.Orbiting);
+        }
+
+        /// <summary>
+        /// The auto-merge scene-exit commit's snapshot release: for every recording whose
+        /// snapshot is not kept for spawn-at-end, copies the vessel snapshot into an empty
+        /// ghost visual snapshot, releases the snapshot's crew reservations and nulls the
+        /// vessel snapshot.
+        /// </summary>
+        internal static void ReleaseNonSpawnableSceneExitSnapshots(RecordingTree tree)
+        {
+            foreach (var rec in tree.Recordings.Values)
+            {
+                bool keepForSpawn = ShouldKeepVesselSnapshotForSpawnAtEnd(rec);
+                if (!keepForSpawn)
+                {
+                    if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
+                        rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
+                    // Unreserve crew before nulling, matching the dialog path's
+                    // ApplyVesselDecisions ghost-only branch: a non-spawnable leaf must
+                    // not keep its kerbals reserved (silent full-fidelity crew parity).
+                    CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                    rec.VesselSnapshot = null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Force-writes every dirty recording's sidecar files (epoch unchanged) and returns
+        /// how many writes succeeded. Both scene-exit commits (auto-merge on and off) run it
+        /// after finalize, because KSP's auto-save already fired before the finalize dirtied
+        /// them.
+        /// </summary>
+        internal static int ForceWriteDirtySidecarFiles(RecordingTree tree)
+        {
+            int forcedWrites = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec.FilesDirty)
+                {
+                    if (RecordingSidecarStore.SaveRecordingFiles(rec, incrementEpoch: false))
+                        forcedWrites++;
+                }
+            }
+            return forcedWrites;
         }
 
         /// <summary>

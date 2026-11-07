@@ -8,8 +8,9 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Characterization and unit tests for ParsekFlightMergeFlow: the headless-reachable
-    /// instance paths (idle-on-pad, the auto-discard teardown, the scene-exit commit's
-    /// snapshot release) and the final segment phase / endpoint / finalization-cache statics.
+    /// instance paths (idle-on-pad, the auto-discard teardown), the helpers extracted from
+    /// them and from the scene-exit commit (idle walk, re-home ids, snapshot release,
+    /// dirty sidecar force-write) and the final segment phase / endpoint / finalization-cache statics.
     /// </summary>
     [Collection("Sequential")]
     public class MergeFlowUnitTests : IDisposable
@@ -160,6 +161,133 @@ namespace Parsek.Tests
             Assert.Null(ActiveTree(null, flight));
             Assert.Contains(logLines, l => l.Contains("AutoDiscardActiveTreeCore: discarding live tree reason='unit-test'")
                 && l.Contains("ledgerRecalcReason='unit-recalc'"));
+        }
+
+        // ================= extracted helpers =================
+
+        [Fact]
+        public void IdleWalk_StopsAtTheFirstNonIdleRecording()
+        {
+            var near = new Recording { RecordingId = "a", VesselName = "Near", MaxDistanceFromLaunch = 1 };
+            near.Points.Add(Pt(1));
+            var far = new Recording { RecordingId = "b", VesselName = "Far", MaxDistanceFromLaunch = 900 };
+            var after = new Recording { RecordingId = "c", VesselName = "After", MaxDistanceFromLaunch = 900 };
+            var tree = Tree(near, far, after);
+
+            Assert.False(ParsekFlightMergeFlow.AllRecordingsIdleOnPadAfterBackfill(tree, out bool anyHasPoints));
+            Assert.True(anyHasPoints);
+            Assert.Contains(logLines, l => l.Contains("IsActiveTreeIdleOnPad: 'Far' maxDist=") && l.Contains("m - not idle"));
+            Assert.DoesNotContain(logLines, l => l.Contains("'After'"));
+        }
+
+        [Fact]
+        public void IdleWalk_AllIdle_ReportsWhetherAnyHasPoints()
+        {
+            var a = new Recording { RecordingId = "a", VesselName = "A", MaxDistanceFromLaunch = 2 };
+            var b = new Recording { RecordingId = "b", VesselName = "B", MaxDistanceFromLaunch = 3 };
+            var tree = Tree(a, b);
+            tree.Recordings["null-slot"] = null;
+
+            Assert.True(ParsekFlightMergeFlow.AllRecordingsIdleOnPadAfterBackfill(tree, out bool none));
+            Assert.False(none);
+
+            b.Points.Add(Pt(1));
+            Assert.True(ParsekFlightMergeFlow.AllRecordingsIdleOnPadAfterBackfill(tree, out bool some));
+            Assert.True(some);
+        }
+
+        [Fact]
+        public void IdleWalk_NonIdleFirst_LeavesAnyHasPointsFromTheWalkedPrefixOnly()
+        {
+            var far = new Recording { RecordingId = "a", VesselName = "Far", MaxDistanceFromLaunch = 900 };
+            var later = new Recording { RecordingId = "b", VesselName = "Later", MaxDistanceFromLaunch = 1 };
+            later.Points.Add(Pt(1));
+            Assert.False(ParsekFlightMergeFlow.AllRecordingsIdleOnPadAfterBackfill(Tree(far, later), out bool any));
+            Assert.False(any);
+        }
+
+        [Fact]
+        public void RehomeIds_EveryNonEmptyKey()
+        {
+            var tree = Tree(new Recording { RecordingId = "r1" }, new Recording { RecordingId = "r2" });
+            tree.Recordings[""] = new Recording();
+            var ids = ParsekFlightMergeFlow.CollectRehomeRecordingIds(tree);
+            Assert.Equal(2, ids.Count);
+            Assert.Contains("r1", ids);
+            Assert.Contains("r2", ids);
+            Assert.DoesNotContain("R1", ids);
+            Assert.Empty(ParsekFlightMergeFlow.CollectRehomeRecordingIds(new RecordingTree { Id = "t" }));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Landed, true)]
+        [InlineData(TerminalState.Splashed, true)]
+        [InlineData(TerminalState.Orbiting, true)]
+        [InlineData(TerminalState.Destroyed, false)]
+        [InlineData(TerminalState.SubOrbital, false)]
+        [InlineData(TerminalState.Recovered, false)]
+        [InlineData(TerminalState.Docked, false)]
+        [InlineData(TerminalState.Boarded, false)]
+        public void KeepSnapshotForSpawn_OnlyStableTerminals(TerminalState state, bool keep)
+        {
+            Assert.Equal(keep, ParsekFlightMergeFlow.ShouldKeepVesselSnapshotForSpawnAtEnd(
+                new Recording { TerminalStateValue = state }));
+        }
+
+        [Fact]
+        public void KeepSnapshotForSpawn_OpenRecording_False()
+        {
+            Assert.False(ParsekFlightMergeFlow.ShouldKeepVesselSnapshotForSpawnAtEnd(new Recording()));
+        }
+
+        [Fact]
+        public void SceneExitSnapshotRelease_NullsNonSpawnableAndKeepsStableTerminals()
+        {
+            var landed = new Recording { RecordingId = "landed", VesselName = "L", TerminalStateValue = TerminalState.Landed };
+            var orbiting = new Recording { RecordingId = "orbiting", VesselName = "O", TerminalStateValue = TerminalState.Orbiting };
+            var splashed = new Recording { RecordingId = "splashed", VesselName = "S", TerminalStateValue = TerminalState.Splashed };
+            var destroyed = new Recording { RecordingId = "destroyed", VesselName = "D", TerminalStateValue = TerminalState.Destroyed };
+            var open = new Recording { RecordingId = "open", VesselName = "N" };
+            var keepsGhost = new Recording { RecordingId = "ghost", VesselName = "G", TerminalStateValue = TerminalState.Recovered };
+            var noSnapshot = new Recording { RecordingId = "none", VesselName = "X", TerminalStateValue = TerminalState.Destroyed };
+            foreach (var r in new[] { landed, orbiting, splashed, destroyed, open, keepsGhost })
+            {
+                r.VesselSnapshot = new ConfigNode("VESSEL");
+                r.VesselSnapshot.AddValue("name", r.VesselName);
+            }
+            var existingGhost = new ConfigNode("VESSEL");
+            existingGhost.AddValue("name", "older ghost");
+            keepsGhost.GhostVisualSnapshot = existingGhost;
+            var landedSnapshot = landed.VesselSnapshot;
+
+            ParsekFlightMergeFlow.ReleaseNonSpawnableSceneExitSnapshots(
+                Tree(landed, orbiting, splashed, destroyed, open, keepsGhost, noSnapshot));
+
+            Assert.Same(landedSnapshot, landed.VesselSnapshot);
+            Assert.Null(landed.GhostVisualSnapshot);
+            Assert.NotNull(orbiting.VesselSnapshot);
+            Assert.NotNull(splashed.VesselSnapshot);
+            Assert.Null(destroyed.VesselSnapshot);
+            Assert.Equal("D", destroyed.GhostVisualSnapshot.GetValue("name"));
+            Assert.Null(open.VesselSnapshot);
+            Assert.Equal("N", open.GhostVisualSnapshot.GetValue("name"));
+            Assert.Null(keepsGhost.VesselSnapshot);
+            Assert.Same(existingGhost, keepsGhost.GhostVisualSnapshot);
+            Assert.Null(noSnapshot.VesselSnapshot);
+            Assert.Null(noSnapshot.GhostVisualSnapshot);
+            Assert.Contains(logLines, l => l.Contains("UnreserveCrewInSnapshot: null snapshot"));
+            Assert.Contains(logLines, l => l.Contains("UnreserveCrewInSnapshot: no crew roster"));
+        }
+
+        [Fact]
+        public void ForceWriteDirtySidecars_SkipsCleanAndCountsOnlySuccessfulWrites()
+        {
+            var clean = new Recording { RecordingId = "clean", FilesDirty = false };
+            var badId = new Recording { RecordingId = "bad/id", FilesDirty = true };
+            Assert.Equal(0, ParsekFlightMergeFlow.ForceWriteDirtySidecarFiles(Tree(clean, badId)));
+            Assert.True(badId.FilesDirty);
+            Assert.Contains(logLines, l => l.Contains("[Paths]") && l.Contains("Recording id validation failed for 'bad/id'"));
+            Assert.DoesNotContain(logLines, l => l.Contains("'clean'"));
         }
 
         // ================= statics =================
