@@ -417,7 +417,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(root, "Source", "Parsek", relPath);
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
+            return ParsekScenarioSourceFiles.ReadText(path);
         }
 
         private static string StripComments(string source)

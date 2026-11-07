@@ -400,7 +400,7 @@ namespace Parsek.Tests.Logistics
             Assert.True(File.Exists(scenarioPath),
                 $"ParsekScenario.cs not found at {scenarioPath}");
 
-            string source = File.ReadAllText(scenarioPath);
+            string source = ParsekScenarioSourceFiles.ReadText(scenarioPath);
 
             // B-2: anchor every search INSIDE the HandleRewindOnLoad body
             // (between its entry and exit RecState markers) so an unrelated

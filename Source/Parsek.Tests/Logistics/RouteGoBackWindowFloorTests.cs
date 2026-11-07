@@ -450,7 +450,7 @@ namespace Parsek.Tests.Logistics
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot, "Source", "Parsek", fileName);
             Assert.True(File.Exists(path), fileName + " not found at " + path);
-            var lines = File.ReadAllText(path).Replace("\r\n", "\n").Split('\n');
+            var lines = ParsekScenarioSourceFiles.ReadText(path).Replace("\r\n", "\n").Split('\n');
             for (int i = 0; i < lines.Length; i++)
             {
                 int c = lines[i].IndexOf("//", StringComparison.Ordinal);
