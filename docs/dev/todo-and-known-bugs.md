@@ -2880,6 +2880,12 @@ each PR lands on the refactor branch, IL-proven a pure move).
     (GameActions -> Recording 37 and Crew -> Recording 6 are now upward; Recording ->
     GameActions 15 and Recording -> Crew 3 stop being). Ordering, not new coupling: upward
     edges stay 85, weight 826 -> 835. Knots unchanged.
+  - PR 3 (pure move): `TrajectoryMath.ComputeStats(Recording, Func)` and its private
+    `ApplyTrackSectionAltitudeMetadata` -> new `RecordingStatsCalculator`
+    (`RecordingStatsCalculator.cs`, Recording by the `^Recording` prefix). `RecordingStats` and
+    the pair / frame / segment helpers stay on `TrajectoryMath`; the log tag stays
+    "TrajectoryMath". IL: 2 moved bodies identical, 1 re-pointed call site. Trajectory ->
+    Recording 1 -> 0; upward edges 85 -> 84 (weight 835 -> 834).
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
