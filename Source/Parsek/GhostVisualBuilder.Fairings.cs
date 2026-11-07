@@ -746,8 +746,9 @@ namespace Parsek
                     mat.shader = Shader.Find("KSP/Specular Opaque (Cutoff)");
                 }
             }
-            if (!cone && prefab.baseVariant != null)
-                prefab.baseVariant.TryCopyMaterial(mat);
+            // Stock's OnStart also calls part.baseVariant.TryCopyMaterial here; that only
+            // appends a copy to the variant's list (the prefab's, for a ghost) and never
+            // changes this material, so the ghost skips it.
 
             if (!cone && variant != null)
             {
