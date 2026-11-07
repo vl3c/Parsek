@@ -146,7 +146,7 @@ namespace Parsek
                 // (terminated chains already filtered by the continue above)
                 Recording tipRecording = string.IsNullOrEmpty(chain.TipRecordingId)
                     ? null
-                    : FindTipRecordingById(chain.TipRecordingId);
+                    : ParsekFlightPlaybackHost.FindTipRecordingById(chain.TipRecordingId);
                 if (tipRecording != null
                     && (!tipRecording.TerminalStateValue.HasValue
                         || tipRecording.TerminalStateValue == TerminalState.Orbiting
@@ -534,7 +534,7 @@ namespace Parsek
             if (GhostPlaybackLogic.ShouldRefuseLiveFlownSpawn(
                     rec?.RecordingId,
                     SessionSuppressionState.ActiveMarker?.ActiveReFlyRecordingId,
-                    ResolveLiveRecorderRecordingId(),
+                    PlaybackHost.ResolveLiveRecorderRecordingId(),
                     out liveFlownReason))
             {
                 ParsekLog.InfoRateLimited("Spawner",
@@ -678,7 +678,7 @@ namespace Parsek
 
         internal bool IsAnyWarpActive() => GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
 
-        void ExitAllWarpForPlaybackStart(string context)
+        internal void ExitAllWarpForPlaybackStart(string context)
         {
             if (!IsAnyWarpActive()) return;
             TimeWarp.SetRate(0, true);
@@ -1084,7 +1084,7 @@ namespace Parsek
                 // A refusal leaves everything as it was.
                 if (!TryWarpToRecordingEndWithPlacement(rec, active))
                     return;
-                RefreshBlockedChainTipGhostOrbitsAfterJump();
+                PlaybackHost.RefreshBlockedChainTipGhostOrbitsAfterJump();
                 ArmSpawnWarpWatch(rec, targetUT);
                 return;
             }
@@ -1092,7 +1092,7 @@ namespace Parsek
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Pass null chains — let the engine playback loop handle spawn naturally
             TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
-            RefreshBlockedChainTipGhostOrbitsAfterJump();
+            PlaybackHost.RefreshBlockedChainTipGhostOrbitsAfterJump();
             ArmSpawnWarpWatch(rec, targetUT);
         }
 
@@ -1248,7 +1248,7 @@ namespace Parsek
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Epoch-shifted jump: preserves rendezvous geometry
             TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
-            RefreshBlockedChainTipGhostOrbitsAfterJump();
+            PlaybackHost.RefreshBlockedChainTipGhostOrbitsAfterJump();
 
             ParsekLog.ScreenMessage(
                 string.Format(CultureInfo.InvariantCulture,

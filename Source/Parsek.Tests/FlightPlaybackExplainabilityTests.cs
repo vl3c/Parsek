@@ -1098,12 +1098,12 @@ namespace Parsek.Tests
         {
             var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
             SetPrivateField(host, "activeGhostChains", new Dictionary<uint, GhostChain>());
-            SetPrivateField(host, "activeGhostSkipReasonLogIdentities", new HashSet<string>());
+            SetPrivateField(host.PlaybackHost, "activeGhostSkipReasonLogIdentities", new HashSet<string>());
             SetPrivateField(host, "reFlyAnchorHoldStartFrameByAnchor", new Dictionary<string, int>(StringComparer.Ordinal));
             SetPrivateField(host, "reFlyAnchorHoldCountsThisFrame", new Dictionary<string, int>(StringComparer.Ordinal));
             SetPrivateField(host, "reFlyAnchorHoldReasonsThisFrame", new Dictionary<string, string>(StringComparer.Ordinal));
             SetPrivateField(host, "reFlyAnchorHoldReleaseScratch", new List<string>());
-            SetPrivateField(host, "spawnSuppressedReasonScratch", new Dictionary<string, int>(StringComparer.Ordinal));
+            SetPrivateField(host.PlaybackHost, "spawnSuppressedReasonScratch", new Dictionary<string, int>(StringComparer.Ordinal));
             return host;
         }
 
@@ -1112,12 +1112,12 @@ namespace Parsek.Tests
             IReadOnlyList<Recording> committed,
             double currentUT)
         {
-            MethodInfo method = typeof(ParsekFlight).GetMethod(
+            MethodInfo method = typeof(ParsekFlightPlaybackHost).GetMethod(
                 "ComputePlaybackFlags",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(method);
             return (TrajectoryPlaybackFlags[])method.Invoke(
-                host,
+                host.PlaybackHost,
                 new object[] { committed, currentUT, null });
         }
 

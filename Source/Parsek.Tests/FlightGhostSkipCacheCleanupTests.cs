@@ -119,7 +119,7 @@ namespace Parsek.Tests
         private static HashSet<string> GetActiveGhostSkipReasonIdentities(ParsekFlight host)
         {
             FieldInfo field = GetActiveGhostSkipReasonIdentitiesField();
-            return (HashSet<string>)field.GetValue(host);
+            return (HashSet<string>)field.GetValue(host.PlaybackHost);
         }
 
         private static void SetActiveGhostSkipReasonIdentities(
@@ -127,12 +127,12 @@ namespace Parsek.Tests
             HashSet<string> identities)
         {
             FieldInfo field = GetActiveGhostSkipReasonIdentitiesField();
-            field.SetValue(host, identities);
+            field.SetValue(host.PlaybackHost, identities);
         }
 
         private static FieldInfo GetActiveGhostSkipReasonIdentitiesField()
         {
-            FieldInfo field = typeof(ParsekFlight).GetField(
+            FieldInfo field = typeof(ParsekFlightPlaybackHost).GetField(
                 "activeGhostSkipReasonLogIdentities",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(field);

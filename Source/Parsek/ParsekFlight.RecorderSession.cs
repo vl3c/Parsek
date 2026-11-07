@@ -429,14 +429,14 @@ namespace Parsek
                     continue;
 
                 double currentUT = Planetarium.GetUniversalTime();
-                if (TryComputeLoopPlaybackUT(rec, currentUT,
+                if (PlaybackHost.TryComputeLoopPlaybackUT(rec, currentUT,
                         out double loopUT, out long cycleIndex, out bool isInPause, i))
                 {
                     ParsekLog.Info("Loop",
                         $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
                         $"phase cycle={cycleIndex} loopUT={loopUT:F2} paused={isInPause}");
                 }
-                else if (TryGetLoopSchedule(
+                else if (PlaybackHost.TryGetLoopSchedule(
                              rec, i,
                              out _,
                              out double scheduleStartUT,
@@ -532,7 +532,7 @@ namespace Parsek
                 {
                     ParsekLog.Info("Loop",
                         $"Anchor vessel unloaded: pid={pid}, destroying looped ghost #{i} '{rec.VesselName}'");
-                    DestroyAllOverlapGhosts(i);
+                    PlaybackHost.DestroyAllOverlapGhosts(i);
                     engine.DestroyGhost(i);
                 }
             }

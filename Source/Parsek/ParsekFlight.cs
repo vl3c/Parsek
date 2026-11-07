@@ -230,9 +230,6 @@ namespace Parsek
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 
-        /// <summary>Above this altitude, skip the per-frame terrain clamp (no terrain risk in flight).</summary>
-        const double TerrainClampAltitudeLimit = 10000;
-
         // Recording (delegated to FlightRecorder)
         internal FlightRecorder recorder;
 
@@ -251,7 +248,7 @@ namespace Parsek
         /// </summary>
         private double liveResumeSessionStartUT = double.NaN;
         internal List<TrajectoryPoint> recording => recorder?.Recording ?? noRecording;
-        private List<OrbitSegment> orbitSegments => recorder?.OrbitSegments ?? noOrbitSegments;
+        internal List<OrbitSegment> orbitSegments => recorder?.OrbitSegments ?? noOrbitSegments;
         private static readonly List<TrajectoryPoint> noRecording = new List<TrajectoryPoint>();
         private static readonly List<OrbitSegment> noOrbitSegments = new List<OrbitSegment>();
 
@@ -293,16 +290,13 @@ namespace Parsek
         // Deferred watch target after fast-forward — the ghost needs one frame
         // to be positioned after the time jump before we can enter watch mode.
         // Uses recording ID (not index) to be safe against list reordering.
-        private string pendingWatchAfterFFId;
+        internal string pendingWatchAfterFFId;
 
         // Manual playback state (preview of current recording)
-        private bool isPlaying = false;
-        private double playbackStartUT;
-        private double recordingStartUT;
-        private GameObject ghostObject;
-        private List<Material> previewGhostMaterials = new List<Material>();
-        private GhostPlaybackState previewGhostState;
-        private Recording previewRecording;
+        internal bool isPlaying = false;
+        internal double playbackStartUT;
+        internal double recordingStartUT;
+        internal GameObject ghostObject;
         internal int lastPlaybackIndex = 0;
 
         // Ghost state is owned by the engine (T25). This property forwards to the engine field
@@ -314,7 +308,7 @@ namespace Parsek
         private int cachedTimelineGhostsFrame = -1;
 
         // Real Spawn Control: proximity-based nearby craft detection
-        private readonly List<NearbySpawnCandidate> nearbySpawnCandidates = new List<NearbySpawnCandidate>();
+        internal readonly List<NearbySpawnCandidate> nearbySpawnCandidates = new List<NearbySpawnCandidate>();
         private float nextProximityCheckTime;
         // Real Spawn Control: the last Warp-to-spawn whose outcome is still owed a word when
         // the vessel does not appear (SpawnWarpOutcomeWatch). Null id = nothing owed.
@@ -345,7 +339,7 @@ namespace Parsek
         // GhostPlaybackState.lastInterpolatedVelocity happens to be in (it varies by
         // playback path — orbit-only ghosts never seed it; trajectory-replay velocity is
         // not guaranteed surface-relative).
-        private struct ProximityVelocitySample
+        internal struct ProximityVelocitySample
         {
             public Vector3d activePos;
             public Vector3d ghostPos;
@@ -402,7 +396,7 @@ namespace Parsek
             }
         }
 
-        private readonly Dictionary<string, ProximityVelocitySample> proximityVelocitySamples =
+        internal readonly Dictionary<string, ProximityVelocitySample> proximityVelocitySamples =
             new Dictionary<string, ProximityVelocitySample>();
         // Sample is trustworthy when 0.5s <= dt <= 5s. Below: jitter dominates.
         // Above: sample is stale (time warp, scene change, paused) — discard.
@@ -412,7 +406,7 @@ namespace Parsek
         // vessel switch the cached activePos belongs to a different craft and must be
         // discarded (otherwise the next scan would see a teleport-sized delta).
         private uint lastProximityActiveVesselPid;
-        private readonly HashSet<string> notifiedSpawnRecordingIds = new HashSet<string>();
+        internal readonly HashSet<string> notifiedSpawnRecordingIds = new HashSet<string>();
         private int proximityCheckGeneration;
         internal int ProximityCheckGeneration => proximityCheckGeneration;
         internal List<NearbySpawnCandidate> NearbySpawnCandidates => nearbySpawnCandidates;
@@ -504,7 +498,7 @@ namespace Parsek
 
         }
 
-        private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
+        internal readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
         private int ghostPreCullReapplyFrame = -1;
         private int ghostLateUpdateReapplyFrame = -1;
 
@@ -916,8 +910,8 @@ namespace Parsek
         private HashSet<uint> loadedAnchorVessels => engine.loadedAnchorVessels;
 
         // Phase 6b: Ghost chain evaluation + vessel ghosting
-        private VesselGhoster vesselGhoster;
-        private Dictionary<uint, GhostChain> activeGhostChains;
+        internal VesselGhoster vesselGhoster;
+        internal Dictionary<uint, GhostChain> activeGhostChains;
 
         // Deferred spawn queue moved to ParsekPlaybackPolicy (#132)
         // Phase F: timelineResourceReplayPausedLogged removed alongside ApplyResourceDeltas.
@@ -979,19 +973,40 @@ namespace Parsek
         // Ghost playback engine + policy (T25 extraction)
         internal GhostPlaybackEngine engine;
         internal GhostPlaybackEngine Engine => engine;
-        private ParsekPlaybackPolicy policy;
+        internal ParsekPlaybackPolicy policy;
 
         // The IGhostPositioner the engine is built with: ghost placement and the positioning caches
         // only it reads (ParsekFlightGhostPositioner). Created on first use; holds only this host.
         private ParsekFlightGhostPositioner positioner;
         internal ParsekFlightGhostPositioner Positioner =>
             positioner ?? (positioner = new ParsekFlightGhostPositioner(this));
+        private ParsekFlightPlaybackHost playbackHost;
+        internal ParsekFlightPlaybackHost PlaybackHost =>
+            playbackHost ?? (playbackHost = new ParsekFlightPlaybackHost(this));
+
+        // Entry points other types call on the flight instance; the bodies live on PlaybackHost.
+        public void DestroyAllTimelineGhosts() => PlaybackHost.DestroyAllTimelineGhosts();
+        internal List<ReFlyInvokeHold.Entry> HoldReFlyInvokeVessels(
+            IList<ReFlyInvokeHold.Entry> entries, out int notLive, out int alreadyHeld) =>
+            PlaybackHost.HoldReFlyInvokeVessels(entries, out notLive, out alreadyHeld);
+        internal IEnumerable<RecordingAnchorCandidate> BuildGhostRecordingAnchorCandidatesForRecorder(
+            RecordingTree focusTree, string focusedRecordingId, uint focusedVesselPid, double ut) =>
+            PlaybackHost.BuildGhostRecordingAnchorCandidatesForRecorder(focusTree, focusedRecordingId, focusedVesselPid, ut);
+        internal bool TryResolveGhostCommNetRecordingPosition(
+            string recordingId, int indexHint, double ut, out Vector3d worldPos) =>
+            PlaybackHost.TryResolveGhostCommNetRecordingPosition(recordingId, indexHint, ut, out worldPos);
+        internal void PositionBlockedChainTipGhostForInGameTest(
+            GameObject ghost, CelestialBody body, Orbit orbit, Quaternion surfaceRelativeRotation,
+            double holdLat, double holdLon, double holdAlt, double ut) =>
+            PlaybackHost.PositionBlockedChainTipGhostForInGameTest(
+                ghost, body, orbit, surfaceRelativeRotation, holdLat, holdLon, holdAlt, ut);
+        internal void ClearGhostSkipReasonLogStateForTesting() => PlaybackHost.ClearGhostSkipReasonLogStateForTesting();
 
         // Accessors for WatchModeController (delegates need host services)
         internal bool ShouldLoopPlaybackForWatch(Recording rec) => GhostPlaybackEngine.ShouldLoopPlayback(rec);
         internal double GetLoopIntervalSecondsForWatch(Recording rec, int recIdx = -1)
         {
-            return GetLoopIntervalSeconds(rec, recIdx);
+            return PlaybackHost.GetLoopIntervalSeconds(rec, recIdx);
         }
         internal bool TryGetLoopScheduleForWatch(
             Recording rec,
@@ -1000,14 +1015,14 @@ namespace Parsek
             out double scheduleStartUT,
             out double duration,
             out double intervalSeconds)
-            => TryGetLoopSchedule(rec, recIdx,
+            => PlaybackHost.TryGetLoopSchedule(rec, recIdx,
                 out playbackStartUT, out scheduleStartUT, out duration, out intervalSeconds);
         internal bool TryComputeLoopPlaybackUTForWatch(
             Recording rec, double currentUT,
             out double loopUT, out long cycleIndex, out bool inPauseWindow,
             int recIdx = -1)
         {
-            return TryComputeLoopPlaybackUT(rec, currentUT,
+            return PlaybackHost.TryComputeLoopPlaybackUT(rec, currentUT,
                 out loopUT, out cycleIndex, out inPauseWindow, recIdx);
         }
         // Mission loop-unit watch sync (Phase D2): resolve a watched member's span loopUT so
@@ -1018,20 +1033,6 @@ namespace Parsek
             => engine.TryResolveUnitMemberPlaybackUT(
                 recordingIndex, currentUT, memberStartUT, memberEndUT, out loopUT);
         internal void PositionGhostAtForWatch(GameObject ghost, TrajectoryPoint point) => Positioner.PositionGhostAt(ghost, point);
-
-        // Cached per-frame allocations for engine path (avoid GC pressure)
-        private readonly List<IPlaybackTrajectory> cachedTrajectories = new List<IPlaybackTrajectory>();
-
-        // Mission loop-unit drive cache (Phase D2). The LoopUnitSet only changes when the looping
-        // mission, its tree/selection/cadence, or the committed list changes, so the (allocating,
-        // Verbose-logging) MissionLoopUnitBuilder.Build is gated behind a cheap signature compare.
-        // SetLoopUnits still runs every frame with the cached value so the engine always sees the
-        // current set. builtLoopUnits is the signature-cached build; cachedLoopUnits is the view
-        // every playback consumer reads, the build minus the units still before their first loop
-        // instance (MissionLoopUnitBuilder.ResolveLiveUnits), so a looped mission's first run plays
-        // as an ordinary recording until its anchor.
-        private string lastLoopUnitSignature;
-        private GhostPlaybackLogic.LoopUnitSet builtLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
         internal GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
 
         /// <summary>
@@ -1045,34 +1046,20 @@ namespace Parsek
         // ShadowRenderDriver runs the new pipeline against. The shadow is always enabled
         // (ShadowRenderDriver.Enabled is always true now that 8e S4 dropped the director-drive gate;
         // the Director pipeline is unconditional).
-        private readonly MapRender.MapViewScene mapViewScene = new MapRender.MapViewScene();
-        private readonly List<RecordingAnchorCandidate> cachedGhostRecordingAnchorCandidates =
-            new List<RecordingAnchorCandidate>();
-        private TrajectoryPlaybackFlags[] cachedFlags;
-        // Per-committed-index relay window inputs, filled by ComputePlaybackFlags.
-        private GhostCommNetEligibilityInput[] ghostCommNetInputs = new GhostCommNetEligibilityInput[0];
-        private readonly List<GhostCommNetCandidate> ghostCommNetCandidates = new List<GhostCommNetCandidate>();
-        private readonly List<double> ghostCommNetClaimScratch = new List<double>();
-        private readonly List<KeyValuePair<double, double>> ghostCommNetCarrierScratch =
-            new List<KeyValuePair<double, double>>();
-        private GhostCommNetManager ghostCommNet;
-        private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
-        private readonly Dictionary<string, int> reFlyAnchorHoldStartFrameByAnchor =
+        internal readonly MapRender.MapViewScene mapViewScene = new MapRender.MapViewScene();
+        internal GhostCommNetManager ghostCommNet;
+        internal readonly Dictionary<string, int> reFlyAnchorHoldStartFrameByAnchor =
             new Dictionary<string, int>(StringComparer.Ordinal);
-        private readonly Dictionary<string, int> reFlyAnchorHoldCountsThisFrame =
+        internal readonly Dictionary<string, int> reFlyAnchorHoldCountsThisFrame =
             new Dictionary<string, int>(StringComparer.Ordinal);
-        private readonly Dictionary<string, string> reFlyAnchorHoldReasonsThisFrame =
+        internal readonly Dictionary<string, string> reFlyAnchorHoldReasonsThisFrame =
             new Dictionary<string, string>(StringComparer.Ordinal);
-        // Reused per-frame scratch for the batched spawn-suppression summary (see
-        // ComputePlaybackFlags). Cleared and refilled each frame; never read across frames.
-        private readonly Dictionary<string, int> spawnSuppressedReasonScratch =
-            new Dictionary<string, int>(StringComparer.Ordinal);
-        private readonly List<string> reFlyAnchorHoldReleaseScratch = new List<string>();
+        internal readonly List<string> reFlyAnchorHoldReleaseScratch = new List<string>();
         internal readonly Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry> reFlyDenseAbsolutePlaybackFrameCache =
             new Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry>(StringComparer.Ordinal);
         internal readonly HashSet<string> loggedReFlyDenseAbsolutePlaybackFrameSelections =
             new HashSet<string>(StringComparer.Ordinal);
-        private int reFlySettlePoseLogActiveFrame = -1;
+        internal int reFlySettlePoseLogActiveFrame = -1;
         // Scene-scoped; cleared alongside TerrainCacheBuckets.Clear() in OnSceneChangeRequested.
         internal static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
             new Dictionary<string, TerrainCorrector.TailLiftPlan>();
@@ -1270,8 +1257,8 @@ namespace Parsek
                     ParsekLog.VerboseRateLimited("Flight", "update_split_suppressed", "Update suppressed: pendingSplitInProgress");
                 // Still run playback and input
                 HandleInput();
-                if (isPlaying) UpdatePlayback();
-                UpdateTimelinePlaybackViaEngine();
+                if (isPlaying) PlaybackHost.UpdatePlayback();
+                PlaybackHost.UpdateTimelinePlaybackViaEngine();
                 TimeJumpManager.TickPlacementWatch();
                 TickSpawnWarpWatch();
                 return;
@@ -1283,10 +1270,10 @@ namespace Parsek
 
             if (isPlaying)
             {
-                UpdatePlayback();
+                PlaybackHost.UpdatePlayback();
             }
 
-            UpdateTimelinePlaybackViaEngine();
+            PlaybackHost.UpdateTimelinePlaybackViaEngine();
             TimeJumpManager.TickPlacementWatch();
             TickSpawnWarpWatch();
             UpdateProximityCheck();
@@ -1304,12 +1291,12 @@ namespace Parsek
             // Ghost icon popup: check for outside clicks (runs after UI event processing)
             Patches.GhostIconClickPatch.CheckOutsideClick();
 
-            ApplyGhostPosEntries(GhostPositionReapplyPhase.LateUpdate);
+            PlaybackHost.ApplyGhostPosEntries(GhostPositionReapplyPhase.LateUpdate);
 
-            ClampGhostsToTerrain(GhostPositionReapplyPhase.LateUpdate);
+            PlaybackHost.ClampGhostsToTerrain(GhostPositionReapplyPhase.LateUpdate);
             ghostLateUpdateReapplyFrame = Time.frameCount;
 
-            LogReFlySettleActiveVesselPoseIfArmed("late-update", Time.frameCount);
+            PlaybackHost.LogReFlySettleActiveVesselPoseIfArmed("late-update", Time.frameCount);
 
             watchMode.UpdateWatchCamera();
         }
@@ -1346,8 +1333,8 @@ namespace Parsek
                 return;
 
             ghostPreCullReapplyFrame = frame;
-            ApplyGhostPosEntries(GhostPositionReapplyPhase.CameraPreCull);
-            ClampGhostsToTerrain(GhostPositionReapplyPhase.CameraPreCull);
+            PlaybackHost.ApplyGhostPosEntries(GhostPositionReapplyPhase.CameraPreCull);
+            PlaybackHost.ClampGhostsToTerrain(GhostPositionReapplyPhase.CameraPreCull);
             ghostPosEntries.Clear();
         }
 
@@ -1512,12 +1499,12 @@ namespace Parsek
                 ParsekLog.Info("Flight", "OnDestroy: force-stopping active recording");
                 recorder.ForceStop();
             }
-            StopPlayback();
+            PlaybackHost.StopPlayback();
             watchMode.ExitWatchMode();
             InputLockManager.RemoveControlLock(WatchModeController.WatchModeLockId); // safety net
 
             // Phase 6b: Clean up ghost chain state
-            ClearClaimedVesselHoldGhosts("scene-teardown");
+            PlaybackHost.ClearClaimedVesselHoldGhosts("scene-teardown");
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             reFlyInvokeHolds.Clear();
@@ -1551,7 +1538,7 @@ namespace Parsek
             reFlyDenseAbsolutePlaybackFrameCache.Clear();
             loggedReFlyDenseAbsolutePlaybackFrameSelections.Clear();
             unknownFrameTagWarned.Clear();
-            ClearGhostSkipReasonLogState();
+            PlaybackHost.ClearGhostSkipReasonLogState();
             ui?.Cleanup();
         }
 
@@ -1651,7 +1638,7 @@ namespace Parsek
             InFlightRecoveryRequest.Clear("scene change requested dest=" + scene);
 
             // Stop manual playback
-            StopPlayback();
+            PlaybackHost.StopPlayback();
             DestroyAllTimelineGhosts();
             GhostVisualBuilder.ClearCanopyCache();
             GhostVisualBuilder.ClearAnimationSampleCache();
@@ -2009,8 +1996,8 @@ namespace Parsek
 
             // Phase 6b: Evaluate ghost chains and ghost claimed vessels
             EvaluateAndApplyGhostChains();
-            RestoreReFlyInvokeHoldsFromMarker(Planetarium.GetUniversalTime());
-            RestoreRewindVesselHolds(Planetarium.GetUniversalTime());
+            PlaybackHost.RestoreReFlyInvokeHoldsFromMarker(Planetarium.GetUniversalTime());
+            PlaybackHost.RestoreRewindVesselHolds(Planetarium.GetUniversalTime());
 
             // Capture active vessel PID at scene entry for stateless spawn dedup bypass.
             // After revert, the pad vessel shares the same PID as recorded vessels — at
@@ -2095,7 +2082,7 @@ namespace Parsek
             PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("flight ready reset");
 
             // Phase 6b: Clean up ghost chain state from previous flight scene
-            ClearClaimedVesselHoldGhosts("flight-ready-reset");
+            PlaybackHost.ClearClaimedVesselHoldGhosts("flight-ready-reset");
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             reFlyInvokeHolds.Clear();
@@ -2283,7 +2270,7 @@ namespace Parsek
             ParsekLog.Verbose("Flight",
                 $"Committed recording #{index} ('{removed?.VesselName}', id={removed?.RecordingId}) " +
                 "removing - destroying its ghost state");
-            DestroyAllOverlapGhosts(index);
+            PlaybackHost.DestroyAllOverlapGhosts(index);
             engine.DestroyGhost(index, reason: "committed-recording-removed");
             GhostMapPresence.HandleCommittedRecordingRemoving(index);
         }

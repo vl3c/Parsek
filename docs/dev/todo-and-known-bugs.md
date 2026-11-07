@@ -2902,6 +2902,26 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   6 left are the accessor (field, property, getter), the service's host field and constructor and
   the forwarder. `il_compare.py` reads a short branch as its long form. Knot 470 -> 471, replayed
   residue 283 unchanged (canaries re-pinned).
+- PF4 landed: `ParsekFlightPlaybackHost` (3,531 lines, lazy `PlaybackHost`) is the timeline
+  playback host: the engine drive (`UpdateTimelinePlaybackViaEngine`, `ComputePlaybackFlags`), the
+  ghost CommNet and mission loop-unit drive, re-aim substitution, chain ghosts, the claimed-vessel
+  and blocked chain-tip held ghosts, the LateUpdate / OnCameraPreCull position re-apply and terrain
+  clamp, the skip-reason and Re-Fly anchor-hold logging and the manual preview: 80 methods (50
+  instance, the 30 statics no other file names), 19 fields only it reads and 2 constants
+  (`.TimelinePlayback.cs` 3,282 -> 678 lines, `.ClaimedVesselHoldGhost.cs` 605 -> 40,
+  `.BlockedChainTipGhost.cs` 338 -> 48; ParsekFlight.cs 2,504). ParsekFlight keeps the Unity
+  callbacks (each moved call is the same call on `PlaybackHost`, same order), the three
+  committed-list handlers (the Removing handler's overlap teardown goes through `PlaybackHost`;
+  none of the moved state is index-keyed, so no handler gained a call), the `...FromPolicy`
+  callbacks, the engine / policy / watch-mode / chain fields and forwarders for the six entry
+  points other types call. New gate `FlightHandlers_StayOnParsekFlight_InOrder_AndNoServiceListensOrWrites`
+  pins the handlers' call order and that no service subscribes to the seam or writes the
+  committed list. 53 declarations widened private -> internal. IL (`--fold`): 0 moved-body
+  differences; the 12 left are the accessor (field, property, getter), the service's host field
+  and constructor, the six forwarders and the host constructor minus the 15 moved initializers.
+  `il_compare.py` merges the per-type delegate caches (`<>O`, `<>c`) host and service each
+  carry. Knot 471 -> 472, replayed residue 283 unchanged; the flight controller's cut now ties
+  the route cut and goes first (canaries re-pinned).
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 

@@ -265,6 +265,9 @@ def parse_il(text):
     return types
 
 
+SINGLETON_CACHES = ("'<>O'", "'<>c'")
+
+
 def fold_types(types, folds):
     """Key every member of a NEW type under its OLD type (nested types re-parented)."""
     if not folds:
@@ -278,9 +281,16 @@ def fold_types(types, folds):
         if target not in out:
             out[target] = _new_type()
         dst = out[target]
-        if target == path or "/" in target:
+        if "/" in target:
             # A nested type of NEW (a display class, a lambda cache) keeps its header; NEW's
-            # own header is the one thing the fold drops (main prints it).
+            # own header is the one thing the fold drops (main prints it). The compiler's
+            # per-type singleton caches ('<>O' for method-group delegates, '<>c' for static
+            # lambdas) exist once on OLD and once on NEW: folded they are one type, so their
+            # header counts once. Every other nested type (display classes, state machines) adds.
+            singleton = target.rsplit("/", 1)[1] in SINGLETON_CACHES
+            for h, n in info.header.items():
+                dst.header[h] = max(dst.header[h], n) if singleton else dst.header[h] + n
+        elif target == path:
             dst.header.update(info.header)
         dst.fields.update(info.fields)
         dst.props.update(info.props)

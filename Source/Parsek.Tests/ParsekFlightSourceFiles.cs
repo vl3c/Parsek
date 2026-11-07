@@ -68,6 +68,7 @@ namespace Parsek.Tests
         {
             "ParsekFlightGhostPositioner.cs",
             "ParsekFlightPostSwitchAutoRecord.cs",
+            "ParsekFlightPlaybackHost.cs",
         };
 
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)
