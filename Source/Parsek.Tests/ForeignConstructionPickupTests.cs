@@ -243,7 +243,7 @@ namespace Parsek.Tests
                 new List<(uint, string)> { (LoosePid, LooseGuid), (KerbalPid, KerbalGuid) },
                 null, committed, new List<GameAction>(), null, LaunchUT, out matchedWithoutFuture);
 
-            ReFlyInvokeHold.Entry entry = held.Find(h => h.Pid == LoosePid);
+            ReFlyHoldEntry entry = held.Find(h => h.Pid == LoosePid);
             Assert.NotNull(entry);
             Assert.Equal(ReFlyInvokeHold.EvidenceFlies, entry.Evidence);
             Assert.Equal(member.RecordingId, entry.RecordingId);
