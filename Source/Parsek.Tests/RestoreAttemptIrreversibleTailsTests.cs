@@ -218,7 +218,7 @@ namespace Parsek.Tests
         [InlineData("RewindInvoker.cs", "internal static bool DiscardRestoreAttemptOfAbandonedFlight(", "false")]
         [InlineData("ParsekFlight.cs", "private void ResetFlightReadyState(", "false")]
         [InlineData("ParsekFlight.cs", "internal void DiscardActiveTreeForSuppressedSceneExit(", "false")]
-        [InlineData("ParsekFlight.cs", "internal void AutoDiscardNoOpNoSessionCommittedResume(", "true")]
+        [InlineData("ParsekFlightSwitchContinuation.cs", "internal void AutoDiscardNoOpNoSessionCommittedResume(", "true")]
         [InlineData("Patches/MapFocusObjectOnSelectPatch.cs", "private static void DiscardActiveRecordingAndSwitchTo(", "true")]
         public void DropSites_PassTheirPreserveFlag(string file, string signature, string expected)
         {

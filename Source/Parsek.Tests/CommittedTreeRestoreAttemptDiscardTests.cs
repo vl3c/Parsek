@@ -215,7 +215,7 @@ namespace Parsek.Tests
         public void AutoDiscardNoOpNoSessionCommittedResume_DiscardsTheAttempt_NotBareClear()
         {
             string body = ExtractMethodBody(
-                ReadStrippedParsekSource("ParsekFlight.cs"),
+                ReadStrippedParsekSource("ParsekFlightSwitchContinuation.cs"),
                 "void AutoDiscardNoOpNoSessionCommittedResume(");
             AssertDiscardHelperNotBareClear(body,
                 "AutoDiscardNoOpNoSessionCommittedResume",

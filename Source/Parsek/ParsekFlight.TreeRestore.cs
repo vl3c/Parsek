@@ -101,7 +101,7 @@ namespace Parsek
         /// true only for <see cref="TryRouteCommittedSpawnedClone"/>, which attaches its own
         /// segment right after this returns.
         /// </summary>
-        private bool TryRestoreCommittedTreeForSpawnedActiveVessel(bool callerBuildsOwnSegment = false)
+        internal bool TryRestoreCommittedTreeForSpawnedActiveVessel(bool callerBuildsOwnSegment = false)
         {
             if (activeTree != null || recorder != null || restoringActiveTree)
                 return false;
@@ -358,11 +358,11 @@ namespace Parsek
 
             // No recorder is live here (the restore runs only when none is), so the bind
             // starts the segment's recorder without flushing anything into the target.
-            restored = BindLiveRecorderToSwitchSegment(
+            restored = SwitchContinuation.BindLiveRecorderToSwitchSegment(
                 activeVessel, targetRecordingId, newRecordingId,
                 routeTag: "resumed-spawn", switchUT: ut);
 
-            ArmSwitchSegmentSession(
+            SwitchContinuation.ArmSwitchSegmentSession(
                 SwitchSegmentEntryReason.ResumedSpawnedVessel,
                 Guid.Empty,
                 sessionId,
@@ -1983,7 +1983,7 @@ namespace Parsek
                 {
                     tree = candidate;
                     recordingId = bestMatch.RecordingId;
-                    LogRefusedOtherLaunchSpawnStamps(
+                    ParsekFlightSwitchContinuation.LogRefusedOtherLaunchSpawnStamps(
                         "TryFindCommittedTreeForSpawnedVessel", activeVesselPid, activeVesselGuid,
                         refusedOtherLaunchStamps);
                     LogRefusedAheadOfClockRestores(activeVesselPid, liveUT, refusedAheadOfClock);
@@ -1991,7 +1991,7 @@ namespace Parsek
                 }
             }
 
-            LogRefusedOtherLaunchSpawnStamps(
+            ParsekFlightSwitchContinuation.LogRefusedOtherLaunchSpawnStamps(
                 "TryFindCommittedTreeForSpawnedVessel", activeVesselPid, activeVesselGuid,
                 refusedOtherLaunchStamps);
             LogRefusedAheadOfClockRestores(activeVesselPid, liveUT, refusedAheadOfClock);

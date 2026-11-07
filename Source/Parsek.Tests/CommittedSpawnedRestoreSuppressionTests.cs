@@ -229,7 +229,7 @@ namespace Parsek.Tests
         public void TryRestore_ChecksSuppressionBeforeTakingTheCommittedTree()
         {
             string src = ReadStripped("Source", "Parsek", "ParsekFlight.cs");
-            string body = ExtractMethodBody(src, "private bool TryRestoreCommittedTreeForSpawnedActiveVessel(bool callerBuildsOwnSegment = false)");
+            string body = ExtractMethodBody(src, "internal bool TryRestoreCommittedTreeForSpawnedActiveVessel(bool callerBuildsOwnSegment = false)");
 
             int checkIdx = body.IndexOf("IsCommittedSpawnedRestoreSuppressedForVessel(", StringComparison.Ordinal);
             int takeIdx = body.IndexOf("TryTakeCommittedTreeForSpawnedVesselRestore(", StringComparison.Ordinal);
@@ -246,7 +246,7 @@ namespace Parsek.Tests
         public void HandleMissedVesselSwitchRecovery_TicksSuppressionBeforeTheRetry()
         {
             string src = ReadStripped("Source", "Parsek", "ParsekFlight.cs");
-            string body = ExtractMethodBody(src, "private void HandleMissedVesselSwitchRecovery()");
+            string body = ExtractMethodBody(src, "internal void HandleMissedVesselSwitchRecovery()");
 
             int tickIdx = body.IndexOf("TickCommittedSpawnedRestoreSuppression(", StringComparison.Ordinal);
             int retryIdx = body.IndexOf("ShouldAttemptCommittedSpawnedRestoreInUpdate(", StringComparison.Ordinal);

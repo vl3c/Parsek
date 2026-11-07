@@ -219,7 +219,7 @@ namespace Parsek
             }
         }
 
-        private void EnsureBackgroundRecorderAttached(string reason)
+        internal void EnsureBackgroundRecorderAttached(string reason)
         {
             if (activeTree == null || backgroundRecorder != null)
                 return;
