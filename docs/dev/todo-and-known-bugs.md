@@ -2959,6 +2959,15 @@ compare).
   GameActions 17 -> 1 (the real call, still VIOLATION), Recording -> GameActions 20 -> 15,
   Trajectory and Logistics -> GameActions 1 -> 0; upward edges 88 -> 85, weight 836 -> 826;
   knots unchanged (457, 4, 3).
+- 2026-11-07 (refactor branch): the cut-residue ratchet
+  (`test_cut_sequence_halves_the_largest_knot`) now bounds min(greedy residue, replayed
+  residue). `archview.replay_cut_residue` removes the outgoing references of a pinned cut order
+  (`RATCHET_CUT_ORDER`, the greedy order on the branch that day) and returns the largest
+  component left; for a fixed cut set, deleting a reference can only shrink components, so a
+  pure move that removes a reference can no longer red the ratchet through a greedy reorder
+  (file-placement PR 4 deletes `OrbitReseed -> GhostMapPresence`: on the tree it was measured
+  on, greedy 285 -> 290, replayed 285). The bound is unchanged by this (287 after RecordingStore
+  PR3) and the greedy sequence stays the documented one.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
