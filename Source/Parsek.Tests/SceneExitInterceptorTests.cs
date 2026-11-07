@@ -765,7 +765,7 @@ namespace Parsek.Tests
         public void BackfillMaxDistanceFromBodyFixedSurfaces_NullRecording_ReturnsCleanly()
         {
             // No exception expected.
-            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(null);
+            LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(null);
         }
 
         [Fact]
@@ -774,7 +774,7 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "rec-null-ts" };
             rec.TrackSections = null;
             // Should not throw, should not write MaxDistanceFromLaunch.
-            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
+            LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
             Assert.Equal(0.0, rec.MaxDistanceFromLaunch);
         }
 
@@ -783,7 +783,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording { RecordingId = "rec-empty-ts" };
             rec.MaxDistanceFromLaunch = 42.5;   // pre-existing value
-            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
+            LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
             // Empty TrackSections list -> no body-fixed sample found -> no
             // write to MaxDistanceFromLaunch (preserves prior value).
             Assert.Equal(42.5, rec.MaxDistanceFromLaunch);
@@ -805,7 +805,7 @@ namespace Parsek.Tests
                     },
                 },
             };
-            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
+            LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
             // Only RELATIVE sections, and their frames are anchor-local metres with
             // no bodyFixedFrames beside them -> no body-fixed sample -> no write.
             Assert.Equal(99.9, rec.MaxDistanceFromLaunch);

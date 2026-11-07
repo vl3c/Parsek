@@ -305,7 +305,7 @@ namespace Parsek
                     ?? (vessel => RecordingTree.DetermineTerminalState((int)vessel.situation, vessel));
                 this.captureTerminalOrbit = captureTerminalOrbit ?? ParsekFlight.CaptureTerminalOrbit;
                 this.captureTerminalPosition = captureTerminalPosition ?? ParsekFlight.CaptureTerminalPosition;
-                this.tryBackupSnapshot = tryBackupSnapshot ?? VesselSpawner.TryBackupSnapshot;
+                this.tryBackupSnapshot = tryBackupSnapshot ?? LiveVesselSnapshot.TryBackupSnapshot;
                 this.tryRefreshStableTerminalSnapshot =
                     tryRefreshStableTerminalSnapshot ?? ParsekFlight.TryRefreshStableTerminalSnapshot;
             }
@@ -793,22 +793,22 @@ namespace Parsek
             // recording and for one whose sections carry no body-fixed surface and no Relative
             // section at all, because the section walk leaves MaxDistanceFromLaunch untouched
             // when it finds no body-fixed sample.
-            VesselSpawner.MaxDistanceBackfillRoute backfillRoute =
-                VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec);
+            LiveVesselSnapshot.MaxDistanceBackfillRoute backfillRoute =
+                LiveVesselSnapshot.ClassifyMaxDistanceBackfillRoute(rec);
             switch (backfillRoute)
             {
-                case VesselSpawner.MaxDistanceBackfillRoute.BodyFixedSections:
-                    VesselSpawner.MaxDistanceReferenceSurface referenceSurface;
-                    VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec, out referenceSurface);
+                case LiveVesselSnapshot.MaxDistanceBackfillRoute.BodyFixedSections:
+                    LiveVesselSnapshot.MaxDistanceReferenceSurface referenceSurface;
+                    LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(rec, out referenceSurface);
                     ParsekLog.Verbose("Flight",
                         $"FinalizeIndividualRecording: maxDist backfill route=body-fixed-sections " +
-                        $"reference={VesselSpawner.DescribeReferenceSurface(referenceSurface)} " +
+                        $"reference={LiveVesselSnapshot.DescribeReferenceSurface(referenceSurface)} " +
                         $"rec='{rec.RecordingId}' sections={rec.TrackSections?.Count ?? 0} " +
                         $"points={rec.Points.Count} maxDist={rec.MaxDistanceFromLaunch:F0}m");
                     break;
 
-                case VesselSpawner.MaxDistanceBackfillRoute.FlatPoints:
-                    VesselSpawner.BackfillMaxDistance(rec);
+                case LiveVesselSnapshot.MaxDistanceBackfillRoute.FlatPoints:
+                    LiveVesselSnapshot.BackfillMaxDistance(rec);
                     ParsekLog.Verbose("Flight",
                         $"FinalizeIndividualRecording: maxDist backfill route=flat-points " +
                         $"reference=flat-points rec='{rec.RecordingId}' " +

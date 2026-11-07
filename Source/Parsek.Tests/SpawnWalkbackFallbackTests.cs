@@ -19,9 +19,9 @@ namespace Parsek.Tests
     {
         private readonly List<string> logLines = new List<string>();
         private readonly object originalFlightGlobalsBodies;
-        private readonly VesselSpawner.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
-        private readonly VesselSpawner.ResolveBodyByNameDelegate originalBodyResolver;
-        private readonly VesselSpawner.ResolveBodyIndexDelegate originalBodyIndexResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyByNameDelegate originalBodyResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyIndexDelegate originalBodyIndexResolver;
 
         public SpawnWalkbackFallbackTests()
         {
@@ -30,9 +30,9 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            originalBodyNameResolver = VesselSpawner.BodyNameResolverForTesting;
-            originalBodyResolver = VesselSpawner.BodyResolverForTesting;
-            originalBodyIndexResolver = VesselSpawner.BodyIndexResolverForTesting;
+            originalBodyNameResolver = LiveVesselSnapshot.BodyNameResolverForTesting;
+            originalBodyResolver = LiveVesselSnapshot.BodyResolverForTesting;
+            originalBodyIndexResolver = LiveVesselSnapshot.BodyIndexResolverForTesting;
             originalFlightGlobalsBodies = typeof(FlightGlobals)
                 .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.GetValue(null);
@@ -40,9 +40,9 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            VesselSpawner.BodyNameResolverForTesting = originalBodyNameResolver;
-            VesselSpawner.BodyResolverForTesting = originalBodyResolver;
-            VesselSpawner.BodyIndexResolverForTesting = originalBodyIndexResolver;
+            LiveVesselSnapshot.BodyNameResolverForTesting = originalBodyNameResolver;
+            LiveVesselSnapshot.BodyResolverForTesting = originalBodyResolver;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = originalBodyIndexResolver;
             typeof(FlightGlobals)
                 .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.SetValue(null, originalFlightGlobalsBodies);
@@ -56,9 +56,9 @@ namespace Parsek.Tests
         private void InstallBodies()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
-            VesselSpawner.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
-            VesselSpawner.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
-            VesselSpawner.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
+            LiveVesselSnapshot.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
+            LiveVesselSnapshot.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
         }
 
         private static ConfigNode BuildLandedSnapshotWithStaleOrbit(
@@ -209,9 +209,9 @@ namespace Parsek.Tests
         {
             InstallBodies();
             var snapshot = BuildLandedSnapshotWithStaleOrbit("1.0", "2.0", "3.0", "0");
-            Assert.True(VesselSpawner.TryResolveBodyByName("Kerbin", out CelestialBody kerbin));
+            Assert.True(LiveVesselSnapshot.TryResolveBodyByName("Kerbin", out CelestialBody kerbin));
 
-            Assert.True(VesselSpawner.ApplySurfaceOrbitToSnapshot(snapshot, kerbin, "shape-test"));
+            Assert.True(LiveVesselSnapshot.ApplySurfaceOrbitToSnapshot(snapshot, kerbin, "shape-test"));
 
             var direct = new ConfigNode("ORBIT");
             VesselSnapshotOps.WriteCanonicalSurfaceOrbitValues(direct, 0);

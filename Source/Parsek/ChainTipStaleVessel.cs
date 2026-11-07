@@ -985,7 +985,7 @@ namespace Parsek
             ConfigNode snapshot;
             if (vessel != null)
             {
-                snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+                snapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
             }
             else
             {

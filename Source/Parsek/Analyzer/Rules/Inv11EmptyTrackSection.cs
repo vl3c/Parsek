@@ -13,7 +13,7 @@ namespace Parsek.Analyzer.Rules
     // shell as "this recording's section payload is incomplete" and give up on the whole
     // recording. With both defences off, a Relative section's frames - anchor-local
     // Cartesian METRES in latitude/longitude/altitude by contract - were persisted
-    // verbatim as flat POINT lat/lon, and VesselSpawner.BackfillMaxDistance resolved them
+    // verbatim as flat POINT lat/lon, and LiveVesselSnapshot.BackfillMaxDistance resolved them
     // through body.GetWorldSurfacePosition into maxDist ~735 km for a rover that never
     // left the pad area (archived todo UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).
     //

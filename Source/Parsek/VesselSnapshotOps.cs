@@ -1623,7 +1623,7 @@ namespace Parsek
         /// <summary>
         /// Writes the canonical KSP surface orbit tuple (SMA=0, ECC=1, INC/LPE/LAN/MNA/EPH=0)
         /// for a landed/splashed vessel into an ORBIT node. Single implementation shared by
-        /// <see cref="VesselSpawner.ApplySurfaceOrbitToSnapshot"/> and the SpawnAtPosition landed-reseed
+        /// <see cref="LiveVesselSnapshot.ApplySurfaceOrbitToSnapshot"/> and the SpawnAtPosition landed-reseed
         /// substitution; keep the shape in sync with <see cref="HasCanonicalSurfaceOrbitSignature"/>.
         /// </summary>
         internal static void WriteCanonicalSurfaceOrbitValues(ConfigNode orbitNode, int bodyIndex)

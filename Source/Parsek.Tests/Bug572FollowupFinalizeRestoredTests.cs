@@ -34,7 +34,7 @@ namespace Parsek.Tests
     public class Bug572FollowupFinalizeRestoredTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
-        private readonly VesselSpawner.ResolveBodyIndexDelegate originalBodyIndexResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyIndexDelegate originalBodyIndexResolver;
 
         public Bug572FollowupFinalizeRestoredTests()
         {
@@ -43,14 +43,14 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            originalBodyIndexResolver = VesselSpawner.BodyIndexResolverForTesting;
+            originalBodyIndexResolver = LiveVesselSnapshot.BodyIndexResolverForTesting;
         }
 
         public void Dispose()
         {
             IncompleteBallisticSceneExitFinalizer.ResetForTesting();
             TestBodyRegistry.Reset();
-            VesselSpawner.BodyIndexResolverForTesting = originalBodyIndexResolver;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = originalBodyIndexResolver;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
