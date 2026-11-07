@@ -299,7 +299,7 @@ body = "On 2026-09-14, 115 of the 123 root-level files had an obvious owner and 
 
 [[findings.items]]
 title = "Trajectory is the pure module the docs claim."
-body = "It became one once five recorder-side files stopped matching its name prefixes (PR #1682); its instability in the <em>Module directory</em> is near the floor."
+body = "It became one once five recorder-side files stopped matching its name prefixes (PR #1682); its instability in the <em>Module directory</em> is near the floor. On the refactor branch on 2026-11-06 it stopped referencing Recording at all: the section and terminal vocabulary moved in, and the one recording-aware method (the recording stats) moved out to <code>RecordingStatsCalculator</code>."
 
 [[findings.items]]
 title = "Missions and Reaim are not one module."
