@@ -968,7 +968,7 @@ namespace Parsek
         private void OnTreeCommittedFromMergeDialog(RecordingTree tree)
         {
             ParsekLog.Info("GhostMap", "Tree committed from merge dialog - re-evaluating ghost chains");
-            EvaluateAndApplyGhostChains();
+            SpawnHost.EvaluateAndApplyGhostChains();
         }
 
         /// <summary>
@@ -1049,7 +1049,7 @@ namespace Parsek
             LedgerOrchestrator.NotifyLedgerTreeCommitted(activeTree);
 
             // Spawn all non-active leaf vessels
-            SpawnTreeLeaves(activeTree, activeTipId);
+            SpawnHost.SpawnTreeLeaves(activeTree, activeTipId);
 
             // Crew swap on active vessel
             int swapped = CrewReservationManager.SwapReservedCrewInFlight();

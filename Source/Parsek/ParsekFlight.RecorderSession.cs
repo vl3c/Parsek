@@ -991,7 +991,7 @@ namespace Parsek
                 suppressStartScreenMessage: suppressStartScreenMessage);
             if (!recorder.IsRecording)
             {
-                ParsekLog.Warn("Flight", $"StartRecording blocked: {DetermineRecordingBlockReason()}");
+                ParsekLog.Warn("Flight", $"StartRecording blocked: {ParsekFlightSpawnHost.DetermineRecordingBlockReason()}");
                 // Bug #271: clean up single-node tree created above if StartRecording failed
                 if (activeTree != null && activeTree.Recordings.Count <= 1
                     && backgroundRecorder != null)

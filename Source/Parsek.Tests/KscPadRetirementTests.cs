@@ -1128,8 +1128,8 @@ namespace Parsek.Tests
             typeof(ParsekFlight).GetField("activeGhostChains", BindingFlags.Instance | BindingFlags.NonPublic)
                 .SetValue(host, active);
 
-            typeof(ParsekFlight).GetMethod("RetireChainAtKsc", BindingFlags.Instance | BindingFlags.NonPublic)
-                .Invoke(host, new object[] { chain, rec, 7 });
+            typeof(ParsekFlightSpawnHost).GetMethod("RetireChainAtKsc", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(host.SpawnHost, new object[] { chain, rec, 7 });
 
             Assert.Empty(active);
             Assert.Contains(logLines, l => l.Contains("Chain tip retired at KSC (flight #7 \"Pad Rig\"): originalPid=904"));

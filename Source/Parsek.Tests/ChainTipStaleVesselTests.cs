@@ -908,10 +908,10 @@ namespace Parsek.Tests
             // The ordinary flight leaf path (no active ghost chain: the flight loaded past the
             // tip's spawn UT).
             var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
-            MethodInfo spawn = typeof(ParsekFlight).GetMethod(
+            MethodInfo spawn = typeof(ParsekFlightSpawnHost).GetMethod(
                 "SpawnVesselOrChainTip", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(spawn);
-            spawn.Invoke(host, new object[] { rec, index });
+            spawn.Invoke(host.SpawnHost, new object[] { rec, index });
         }
 
         [Fact]

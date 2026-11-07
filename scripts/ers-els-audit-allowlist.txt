@@ -145,7 +145,6 @@ Source/Parsek/ParsekFlight.GhostPositioner.cs
 Source/Parsek/ParsekFlight.GhostPositioning.cs
 Source/Parsek/ParsekFlight.MergeFlow.cs
 Source/Parsek/ParsekFlight.RecorderSession.cs
-Source/Parsek/ParsekFlight.Spawning.cs
 Source/Parsek/ParsekFlight.SplitBranching.cs
 Source/Parsek/ParsekFlight.SplitEvents.cs
 Source/Parsek/ParsekFlight.SwitchContinuation.cs
@@ -155,10 +154,12 @@ Source/Parsek/ParsekFlight.TreeRestore.cs
 # policy-held slot with its engine ghost (the engine's index-keyed contract), not to
 # decide visibility; supersede is honoured through the policy's hold release.
 Source/Parsek/ParsekFlight.BlockedChainTipGhost.cs
-# The placement-jump partial reads the committed list by INDEX only to find the engine
-# ghost (index-keyed ghostStates) drawing a recording id, the same pairing the proximity
-# scan does; it decides no visibility.
-Source/Parsek/ParsekFlight.PlacementJump.cs
+# ParsekFlight's spawn host, lifted out of the spawning, placement-jump and time-jump
+# partials with its bodies verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF5). It reads the
+# committed list by INDEX to find the engine ghost (index-keyed ghostStates) drawing a
+# recording id and to walk the spawn / proximity candidates by slot, the same index-keyed
+# exemption as ParsekFlight.cs; it decides no visibility.
+Source/Parsek/ParsekFlightSpawnHost.cs
 # ParsekFlight's IGhostPositioner, lifted out of the positioning partials with its bodies
 # verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF2); it reads the committed list by INDEX to
 # resolve anchor recordings for the engine's index-keyed slots, the same exemption.
