@@ -542,7 +542,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(repo, "Source", "Parsek", relPath);
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
             int sigIdx = prepared.IndexOf(signatureFragment, StringComparison.Ordinal);
             Assert.True(sigIdx >= 0, "signature not found in " + relPath + ": " + signatureFragment);
             int open = prepared.IndexOf('{', sigIdx);

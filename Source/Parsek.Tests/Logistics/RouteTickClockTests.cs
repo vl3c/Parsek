@@ -79,7 +79,7 @@ namespace Parsek.Tests.Logistics
         {
             string projectRoot = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string source = File.ReadAllText(Path.Combine(projectRoot, "Source", "Parsek", "ParsekScenario.cs"))
+            string source = ParsekScenarioSourceFiles.ReadText(Path.Combine(projectRoot, "Source", "Parsek", "ParsekScenario.cs"))
                 .Replace("\r\n", "\n");
             int start = source.IndexOf("        private void Update()\n", StringComparison.Ordinal);
             Assert.True(start >= 0, "ParsekScenario.Update is missing");

@@ -186,7 +186,7 @@ namespace Parsek.Tests
             if (!File.Exists(path))
                 path = Path.Combine(projectRoot, "Parsek", fileRelativeUnderSource);
             Assert.True(File.Exists(path), $"source not found at {path}");
-            return File.ReadAllText(path);
+            return ParsekScenarioSourceFiles.ReadText(path);
         }
 
         [Fact]

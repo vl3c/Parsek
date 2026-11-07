@@ -846,10 +846,10 @@ namespace Parsek.Tests
 
         private static string MethodBody(string relPath, string signature)
         {
-            // VesselSpawner is a partial class; read every split file as one text.
+            // VesselSpawner and ParsekScenario are partial classes; read every split file as one text.
             string raw = relPath == "VesselSpawner.cs"
                 ? VesselSpawnerSourceFiles.ReadAll(ParsekSourceRoot())
-                : ParsekFlightSourceFiles.ReadText(Path.Combine(ParsekSourceRoot(), relPath));
+                : ParsekScenarioSourceFiles.ReadText(Path.Combine(ParsekSourceRoot(), relPath));
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(raw.Replace("\r\n", "\n"));
             int sig = prepared.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(sig >= 0, "signature not found in " + relPath + ": " + signature);

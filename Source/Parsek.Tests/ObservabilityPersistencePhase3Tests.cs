@@ -81,13 +81,12 @@ namespace Parsek.Tests
         public void OnLoadSource_HasSingleTimingCallSite()
         {
             string repoRoot = ResolveRepoRoot();
+            // OnLoad lives in the main file of the ParsekScenario partial class; the slice runs
+            // from its declaration to its closing brace (the first class-member-level brace).
             string sourcePath = Path.Combine(repoRoot, "Source", "Parsek", "ParsekScenario.cs");
-            string source = File.ReadAllText(sourcePath);
+            string source = File.ReadAllText(sourcePath).Replace("\r\n", "\n");
             int onLoadStart = source.IndexOf("public override void OnLoad", StringComparison.Ordinal);
-            int nextMethod = source.IndexOf(
-                "private static void DispatchRewindPostLoadIfPending",
-                onLoadStart,
-                StringComparison.Ordinal);
+            int nextMethod = source.IndexOf("\n        }\n", onLoadStart, StringComparison.Ordinal);
 
             Assert.True(onLoadStart >= 0, "OnLoad method not found.");
             Assert.True(nextMethod > onLoadStart, "OnLoad end marker not found.");
