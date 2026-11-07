@@ -205,7 +205,7 @@ namespace Parsek.Tests
             var rec = new Recording();
             RecordingStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
             var stats = RecordingStatsCalculator.ComputeStats(rec);
 

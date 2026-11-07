@@ -590,7 +590,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 100.0,
                 ExplicitEndUT = 110.0,
             };
-            RecordingStore.MarkSidecarLoadFailure(rec, "trajectory-missing");
+            RecordingSidecarStore.MarkSidecarLoadFailure(rec, "trajectory-missing");
             tree.AddOrReplaceRecording(rec);
             return tree;
         }

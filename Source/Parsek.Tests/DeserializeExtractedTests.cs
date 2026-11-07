@@ -53,7 +53,7 @@ namespace Parsek.Tests
             pt.AddValue("rep", "3.0");
 
             var rec = new Recording();
-            RecordingStore.DeserializePoints(node, rec);
+            TrajectoryTextSidecarCodec.DeserializePoints(node, rec);
 
             Assert.Single(rec.Points);
             var p = rec.Points[0];
@@ -93,7 +93,7 @@ namespace Parsek.Tests
             }
 
             var rec = new Recording();
-            RecordingStore.DeserializePoints(node, rec);
+            TrajectoryTextSidecarCodec.DeserializePoints(node, rec);
 
             Assert.Equal(3, rec.Points.Count);
             Assert.Equal(100.0, rec.Points[0].ut, 5);
@@ -107,7 +107,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("ROOT");
             var rec = new Recording();
 
-            RecordingStore.DeserializePoints(node, rec);
+            TrajectoryTextSidecarCodec.DeserializePoints(node, rec);
 
             Assert.Empty(rec.Points);
         }
@@ -126,7 +126,7 @@ namespace Parsek.Tests
             pt.AddValue("funds", "0"); pt.AddValue("science", "0"); pt.AddValue("rep", "0");
 
             var rec = new Recording();
-            RecordingStore.DeserializePoints(node, rec);
+            TrajectoryTextSidecarCodec.DeserializePoints(node, rec);
 
             Assert.Single(rec.Points);
             Assert.Equal("Kerbin", rec.Points[0].bodyName);
@@ -153,7 +153,7 @@ namespace Parsek.Tests
                 pt.AddValue("funds", "0"); pt.AddValue("science", "0"); pt.AddValue("rep", "0");
 
                 var rec = new Recording();
-                RecordingStore.DeserializePoints(node, rec);
+                TrajectoryTextSidecarCodec.DeserializePoints(node, rec);
 
                 Assert.Single(rec.Points);
                 Assert.Contains(logLines, l =>
@@ -188,7 +188,7 @@ namespace Parsek.Tests
             seg.AddValue("body", "Kerbin");
 
             var rec = new Recording();
-            RecordingStore.DeserializeOrbitSegments(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeOrbitSegments(node, rec);
 
             Assert.Single(rec.OrbitSegments);
             var s = rec.OrbitSegments[0];
@@ -219,7 +219,7 @@ namespace Parsek.Tests
             seg.AddValue("ofrW", "0.9");
 
             var rec = new Recording();
-            RecordingStore.DeserializeOrbitSegments(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeOrbitSegments(node, rec);
 
             Assert.Single(rec.OrbitSegments);
             var s = rec.OrbitSegments[0];
@@ -243,7 +243,7 @@ namespace Parsek.Tests
             seg.AddValue("avZ", "1.5");
 
             var rec = new Recording();
-            RecordingStore.DeserializeOrbitSegments(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeOrbitSegments(node, rec);
 
             Assert.Single(rec.OrbitSegments);
             var s = rec.OrbitSegments[0];
@@ -258,7 +258,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("ROOT");
             var rec = new Recording();
 
-            RecordingStore.DeserializeOrbitSegments(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeOrbitSegments(node, rec);
 
             Assert.Empty(rec.OrbitSegments);
         }
@@ -280,7 +280,7 @@ namespace Parsek.Tests
             evt.AddValue("midx", "1");
 
             var rec = new Recording();
-            RecordingStore.DeserializePartEvents(node, rec);
+            TrajectoryTextSidecarCodec.DeserializePartEvents(node, rec);
 
             Assert.Single(rec.PartEvents);
             var e = rec.PartEvents[0];
@@ -308,7 +308,7 @@ namespace Parsek.Tests
             }
 
             var rec = new Recording();
-            RecordingStore.DeserializePartEvents(node, rec);
+            TrajectoryTextSidecarCodec.DeserializePartEvents(node, rec);
 
             Assert.Equal(3, rec.PartEvents.Count);
             Assert.Equal(100.0, rec.PartEvents[0].ut, 5);
@@ -322,7 +322,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("ROOT");
             var rec = new Recording();
 
-            RecordingStore.DeserializePartEvents(node, rec);
+            TrajectoryTextSidecarCodec.DeserializePartEvents(node, rec);
 
             Assert.Empty(rec.PartEvents);
         }
@@ -339,7 +339,7 @@ namespace Parsek.Tests
             // No value or midx fields
 
             var rec = new Recording();
-            RecordingStore.DeserializePartEvents(node, rec);
+            TrajectoryTextSidecarCodec.DeserializePartEvents(node, rec);
 
             Assert.Single(rec.PartEvents);
             Assert.Equal(0.0, (double)rec.PartEvents[0].value, 4);
@@ -366,7 +366,7 @@ namespace Parsek.Tests
                 evt.AddValue("midx", "0");
 
                 var rec = new Recording();
-                RecordingStore.DeserializePartEvents(node, rec);
+                TrajectoryTextSidecarCodec.DeserializePartEvents(node, rec);
 
                 Assert.Empty(rec.PartEvents); // unknown types are now skipped
                 Assert.Contains(logLines, l =>
@@ -427,11 +427,11 @@ namespace Parsek.Tests
 
             // Serialize
             var serialized = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(serialized, original);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(serialized, original);
 
             // Deserialize into fresh recording
             var restored = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(serialized, restored);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(serialized, restored);
 
             // Verify points
             Assert.Single(restored.Points);

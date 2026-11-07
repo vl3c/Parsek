@@ -2269,14 +2269,14 @@ namespace Parsek
                 return true;
 
             string currentReason;
-            bool filesCurrent = RecordingStore.AreRecordingFilesCurrentForSave(rec, out currentReason);
+            bool filesCurrent = RecordingSidecarStore.AreRecordingFilesCurrentForSave(rec, out currentReason);
             // A restore-attempt member shares its head with the committed copy, and the epoch
             // check alone cannot tell their bytes apart (the clone starts at the committed
             // copy's epoch): a committed rewrite at the same epoch must not read as current.
             if (filesCurrent
                 && string.Equals(treeKind, ActiveTreeKind, StringComparison.Ordinal)
                 && RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)
-                && !RecordingStore.TrajectoryHeadHoldsNamedBytes(rec, out string headReason))
+                && !RecordingSidecarStore.TrajectoryHeadHoldsNamedBytes(rec, out string headReason))
             {
                 filesCurrent = false;
                 currentReason = headReason;
@@ -2286,7 +2286,7 @@ namespace Parsek
             // never rewritten from here (that would advance its epoch before any merge).
             if (!filesCurrent && !rec.FilesDirty && !rec.SidecarEpochAdvancePending
                 && string.Equals(treeKind, CommittedTreeKind, StringComparison.Ordinal)
-                && RecordingStore.AreRecordingFilesCurrentThroughNamedVersions(rec, out string versionReason))
+                && RecordingSidecarStore.AreRecordingFilesCurrentThroughNamedVersions(rec, out string versionReason))
             {
                 ParsekLog.Verbose("Scenario",
                     $"OnSave: committed recording '{rec.VesselName ?? "<unnamed>"}' id={rec.RecordingId ?? "<none>"} " +
@@ -2339,7 +2339,7 @@ namespace Parsek
                     }
                 }
 
-                if (!RecordingStore.SaveRecordingFiles(rec))
+                if (!RecordingSidecarStore.SaveRecordingFiles(rec))
                 {
                     ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
                     return false;
@@ -2356,7 +2356,7 @@ namespace Parsek
                 return false;
             }
 
-            if (!RecordingStore.AreRecordingFilesCurrentForSave(rec, out currentReason))
+            if (!RecordingSidecarStore.AreRecordingFilesCurrentForSave(rec, out currentReason))
             {
                 ParsekLog.Warn("Scenario",
                     $"OnSave: recording '{rec.VesselName ?? "<unnamed>"}' id={rec.RecordingId ?? "<none>"} " +
@@ -2665,7 +2665,7 @@ namespace Parsek
                     // (a committed recording resumed in place) is written like any other: the
                     // write retains the committed bytes as a hashed version, the committed
                     // copy's node keeps naming them, and its save reads them there
-                    // (RecordingStore.AreRecordingFilesCurrentThroughNamedVersions), so the
+                    // (RecordingSidecarStore.AreRecordingFilesCurrentThroughNamedVersions), so the
                     // committed history is unchanged until a merge replaces it.
                     if (RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)
                         && !RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
@@ -6501,7 +6501,7 @@ namespace Parsek
                     // Load bulk data from external files for each recording in the tree.
                     foreach (var rec in tree.Recordings.Values)
                     {
-                        if (!RecordingStore.LoadRecordingFiles(rec))
+                        if (!RecordingSidecarStore.LoadRecordingFiles(rec))
                         {
                             sidecarHydrationFailures++;
                             // Bug #422: distinguish synthetic-fixture markers (no .prec sidecar,
@@ -6851,7 +6851,7 @@ namespace Parsek
             int syntheticFixtureFailures = 0;
             foreach (var rec in tree.Recordings.Values)
             {
-                if (!RecordingStore.LoadRecordingFiles(rec))
+                if (!RecordingSidecarStore.LoadRecordingFiles(rec))
                 {
                     sidecarHydrationFailures++;
                     if (IsSyntheticFixtureSidecarMarker(rec))
@@ -7013,7 +7013,7 @@ namespace Parsek
                 // Hydrate bulk data from sidecar files for each recording.
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    if (!RecordingStore.LoadRecordingFiles(rec))
+                    if (!RecordingSidecarStore.LoadRecordingFiles(rec))
                     {
                         sidecarHydrationFailures++;
                         if (rec.SidecarLoadFailureReason == StaleSidecarEpochReason)

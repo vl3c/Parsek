@@ -3488,7 +3488,7 @@ namespace Parsek
                 {
                     if (rec.FilesDirty)
                     {
-                        if (RecordingStore.SaveRecordingFiles(rec, incrementEpoch: false))
+                        if (RecordingSidecarStore.SaveRecordingFiles(rec, incrementEpoch: false))
                             forcedWrites++;
                     }
                 }
@@ -17539,7 +17539,7 @@ namespace Parsek
             {
                 if (rec.FilesDirty)
                 {
-                    if (RecordingStore.SaveRecordingFiles(rec, incrementEpoch: false))
+                    if (RecordingSidecarStore.SaveRecordingFiles(rec, incrementEpoch: false))
                         forcedWrites++;
                 }
             }
@@ -20024,7 +20024,7 @@ namespace Parsek
             // frames later, after an intervening OnSave nulled the in-memory copy
             // again. Re-hydrate here so the snapshot is present at the moment of
             // spawn. No-op when already loaded.
-            RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+            RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
 
             // Existing source-vessel adoption is enforced by VesselSpawner. The #226
             // replay/revert path remains an explicit duplicate-spawn exception for the

@@ -509,7 +509,7 @@ namespace Parsek.Tests
             Assert.Equal(1, Occurrences(body, "CaptureQuicksaveTreeFacts("));
             int load = IndexOrFail(body, "RecordingTree.Load(");
             int capture = IndexOrFail(body, "CaptureQuicksaveTreeFacts(");
-            int hydrate = IndexOrFail(body, "RecordingStore.LoadRecordingFiles(");
+            int hydrate = IndexOrFail(body, "RecordingSidecarStore.LoadRecordingFiles(");
             int keep = IndexOrFail(body, "ShouldKeepPendingTreeAfterHydrationFailure(");
             int salvage = IndexOrFail(body, "RestoreHydrationFailedRecordingsFromPendingTree(");
             int splice = IndexOrFail(body, "SpliceMissingCommittedRecordingsIntoLoadedTree(");

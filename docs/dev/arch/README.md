@@ -265,7 +265,7 @@ reference is wrong, only that it holds a cycle together. Nothing in this phase
 changes any dependency; it reports them.
 
 The residue after the last cut is a ratchet in `scripts/arch/test_archview.py`
-(`test_cut_sequence_halves_the_largest_knot`, 285 of 458 on the current tree):
+(`test_cut_sequence_halves_the_largest_knot`, 287 of 458 on the current tree):
 refactor work must not loosen it. Because the greedy sequence is a heuristic,
 deleting a real reference can change which sink wins an early step and leave a
 larger residue after the same 12 steps, so the ratchet measures the smaller of

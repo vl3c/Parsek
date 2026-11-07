@@ -3546,11 +3546,11 @@ namespace Parsek.Tests
                 node.AddValue("recordingSchemaGeneration",
                     RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
                 node.AddValue("recordingId", rec.RecordingId);
-                RecordingStore.SerializeTrajectoryInto(node, rec);
+                TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
                 // Deserialize into a fresh recording
                 var rec2 = new Recording();
-                RecordingStore.DeserializeTrajectoryFrom(node, rec2);
+                TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec2);
 
                 // Verify points
                 Assert.Equal(rec.Points.Count, rec2.Points.Count);
@@ -3619,7 +3619,7 @@ namespace Parsek.Tests
                 precNode.AddValue("recordingSchemaGeneration",
                     RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
                 precNode.AddValue("recordingId", "filetest");
-                RecordingStore.SerializeTrajectoryInto(precNode, rec);
+                TrajectoryTextSidecarCodec.SerializeTrajectoryInto(precNode, rec);
 
                 string precPath = Path.Combine(tempDir, "filetest.prec");
                 precNode.Save(precPath);
@@ -7216,7 +7216,7 @@ namespace Parsek.Tests
             RecordingBuilder builder = SinglePointOrbitalHold(SinglePointHoldSaveUT);
             RecordingTree tree = ScenarioWriter.MaterializeTree(new[] { builder });
             Recording rec = tree.Recordings[SinglePointHoldRecordingId];
-            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
 
             Assert.Single(rec.Points);
             Assert.Single(rec.OrbitSegments);
@@ -7268,7 +7268,7 @@ namespace Parsek.Tests
 
                 string recDir = Path.Combine(dir, "Parsek", "Recordings");
                 var loaded = new Recording { RecordingId = SinglePointHoldRecordingId };
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     loaded,
                     Path.Combine(recDir, SinglePointHoldRecordingId + ".prec"),
                     Path.Combine(recDir, SinglePointHoldRecordingId + "_vessel.craft"),
@@ -7780,7 +7780,7 @@ namespace Parsek.Tests
         {
             RecordingTree tree = ScenarioWriter.MaterializeTree(new[] { builder });
             Recording rec = tree.Recordings[id];
-            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
             return rec;
         }
 
@@ -7953,7 +7953,7 @@ namespace Parsek.Tests
 
                 string recDir = Path.Combine(dir, "Parsek", "Recordings");
                 var landed = new Recording { RecordingId = SituationCorrectionRecordingId };
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     landed,
                     Path.Combine(recDir, SituationCorrectionRecordingId + ".prec"),
                     Path.Combine(recDir, SituationCorrectionRecordingId + "_vessel.craft"),
@@ -7962,7 +7962,7 @@ namespace Parsek.Tests
                 Assert.Equal("FLYING", landed.VesselSnapshot.GetValue("sit"));
 
                 var orbiting = new Recording { RecordingId = TerminalOrbitRecordingId };
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     orbiting,
                     Path.Combine(recDir, TerminalOrbitRecordingId + ".prec"),
                     Path.Combine(recDir, TerminalOrbitRecordingId + "_vessel.craft"),
@@ -8189,7 +8189,7 @@ namespace Parsek.Tests
 
                 string recDir = Path.Combine(dir, "Parsek", "Recordings");
                 var loaded = new Recording { RecordingId = SpawnControlTargetRecordingId };
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     loaded,
                     Path.Combine(recDir, SpawnControlTargetRecordingId + ".prec"),
                     Path.Combine(recDir, SpawnControlTargetRecordingId + "_vessel.craft"),
@@ -8652,7 +8652,7 @@ namespace Parsek.Tests
                 string recDir = Path.Combine(dir, "Parsek", "Recordings");
                 string id = Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayARecordingId;
                 var loaded = new Recording { RecordingId = id };
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     loaded,
                     Path.Combine(recDir, id + ".prec"),
                     Path.Combine(recDir, id + "_vessel.craft"),
@@ -9364,7 +9364,7 @@ namespace Parsek.Tests
             for (int i = 0; i < builders.Length; i++)
             {
                 Recording rec = tree.Recordings[builders[i].GetRecordingId()];
-                RecordingStore.DeserializeTrajectoryFrom(builders[i].BuildTrajectoryNode(), rec);
+                TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builders[i].BuildTrajectoryNode(), rec);
             }
             return tree;
         }

@@ -371,7 +371,7 @@ namespace Parsek
                 out e.Segment, out CelestialBody body, out e.SeedSource, out e.Reason);
             e.BodyName = body != null ? body.bodyName : null;
             if (hydrateSnapshot)
-                RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+                RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
             e.SpawnHalfExtent = TimeJumpPlacement.EnclosingHalfExtent(
                 SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot));
             return e;

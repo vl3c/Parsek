@@ -582,7 +582,7 @@ namespace Parsek.Tests
             {
                 Recording rec = tree.Recordings[b.GetRecordingId()];
                 rec.TreeId = tree.Id;
-                RecordingStore.DeserializeTrajectoryFrom(b.BuildTrajectoryNode(), rec);
+                TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(b.BuildTrajectoryNode(), rec);
                 rec.MarkFilesDirty();
             }
         }

@@ -421,7 +421,7 @@ namespace Parsek.Tests
             Assert.Equal("pending-same-id-in-memory", reason);
 
             RecordingTree oneHydrated = Hydrated(MakeTree("t"), missing: true);
-            RecordingStore.ClearSidecarLoadFailure(oneHydrated.Recordings["booster_t"]);
+            RecordingSidecarStore.ClearSidecarLoadFailure(oneHydrated.Recordings["booster_t"]);
             Assert.Equal(DiscardedActiveTreeRestoreAction.Restore,
                 Decide(oneHydrated, discarded: true, out reason));
             Assert.Equal("member-hydrated id=booster_t", reason);
@@ -672,7 +672,7 @@ namespace Parsek.Tests
 
         private static void WriteSidecar(Recording rec)
         {
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec,
                 TrajectoryPath(rec.RecordingId),
                 RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId)),

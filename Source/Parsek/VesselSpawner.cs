@@ -2635,7 +2635,7 @@ namespace Parsek
                 // The spawn gate re-hydrates a dropped snapshot before it spawns; do the same
                 // here so the crew side reads the snapshot position the spawn will use.
                 if (rec.VesselSnapshot == null && !rec.IsDebris
-                    && RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec))
+                    && RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec))
                 {
                     // The re-hydrated snapshot may show the recording's vessel is a kerbal.
                     if (IsEvaKerbalRecordingForRetirement(rec))

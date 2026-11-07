@@ -39,7 +39,7 @@ namespace Parsek.Tests
             RecordingBuilder builder = RelativeLoopAnchorFixture.BuildRecording(SaveUT);
             var rec = new Recording();
             RecordingTreeRecordCodec.LoadRecordingFrom(builder.BuildV3Metadata(), rec);
-            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
             return rec;
         }
 
@@ -195,7 +195,7 @@ namespace Parsek.Tests
             RecordingBuilder builder = RelativeLoopAnchorFixture.BuildAnchorTrackRecording(SaveUT);
             var rec = new Recording();
             RecordingTreeRecordCodec.LoadRecordingFrom(builder.BuildV3Metadata(), rec);
-            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
 
             Assert.False(rec.LoopPlayback);
             Assert.Equal(0u, rec.LoopAnchorVesselId);

@@ -110,7 +110,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording();
             RecordingTree.LoadRecordingFrom(sfs, rec);
-            hydrated = RecordingStore.LoadRecordingFiles(rec);
+            hydrated = RecordingSidecarStore.LoadRecordingFiles(rec);
             return rec;
         }
 
@@ -133,7 +133,7 @@ namespace Parsek.Tests
 
             // OnSave: epoch advances, .prec written, then the .sfs carries the same epoch.
             var flown = MakeRecording(id);
-            Assert.True(RecordingStore.SaveRecordingFiles(flown, incrementEpoch: true));
+            Assert.True(RecordingSidecarStore.SaveRecordingFiles(flown, incrementEpoch: true));
             ConfigNode persistentSfs = SnapshotSfs(flown);
             int sfsEpoch = flown.SidecarEpoch;
             Assert.Equal(1, sfsEpoch);
@@ -210,7 +210,7 @@ namespace Parsek.Tests
             const string id = "optflushepoch1mirror";
 
             var flown = MakeRecording(id);
-            Assert.True(RecordingStore.SaveRecordingFiles(flown, incrementEpoch: true));
+            Assert.True(RecordingSidecarStore.SaveRecordingFiles(flown, incrementEpoch: true));
             ConfigNode preFlushQuicksave = SnapshotSfs(flown);
             Assert.Equal(1, flown.SidecarEpoch);
 
@@ -248,7 +248,7 @@ namespace Parsek.Tests
             const string id = "optflushepoch3clear";
 
             var flown = MakeRecording(id);
-            Assert.True(RecordingStore.SaveRecordingFiles(flown, incrementEpoch: true));
+            Assert.True(RecordingSidecarStore.SaveRecordingFiles(flown, incrementEpoch: true));
             CommitInTree(flown, "optflushepochtree3");
             flown.MarkFilesDirty();
             RecordingStore.RunOptimizationPass();
@@ -300,7 +300,7 @@ namespace Parsek.Tests
 
             ConfigNode firstSave = SnapshotSfs(committed);
             committed.MarkFilesDirty();
-            Assert.True(RecordingStore.SaveRecordingFiles(committed, incrementEpoch: true));
+            Assert.True(RecordingSidecarStore.SaveRecordingFiles(committed, incrementEpoch: true));
 
             bool hydrated;
             Recording stale = ColdLoad(firstSave, out hydrated);

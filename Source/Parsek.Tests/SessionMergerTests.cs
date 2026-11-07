@@ -1141,7 +1141,7 @@ namespace Parsek.Tests
             Assert.Equal(terminalUT, merged.OrbitSegments[merged.OrbitSegments.Count - 1].endUT);
             Assert.Equal(TerminalState.Destroyed, merged.TerminalStateValue);
             Assert.Equal(terminalUT, merged.ExplicitEndUT);
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(merged));
             Assert.Contains(logLines, l =>
                 l.Contains("[Merger]") &&
                 l.Contains("recording='rec-orbit-tail'") &&
@@ -1199,7 +1199,7 @@ namespace Parsek.Tests
             Assert.All(merged.OrbitSegments, seg => Assert.True(seg.isPredicted));
             Assert.Equal(739.157, merged.OrbitSegments[0].startUT);
             Assert.Equal(terminalUT, merged.OrbitSegments[merged.OrbitSegments.Count - 1].endUT);
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(merged));
             Assert.Contains(logLines, l =>
                 l.Contains("[Merger]") &&
                 l.Contains("recording='rec-stale-orbit-tail'") &&
@@ -1281,7 +1281,7 @@ namespace Parsek.Tests
             Assert.All(merged.OrbitSegments.Skip(1), seg => Assert.True(seg.isPredicted));
             Assert.Equal(320.0, merged.OrbitSegments[1].startUT);
             Assert.Equal(terminalUT, merged.OrbitSegments[merged.OrbitSegments.Count - 1].endUT);
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(merged));
             Assert.Contains(logLines, l =>
                 l.Contains("[Merger]") &&
                 l.Contains("recording='rec-checkpoint-tail'") &&
@@ -1362,7 +1362,7 @@ namespace Parsek.Tests
             Assert.True(merged.OrbitSegments[1].isPredicted);
             Assert.Equal(360.0, merged.OrbitSegments[1].startUT);
             Assert.Equal(terminalUT, merged.OrbitSegments[1].endUT);
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(merged));
             Assert.Contains(logLines, l =>
                 l.Contains("[Merger]") &&
                 l.Contains("recording='rec-clipped-checkpoint-tail'") &&
@@ -1827,7 +1827,7 @@ namespace Parsek.Tests
 
             Assert.Equal(2, merged.Points.Count);
             Assert.Empty(merged.OrbitSegments);
-            Assert.True(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.True(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(merged));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("recording='" + rec.RecordingId + "'") &&
                 l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail"));

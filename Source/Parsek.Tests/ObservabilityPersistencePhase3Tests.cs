@@ -241,7 +241,7 @@ namespace Parsek.Tests
             };
 
             RecordingStore.SnapshotSidecarLoadSummary summary =
-                RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
+                RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
 
             Assert.Equal(RecordingStore.SnapshotSidecarLoadState.Invalid, summary.VesselState);
             Assert.Contains(logLines, line =>
@@ -269,7 +269,7 @@ namespace Parsek.Tests
             };
 
             RecordingStore.SnapshotSidecarLoadSummary summary =
-                RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
+                RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
 
             Assert.Equal(RecordingStore.SnapshotSidecarLoadState.Unsupported, summary.VesselState);
             Assert.Equal("snapshot-vessel-unsupported", summary.FailureReason);
@@ -303,7 +303,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 1.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 2.0 });
 
-            Assert.False(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.False(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec,
                 invalidFinalPath,
                 vesselPath,

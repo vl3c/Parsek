@@ -138,7 +138,7 @@ namespace Parsek.Tests
                 RecordingStore.CurrentRecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
             expectedReadablePrecNode.AddValue("recordingId", recordingId);
             expectedReadablePrecNode.AddValue("sidecarEpoch", "0");
-            RecordingStore.SerializeTrajectoryInto(expectedReadablePrecNode, original);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(expectedReadablePrecNode, original);
             AssertConfigNodeEquivalent(expectedReadablePrecNode, ConfigNode.Load(readablePrecPath), "readablePrec");
 
             ConfigNode expectedReadableVessel = fixture.Builder.GetVesselSnapshot();
@@ -165,7 +165,7 @@ namespace Parsek.Tests
             logLines.Clear();
             var node = new ConfigNode("TEST");
 
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var sourceLogs = logLines.Where(l =>
                 l.Contains("[RecordingStore]") &&
@@ -259,7 +259,7 @@ namespace Parsek.Tests
                 RecordingId = "debug-text-predicted",
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
-            RecordingStore.DeserializeTrajectoryFrom(node, restored);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, restored);
 
             Assert.Single(restored.OrbitSegments);
             Assert.False(restored.OrbitSegments[0].isPredicted);
@@ -288,7 +288,7 @@ namespace Parsek.Tests
                 original.TrackSections[t] = track;
             }
 
-            Assert.True(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+            Assert.True(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(original));
 
             string path = Path.Combine(tempDir, "section-authoritative-predicted.prec");
             logLines.Clear();
@@ -331,9 +331,9 @@ namespace Parsek.Tests
                 appendedStartUT + 300.0,
                 isPredicted: true));
 
-            Assert.True(RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+            Assert.True(TrajectoryTextSidecarCodec.FlatTrajectoryExtendsTrackSectionPayload(
                 original, original.TrackSections, allowRelativeSections: true));
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(original));
 
             string path = Path.Combine(tempDir, "predicted-tail-fallback.prec");
             logLines.Clear();
@@ -433,9 +433,9 @@ namespace Parsek.Tests
             original.OrbitSegments.Add(MakeOrbitSegment(t2, 400.0, isPredicted: true));
             original.OrbitSegments.Add(MakeOrbitSegment(400.0, terminalUT, isPredicted: true));
 
-            Assert.True(RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+            Assert.True(TrajectoryTextSidecarCodec.FlatTrajectoryExtendsTrackSectionPayload(
                 original, original.TrackSections, allowRelativeSections: true));
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(original));
 
             string path = Path.Combine(tempDir, "orbit-only-predicted-tail.prec");
             logLines.Clear();
@@ -992,7 +992,7 @@ namespace Parsek.Tests
             };
 
             logLines.Clear();
-            RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
+            RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
 
             Assert.NotNull(rec.VesselSnapshot);
             Assert.NotNull(rec.GhostVisualSnapshot);
@@ -1019,7 +1019,7 @@ namespace Parsek.Tests
             };
 
             logLines.Clear();
-            RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
+            RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
 
             Assert.NotNull(rec.VesselSnapshot);
             Assert.NotNull(rec.GhostVisualSnapshot);
@@ -1045,7 +1045,7 @@ namespace Parsek.Tests
                 GhostSnapshotMode = GhostSnapshotMode.Unspecified
             };
 
-            RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
+            RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
 
             Assert.Null(rec.VesselSnapshot);
             Assert.NotNull(rec.GhostVisualSnapshot);
@@ -1081,7 +1081,7 @@ namespace Parsek.Tests
             };
 
             logLines.Clear();
-            RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
+            RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
 
             Assert.Null(rec.VesselSnapshot);
             Assert.Null(rec.GhostVisualSnapshot);
@@ -1109,7 +1109,7 @@ namespace Parsek.Tests
 
             ConfigNode loaded;
             SnapshotSidecarProbe probe;
-            Assert.False(RecordingStore.TryLoadSnapshotSidecar(path, out loaded, out probe));
+            Assert.False(SnapshotSidecarCodec.TryLoad(path, out loaded, out probe));
             Assert.Null(loaded);
             Assert.Equal(
                 $"uncompressed payload too large ({SnapshotSidecarCodec.MaxPayloadBytes + 1} bytes)",
@@ -1133,7 +1133,7 @@ namespace Parsek.Tests
                 ghostName: "Broken Ghost",
                 pidBase: 5100,
                 pointUt: 200);
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 written, precPath, vesselPath, ghostPath, incrementEpoch: true));
 
             byte[] vesselBytes = File.ReadAllBytes(vesselPath);
@@ -1148,7 +1148,7 @@ namespace Parsek.Tests
             };
 
             logLines.Clear();
-            Assert.False(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.False(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loaded, precPath, vesselPath, ghostPath));
             Assert.True(loaded.SidecarLoadFailed);
             Assert.Equal("snapshot-vessel-invalid", loaded.SidecarLoadFailureReason);
@@ -1179,7 +1179,7 @@ namespace Parsek.Tests
                 ghostName: "Ghost Failure Visual",
                 pidBase: 5200,
                 pointUt: 300);
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 written, precPath, vesselPath, ghostPath, incrementEpoch: true));
             Assert.Equal(GhostSnapshotMode.Separate, written.GhostSnapshotMode);
 
@@ -1202,7 +1202,7 @@ namespace Parsek.Tests
             };
 
             logLines.Clear();
-            Assert.False(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.False(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loaded, precPath, vesselPath, ghostPath));
             Assert.True(loaded.SidecarLoadFailed);
             Assert.Equal(expectedFailureReason, loaded.SidecarLoadFailureReason);
@@ -1241,7 +1241,7 @@ namespace Parsek.Tests
                 ghostName: "Heal Ghost Old",
                 pidBase: 5005,
                 pointUt: 123);
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 original, precPath, vesselPath, ghostPath, incrementEpoch: true));
             Assert.Equal(3, original.SidecarEpoch);
 
@@ -1257,7 +1257,7 @@ namespace Parsek.Tests
             using (var ghostLock = new FileStream(ghostPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 logLines.Clear();
-                Assert.False(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                Assert.False(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                     rewritten, precPath, vesselPath, ghostPath, incrementEpoch: true));
             }
             Assert.Equal(3, rewritten.SidecarEpoch);
@@ -1274,7 +1274,7 @@ namespace Parsek.Tests
                 SidecarEpoch = original.SidecarEpoch,
                 GhostSnapshotMode = original.GhostSnapshotMode
             };
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loadedOld, precPath, vesselPath, ghostPath));
             Assert.False(loadedOld.SidecarLoadFailed);
             Assert.Single(loadedOld.Points);
@@ -1282,7 +1282,7 @@ namespace Parsek.Tests
             AssertConfigNodeEquivalent(original.VesselSnapshot, loadedOld.VesselSnapshot, "rolledBackVessel");
             AssertConfigNodeEquivalent(original.GhostVisualSnapshot, loadedOld.GhostVisualSnapshot, "rolledBackGhost");
 
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rewritten, precPath, vesselPath, ghostPath, incrementEpoch: true));
             Assert.Equal(4, rewritten.SidecarEpoch);
             Assert.Equal(GhostSnapshotMode.Separate, rewritten.GhostSnapshotMode);
@@ -1300,7 +1300,7 @@ namespace Parsek.Tests
                 SidecarEpoch = rewritten.SidecarEpoch,
                 GhostSnapshotMode = rewritten.GhostSnapshotMode
             };
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loadedNew, precPath, vesselPath, ghostPath));
             Assert.Single(loadedNew.Points);
             Assert.Equal(456, loadedNew.Points[0].ut);
@@ -1328,7 +1328,7 @@ namespace Parsek.Tests
                 pointUt: 321);
 
             logLines.Clear();
-            Assert.False(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.False(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: true));
             Assert.Equal(0, rec.SidecarEpoch);
             Assert.True(rec.FilesDirty);
@@ -1438,14 +1438,14 @@ namespace Parsek.Tests
                 pointUt: 100);
 
             RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
             Assert.True(File.Exists(readablePrecPath));
             Assert.True(File.Exists(readableVesselPath));
             Assert.True(File.Exists(readableGhostPath));
 
             RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
 
             Assert.True(File.Exists(precPath));
@@ -1478,7 +1478,7 @@ namespace Parsek.Tests
                 pointUt: 150);
 
             RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
 
             DateTime authoritativePrecWriteUtc = File.GetLastWriteTimeUtc(precPath);
@@ -1490,7 +1490,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(readableGhostPath));
 
             RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
-            Assert.True(RecordingStore.ReconcileReadableSidecarMirrorsToPathsForTesting(
+            Assert.True(RecordingSidecarStore.ReconcileReadableSidecarMirrorsToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath));
 
             Assert.True(File.Exists(precPath));
@@ -1526,7 +1526,7 @@ namespace Parsek.Tests
             ConfigNode expectedVessel = rec.VesselSnapshot;
 
             RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
             Assert.True(File.Exists(vesselPath));
             Assert.False(File.Exists(readableVesselPath));
@@ -1535,7 +1535,7 @@ namespace Parsek.Tests
             rec.GhostVisualSnapshot = null;
 
             RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
-            Assert.True(RecordingStore.ReconcileReadableSidecarMirrorsToPathsForTesting(
+            Assert.True(RecordingSidecarStore.ReconcileReadableSidecarMirrorsToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath));
 
             Assert.True(File.Exists(readableVesselPath));
@@ -1561,13 +1561,13 @@ namespace Parsek.Tests
                 pointUt: 200);
 
             RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
 
             rec.VesselSnapshot = null;
             RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
             logLines.Clear();
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
 
             Assert.Contains(logLines, l =>
@@ -1597,7 +1597,7 @@ namespace Parsek.Tests
                 pidBase: 5500,
                 pointUt: 123);
             RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 original, precPath, vesselPath, ghostPath, incrementEpoch: false));
 
             File.Delete(readablePrecPath);
@@ -1612,7 +1612,7 @@ namespace Parsek.Tests
                 pointUt: 456);
 
             logLines.Clear();
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rewritten, precPath, vesselPath, ghostPath, incrementEpoch: false));
             Assert.False(rewritten.FilesDirty);
             Assert.Contains(logLines, l =>
@@ -1626,7 +1626,7 @@ namespace Parsek.Tests
                 SidecarEpoch = rewritten.SidecarEpoch,
                 GhostSnapshotMode = GhostSnapshotMode.Separate
             };
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 restored, precPath, vesselPath, ghostPath));
             Assert.Single(restored.Points);
             Assert.Equal(456, restored.Points[0].ut);
@@ -1682,7 +1682,7 @@ namespace Parsek.Tests
                 RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
             textNode.AddValue("recordingId", rec.RecordingId);
             textNode.AddValue("sidecarEpoch", "1");
-            RecordingStore.SerializeTrajectoryInto(textNode, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(textNode, rec);
             textNode.Save(textPath);
 
             RecordingStore.WriteTrajectorySidecar(binaryPath, rec, sidecarEpoch: 1);
@@ -1817,7 +1817,7 @@ namespace Parsek.Tests
             node.AddValue("version", original.RecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
             if (!string.IsNullOrEmpty(original.RecordingId))
                 node.AddValue("recordingId", original.RecordingId);
-            RecordingStore.SerializeTrajectoryInto(node, original);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, original);
 
             var restored = new Recording
             {
@@ -1825,7 +1825,7 @@ namespace Parsek.Tests
                 RecordingFormatVersion = original.RecordingFormatVersion,
                 VesselName = original.VesselName
             };
-            RecordingStore.DeserializeTrajectoryFrom(node, restored);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, restored);
             return restored;
         }
 
@@ -2570,7 +2570,7 @@ namespace Parsek.Tests
 
             // Pin the actual write-path choice after the write-path legacy bridge normalization.
             Assert.Equal(expectSectionAuthoritative,
-                RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(writeRec));
+                TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(writeRec));
 
             string path = Path.Combine(tempDir, $"codec-matrix-{caseName}.prec");
             RecordingStore.WriteTrajectorySidecar(path, writeRec, sidecarEpoch: 1);

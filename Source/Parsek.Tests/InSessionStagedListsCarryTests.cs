@@ -693,7 +693,7 @@ namespace Parsek.Tests
         {
             var onDisk = Recording.DeepClone(rec);
             onDisk.SidecarEpoch = epoch - 1;
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 onDisk,
                 RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildTrajectoryRelativePath(onDisk.RecordingId)),
                 RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(onDisk.RecordingId)),

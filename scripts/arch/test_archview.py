@@ -3419,24 +3419,27 @@ class RealTreeSmokeTests(unittest.TestCase):
         # which the RecordingStore cut dropped, so it and RecordingsTableFormatters
         # stay in the residue: 284 of 458. PR2 points GroupPickerPresentation's
         # IsInvalidGroupName call at RecordingGroupStore (uncut) instead of the
-        # RecordingStore forwarder (cut): 285 of 458, the value pinned here.
+        # RecordingStore forwarder (cut): 285 of 458. PR3 deletes the sidecar
+        # forwarders, so their callers reach RecordingSidecarStore and
+        # RouteProofCodec directly and both stay in the residue: 287 of 458,
+        # the value pinned here.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which
         # sink wins an early step and leave a LARGER residue after the same 12
-        # steps (file-placement PR 4 deleted OrbitReseed -> GhostMapPresence and
-        # the greedy residue rose 285 -> 290). The replay removes the outgoing
-        # edges of the fixed order pinned below (the greedy order as of
-        # 2026-11-07; a name that leaves the model is skipped), and for a fixed
-        # set of cut types deleting an edge can only shrink the remaining
-        # components, so the replayed residue never rises when a reference is
-        # removed. The greedy sequence stays the reported, documented one
-        # (test_first_cut_matches_the_documented_tree); the minimum is only the
-        # ratchet's measure.
+        # steps (file-placement PR 4 deletes OrbitReseed -> GhostMapPresence and
+        # the greedy residue rises 285 -> 290 on the tree it was measured on).
+        # The replay removes the outgoing edges of the fixed order pinned below
+        # (the greedy order as of 2026-11-07; a name that leaves the model is
+        # skipped), and for a fixed set of cut types deleting an edge can only
+        # shrink the remaining components, so the replayed residue never rises
+        # when a reference is removed. The greedy sequence stays the reported,
+        # documented one (test_first_cut_matches_the_documented_tree); the
+        # minimum is only the ratchet's measure.
         largest = self.model["knots"][0]
         graph = {entry["name"]: entry["referencesTo"] for entry in self.model["types"]}
         replayed = archview.replay_cut_residue(graph, RATCHET_CUT_ORDER)
-        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 285)
+        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 287)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

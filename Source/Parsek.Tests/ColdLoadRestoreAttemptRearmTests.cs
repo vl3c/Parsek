@@ -523,7 +523,7 @@ namespace Parsek.Tests
                 RecordingTree committed = RecordingTree.Load(treeNode);
                 foreach (Recording rec in committed.Recordings.Values)
                 {
-                    Assert.True(RecordingStore.LoadRecordingFiles(rec));
+                    Assert.True(RecordingSidecarStore.LoadRecordingFiles(rec));
                     RecordingStore.AddCommittedInternal(rec);
                 }
                 RecordingStore.AddCommittedTreeForTesting(committed);
@@ -541,7 +541,7 @@ namespace Parsek.Tests
         {
             var onDisk = Recording.DeepClone(rec);
             onDisk.SidecarEpoch = rec.SidecarEpoch - 1;
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 onDisk,
                 RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildTrajectoryRelativePath(onDisk.RecordingId)),
                 RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(onDisk.RecordingId)),

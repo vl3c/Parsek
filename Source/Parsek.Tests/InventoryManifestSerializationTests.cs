@@ -43,11 +43,11 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeInventoryManifest(node, rec);
+            RecordingManifestCodec.SerializeInventoryManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-inv-both";
-            RecordingStore.DeserializeInventoryManifest(node, loaded);
+            RecordingManifestCodec.DeserializeInventoryManifest(node, loaded);
 
             Assert.NotNull(loaded.StartInventory);
             Assert.NotNull(loaded.EndInventory);
@@ -80,11 +80,11 @@ namespace Parsek.Tests
             rec.EndInventory = null;
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeInventoryManifest(node, rec);
+            RecordingManifestCodec.SerializeInventoryManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-inv-start";
-            RecordingStore.DeserializeInventoryManifest(node, loaded);
+            RecordingManifestCodec.DeserializeInventoryManifest(node, loaded);
 
             Assert.NotNull(loaded.StartInventory);
             Assert.Null(loaded.EndInventory);
@@ -101,7 +101,7 @@ namespace Parsek.Tests
             rec.EndInventory = null;
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeInventoryManifest(node, rec);
+            RecordingManifestCodec.SerializeInventoryManifest(node, rec);
 
             Assert.Null(node.GetNode("INVENTORY_MANIFEST"));
         }
@@ -181,11 +181,11 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeInventoryManifest(node, rec);
+            RecordingManifestCodec.SerializeInventoryManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-inv-end";
-            RecordingStore.DeserializeInventoryManifest(node, loaded);
+            RecordingManifestCodec.DeserializeInventoryManifest(node, loaded);
 
             Assert.Null(loaded.StartInventory);
             Assert.NotNull(loaded.EndInventory);
@@ -201,7 +201,7 @@ namespace Parsek.Tests
             rec.EndInventory = new Dictionary<string, InventoryItem>();
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeInventoryManifest(node, rec);
+            RecordingManifestCodec.SerializeInventoryManifest(node, rec);
 
             Assert.Null(node.GetNode("INVENTORY_MANIFEST"));
         }
@@ -223,11 +223,11 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeInventoryManifest(node, rec);
+            RecordingManifestCodec.SerializeInventoryManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-inv-asym";
-            RecordingStore.DeserializeInventoryManifest(node, loaded);
+            RecordingManifestCodec.DeserializeInventoryManifest(node, loaded);
 
             Assert.Equal(2, loaded.StartInventory.Count);
             Assert.Equal(2, loaded.EndInventory.Count);
@@ -254,7 +254,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-inv-malformed";
-            RecordingStore.DeserializeInventoryManifest(node, loaded);
+            RecordingManifestCodec.DeserializeInventoryManifest(node, loaded);
 
             Assert.NotNull(loaded.StartInventory);
             Assert.Single(loaded.StartInventory);
@@ -270,7 +270,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-inv-legacy";
-            RecordingStore.DeserializeInventoryManifest(node, loaded);
+            RecordingManifestCodec.DeserializeInventoryManifest(node, loaded);
 
             Assert.Null(loaded.StartInventory);
             Assert.Null(loaded.EndInventory);
