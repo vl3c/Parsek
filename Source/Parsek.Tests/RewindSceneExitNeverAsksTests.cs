@@ -116,7 +116,7 @@ namespace Parsek.Tests
         {
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinalizedPendingTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinalizedPendingTree("pend"), PendingTreeState.Finalized);
             HighLogic.LoadedScene = GameScenes.FLIGHT;
             BeginRewind();
 
@@ -132,7 +132,7 @@ namespace Parsek.Tests
             // Control: auto-merge off without a rewind keeps today's dialog.
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinalizedPendingTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinalizedPendingTree("pend"), PendingTreeState.Finalized);
             HighLogic.LoadedScene = GameScenes.FLIGHT;
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.SPACECENTER);

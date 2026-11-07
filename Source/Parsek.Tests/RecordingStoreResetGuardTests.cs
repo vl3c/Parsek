@@ -103,7 +103,7 @@ namespace Parsek.Tests
         public void ResetForTesting_ThrowsInPlayMode_WhenPendingTreeExists()
         {
             var tree = new RecordingTree { Id = "pendT", TreeName = "PendingShip" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             Assert.True(RecordingStore.HasPendingTree);
 
             RecordingStore.ApplicationIsPlayingForTesting = () => true;
@@ -129,8 +129,8 @@ namespace Parsek.Tests
             // pending-Limbo slot, so wiping it loses a whole tree's worth of recordings
             // that live on disk but in no other in-memory list.
             var tree = new RecordingTree { Id = "saved", TreeName = "Saved" };
-            RecordingStore.PreservePendingTreeFromSaveDuringActiveRestore(tree);
-            Assert.True(RecordingStore.HasSavedPendingTreeDuringActiveRestore);
+            PendingTreeSlot.PreservePendingTreeFromSaveDuringActiveRestore(tree);
+            Assert.True(PendingTreeSlot.HasSavedPendingTreeDuringActiveRestore);
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.Empty(RecordingStore.CommittedTrees);
             Assert.False(RecordingStore.HasPendingTree);
@@ -141,8 +141,8 @@ namespace Parsek.Tests
                 () => RecordingStore.ResetForTesting());
 
             Assert.Contains("hasSavedPendingDuringActiveRestore=True", ex.Message);
-            Assert.NotNull(RecordingStore.SavedPendingTreeDuringActiveRestore);
-            Assert.Same(tree, RecordingStore.SavedPendingTreeDuringActiveRestore);
+            Assert.NotNull(PendingTreeSlot.SavedPendingTreeDuringActiveRestore);
+            Assert.Same(tree, PendingTreeSlot.SavedPendingTreeDuringActiveRestore);
 
             Assert.Contains(logLines,
                 l => l.Contains("[ERROR][RecordingStore]") && l.Contains("ResetForTesting blocked"));
@@ -199,7 +199,7 @@ namespace Parsek.Tests
         public void Snapshot_RestoresPendingTreeAndState()
         {
             var pending = new RecordingTree { Id = "p1", TreeName = "Pending" };
-            RecordingStore.StashPendingTree(pending);
+            PendingTreeSlot.StashPendingTree(pending);
             var preState = RecordingStore.PendingTreeStateValue;
             Assert.True(RecordingStore.HasPendingTree);
 

@@ -451,7 +451,7 @@ namespace Parsek.Tests
 
             ResetStores();
             RecordingStore.ClearCommittedTreeRestoreAttempt("cold-load");
-            RecordingStore.StashPendingTree(AttemptTree(), PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(AttemptTree(), PendingTreeState.Limbo);
             logLines.Clear();
             ParsekScenario.LoadGameStateFromNodeOrFiles(scenario);
             Assert.True(ParsekScenario.HasPendingSaveAttemptEventsForTesting);
@@ -478,7 +478,7 @@ namespace Parsek.Tests
 
             ResetStores();
             RecordingStore.ArmCommittedTreeRestoreAttempt(AttemptTree(), "re-armed");
-            RecordingStore.StashPendingTree(AttemptTree(), PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(AttemptTree(), PendingTreeState.Limbo);
             logLines.Clear();
             ParsekScenario.LoadGameStateFromNodeOrFiles(scenario);
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "tail-post");

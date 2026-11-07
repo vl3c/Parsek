@@ -101,7 +101,7 @@ namespace Parsek.InGameTests
             try
             {
                 MergeDialog.DismissAndClearPendingFlag("OnFlightReady Re-Fly guard test setup");
-                RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+                PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
 
                 scenario.ActiveReFlySessionMarker = new ReFlySessionMarker
                 {
@@ -215,7 +215,7 @@ namespace Parsek.InGameTests
             try
             {
                 MergeDialog.DismissAndClearPendingFlag("OnFlightReady control test setup");
-                RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+                PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
                 scenario.ActiveReFlySessionMarker = null;
                 // Pair the marker-null with the anchor-map clear so the T4
                 // grep scan (AnchorCorrectionLifecycleTests.Marker_NullAssignmentSites_AllPairWithClearCall)

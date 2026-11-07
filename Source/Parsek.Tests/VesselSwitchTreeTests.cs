@@ -588,7 +588,7 @@ namespace Parsek.Tests
             liveTree.Recordings["rec_tip"].VesselSpawned = false;
             liveTree.Recordings["rec_tip"].SpawnedVesselPersistentId = 0;
             liveTree.Recordings["rec_tip"].FilesDirty = true;
-            RecordingStore.StashPendingTree(liveTree);
+            PendingTreeSlot.StashPendingTree(liveTree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -645,7 +645,7 @@ namespace Parsek.Tests
 
             var pendingTree = MakeTree("rec_pending");
             pendingTree.Id = "tree_pending_not_the_attempt";
-            RecordingStore.StashPendingTree(pendingTree);
+            PendingTreeSlot.StashPendingTree(pendingTree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -754,7 +754,7 @@ namespace Parsek.Tests
                 RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(activePendingOnlyEvent));
 
             SetParsekFlightInstanceForTesting(null);
-            RecordingStore.StashPendingTree(liveTree);
+            PendingTreeSlot.StashPendingTree(liveTree);
 
             var stashedPendingOnlyEvent = MakeEvent(
                 GameStateEventType.TechResearched,

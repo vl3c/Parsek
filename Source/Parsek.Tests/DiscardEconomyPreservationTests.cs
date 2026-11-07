@@ -370,7 +370,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "rec-A",
             };
             tree.Recordings["rec-A"] = new Recording { RecordingId = "rec-A", TreeId = "tree-e2e" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -408,7 +408,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "rec-A",
             };
             tree.Recordings["rec-A"] = new Recording { RecordingId = "rec-A", TreeId = "tree-ab" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
 
@@ -482,7 +482,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "rec-A",
             };
             tree.Recordings["rec-A"] = new Recording { RecordingId = "rec-A", TreeId = "tree-x" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree();
 
@@ -512,7 +512,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "rec-A",
             };
             tree.Recordings["rec-A"] = new Recording { RecordingId = "rec-A", TreeId = "tree-ab" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
 

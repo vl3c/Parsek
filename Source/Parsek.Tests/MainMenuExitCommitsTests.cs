@@ -152,7 +152,7 @@ namespace Parsek.Tests
         {
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.MAINMENU);
 
@@ -172,7 +172,7 @@ namespace Parsek.Tests
             ParsekScenario.SetCachedAutoMergeForTesting(false);
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.MAINMENU);
 
@@ -189,7 +189,7 @@ namespace Parsek.Tests
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
             SceneExitInterceptor.CommitWithoutDialogForTesting =
                 (finalize, branch) => MergeDialog.PreTransitionOutcome.Refused;
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.MAINMENU);
 
@@ -207,7 +207,7 @@ namespace Parsek.Tests
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => { };
             SceneExitInterceptor.PersistentSaveStepForTesting =
                 _ => throw new InvalidOperationException("disk full");
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.MAINMENU);
 
@@ -221,7 +221,7 @@ namespace Parsek.Tests
             // Control: other exits keep committing at the destination scene's load.
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.SPACECENTER);
 
@@ -259,7 +259,7 @@ namespace Parsek.Tests
         public void Session_PendingTree_MainMenu_CommitsItAndTheCommitClearsTheSession()
         {
             var scenario = InstallScenario();
-            RecordingStore.StashPendingTree(FinishedTree("seg"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("seg"), PendingTreeState.Finalized);
             ArmSession(scenario, "seg");
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
@@ -279,7 +279,7 @@ namespace Parsek.Tests
         public void Session_PendingTree_SpaceCenter_LeavesTheTreeAndSessionToTheDestination()
         {
             var scenario = InstallScenario();
-            RecordingStore.StashPendingTree(FinishedTree("seg"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("seg"), PendingTreeState.Finalized);
             ArmSession(scenario, "seg");
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;

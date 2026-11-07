@@ -35,24 +35,19 @@ namespace Parsek
         internal static bool ResetSaveScopedStateForLoad(out string droppedPendingTreeSummary)
         {
             droppedPendingTreeSummary = null;
-            bool pendingDropped = pendingTree != null || savedPendingTreeDuringActiveRestore != null;
+            bool pendingDropped = PendingTreeSlot.PendingTree != null || PendingTreeSlot.SavedPendingTreeDuringActiveRestore != null;
             if (pendingDropped)
             {
                 droppedPendingTreeSummary =
-                    (pendingTree != null
-                        ? $"pending='{pendingTree.TreeName ?? "<unnamed>"}' id={pendingTree.Id ?? "<null>"} state={pendingTreeState}"
+                    (PendingTreeSlot.PendingTree != null
+                        ? $"pending='{PendingTreeSlot.PendingTree.TreeName ?? "<unnamed>"}' id={PendingTreeSlot.PendingTree.Id ?? "<null>"} state={PendingTreeSlot.PendingTreeStateValue}"
                         : "pending=<none>")
-                    + (savedPendingTreeDuringActiveRestore != null
-                        ? $" savedPending='{savedPendingTreeDuringActiveRestore.TreeName ?? "<unnamed>"}' id={savedPendingTreeDuringActiveRestore.Id ?? "<null>"}"
+                    + (PendingTreeSlot.SavedPendingTreeDuringActiveRestore != null
+                        ? $" savedPending='{PendingTreeSlot.SavedPendingTreeDuringActiveRestore.TreeName ?? "<unnamed>"}' id={PendingTreeSlot.SavedPendingTreeDuringActiveRestore.Id ?? "<null>"}"
                         : "");
             }
 
-            pendingTree = null;
-            pendingTreeState = PendingTreeState.Finalized;
-            pendingTreeSerializedForSave = false;
-            savedPendingTreeDuringActiveRestore = null;
-            savedPendingTreeDuringActiveRestoreSerializedForSave = false;
-            PendingStashedThisTransition = false;
+            PendingTreeSlot.ResetForLoad();
 
             treesDiscardedThisSession.Clear();
             CommittedTreeRestoreAttempt.ResetForLoad();
@@ -67,10 +62,6 @@ namespace Parsek
             PendingCleanupPids = null;
             PendingCleanupNames = null;
             PendingRevertPreExistingPids = null;
-            suppressNextTreeSceneExitCommit = false;
-            suppressNextTreeSceneExitCommitReason = null;
-            suppressNextActiveTreeRestore = false;
-            suppressNextActiveTreeRestoreReason = null;
             // The cold branch reloads committed trees from the save; inert ones come with them.
             InertRecordingTrees.ResetForLoad("save-scoped-reset");
             // Each recording carries its own auto-group key, which the cold load restores.

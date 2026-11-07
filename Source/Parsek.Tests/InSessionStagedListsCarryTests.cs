@@ -500,7 +500,7 @@ namespace Parsek.Tests
             // rewind points follow the launch-state save (today's behaviour), files untouched.
             var reverted = BuildTree("tree_reverted", new[] { "rp_flight" },
                 Rec("rec_flight", 10.0, MergeState.NotCommitted, "tree_reverted"));
-            RecordingStore.StashPendingTree(reverted, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(reverted, PendingTreeState.Limbo);
             InstallMergedReFlyTree();
             var memory = Memory(s =>
             {
@@ -608,7 +608,7 @@ namespace Parsek.Tests
                     var resumed = BuildTree(TreeId, new[] { "rp_t", "rp_s_child" },
                         Rec(OriginId, 50.0, MergeState.Immutable),
                         Rec(ForkId, 55.0, MergeState.NotCommitted));
-                    RecordingStore.StashPendingTree(resumed, PendingTreeState.Limbo);
+                    PendingTreeSlot.StashPendingTree(resumed, PendingTreeState.Limbo);
                 });
 
             Assert.NotNull(loaded.ActiveReFlySessionMarker);
@@ -921,7 +921,7 @@ namespace Parsek.Tests
                 members.Add(Provisional(Rec(EarlierForkId, 52.0, MergeState.Immutable), "sess_s0", "rp_t", EarlierChildId));
             }
             var tree = BuildTree(TreeId, new[] { "rp_t" }, members.ToArray());
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
             if (withEarlierSameRpAttempt)
             {
                 Ledger.AddAction(new GameAction

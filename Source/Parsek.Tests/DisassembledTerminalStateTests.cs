@@ -466,7 +466,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "rec-pocket",
             };
             tree.Recordings["rec-pocket"] = pocketed;
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 "Girder Debris", TerminalState.Recovered, 1800.0);
@@ -497,7 +497,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "rec-live",
             };
             tree.Recordings["rec-live"] = live;
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 "Girder Debris", TerminalState.Recovered, 1800.0);

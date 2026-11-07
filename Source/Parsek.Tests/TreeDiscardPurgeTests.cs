@@ -380,7 +380,7 @@ namespace Parsek.Tests
             };
             pending.AddOrReplaceRecording(Rec("rec_shared", "tree_overlap", MergeState.NotCommitted));
             pending.AddOrReplaceRecording(Rec("rec_pending_only", "tree_overlap", MergeState.NotCommitted));
-            RecordingStore.StashPendingTree(pending);
+            PendingTreeSlot.StashPendingTree(pending);
 
             Ledger.AddAction(KerbalDeath("rec_shared", "act_shared"));
             Ledger.AddAction(KerbalDeath("rec_pending_only", "act_pending"));
@@ -524,7 +524,7 @@ namespace Parsek.Tests
                 Rec("rec_committed_parent", "tree_pending_child", MergeState.NotCommitted));
             pending.AddOrReplaceRecording(
                 Rec("rec_pending_child", "tree_pending_child", MergeState.NotCommitted));
-            RecordingStore.StashPendingTree(pending);
+            PendingTreeSlot.StashPendingTree(pending);
 
             var scenario = InstallScenario(
                 rps: new List<RewindPoint>
@@ -582,7 +582,7 @@ namespace Parsek.Tests
                 Rec("rec_pending_pure", "tree_pending_slots", MergeState.NotCommitted));
             pending.AddOrReplaceRecording(
                 Rec("rec_committed_slot", "tree_pending_slots", MergeState.NotCommitted));
-            RecordingStore.StashPendingTree(pending);
+            PendingTreeSlot.StashPendingTree(pending);
 
             var scenario = InstallScenario(
                 rps: new List<RewindPoint>

@@ -236,8 +236,8 @@ namespace Parsek.Tests
                 "IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()");
             int refuse = IndexOrFail(body, "ShouldRefuseVesselSwitchRestoreForFreshRollout(");
             int revert = IndexOrFail(body, "TryRevertPreTransitionForVesselSwitch(");
-            int convert = IndexOrFail(body, "RecordingStore.ConvertPendingVesselSwitchStashToLimbo(");
-            int pop = IndexOrFail(body, "RecordingStore.PopPendingTree()");
+            int convert = IndexOrFail(body, "PendingTreeSlot.ConvertPendingVesselSwitchStashToLimbo(");
+            int pop = IndexOrFail(body, "PendingTreeSlot.PopPendingTree()");
             Assert.True(refuse < revert && revert < convert && convert < pop,
                 "the fresh-rollout refusal (revert + convert) must run before the tree is popped");
             // The refusal branch must leave the coroutine, not fall through to the pop.

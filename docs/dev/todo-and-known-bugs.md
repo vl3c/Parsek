@@ -3014,6 +3014,22 @@ each PR lands on the refactor branch, IL-proven a pure move).
   `IsMarkerOwnedSwitchSegmentRecordingId` and `FindRecordingByIdAcrossStores` stay on the
   store (service J). `RecordingStore` partials 7,650 -> 7,339 lines, 247 -> 237 IL methods;
   knot 463 -> 464, cut residue 288 unchanged.
+- PR10 (service I) landed: the pending-tree slot left the store as `PendingTreeSlot`: its ten
+  save-scoped statics (the pending tree, its state and serialized flag, the saved pending tree
+  and its flag, `PendingStashedThisTransition`, the two one-shot suppressions and their
+  reasons) and 26 members (seven accessors, stash / mark / restore / preserve / promote / pop /
+  unstash / convert / finalize, the six suppression members, `IsPendingRecordingId`,
+  `SetPendingTreeStateForTesting`), bodies verbatim. New: `ClearSlot` (the empty-slot triple
+  `CommitPendingTree`, `DiscardPendingTree` and the switch-segment discard wrote inline),
+  `ResetForLoad` / `ResetForTesting` and `RestoreFromSnapshotForTesting`. `PendingTree`,
+  `HasPendingTree` and `PendingTreeStateValue` stay on the store as forwarders; the other
+  callers (11 production files, 3 of them in-game tests, and 61 xUnit files) call the slot,
+  which reaches no knot type the cuts keep, so the cut residue holds. The type is in
+  `SaveScopedSessionResetTests.InventoryTypes` (no field allowlisted). The resets clear the
+  slot in one call at the point the store cleared the pending tree, so the four suppression
+  clears run a few writes earlier, ahead of resets that never read them.
+  `RecordingStore` partials 7,339 -> 6,911 lines, 237 -> 214 IL methods; knot 464 -> 465, cut
+  residue 288 unchanged.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -3123,10 +3139,10 @@ compare).
   that carry `LiveVesselSnapshot`'s knot edges (`TryBackupSnapshot` with its two private helpers,
   which read `KerbalsModule` / `CrewReservationManager` / `RecordingTree`, and `SnapshotVessel`,
   which calls it) move to `FlightRecorder` as the partial `FlightRecorder.LiveSnapshot.cs`;
-  2 private members widened. `LiveVesselSnapshot` leaves the knot: knots 464 -> 463 (the
-  remaining +2 over 461 are services PR8's `CommittedListOptimizer` and PR9's
-  `CommittedTreeRestoreAttempt`), replayed residue 288 -> 283,
-  bound back to 287; upward edges unchanged (81 / 791). IL: 4 moved bodies
+  2 private members widened. `LiveVesselSnapshot` leaves the knot: knots 465 -> 464 (the
+  remaining +3 over 461 are services PR8's `CommittedListOptimizer`, PR9's
+  `CommittedTreeRestoreAttempt` and PR10's `PendingTreeSlot`), replayed residue 288 -> 283,
+  bound back to 287; upward edges unchanged (81 / 792). IL: 4 moved bodies
   identical, 39 re-pointed call sites. Moving them back to `VesselSpawner` measured the same
   knot and residue but +2 upward weight (Recording and Rewind -> Controllers).
 

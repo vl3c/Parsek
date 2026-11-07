@@ -969,7 +969,7 @@ namespace Parsek
             //     out of the way without consuming the flag
             //     (FinalizeTreeOnSceneChange consumes it at
             //     ParsekFlight.cs:2734).
-            if (RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed)
+            if (PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed)
             {
                 ParsekLog.Info("SceneExit",
                     $"LoadScene prefix: bypassing - existing tree-scene-exit-commit " +

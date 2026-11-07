@@ -131,7 +131,7 @@ namespace Parsek.Tests
         public void DiscardOfTheRecoveredTree_ClearsTheLabMark()
         {
             RecordingTree tree = RecoveredWithLabMark();
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
 
             RecordingStore.DiscardPendingTree();
 

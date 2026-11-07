@@ -807,7 +807,7 @@ namespace Parsek
                         "RevertInterceptor.DiscardReFlyHandler, before its load, through the merge-dialog discard's "
                         + "session-state half (MergeDialog.EndDiscardedReFlySession)");
                 case LoadKind.StockRevert:
-                    return Today(LoadReconcileAction.Clear, "RecordingStore.UnstashPendingTreeOnRevert, unconditionally");
+                    return Today(LoadReconcileAction.Clear, "PendingTreeSlot.UnstashPendingTreeOnRevert, unconditionally");
                 case LoadKind.QuickloadFlight:
                     return QuickloadOnly(LoadReconcileAction.Clear,
                         "ParsekScenario.DiscardStashedOnQuickload; skipped while the loaded save carries a Re-Fly marker "

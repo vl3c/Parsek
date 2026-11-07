@@ -537,8 +537,8 @@ namespace Parsek.Tests
 
             RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
 
-            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
-            Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
+            Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.False(PendingTreeSlot.NextActiveTreeRestoreSuppressionArmedForTesting);
         }
 
         [Fact]
@@ -556,8 +556,8 @@ namespace Parsek.Tests
 
             Assert.Equal(1, caps.LoadGameCalls);
             Assert.Equal(0, caps.SceneCalls);
-            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
-            Assert.False(RecordingStore.NextActiveTreeRestoreSuppressionArmedForTesting);
+            Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.False(PendingTreeSlot.NextActiveTreeRestoreSuppressionArmedForTesting);
             Assert.Contains(logLines, l =>
                 l.Contains("[ReFlySession]")
                 && l.Contains("scene dispatch failed; consumed tree scene-exit"));
@@ -661,15 +661,15 @@ namespace Parsek.Tests
         [Fact]
         public void SceneExitCommitSuppression_ConsumesOnce()
         {
-            RecordingStore.ArmNextTreeSceneExitCommitSuppression(
+            PendingTreeSlot.ArmNextTreeSceneExitCommitSuppression(
                 "discardReFly sess=sess_guard target=Launch facility=--");
 
-            Assert.True(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
-            Assert.True(RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+            Assert.True(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.True(PendingTreeSlot.TryConsumeNextTreeSceneExitCommitSuppression(
                 GameScenes.SPACECENTER, out string reason));
             Assert.Contains("discardReFly", reason);
-            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
-            Assert.False(RecordingStore.TryConsumeNextTreeSceneExitCommitSuppression(
+            Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.False(PendingTreeSlot.TryConsumeNextTreeSceneExitCommitSuppression(
                 GameScenes.SPACECENTER, out _));
         }
 
@@ -696,13 +696,13 @@ namespace Parsek.Tests
             var flight = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
             SetPrivateField(flight, "activeTree", tree);
 
-            RecordingStore.ArmNextTreeSceneExitCommitSuppression(
+            PendingTreeSlot.ArmNextTreeSceneExitCommitSuppression(
                 "discardReFly sess=sess_guard target=Launch facility=--");
 
             flight.FinalizeTreeOnSceneChangeForTesting(GameScenes.SPACECENTER, 123.4);
 
             Assert.False(RecordingStore.HasPendingTree);
-            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Null(GetPrivateField<RecordingTree>(flight, "activeTree"));
             Assert.True(activeRecording.FilesDirty,
                 "Suppressed discard must not flush dirty sidecar state.");

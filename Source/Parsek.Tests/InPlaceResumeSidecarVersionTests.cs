@@ -248,7 +248,7 @@ namespace Parsek.Tests
 
             // The scene-exit finalization stashed the clone as the Finalized pending tree.
             if (finalizedPending)
-                RecordingStore.StashPendingTree(RecordingTree.DeepClone(clone), PendingTreeState.Finalized);
+                PendingTreeSlot.StashPendingTree(RecordingTree.DeepClone(clone), PendingTreeState.Finalized);
 
             logLines.Clear();
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.InSession, loadedSceneIsFlight: false));

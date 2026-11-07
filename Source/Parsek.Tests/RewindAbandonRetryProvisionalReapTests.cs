@@ -112,7 +112,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "rec_orphan_pending",
             };
             pendingTree.AddOrReplaceRecording(orphan);
-            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(pendingTree, PendingTreeState.Limbo);
             ParsekScenario.SetInstanceForTesting(new ParsekScenario());
 
             int reaped = RewindInvoker.ReapPriorProvisionalsForRp(
