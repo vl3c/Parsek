@@ -235,7 +235,7 @@ namespace Parsek
                 // died: clear the claim without counting a death, ahead of the terminal-orbit
                 // branch, so the spawn gate refuses on the recovery evidence instead.
                 if (TryClearRecoveredSpawnClaim(
-                        rec, RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive,
+                        rec, EffectiveState.IsRecoveredByLedgerRowLive,
                         out uint recoveredOldPid, out string recoveredEvidence))
                 {
                     recovered++;

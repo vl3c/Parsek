@@ -278,8 +278,8 @@ title = "The pain is still a handful of controller and store files."
 body = "<span class=\"id\">ParsekFlight</span>, <span class=\"id\">RecordingStore</span>, <span class=\"id\">ParsekScenario</span> and <span class=\"id\">Recording</span> head the hotspot table, and the two most frequent cross-module file pairs are the flight recorder with the flight controller and the scenario module with the recording store (<em>What changes together</em>). <span class=\"id\">LedgerOrchestrator</span> is now a top-ten hotspot and one of the largest single-file types."
 
 [[findings.items]]
-title = "One declared boundary is crossed for real."
-body = "On 2026-11-01 the Ghost &rarr; GameActions boundary is crossed by one call, ghost playback logic asking the ledger whether a recording was recovered (<code>RecoveredRecordingEvidence</code>). The scan's other hits on that edge were two GameActions nested types named like BCL or initializer names (an enum <code>Action</code>, a struct <code>Held</code>), renamed on the refactor branch on 2026-11-06 so the edge reads weight 1. The Missions &rarr; Logistics hit is a name collision (a nested <code>VesselIdentity</code> struct in Logistics), now excluded by the scan. Live list: <em>Where the layering breaks</em>."
+title = "No declared boundary is crossed."
+body = "On 2026-11-01 the Ghost &rarr; GameActions boundary was crossed by one call, ghost playback logic asking the ledger whether a recording was recovered (<code>RecoveredRecordingEvidence</code>). The scan's other hits on that edge were two GameActions nested types named like BCL or initializer names (an enum <code>Action</code>, a struct <code>Held</code>), renamed on the refactor branch on 2026-11-06. On 2026-11-07 the live recovered-recording index moved into <span class=\"id\">EffectiveState</span> (Rewind), which already owns the effective-ledger read, so Ghost no longer references GameActions; the ledger read is one hop away through Rewind. The Missions &rarr; Logistics hit is a name collision (a nested <code>VesselIdentity</code> struct in Logistics), now excluded by the scan. Live list: <em>Where the layering breaks</em>."
 
 [[findings.items]]
 title = "The 2026-09-14 hotspot list was wrong for partial classes."
@@ -358,7 +358,7 @@ rank = 7
 item = "VesselSpawner split: kernel ops, spawn planner, live ops"
 evidence = "On 2026-09-14: 6,897 lines; 103 pure, 30 live, 50 model and 17 glue members; the ledger uses the pure members only."
 size = "5 steps"
-status = "Step 1 done, PR #1686 (plan in <code>docs/dev/research/vesselspawner-split-plan-2026-09-14.md</code>). The 2026-11-06 file-placement plan replaces steps 2-5 with its PRs 6-10; PR 6 moved the crew-in-snapshot and situation helpers to VesselSnapshotOps."
+status = "Step 1 done, PR #1686 (plan in <code>docs/dev/research/vesselspawner-split-plan-2026-09-14.md</code>). The 2026-11-06 file-placement plan replaces steps 2-5 with its PRs 6-10; PR 6 moved the crew-in-snapshot and situation helpers to VesselSnapshotOps, PR 7 the position-stamp, rotation-node, validation and canonical-orbit writers."
 types = ["VesselSpawner"]
 
 [[opportunities]]

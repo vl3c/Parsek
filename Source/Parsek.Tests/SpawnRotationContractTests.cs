@@ -143,7 +143,7 @@ namespace Parsek.Tests
         public void ComputeProtoVesselSpawnRotation_ReturnsRecordedSurfaceRelative_NotBodyComposed()
         {
             Quaternion result =
-                VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+                VesselSnapshotOps.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                     RecordedSurfaceRelative);
 
             AssertSameRotation(RecordedSurfaceRelative, result,
@@ -156,7 +156,7 @@ namespace Parsek.Tests
         public void ComputeProtoVesselSpawnRotation_SanitizesNonFiniteComponents()
         {
             Quaternion result =
-                VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+                VesselSnapshotOps.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                     new Quaternion(float.NaN, 0f, float.PositiveInfinity, 1f));
 
             Assert.False(float.IsNaN(result.x) || float.IsInfinity(result.x));
@@ -179,7 +179,7 @@ namespace Parsek.Tests
                 .AsLanded(1.0, 2.0, 30.0)
                 .Build();
 
-            Quaternion written = VesselSpawner.ApplyProtoVesselSpawnRotationToNode(
+            Quaternion written = VesselSnapshotOps.ApplyProtoVesselSpawnRotationToNode(
                 node,
                 "Kerbin",
                 BodyRotation,
@@ -203,7 +203,7 @@ namespace Parsek.Tests
             Quaternion captured = Mul(Conjugate(BodyRotation), worldRot);
 
             ConfigNode node = new VesselSnapshotBuilder().AsLanded(0.0, 0.0, 10.0).Build();
-            VesselSpawner.ApplyProtoVesselSpawnRotationToNode(
+            VesselSnapshotOps.ApplyProtoVesselSpawnRotationToNode(
                 node, "Kerbin", BodyRotation, captured, "unit-test round trip");
 
             Quaternion loadedSrfRelRotation = ReadRot(node);
@@ -218,7 +218,7 @@ namespace Parsek.Tests
         {
             ConfigNode node = new VesselSnapshotBuilder().AsLanded(0.0, 0.0, 10.0).Build();
 
-            VesselSpawner.ApplyProtoVesselSpawnRotationToNode(
+            VesselSnapshotOps.ApplyProtoVesselSpawnRotationToNode(
                 node, "Kerbin", BodyRotation, RecordedSurfaceRelative, "unit-test logging");
 
             Assert.Contains(logLines, l =>
@@ -234,7 +234,7 @@ namespace Parsek.Tests
         {
             ConfigNode node = new VesselSnapshotBuilder().AsLanded(0.0, 0.0, 10.0).Build();
 
-            VesselSpawner.ApplyProtoVesselSpawnRotationToNode(
+            VesselSnapshotOps.ApplyProtoVesselSpawnRotationToNode(
                 node, "Kerbin", null, RecordedSurfaceRelative, "unit-test no body rotation");
 
             // An unresolvable body rotation is diagnostic only - the written value is the
@@ -252,7 +252,7 @@ namespace Parsek.Tests
         [Fact]
         public void TryApplySpawnRotation_NullNode_ReturnsFalse()
         {
-            Assert.False(VesselSpawner.TryApplySpawnRotationFromSurfaceRelative(
+            Assert.False(VesselSnapshotOps.TryApplySpawnRotationFromSurfaceRelative(
                 null, "Kerbin", BodyRotation, RecordedSurfaceRelative, "unit-test null node"));
         }
 
@@ -265,7 +265,7 @@ namespace Parsek.Tests
                 .WithSurfaceRelativeRotation(preExisting)
                 .Build();
 
-            bool applied = VesselSpawner.TryApplySpawnRotationFromSurfaceRelative(
+            bool applied = VesselSnapshotOps.TryApplySpawnRotationFromSurfaceRelative(
                 node, "Kerbin", BodyRotation, null, "unit-test absent rotation");
 
             Assert.False(applied);
@@ -281,7 +281,7 @@ namespace Parsek.Tests
                 .WithSurfaceRelativeRotation(new Quaternion(0f, 0f, 0.38268343f, 0.92387953f))
                 .Build();
 
-            bool applied = VesselSpawner.TryApplySpawnRotationFromSurfaceRelative(
+            bool applied = VesselSnapshotOps.TryApplySpawnRotationFromSurfaceRelative(
                 node, "Kerbin", BodyRotation, RecordedSurfaceRelative, "unit-test overwrite");
 
             Assert.True(applied);
@@ -506,7 +506,7 @@ namespace Parsek.Tests
             AssertDifferentRotation(Mul(BodyRotation, RecordedSurfaceRelative), ReadRot(node),
                 "resolved spawn state must not write a body-composed world rotation");
             Assert.Equal("-0.0972", node.GetValue("lat"));
-            Assert.True(VesselSpawner.HasDeliberatePositionOverrideStamp(node));
+            Assert.True(VesselSnapshotOps.HasDeliberatePositionOverrideStamp(node));
         }
 
         [Fact]
@@ -609,7 +609,7 @@ namespace Parsek.Tests
         {
             ConfigNode node = new VesselSnapshotBuilder().AsLanded(0.0, 0.0, 0.0).Build();
 
-            VesselSpawner.OverrideSnapshotPosition(
+            VesselSnapshotOps.OverrideSnapshotPosition(
                 node,
                 lat: 5.0, lon: 6.0, alt: 7.0,
                 index: 2,

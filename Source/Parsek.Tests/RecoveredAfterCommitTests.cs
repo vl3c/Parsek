@@ -33,7 +33,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.ResetForTesting();
             Ledger.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
-            RecoveredRecordingEvidence.ResetForTesting();
+            EffectiveState.ResetRecoveredIndexForTesting();
             InFlightRecoveryRequest.ResetForTesting();
             GhostMapPresence.ResetForTesting();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
@@ -42,7 +42,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             InFlightRecoveryRequest.ResetForTesting();
-            RecoveredRecordingEvidence.ResetForTesting();
+            EffectiveState.ResetRecoveredIndexForTesting();
             EffectiveState.ResetCachesForTesting();
             Ledger.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
