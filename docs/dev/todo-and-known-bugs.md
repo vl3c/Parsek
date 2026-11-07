@@ -2855,6 +2855,13 @@ calls directly. One service per PR; the co-change with `ParsekScenario.cs` is th
   boundary (`[forbidden]` in `scripts/arch/modules.toml`) the checker finds crossed. (Closed
   in #1685. On 2026-11-01 the crossed boundary is `Ghost -> GameActions`: one call,
   `GhostPlaybackLogic` -> `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`.)
+- File-placement plan of 2026-11-06 (refactor branch claude/project-thread-bkwmrr; PRs 1-5
+  here, VesselSpawner PRs 6-10 separately). Measured on the branch tip 53b01b35f before PR 1:
+  upward edges 88 (weight 836), Core -> Recording 30, Trajectory -> Recording 10, Trajectory
+  -> Ghost 1, Ghost -> GameActions 17 (VIOLATION; 1 real call, 16 scan false positives).
+  - PR 1 (measurement): the two nested types the scanner misread renamed
+    (`CareerSettingsLock.LockDecision`, `ProducerSliceBook.HeldSlice`; see
+    ARCH-TOOLING-ROSLYN-AND-CI). Ghost -> GameActions 17 -> 1; upward edges 85 (weight 826).
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
@@ -2880,6 +2887,15 @@ Update `modules.toml` in the same commits so the placement report stays true.
   calls are moved out, that removed the false positives that still held it in the knot
   (535 -> 454); on main's code its real calls keep it in (knot 542). Still missed: object-initializer members of another type (`Held = ...`
   on `Ghost -> GameActions`), which only the Roslyn extractor below can tell apart.
+- 2026-11-06 (refactor branch, file-placement PR 1): the two worst such false positives are
+  gone at the source instead. `CareerSettingsLock.Action` (every `System.Action` delegate
+  read as it, 14 Ghost files) is now `CareerSettingsLock.LockDecision` (not `LockAction`,
+  which `ParsekUiScale` already declares in UI and would join the ambiguous-name list), and
+  `ProducerSliceBook`'s private struct `Held` (read from `Held = true` initializers in
+  `GhostCommNet`) is now `HeldSlice`. IL differs only in the two nested type names. Ghost ->
+  GameActions 17 -> 1 (the real call, still VIOLATION), Recording -> GameActions 20 -> 15,
+  Trajectory and Logistics -> GameActions 1 -> 0; upward edges 88 -> 85, weight 836 -> 826;
+  knots unchanged (457, 4, 3).
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

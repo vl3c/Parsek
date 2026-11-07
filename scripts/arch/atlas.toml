@@ -160,9 +160,6 @@ meaning = "The interface the playback engine sees instead of a Recording."
 [glossary.BranchPoint]
 meaning = "Where and why a tree branched: decouple, dock, undock, EVA, switch."
 
-[glossary.Action]
-meaning = "<code>CareerSettingsLock.Action</code>, the negative-currency lock's decision (lock, rewrite the live value, nothing). Its file count is a scanner false positive: every <code>System.Action</code> delegate reads as this type."
-
 [glossary.Kind]
 meaning = "What a rewind split mutated: a branch point, a debris parent, a track-section anchor, a ledger row or a milestone row."
 
@@ -274,7 +271,7 @@ body = "<span class=\"id\">ParsekFlight</span>, <span class=\"id\">RecordingStor
 
 [[findings.items]]
 title = "One declared boundary is crossed for real."
-body = "On 2026-11-01 the Ghost &rarr; GameActions boundary is crossed by one call, ghost playback logic asking the ledger whether a recording was recovered (<code>RecoveredRecordingEvidence</code>); the scan's other hits on that edge are a field named like a ledger type. The Missions &rarr; Logistics hit is a name collision (a nested <code>VesselIdentity</code> struct in Logistics), now excluded by the scan. Live list: <em>Where the layering breaks</em>."
+body = "On 2026-11-01 the Ghost &rarr; GameActions boundary is crossed by one call, ghost playback logic asking the ledger whether a recording was recovered (<code>RecoveredRecordingEvidence</code>). The scan's other hits on that edge were two GameActions nested types named like BCL or initializer names (an enum <code>Action</code>, a struct <code>Held</code>), renamed on the refactor branch on 2026-11-06 so the edge reads weight 1. The Missions &rarr; Logistics hit is a name collision (a nested <code>VesselIdentity</code> struct in Logistics), now excluded by the scan. Live list: <em>Where the layering breaks</em>."
 
 [[findings.items]]
 title = "The 2026-09-14 hotspot list was wrong for partial classes."
