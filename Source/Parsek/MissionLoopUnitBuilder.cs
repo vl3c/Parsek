@@ -1605,6 +1605,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The periodicity constraint extraction for a mission's included set: computes the
+        /// trimmed member windows (<see cref="ComputeTrimmedMemberWindows"/>, the same source of
+        /// truth the span clock and cadence use) and hands them to
+        /// <see cref="MissionPeriodicity.ExtractConstraints"/>. The windows are computed only when
+        /// both <paramref name="committed"/> and <paramref name="bodyInfo"/> are present, as the
+        /// extractor did before it took them as an input.
+        /// </summary>
+        internal static ConstraintExtraction ExtractPeriodicityConstraints(
+            MissionThroughLineView view,
+            List<MissionCompositionNode> compRoots,
+            IReadOnlyList<Recording> committed,
+            ICollection<string> excludedIntervalKeys,
+            IBodyInfo bodyInfo)
+        {
+            return MissionPeriodicity.ExtractConstraints(view, compRoots, committed, excludedIntervalKeys, bodyInfo);
+        }
+
+        /// <summary>
         /// Maps a Mission's interval-level selection (<see cref="Mission.ExcludedIntervalKeys"/>) to
         /// its committed loop members + their TRIMMED render windows, keyed by committed index. This
         /// is the single source of truth for "which recordings does this looped mission include, and
