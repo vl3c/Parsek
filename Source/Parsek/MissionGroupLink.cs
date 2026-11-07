@@ -67,7 +67,7 @@ namespace Parsek
                 failReason = "empty name";
                 return false;
             }
-            if (RecordingStore.IsInvalidGroupName(newName))
+            if (RecordingGroupStore.IsInvalidGroupName(newName))
             {
                 failReason = "invalid characters";
                 return false;
@@ -110,7 +110,11 @@ namespace Parsek
             // Atomic collision pre-check: none of the target names may already belong to a
             // DIFFERENT group. The names we are vacating (oldRoot + the children being renamed)
             // are exempt - reusing them is exactly what a rename does.
-            var existing = new HashSet<string>(RecordingStore.GetGroupNames(), StringComparer.OrdinalIgnoreCase);
+            // [ERS-exempt] reason: a group name is a tag on every committed recording,
+            // superseded ones included, so the collision check reads the raw list.
+            var existing = new HashSet<string>(
+                RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings),
+                StringComparer.OrdinalIgnoreCase);
             var vacating = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AddIfPresent(vacating, oldRoot);
             if (newDebris != null) AddIfPresent(vacating, debrisOld);
@@ -147,14 +151,16 @@ namespace Parsek
         }
 
         // Renames a single group name across recording tags + tree auto-group fields
-        // (RecordingStore.RenameGroup) and the group hierarchy (GroupHierarchyStore). Skips a
+        // (RecordingGroupStore.RenameGroup) and the group hierarchy (GroupHierarchyStore). Skips a
         // no-op / empty pair. Returns whether the recording-side rename reported success.
         private static bool RenameOneGroup(string oldName, string newName)
         {
             if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName)
                 || string.Equals(oldName, newName, StringComparison.Ordinal))
                 return false;
-            bool ok = RecordingStore.RenameGroup(oldName, newName);
+            // [ERS-exempt] reason: the rename retags every committed recording, as above.
+            bool ok = RecordingGroupStore.RenameGroup(
+                oldName, newName, RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
             GroupHierarchyStore.RenameGroupInHierarchy(oldName, newName);
             if (!ok)
                 ParsekLog.Warn("Mission",
