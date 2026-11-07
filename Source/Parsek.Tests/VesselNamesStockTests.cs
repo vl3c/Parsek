@@ -1024,7 +1024,7 @@ namespace Parsek.Tests
         private static string MethodBody(string relPath, string signature)
         {
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
-                ParsekFlightSourceFiles.ReadText(Path.Combine(ParsekSourceRoot(), relPath)).Replace("\r\n", "\n"));
+                ParsekScenarioSourceFiles.ReadText(Path.Combine(ParsekSourceRoot(), relPath)).Replace("\r\n", "\n"));
             int sig = prepared.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(sig >= 0, "signature not found in " + relPath + ": " + signature);
             Assert.True(prepared.IndexOf(signature, sig + 1, StringComparison.Ordinal) < 0,

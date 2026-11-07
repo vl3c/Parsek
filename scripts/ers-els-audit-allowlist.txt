@@ -76,6 +76,11 @@ Source/Parsek/RewindLauncher.cs
 
 # --- Serialization (I/O not semantics) ---
 Source/Parsek/ParsekScenario.cs
+# Split out of ParsekScenario.cs (scripts/refactor/split_parsekscenario.py): the save path's
+# GAME_STATE write logs the raw ledger row count, and the lifecycle exception wrapper logs
+# the raw committed-recording count.
+Source/Parsek/ParsekScenario.Save.cs
+Source/Parsek/ParsekScenario.Diagnostics.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.
 Source/Parsek/ParsekScenario.SessionReset.cs
 # [ERS-exempt] the revert prune remembers the raw ledger row ids at each flight entry (O2).

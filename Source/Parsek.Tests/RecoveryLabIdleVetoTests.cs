@@ -184,7 +184,7 @@ namespace Parsek.Tests
             Assert.Contains("TreeHasLabPayoutsForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", head);
             Assert.Contains("TreeHasPendingLabRecoveryForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", head);
 
-            string scenario = ParsekFlightSourceFiles.ReadText(System.IO.Path.Combine(
+            string scenario = ParsekScenarioSourceFiles.ReadText(System.IO.Path.Combine(
                 root, "Source", "Parsek", "ParsekScenario.cs")).Replace("\r\n", "\n");
             int handler = scenario.IndexOf("private void OnVesselRecoveryRequested(Vessel v)", StringComparison.Ordinal);
             Assert.True(handler >= 0, "OnVesselRecoveryRequested not found");

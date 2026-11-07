@@ -177,7 +177,7 @@ namespace Parsek.Tests
         {
             string path = Path.Combine(RepoRoot(), "Source", "Parsek", "ParsekScenario.cs");
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
             int sig = prepared.IndexOf("public override void OnLoad(ConfigNode node)", StringComparison.Ordinal);
             Assert.True(sig >= 0, "OnLoad not found");
             string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', sig));
@@ -224,7 +224,7 @@ namespace Parsek.Tests
         public void OnLoad_DropsAnUnusedFault_OnTheInertAndInSessionPaths()
         {
             string path = Path.Combine(RepoRoot(), "Source", "Parsek", "ParsekScenario.cs");
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
             int sig = prepared.IndexOf("public override void OnLoad(ConfigNode node)", StringComparison.Ordinal);
             string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', sig));
 
