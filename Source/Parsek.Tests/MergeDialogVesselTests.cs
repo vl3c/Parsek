@@ -492,7 +492,7 @@ namespace Parsek.Tests
         }
 
         // MarkForceSpawnOnTreeRecordings tests removed — spawn dedup bypass is now
-        // stateless via RecordingStore.SceneEntryActiveVesselPid (#226).
+        // stateless via SceneEntryVesselScope.SceneEntryActiveVesselPid (#226).
 
         // ============================================================
         // BuildDefaultVesselDecisions: Re-Fly suppressed-subtree pass

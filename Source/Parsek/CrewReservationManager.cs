@@ -187,7 +187,7 @@ namespace Parsek
         /// pass only runs when the swap actually fails to place every replacement.
         ///
         /// Pass 2 is suppressed when the active vessel is the fresh VAB/SPH rollout
-        /// for this scene (<see cref="RecordingStore.SceneEntryFreshRolloutVesselPid"/>,
+        /// for this scene (<see cref="SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid"/>,
         /// 0 outside a fresh launch). A fresh launch is never a continuation of a
         /// prior recording, so it has no orphaned crew to reclaim, and reclaiming
         /// would mis-seat stand-ins through KSP's craft-stable part persistentId
@@ -341,7 +341,7 @@ namespace Parsek
             // Pass 1 still runs, so a reserved kerbal that KSP auto-assigned onto the
             // fresh launch is swapped for its stand-in as usual.
             int orphanPlaced = 0;
-            uint freshRolloutPid = RecordingStore.SceneEntryFreshRolloutVesselPid;
+            uint freshRolloutPid = SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid;
             if (ShouldSuppressOrphanPlacementForFreshRollout(activePid, freshRolloutPid))
             {
                 ParsekLog.Info("CrewReservation",

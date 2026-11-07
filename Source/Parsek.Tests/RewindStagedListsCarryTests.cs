@@ -147,7 +147,7 @@ namespace Parsek.Tests
         {
             RewindContext.BeginRewind(30.0, default(BudgetSummary), 0, 0, 0f);
             RewindContext.SetAdjustedUT(RewindAdjustedUT);
-            RecordingStore.RewindReplayTargetRecordingId = ownerRecordingId;
+            SceneEntryVesselScope.RewindReplayTargetRecordingId = ownerRecordingId;
         }
 
         /// <summary>
@@ -160,7 +160,7 @@ namespace Parsek.Tests
         {
             RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
             Recording owner = RecordingStore.CommittedRecordings
-                .First(r => r.RecordingId == RecordingStore.RewindReplayTargetRecordingId);
+                .First(r => r.RecordingId == SceneEntryVesselScope.RewindReplayTargetRecordingId);
             RecordingStore.LogSupersedesKeptAcrossRewind(owner, RewindAdjustedUT);
             RecordingStore.CaptureRewindStagedListsForRewind(scenario, "Rewind");
             Invoke(scenario, "LoadRewindStagingState", stalePersistent);

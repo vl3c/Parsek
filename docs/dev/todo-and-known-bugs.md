@@ -2924,6 +2924,18 @@ each PR lands on the refactor branch, IL-proven a pure move).
   that edge closes a cycle through `GroupHierarchyStore` around the `RecordingStore` cut
   (residue 287 -> 288). The janitor is on the ERS / ELS allowlist. `RecordingStore` partials
   8,400 -> 8,095 lines, 267 -> 255 IL methods; knot 460 -> 461, cut residue 287.
+- PR7 (service F) landed: the scene-entry vessel scope left the store as
+  `SceneEntryVesselScope`: the five save-scoped statics `SceneEntryActiveVesselPid`,
+  `SceneEntryActiveVesselGuid`, `SceneEntryFreshRolloutVesselPid`, `RewindReplayTargetSourcePid`
+  and `RewindReplayTargetRecordingId`, plus `SetRewindReplayTargetScope` /
+  `ClearRewindReplayTargetScope`. It has `ResetForLoad` (called by
+  `RecordingStore.ResetSaveScopedStateForLoad`) and `ResetForTesting` (called by
+  `ResetForTestingInternal`), each at the point where the store used to clear the fields, so the
+  reset order is unchanged; the type is in `SaveScopedSessionResetTests.InventoryTypes`, which
+  proves all five fields reset on a cold load (none is allowlisted). No forwarder; 8 production
+  files outside the store and 11 xUnit files reference the new type, and `modules.toml` places it in Recording. It
+  references nothing in the knot. `RecordingStore` partials 8,095 -> 8,041 lines, 255 -> 253 IL
+  methods, 5 fewer statics; knot 461 and cut residue 287 unchanged.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

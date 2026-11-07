@@ -118,33 +118,6 @@ namespace Parsek
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
 
-        // PID of the active vessel at scene entry. Used by SpawnVesselOrChainTip to
-        // bypass PID dedup statelessly — if a recording's VesselPersistentId matches
-        // this, the existing real vessel is the player's reverted/active vessel, not
-        // a previously-spawned endpoint. Static so it survives Recording object recreation.
-        internal static uint SceneEntryActiveVesselPid;
-
-        // Launch guid ("N" form, null = unknown) of that scene-entry vessel. The #226 bypass
-        // is withheld when no pid-matching live vessel is the recording's launch
-        // (VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity).
-        internal static string SceneEntryActiveVesselGuid;
-
-        // PID of the vessel that rolled out fresh from the VAB/SPH this scene
-        // (set only for NEW_FROM_FILE / NEW_FROM_CRAFT_NODE startups; 0 otherwise).
-        // Read by CrewReservationManager.SwapReservedCrewInFlight to suppress Pass-2
-        // orphan crew placement when the active vessel is this fresh launch — a new
-        // mission has no orphaned reserved crew to reclaim, and reclaiming would
-        // mis-seat stand-ins via KSP's craft-stable part persistentId reuse. Static
-        // so the chain-commit / merge call sites (which have no ParsekFlight handle)
-        // can consult it, mirroring SceneEntryActiveVesselPid.
-        internal static uint SceneEntryFreshRolloutVesselPid;
-
-        // During launch-point rewind, scope the #226 duplicate-source bypass to the
-        // recording whose rewind was actually requested. Other scene-entry vessels may
-        // also match committed recordings, but they are not the replay target.
-        internal static uint RewindReplayTargetSourcePid;
-        internal static string RewindReplayTargetRecordingId;
-
         // Rewind state is now encapsulated in RewindContext.
         // These delegate properties preserve API compatibility for callers
         // that read IsRewinding/RewindUT/etc. through RecordingStore.
@@ -728,27 +701,6 @@ namespace Parsek
             BumpStateVersion();
         }
 
-        internal static void SetRewindReplayTargetScope(Recording owner)
-        {
-            // NOTE: This scope must survive the committed-list rebuild inside
-            // ParsekScenario.OnLoad; only real commit/discard/clear/reset paths
-            // should clear it, or #565's replay-target filter loses its owner.
-            RewindReplayTargetSourcePid = owner != null ? owner.VesselPersistentId : 0u;
-            RewindReplayTargetRecordingId = owner != null ? owner.RecordingId : null;
-            if (RewindReplayTargetSourcePid != 0)
-            {
-                ParsekLog.Verbose("Rewind",
-                    $"Rewind replay duplicate scope armed: rec={RewindReplayTargetRecordingId ?? "<null>"} " +
-                    $"sourcePid={RewindReplayTargetSourcePid.ToString(CultureInfo.InvariantCulture)}");
-            }
-        }
-
-        internal static void ClearRewindReplayTargetScope()
-        {
-            RewindReplayTargetSourcePid = 0;
-            RewindReplayTargetRecordingId = null;
-        }
-
         /// <summary>
         /// Commits <paramref name="tree"/> into <see cref="CommittedTrees"/>.
         /// Adds all recordings to <see cref="CommittedRecordings"/> (for ghost
@@ -818,7 +770,7 @@ namespace Parsek
                         LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
                             tree.Recordings?.Keys,
                             $"CommitTree duplicate-skip (reference-equal) tree '{tree.Id}'");
-                        ClearRewindReplayTargetScope();
+                        SceneEntryVesselScope.ClearRewindReplayTargetScope();
                         return;
                     }
 
@@ -881,7 +833,7 @@ namespace Parsek
                         LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
                             tree.Recordings?.Keys,
                             $"CommitTree duplicate-skip (reason={replaceReason}) tree '{tree.Id}'");
-                        ClearRewindReplayTargetScope();
+                        SceneEntryVesselScope.ClearRewindReplayTargetScope();
                         return;
                     }
 
@@ -916,7 +868,7 @@ namespace Parsek
             MarkSupersededTerminalSpawnsForContinuedSources(tree);
             FinalizeTreeCommit(tree, replaceCommittedTreeIndex);
             ClearCommittedTreeRestoreAttemptForTree(tree.Id, "CommitTree accepted restored active tree");
-            ClearRewindReplayTargetScope();
+            SceneEntryVesselScope.ClearRewindReplayTargetScope();
         }
 
         /// <summary>
@@ -3009,7 +2961,7 @@ namespace Parsek
             pendingTreeSerializedForSave = false;
             if (pendingMatchesCommittedRestoreAttempt)
                 ClearCommittedTreeRestoreAttempt("DiscardPendingTree abandoned restored active copy");
-            ClearRewindReplayTargetScope();
+            SceneEntryVesselScope.ClearRewindReplayTargetScope();
         }
 
         /// <summary>
@@ -3261,7 +3213,7 @@ namespace Parsek
                 // blanket-Clear() here: that would silently drop a DIFFERENT live
                 // recording's still-uncommitted science (it is not in ownedIds), against
                 // the scoped commit/discard contract.
-                ClearRewindReplayTargetScope();
+                SceneEntryVesselScope.ClearRewindReplayTargetScope();
 
                 reason = "scoped-discard-success";
                 ParsekLog.Info("SwitchSegment",
@@ -4418,10 +4370,7 @@ namespace Parsek
             committedTreeRestoreAttemptEventCutoffs = null;
             RecordingFileJanitor.ResetForTesting();
             RecordingSidecarStore.ResetForTesting();
-            SceneEntryActiveVesselPid = 0;
-            SceneEntryActiveVesselGuid = null;
-            SceneEntryFreshRolloutVesselPid = 0;
-            ClearRewindReplayTargetScope();
+            SceneEntryVesselScope.ResetForTesting();
             rewindCarriedRewindPoints = null;
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
@@ -5053,7 +5002,7 @@ namespace Parsek
         internal static void ResetRewindFlags()
         {
             RewindContext.EndRewind();
-            ClearRewindReplayTargetScope();
+            SceneEntryVesselScope.ClearRewindReplayTargetScope();
             ClearRewindCarriedRewindPoints("rewind-flags-reset");
             ClearRewindCarriedStagedLists("rewind-flags-reset");
         }
@@ -5156,7 +5105,7 @@ namespace Parsek
             // The rewind save was captured at the same moment as PreLaunch values.
             RewindContext.BeginRewind(owner.StartUT, reserved,
                 owner.PreLaunchFunds, owner.PreLaunchScience, owner.PreLaunchReputation);
-            SetRewindReplayTargetScope(owner);
+            SceneEntryVesselScope.SetRewindReplayTargetScope(owner);
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
@@ -5381,7 +5330,7 @@ namespace Parsek
             // recalcs the ledger at the adjusted UT (~0), which restores pristine career resources.
             RewindContext.BeginRewind(0.0, default(BudgetSummary), 0, 0, 0f);
             RewindContext.SetQuicksaveVesselPids(null);   // no PreProcessRewindSave -> no whitelist
-            ClearRewindReplayTargetScope();               // no specific owner to replay-scope
+            SceneEntryVesselScope.ClearRewindReplayTargetScope();               // no specific owner to replay-scope
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
                     $"Warp-to-game-start initiated to UT 0 (snapshot: {saveFileName}). Keeps in-memory " +
@@ -5404,7 +5353,7 @@ namespace Parsek
         /// Looks up a committed recording by id. Returns null when the id is null/empty
         /// or no committed recording matches. O(N); used by post-LoadScene rewind
         /// hooks where the owner reference doesn't survive but its id does
-        /// (<see cref="RewindReplayTargetRecordingId"/>).
+        /// (<see cref="SceneEntryVesselScope.RewindReplayTargetRecordingId"/>).
         /// </summary>
         internal static Recording TryFindCommittedRecordingById(string recordingId)
         {

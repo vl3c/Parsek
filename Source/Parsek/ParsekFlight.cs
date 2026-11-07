@@ -13330,7 +13330,7 @@ namespace Parsek
             // running orphan placement. The instance field defaults to 0 per new
             // ParsekFlight; the static must be reset explicitly.
             freshRolloutVesselPid = 0;
-            RecordingStore.SceneEntryFreshRolloutVesselPid = 0;
+            SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid = 0;
 
             FlightDriver.StartupBehaviours startup = FlightDriver.StartupBehaviour;
             if (!IsFreshLaunchStartupBehaviour(startup))
@@ -13348,7 +13348,7 @@ namespace Parsek
             // Publish to the shared static so SwapReservedCrewInFlight can suppress
             // Pass-2 orphan placement for this fresh launch from any call site
             // (flight-ready, chain-commit, tree-commit) without a ParsekFlight handle.
-            RecordingStore.SceneEntryFreshRolloutVesselPid = freshRolloutVesselPid;
+            SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid = freshRolloutVesselPid;
             ParsekLog.Info("Flight",
                 $"FreshRollout: captured scene-entry vessel pid={freshRolloutVesselPid} " +
                 $"('{v.vesselName}', StartupBehaviour={startup}) — committed-tree restore " +
@@ -13619,23 +13619,23 @@ namespace Parsek
             // After revert, the pad vessel shares the same PID as recorded vessels — at
             // spawn time, SpawnVesselOrChainTip checks this static PID instead of relying
             // on per-recording transient flags that could be lost on Recording recreation.
-            RecordingStore.SceneEntryActiveVesselPid =
+            SceneEntryVesselScope.SceneEntryActiveVesselPid =
                 (activeVessel != null) ? activeVessel.persistentId : 0;
-            RecordingStore.SceneEntryActiveVesselGuid =
+            SceneEntryVesselScope.SceneEntryActiveVesselGuid =
                 (activeVessel != null && activeVessel.id != Guid.Empty)
                     ? activeVessel.id.ToString("N")
                     : null;
-            if (RecordingStore.SceneEntryActiveVesselPid != 0)
+            if (SceneEntryVesselScope.SceneEntryActiveVesselPid != 0)
                 ParsekLog.Verbose("Flight",
-                    $"Scene entry active vessel pid={RecordingStore.SceneEntryActiveVesselPid} " +
-                    $"guid={RecordingStore.SceneEntryActiveVesselGuid ?? "(none)"}");
+                    $"Scene entry active vessel pid={SceneEntryVesselScope.SceneEntryActiveVesselPid} " +
+                    $"guid={SceneEntryVesselScope.SceneEntryActiveVesselGuid ?? "(none)"}");
 
             MaybeShowPendingTreeMergeDialogOnFlightReady();
 
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels).
             // A brand-new VAB/SPH launch suppresses Pass-2 orphan placement inside
-            // SwapReservedCrewInFlight (via RecordingStore.SceneEntryFreshRolloutVesselPid),
+            // SwapReservedCrewInFlight (via SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid),
             // otherwise KSP's craft-stable part persistentId reuse lets the pid
             // matcher mis-seat stand-ins into the fresh vessel the player just crewed.
             int swapResult = CrewReservationManager.SwapReservedCrewInFlight();
@@ -15638,7 +15638,7 @@ namespace Parsek
                     string liveGuid = v.id != Guid.Empty ? v.id.ToString("N") : null;
 
                     if (QuickloadResumeMatchGuard.IsFreshRolloutCandidate(
-                            v.persistentId, RecordingStore.SceneEntryFreshRolloutVesselPid))
+                            v.persistentId, SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid))
                     {
                         ParsekLog.Info("Flight",
                             $"RestoreActiveTreeFromPending: refusing to adopt fresh-rollout vessel " +
@@ -16270,7 +16270,7 @@ namespace Parsek
             var candidate = FlightGlobals.ActiveVessel;
             if (candidate != null
                 && ShouldRefuseVesselSwitchRestoreForFreshRollout(
-                    candidate.persistentId, RecordingStore.SceneEntryFreshRolloutVesselPid))
+                    candidate.persistentId, SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid))
             {
                 ParsekLog.Info("Flight",
                     $"RestoreActiveTreeFromPendingForVesselSwitch: refusing to reinstall tree " +

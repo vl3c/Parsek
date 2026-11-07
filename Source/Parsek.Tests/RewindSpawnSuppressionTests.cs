@@ -55,8 +55,8 @@ namespace Parsek.Tests
                 startUT: 24034.0,
                 endUT: 24062.0);
 
-            RecordingStore.RewindReplayTargetSourcePid = sourcePid;
-            RecordingStore.RewindReplayTargetRecordingId = source.RecordingId;
+            SceneEntryVesselScope.RewindReplayTargetSourcePid = sourcePid;
+            SceneEntryVesselScope.RewindReplayTargetRecordingId = source.RecordingId;
             RewindContext.BeginRewind(rewindUT, default(BudgetSummary), 0, 0, 0);
 
             int marked = ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly(
@@ -298,8 +298,8 @@ namespace Parsek.Tests
                 startUT: 100.0,
                 endUT: 160.0);
 
-            RecordingStore.RewindReplayTargetSourcePid = secondPid;
-            RecordingStore.RewindReplayTargetRecordingId = secondSource.RecordingId;
+            SceneEntryVesselScope.RewindReplayTargetSourcePid = secondPid;
+            SceneEntryVesselScope.RewindReplayTargetRecordingId = secondSource.RecordingId;
             RewindContext.BeginRewind(120.0, default(BudgetSummary), 0, 0, 0);
 
             int marked = ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly(
@@ -745,8 +745,8 @@ namespace Parsek.Tests
                 startUT: 0.0,
                 endUT: 182.766);
 
-            RecordingStore.RewindReplayTargetSourcePid = sourcePid;
-            RecordingStore.RewindReplayTargetRecordingId = source.RecordingId;
+            SceneEntryVesselScope.RewindReplayTargetSourcePid = sourcePid;
+            SceneEntryVesselScope.RewindReplayTargetRecordingId = source.RecordingId;
             RewindContext.BeginRewind(rewindUT, default(BudgetSummary), 0, 0, 0);
 
             int marked = ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly(

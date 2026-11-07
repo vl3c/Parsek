@@ -2944,7 +2944,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # Runway; the builder re-points to index 7 = `B` (pid 313889796, Rover,
         # LANDED), the transport rover and route origin, re-resolving the index
         # by name + pid. A PRELAUNCH-focused boot is the fresh-rollout shape
-        # `RecordingStore.SceneEntryFreshRolloutVesselPid` has a fast path for,
+        # `SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid` has a fast path for,
         # which is not a posture a committed-tree lane should open in. Neither
         # RVR-1 cell reads `FlightGlobals.ActiveVessel` (both walk
         # `CommittedTrees`), so the choice is free for them.
