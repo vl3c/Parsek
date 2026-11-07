@@ -346,7 +346,7 @@ namespace Parsek.Tests
                 path = Path.Combine(projectRoot, "Parsek", "ParsekFlight.cs");
             Assert.True(File.Exists(path), $"ParsekFlight.cs not found at {path}");
 
-            string dense = Regex.Replace(File.ReadAllText(path), @"\s+", string.Empty);
+            string dense = Regex.Replace(ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path)), @"\s+", string.Empty);
 
             Assert.Contains(
                 "SelectiveSpawnUI.FormatProximityNotification(cand,currentUT,ParsekUI.IsSpawnControlReachable)",

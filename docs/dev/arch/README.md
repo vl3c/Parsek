@@ -305,7 +305,7 @@ not a claim about the code).
 `modules.toml` used to end with a catch-all rule (`Core`) that collected every
 root-level file no other rule claimed. That was a map maintenance queue, not a
 module, and the placement policy below emptied it. The kernel guard has since
-replaced the catch-all with an explicit list: `Core` now names the nine kernel
+replaced the catch-all with an explicit list: `Core` now names the eight kernel
 files, and an unplaced root file is reported and skipped rather than silently
 joining the kernel. `--place` still scores the files in the last rule's module
 and writes the phase's evidence to `core-placement.md`; for the historical
@@ -351,9 +351,9 @@ and revert machinery to Rewind, sidecar I/O and recorder policy to Recording,
 playback and spawn support to Ghost, scene-level control including the
 `WarpToTime` family to Controllers, dialogs and Unity-instantiated overlays to
 UI, and in-game test support to a new `Harness` module in `[tooling]`. R0
-rules sit above R1 and win on first match. The 9 files that stay in `Core`
+rules sit above R1 and win on first match. The 8 files that stay in `Core`
 are the kernel vocabulary (`BranchPoint`, `IPlaybackTrajectory`,
-`VesselLaunchIdentity`, `VesselSpawner`, `VesselSnapshotOps`, `MilestoneStore`,
+`VesselLaunchIdentity`, `VesselSnapshotOps`, `MilestoneStore`,
 `GroupHierarchyStore`, `InventoryManifest`, `PlaybackTrajectoryBoundsResolver`):
 used across many modules, so no owner has a majority, and that is the intended
 meaning of Core from here on.
@@ -378,7 +378,16 @@ Placement PR 8 moved the live-capture half of `VesselSpawner` into a new
 the snapshot normalizers, the body-name / body-index registry with its three
 test hooks, and the whole max-distance family). Its R0 rule places it in
 `Recording`, whose recorders, finalizers and Re-Fly invoker are its callers;
-`VesselSpawner` itself still stays in the `Core` list until PR 9.
+Placement PR 9 then took `VesselSpawner.cs` itself off the `Core` list: an R0
+rule places it in `Controllers`, whose scene controllers run the spawn,
+respawn and end-of-recording paths it keeps (it references 12 `Controllers`
+types). Upward edges went 83 / 812 -> 81 / 786: `Core -> Recording` 25 -> 12,
+`Core -> Controllers` 13 -> 1, and the `Core -> Crew` and `Core -> Ghost` edges
+gone, against `Ghost -> Controllers` 50 -> 58, `Recording -> Controllers`
+39 -> 43 and one more each from `Rewind` and `Crew`. PR 10 split the class
+into partial files (`VesselSpawner.cs` plus eight `VesselSpawner.<Area>.cs`,
+written by `scripts/refactor/split_vesselspawner.py`); the same R0 rule names
+them, and no edge moves.
 
 ## The atlas
 

@@ -73,7 +73,7 @@ namespace Parsek.Tests
             Assert.True(System.IO.File.Exists(path), $"ParsekFlight.cs not found at {path}");
 
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
-                System.IO.File.ReadAllText(path));
+                ParsekFlightSourceFiles.ReadAll(System.IO.Path.GetDirectoryName(path)));
             const string signature = "void DestroyAllTimelineGhosts()";
             int sigIdx = prepared.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(sigIdx >= 0, "DestroyAllTimelineGhosts() no longer exists");

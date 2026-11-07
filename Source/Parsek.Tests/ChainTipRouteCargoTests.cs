@@ -1150,7 +1150,10 @@ namespace Parsek.Tests
 
         private static void AssertMethodCallsApply(string path, string anchor, string copyName)
         {
-            string text = File.ReadAllText(path).Replace("\r\n", "\n");
+            // VesselSpawner is a partial class; read every split file as one text.
+            string text = (Path.GetFileName(path) == "VesselSpawner.cs"
+                ? VesselSpawnerSourceFiles.ReadAll(Path.GetDirectoryName(path))
+                : File.ReadAllText(path)).Replace("\r\n", "\n");
             int at = text.IndexOf(anchor, StringComparison.Ordinal);
             Assert.True(at >= 0, "anchor not found in " + Path.GetFileName(path) + ": " + anchor);
             // The call must follow the anchor within the same method (before the next member).
@@ -1563,6 +1566,11 @@ namespace Parsek.Tests
             var declaration = new Regex(@"\bstatic\s+uint\s+(RespawnVessel|SpawnAtPosition)\s*\(");
             var found = new Dictionary<string, int>(StringComparer.Ordinal);
             string inGameTests = Path.Combine(sourceDir, "InGameTests");
+            // VesselSpawner is a partial class: its split files count as one VesselSpawner.cs,
+            // so a call and the declaration it pairs with may sit in different files.
+            var spawnerFiles = new HashSet<string>(
+                VesselSpawnerSourceFiles.Paths(sourceDir).Select(Path.GetFullPath),
+                StringComparer.OrdinalIgnoreCase);
             foreach (string file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories))
             {
                 if (file.StartsWith(inGameTests, StringComparison.OrdinalIgnoreCase))
@@ -1570,9 +1578,13 @@ namespace Parsek.Tests
                 string text = ParsekDialogNamePrefixSourceGateTests.StripComments(
                     File.ReadAllText(file).Replace("\r\n", "\n"));
                 int count = call.Matches(text).Count - declaration.Matches(text).Count;
-                if (count > 0)
-                    found[Path.GetFileName(file)] = count;
+                string key = spawnerFiles.Contains(Path.GetFullPath(file))
+                    ? "VesselSpawner.cs" : Path.GetFileName(file);
+                found.TryGetValue(key, out int sum);
+                found[key] = sum + count;
             }
+            foreach (string key in found.Where(kv => kv.Value <= 0).Select(kv => kv.Key).ToList())
+                found.Remove(key);
 
             Assert.Equal(
                 expected.OrderBy(kv => kv.Key).Select(kv => kv.Key + "=" + kv.Value).ToArray(),

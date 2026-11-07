@@ -9,7 +9,7 @@ namespace Parsek.Tests
     /// Shared resolver for the source readers that read a NAMED subset of a partial class's
     /// files (<see cref="BackgroundRecorderSourceFiles"/>,
     /// <see cref="GhostTrajectoryPolylineRendererSourceFiles"/>,
-    /// <see cref="RecordingsTableUISourceFiles"/>). It enumerates every
+    /// <see cref="RecordingsTableUISourceFiles"/>, <see cref="ParsekFlightSourceFiles"/>). It enumerates every
     /// <c>&lt;Class&gt;.*.cs</c> on disk and refuses when that set differs from the reader's
     /// declared lists, so a new partial file cannot be skipped silently by a gate that reads
     /// "the whole class": the failure names the file and tells the author which list to add it
