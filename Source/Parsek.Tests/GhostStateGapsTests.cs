@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests
@@ -144,6 +145,46 @@ namespace Parsek.Tests
 
             Assert.Single(resolved);
             Assert.Equal("_EmissiveColor", resolved[0].GetValue("shaderProperty"));
+        }
+
+        [Fact]
+        public void ColorChangerShowcaseRows_TakeTheirCabinLightFromThePrefab_AndTargetTheirPart()
+        {
+            // SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE, closed by trace: the colour-changer
+            // showcase ghost part node is built by VesselSnapshotBuilder.AddPart and declares NO
+            // ModuleColorChanger, so before the GS6-GHOST-HAS-NO-COLORCHANGER-STATE fallback the
+            // builder resolved nothing, the ghost had no colorChangerInfos and every LightOn /
+            // LightOff apply returned silently (the 2026-08-28 S1.9 zero-line reading). With the
+            // fallback the prefab's whole ModuleColorChanger list is used, and every recorded
+            // light event names the one part the snapshot carries.
+            RecordingBuilder[] rows = SyntheticRecordingTests.ColorChangerShowcaseRecordings();
+            Assert.NotEmpty(rows);
+            for (int r = 0; r < rows.Length; r++)
+            {
+                ConfigNode snapshot = rows[r].GetGhostVisualSnapshot();
+                Assert.NotNull(snapshot);
+                ConfigNode[] parts = snapshot.GetNodes("PART");
+                Assert.Single(parts);
+                Assert.Empty(GhostVisualBuilder.CollectColorChangerModuleNodes(parts[0]));
+
+                List<ConfigNode> resolved = GhostVisualBuilder.ResolveColorChangerConfigNodes(
+                    parts[0], PrefabColorChangerConfig("_EmissiveColor"));
+                Assert.Single(resolved);
+                Assert.Equal("_EmissiveColor", resolved[0].GetValue("shaderProperty"));
+                Assert.Equal("true", resolved[0].GetValue("toggleInFlight"));
+
+                string partPid = parts[0].GetValue("persistentId");
+                ConfigNode[] events = rows[r].Build().GetNodes("PART_EVENT");
+                Assert.NotEmpty(events);
+                for (int e = 0; e < events.Length; e++)
+                {
+                    Assert.Equal(partPid, events[e].GetValue("pid"));
+                    int type = int.Parse(events[e].GetValue("type"),
+                        System.Globalization.CultureInfo.InvariantCulture);
+                    Assert.True(type == (int)PartEventType.LightOn || type == (int)PartEventType.LightOff,
+                        rows[r].GetVesselName() + " carries a non-light event type " + type);
+                }
+            }
         }
 
         [Fact]

@@ -3034,7 +3034,7 @@ drives the DESIGNED flag through a real career.
   where a per-resource floor that EXEMPTS Step-3b resurrected-recovery retirements would be
   the right gate, so the lane has to exist before such a floor could be designed.
 
-## GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST: the continuation-hold pass has no manager-level dedupe test, and FLIGHT scans for it every frame [FILED 2026-09-26 by the commnet-followups review. OPEN, low; test and performance hygiene, no live defect]
+## ~~GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST: the continuation-hold pass has no manager-level dedupe test, and FLIGHT scans for it every frame~~ [FILED 2026-09-26 by the commnet-followups review. FIXED 2026-11-07, branch cleanup-4, xUnit]
 
 - ~~The pass-3 identity dedupe in `GhostCommNetManager.Tick` (`ChainVesselCoveredByRecording` before a
   continuation-hold entry) can be removed with no test going red; only the pure pieces are pinned. The
@@ -3043,9 +3043,18 @@ drives the DESIGNED flag through a real career.
   DONE 2026-10-31 (branch `claude/project-thread-ib5y5e`): the three passes are the pure
   `GhostCommNetMath.ResolveRegistrations` (capability probe and exclusions by row index), pinned by
   the `ResolveRegistrations_*` cells in `GhostCommNetTests`.
-- FLIGHT evaluates `ApplyContinuationHold` every frame for every in-scope unspawned recording with
+- ~~FLIGHT evaluates `ApplyContinuationHold` every frame for every in-scope unspawned recording with
   `TerminalSpawnSupersededByRecordingId` set, scanning the committed list even far from EndUT (O(K*n)
-  per frame). Fine at today's scales. Fix: gate it to near or past EndUT as the Tracking Station does.
+  per frame). Fine at today's scales. Fix: gate it to near or past EndUT as the Tracking Station does.~~
+  FIXED 2026-11-07 (branch `cleanup-4`): `ParsekFlight.ComputePlaybackFlags` resolves the hold only
+  when the pure `GhostCommNetMath.ShouldResolveContinuationHold(currentUT, EndUT, lookahead)` says so
+  (past EndUT, or within `HoldPredictionLookaheadSeconds(FlightHoldPredictionTickSeconds = 0.5,
+  warp)` of it). Behaviour-neutral by construction: the hold changes `EvaluateEligibility` only past
+  EndUT, and in the window only `ExpectHoldPastEnd`, which the CommNet hook reads once it sees a UT
+  past EndUT before the next host tick. Pinned by `GhostCommNetTests`
+  `ShouldResolveContinuationHold_OnlyNearOrPastEnd`,
+  `ShouldResolveContinuationHold_CoversEveryUtTheHoldIsReadAt` and the source gate
+  `FlightHost_ResolvesContinuationHoldOnlyNearOrPastEnd` (reds with the guard removed).
 
 ## ~~GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance~~ [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15. DONE 2026-09-26, branch `commnet-followups`; of the two Tracking Station sub-cases below, the double count is FIXED 2026-11-06 and the pre-claim gap stays dark]
 
@@ -3656,7 +3665,7 @@ Residue found on the way, left open deliberately:
 
 ---
 
-## SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE: the colour-changer cabin-light apply line never fires on the showcase ghosts, so whether the emissive actually toggles is unmeasurable [MEASURED 2026-08-28 on S1.9 reading run 2 (`2026-08-28_2010`): all 25 colour-changer rows spawned meshes, zero `applied color changer cabin light` lines. OBSERVATION, report-only - possibly a real ghost-render gap, possibly Pattern-A discovery correctly finding nothing on these parts]
+## ~~SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE: the colour-changer cabin-light apply line never fires on the showcase ghosts, so whether the emissive actually toggles is unmeasurable~~ [MEASURED 2026-08-28 on S1.9 reading run 2 (`2026-08-28_2010`): all 25 colour-changer rows spawned meshes, zero `applied color changer cabin light` lines. CLOSED 2026-11-07 (owner ruling: fix or close): a real gap, and the one GS6-GHOST-HAS-NO-COLORCHANGER-STATE fixed 2026-09-15; code trace below, pinned by xUnit on branch cleanup-4]
 
 `ApplyColorChangerLightState` (GhostPlaybackLogic.cs:6993) returns silently when
 the ghost's `colorChangerInfos` carries no `isCabinLight` entry for the pid - no
@@ -3684,10 +3693,35 @@ toggle, and each surfaces as its own reason token on the `family=LightOn` /
   `no-resolved-visual`   a cabin-light entry exists but every material is null
 
 So (a) and (b) are now distinguishable from the log text alone, which is exactly
-what this entry said was missing. What is NOT yet done, and is why this stays open:
-nothing has FLOWN with the new line, so which token the 25 showcase colour-changer
-rows actually produce is still unmeasured. That reading is a GS-6 (step 2) job, and
-it is a one-token grep on the next flight that renders the showcase.
+what this entry said was missing. ~~What is NOT yet done: nothing has FLOWN with the
+new line, so which token the showcase rows produce is still unmeasured.~~ Closed by
+the trace below; no flight is owed.
+
+**CLOSED 2026-11-07 by code trace (owner ruling: fix or close).** It was hypothesis (a),
+a real render gap, with a cause neither hypothesis named, and it is already fixed:
+1. `SyntheticRecordingTests.ColorChangerShowcaseRecordings` builds each row through
+   `BuildPartShowcaseRecording`, whose ghost snapshot is one `VesselSnapshotBuilder.AddPart`
+   node (`persistentId = 100000`) carrying NO `MODULE` node at all, and whose eight events
+   are `LightOn` / `LightOff` on pid 100000 (`SinglePartPid`), i.e. on that part.
+2. On 2026-08-28 `GhostVisualBuilder.BuildColorChangerInfos` read `shaderProperty` /
+   `toggleInFlight` / the curves from the snapshot node only, so it found no
+   ModuleColorChanger, returned null, the ghost's `colorChangerInfos` stayed null, and the
+   then-silent applier returned without a line: the zero-line reading.
+3. Since 2026-09-15 (GS6-GHOST-HAS-NO-COLORCHANGER-STATE) `ResolveColorChangerConfigNodes`
+   uses the prefab's whole ModuleColorChanger list when the snapshot declares none, so a
+   Pattern-A part (`toggleInFlight` + `_EmissiveColor`) yields an `isCabinLight` entry, and a
+   `LightOn` event reaches it through `ApplyLightPowerEventWithOutcomes` ->
+   `SetLightStateWithOutcomes` -> `ApplyColorChangerLightStateWithOutcome`.
+4. That last hop, materials included, is live-proven on the same prefab: GS-6 run
+   `2026-09-15_1604` reads `surface=colorchanger ... applied=2` for `mk1-3pod` (showcase
+   row 96) and `dockingPort2` (row 115), and GS-6 pins it.
+Headless pin: `GhostStateGapsTests.ColorChangerShowcaseRows_TakeTheirCabinLightFromThePrefab_AndTargetTheirPart`
+(every showcase row declares no colour changer, resolves the prefab's Pattern-A node, and
+aims every light event at its own part; it reds with the prefab fallback reverted). Whether
+a given showcase part's stock config declares Pattern A at all is a stock fact the
+`ColorChanger resolve ... built=` line and the outcome reason print on any S1.9 flight; it
+is not a defect to track. The resolver doc comment that claimed showcase nodes author
+these fields was corrected.
 
 One related change landed with the instrument: the pre-existing
 `Part pid=N: applied color changer cabin light state=<bool>` line now fires only
@@ -7590,12 +7624,12 @@ The map/TS render cutover is COMPLETE (see the DONE entry above): the modular Di
 
 ---
 
-## 160. Log spam: remaining sources after ComputeTotal removal
+## ~~160. Log spam: remaining sources after ComputeTotal removal~~ [CLOSED 2026-11-07 (owner ruling: fix or close): the last source, the heat-level line, is bounded event evidence that S1.9 pins, not spam]
 
 After removing ResourceBudget.ComputeTotal logging (52% of output), remaining spam sources:
 - ~~GhostVisual HIERARCHY/DIAG dumps (~344 lines per session, rate-limited per-key but burst on build)~~
 - ~~GhostVisual per-part cloning details (~370 lines)~~
-- Flight "applied heat level Cold" (46 lines, logs no-change steady state) - **BLOCKED BY PIN**
+- ~~Flight "applied heat level Cold" (46 lines, logs no-change steady state) - **BLOCKED BY PIN**~~ CLOSED 2026-11-07, see the closure below
 - ~~RecordingStore SerializeTrackSections per-recording verbose (184 lines)~~
 - ~~KSCSpawn "Spawn not needed" at INFO level (54 lines)~~
 - ~~BgRecorder CheckpointAllVessels checkpointed=0 at INFO (15 lines)~~ - was already fixed
@@ -7633,7 +7667,7 @@ same defect:
    identity dict is not cleared on scene switch, so the first post-re-entry
    application can be dropped, which is precisely the emit S1.9 waits for. Cutting
    it therefore needs the S1.9 lane re-read first; it is not a two-line change and
-   was not attempted here.
+   was not attempted here. CLOSED 2026-11-07 with no change: not spam (see Status).
 4. **RecordingStore SerializeTrackSections - FIXED.** The per-section
    `writing source=... (non-default)` Verbose is collected into a list and emitted
    as one summary after the loop (`wrote N sections, M with a non-default source:
@@ -7707,12 +7741,23 @@ KSP patch skips with `VerboseOnChange`. Focused xUnit log assertions pin each
 gate. Remaining broader audit work stays tracked by the Observability Audit
 section above.
 
-**Priority:** Deferred to Phase 11.5 (Recording Optimization & Observability)
-
-**Status:** Open on ONE named source only - the heat-level line (item 3 in the
-2026-08-29 update), which is blocked behind an S1.9 harness pin and needs that
-lane re-read before it can move. The other five named sources are closed. The
-broader audit work stays with the Observability Audit section above.
+**Status:** CLOSED 2026-11-07 (owner ruling: fix or close). Five named sources were
+fixed or already fixed (above). The sixth, the heat-level line (item 3), is closed with
+no change, because re-read against the code it is not spam:
+- It is not per-frame and not a steady-state repeat. `ApplyHeatStateWithOutcome` logs
+  only after a write, through `VerboseRateLimited` keyed per part pid with a 5 s window,
+  and its only callers are events: a recorded heat part event, the Cold reset of each
+  heat part at ghost spawn (`PopulateHeatInfos`) and at a loop-cycle restart
+  (`ReapplySpawnTimeModuleBaselinesForLoopCycle`), and a decouple or destroy event. The
+  "no-change Cold" lines are those spawn and cycle resets: at most one per heat part per
+  spawn or cycle, consistent with the 46 lines measured in a whole session.
+- It is required evidence: `harness/scenarios/S1.9-part-showcase-render.toml` pins
+  `Part pid=[0-9]+: applied heat level (?:Hot|Medium|Cold)`, and the spec's header records
+  it as one of the two per-family apply proofs. Moving it to `VerboseOnChange` would save
+  tens of lines and could drop the very emit S1.9 waits for (that identity dict is not
+  cleared on a scene switch), which cannot be checked without a flight.
+The VerboseOnChange concern applied only to that proposed change; the shipped line never
+used it. Broader spam work belongs to the Observability Audit section above, not here.
 
 ---
 
