@@ -311,207 +311,8 @@ namespace Parsek
                 && traj != null && traj.IsDebris
                 && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
             {
-                Vector3d ghostWorld = state.ghost.transform != null
-                    ? (Vector3d)state.ghost.transform.position : Vector3d.zero;
-                TrajectoryPoint? beforeFrame = null;
-                TrajectoryPoint? afterFrame = null;
-                if (target.Section.bodyFixedFrames != null && target.Section.bodyFixedFrames.Count > 0)
-                {
-                    int beforeIdx = -1;
-                    int afterIdx = -1;
-                    for (int j = 0; j < target.Section.bodyFixedFrames.Count; j++)
-                    {
-                        if (target.Section.bodyFixedFrames[j].ut <= playbackUT)
-                            beforeIdx = j;
-                        if (target.Section.bodyFixedFrames[j].ut >= playbackUT && afterIdx < 0)
-                            afterIdx = j;
-                    }
-                    if (beforeIdx >= 0) beforeFrame = target.Section.bodyFixedFrames[beforeIdx];
-                    if (afterIdx >= 0) afterFrame = target.Section.bodyFixedFrames[afterIdx];
-                }
-                string beforeStr = beforeFrame.HasValue
-                    ? ("ut=" + beforeFrame.Value.ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                        + " lla=(" + beforeFrame.Value.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                        + "," + beforeFrame.Value.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                        + "," + beforeFrame.Value.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")")
-                    : "<none>";
-                string afterStr = afterFrame.HasValue
-                    ? ("ut=" + afterFrame.Value.ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                        + " lla=(" + afterFrame.Value.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                        + "," + afterFrame.Value.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
-                        + "," + afterFrame.Value.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")")
-                    : "<none>";
-                // Lerp alpha + manually-predicted ghost world position. The
-                // lerp alpha is what InterpolateAndPosition computed
-                // implicitly from playbackUT / bracket UTs; we reconstruct it
-                // here so the log row carries the interpolation factor
-                // explicitly. The predicted world position is a body-fixed
-                // linear blend of the bracketing LLAs (each resolved via
-                // body.GetWorldSurfacePosition independently then linearly
-                // blended in world-space). If `ghostWorld` differs from
-                // `predictedWorld` by more than rounding, the discrepancy is
-                // playback-math; if they match but the ghost is still
-                // slipping forward relative to truth, the discrepancy lives
-                // in the recorded LLAs themselves (recorder-side phase
-                // offset).
-                double lerpAlpha = double.NaN;
-                Vector3d predictedWorld = Vector3d.zero;
-                if (beforeFrame.HasValue && afterFrame.HasValue)
-                {
-                    lerpAlpha = TraceSeparation.ComputeLerpAlpha(
-                        beforeFrame.Value.ut, afterFrame.Value.ut, playbackUT);
-                    CelestialBody body = !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
-                        ? FlightGlobals.Bodies?.Find(b => b.name == beforeFrame.Value.bodyName)
-                        : null;
-                    if (body != null && !double.IsNaN(lerpAlpha))
-                    {
-                        Vector3d worldBefore = body.GetWorldSurfacePosition(
-                            beforeFrame.Value.latitude,
-                            beforeFrame.Value.longitude,
-                            beforeFrame.Value.altitude);
-                        Vector3d worldAfter = body.GetWorldSurfacePosition(
-                            afterFrame.Value.latitude,
-                            afterFrame.Value.longitude,
-                            afterFrame.Value.altitude);
-                        predictedWorld = worldBefore + (worldAfter - worldBefore) * lerpAlpha;
-                    }
-                }
-                Vector3d worldStep = ghostWorld - ghostWorldBefore;
-                Vector3d predictedVsActual = ghostWorld - predictedWorld;
-                // Parent ghost world position (rendered) so we can log the
-                // RENDERED parent-vs-debris distance on screen. Looked up via
-                // the engine's recordingId mapping; returns false when the
-                // parent ghost hasn't materialized yet (in which case the
-                // distance fields stay NaN in the log).
-                Vector3d parentGhostWorld = Vector3d.zero;
-                bool parentGhostFound = host.engine != null
-                    && host.engine.TryGetGhostWorldByRecordingId(
-                        traj.ParentAnchorRecordingId, out parentGhostWorld);
-                double renderedParentDist = parentGhostFound
-                    ? (ghostWorld - parentGhostWorld).magnitude
-                    : double.NaN;
-                // Recorded anchor-local distance at the bracketing
-                // before-frame: in Relative sections the `frames[]` entries
-                // store anchor-local Cartesian metres in `latitude/longitude/altitude`,
-                // so the offset magnitude IS the parent-vs-debris distance
-                // the recorder captured at the bracket's left edge.
-                //
-                // Do NOT compare this directly to renderedParentDist as a
-                // fidelity check — this field is the seed-only value and
-                // stays constant across the entire bracket (e.g. the 600 ms
-                // seed→first-sample gap on a fresh debris recording),
-                // while the recorded relative motion may genuinely evolve
-                // across that bracket and the rendered distance follows
-                // the bracket's linear interpolation. Use
-                // `interpolatedAnchorLocalDist` (below) for the
-                // fidelity check; this field is retained for the
-                // "bracket-left-edge snapshot" view and for direct
-                // comparison against the section's `bodyFixedFrames[]`
-                // bracketing-before sample via `recordedBodyFixedDist`.
-                double recordedAnchorLocalDist = double.NaN;
-                // Interpolated anchor-local distance: same `frames[]` surface
-                // as recordedAnchorLocalDist, but linearly interpolated at the
-                // current playbackUT instead of clamped to the bracketing-
-                // before entry. Use this to ask "is the rendered distance
-                // tracking the recorded relative motion, or actually
-                // diverging?" — the bracketing-before-only field is stable
-                // across an entire bracket (e.g. the 0.6 s seed→first-sample
-                // gap on fresh debris recordings) while the interpolated
-                // value evolves with the recorded geometry.
-                double interpolatedAnchorLocalDist = double.NaN;
-                if (target.Section.referenceFrame == ReferenceFrame.Relative
-                    && target.Section.frames != null
-                    && target.Section.frames.Count > 0)
-                {
-                    int beforeIdx = -1;
-                    for (int j = 0; j < target.Section.frames.Count; j++)
-                    {
-                        if (target.Section.frames[j].ut <= playbackUT)
-                            beforeIdx = j;
-                        else break;
-                    }
-                    if (beforeIdx >= 0)
-                    {
-                        TrajectoryPoint relFrame = target.Section.frames[beforeIdx];
-                        Vector3d localOffset = new Vector3d(
-                            relFrame.latitude, relFrame.longitude, relFrame.altitude);
-                        recordedAnchorLocalDist = localOffset.magnitude;
-                    }
-                    interpolatedAnchorLocalDist = TraceSeparation
-                        .InterpolateAnchorLocalOffsetMagnitude(
-                            target.Section.frames, playbackUT);
-                }
-                // Recorded body-fixed distance: subtract the parent's
-                // body-fixed primary world position at the bracketing UT from
-                // the debris's body-fixed primary world. Computed
-                // independently of playback math — ghost transforms drop out
-                // entirely. Reflects what the recorder wrote into the two
-                // independent body-fixed streams. If this doesn't match the
-                // recorded anchor-local distance, the two recording surfaces
-                // disagree about parent-vs-debris geometry.
-                double recordedBodyFixedDist = double.NaN;
-                if (beforeFrame.HasValue && !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
-                    && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
-                {
-                    CelestialBody body = FlightGlobals.Bodies?.Find(
-                        b => b.name == beforeFrame.Value.bodyName);
-                    Recording parentRec = RecordingStore.TryFindCommittedRecordingById(
-                        traj.ParentAnchorRecordingId);
-                    if (body != null
-                        && parentRec != null
-                        && parentRec.TrackSections != null)
-                    {
-                        // Find the parent's body-fixed primary sample bracketing playbackUT.
-                        TrajectoryPoint? parentBefore = null;
-                        for (int s = 0; s < parentRec.TrackSections.Count; s++)
-                        {
-                            var ps = parentRec.TrackSections[s];
-                            if (ps.bodyFixedFrames == null || ps.bodyFixedFrames.Count == 0)
-                                continue;
-                            for (int j = 0; j < ps.bodyFixedFrames.Count; j++)
-                            {
-                                if (ps.bodyFixedFrames[j].ut <= playbackUT)
-                                    parentBefore = ps.bodyFixedFrames[j];
-                                else break;
-                            }
-                        }
-                        if (parentBefore.HasValue)
-                        {
-                            Vector3d parentBodyFixedWorld = body.GetWorldSurfacePosition(
-                                parentBefore.Value.latitude,
-                                parentBefore.Value.longitude,
-                                parentBefore.Value.altitude);
-                            Vector3d debrisBodyFixedWorld = body.GetWorldSurfacePosition(
-                                beforeFrame.Value.latitude,
-                                beforeFrame.Value.longitude,
-                                beforeFrame.Value.altitude);
-                            recordedBodyFixedDist =
-                                (debrisBodyFixedWorld - parentBodyFixedWorld).magnitude;
-                        }
-                    }
-                }
-                TraceSeparation.PlaybackLog("PositionDebris",
-                    "recId=" + (target.RecordingId ?? "<null>") +
-                    " parentRecId=" + (traj.ParentAnchorRecordingId ?? "<null>") +
-                    " playbackUT=" + playbackUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
-                    " bodyFixedCount=" + bodyFixedCount +
-                    " first=" + firstPlaybackRender +
-                    " bracketBefore=[" + beforeStr + "]" +
-                    " bracketAfter=[" + afterStr + "]" +
-                    " lerpAlpha=" + (double.IsNaN(lerpAlpha) ? "NaN" : lerpAlpha.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)) +
-                    " ghostWorldBefore=" + TraceSeparation.FormatVector3d(ghostWorldBefore) +
-                    " ghostWorld=" + TraceSeparation.FormatVector3d(ghostWorld) +
-                    " worldStep=" + TraceSeparation.FormatVector3d(worldStep) +
-                    " |worldStep|=" + worldStep.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
-                    " predictedWorld=" + TraceSeparation.FormatVector3d(predictedWorld) +
-                    " predictedVsActual=" + TraceSeparation.FormatVector3d(predictedVsActual) +
-                    " |predDelta|=" + predictedVsActual.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
-                    " parentGhostFound=" + parentGhostFound +
-                    " parentGhostWorld=" + (parentGhostFound ? TraceSeparation.FormatVector3d(parentGhostWorld) : "<unresolved>") +
-                    " renderedParentDist=" + (double.IsNaN(renderedParentDist) ? "NaN" : renderedParentDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
-                    " recordedAnchorLocalDist=" + (double.IsNaN(recordedAnchorLocalDist) ? "NaN" : recordedAnchorLocalDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
-                    " interpolatedAnchorLocalDist=" + (double.IsNaN(interpolatedAnchorLocalDist) ? "NaN" : interpolatedAnchorLocalDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
-                    " recordedBodyFixedDist=" + (double.IsNaN(recordedBodyFixedDist) ? "NaN" : recordedBodyFixedDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)));
+                TraceDebrisBodyFixedPrimaryPlayback(
+                    traj, state, playbackUT, target, bodyFixedCount, firstPlaybackRender, ghostWorldBefore);
             }
             // ---- /Trace-Sep ----
             // Fail closed when InterpolateAndPosition could not produce a
@@ -548,7 +349,7 @@ namespace Parsek
         /// returned when the section has zero or one frames (the caller's
         /// log line will report no usable bracket).
         /// </summary>
-        private static void ResolveBodyFixedPrimaryBracketUTs(
+        internal static void ResolveBodyFixedPrimaryBracketUTs(
             System.Collections.Generic.List<TrajectoryPoint> bodyFixedFrames,
             double playbackUT,
             out double bracketBeforeUT,
@@ -583,6 +384,271 @@ namespace Parsek
                 bracketBeforeUT = bodyFixedFrames[last - 1].ut;
                 bracketAfterUT = bodyFixedFrames[last].ut;
             }
+        }
+
+        /// <summary>
+        /// Trace-Sep playback row for a parent-anchored debris ghost positioned from its
+        /// body-fixed primary: bracketing samples, lerp alpha, predicted vs rendered world
+        /// position and the rendered / recorded parent distances. Called only while ghost
+        /// render tracing is on and the playback window is open.
+        /// </summary>
+        private void TraceDebrisBodyFixedPrimaryPlayback(
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            RelativeSectionPlaybackTarget target,
+            int bodyFixedCount,
+            bool firstPlaybackRender,
+            Vector3d ghostWorldBefore)
+        {
+            Vector3d ghostWorld = state.ghost.transform != null
+                ? (Vector3d)state.ghost.transform.position : Vector3d.zero;
+            FindTraceBracketFrames(
+                target.Section.bodyFixedFrames, playbackUT,
+                out TrajectoryPoint? beforeFrame, out TrajectoryPoint? afterFrame);
+            string beforeStr = FormatTraceBracketFrame(beforeFrame);
+            string afterStr = FormatTraceBracketFrame(afterFrame);
+            // Lerp alpha + manually-predicted ghost world position. The
+            // lerp alpha is what InterpolateAndPosition computed
+            // implicitly from playbackUT / bracket UTs; we reconstruct it
+            // here so the log row carries the interpolation factor
+            // explicitly. The predicted world position is a body-fixed
+            // linear blend of the bracketing LLAs (each resolved via
+            // body.GetWorldSurfacePosition independently then linearly
+            // blended in world-space). If `ghostWorld` differs from
+            // `predictedWorld` by more than rounding, the discrepancy is
+            // playback-math; if they match but the ghost is still
+            // slipping forward relative to truth, the discrepancy lives
+            // in the recorded LLAs themselves (recorder-side phase
+            // offset).
+            double lerpAlpha = double.NaN;
+            Vector3d predictedWorld = Vector3d.zero;
+            if (beforeFrame.HasValue && afterFrame.HasValue)
+            {
+                lerpAlpha = TraceSeparation.ComputeLerpAlpha(
+                    beforeFrame.Value.ut, afterFrame.Value.ut, playbackUT);
+                CelestialBody body = !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
+                    ? FlightGlobals.Bodies?.Find(b => b.name == beforeFrame.Value.bodyName)
+                    : null;
+                if (body != null && !double.IsNaN(lerpAlpha))
+                {
+                    Vector3d worldBefore = body.GetWorldSurfacePosition(
+                        beforeFrame.Value.latitude,
+                        beforeFrame.Value.longitude,
+                        beforeFrame.Value.altitude);
+                    Vector3d worldAfter = body.GetWorldSurfacePosition(
+                        afterFrame.Value.latitude,
+                        afterFrame.Value.longitude,
+                        afterFrame.Value.altitude);
+                    predictedWorld = worldBefore + (worldAfter - worldBefore) * lerpAlpha;
+                }
+            }
+            Vector3d worldStep = ghostWorld - ghostWorldBefore;
+            Vector3d predictedVsActual = ghostWorld - predictedWorld;
+            // Parent ghost world position (rendered) so we can log the
+            // RENDERED parent-vs-debris distance on screen. Looked up via
+            // the engine's recordingId mapping; returns false when the
+            // parent ghost hasn't materialized yet (in which case the
+            // distance fields stay NaN in the log).
+            Vector3d parentGhostWorld = Vector3d.zero;
+            bool parentGhostFound = host.engine != null
+                && host.engine.TryGetGhostWorldByRecordingId(
+                    traj.ParentAnchorRecordingId, out parentGhostWorld);
+            double renderedParentDist = parentGhostFound
+                ? (ghostWorld - parentGhostWorld).magnitude
+                : double.NaN;
+            // Recorded anchor-local distance at the bracketing
+            // before-frame: in Relative sections the `frames[]` entries
+            // store anchor-local Cartesian metres in `latitude/longitude/altitude`,
+            // so the offset magnitude IS the parent-vs-debris distance
+            // the recorder captured at the bracket's left edge.
+            //
+            // Do NOT compare this directly to renderedParentDist as a
+            // fidelity check - this field is the seed-only value and
+            // stays constant across the entire bracket (e.g. the 600 ms
+            // seed->first-sample gap on a fresh debris recording),
+            // while the recorded relative motion may genuinely evolve
+            // across that bracket and the rendered distance follows
+            // the bracket's linear interpolation. Use
+            // `interpolatedAnchorLocalDist` (below) for the
+            // fidelity check; this field is retained for the
+            // "bracket-left-edge snapshot" view and for direct
+            // comparison against the section's `bodyFixedFrames[]`
+            // bracketing-before sample via `recordedBodyFixedDist`.
+            double recordedAnchorLocalDist = double.NaN;
+            // Interpolated anchor-local distance: same `frames[]` surface
+            // as recordedAnchorLocalDist, but linearly interpolated at the
+            // current playbackUT instead of clamped to the bracketing-
+            // before entry. Use this to ask "is the rendered distance
+            // tracking the recorded relative motion, or actually
+            // diverging?" - the bracketing-before-only field is stable
+            // across an entire bracket (e.g. the 0.6 s seed->first-sample
+            // gap on fresh debris recordings) while the interpolated
+            // value evolves with the recorded geometry.
+            double interpolatedAnchorLocalDist = double.NaN;
+            if (target.Section.referenceFrame == ReferenceFrame.Relative
+                && target.Section.frames != null
+                && target.Section.frames.Count > 0)
+            {
+                recordedAnchorLocalDist = ResolveRecordedAnchorLocalDistanceBefore(
+                    target.Section.frames, playbackUT);
+                interpolatedAnchorLocalDist = TraceSeparation
+                    .InterpolateAnchorLocalOffsetMagnitude(
+                        target.Section.frames, playbackUT);
+            }
+            // Recorded body-fixed distance: subtract the parent's
+            // body-fixed primary world position at the bracketing UT from
+            // the debris's body-fixed primary world. Computed
+            // independently of playback math - ghost transforms drop out
+            // entirely. Reflects what the recorder wrote into the two
+            // independent body-fixed streams. If this doesn't match the
+            // recorded anchor-local distance, the two recording surfaces
+            // disagree about parent-vs-debris geometry.
+            double recordedBodyFixedDist = double.NaN;
+            if (beforeFrame.HasValue && !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
+            {
+                CelestialBody body = FlightGlobals.Bodies?.Find(
+                    b => b.name == beforeFrame.Value.bodyName);
+                Recording parentRec = RecordingStore.TryFindCommittedRecordingById(
+                    traj.ParentAnchorRecordingId);
+                if (body != null
+                    && parentRec != null
+                    && parentRec.TrackSections != null)
+                {
+                    TrajectoryPoint? parentBefore = FindLastBodyFixedFrameAtOrBefore(
+                        parentRec.TrackSections, playbackUT);
+                    if (parentBefore.HasValue)
+                    {
+                        Vector3d parentBodyFixedWorld = body.GetWorldSurfacePosition(
+                            parentBefore.Value.latitude,
+                            parentBefore.Value.longitude,
+                            parentBefore.Value.altitude);
+                        Vector3d debrisBodyFixedWorld = body.GetWorldSurfacePosition(
+                            beforeFrame.Value.latitude,
+                            beforeFrame.Value.longitude,
+                            beforeFrame.Value.altitude);
+                        recordedBodyFixedDist =
+                            (debrisBodyFixedWorld - parentBodyFixedWorld).magnitude;
+                    }
+                }
+            }
+            TraceSeparation.PlaybackLog("PositionDebris",
+                "recId=" + (target.RecordingId ?? "<null>") +
+                " parentRecId=" + (traj.ParentAnchorRecordingId ?? "<null>") +
+                " playbackUT=" + playbackUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                " bodyFixedCount=" + bodyFixedCount +
+                " first=" + firstPlaybackRender +
+                " bracketBefore=[" + beforeStr + "]" +
+                " bracketAfter=[" + afterStr + "]" +
+                " lerpAlpha=" + (double.IsNaN(lerpAlpha) ? "NaN" : lerpAlpha.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)) +
+                " ghostWorldBefore=" + TraceSeparation.FormatVector3d(ghostWorldBefore) +
+                " ghostWorld=" + TraceSeparation.FormatVector3d(ghostWorld) +
+                " worldStep=" + TraceSeparation.FormatVector3d(worldStep) +
+                " |worldStep|=" + worldStep.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                " predictedWorld=" + TraceSeparation.FormatVector3d(predictedWorld) +
+                " predictedVsActual=" + TraceSeparation.FormatVector3d(predictedVsActual) +
+                " |predDelta|=" + predictedVsActual.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                " parentGhostFound=" + parentGhostFound +
+                " parentGhostWorld=" + (parentGhostFound ? TraceSeparation.FormatVector3d(parentGhostWorld) : "<unresolved>") +
+                " renderedParentDist=" + FormatTraceDistance(renderedParentDist) +
+                " recordedAnchorLocalDist=" + FormatTraceDistance(recordedAnchorLocalDist) +
+                " interpolatedAnchorLocalDist=" + FormatTraceDistance(interpolatedAnchorLocalDist) +
+                " recordedBodyFixedDist=" + FormatTraceDistance(recordedBodyFixedDist));
+        }
+
+        /// <summary>
+        /// The last sample at or before the playback UT and the first sample at or after it
+        /// (null when none qualifies or the list is empty).
+        /// </summary>
+        internal static void FindTraceBracketFrames(
+            List<TrajectoryPoint> frames,
+            double playbackUT,
+            out TrajectoryPoint? beforeFrame,
+            out TrajectoryPoint? afterFrame)
+        {
+            beforeFrame = null;
+            afterFrame = null;
+            if (frames != null && frames.Count > 0)
+            {
+                int beforeIdx = -1;
+                int afterIdx = -1;
+                for (int j = 0; j < frames.Count; j++)
+                {
+                    if (frames[j].ut <= playbackUT)
+                        beforeIdx = j;
+                    if (frames[j].ut >= playbackUT && afterIdx < 0)
+                        afterIdx = j;
+                }
+                if (beforeIdx >= 0) beforeFrame = frames[beforeIdx];
+                if (afterIdx >= 0) afterFrame = frames[afterIdx];
+            }
+        }
+
+        internal static string FormatTraceBracketFrame(TrajectoryPoint? frame)
+        {
+            return frame.HasValue
+                ? ("ut=" + frame.Value.ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                    + " lla=(" + frame.Value.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                    + "," + frame.Value.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                    + "," + frame.Value.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")")
+                : "<none>";
+        }
+
+        /// <summary>
+        /// Magnitude of the anchor-local offset of the last relative frame at or before the
+        /// playback UT, scanning in order and stopping at the first later frame; NaN when the
+        /// first frame is already later.
+        /// </summary>
+        internal static double ResolveRecordedAnchorLocalDistanceBefore(
+            List<TrajectoryPoint> frames, double playbackUT)
+        {
+            int beforeIdx = -1;
+            for (int j = 0; j < frames.Count; j++)
+            {
+                if (frames[j].ut <= playbackUT)
+                    beforeIdx = j;
+                else break;
+            }
+            if (beforeIdx >= 0)
+            {
+                TrajectoryPoint relFrame = frames[beforeIdx];
+                Vector3d localOffset = new Vector3d(
+                    relFrame.latitude, relFrame.longitude, relFrame.altitude);
+                return localOffset.magnitude;
+            }
+            return double.NaN;
+        }
+
+        /// <summary>
+        /// Walks every section's body-fixed frames in order and returns the last sample at or
+        /// before the playback UT; within a section the scan stops at the first later sample,
+        /// and a later section's qualifying sample replaces an earlier one.
+        /// </summary>
+        internal static TrajectoryPoint? FindLastBodyFixedFrameAtOrBefore(
+            List<TrackSection> trackSections, double playbackUT)
+        {
+            TrajectoryPoint? parentBefore = null;
+            for (int s = 0; s < trackSections.Count; s++)
+            {
+                var ps = trackSections[s];
+                if (ps.bodyFixedFrames == null || ps.bodyFixedFrames.Count == 0)
+                    continue;
+                for (int j = 0; j < ps.bodyFixedFrames.Count; j++)
+                {
+                    if (ps.bodyFixedFrames[j].ut <= playbackUT)
+                        parentBefore = ps.bodyFixedFrames[j];
+                    else break;
+                }
+            }
+            return parentBefore;
+        }
+
+        internal static string FormatTraceDistance(double value)
+        {
+            return double.IsNaN(value)
+                ? "NaN"
+                : value.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
         }
 
         void IGhostPositioner.PositionAtPoint(int index, IPlaybackTrajectory traj,
@@ -1521,7 +1587,7 @@ namespace Parsek
         }
 
         /// <summary>
-        private static string FormatStandaloneCoverageRange(double startUT, double endUT)
+        internal static string FormatStandaloneCoverageRange(double startUT, double endUT)
         {
             if (double.IsNaN(startUT) || double.IsNaN(endUT))
                 return "(none)";
@@ -1757,7 +1823,7 @@ namespace Parsek
                 + " count=" + loopSeamLastGhostFrame.Count.ToString(ic));
         }
 
-        private static int CountKeysAbove<T>(Dictionary<int, T> dict, int index)
+        internal static int CountKeysAbove<T>(Dictionary<int, T> dict, int index)
         {
             int count = 0;
             foreach (int key in dict.Keys)
@@ -2099,7 +2165,7 @@ namespace Parsek
             return true;
         }
 
-        private static string BuildPredictedOrbitTailContinuityCacheKey(
+        internal static string BuildPredictedOrbitTailContinuityCacheKey(
             IPlaybackTrajectory traj,
             OrbitSegment segment,
             double anchorUT)
@@ -2120,7 +2186,7 @@ namespace Parsek
                 segment.inclination.ToString("R", CultureInfo.InvariantCulture));
         }
 
-        private static bool ShouldApplyPredictedOrbitTailContinuity(
+        internal static bool ShouldApplyPredictedOrbitTailContinuity(
             IPlaybackTrajectory traj, OrbitSegment segment, double playbackUT)
         {
             if (traj?.Points == null || traj.Points.Count == 0)
@@ -2217,7 +2283,7 @@ namespace Parsek
             return false;
         }
 
-        private static int FindNearestTrackSectionIndexForContinuityAnchor(
+        internal static int FindNearestTrackSectionIndexForContinuityAnchor(
             List<TrackSection> trackSections, double anchorUT)
         {
             if (trackSections == null || trackSections.Count == 0)
@@ -2234,7 +2300,7 @@ namespace Parsek
             return trackSections.Count - 1;
         }
 
-        private static string FormatFiniteOrNa(double value, string format)
+        internal static string FormatFiniteOrNa(double value, string format)
         {
             return ParsekFlight.IsFinite(value)
                 ? value.ToString(format, CultureInfo.InvariantCulture)
@@ -2752,7 +2818,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool TryFindCheckpointOrbitSegment(
+        internal static bool TryFindCheckpointOrbitSegment(
             TrackSection section,
             double playbackUT,
             out OrbitSegment segment,
@@ -2794,7 +2860,7 @@ namespace Parsek
                 out t);
         }
 
-        private static long BuildCheckpointOrbitCacheKey(
+        internal static long BuildCheckpointOrbitCacheKey(
             int recordingIndex,
             int sectionIdx,
             int checkpointIdx)
@@ -3159,7 +3225,7 @@ namespace Parsek
             return false;
         }
 
-        private static List<TrajectoryPoint> GetAbsolutePlaybackFrameList(TrackSection section)
+        internal static List<TrajectoryPoint> GetAbsolutePlaybackFrameList(TrackSection section)
         {
             if (section.referenceFrame == ReferenceFrame.Absolute)
                 return section.frames;
@@ -3168,7 +3234,7 @@ namespace Parsek
             return null;
         }
 
-        private static bool IsEligibleBoundaryBridgeFrame(
+        internal static bool IsEligibleBoundaryBridgeFrame(
             TrajectoryPoint candidate,
             double requireBeforeUT,
             double requireAfterUT,
@@ -4205,8 +4271,11 @@ namespace Parsek
             string anchorRecordingId)
         {
             return $"RELATIVE playback: contract=anchor-local " +
-                $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
-                $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m " +
+                $"version={recordingFormatVersion.ToString(CultureInfo.InvariantCulture)} " +
+                $"dx={dx.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"dy={dy.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"dz={dz.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz).ToString("F2", CultureInfo.InvariantCulture)}m " +
                 $"anchorRec={(string.IsNullOrEmpty(anchorRecordingId) ? "(missing)" : anchorRecordingId)} source=recorded";
         }
 
@@ -5933,7 +6002,7 @@ namespace Parsek
                 ParsekFlight.s_tailLiftPlanTerminalBodyCache[recordingId] = terminalBodyName;
         }
 
-        private static bool IsTransientTailLiftInactiveReason(string reason)
+        internal static bool IsTransientTailLiftInactiveReason(string reason)
         {
             return string.Equals(reason, "recording-missing", StringComparison.Ordinal)
                 || string.Equals(reason, "body-missing", StringComparison.Ordinal)
@@ -5942,7 +6011,7 @@ namespace Parsek
                 || string.Equals(reason, "current-terrain-nan", StringComparison.Ordinal);
         }
 
-        private static string ResolveTailLiftTerminalBodyName(Recording rec, TrajectoryPoint lastPt)
+        internal static string ResolveTailLiftTerminalBodyName(Recording rec, TrajectoryPoint lastPt)
         {
             string terminalBodyName;
             if (RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out terminalBodyName)
@@ -5983,7 +6052,7 @@ namespace Parsek
                 && string.Equals(body.bodyName, bodyName, StringComparison.Ordinal);
         }
 
-        private static bool TailLiftTerminalPointIsAbsolute(Recording rec, TrajectoryPoint lastPt)
+        internal static bool TailLiftTerminalPointIsAbsolute(Recording rec, TrajectoryPoint lastPt)
         {
             if (rec == null || rec.TrackSections == null || rec.TrackSections.Count == 0)
                 return true;
@@ -5998,11 +6067,23 @@ namespace Parsek
         private static string ResolveTailLiftInactiveReason(
             Recording rec, CelestialBody body, double currentTerrain)
         {
+            return ResolveTailLiftInactiveReasonCore(
+                rec, !object.ReferenceEquals(body, null), currentTerrain);
+        }
+
+        /// <summary>
+        /// Names why a recording's tail lift is inactive, checked in order: the recording, its
+        /// points, the body, the terminal state (only a surface terminal lifts), the recorded and
+        /// current terrain heights, then the minimum delta.
+        /// </summary>
+        internal static string ResolveTailLiftInactiveReasonCore(
+            Recording rec, bool hasBody, double currentTerrain)
+        {
             if (rec == null)
                 return "recording-missing";
             if (rec.Points == null || rec.Points.Count == 0)
                 return "no-points";
-            if (object.ReferenceEquals(body, null))
+            if (!hasBody)
                 return "body-missing";
             if (!rec.TerminalStateValue.HasValue)
                 return "terminal-missing";
