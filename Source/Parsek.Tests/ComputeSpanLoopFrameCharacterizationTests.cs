@@ -289,5 +289,133 @@ namespace Parsek.Tests
                     MissionPeriodicity.ScheduleLookaheadMultiples, 2500.0),
             }, "4221A661AF383157", 1521, 0, 1641);
         }
+        // ------------------------------------------------------------------
+        // The three extracted pieces, called directly.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ScheduledFrame_MatchesTheFullFrame_AndParksInTheGap()
+        {
+            var forHelper = new MissionRelaunchSchedule(
+                0.0, 1000.0, new double[0], new double[0], 0.0,
+                MissionPeriodicity.ScheduleLookaheadMultiples, 2500.0);
+            var forFrame = new MissionRelaunchSchedule(
+                0.0, 1000.0, new double[0], new double[0], 0.0,
+                MissionPeriodicity.ScheduleLookaheadMultiples, 2500.0);
+            double first = forHelper.FirstLaunchUT;
+            Assert.False(double.IsNaN(first));
+
+            GhostPlaybackLogic.SpanLoopFrame before = GhostPlaybackLogic.ComputeScheduledSpanLoopFrame(
+                first - 10.0, 0.0, 0.0, 2000.0, forHelper, null, 0.0);
+            Assert.False(before.Resolved);
+
+            GhostPlaybackLogic.SpanLoopFrame inSpan = GhostPlaybackLogic.ComputeScheduledSpanLoopFrame(
+                first + 500.0, 0.0, 0.0, 2000.0, forHelper, null, 0.0);
+            Assert.True(inSpan.Resolved);
+            Assert.Equal(500.0, inSpan.LoopUT);
+            Assert.False(inSpan.IsInInterCycleTail);
+            Assert.False(inSpan.HasSecondary);
+
+            GhostPlaybackLogic.SpanLoopFrame gap = GhostPlaybackLogic.ComputeScheduledSpanLoopFrame(
+                first + 2200.0, 0.0, 0.0, 2000.0, forHelper, null, 0.0);
+            Assert.True(gap.Resolved);
+            Assert.Equal(2000.0, gap.LoopUT);
+            Assert.True(gap.IsInInterCycleTail);
+
+            for (double ut = first - 100.0; ut < first + 9000.0; ut += 250.0)
+            {
+                GhostPlaybackLogic.SpanLoopFrame a = GhostPlaybackLogic.ComputeScheduledSpanLoopFrame(
+                    ut, 0.0, 0.0, 2000.0, forHelper, null, 0.0);
+                GhostPlaybackLogic.SpanLoopFrame b = GhostPlaybackLogic.ComputeSpanLoopFrame(
+                    ut, 0.0, 0.0, 2000.0, 2500.0, forFrame);
+                Assert.Equal(b.Resolved, a.Resolved);
+                Assert.Equal(b.LoopUT, a.LoopUT);
+                Assert.Equal(b.CycleIndex, a.CycleIndex);
+                Assert.Equal(b.IsInInterCycleTail, a.IsInInterCycleTail);
+            }
+        }
+
+        [Fact]
+        public void ScheduledFrame_WithCuts_WritesTheInv3Line()
+        {
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 1000.0, new double[0], new double[0], 0.0,
+                MissionPeriodicity.ScheduleLookaheadMultiples, 2500.0);
+            GhostPlaybackLogic.ComputeScheduledSpanLoopFrame(
+                schedule.FirstLaunchUT + 1.0, 0.0, 0.0, 2000.0, schedule, Cuts(300, 100), 0.0);
+            Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
+                && l.Contains("INV-3 contract violation: a scheduled unit carries loiterCuts=1 arrivalHoldSeconds=0"));
+        }
+
+        [Fact]
+        public void ArrivalHold_NoAlignPeriod_ReturnsBaseHoldSilently()
+        {
+            double w = GhostPlaybackLogic.ResolveSpanLoopFrameArrivalHold(
+                45.0, 3, 3030.0, double.NaN, 55.0, 0.0, null, 800.0, double.NaN, double.NaN, 0);
+            Assert.Equal(45.0, w);
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void ArrivalHold_AlignPeriod_ReturnsPerLoopHoldAndLogsIt()
+        {
+            double w = GhostPlaybackLogic.ResolveSpanLoopFrameArrivalHold(
+                45.0, 3, 3030.0, 100.0, 55.0, 0.0, null, 800.0, double.NaN, double.NaN, 0);
+            // (45 - 3 * (3030 mod 100)) mod 100 = -45 -> 55
+            Assert.Equal(55.0, w);
+            Assert.Equal(GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(45.0, 3, 3030.0, 100.0), w);
+            Assert.Single(logLines);
+            Assert.Contains("[Parsek][VERBOSE][Reaim] per-loop arrival hold: cycleIndex=3 W0=45s cadence=3030s "
+                + "Talign=100s joint=False WN=55s", logLines[0]);
+        }
+
+        [Fact]
+        public void ArrivalHold_JointOverBudget_WarnsThenLogsTheHold()
+        {
+            double w = GhostPlaybackLogic.ResolveSpanLoopFrameArrivalHold(
+                45.0, 0, 4321.0, 100.0, 55.0, 0.0, null, 800.0, 360.0, 5.0, 1);
+            Assert.True(w > 0.0);
+            Assert.Equal(2, logLines.Count);
+            Assert.StartsWith("[Parsek][WARN][Reaim] per-loop JOINT arrival hold exceeded its budget", logLines[0]);
+            Assert.StartsWith("[Parsek][VERBOSE][Reaim] per-loop arrival hold: cycleIndex=0 W0=45s", logLines[1]);
+            Assert.Contains("joint=True", logLines[1]);
+        }
+
+        [Fact]
+        public void Secondary_RunsTheBorrowPhaseThroughTheSoiRepay()
+        {
+            // borrow window: phaseInCycle 900, cadence 1000, advNext 300 -> secondary phase 200.
+            Assert.Equal(200.0, GhostPlaybackLogic.ComputeBoundaryOverlapSecondaryLoopUT(
+                900.0, 1000.0, 300.0, 600.0, null, 0.0, 1000.0, 0.0, double.NaN));
+            // SOI exit at 100: phase 200 sits inside the 300 s repay window -> held at the exit.
+            Assert.Equal(100.0, GhostPlaybackLogic.ComputeBoundaryOverlapSecondaryLoopUT(
+                900.0, 1000.0, 300.0, 100.0, null, 0.0, 1000.0, 0.0, double.NaN));
+            // Span start offset and a cut before the phase: decompression adds the cut back.
+            Assert.Equal(5000.0 + 200.0 + 50.0, GhostPlaybackLogic.ComputeBoundaryOverlapSecondaryLoopUT(
+                900.0, 1000.0, 300.0, 5000.0 + 900.0, Cuts(5100.0, 50.0), 5000.0, 950.0, 0.0, double.NaN));
+        }
+
+        [Fact]
+        public void Secondary_MatchesTheFrameSecondaryOnTheZeroSlackLoop()
+        {
+            int checkedCount = 0;
+            for (double ut = 300.0; ut < 12000.0; ut += 12.5)
+            {
+                GhostPlaybackLogic.SpanLoopFrame f = GhostPlaybackLogic.ComputeSpanLoopFrame(
+                    ut, 300.0, 0.0, 1000.0, 1000.0,
+                    launchBodyRotationPeriod: 700.0, launchHoldEngaged: true, soiExitAtUT: 600.0);
+                if (!f.HasSecondary)
+                    continue;
+                long n = f.SecondaryCycleIndex;
+                double advNext = GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds(
+                    300.0, 0.0, 1000.0, 1000.0, n, 700.0, null, 0.0, double.NaN);
+                double elapsed = ut - 300.0;
+                double phaseInCycle = elapsed - ((long)(elapsed / 1000.0)) * 1000.0;
+                Assert.Equal(f.SecondaryLoopUT, GhostPlaybackLogic.ComputeBoundaryOverlapSecondaryLoopUT(
+                    phaseInCycle, 1000.0, advNext, 600.0, null, 0.0, 1000.0, 0.0, double.NaN));
+                checkedCount++;
+            }
+            Assert.True(checkedCount > 10, "the zero-slack fixture must exercise the secondary");
+        }
     }
 }

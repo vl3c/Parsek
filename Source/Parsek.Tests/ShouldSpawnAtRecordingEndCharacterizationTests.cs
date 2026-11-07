@@ -326,5 +326,81 @@ namespace Parsek.Tests
             }
             Assert.Equal((true, ""), Decide(rec, activeChain, tree));
         }
+        // ------------------------------------------------------------------
+        // The three extracted gate groups, called directly.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void RecordingStateGates_PassLeavesEmptyReason_RefusalNamesTheGate()
+        {
+            Assert.False(GhostPlaybackLogic.TryRejectSpawnForRecordingState(Spawnable(), true, out string pass));
+            Assert.Equal("", pass);
+
+            var destroyed = Spawnable();
+            destroyed.VesselDestroyed = true;
+            Assert.True(GhostPlaybackLogic.TryRejectSpawnForRecordingState(destroyed, true, out string why));
+            Assert.Equal("vessel destroyed", why);
+
+            var superseded = Spawnable();
+            superseded.TerminalSpawnSupersededByRecordingId = "rec-x";
+            superseded.VesselDestroyed = true;
+            Assert.True(GhostPlaybackLogic.TryRejectSpawnForRecordingState(superseded, true, out why));
+            Assert.Equal("terminal spawn superseded by recording rec-x", why);
+
+            // Gates of the later groups are not this group's business.
+            var debrisBranch = Spawnable();
+            debrisBranch.IsDebris = true;
+            debrisBranch.ChainBranch = 3;
+            debrisBranch.TerminalStateValue = TerminalState.Destroyed;
+            Assert.False(GhostPlaybackLogic.TryRejectSpawnForRecordingState(debrisBranch, true, out _));
+        }
+
+        [Fact]
+        public void TreeShapeGates_PassLeavesEmptyReason_RefusalNamesTheGate()
+        {
+            Assert.False(GhostPlaybackLogic.TryRejectSpawnForTreeShape(Spawnable(), false, null, out string pass));
+            Assert.Equal("", pass);
+
+            var rec = Spawnable();
+            rec.IsDebris = true;
+            Assert.True(GhostPlaybackLogic.TryRejectSpawnForTreeShape(rec, false, null, out string why));
+            Assert.Equal("debris recording (visual-only)", why);
+            Assert.True(GhostPlaybackLogic.TryRejectSpawnForTreeShape(rec, true, null, out why));
+            Assert.Equal("active chain being built", why);
+            rec.ChainBranch = 1;
+            Assert.True(GhostPlaybackLogic.TryRejectSpawnForTreeShape(rec, true, null, out why));
+            Assert.Equal("branch > 0 (ghost-only)", why);
+
+            var terminalOnly = Spawnable();
+            terminalOnly.TerminalStateValue = TerminalState.Destroyed;
+            terminalOnly.SpawnedVesselPersistentId = 5u;
+            Assert.False(GhostPlaybackLogic.TryRejectSpawnForTreeShape(terminalOnly, false, null, out _));
+        }
+
+        [Fact]
+        public void TerminalAndSituationGates_PassLeavesEmptyReason_RefusalNamesTheGate()
+        {
+            Assert.False(GhostPlaybackLogic.TryRejectSpawnForTerminalAndSituation(Spawnable(), out string pass));
+            Assert.Equal("", pass);
+
+            var rec = Spawnable();
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            Assert.True(GhostPlaybackLogic.TryRejectSpawnForTerminalAndSituation(rec, out string why));
+            Assert.Equal("terminal state Destroyed", why);
+
+            rec.TerminalStateValue = null;
+            rec.VesselSnapshot = Snapshot("FLYING");
+            Assert.True(GhostPlaybackLogic.TryRejectSpawnForTerminalAndSituation(rec, out why));
+            Assert.Equal("snapshot situation unsafe (FLYING/SUB_ORBITAL)", why);
+
+            rec.VesselSnapshot = Snapshot("ESCAPING");
+            Assert.True(GhostPlaybackLogic.TryRejectSpawnForTerminalAndSituation(rec, out why));
+            Assert.Equal("unfinalized recording, snapshot situation maps to terminal SubOrbital", why);
+
+            var spawnedDebris = Spawnable();
+            spawnedDebris.IsDebris = true;
+            spawnedDebris.SpawnedVesselPersistentId = 5u;
+            Assert.False(GhostPlaybackLogic.TryRejectSpawnForTerminalAndSituation(spawnedDebris, out _));
+        }
     }
 }
