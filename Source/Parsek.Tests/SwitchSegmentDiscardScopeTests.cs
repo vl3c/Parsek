@@ -9,9 +9,9 @@ namespace Parsek.Tests
     /// <summary>
     /// Phase E + post-#876 playtest coverage (2026-05-17) for segment-scoped
     /// switch/Fly auto-record: the scoped Discard helper
-    /// (<see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>),
+    /// (<see cref="SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt"/>),
     /// the topology-based subtree collector
-    /// (<see cref="RecordingStore.CollectSwitchSegmentSubtreeRecordingIds"/>),
+    /// (<see cref="SwitchSegmentAttempts.CollectSwitchSegmentSubtreeRecordingIds"/>),
     /// the <see cref="MergeDialog"/> hook, and the unified whole-tree body
     /// builder. Per plan
     /// <c>docs/dev/plans/segment-scoped-switch-fly-autorecord.md</c>
@@ -195,7 +195,7 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(tree);
 
             string reason;
-            RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             // The tagged store event is purged, but the completion survives as a DIRECT
             // ledger action so the contract stays resolved (not re-listed active).
@@ -285,7 +285,7 @@ namespace Parsek.Tests
 
                 string reason;
                 var disposition =
-                    RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                    SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
                 Assert.Equal(
                     RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone,
@@ -324,7 +324,7 @@ namespace Parsek.Tests
 
             string reason;
             var disposition =
-                RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.NoActiveSession,
@@ -372,7 +372,7 @@ namespace Parsek.Tests
 
             string reason;
             var disposition =
-                RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.PendingTreePrune,
@@ -410,7 +410,7 @@ namespace Parsek.Tests
 
             string reason;
             var disposition =
-                RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.PendingTreePrune,
@@ -461,7 +461,7 @@ namespace Parsek.Tests
                 childB.RecordingId, childC.RecordingId));
 
             HashSet<string> collected =
-                RecordingStore.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
+                SwitchSegmentAttempts.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
 
             Assert.Contains(segment.RecordingId, collected);
             Assert.Contains(childA.RecordingId, collected);
@@ -489,7 +489,7 @@ namespace Parsek.Tests
             // realistic tree depth would risk false-positive caps on
             // healthy production graphs.
             Assert.True(
-                RecordingStore.SwitchSegmentRecordingTreeWalkMaxIterations >= 256,
+                SwitchSegmentAttempts.SwitchSegmentRecordingTreeWalkMaxIterations >= 256,
                 "cap must allow realistic tree depth");
 
             // (b) source-text gate on the Warn log line shape.
@@ -497,7 +497,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string storePath = Path.Combine(projectRoot,
-                "Source", "Parsek", "RecordingStore.cs");
+                "Source", "Parsek", "SwitchSegmentAttempts.cs");
             string source = File.ReadAllText(storePath);
             Assert.Contains(
                 "SwitchSegmentRecordingTreeWalkMaxIterations",
@@ -531,13 +531,13 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(child);
 
             var loopBp = MakeBranchPoint(loopBpId, segment.RecordingId, child.RecordingId);
-            int repeats = RecordingStore.SwitchSegmentRecordingTreeWalkMaxIterations + 64;
+            int repeats = SwitchSegmentAttempts.SwitchSegmentRecordingTreeWalkMaxIterations + 64;
             for (int i = 1; i < repeats; i++)
                 loopBp.ChildRecordingIds.Add(child.RecordingId);
             tree.BranchPoints.Add(loopBp);
 
             HashSet<string> collected =
-                RecordingStore.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
+                SwitchSegmentAttempts.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
 
             // Partial, and it is the caller's whole scope: only what was reached before the break.
             Assert.Equal(
@@ -548,7 +548,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[SwitchSegment]")
                 && l.Contains("iteration cap reached, breaking walk")
-                && l.Contains("cap=" + RecordingStore.SwitchSegmentRecordingTreeWalkMaxIterations
+                && l.Contains("cap=" + SwitchSegmentAttempts.SwitchSegmentRecordingTreeWalkMaxIterations
                     .ToString(CultureInfo.InvariantCulture))
                 && l.Contains("collectedSoFar=")
                 && l.Contains("treeId=" + tree.Id));
@@ -597,7 +597,7 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(tree);
 
             string reason;
-            RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             Assert.False(tree.Recordings.ContainsKey(segment.RecordingId));
             Assert.False(tree.Recordings.ContainsKey(grandchild.RecordingId));
@@ -618,7 +618,7 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(tree);
 
             string reason;
-            RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             Assert.False(tree.Recordings.ContainsKey("rec_seg"));
             // BP referencing the removed segment id is gone too.
@@ -664,7 +664,7 @@ namespace Parsek.Tests
             Assert.Equal(2, beforeCount);
 
             string reason;
-            RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             int afterCount = GameStateStore.EventCount;
             Assert.Equal(1, afterCount);
@@ -686,7 +686,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "RecordingStore.cs");
+                "Source", "Parsek", "SwitchSegmentAttempts.cs");
             Assert.True(File.Exists(path));
             string source = File.ReadAllText(path);
 
@@ -701,7 +701,7 @@ namespace Parsek.Tests
             // pending tree's Recordings.Values for deletion — only
             // ownedIds is the source of recordings to wipe.
             int helperStart = source.IndexOf(
-                "internal static SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt");
+                "internal static RecordingStore.SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt");
             int helperEnd = source.IndexOf(
                 "private static RecordingTree FindSegmentTreeForSession");
             Assert.True(helperStart > 0 && helperEnd > helperStart);
@@ -726,7 +726,7 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(tree);
 
             string reason;
-            RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             Assert.Null(scenario.ActiveSwitchSegmentSession);
             // Log line records the clear reason.
@@ -797,7 +797,7 @@ namespace Parsek.Tests
 
             string reason;
             var disposition =
-                RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone,
@@ -900,7 +900,7 @@ namespace Parsek.Tests
 
             string reason;
             var disposition =
-                RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone,
@@ -1004,7 +1004,7 @@ namespace Parsek.Tests
             }
 
             string reason;
-            RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
 
             // All three committed ids still present.
             Assert.True(RecordingStore.IsCommittedRecordingId("rec_c_1"));
@@ -1039,11 +1039,11 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "RecordingStore.cs");
+                "Source", "Parsek", "SwitchSegmentAttempts.cs");
             string source = File.ReadAllText(path);
 
             int helperStart = source.IndexOf(
-                "internal static SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt");
+                "internal static RecordingStore.SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt");
             int helperEnd = source.IndexOf(
                 "private static RecordingTree FindSegmentTreeForSession");
             Assert.True(helperStart > 0 && helperEnd > helperStart);

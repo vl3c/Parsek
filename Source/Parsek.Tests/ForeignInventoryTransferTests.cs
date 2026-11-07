@@ -363,7 +363,7 @@ namespace Parsek.Tests
                 ActiveSegmentRecordingId = kerbal.RecordingId
             };
 
-            HashSet<string> ids = RecordingStore.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
+            HashSet<string> ids = SwitchSegmentAttempts.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
 
             Assert.Contains(kerbal.RecordingId, ids);
             Assert.Contains(member.RecordingId, ids);

@@ -2668,7 +2668,7 @@ namespace Parsek
                     // (RecordingSidecarStore.AreRecordingFilesCurrentThroughNamedVersions), so the
                     // committed history is unchanged until a merge replaces it.
                     if (RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)
-                        && !RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
+                        && !SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
                     {
                         plan.CommittedRestoreOverlapCount++;
                         ParsekLog.Verbose("Scenario",
@@ -2684,7 +2684,7 @@ namespace Parsek
                     // (e.g. a switch/Fly under a #866 clone-restore), but the new
                     // segment id is a fresh-owned recording, not an original
                     // committed parent. Allow the dirty sidecar save through.
-                    if (RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
+                    if (SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
                     {
                         var bypassSession = ParsekScenario.Instance?.ActiveSwitchSegmentSession;
                         ParsekLog.Verbose("Scenario",
@@ -3035,7 +3035,7 @@ namespace Parsek
                     continue;
                 }
 
-                if (RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(evt.recordingId))
+                if (SwitchSegmentAttempts.IsMarkerOwnedSwitchSegmentRecordingId(evt.recordingId))
                 {
                     markerOwnedSkipped++;
                     continue;

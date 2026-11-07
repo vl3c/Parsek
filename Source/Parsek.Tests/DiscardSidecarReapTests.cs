@@ -571,12 +571,13 @@ namespace Parsek.Tests
             Assert.Contains("DeleteRecordingFiles(rec)",
                 source.Substring(discardPending, Math.Min(12000, source.Length - discardPending)));
 
-            int scoped = source.IndexOf(
-                "internal static SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt(",
+            string scopedSource = ReadProjectSource("SwitchSegmentAttempts.cs");
+            int scoped = scopedSource.IndexOf(
+                "internal static RecordingStore.SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt(",
                 StringComparison.Ordinal);
             Assert.True(scoped > 0, "TryDiscardActiveSwitchSegmentAttempt not found");
             Assert.Contains("DeleteRecordingFiles(rec)",
-                source.Substring(scoped, Math.Min(12000, source.Length - scoped)));
+                scopedSource.Substring(scoped, Math.Min(12000, scopedSource.Length - scoped)));
         }
 
         // ================= source gates: the gameplay paths reach the reap ==========
