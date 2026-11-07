@@ -500,7 +500,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(scenarioPath),
                 $"ParsekScenario.cs not found at {scenarioPath}");
 
-            string source = ParsekFlightSourceFiles.ReadText(scenarioPath);
+            string source = ParsekScenarioSourceFiles.ReadText(scenarioPath);
 
             // The dirty sidecar skip must AND on IsMarkerOwnedSwitchSegmentRecordingId
             // so marker-owned ids do NOT skip the sidecar save. Line endings are
@@ -579,7 +579,7 @@ namespace Parsek.Tests
                 $"ParsekScenario.cs not found at {parsekScenarioPath}");
 
             string flightSource = ParsekFlightSourceFiles.ReadText(parsekFlightPath);
-            string scenarioSource = ParsekFlightSourceFiles.ReadText(parsekScenarioPath);
+            string scenarioSource = ParsekScenarioSourceFiles.ReadText(parsekScenarioPath);
 
             // 1) The committed-tree restore path must still DeepClone
             //    the committed tree. Without DeepClone the clone parent

@@ -267,7 +267,7 @@ namespace Parsek.Tests.Logistics
             Assert.True(File.Exists(scenarioPath),
                 $"ParsekScenario.cs not found at {scenarioPath}");
 
-            string source = File.ReadAllText(scenarioPath);
+            string source = ParsekScenarioSourceFiles.ReadText(scenarioPath);
 
             // Save-side hookup: presence gate (no ordering constraint exists
             // on the save side).
@@ -322,7 +322,7 @@ namespace Parsek.Tests.Logistics
             // real hook logs a message containing this exact call text, so a raw scan stays
             // green when the hook itself is deleted - the one regression this gate exists for.
             string source = SourceScanText.StripCommentsAndMaskLiterals(
-                File.ReadAllText(scenarioPath));
+                ParsekScenarioSourceFiles.ReadText(scenarioPath));
 
             // The literal call site the orchestrator depends on. Editing the
             // signature requires updating this gate string in lockstep.

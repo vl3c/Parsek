@@ -1609,7 +1609,7 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            string scenarioSrc = ParsekFlightSourceFiles.ReadText(
+            string scenarioSrc = ParsekScenarioSourceFiles.ReadText(
                 System.IO.Path.Combine(srcRoot, "ParsekScenario.cs"));
 
             int methodStart = scenarioSrc.IndexOf(

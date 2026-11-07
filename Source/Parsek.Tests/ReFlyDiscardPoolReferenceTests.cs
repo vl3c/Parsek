@@ -486,7 +486,7 @@ namespace Parsek.Tests
             string path = Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
                 "Source", "Parsek", "ParsekScenario.cs");
-            string src = string.Join(" ", System.IO.File.ReadAllText(path)
+            string src = string.Join(" ", ParsekScenarioSourceFiles.ReadText(path)
                 .Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
 
             int onLoad = src.IndexOf("public override void OnLoad(ConfigNode node)", StringComparison.Ordinal);

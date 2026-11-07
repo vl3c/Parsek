@@ -269,7 +269,7 @@ namespace Parsek.Tests
         {
             string path = Path.Combine(ParsekSourceRoot(), relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
+            return ParsekScenarioSourceFiles.ReadText(path);
         }
     }
 }
