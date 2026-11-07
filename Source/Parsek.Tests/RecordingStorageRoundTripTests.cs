@@ -93,11 +93,11 @@ namespace Parsek.Tests
 
             var original = RecordingStorageFixtures.MaterializeTrajectory(fixture.Builder);
             var loadedTrajectory = new Recording { RecordingId = recordingId };
-            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, loadedTrajectory));
+            Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, loadedTrajectory));
             AssertSemanticTrajectoryEqual(original, loadedTrajectory);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe));
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.Equal(RecordingStore.CurrentRecordingSchemaGeneration, probe.SchemaGeneration);
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
@@ -107,26 +107,26 @@ namespace Parsek.Tests
             if (expectedVessel != null)
             {
                 SnapshotSidecarProbe vesselProbe;
-                Assert.True(RecordingStore.TryProbeSnapshotSidecar(vesselPath, out vesselProbe));
+                Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(vesselPath, out vesselProbe));
                 Assert.Equal(SnapshotSidecarEncoding.DeflateV1, vesselProbe.Encoding);
 
                 ConfigNode loadedVessel;
-                Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(vesselPath, out loadedVessel));
+                Assert.True(RecordingSidecarStore.LoadSnapshotSidecarForTesting(vesselPath, out loadedVessel));
                 Assert.NotNull(loadedVessel);
                 AssertConfigNodeEquivalent(expectedVessel, loadedVessel, "vessel");
             }
 
-            GhostSnapshotMode ghostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(original);
+            GhostSnapshotMode ghostSnapshotMode = RecordingSidecarStore.DetermineGhostSnapshotMode(original);
             Assert.Equal(ghostSnapshotMode == GhostSnapshotMode.Separate, File.Exists(ghostPath));
             if (ghostSnapshotMode == GhostSnapshotMode.Separate)
             {
                 ConfigNode expectedGhost = original.GhostVisualSnapshot;
                 SnapshotSidecarProbe ghostProbe;
-                Assert.True(RecordingStore.TryProbeSnapshotSidecar(ghostPath, out ghostProbe));
+                Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(ghostPath, out ghostProbe));
                 Assert.Equal(SnapshotSidecarEncoding.DeflateV1, ghostProbe.Encoding);
 
                 ConfigNode loadedGhost;
-                Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(ghostPath, out loadedGhost));
+                Assert.True(RecordingSidecarStore.LoadSnapshotSidecarForTesting(ghostPath, out loadedGhost));
                 Assert.NotNull(loadedGhost);
                 AssertConfigNodeEquivalent(expectedGhost, loadedGhost, "ghost");
             }
@@ -203,10 +203,10 @@ namespace Parsek.Tests
 
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 7);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 7);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.Equal(7, probe.SidecarEpoch);
@@ -215,7 +215,7 @@ namespace Parsek.Tests
                 l.Contains("WriteBinaryTrajectoryFile"));
 
             var restored = new Recording { RecordingId = original.RecordingId };
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
             AssertSemanticTrajectoryEqual(original, restored);
         }
 
@@ -230,7 +230,7 @@ namespace Parsek.Tests
             node.Save(path);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.UnknownBinary, probe.Encoding);
             Assert.False(probe.Supported);
             Assert.Equal("magic-mismatch", probe.FailureReason);
@@ -293,10 +293,10 @@ namespace Parsek.Tests
             string path = Path.Combine(tempDir, "section-authoritative-predicted.prec");
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 3);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 3);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.Contains(logLines, l =>
@@ -308,7 +308,7 @@ namespace Parsek.Tests
 
             var restored = new Recording { RecordingId = original.RecordingId };
             logLines.Clear();
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -338,10 +338,10 @@ namespace Parsek.Tests
             string path = Path.Combine(tempDir, "predicted-tail-fallback.prec");
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 4);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 4);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.Contains(logLines, l =>
@@ -351,7 +351,7 @@ namespace Parsek.Tests
 
             var restored = new Recording { RecordingId = original.RecordingId };
             logLines.Clear();
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -440,10 +440,10 @@ namespace Parsek.Tests
             string path = Path.Combine(tempDir, "orbit-only-predicted-tail.prec");
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 5);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 5);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -453,7 +453,7 @@ namespace Parsek.Tests
 
             var restored = new Recording { RecordingId = original.RecordingId };
             logLines.Clear();
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -475,10 +475,10 @@ namespace Parsek.Tests
 
             string path = Path.Combine(tempDir, "current-predicted.prec");
             logLines.Clear();
-            RecordingStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: 1);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, rec.RecordingFormatVersion);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
@@ -490,7 +490,7 @@ namespace Parsek.Tests
                 l.Contains("predictedCheckpoints=0"));
 
             var restored = new Recording { RecordingId = rec.RecordingId };
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Single(restored.OrbitSegments);
             Assert.True(restored.OrbitSegments[0].isPredicted);
@@ -565,10 +565,10 @@ namespace Parsek.Tests
             string path = Path.Combine(tempDir, "bg-mixed-fallback.prec");
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 5);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 5);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -577,7 +577,7 @@ namespace Parsek.Tests
 
             var restored = new Recording { RecordingId = original.RecordingId };
             logLines.Clear();
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -594,10 +594,10 @@ namespace Parsek.Tests
             string path = Path.Combine(tempDir, "bg-recorder-loaded-onrails-fallback.prec");
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 6);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 6);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -606,7 +606,7 @@ namespace Parsek.Tests
 
             var restored = new Recording { RecordingId = original.RecordingId };
             logLines.Clear();
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -706,7 +706,7 @@ namespace Parsek.Tests
             string path = Path.Combine(tempDir, "legacy-bg-orbit-bridge.prec");
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 7);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 7);
 
             Assert.Contains(original.TrackSections, s =>
                 s.referenceFrame == ReferenceFrame.OrbitalCheckpoint &&
@@ -715,10 +715,10 @@ namespace Parsek.Tests
                 s.endUT == 500.0 &&
                 s.checkpoints[0].endUT == 500.0);
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             var restored = new Recording { RecordingId = original.RecordingId };
             logLines.Clear();
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Equal(3, restored.TrackSections.Count);
             Assert.Single(restored.TrackSections.Where(s => s.referenceFrame == ReferenceFrame.OrbitalCheckpoint));
@@ -791,15 +791,15 @@ namespace Parsek.Tests
             });
 
             string path = Path.Combine(tempDir, "covered-bg-orbit-bridge.prec");
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 8);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 8);
 
             Assert.Empty(original.OrbitSegments);
             Assert.DoesNotContain(original.TrackSections, s =>
                 s.referenceFrame == ReferenceFrame.OrbitalCheckpoint);
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             var restored = new Recording { RecordingId = original.RecordingId };
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Single(restored.TrackSections);
             Assert.Empty(restored.OrbitSegments);
@@ -827,15 +827,15 @@ namespace Parsek.Tests
 
             for (int i = 0; i < cases.Length; i++)
             {
-                RecordingStore.WriteTrajectorySidecar(cases[i].Path, cases[i].Original, sidecarEpoch: i + 1);
+                RecordingSidecarStore.WriteTrajectorySidecar(cases[i].Path, cases[i].Original, sidecarEpoch: i + 1);
 
                 TrajectorySidecarProbe probe;
-                Assert.True(RecordingStore.TryProbeTrajectorySidecar(cases[i].Path, out probe));
+                Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(cases[i].Path, out probe));
                 Assert.Equal(cases[i].ExpectedEncoding, probe.Encoding);
                 Assert.Equal(cases[i].Original.RecordingFormatVersion, probe.FormatVersion);
 
                 var restored = new Recording { RecordingId = cases[i].Original.RecordingId };
-                RecordingStore.DeserializeTrajectorySidecar(cases[i].Path, probe, restored);
+                RecordingSidecarStore.DeserializeTrajectorySidecar(cases[i].Path, probe, restored);
                 AssertSemanticTrajectoryEqual(cases[i].Original, restored);
             }
         }
@@ -848,13 +848,13 @@ namespace Parsek.Tests
             expected.Save(path);
 
             SnapshotSidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeSnapshotSidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(path, out probe));
             Assert.Equal(SnapshotSidecarEncoding.UnknownBinary, probe.Encoding);
             Assert.False(probe.Supported);
             Assert.Equal("magic-mismatch", probe.FailureReason);
 
             ConfigNode loaded;
-            Assert.False(RecordingStore.LoadSnapshotSidecarForTesting(path, out loaded));
+            Assert.False(RecordingSidecarStore.LoadSnapshotSidecarForTesting(path, out loaded));
             Assert.Null(loaded);
         }
 
@@ -867,10 +867,10 @@ namespace Parsek.Tests
                 .Build();
             string path = Path.Combine(tempDir, "compressed_vessel.craft");
 
-            RecordingStore.WriteSnapshotSidecarForTesting(path, expected);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, expected);
 
             SnapshotSidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeSnapshotSidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(path, out probe));
             Assert.Equal(SnapshotSidecarEncoding.DeflateV1, probe.Encoding);
             Assert.Equal(SnapshotSidecarCodec.CurrentVersion, probe.FormatVersion);
             Assert.True(probe.CompressedLength > 0);
@@ -878,7 +878,7 @@ namespace Parsek.Tests
                 $"Expected compressed sidecar ({probe.CompressedLength} bytes) to be smaller than uncompressed payload ({probe.UncompressedLength} bytes)");
 
             ConfigNode loaded;
-            Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(path, out loaded));
+            Assert.True(RecordingSidecarStore.LoadSnapshotSidecarForTesting(path, out loaded));
             AssertConfigNodeEquivalent(expected, loaded, "compressedSnapshot");
         }
 
@@ -893,16 +893,16 @@ namespace Parsek.Tests
             string compressedPath = Path.Combine(tempDir, "mixed-compressed_vessel.craft");
 
             legacy.Save(legacyPath);
-            RecordingStore.WriteSnapshotSidecarForTesting(compressedPath, compressed);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(compressedPath, compressed);
 
             ConfigNode loadedLegacy;
             ConfigNode loadedCompressed;
             SnapshotSidecarProbe legacyProbe;
-            Assert.True(RecordingStore.TryProbeSnapshotSidecar(legacyPath, out legacyProbe));
+            Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(legacyPath, out legacyProbe));
             Assert.False(legacyProbe.Supported);
             Assert.Equal("magic-mismatch", legacyProbe.FailureReason);
-            Assert.False(RecordingStore.LoadSnapshotSidecarForTesting(legacyPath, out loadedLegacy));
-            Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(compressedPath, out loadedCompressed));
+            Assert.False(RecordingSidecarStore.LoadSnapshotSidecarForTesting(legacyPath, out loadedLegacy));
+            Assert.True(RecordingSidecarStore.LoadSnapshotSidecarForTesting(compressedPath, out loadedCompressed));
             Assert.Null(loadedLegacy);
             AssertConfigNodeEquivalent(compressed, loadedCompressed, "mixedCompressed");
         }
@@ -916,7 +916,7 @@ namespace Parsek.Tests
             string compressedPath = Path.Combine(tempDir, "snapshot-size-compressed_vessel.craft");
 
             expected.Save(legacyPath);
-            RecordingStore.WriteSnapshotSidecarForTesting(compressedPath, expected);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(compressedPath, expected);
 
             long legacyBytes = new FileInfo(legacyPath).Length;
             long compressedBytes = new FileInfo(compressedPath).Length;
@@ -941,7 +941,7 @@ namespace Parsek.Tests
 
             logLines.Clear();
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.False(probe.Supported);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") &&
@@ -968,7 +968,7 @@ namespace Parsek.Tests
 
             logLines.Clear();
             SnapshotSidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeSnapshotSidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(path, out probe));
             Assert.False(probe.Supported);
             Assert.Equal(SnapshotSidecarEncoding.UnknownBinary, probe.Encoding);
             Assert.Contains(logLines, l =>
@@ -983,7 +983,7 @@ namespace Parsek.Tests
             ConfigNode ghost = BuildSnapshot("Alias Recovery", pid: 5001);
             string vesselPath = Path.Combine(tempDir, "alias-missing_vessel.craft");
             string ghostPath = Path.Combine(tempDir, "alias-recovery_ghost.craft");
-            RecordingStore.WriteSnapshotSidecarForTesting(ghostPath, ghost);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(ghostPath, ghost);
 
             var rec = new Recording
             {
@@ -1010,7 +1010,7 @@ namespace Parsek.Tests
             ConfigNode vessel = BuildSnapshot("Separate Fallback", pid: 5002);
             string vesselPath = Path.Combine(tempDir, "separate-fallback_vessel.craft");
             string ghostPath = Path.Combine(tempDir, "separate-fallback_ghost.craft");
-            RecordingStore.WriteSnapshotSidecarForTesting(vesselPath, vessel);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(vesselPath, vessel);
 
             var rec = new Recording
             {
@@ -1037,7 +1037,7 @@ namespace Parsek.Tests
             ConfigNode ghost = BuildSnapshot("Ghost Only", pid: 5003);
             string vesselPath = Path.Combine(tempDir, "ghost-only_vessel.craft");
             string ghostPath = Path.Combine(tempDir, "ghost-only_ghost.craft");
-            RecordingStore.WriteSnapshotSidecarForTesting(ghostPath, ghost);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(ghostPath, ghost);
 
             var rec = new Recording
             {
@@ -1061,7 +1061,7 @@ namespace Parsek.Tests
             ConfigNode vessel = BuildSnapshot("Corrupt Snapshot", pid: 5004);
             string vesselPath = Path.Combine(tempDir,
                 truncatePayload ? "invalid-truncated_vessel.craft" : "invalid-corrupt_vessel.craft");
-            RecordingStore.WriteSnapshotSidecarForTesting(vesselPath, vessel);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(vesselPath, vessel);
 
             byte[] bytes = File.ReadAllBytes(vesselPath);
             if (truncatePayload)
@@ -1265,7 +1265,7 @@ namespace Parsek.Tests
             Assert.True(rewritten.FilesDirty);
 
             TrajectorySidecarProbe rolledBackProbe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out rolledBackProbe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out rolledBackProbe));
             Assert.Equal(3, rolledBackProbe.SidecarEpoch);
 
             var loadedOld = new Recording
@@ -1289,7 +1289,7 @@ namespace Parsek.Tests
             Assert.False(rewritten.FilesDirty);
 
             TrajectorySidecarProbe healedProbe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out healedProbe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out healedProbe));
             Assert.Equal(4, healedProbe.SidecarEpoch);
             Assert.True(File.Exists(vesselPath));
             Assert.True(File.Exists(ghostPath));
@@ -1356,7 +1356,7 @@ namespace Parsek.Tests
                 pidBase: 5350,
                 pointUt: 654);
 
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: true));
 
@@ -1368,7 +1368,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(ghostPath));
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe));
             Assert.Equal(5, probe.SidecarEpoch);
         }
 
@@ -1437,14 +1437,14 @@ namespace Parsek.Tests
                 pidBase: 5400,
                 pointUt: 100);
 
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
             Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
             Assert.True(File.Exists(readablePrecPath));
             Assert.True(File.Exists(readableVesselPath));
             Assert.True(File.Exists(readableGhostPath));
 
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
 
@@ -1477,7 +1477,7 @@ namespace Parsek.Tests
                 pidBase: 5450,
                 pointUt: 150);
 
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
             Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
 
@@ -1489,7 +1489,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(readableVesselPath));
             Assert.True(File.Exists(readableGhostPath));
 
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             Assert.True(RecordingSidecarStore.ReconcileReadableSidecarMirrorsToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath));
 
@@ -1525,7 +1525,7 @@ namespace Parsek.Tests
                 pointUt: 175);
             ConfigNode expectedVessel = rec.VesselSnapshot;
 
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
             Assert.True(File.Exists(vesselPath));
@@ -1534,7 +1534,7 @@ namespace Parsek.Tests
             rec.VesselSnapshot = null;
             rec.GhostVisualSnapshot = null;
 
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
             Assert.True(RecordingSidecarStore.ReconcileReadableSidecarMirrorsToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath));
 
@@ -1560,12 +1560,12 @@ namespace Parsek.Tests
                 pidBase: 5485,
                 pointUt: 200);
 
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
 
             rec.VesselSnapshot = null;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
             logLines.Clear();
             Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
@@ -1596,7 +1596,7 @@ namespace Parsek.Tests
                 ghostName: "Readable Old Ghost",
                 pidBase: 5500,
                 pointUt: 123);
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = true;
             Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 original, precPath, vesselPath, ghostPath, incrementEpoch: false));
 
@@ -1685,7 +1685,7 @@ namespace Parsek.Tests
             TrajectoryTextSidecarCodec.SerializeTrajectoryInto(textNode, rec);
             textNode.Save(textPath);
 
-            RecordingStore.WriteTrajectorySidecar(binaryPath, rec, sidecarEpoch: 1);
+            RecordingSidecarStore.WriteTrajectorySidecar(binaryPath, rec, sidecarEpoch: 1);
 
             long textBytes = new FileInfo(textPath).Length;
             long binaryBytes = new FileInfo(binaryPath).Length;
@@ -1706,10 +1706,10 @@ namespace Parsek.Tests
 
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: 1);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
 
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
@@ -1788,7 +1788,7 @@ namespace Parsek.Tests
             string path = Path.Combine(tempDir, "sparse-defaults.prec");
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: 4);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: 4);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -1798,7 +1798,7 @@ namespace Parsek.Tests
 
             var restored = new Recording { RecordingId = rec.RecordingId };
             logLines.Clear();
-            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(path, restored));
+            Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(path, restored));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("ReadBinaryTrajectoryFile") &&
@@ -2248,7 +2248,7 @@ namespace Parsek.Tests
 
             var rec = new Recording { RecordingId = "truncated-points-test" };
             var ex = Assert.Throws<InvalidDataException>(() =>
-                RecordingStore.DeserializeTrajectorySidecar(path, probe, rec));
+                RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, rec));
             Assert.Contains("point-list", ex.Message);
             Assert.Contains("exceeds", ex.Message);
         }
@@ -2307,7 +2307,7 @@ namespace Parsek.Tests
 
             var rec = new Recording { RecordingId = "truncated-sparse-test" };
             Assert.Throws<EndOfStreamException>(() =>
-                RecordingStore.DeserializeTrajectorySidecar(path, probe, rec));
+                RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, rec));
 
             // The first point survived the partial read, and its body name came
             // from the sparse LIST default rather than a per-point string index:
@@ -2331,15 +2331,15 @@ namespace Parsek.Tests
             };
 
             string path = Path.Combine(tempDir, "zero-points-current.prec");
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.True(probe.Success);
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
 
             var restored = new Recording { RecordingId = "zero-points-current" };
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Empty(restored.Points);
             Assert.Empty(restored.OrbitSegments);
@@ -2371,13 +2371,13 @@ namespace Parsek.Tests
             string name = $"sparse-flags-{(shareBody ? "B" : "b")}{(shareFunds ? "F" : "f")}{(shareScience ? "S" : "s")}{(shareRep ? "R" : "r")}";
             string path = Path.Combine(tempDir, name + ".prec");
 
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
 
             var restored = new Recording { RecordingId = original.RecordingId };
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             AssertSemanticTrajectoryEqual(original, restored);
         }
@@ -2412,13 +2412,13 @@ namespace Parsek.Tests
             string path = Path.Combine(tempDir, "sparse-body-funds-mixed.prec");
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
 
             var restored = new Recording { RecordingId = original.RecordingId };
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             AssertSemanticTrajectoryEqual(original, restored);
 
@@ -2465,13 +2465,13 @@ namespace Parsek.Tests
             string path = Path.Combine(tempDir, "sparse-all-vary.prec");
             logLines.Clear();
             ParsekLog.VerboseOverrideForTesting = true;
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
 
             var restored = new Recording { RecordingId = original.RecordingId };
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             AssertSemanticTrajectoryEqual(original, restored);
 
@@ -2573,15 +2573,15 @@ namespace Parsek.Tests
                 TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(writeRec));
 
             string path = Path.Combine(tempDir, $"codec-matrix-{caseName}.prec");
-            RecordingStore.WriteTrajectorySidecar(path, writeRec, sidecarEpoch: 1);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, writeRec, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe),
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe),
                 $"TryProbe failed for case {caseName}");
             Assert.Equal(expectedEncoding, probe.Encoding);
 
             var restored = new Recording { RecordingId = writeRec.RecordingId };
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             // The fixture has matching flat and section data. For section-authoritative the restored
             // Points are rebuilt from sections and should equal the fixture's flat Points.
@@ -2611,7 +2611,7 @@ namespace Parsek.Tests
             {
                 Assert.Equal(GhostSnapshotMode.AliasVessel, writeRec.GhostSnapshotMode);
                 Assert.Equal(GhostSnapshotMode.AliasVessel,
-                    RecordingStore.DetermineGhostSnapshotMode(writeRec));
+                    RecordingSidecarStore.DetermineGhostSnapshotMode(writeRec));
             }
         }
 

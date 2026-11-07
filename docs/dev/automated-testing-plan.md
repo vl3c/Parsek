@@ -36,8 +36,8 @@ last two.
 
 Verified facts the plan builds on (all spot-checked by the review):
 
-- Headless seams exist and work: `RecordingStore.LoadTrajectorySidecarForTesting`
-  (RecordingStore.cs:6736), `CareerSaveParser` , `LedgerGroundTruthDiff.Compare`,
+- Headless seams exist and work: `RecordingSidecarStore.LoadTrajectorySidecarForTesting`
+  (RecordingSidecarStore.cs), `CareerSaveParser` , `LedgerGroundTruthDiff.Compare`,
   injectable `bodyResolver` (TrajectoryMath.cs:187-209), `TestBodyRegistry`.
 - In-game framework: 158+ tests / 68 categories, batch campaign isolation
   (TestBatchMarker, .bak capture, crash reconcile, NRE-storm abort),

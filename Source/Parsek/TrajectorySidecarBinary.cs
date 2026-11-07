@@ -271,7 +271,7 @@ namespace Parsek
             {
                 int nonDefaultSectionSources = CountNonDefaultSectionSources(rec.TrackSections);
                 int predictedCheckpointCount;
-                int predictedOrbitSegmentCount = RecordingStore.CountPredictedOrbitSegments(
+                int predictedOrbitSegmentCount = RecordingSidecarStore.CountPredictedOrbitSegments(
                     rec, out predictedCheckpointCount);
                 ParsekLog.Verbose("RecordingStore",
                     $"WriteBinaryTrajectoryFile: recording={rec.RecordingId} version={binaryVersion} " +

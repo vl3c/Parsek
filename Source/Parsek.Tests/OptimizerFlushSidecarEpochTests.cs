@@ -30,7 +30,7 @@ namespace Parsek.Tests
         {
             originalScene = HighLogic.LoadedScene;
             HighLogic.LoadedScene = GameScenes.SPACECENTER;
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
@@ -48,7 +48,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             HighLogic.LoadedScene = originalScene;
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             ParsekScenario.PersistentSavePathOverrideForTesting = null;
             RecordingPaths.SaveRootOverrideForTesting = null;
             try
@@ -122,7 +122,7 @@ namespace Parsek.Tests
         private int ProbePrecEpoch(string id)
         {
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(PrecPath(id), out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(PrecPath(id), out probe));
             return probe.SidecarEpoch;
         }
 

@@ -5450,23 +5450,23 @@ namespace Parsek.Tests
                 string precPath = Path.Combine(recDir, $"{id}.prec");
                 Assert.True(File.Exists(precPath), $"Expected .prec file at {precPath}");
                 TrajectorySidecarProbe probe;
-                Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+                Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe));
                 Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
                 Assert.Equal(id, probe.RecordingId);
 
                 var restored = new Recording { RecordingId = id };
-                Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+                Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, restored));
                 Assert.True(restored.Points.Count >= 2, "Expected binary sidecar to preserve trajectory points");
 
                 // _vessel.craft file exists and has vessel data
                 string vesselPath = Path.Combine(recDir, $"{id}_vessel.craft");
                 Assert.True(File.Exists(vesselPath), $"Expected _vessel.craft at {vesselPath}");
                 SnapshotSidecarProbe vesselProbe;
-                Assert.True(RecordingStore.TryProbeSnapshotSidecar(vesselPath, out vesselProbe));
+                Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(vesselPath, out vesselProbe));
                 Assert.Equal(SnapshotSidecarEncoding.DeflateV1, vesselProbe.Encoding);
 
                 ConfigNode vesselSnapshot;
-                Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(vesselPath, out vesselSnapshot));
+                Assert.True(RecordingSidecarStore.LoadSnapshotSidecarForTesting(vesselPath, out vesselSnapshot));
                 Assert.Equal("Flea Flight", vesselSnapshot.GetValue("name"));
                 Assert.True(File.Exists(precPath + ".txt"), $"Expected readable .prec mirror at {precPath}.txt");
                 Assert.True(File.Exists(vesselPath + ".txt"), $"Expected readable vessel mirror at {vesselPath}.txt");
@@ -5520,7 +5520,7 @@ namespace Parsek.Tests
                         GhostVisualSnapshot = segments[i].GetGhostVisualSnapshot()?.CreateCopy(),
                     };
                     bool expectGhostSidecar =
-                        RecordingStore.DetermineGhostSnapshotMode(snapshotModeRecording) == GhostSnapshotMode.Separate;
+                        RecordingSidecarStore.DetermineGhostSnapshotMode(snapshotModeRecording) == GhostSnapshotMode.Separate;
                     Assert.Equal(expectGhostSidecar, File.Exists(Path.Combine(recDir, $"{id}_ghost.craft")));
                     Assert.Equal(expectGhostSidecar, File.Exists(Path.Combine(recDir, $"{id}_ghost.craft.txt")));
                 }

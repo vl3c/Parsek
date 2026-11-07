@@ -29,7 +29,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.PendingScienceSubjects.Clear();
             ParsekScenario.ResetInstanceForTesting();

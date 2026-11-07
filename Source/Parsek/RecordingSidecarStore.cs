@@ -327,7 +327,7 @@ namespace Parsek
             }
 
             TrajectorySidecarProbe probe;
-            if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out probe))
+            if (!TryProbeTrajectorySidecar(precPath, out probe))
             {
                 MarkSidecarLoadFailure(rec, "trajectory-invalid");
                 if (!RecordingStore.SuppressLogging)
@@ -412,7 +412,7 @@ namespace Parsek
             // The probe and the full read open the same resolved path; hash the file the
             // full read consumes (single-threaded, nothing writes it in between).
             string precReadHash = precHashResolved ? rec.PrecHash : SidecarContentHash.ComputeFile(precPath);
-            RecordingStore.DeserializeTrajectorySidecar(precPath, probe, rec);
+            DeserializeTrajectorySidecar(precPath, probe, rec);
 
             // Phase 1 smoothing pipeline (design doc §17.3.1, §18 row 1).
             // Hydrate / lazily fit Catmull-Rom splines for every eligible
@@ -493,7 +493,7 @@ namespace Parsek
 
             // Load snapshot sidecars only after the trajectory probe passes the
             // recording-id and sidecar-epoch safety gates.
-            RecordingStore.SnapshotSidecarLoadSummary snapshotSummary = LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
+            SnapshotSidecarLoadSummary snapshotSummary = LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
             if (!string.IsNullOrEmpty(snapshotSummary.FailureReason))
             {
                 MarkSidecarLoadFailure(rec, snapshotSummary.FailureReason);
@@ -520,9 +520,9 @@ namespace Parsek
         }
 
         private static string HashOfLoadedSnapshot(
-            RecordingStore.SnapshotSidecarLoadState state, string path, string currentHash, bool resolved)
+            SnapshotSidecarLoadState state, string path, string currentHash, bool resolved)
         {
-            if (state != RecordingStore.SnapshotSidecarLoadState.Loaded || string.IsNullOrEmpty(path))
+            if (state != SnapshotSidecarLoadState.Loaded || string.IsNullOrEmpty(path))
                 return currentHash;
             if (resolved && !string.IsNullOrEmpty(currentHash))
                 return currentHash;
@@ -591,13 +591,13 @@ namespace Parsek
             }
         }
 
-        internal static RecordingStore.SnapshotSidecarLoadSummary LoadSnapshotSidecarsFromPaths(
+        internal static SnapshotSidecarLoadSummary LoadSnapshotSidecarsFromPaths(
             Recording rec, string vesselPath, string ghostPath)
         {
             if (rec == null)
                 throw new ArgumentNullException(nameof(rec));
 
-            var summary = default(RecordingStore.SnapshotSidecarLoadSummary);
+            var summary = default(SnapshotSidecarLoadSummary);
             rec.VesselSnapshot = null;
             rec.GhostVisualSnapshot = null;
 
@@ -606,18 +606,18 @@ namespace Parsek
 
             summary.VesselState = TryLoadSnapshotSidecarIfPresent(
                 vesselPath, rec, "vessel", out ConfigNode vesselNode);
-            summary.GhostState = RecordingStore.SnapshotSidecarLoadState.Missing;
+            summary.GhostState = SnapshotSidecarLoadState.Missing;
             ConfigNode ghostNode = null;
             GhostSnapshotMode ghostSnapshotMode = rec.GhostSnapshotMode;
 
-            if (summary.VesselState == RecordingStore.SnapshotSidecarLoadState.Loaded)
+            if (summary.VesselState == SnapshotSidecarLoadState.Loaded)
                 rec.VesselSnapshot = vesselNode;
 
             if (ghostSnapshotMode != GhostSnapshotMode.AliasVessel)
             {
                 summary.GhostState = TryLoadSnapshotSidecarIfPresent(
                     ghostPath, rec, "ghost", out ghostNode);
-                if (summary.GhostState == RecordingStore.SnapshotSidecarLoadState.Loaded)
+                if (summary.GhostState == SnapshotSidecarLoadState.Loaded)
                     rec.GhostVisualSnapshot = ghostNode;
             }
 
@@ -631,7 +631,7 @@ namespace Parsek
                 {
                     summary.GhostState = TryLoadSnapshotSidecarIfPresent(
                         ghostPath, rec, "ghost", out ghostNode);
-                    if (summary.GhostState == RecordingStore.SnapshotSidecarLoadState.Loaded)
+                    if (summary.GhostState == SnapshotSidecarLoadState.Loaded)
                     {
                         rec.GhostVisualSnapshot = ghostNode;
                         rec.VesselSnapshot = ghostNode.CreateCopy();
@@ -658,7 +658,7 @@ namespace Parsek
             // Backward compat and resilience: only a genuinely missing ghost sidecar may
             // fall back to vessel visuals. Invalid/unsupported ghost files must surface as
             // hydration failures so salvage can preserve the distinct snapshot.
-            if (summary.GhostState == RecordingStore.SnapshotSidecarLoadState.Missing
+            if (summary.GhostState == SnapshotSidecarLoadState.Missing
                 && rec.GhostVisualSnapshot == null
                 && rec.VesselSnapshot != null)
             {
@@ -677,7 +677,7 @@ namespace Parsek
             }
 
             if (ghostSnapshotMode == GhostSnapshotMode.Unspecified)
-                ghostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
+                ghostSnapshotMode = DetermineGhostSnapshotMode(rec);
 
             rec.GhostSnapshotMode = ghostSnapshotMode;
 
@@ -805,26 +805,26 @@ namespace Parsek
             return r.ReadPath;
         }
 
-        private static RecordingStore.SnapshotSidecarLoadState TryLoadSnapshotSidecarIfPresent(
+        private static SnapshotSidecarLoadState TryLoadSnapshotSidecarIfPresent(
             string path, Recording rec, string label, out ConfigNode node)
         {
             node = null;
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
-                return RecordingStore.SnapshotSidecarLoadState.Missing;
+                return SnapshotSidecarLoadState.Missing;
 
             SnapshotSidecarProbe probe;
             bool loadOk = SnapshotSidecarCodec.TryLoad(path, out node, out probe);
             if (loadOk && probe.Supported && node != null)
-                return RecordingStore.SnapshotSidecarLoadState.Loaded;
+                return SnapshotSidecarLoadState.Loaded;
 
-            RecordingStore.SnapshotSidecarLoadState state = probe.Success && !probe.Supported
-                ? RecordingStore.SnapshotSidecarLoadState.Unsupported
-                : RecordingStore.SnapshotSidecarLoadState.Invalid;
+            SnapshotSidecarLoadState state = probe.Success && !probe.Supported
+                ? SnapshotSidecarLoadState.Unsupported
+                : SnapshotSidecarLoadState.Invalid;
 
             if (!RecordingStore.SuppressLogging)
             {
                 string context = FormatSidecarContext(rec);
-                if (state == RecordingStore.SnapshotSidecarLoadState.Unsupported)
+                if (state == SnapshotSidecarLoadState.Unsupported)
                 {
                     ParsekLog.Warn("RecordingStore",
                         $"LoadRecordingFiles: unsupported {label} snapshot sidecar {context} " +
@@ -844,24 +844,24 @@ namespace Parsek
         }
 
         private static string DetermineSnapshotLoadFailureReason(
-            RecordingStore.SnapshotSidecarLoadSummary summary, Recording rec)
+            SnapshotSidecarLoadSummary summary, Recording rec)
         {
             if (rec == null)
                 return null;
 
             if (rec.VesselSnapshot == null)
             {
-                if (summary.VesselState == RecordingStore.SnapshotSidecarLoadState.Invalid)
+                if (summary.VesselState == SnapshotSidecarLoadState.Invalid)
                     return "snapshot-vessel-invalid";
-                if (summary.VesselState == RecordingStore.SnapshotSidecarLoadState.Unsupported)
+                if (summary.VesselState == SnapshotSidecarLoadState.Unsupported)
                     return "snapshot-vessel-unsupported";
             }
 
             if (rec.GhostVisualSnapshot == null)
             {
-                if (summary.GhostState == RecordingStore.SnapshotSidecarLoadState.Invalid)
+                if (summary.GhostState == SnapshotSidecarLoadState.Invalid)
                     return "snapshot-ghost-invalid";
-                if (summary.GhostState == RecordingStore.SnapshotSidecarLoadState.Unsupported)
+                if (summary.GhostState == SnapshotSidecarLoadState.Unsupported)
                     return "snapshot-ghost-unsupported";
             }
 
@@ -903,7 +903,7 @@ namespace Parsek
             Recording rec, string precPath, string vesselPath, string ghostPath)
         {
             ReadableMirrorReconcileSummary summary = ReconcileReadableSidecarMirrors(
-                rec, precPath, vesselPath, ghostPath, RecordingStore.GetExpectedGhostSnapshotMode(rec));
+                rec, precPath, vesselPath, ghostPath, GetExpectedGhostSnapshotMode(rec));
             return !summary.Failed;
         }
 
@@ -1041,7 +1041,7 @@ namespace Parsek
             }
 
             TrajectorySidecarProbe trajectoryProbe;
-            if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out trajectoryProbe))
+            if (!TryProbeTrajectorySidecar(precPath, out trajectoryProbe))
             {
                 reason = "trajectory-invalid";
                 return false;
@@ -1095,7 +1095,7 @@ namespace Parsek
                 return false;
             }
 
-            bool ghostExpected = RecordingStore.GetExpectedGhostSnapshotMode(rec) == GhostSnapshotMode.Separate
+            bool ghostExpected = GetExpectedGhostSnapshotMode(rec) == GhostSnapshotMode.Separate
                 && rec.GhostVisualSnapshot != null;
             if (!IsSnapshotSidecarCurrentForSave(
                     ghostPath,
@@ -1297,7 +1297,7 @@ namespace Parsek
                 // / pre-reset / text-sidecar conditions still fire — those are
                 // real diagnostics the user needs to see.
                 TrajectorySidecarProbe probe;
-                if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out probe, quietOnSuccess: true)
+                if (!TryProbeTrajectorySidecar(precPath, out probe, quietOnSuccess: true)
                     || !probe.Supported)
                 {
                     return false;
@@ -1318,7 +1318,7 @@ namespace Parsek
                 try
                 {
                     RecordingStore.SuppressLogging = true;
-                    RecordingStore.DeserializeTrajectorySidecar(precPath, probe, existing);
+                    DeserializeTrajectorySidecar(precPath, probe, existing);
                 }
                 finally
                 {
@@ -1408,7 +1408,7 @@ namespace Parsek
             }
 
             ReadableMirrorReconcileSummary summary = ReconcileReadableSidecarMirrors(
-                rec, precPath, vesselPath, ghostPath, RecordingStore.GetExpectedGhostSnapshotMode(rec));
+                rec, precPath, vesselPath, ghostPath, GetExpectedGhostSnapshotMode(rec));
             if (summary.Failed && !RecordingStore.SuppressLogging)
             {
                 ParsekLog.Warn("RecordingStore",
@@ -1457,7 +1457,7 @@ namespace Parsek
 
             int originalSidecarEpoch = rec.SidecarEpoch;
             GhostSnapshotMode originalGhostSnapshotMode = rec.GhostSnapshotMode;
-            GhostSnapshotMode ghostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
+            GhostSnapshotMode ghostSnapshotMode = DetermineGhostSnapshotMode(rec);
             rec.GhostSnapshotMode = ghostSnapshotMode;
             bool wroteVesselSnapshot = false;
             bool wroteGhostSnapshot = false;
@@ -1479,7 +1479,7 @@ namespace Parsek
                 // Hashed kinds (design-load-restores-the-save.md 4.4): the replaced head is
                 // retained as a version, and memory takes the hash of the bytes written.
                 SidecarFileCommitBatch.StagedChange precChange = SidecarFileCommitBatch.StageRetainedWrite(
-                    path => RecordingStore.WriteTrajectorySidecar(path, rec, rec.SidecarEpoch),
+                    path => WriteTrajectorySidecar(path, rec, rec.SidecarEpoch),
                     precPath, rec.RecordingId, SidecarKind.Prec);
                 changes.Add(precChange);
 
@@ -1562,7 +1562,7 @@ namespace Parsek
                 if (!RecordingStore.SuppressLogging)
                 {
                     ParsekLog.Verbose("RecordingStore",
-                        $"SaveRecordingFiles: id={rec.RecordingId} trajectoryEncoding={RecordingStore.GetTrajectorySidecarEncodingLabel(rec.RecordingFormatVersion)} " +
+                        $"SaveRecordingFiles: id={rec.RecordingId} trajectoryEncoding={GetTrajectorySidecarEncodingLabel(rec.RecordingFormatVersion)} " +
                         $"snapshotEncoding={SnapshotSidecarCodec.CurrentEncodingLabel} " +
                         $"snapshotCompression={SnapshotSidecarCodec.CurrentCompressionLevelLabel} " +
                         $"ghostSnapshotMode={ghostSnapshotMode} " +
@@ -1740,8 +1740,8 @@ namespace Parsek
 
         private static bool ShouldWriteReadableSidecarMirrors()
         {
-            if (RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting.HasValue)
-                return RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting.Value;
+            if (WriteReadableSidecarMirrorsOverrideForTesting.HasValue)
+                return WriteReadableSidecarMirrorsOverrideForTesting.Value;
 
             var settings = ParsekSettings.Current;
             return settings == null || settings.writeReadableSidecarMirrors;
@@ -1859,6 +1859,291 @@ namespace Parsek
         private static string GetReadableMirrorPath(string authoritativePath)
         {
             return string.IsNullOrEmpty(authoritativePath) ? null : authoritativePath + ".txt";
+        }
+
+        internal static bool? WriteReadableSidecarMirrorsOverrideForTesting;
+        /// <summary>
+        /// Test-only escape hatch: when true, save-time sidecar-currency checks treat
+        /// every recording as already-current so in-memory test fixtures can exercise
+        /// the metadata-only `ParsekScenario.SaveTreeRecordings` path without first
+        /// writing real `.prec` / `.craft` files. Production always leaves this false:
+        /// the strict gate is what blocks a metadata save from outliving its sidecars.
+        /// </summary>
+        internal static bool SkipSidecarCurrencyCheckForTesting;
+
+        // The two test seams above; RecordingStore.ResetForTestingInternal calls this at the
+        // point where it used to clear them itself.
+        internal static void ResetForTesting()
+        {
+            SkipSidecarCurrencyCheckForTesting = false;
+            WriteReadableSidecarMirrorsOverrideForTesting = null;
+        }
+
+        internal static bool ConfigNodesEquivalent(ConfigNode expected, ConfigNode actual)
+        {
+            if (ReferenceEquals(expected, actual))
+                return true;
+            if (expected == null || actual == null)
+                return false;
+            if (!string.Equals(expected.name, actual.name, StringComparison.Ordinal))
+                return false;
+            if (expected.values.Count != actual.values.Count)
+                return false;
+            if (expected.nodes.Count != actual.nodes.Count)
+                return false;
+
+            for (int i = 0; i < expected.values.Count; i++)
+            {
+                if (!string.Equals(expected.values[i].name, actual.values[i].name, StringComparison.Ordinal) ||
+                    !string.Equals(expected.values[i].value, actual.values[i].value, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            for (int i = 0; i < expected.nodes.Count; i++)
+            {
+                if (!ConfigNodesEquivalent(expected.nodes[i], actual.nodes[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        internal static GhostSnapshotMode DetermineGhostSnapshotMode(Recording rec)
+        {
+            if (rec == null)
+                return GhostSnapshotMode.Unspecified;
+
+            if (rec.GhostVisualSnapshot == null)
+            {
+                return rec.VesselSnapshot != null
+                    ? GhostSnapshotMode.AliasVessel
+                    : GhostSnapshotMode.Unspecified;
+            }
+
+            if (rec.VesselSnapshot == null)
+                return GhostSnapshotMode.Separate;
+
+            return ConfigNodesEquivalent(rec.VesselSnapshot, rec.GhostVisualSnapshot)
+                ? GhostSnapshotMode.AliasVessel
+                : GhostSnapshotMode.Separate;
+        }
+
+        internal static GhostSnapshotMode GetExpectedGhostSnapshotMode(Recording rec)
+        {
+            if (rec == null)
+                return GhostSnapshotMode.Unspecified;
+
+            return rec.GhostSnapshotMode != GhostSnapshotMode.Unspecified
+                ? rec.GhostSnapshotMode
+                : DetermineGhostSnapshotMode(rec);
+        }
+
+        internal static GhostSnapshotMode ParseGhostSnapshotMode(string modeValue)
+        {
+            if (string.IsNullOrEmpty(modeValue))
+                return GhostSnapshotMode.Unspecified;
+
+            GhostSnapshotMode parsed;
+            if (Enum.TryParse(modeValue, ignoreCase: false, result: out parsed) &&
+                Enum.IsDefined(typeof(GhostSnapshotMode), parsed))
+            {
+                return parsed;
+            }
+
+            if (!RecordingStore.SuppressLogging)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"LoadRecordingFiles: invalid ghostSnapshotMode '{modeValue}', treating as Unspecified");
+            }
+            return GhostSnapshotMode.Unspecified;
+        }
+
+        internal static void WriteTrajectorySidecar(string path, Recording rec, int sidecarEpoch)
+        {
+            if (rec != null)
+            {
+                rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+                rec.RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration;
+                RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                    rec,
+                    markDirty: false,
+                    context: "WriteTrajectorySidecar");
+            }
+
+            TrajectorySidecarBinary.Write(path, rec, sidecarEpoch);
+        }
+
+        internal static int CountPredictedOrbitSegments(Recording rec, out int predictedCheckpointCount)
+        {
+            int predictedOrbitSegmentCount = 0;
+            predictedCheckpointCount = 0;
+
+            if (rec?.OrbitSegments != null)
+            {
+                for (int i = 0; i < rec.OrbitSegments.Count; i++)
+                {
+                    if (rec.OrbitSegments[i].isPredicted)
+                        predictedOrbitSegmentCount++;
+                }
+            }
+
+            if (rec?.TrackSections == null)
+                return predictedOrbitSegmentCount;
+
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                List<OrbitSegment> checkpoints = rec.TrackSections[i].checkpoints;
+                if (checkpoints == null)
+                    continue;
+
+                for (int j = 0; j < checkpoints.Count; j++)
+                {
+                    if (checkpoints[j].isPredicted)
+                        predictedCheckpointCount++;
+                }
+            }
+
+            return predictedOrbitSegmentCount;
+        }
+
+        internal static bool TryProbeTrajectorySidecar(string path, out TrajectorySidecarProbe probe)
+        {
+            return TryProbeTrajectorySidecar(path, out probe, quietOnSuccess: false);
+        }
+
+        /// <summary>
+        /// Probes a trajectory sidecar. When <paramref name="quietOnSuccess"/> is
+        /// true, the routine Verbose summary line on a successful supported probe
+        /// is suppressed; Warn lines for unsupported sidecars still fire because
+        /// callers always want to see those (corruption, schema drift, a file that is
+        /// not a current-format sidecar). Use the quiet form from diagnostic-only preflights that run
+        /// many times per save (e.g. trajectory-shrinkage warning).
+        /// </summary>
+        internal static bool TryProbeTrajectorySidecar(string path, out TrajectorySidecarProbe probe, bool quietOnSuccess)
+        {
+            probe = default(TrajectorySidecarProbe);
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return false;
+
+            if (TrajectorySidecarBinary.HasBinaryMagic(path))
+            {
+                bool binaryProbeOk = TrajectorySidecarBinary.TryProbe(path, out probe);
+                if (binaryProbeOk && !RecordingStore.SuppressLogging)
+                {
+                    if (!quietOnSuccess)
+                    {
+                        ParsekLog.Verbose("RecordingStore",
+                            $"TryProbeTrajectorySidecar: encoding={probe.Encoding} magic={probe.MagicTag ?? "<none>"} " +
+                            $"version={probe.FormatVersion} generation={probe.SchemaGeneration} " +
+                            $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+                    }
+                    if (!probe.Supported)
+                    {
+                        ParsekLog.Warn("RecordingStore",
+                            $"TryProbeTrajectorySidecar: unsupported binary trajectory " +
+                            $"reason={probe.FailureReason ?? "unknown"} version={probe.FormatVersion} " +
+                            $"generation={probe.SchemaGeneration} magic={probe.MagicTag ?? "<none>"} " +
+                            $"for recording={probe.RecordingId ?? "<none>"}");
+                    }
+                }
+
+                return binaryProbeOk;
+            }
+
+            probe = TrajectorySidecarBinary.BuildMagicMismatchProbe();
+            if (!RecordingStore.SuppressLogging)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"TryProbeTrajectorySidecar: unsupported trajectory sidecar " +
+                    $"reason={probe.FailureReason} path='{path}'");
+            }
+
+            return true;
+        }
+
+        internal static void DeserializeTrajectorySidecar(string path, TrajectorySidecarProbe probe, Recording rec)
+        {
+            if (probe.Encoding == TrajectorySidecarEncoding.BinaryV0)
+            {
+                TrajectorySidecarBinary.Read(path, rec, probe);
+                return;
+            }
+
+            throw new InvalidOperationException(
+                $"Unsupported trajectory sidecar encoding {probe.Encoding} at '{path}'.");
+        }
+
+        internal static bool LoadTrajectorySidecarForTesting(string path, Recording rec)
+        {
+            TrajectorySidecarProbe probe;
+            if (!TryProbeTrajectorySidecar(path, out probe) || !probe.Supported)
+                return false;
+
+            DeserializeTrajectorySidecar(path, probe, rec);
+            return true;
+        }
+
+        internal enum SnapshotSidecarLoadState
+        {
+            Missing = 0,
+            Loaded = 1,
+            Invalid = 2,
+            Unsupported = 3
+        }
+
+        internal struct SnapshotSidecarLoadSummary
+        {
+            public SnapshotSidecarLoadState VesselState;
+            public SnapshotSidecarLoadState GhostState;
+            public string FailureReason;
+        }
+
+        internal static bool TryProbeSnapshotSidecar(string path, out SnapshotSidecarProbe probe)
+        {
+            probe = default(SnapshotSidecarProbe);
+            bool probeOk = SnapshotSidecarCodec.TryProbe(path, out probe);
+            if (probeOk && !RecordingStore.SuppressLogging)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"TryProbeSnapshotSidecar: path='{FormatPathForSidecarLog(path)}' " +
+                    SnapshotSidecarCodec.DescribeProbe(probe));
+                if (!probe.Supported)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"TryProbeSnapshotSidecar: unsupported snapshot sidecar " +
+                        $"path='{FormatPathForSidecarLog(path)}' " +
+                        SnapshotSidecarCodec.DescribeProbe(probe));
+                }
+            }
+            else if (!probeOk && !RecordingStore.SuppressLogging)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"TryProbeSnapshotSidecar: failed path='{FormatPathForSidecarLog(path)}' " +
+                    SnapshotSidecarCodec.DescribeProbe(probe));
+            }
+
+            return probeOk;
+        }
+
+        internal static bool LoadSnapshotSidecarForTesting(string path, out ConfigNode node)
+        {
+            SnapshotSidecarProbe probe;
+            if (!SnapshotSidecarCodec.TryLoad(path, out node, out probe) || !probe.Supported)
+                return false;
+
+            return node != null;
+        }
+
+        internal static void WriteSnapshotSidecarForTesting(string path, ConfigNode node)
+        {
+            SnapshotSidecarCodec.Write(path, node);
+        }
+
+        internal static string GetTrajectorySidecarEncodingLabel(int recordingFormatVersion)
+        {
+            return "BinaryV0";
         }
 
         // Thin duplicate of RecordingStore's config-node writer until codec ownership settles.

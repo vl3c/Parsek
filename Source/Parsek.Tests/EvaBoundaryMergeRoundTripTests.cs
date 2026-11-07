@@ -119,14 +119,14 @@ namespace Parsek.Tests
             string targetPath = Path.Combine(tempDir, "eva-371-atmo.prec");
             string absorbedPath = Path.Combine(tempDir, "eva-371-surface.prec");
 
-            RecordingStore.WriteTrajectorySidecar(targetPath, target, sidecarEpoch: 1);
-            RecordingStore.WriteTrajectorySidecar(absorbedPath, absorbed, sidecarEpoch: 1);
+            RecordingSidecarStore.WriteTrajectorySidecar(targetPath, target, sidecarEpoch: 1);
+            RecordingSidecarStore.WriteTrajectorySidecar(absorbedPath, absorbed, sidecarEpoch: 1);
 
 
             TrajectorySidecarProbe targetProbe;
             TrajectorySidecarProbe absorbedProbe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(targetPath, out targetProbe));
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(absorbedPath, out absorbedProbe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(targetPath, out targetProbe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(absorbedPath, out absorbedProbe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, targetProbe.Encoding);
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, absorbedProbe.Encoding);
 
@@ -154,8 +154,8 @@ namespace Parsek.Tests
                 ChainId = "eva-chain-371",
                 ChainIndex = 1
             };
-            RecordingStore.DeserializeTrajectorySidecar(targetPath, targetProbe, loadedTarget);
-            RecordingStore.DeserializeTrajectorySidecar(absorbedPath, absorbedProbe, loadedAbsorbed);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(targetPath, targetProbe, loadedTarget);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(absorbedPath, absorbedProbe, loadedAbsorbed);
 
             // Sanity: sections survive round-trip, duplicate boundary frame still present.
             Assert.Single(loadedTarget.TrackSections);
@@ -173,10 +173,10 @@ namespace Parsek.Tests
             var mergedOrbitSegmentsSnapshot = DeepCopyOrbitSegments(loadedTarget.OrbitSegments);
 
             string mergedPath = Path.Combine(tempDir, "eva-371-merged.prec");
-            RecordingStore.WriteTrajectorySidecar(mergedPath, loadedTarget, sidecarEpoch: 2);
+            RecordingSidecarStore.WriteTrajectorySidecar(mergedPath, loadedTarget, sidecarEpoch: 2);
 
             TrajectorySidecarProbe mergedProbe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(mergedPath, out mergedProbe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(mergedPath, out mergedProbe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, mergedProbe.Encoding);
 
             var reloadedMerged = new Recording
@@ -189,7 +189,7 @@ namespace Parsek.Tests
                 SegmentPhase = "atmo",
                 SegmentBodyName = "Kerbin"
             };
-            RecordingStore.DeserializeTrajectorySidecar(mergedPath, mergedProbe, reloadedMerged);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(mergedPath, mergedProbe, reloadedMerged);
 
             Assert.Equal(mergedPointsSnapshot.Count, reloadedMerged.Points.Count);
             for (int i = 0; i < mergedPointsSnapshot.Count; i++)

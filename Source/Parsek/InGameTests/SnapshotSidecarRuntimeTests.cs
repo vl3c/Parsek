@@ -71,7 +71,7 @@ namespace Parsek.InGameTests
                     uncompressedBytes += probe.UncompressedLength;
                     if (rec.VesselSnapshot != null)
                     {
-                        if (RecordingStore.ConfigNodesEquivalent(rec.VesselSnapshot, decoded)) matchedInMemory++;
+                        if (RecordingSidecarStore.ConfigNodesEquivalent(rec.VesselSnapshot, decoded)) matchedInMemory++;
                         else differedInMemory++;
                     }
                 }
@@ -84,7 +84,7 @@ namespace Parsek.InGameTests
                     uncompressedBytes += probe.UncompressedLength;
                     if (rec.GhostSnapshotMode == GhostSnapshotMode.Separate && rec.GhostVisualSnapshot != null)
                     {
-                        if (RecordingStore.ConfigNodesEquivalent(rec.GhostVisualSnapshot, decoded)) matchedInMemory++;
+                        if (RecordingSidecarStore.ConfigNodesEquivalent(rec.GhostVisualSnapshot, decoded)) matchedInMemory++;
                         else differedInMemory++;
                     }
                 }
@@ -102,9 +102,9 @@ namespace Parsek.InGameTests
                 try
                 {
                     string path = Path.Combine(scratchDir, "live_vessel.craft");
-                    RecordingStore.WriteSnapshotSidecarForTesting(path, live);
+                    RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, live);
                     SnapshotSidecarProbe probe = AssertDeflateV1(path, out ConfigNode decoded);
-                    InGameAssert.IsTrue(RecordingStore.ConfigNodesEquivalent(live, decoded),
+                    InGameAssert.IsTrue(RecordingSidecarStore.ConfigNodesEquivalent(live, decoded),
                         "live vessel snapshot did not survive the DeflateV1 write/read round trip");
                     InGameAssert.IsTrue(probe.CompressedLength < probe.UncompressedLength, string.Format(IC,
                         "DeflateV1 did not compress the live snapshot ({0} -> {1} bytes)",
@@ -181,7 +181,7 @@ namespace Parsek.InGameTests
                     RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(copy, vesselPath);
                 InGameAssert.IsNotNull(copy.VesselSnapshot,
                     "AliasVessel recording's vessel snapshot could not be loaded: " + rec.RecordingId);
-                InGameAssert.AreEqual(GhostSnapshotMode.AliasVessel, RecordingStore.DetermineGhostSnapshotMode(copy),
+                InGameAssert.AreEqual(GhostSnapshotMode.AliasVessel, RecordingSidecarStore.DetermineGhostSnapshotMode(copy),
                     "the product alias decision does not answer AliasVessel for " + rec.RecordingId);
 
                 string scratchId = "ingamealias" + Guid.NewGuid().ToString("N");
@@ -226,9 +226,9 @@ namespace Parsek.InGameTests
                         "reloaded copy has no vessel snapshot for " + rec.RecordingId);
                     InGameAssert.IsNotNull(reread.GhostVisualSnapshot,
                         "reloaded copy has no ghost snapshot for " + rec.RecordingId);
-                    InGameAssert.IsTrue(RecordingStore.ConfigNodesEquivalent(copy.VesselSnapshot, reread.VesselSnapshot),
+                    InGameAssert.IsTrue(RecordingSidecarStore.ConfigNodesEquivalent(copy.VesselSnapshot, reread.VesselSnapshot),
                         "reloaded vessel snapshot differs from the saved one for " + rec.RecordingId);
-                    InGameAssert.IsTrue(RecordingStore.ConfigNodesEquivalent(reread.VesselSnapshot, reread.GhostVisualSnapshot),
+                    InGameAssert.IsTrue(RecordingSidecarStore.ConfigNodesEquivalent(reread.VesselSnapshot, reread.GhostVisualSnapshot),
                         "reloaded ghost snapshot is not the vessel snapshot for " + rec.RecordingId);
                     reloaded++;
                 }

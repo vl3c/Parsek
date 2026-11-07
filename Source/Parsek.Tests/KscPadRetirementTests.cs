@@ -950,7 +950,7 @@ namespace Parsek.Tests
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildVesselSnapshotRelativePath(recordingId));
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
-            RecordingStore.WriteSnapshotSidecarForTesting(path, snapshot);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, snapshot);
         }
 
         [Fact]

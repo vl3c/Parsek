@@ -55,7 +55,7 @@ namespace Parsek.Tests
             HighLogic.SaveFolder = originalSaveFolder;
             HighLogic.LoadedScene = originalScene;
             ParsekScenario.PersistentSavePathOverrideForTesting = null;
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.ClearDurableCommittedRecordingIdHint();
             for (int i = 0; i < cleanupFiles.Count; i++)
             {
@@ -85,7 +85,7 @@ namespace Parsek.Tests
         [Fact]
         public void SaveTreeRecordings_UnserializableTree_KeepsItsNodeFromTheOnDiskSave()
         {
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             PrepareSaveFolder("carry-forward");
 
             RecordingTree tree = MakeUnserializableTree("tree-x", "Mun Program", "rec-x");
@@ -122,7 +122,7 @@ namespace Parsek.Tests
         [Fact]
         public void SaveTreeRecordings_UnserializableTreeWithNoDiskNode_DropsLoudly()
         {
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             PrepareSaveFolder("carry-forward-none");
 
             RecordingStore.AddCommittedTreeForTesting(
@@ -144,7 +144,7 @@ namespace Parsek.Tests
         [Fact]
         public void SaveTreeRecordings_SerializableTree_WritesFromMemoryOnce()
         {
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             PrepareSaveFolder("carry-forward-healthy");
 
             RecordingStore.AddCommittedTreeForTesting(

@@ -3091,7 +3091,7 @@ namespace Parsek
 
             string precPath = Path.Combine(saveRoot, RecordingPaths.BuildTrajectoryRelativePath(recordingId));
             TrajectorySidecarProbe probe;
-            if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out probe) || !probe.Supported)
+            if (!RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe) || !probe.Supported)
             {
                 skipped++;
                 return;

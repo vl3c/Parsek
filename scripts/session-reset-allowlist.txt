@@ -2,7 +2,7 @@
 # deliberately leaves alone (design-load-restores-the-save.md section 4.2). Every other static field
 # of RecordingStore, GameStateStore, MilestoneStore, GameStateRecorder, LedgerOrchestrator,
 # KspStatePatcher, ParsekScenario, InertRecordingTrees, RewindContext, RewindInvokeContext,
-# RouteRunPrompt, FacilityStatePatcher and RecordingGroupStore must be reset by that helper; SaveScopedSessionResetTests
+# RouteRunPrompt, FacilityStatePatcher, RecordingGroupStore and RecordingSidecarStore must be reset by that helper; SaveScopedSessionResetTests
 # proves each one (set, reset, read) and fails on a field that is on neither side.
 # Format: one `Type.field reason` per line; auto-property backing fields use the property name.
 RecordingStore.ApplicationIsPlayingForTesting test seam
@@ -18,10 +18,8 @@ RecordingStore.RecordingFileSuffixes constant table
 RecordingStore.PostRewindPersistentWriteForTesting test seam
 RecordingStore.RewindWritePersistentForTesting test seam
 RecordingStore.SaveGameForTesting test seam
-RecordingStore.SkipSidecarCurrencyCheckForTesting test seam
 RecordingStore.StateVersion monotonic change counter; readers compare it for change, so it never goes back
 RecordingStore.SuppressLogging test logging switch
-RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting test seam
 GameStateStore.SuppressLogging test logging switch
 GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting test seam
 GameStateRecorder.FundsChangedUtProviderForTesting test seam
@@ -88,3 +86,5 @@ ParsekScenario.onLoadInProgress OnLoad's own in-progress flag, true while the re
 ParsekScenario.PersistentSavePathOverrideForTesting test seam
 ParsekScenario.s_instance the live scenario instance (a process object, not save state)
 FacilityStatePatcher.IC constant culture
+RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting test seam
+RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting test seam

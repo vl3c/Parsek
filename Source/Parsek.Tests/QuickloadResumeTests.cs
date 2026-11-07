@@ -2246,8 +2246,8 @@ namespace Parsek.Tests
             string dir = Path.Combine(Path.GetTempPath(),
                 "parsek-t61-salvage-save-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
-            bool? previousMirrorOverride = RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            bool? previousMirrorOverride = RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             try
             {
                 string precPath = Path.Combine(dir, restoredRec.RecordingId + ".prec");
@@ -2264,12 +2264,12 @@ namespace Parsek.Tests
                 Assert.False(File.Exists(ghostPath));
 
                 TrajectorySidecarProbe probe;
-                Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+                Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe));
                 Assert.Equal(restoredRec.SidecarEpoch, probe.SidecarEpoch);
             }
             finally
             {
-                RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = previousMirrorOverride;
+                RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = previousMirrorOverride;
                 try { Directory.Delete(dir, true); }
                 catch { /* best-effort cleanup; test has already asserted */ }
             }

@@ -180,9 +180,9 @@ namespace Parsek.Tests
             System.IO.Directory.CreateDirectory(tempDir);
 
             bool priorStoreSuppress = RecordingStore.SuppressLogging;
-            bool? priorMirrorOverride = RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting;
+            bool? priorMirrorOverride = RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting;
             RecordingStore.SuppressLogging = true;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
 
             try
             {
@@ -217,7 +217,7 @@ namespace Parsek.Tests
             finally
             {
                 RecordingStore.SuppressLogging = priorStoreSuppress;
-                RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = priorMirrorOverride;
+                RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = priorMirrorOverride;
                 try { System.IO.Directory.Delete(tempDir, true); }
                 catch { }
             }

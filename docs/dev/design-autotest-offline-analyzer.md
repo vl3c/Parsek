@@ -211,9 +211,9 @@ rule does NOT bump it (rules are data inside `findings`).
   `AnalyzerModel`, `Finding`, the concrete rule classes), the loader
   (`SaveDirectoryLoader`), and the reporters. It lives in the Tests project
   because it consumes the `internal` headless seams that are already exposed to
-  tests: `RecordingStore.LoadTrajectorySidecarForTesting`,
-  `RecordingStore.LoadSnapshotSidecarForTesting`,
-  `RecordingStore.TryProbeTrajectorySidecar`,
+  tests: `RecordingSidecarStore.LoadTrajectorySidecarForTesting`,
+  `RecordingSidecarStore.LoadSnapshotSidecarForTesting`,
+  `RecordingSidecarStore.TryProbeTrajectorySidecar`,
   `RecordingStore.IsRecordingSchemaCompatible`, `RecordingTreeRecordCodec`,
   `RecordingManifestCodec`, `CareerSaveParser.Parse`, `EffectiveState.ComputeERS`
   / `ComputeELS`, and the `TrajectoryMath` `bodyResolver` seam with
@@ -289,10 +289,10 @@ target save; the harness passes its per-run results directory.
    (`BuildTrajectoryRelativePath`, `BuildVesselSnapshotRelativePath`,
    `BuildGhostSnapshotRelativePath`, `BuildAnnotationsRelativePath`), validating
    ids through `RecordingPaths.ValidateRecordingId`. Hydrate trajectory via
-   `RecordingStore.LoadTrajectorySidecarForTesting`, snapshots via
-   `RecordingStore.LoadSnapshotSidecarForTesting`. A `false` return or throw is
+   `RecordingSidecarStore.LoadTrajectorySidecarForTesting`, snapshots via
+   `RecordingSidecarStore.LoadSnapshotSidecarForTesting`. A `false` return or throw is
    a `LoadFault` with the probe's failure reason
-   (`RecordingStore.TryProbeTrajectorySidecar` supplies `probe.FailureReason`).
+   (`RecordingSidecarStore.TryProbeTrajectorySidecar` supplies `probe.FailureReason`).
 4. Parse the career save via `CareerSaveParser.Parse(gameNode)` when the save is
    career; a null / unparsable result leaves `CareerSave = null` and records a
    `LoadFault{ FileKind="career" }` only when the ledger rule needs it.
@@ -689,7 +689,7 @@ Each: scenario -> expected behavior -> v1 or deferred.
 2. **Text-format `.prec`**. Expected: `TryProbeTrajectorySidecar` returns
    `Supported=false, FailureReason="magic-mismatch"`; loader records a
    LoadFault; INV5 FAIL with that reason. Matches the production reject at
-   `RecordingStore.DeserializeTrajectorySidecar`. v1.
+   `RecordingSidecarStore.DeserializeTrajectorySidecar`. v1.
 3. **Any other non-`PSK0` magic**. Expected: the same `magic-mismatch` probe;
    LoadFault + INV5 FAIL. v1.
 4. **Recording metadata generation != sidecar generation**. Scenario: tree node

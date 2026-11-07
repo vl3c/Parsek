@@ -99,7 +99,7 @@ namespace Parsek
             // Persist the mode that matches the current sidecars on disk. Recomputing
             // from live snapshots here can drift .sfs metadata away from sidecars when
             // later saves serialize tree state without rewriting files.
-            GhostSnapshotMode ghostSnapshotMode = RecordingStore.GetExpectedGhostSnapshotMode(rec);
+            GhostSnapshotMode ghostSnapshotMode = RecordingSidecarStore.GetExpectedGhostSnapshotMode(rec);
             rec.GhostSnapshotMode = ghostSnapshotMode;
             if (ghostSnapshotMode != GhostSnapshotMode.Unspecified)
                 recNode.AddValue("ghostSnapshotMode", ghostSnapshotMode.ToString());
@@ -789,7 +789,7 @@ namespace Parsek
             // recordingSchemaGeneration were already parsed and assigned to rec
             // by LoadRecordingFrom before the schema-compatibility gate, with
             // identical default-0 semantics, so they are not re-parsed here.
-            rec.GhostSnapshotMode = RecordingStore.ParseGhostSnapshotMode(recNode.GetValue("ghostSnapshotMode"));
+            rec.GhostSnapshotMode = RecordingSidecarStore.ParseGhostSnapshotMode(recNode.GetValue("ghostSnapshotMode"));
 
             // Sidecar epoch (bug #270)
             rec.SidecarEpoch = ParseIntOr(recNode, "sidecarEpoch", rec.SidecarEpoch);

@@ -26,7 +26,7 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             SidecarVersionResolution.ResetForTesting();
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
 
             saveRoot = Path.Combine(Path.GetTempPath(), "parsek-sidecar-versions-" + Guid.NewGuid().ToString("N"));
             recordingsDir = Path.Combine(saveRoot, "Parsek", "Recordings");
@@ -39,7 +39,7 @@ namespace Parsek.Tests
         {
             SidecarVersionResolution.ResetForTesting();
             RecordingPaths.SaveRootOverrideForTesting = null;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             Parsek.Rendering.SmoothingPipeline.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;

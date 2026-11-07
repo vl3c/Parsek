@@ -23,7 +23,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             RecordingStore.SuppressLogging = false;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             RecordingStore.ResetForTesting();
             RewindInvokeContext.Clear();
             RewindInvoker.PreconditionCache.InvalidateForTesting();
@@ -50,7 +50,7 @@ namespace Parsek.Tests
             RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = null;
             SidecarFileCommitBatch.DeleteTransientArtifactOverrideForTesting = null;
             ParsekScenario.ResetInstanceForTesting();
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();
@@ -240,10 +240,10 @@ namespace Parsek.Tests
                 GhostSnapshotMode = GhostSnapshotMode.Separate
             };
 
-            RecordingStore.SnapshotSidecarLoadSummary summary =
+            RecordingSidecarStore.SnapshotSidecarLoadSummary summary =
                 RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
 
-            Assert.Equal(RecordingStore.SnapshotSidecarLoadState.Invalid, summary.VesselState);
+            Assert.Equal(RecordingSidecarStore.SnapshotSidecarLoadState.Invalid, summary.VesselState);
             Assert.Contains(logLines, line =>
                 line.Contains("[WARN][RecordingStore]") &&
                 line.Contains("invalid vessel snapshot sidecar") &&
@@ -268,10 +268,10 @@ namespace Parsek.Tests
                 GhostSnapshotMode = GhostSnapshotMode.Separate
             };
 
-            RecordingStore.SnapshotSidecarLoadSummary summary =
+            RecordingSidecarStore.SnapshotSidecarLoadSummary summary =
                 RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
 
-            Assert.Equal(RecordingStore.SnapshotSidecarLoadState.Unsupported, summary.VesselState);
+            Assert.Equal(RecordingSidecarStore.SnapshotSidecarLoadState.Unsupported, summary.VesselState);
             Assert.Equal("snapshot-vessel-unsupported", summary.FailureReason);
             Assert.Contains(logLines, line =>
                 line.Contains("[WARN][RecordingStore]") &&

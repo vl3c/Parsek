@@ -30,7 +30,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             // Default to the fault path (an incomplete cold load) so the guard fires; individual
             // tests flip this true to exercise the successful-load / intentional-wipe skip path.
             ParsekScenario.CommittedTreeStateLoadedForTesting = false;

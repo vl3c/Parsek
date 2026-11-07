@@ -180,7 +180,7 @@ namespace Parsek
                 case SidecarFileType.Trajectory:     return true;
                 case SidecarFileType.VesselSnapshot: return rec.VesselSnapshot != null;
                 case SidecarFileType.GhostSnapshot:
-                    return RecordingStore.GetExpectedGhostSnapshotMode(rec) == GhostSnapshotMode.Separate;
+                    return RecordingSidecarStore.GetExpectedGhostSnapshotMode(rec) == GhostSnapshotMode.Separate;
                 default: return false;
             }
         }

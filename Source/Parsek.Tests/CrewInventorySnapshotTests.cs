@@ -178,8 +178,8 @@ namespace Parsek.Tests
             ConfigNode snap = CrewedSnapshotWithInventory();
             string path = Path.Combine(tempDir, "crewinv_vessel.craft");
 
-            RecordingStore.WriteSnapshotSidecarForTesting(path, snap);
-            Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(path, out ConfigNode loaded));
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, snap);
+            Assert.True(RecordingSidecarStore.LoadSnapshotSidecarForTesting(path, out ConfigNode loaded));
 
             var read = CrewInventorySnapshot.ReadFromSnapshot(loaded);
             Assert.NotNull(read);

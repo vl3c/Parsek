@@ -61,7 +61,7 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             RewindContext.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             // Every cell here asks its question at a NON-FLIGHT scene on purpose:
             // that is the precondition the auto-commit block itself gates on
             // (`HighLogic.LoadedScene != GameScenes.FLIGHT`).
@@ -184,7 +184,7 @@ namespace Parsek.Tests
 
             // Now read the SAME node back on a fresh store, still outside FLIGHT.
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(saved));
             Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
         }

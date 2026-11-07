@@ -38,7 +38,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ResetAll();
             RecordingStore.SuppressLogging = false;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             KspStatePatcher.SuppressUnityCallsForTesting = true;
 
             saveRoot = Path.Combine(Path.GetTempPath(), "parsek-inplace-resume-" + Guid.NewGuid().ToString("N"));
@@ -49,7 +49,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             RecordingPaths.SaveRootOverrideForTesting = null;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             try { Directory.Delete(saveRoot, true); } catch { }
             ResetAll();
             Parsek.Rendering.SmoothingPipeline.ResetForTesting();

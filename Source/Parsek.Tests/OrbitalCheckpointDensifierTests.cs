@@ -94,14 +94,14 @@ namespace Parsek.Tests
             Assert.InRange(added, 40, 60);
 
             string path = Path.Combine(tempDir, "densified-checkpoint.prec");
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 571);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 571);
 
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording { RecordingId = original.RecordingId };
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+            RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Single(restored.TrackSections);
             Assert.Equal(ReferenceFrame.OrbitalCheckpoint, restored.TrackSections[0].referenceFrame);

@@ -58,7 +58,7 @@ namespace Parsek.Tests
         private string WriteVesselSidecar(ConfigNode node)
         {
             string path = Path.Combine(tempDir, Guid.NewGuid().ToString("N") + "_vessel.craft");
-            RecordingStore.WriteSnapshotSidecarForTesting(path, node);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, node);
             return path;
         }
 
@@ -146,7 +146,7 @@ namespace Parsek.Tests
 
             // The sidecar appears later, but the cached failure short-circuits the
             // per-frame probe so we do not re-read disk (gate stays cheap).
-            RecordingStore.WriteSnapshotSidecarForTesting(path, MakeVesselNode());
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, MakeVesselNode());
             Assert.False(RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, path));
             Assert.Null(rec.VesselSnapshot);
         }
@@ -162,7 +162,7 @@ namespace Parsek.Tests
 
             // A subsequent call with a real sidecar still succeeds.
             string path = Path.Combine(tempDir, Guid.NewGuid().ToString("N") + "_vessel.craft");
-            RecordingStore.WriteSnapshotSidecarForTesting(path, MakeVesselNode());
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, MakeVesselNode());
             Assert.True(RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, path));
             Assert.NotNull(rec.VesselSnapshot);
         }

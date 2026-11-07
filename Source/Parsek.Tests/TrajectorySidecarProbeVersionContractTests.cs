@@ -38,7 +38,7 @@ namespace Parsek.Tests
             try
             {
                 TrajectorySidecarProbe probe;
-                Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+                Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
 
                 Assert.False(probe.Supported);
                 Assert.Equal(TrajectorySidecarEncoding.UnknownBinary, probe.Encoding);
