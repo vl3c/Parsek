@@ -2842,6 +2842,30 @@ namespace Parsek.Tests
                 ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(rec, 0, 250.0, null));
         }
 
+        // A recording that ends in a crash never gets a proto icon (map-presence terminal gate),
+        // so the covering-conic veto must not fire for it: before, the Tracking Station showed no
+        // icon at all for the recorded coast of a flight ending Destroyed.
+        [Fact]
+        public void ClassifyAtmosphericMarkerSkip_OrbitSegmentVeto_NeverFiresForACrashRecording()
+        {
+            var rec = new Recording { RecordingId = "rec-veto-crash" };
+            rec.Points.Add(MakePoint(100.0, 0.0, 0.0, 60000.0, "Duna"));
+            rec.Points.Add(MakePoint(400.0, 0.0, 1.0, 50000.0, "Duna"));
+            rec.OrbitSegments.Add(DegenerateDunaSegment(150.0, 350.0)); // covers currentUT below
+            rec.TerminalStateValue = TerminalState.Destroyed;
+
+            GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting("rec-veto-crash", false);
+            Assert.Equal(
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.None,
+                ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(rec, 0, 250.0, null));
+
+            // Mirror: the same recording ending in orbit keeps the veto (its proto icon draws).
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            Assert.Equal(
+                ParsekTrackingStation.AtmosphericMarkerSkipReason.OrbitSegmentActive,
+                ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(rec, 0, 250.0, null));
+        }
+
         // The OrbitSegmentActive veto's pure core (member-handoff blank fix, 2026-07-03 Duna One):
         // the veto exists ONLY to prevent a duplicate marker next to a LIVE proto orbit icon, so it
         // must never fire when the icon cannot actually draw - polyline ownership hides it, and a
@@ -2849,19 +2873,25 @@ namespace Parsek.Tests
         // to the next member's clock, whose covering conic re-armed the veto ~28 frames before the
         // icon-drive un-suppressed the proto icon -> neither icon nor marker drew on the escape-burn
         // -> hyperbola handoff. Full truth table so any future re-ordering is a conscious edit.
+        // The last input (PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE): a recording the
+        // map-presence terminal gate refuses never gets a proto icon, so its marker is the only
+        // indicator and must never be vetoed.
         [Theory]
-        [InlineData(true, false, false, true)]   // conic covers + icon LIVE -> veto (the original job)
-        [InlineData(true, true, false, false)]   // polyline owns -> icon hidden -> marker must draw
-        [InlineData(true, false, true, false)]   // REGRESSION ROW: icon SUPPRESSED -> marker must draw
-        [InlineData(true, true, true, false)]    // both hidden signals -> marker must draw
-        [InlineData(false, false, false, false)] // no covering conic -> nothing to veto
-        [InlineData(false, true, true, false)]
+        [InlineData(true, false, false, true, true)]   // conic covers + icon LIVE -> veto (the original job)
+        [InlineData(true, true, false, true, false)]   // polyline owns -> icon hidden -> marker must draw
+        [InlineData(true, false, true, true, false)]   // REGRESSION ROW: icon SUPPRESSED -> marker must draw
+        [InlineData(true, true, true, true, false)]    // both hidden signals -> marker must draw
+        [InlineData(false, false, false, true, false)] // no covering conic -> nothing to veto
+        [InlineData(false, true, true, true, false)]
+        [InlineData(true, false, false, false, false)] // REGRESSION ROW: crash recording, no proto ever -> marker must draw
+        [InlineData(false, false, false, false, false)]
         public void ShouldVetoMarkerForActiveOrbitSegment_TruthTable(
-            bool hasCoveringSegment, bool polylineOwns, bool iconSuppressed, bool expectVeto)
+            bool hasCoveringSegment, bool polylineOwns, bool iconSuppressed,
+            bool protoIconPossible, bool expectVeto)
         {
             Assert.Equal(expectVeto,
                 ParsekTrackingStation.ShouldVetoMarkerForActiveOrbitSegment(
-                    hasCoveringSegment, polylineOwns, iconSuppressed));
+                    hasCoveringSegment, polylineOwns, iconSuppressed, protoIconPossible));
         }
 
         // RecordedLongitudeAtUT is the exact inverse of BodyFixedLongitudeAtUT (playtest-12

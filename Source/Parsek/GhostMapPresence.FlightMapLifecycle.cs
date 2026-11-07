@@ -1107,12 +1107,15 @@ namespace Parsek
                 return;
             }
 
-            var terminal = evt.Trajectory.TerminalStateValue;
+            // A chain member borrowing its tip's orbit also takes the tip's ending
+            // (PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE).
+            var terminal = ResolveMapPresenceEligibilityTerminal(evt.Trajectory, out string terminalTipId);
             if (!IsTerminalStateEligibleForMapPresence(terminal))
             {
                 ParsekLog.VerboseRateLimited("Policy", $"skip-map-terminal-{evt.Index}",
                     $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory.VesselName}\" " +
-                    $"rec={evt.Trajectory.RecordingId ?? "(none)"} - terminal={terminal.Value}");
+                    $"rec={evt.Trajectory.RecordingId ?? "(none)"} - terminal={terminal.Value}" +
+                    (string.IsNullOrEmpty(terminalTipId) ? "" : $" chainTip={terminalTipId}"));
                 return;
             }
 

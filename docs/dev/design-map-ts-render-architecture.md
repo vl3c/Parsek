@@ -1180,6 +1180,14 @@ therefore resolve their segment list through `EffectiveState.EffectiveTipRecordi
 - `state-vector-fallback` stays the fallback of last resort, unchanged. It is now
   reached only when neither the recording nor its effective tip offers a segment
   covering the UT.
+- The ENDING travels with the orbit. A recording that borrows its tip's segments
+  is map-eligible only if the tip's terminal is
+  (`ResolveMapPresenceEligibilityTerminal`, read by both terminal gates), so the
+  climb HEAD of a split crash flight is refused exactly like the unsplit flight
+  and the Destroyed TIP, instead of drawing a stock map vessel down to the impact.
+  A member with segments of its own keeps its own terminal. The Tracking Station
+  marker veto (`ShouldVetoMarkerForActiveOrbitSegment`) does not fire for a
+  recording that gate refuses, since no proto icon can represent it.
 
 The routing is mirrored on both consumers of the same resolution: the flight-map
 path and the Tracking Station path share `ResolveMapPresenceGhostSource`, and the
@@ -1193,7 +1201,9 @@ member's segments cover - in the measured session the HEAD's ghost sat at UT 191
 between the HEAD's end and the TIP's first conic at UT 216.7, and still resolves to
 the state-vector path there. Whether a chain should hand map presence to its TIP's
 own ghost at that point is a chain-visibility question, filed as
-PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE in `docs/dev/todo-and-known-bugs.md`.
+PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE in `docs/dev/todo-and-known-bugs.md`. For a
+chain whose tip is map-ineligible (a crash) the ending rule above answers it: no
+member without its own segments shows a stock map vessel at all.
 
 **Defect sites this section closes** (line numbers as measured on main c3d844ebe):
 

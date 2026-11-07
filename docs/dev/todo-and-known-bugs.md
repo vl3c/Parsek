@@ -3690,7 +3690,7 @@ Filed 2026-09-23 by the D3 `relative-loop` lane (register item C5, branch `d3-re
 
 **Fix direction (not taken).** Seed `loadedAnchorVessels` from the already-loaded vessels (at least `FlightGlobals.ActiveVessel`) when `ParsekFlight` starts or on `onFlightReady`, skipping ghost map vessels the same way `OnVesselLoaded` does. Needs a unit cell on the seeding decision and an RL-1 variant anchored to the active vessel as the live witness.
 
-## PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE: routing the segment lookup to the effective tip does not restore presence at a UT NEITHER member's conics cover
+## ~~PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE: routing the segment lookup to the effective tip does not restore presence at a UT NEITHER member's conics cover~~ FIXED 2026-11-07
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still real by code reading,
 cosmetic. `GhostMapPresence` routes the segment lookup through `ResolveMapPresenceChainSegments` and
@@ -3723,6 +3723,35 @@ its first conic at 216.70). The span is powered flight, so no conic is right the
 truthful source is the TIP's own points, a design change. Open policy question, not scheduled:
 should a chain HEAD whose effective tip ends Destroyed be map-ineligible like an unsplit flight
 that ends Destroyed? Cosmetic, not a release item.
+
+CORRECTED AND FIXED 2026-11-07 (branch `claude/project-thread-ttejg7`, owner ruling pending
+option A). Two corrections to the reading above. (1) In FLIGHT the HEAD's proto does not hold
+for the 25 s gap: the HEAD's flight ghost ends at its own end (`RunStalePastEndCleanup` destroys
+it within `ChainHandoffLogic.DefaultBridgeMaxSeconds` once the TIP's ghost is active, unless
+the watch camera holds it), and `HandleFlightGhostDestroyedMapPresence` removes the proto with
+it, so the visible flight artifact is a short state-vector proto on the pre-burn ellipse at the
+atmosphere exit. (2) The larger artifact is in the TRACKING STATION, which iterates committed
+recordings without a flight ghost: the HEAD passed the terminal gate and resolved a `Segment`
+source from the TIP's coast and predicted tail at any UT those conics cover (pinned by
+`MapPresenceGhostSource_ChainHead_SeedsFromThePredictedTailNotAStateVector` at UT 1500), so a
+split crash flight drew a stock map vessel down to the impact while an unsplit one drew none.
+
+Fix: a member that borrows its tip's segments also takes its tip's ending.
+`GhostMapPresence.ResolveMapPresenceEligibilityTerminal` (same additive condition as
+`ResolveMapPresenceChainSegments`: own segments or an already-refused own terminal never
+consult the tip; both lenders share `ResolveLiveSegmentBearingChainTip`) feeds the two terminal
+gates (`HandleFlightGhostCreatedMapPresence` and `ResolveMapPresenceGhostSource`, which every
+flight, TS and overlap create path calls); the skip lines print `chainTip=<id>` when the
+ending was borrowed. Mirror fix in the TS marker: `ShouldVetoMarkerForActiveOrbitSegment` no
+longer vetoes the marker of a recording the terminal gate refuses (`protoIconPossible`), since
+no proto icon can ever represent it - a Destroyed recording with a covering conic previously
+showed no icon at all in the TS during its coast. A fixture scan of every committed save found
+one affected chain member (`refly-a-recorded`'s HEAD `32ca5546`, RF-7T / RF-7M's subject); every
+other no-segment member's tip carries no segments either. Tests:
+`PredictedTailMapPresenceTests` (eligibility truth table, crash-chain HEAD refused on the coast
+and inside its own span, orbit-ending chain unchanged), the veto truth table and
+`ClassifyAtmosphericMarkerSkip_OrbitSegmentVeto_NeverFiresForACrashRecording`. Not flown
+(flights paused); RF-7T is the lane that reads it.
 
 ## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; the GUI-tree dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on 2026-09-11 with one `RunTests` step, so the axis reads 113 of 113 by SPEC COVERAGE again and this cell is once more the only named unreachable one]
 

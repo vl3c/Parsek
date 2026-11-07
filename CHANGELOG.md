@@ -17,6 +17,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **A crashed flight's ghost looks the same on the map whether it was stored whole or in pieces.**
+  The climb part of a crash flight no longer shows as a KSP vessel on an orbit it never flew; in
+  the Tracking Station a crash flight's ghost now keeps Parsek's marker along its coast instead of
+  showing no icon at all. (PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE)
 - **Recovering a re-flown vessel no longer rewrites the flight it replaced.** After a Re-Fly, a
   recovery only ends the new flight; the replaced one keeps its own end and is never paid a second
   time. (RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL)
