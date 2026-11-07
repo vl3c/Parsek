@@ -103,7 +103,7 @@ background split line `at SOI boundary ... pid=<wingman>` and one section per bo
 wingman's recording (a wingman that close likely records Relative to the active vessel, so expect
 `closingSample=0` and two Relative sections, not two Absolute ones); not built.
 
-## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; craft re-cut 2026-11-06 with an outrigger stance (branch `cs7lander`), which stood on the Mun in flight `2026-11-07_0104` and ran out of fuel in the Mun ascent; re-cut 2026-11-07 for the fuel (branch `cs7fuel`), which flew on `baf036d` and broke its core at the booster drop; re-cut 2026-11-08 for the staging, which flew on `850babd` and burned off a leg in the Kerbin ascent; loft owed (mission side), see the last paragraph; test harness, low; no Parsek defect]
+## ~~CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground~~ [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; craft re-cut 2026-11-06 with an outrigger stance (branch `cs7lander`), which stood on the Mun in flight `2026-11-07_0104` and ran out of fuel in the Mun ascent; re-cut 2026-11-07 for the fuel (branch `cs7fuel`), which flew on `baf036d` and broke its core at the booster drop; re-cut 2026-11-07 for the staging, which flew on `850babd` and burned off a leg in the Kerbin ascent; the Kerbin ascent lofted 2026-11-07 (MechJeb's classic path set by the mission); FIXED 2026-11-07, LIVE-PROVEN `2026-11-07_0741` PASS attempt 1 (PR #2430); test harness, low; no Parsek defect]
 
 From the run's KSP.log and mission rows: no Parsek line spawns, packs or moves the lander in
 the window (the only spawn lines are the periodic `Spawn suppressed`, as in the green run). Both
@@ -170,7 +170,7 @@ autostage fired the core decoupler and the Terrier 0.84 s later (the Swivel left
 lander, its four tanks full (720 LF), fell back from a 26.3 km apoapsis. Rollout 13127 as predicted. The part
 tree was right (each TD-12 took only its Thumper); the read is the drop path: the Thumpers slid back along the
 core 0.18 m beside it with nothing pushing them clear and broke it up, and the starved Swivel let MechJeb stage.
-Fix (2026-11-08, the staging cut): the Thumpers go back on TT-38Ks on the core, CS Mun Lander's placement that
+Fix (2026-11-07, the staging cut): the Thumpers go back on TT-38Ks on the core, CS Mun Lander's placement that
 the 2026-10-31 and 2026-11-07 flights both dropped cleanly; 30 parts, cost 14292 (rollout pin 143xx). Their
 three open tops are the first solar cut's, whose ascent cost about 3392 m/s; the lander's 25% margin holds to
 3512 (32% at 3392). New builder gate (`solar_staging`): it fires the stages on the WRITTEN craft's part tree as
@@ -179,7 +179,7 @@ three legs and three cones, each liquid engine to feed from its own stage's tank
 the axis by a stack decoupler within 1.0 m of the stack it slides past; it refuses the flown fuel cut (0.18 m).
 The re-flight should watch the booster drop (three Thumper debris, no other piece) and the core drop's altitude.
 
-2026-11-08, the `850babd` flight: the staging and the fuel held (three Thumper debris at 11.1 km, the core
+2026-11-07, the `850babd` flight: the staging and the fuel held (three Thumper debris at 11.1 km, the core
 drop at 31.8 km, 413.5 LF at LKO, lowest Mun EC about 232 of 250, rollout 14327), but both attempts went
 INVALID `mun-lander-tipped` (97 and 143 deg) on three legs: the LT-05 at azimuth 90 (`miniLandingLeg`
 pid 1700185208, on outrigger 0, opposite the hatch) EXPLODED in the Kerbin ascent (KSP.log `miniLandingLeg
@@ -201,6 +201,37 @@ exposes no turn-shape knob (only ascentType / autostageLimit / targetApoapsisMet
 min(59.5 km, target)); the fix is a classic turn-shape setter in the CS-4 setter family (set, read back,
 withhold the engage on a refusal) with a value sized on this flight's full MJ-ASCENT rows, or a flown
 trial of ascentType 1 / 2. Offline gate owed with it: a heating-index ceiling in a whole-ascent model.
+
+2026-11-07, the loft. The full MJ-ASCENT rows of both attempts (`2026-11-07_0545`, `_0620_a2`) correct the
+lander-only read above: the core dropped as on `0104_a2` (31.8 km, 1269 m/s across, 157 up), and the
+0.57 lander could not hold MechJeb's auto path. It topped out at 35.8 km and sank to 33.3 km while it built
+speed, 160 s in the hot band, to 5.85e8 (the LT-05 cfg reads maxTemp 1200 and no skinMaxTemp). Fix, mission
+side: `mlib.mj_classic_path_from_dict` / `mj_classic_path_actions` add five opt-in b13_mun_landing_return
+keys (`mjClassicTurnStartAltitudeMeters` / `...VelocityMps` / `...EndAltitudeMeters` / `...ShapeExponent` /
+`...EndAngleDeg`, all or none, with ascentType 0 and the engage gate). The launch then writes AutoPath off
+and the five values after the career setters, each read back by the runner (KRPC.MechJeb AutoPath,
+TurnStartAltitude, TurnStartVelocity, TurnEndAltitude, TurnShapeExponent, TurnEndAngle); a refusal
+withholds the engage, and MechJeb's own auto path (AutoTurnStartAltitude / AutoTurnEndAltitude) is logged
+before it goes off. MechJeb keeps ascent settings per craft type and globally, so the runner writes the
+values it overwrote back once B5 is past CIRCULARIZE (before the Mun ascent and the next lane) and again at
+its close if the flight ended first. Absent keys emit nothing, so every other lane is byte-identical (the mor / msc / B5 /
+mlr trace digests hold). CS-7 sets 1000 m / 90 m/s / 80 km / 0.55 / 0. Builder gate, THE ASCENT HEATING
+in `build_cs_orbiter_craft.py`: a point-mass ascent model (MechJeb's classic path with its AoA limit, the
+craft's stages and engines, drag CdA times a drag-rise curve, the coast holding the apoapsis) under five
+calibrations fitted on the `_0620_a2` rows (within 0.7 km, 63 m/s across and 32 m/s up; each reads the
+loss, 6.2e8 to 6.7e8, and 415 to 425 LF at LKO against the flight's 413.5). Under the loft every
+calibration peaks at 4.1e7 to 5.1e7 against a ceiling of 1.58e8 (the survived 2.37e8 over 1.5) and reaches
+LKO with about 30 LF more than the flown path. Turn end 70 to 100 km, shape 0.5 to 0.6, and drag x0.7 or
+x1.3 all stay under 1.6e8; the gate refuses shape 0.4 at 80 km (2.6e8), and the spec's values must equal
+the builder's `SOLAR_LOFT`. The re-flight should read the logged auto path, the loft's read-backs, the
+core drop's altitude (the model: 45 to 48 km), all three legs at the Mun and LF at LKO (the model: about 443).
+
+2026-11-07, the loft flown: `2026-11-07_0741_CS-7-career-mun-landing` PASS on attempt 1 (2396 s, the
+whole chain through the splashdown, every telemetry assertion met). The six read-backs confirmed, the auto
+path logged, `classic path restored for ascent done` before the transfer burn, no refusal. The Thumpers
+dropped at 12.5 km (three debris), the core at 49.2 km (apoapsis 59.4; the model read 45 to 48), LKO with
+468.6 LF (the model read about 443), no part exploded, the part count held at 16 (three legs) to the Mun,
+and the lowest Mun charge read 242 EC. Closed.
 
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 
