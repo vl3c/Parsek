@@ -33,12 +33,12 @@ namespace Parsek.Rendering
     /// </para>
     ///
     /// <para>
-    /// Deferred sources (each emits ε = 0 and reserves the priority slot;
-    /// the corresponding world-frame resolver lands in a follow-up):
+    /// Zero-epsilon sources (each emits a zero epsilon at its priority slot):
     /// <list type="bullet">
-    ///   <item>§7.9 SurfaceContinuous — Phase 7 terrain raycast. Phase 6
-    ///   emits the candidate marker so Phase 7 can hook the per-frame
-    ///   resolver in without touching commit-time code.</item>
+    ///   <item>Section 7.9 SurfaceContinuous - surface terrain correction ships as
+    ///   the per-sample recordedGroundClearance applied at positioning time,
+    ///   so this anchor never resolves a world-frame epsilon (rank 6, the
+    ///   lowest, so it never outranks a real one).</item>
     /// </list>
     /// §7.7 BubbleEntry / BubbleExit shipped in v0.9.1 — adjacent
     /// TrackSection source-class transitions
@@ -696,7 +696,7 @@ namespace Parsek.Rendering
         ///   <item>Loop             → <see cref="IAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos"/></item>
         ///   <item>BubbleEntry / BubbleExit → <see cref="IAnchorWorldFrameResolver.TryResolveBubbleEntryExitWorldPos"/></item>
         ///   <item>SurfaceContinuous
-        ///         → deferred (returns false, ε stays 0).</item>
+        ///         -> none (returns false, epsilon stays 0; terrain correction is recordedGroundClearance).</item>
         /// </list>
         /// Returns true with a finite world-frame ε; returns false on
         /// resolver miss or when no smoothed-position is available

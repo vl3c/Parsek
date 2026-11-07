@@ -137,10 +137,15 @@ namespace Parsek
 
         /// <summary>
         /// Determines whether spawn should be suppressed because the recording
-        /// is an intermediate link in a ghost chain (not the chain tip), or
-        /// because the chain is terminated (vessel destroyed/recovered).
+        /// is an intermediate link in a ghost chain (not the chain tip).
         /// Returns (suppressed, reason). Called BEFORE ShouldSpawnAtRecordingEnd
         /// by the playback controller (Phase 6b).
+        ///
+        /// A terminated chain's tip needs no arm here: a chain is terminated only when
+        /// its tip's terminal is one <see cref="GhostChainWalker.IsChainTerminatingTerminal"/>
+        /// names, and none of those is spawnable, so ShouldSpawnAtRecordingEnd already
+        /// refuses that tip by its own terminal (the two sets are pinned disjoint by
+        /// ChainSpawnSuppressionTests).
         /// </summary>
         internal static (bool suppressed, string reason) ShouldSuppressSpawnForChain(
             Dictionary<uint, GhostChain> chains, Recording rec)
@@ -154,17 +159,6 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("ChainWalker", $"chain-suppress-{rec.RecordingId}",
                     $"Intermediate spawn suppressed: rec={rec.RecordingId} vessel={rec.VesselName}");
                 return (true, "intermediate ghost chain link");
-            }
-
-            var chain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
-            if (chain != null && chain.IsTerminated && chain.TipRecordingId == rec.RecordingId)
-            {
-                ParsekLog.VerboseRateLimited("ChainWalker",
-                    "terminated-spawn-" + rec.VesselPersistentId,
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Terminated chain spawn suppressed: rec={0} vessel={1} vesselPid={2}",
-                        rec.RecordingId, rec.VesselName, rec.VesselPersistentId));
-                return (true, "terminated ghost chain");
             }
 
             return (false, "");

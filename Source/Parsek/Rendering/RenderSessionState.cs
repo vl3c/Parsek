@@ -402,7 +402,45 @@ namespace Parsek.Rendering
                         winner));
                 }
             }
+            // HR-9: the magnitude check guards every anchor source, not only
+            // LiveSeparation. Checked on the value that LANDS, so a candidate
+            // that lost the priority comparison stays silent.
+            if (inserted)
+                WarnIfEpsilonExceedsBubbleRadius(candidate);
             return inserted;
+        }
+
+        /// <summary>
+        /// Pure HR-9 predicate: true when an anchor epsilon is larger than the
+        /// KSP physics bubble, which no real recorded offset can be (a frame
+        /// mismatch or a propagation bug). NaN / infinity read true too: a
+        /// non-finite epsilon is the same failure, louder.
+        /// </summary>
+        internal static bool EpsilonExceedsBubbleRadius(double epsilonMagnitudeM)
+        {
+            if (double.IsNaN(epsilonMagnitudeM) || double.IsInfinity(epsilonMagnitudeM))
+                return true;
+            return epsilonMagnitudeM > BubbleRadiusMetres;
+        }
+
+        /// <summary>
+        /// HR-9 visible-failure Warn for an oversized anchor epsilon. Keeps the
+        /// value (never zeroes it) so the next render shows the misalignment
+        /// instead of silently masking it. Called once per anchor write (session
+        /// rebuild time, never per frame).
+        /// </summary>
+        private static void WarnIfEpsilonExceedsBubbleRadius(AnchorCorrection ac)
+        {
+            double epsilonMagnitudeM = ac.Epsilon.magnitude;
+            if (!EpsilonExceedsBubbleRadius(epsilonMagnitudeM))
+                return;
+            ParsekLog.Warn("Pipeline-Anchor",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Anchor \u03b5 exceeds bubble radius: recordingId={0} sectionIndex={1} side={2} " +
+                    "anchorSource={3} epsilonMagnitudeM={4} bubbleRadiusM={5}",
+                    ac.RecordingId, ac.SectionIndex, ac.Side, ac.Source,
+                    epsilonMagnitudeM.ToString("R", CultureInfo.InvariantCulture),
+                    BubbleRadiusMetres.ToString("F0", CultureInfo.InvariantCulture)));
         }
 
         // -------------------------------------------------------------------
@@ -824,21 +862,6 @@ namespace Parsek.Rendering
                 Vector3d epsilon = target - pSmoothedWorld;
                 double epsilonMagnitudeM = epsilon.magnitude;
 
-                if (epsilonMagnitudeM > BubbleRadiusMetres)
-                {
-                    // L20: HR-9 visible-failure Warn. Keep the value (do not
-                    // zero) so the next render shows the misalignment instead
-                    // of silently masking it.
-                    ParsekLog.Warn("Pipeline-Anchor",
-                        string.Format(CultureInfo.InvariantCulture,
-                            "Anchor ε exceeds bubble radius: recordingId={0} sectionIndex={1} side={2} " +
-                            "anchorSource={3} epsilonMagnitudeM={4} bubbleRadiusM={5}",
-                            rSib.RecordingId, sibSectionIdx, AnchorSide.Start,
-                            AnchorSource.LiveSeparation,
-                            epsilonMagnitudeM.ToString("R", CultureInfo.InvariantCulture),
-                            BubbleRadiusMetres.ToString("F0", CultureInfo.InvariantCulture)));
-                }
-
                 var ac = new AnchorCorrection(
                     recordingId: rSib.RecordingId,
                     sectionIndex: sibSectionIdx,
@@ -846,6 +869,10 @@ namespace Parsek.Rendering
                     ut: bp.UT,
                     epsilon: epsilon,
                     source: AnchorSource.LiveSeparation);
+
+                // L20: HR-9 visible-failure Warn, shared with every other
+                // anchor writer (PutAnchorWithPriority).
+                WarnIfEpsilonExceedsBubbleRadius(ac);
 
                 lock (Lock)
                 {
