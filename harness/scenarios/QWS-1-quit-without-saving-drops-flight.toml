@@ -16,6 +16,8 @@ tier = "nightly"
 # branch deletes the files that flight wrote (owner ruling "if unused, delete"; the first flight,
 # 2026-11-01, was red only on the .prec count before that). Forbidden: any scene-exit commit
 # (S0.7's own commit lines).
+#
+# LIVE-PROVEN 2026-11-05 in the full run: `2026-11-05_0908` PASS attempt 1 (main 02d71af).
 description = "Drive stock's Quit without saving out of a live recording to the Space Center: no merge dialog, no commit, no save write; the Space Center's reload is a Cold load, the flight since the last save is gone from the recordings and its files are deleted."
 instanceProfile = "stock-minimal"
 tags = ["scene-exit", "auto-merge", "live-recording", "quit-without-saving", "QWS-1"]
