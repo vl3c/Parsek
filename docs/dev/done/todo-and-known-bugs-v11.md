@@ -20574,7 +20574,7 @@ measured instance would be guessing.
   would be guessing.
 The `split-sibling-transfer` clause keeps citing this id, which stays readable in the archive.
 
-## ~~RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive~~ [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed. **Operator ruling 2026-09-26: keep filed; act only when a second consumer is misled by the label.**; FIXED 2026-11-07, branch cleanup-3, xUnit: the consumer grep found three more readers misled by the label, which meets the 2026-09-26 condition]
+## ~~RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive~~ [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed. **Operator ruling 2026-09-26: keep filed; act only when a second consumer is misled by the label.**; FIXED 2026-11-07, branch cleanup-3, xUnit: the consumer grep found three more readers misled by the label, which meets the 2026-09-26 condition; FLOWN 2026-11-07 on main 6340484c: B6-minmus-flyby `2026-11-07_1902` PASS with two `TrackSection env normalized: ExoPropulsive -> ExoBallistic` lines, B28-laythe-jool-return `_1857` PASS; neither lane trimmed a tail, no pin moved]
 
 **The observation.** On `dres-orbit-recorded`, track section 28 is
 `env=ExoPropulsive ref=OrbitalCheckpoint`, spans 25,921 s, and its single
@@ -20851,3 +20851,91 @@ The VerboseOnChange concern applied only to that proposed change; the shipped li
 used it. Broader spam work belongs to the Observability Audit section above, not here.
 
 ---
+
+# Moved out 2026-11-07 (1.0.1 pre-release flights)
+
+## ~~WHEEL-DAMAGE-NOT-RECORDED: a wheel that breaks or is repaired in flight looks intact on its ghost~~ [FILED 2026-11-07 off the 1.0.1 preparation thread (owner: "check if we're recording wheel damage"). BUILT 2026-11-07, branch `claude/project-thread-5pds6z`; xUnit plus one in-game cell; LIVE-PROVEN by H37-part-event-fidelity `2026-11-07_1855` (main 6340484c, total=6 passed=6, the sixth cell's first flight). product, low (visual only)]
+
+**What was wrong.** Stock `ModuleWheelDamage` swaps a wheel to its busted mesh when it breaks
+(`isDamaged`, persistent) and back when an engineer repairs it. Parsek recorded neither, and the
+ghost builder dropped the busted mesh outright (`IsRendererOnDamagedTransform` filtered it), so a
+ghost always showed an intact wheel, including for a vessel that started its flight broken. The
+2026-08-09 part-action audit had listed this as WON'T; the owner asked for it on 2026-11-07.
+
+**Fix.** Two additive `PartEventType` members, `WheelBroken = 45` and `WheelRepaired = 46` (no
+schema bump: additive enum, same as `DeployableBroken`). The active and background recorders poll
+`isDamaged` per part; `PartStateSeeder` seeds a broken wheel at recording start and the rails-span
+diff emits both directions; the optimizer's split seeds carry the state as its own reversible
+family. The ghost builder now clones the busted mesh hidden when the part has a usable
+damaged / undamaged pair (`WheelDamageGhostInfo`), and only then: a part whose busted mesh does not
+clone with a renderer keeps the old filtered behaviour (a break then has no visual). Playback swaps on the events, the snapshot baseline sets the
+starting state (`ModuleWheelDamage isDamaged`), a loop cycle resets to intact, and a broken wheel no
+longer spins on the ghost. Ghost-only: nothing writes game state.
+
+**Tests.** `WheelDamageRecordingTests` (transition table, seeds, diff, split seeds, classifiers,
+snapshot parse, appliers, spin gate, build decision) and the in-game cell
+`BrokenWheelSwapsToTheBustedMeshAndRepairRestoresIt` in `PartEventFidelity`, which moved
+`H37-part-event-fidelity` to `total=6`.
+
+## ~~PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE: routing the segment lookup to the effective tip does not restore presence at a UT NEITHER member's conics cover~~ FIXED 2026-11-07; LIVE-PROVEN by RF-7T `2026-11-07_1853` and RF-7M `2026-11-07_1854` (main 6340484c, PASS attempt 1)
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still real by code reading,
+cosmetic. `GhostMapPresence` routes the segment lookup through `ResolveMapPresenceChainSegments` and
+then `TrajectoryMath.FindOrbitSegmentForMapDisplay`, which carries no gap across members, so a UT
+before the tip's first conic still falls to the state-vector path. No small fix; why the TIP never
+entered pending-create needs a lifecycle read and a flight (RF-7T / RF-8 host). Not a release
+blocker.
+
+Residual of the fix above, stated rather than papered over. In the measured session the
+HEAD's ghost sat at UT 191.1 - between the HEAD's own end (191.04) and the TIP's first
+conic (216.70) - and still resolves through the state-vector path there, because no
+segment on either member covers that UT. Whether a chain should hand map presence to the
+TIP's own ghost once the playhead passes the HEAD's end is a chain-VISIBILITY question,
+not a segment-lookup one: in the same session the flight-scene engine had the TIP visible
+and driven (`[i=1 rec=8da7c2c2 ... endUT=2348.5][out:vis=T ...]`, KSP.log:20211) while
+map-presence resolution never ran for it at all.
+
+~~Fix: unknown - needs a reading of which member the map-presence lifecycle pass selects for
+a chain and why the TIP never entered the pending-create queue.~~ ANSWERED 2026-11-06 (code
+reading, branch `claude/project-thread-esanuo`): the TIP is refused by the terminal gate, not by
+a chain hand-off. `GhostMapPresence.HandleFlightGhostCreatedMapPresence` returns at
+`IsTerminalStateEligibleForMapPresence` (accepts only null / Orbiting / Docked / SubOrbital), and
+the optimizer split moved the Destroyed terminal (the predicted ballistic tail's impact at 2348.5)
+to the TIP and nulled the HEAD's, so the HEAD passes and the TIP never enters pending-create. The
+skip line carried no recording id, so a grep for the TIP's id found nothing; it now prints
+`rec=<id>`. In the gap the HEAD's proto (if already created) clamps to its last point and reseeds
+from it, showing the pre-burn ellipse for about 25 s of game time; creating one there fails
+(`no-state-vector-point`). An eligible TIP would not fill it either (`before-terminal-orbit` until
+its first conic at 216.70). The span is powered flight, so no conic is right there; the only
+truthful source is the TIP's own points, a design change. Open policy question, not scheduled:
+should a chain HEAD whose effective tip ends Destroyed be map-ineligible like an unsplit flight
+that ends Destroyed? Cosmetic, not a release item.
+
+CORRECTED AND FIXED 2026-11-07 (branch `claude/project-thread-ttejg7`; owner ruling 2026-11-07:
+a crash flight stored in pieces looks exactly like one stored whole). Two corrections to the reading above. (1) In FLIGHT the HEAD's proto does not hold
+for the 25 s gap: the HEAD's flight ghost ends at its own end (`RunStalePastEndCleanup` destroys
+it within `ChainHandoffLogic.DefaultBridgeMaxSeconds` once the TIP's ghost is active, unless
+the watch camera holds it), and `HandleFlightGhostDestroyedMapPresence` removes the proto with
+it, so the visible flight artifact is a short state-vector proto on the pre-burn ellipse at the
+atmosphere exit. (2) The larger artifact is in the TRACKING STATION, which iterates committed
+recordings without a flight ghost: the HEAD passed the terminal gate and resolved a `Segment`
+source from the TIP's coast and predicted tail at any UT those conics cover (pinned by
+`MapPresenceGhostSource_ChainHead_SeedsFromThePredictedTailNotAStateVector` at UT 1500), so a
+split crash flight drew a stock map vessel down to the impact while an unsplit one drew none.
+
+Fix: a member that borrows its tip's segments also takes its tip's ending.
+`GhostMapPresence.ResolveMapPresenceEligibilityTerminal` (same additive condition as
+`ResolveMapPresenceChainSegments`: own segments or an already-refused own terminal never
+consult the tip; both lenders share `ResolveLiveSegmentBearingChainTip`) feeds the two terminal
+gates (`HandleFlightGhostCreatedMapPresence` and `ResolveMapPresenceGhostSource`, which every
+flight, TS and overlap create path calls); the skip lines print `chainTip=<id>` when the
+ending was borrowed. Mirror fix in the TS marker: `ShouldVetoMarkerForActiveOrbitSegment` no
+longer vetoes the marker of a recording the terminal gate refuses (`protoIconPossible`), since
+no proto icon can ever represent it - a Destroyed recording with a covering conic previously
+showed no icon at all in the TS during its coast. A fixture scan of every committed save found
+one affected chain member (`refly-a-recorded`'s HEAD `32ca5546`, RF-7T / RF-7M's subject); every
+other no-segment member's tip carries no segments either. Tests:
+`PredictedTailMapPresenceTests` (eligibility truth table, crash-chain HEAD refused on the coast
+and inside its own span, orbit-ending chain unchanged), the veto truth table and
+`ClassifyAtmosphericMarkerSkip_OrbitSegmentVeto_NeverFiresForACrashRecording`. Not flown
+(flights paused); RF-7T is the lane that reads it.
