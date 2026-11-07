@@ -2827,7 +2827,7 @@ name set is false, and a null or empty set is false with a live transform. Addin
 category a committed harness spec pins moves that spec's `BATCH_COMPLETE total=` tally
 (`CommittedBatchTallySourceSyncTests`), so pick the category with that in mind.
 
-## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines (30,126 on 2026-11-01; the type is 35,099 over 14 files) and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
+## ~~ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines (30,126 on 2026-11-01; the type is 35,099 over 14 files) and on one side of every top cross-module co-change pair~~ [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (plan PRs PF0-PF10: Phase A IL-identical, each Phase B PR IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 
 **What is true.**
 - Touched in 1,125 of the 5,127 commits since 2025-03-01 (22 percent of every commit to
@@ -3000,6 +3000,42 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   differences; the 10 left are the accessor (field, property, getter), the service's host field
   and constructor and the five `method-forwarder`s. Knot 476 -> 477, replayed residue 283
   unchanged (canaries re-pinned).
+- PF10 (finish) landed. Forwarders: of the 49 one-call forwarders on the partials, 16 are
+  GameEvents / `MergeDialog.OnTreeCommitted` handlers (kept, so every subscription target is
+  unchanged) and 32 have a caller outside the type (patches, UI, test commands, in-game and xUnit
+  tests, `WatchModeController`, the recorders, `ParsekScenario`; kept). The one with no caller
+  anywhere, `PositionGhostAtForWatch` (dead since 2026-04-12, when its watch-mode caller went;
+  PF2 only re-pointed it), is deleted. IL against the PF9 tip, no fold needed: 1 difference, that
+  method gone. RESTORE stays a partial, by the numbers: `.TreeRestore.cs` is 2,497 lines, of which
+  the 3 coroutines (686 lines) must stay on the MonoBehaviour and 26 of its 35 statics (928 lines)
+  are named by 12 production and 20 test files, so they stay by rule. What a type could take is 8
+  instance methods (586 lines) and 9 statics (247 lines), and those are reached from `OnFlightReady`,
+  from `SwitchContinuation` and `MergeFlow`, from `ParsekScenario` and the test commands (two
+  forwarders), and from the named statics that stay: a ninth service of about 830 lines that
+  every caller crosses into, knot +1, no co-change taken off the partial. SESSION
+  (`.RecorderSession.cs`) and the teardown stay partials as planned. Hunk scan: the only commits
+  after PF2 that touch `ParsekFlight*.cs` on the refactor branch are PF3-PF10 themselves, so no
+  feature commit lands after the moves yet and the co-change shift cannot be measured. On `main`,
+  three commits since the branch's merge base (2352bf778, c446efe9a, cdde4d9d0, 2026-11-06) touch
+  ParsekFlight.cs in 7 hunks: 4 land in services (`ParsekFlightMergeFlow` 2,
+  `ParsekFlightPlaybackHost` 2, one of them the `RealVesselRelays` flag code in
+  `ComputePlaybackFlags`) and 3 in partials (`ParsekFlight.cs`, `.MergeFlow.cs`,
+  `.TreeRestore.cs`). They are not on the refactor branch yet; merging `main` in re-applies the 4
+  service hunks by hand where the text moved.
+
+**End state** (plan section 8; baseline ParsekFlight.cs 30,388 lines, the type 35,565 over 14
+files; expected ParsekFlight.cs about 3,500, eight services about 19,600 lines, the type about
+16,000, knot +8, residue 287): ParsekFlight.cs 2,567 lines (fields the partials share, the Unity
+callbacks, `OnFlightReady`, the facade, the committed-list handlers, the lazy accessors and the
+forwarders); the type 16,166 lines over 23 partial files; eight services hold 415 moved methods in
+19,886 lines: `ParsekFlightGhostPositioner` 6,017 (116 methods), `ParsekFlightPlaybackHost` 3,531
+(80), `ParsekFlightSplitBrancher` 3,420 (51), `ParsekFlightMergeFlow` 1,773 (44),
+`ParsekFlightSwitchContinuation` 1,572 (19), `ParsekFlightPostSwitchAutoRecord` 1,438 (53),
+`ParsekFlightSpawnHost` 1,384 (29), `ParsekFlightSurfaceCapture` 751 (23). Every service is
+reached only through its host (fan-in 1-5). Knot 469 -> 477 (each service joins it through its
+host), the ParsekFlight cut still lands on 454, replayed residue 283 throughout (bound 283). What
+stays on the type is the plan's composition root: every coroutine, every subscription, the
+recorder session, tree restore and teardown, and the statics other files name.
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 
