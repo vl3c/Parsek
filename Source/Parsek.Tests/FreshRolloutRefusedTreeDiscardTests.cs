@@ -51,7 +51,7 @@ namespace Parsek.Tests
             // -> KspStatePatcher) would otherwise call Unity's FindObjectsOfType under xUnit.
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             GameStateRecorder.PendingScienceSubjects.Clear();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             RecordingStore.SaveGameForTesting = (name, folder, mode) => { savedNames.Add(name); return "ok"; };
             ParsekScenario.CurrentTimelineUTProviderForTesting = () => 300.0;
             ParsekLog.ResetTestOverrides();

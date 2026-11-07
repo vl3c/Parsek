@@ -2877,6 +2877,22 @@ each PR lands on the refactor branch, IL-proven a pure move).
   The new file is on the ERS / ELS allowlist (raw committed indices, as inside the store).
   `RecordingStore` 9,311 -> 9,120 lines, 258 -> 253 methods; knot 458 -> 459 (the new type
   sits on a cycle), cut residue unchanged at 287.
+- PR3b (service C, second half) landed: the sidecar bodies with logic left the store for
+  `RecordingSidecarStore`: `WriteTrajectorySidecar`, `CountPredictedOrbitSegments`, both
+  `TryProbeTrajectorySidecar` overloads, `DeserializeTrajectorySidecar`,
+  `TryProbeSnapshotSidecar`, the `GhostSnapshotMode` trio, `ConfigNodesEquivalent`, the four
+  sidecar test seams and the `SnapshotSidecarLoadState` / `SnapshotSidecarLoadSummary` types
+  (the store's copy of `FormatPathForSidecarLog` was a duplicate and is gone). The two seam
+  statics moved with them; `RecordingSidecarStore.ResetForTesting` clears them, it is in
+  `SaveScopedSessionResetTests.InventoryTypes` and the allowlist names the new owner. No
+  forwarder; 9 production files (2 of them in-game tests) and 48 xUnit files call the new home.
+  Kept on the store: `ReconcileReadableSidecarMirrorsForKnownRecordings` (reads the committed
+  list and the pending slot) and `EnsureCheckpointSectionsForTopLevelOrbitSegments`: moving that
+  one reds the cut-residue ratchet 287 -> 295, because `TrajectoryTextSidecarCodec` calls it and
+  the new `RecordingSidecarStore -> OrbitSegmentCheckpointBridge -> RenderSessionState -> ... ->
+  RelativeAnchorResolver -> TrajectoryTextSidecarCodec` cycle survives the `RecordingStore` cut
+  (8 types). `RecordingStore` partials 9,249 -> 8,964 lines, 294 -> 279 IL methods; knot 459 and
+  cut residue 287 unchanged.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

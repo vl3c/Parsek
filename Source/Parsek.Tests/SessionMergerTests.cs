@@ -1440,12 +1440,12 @@ namespace Parsek.Tests
                 "parsek-legacy-bg-gap-" + Guid.NewGuid().ToString("N") + ".prec");
             try
             {
-                RecordingStore.WriteTrajectorySidecar(path, merged, sidecarEpoch: 11);
+                RecordingSidecarStore.WriteTrajectorySidecar(path, merged, sidecarEpoch: 11);
                 TrajectorySidecarProbe probe;
-                Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+                Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
 
                 var restored = new Recording { RecordingId = merged.RecordingId };
-                RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+                RecordingSidecarStore.DeserializeTrajectorySidecar(path, probe, restored);
 
                 Assert.Equal(5, restored.TrackSections.Count);
                 Assert.Equal(3, restored.TrackSections.Count(s =>

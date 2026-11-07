@@ -37,6 +37,8 @@ namespace Parsek.Tests
             // Leftovers found by the save-switch audit (2026-10-31).
             typeof(FacilityStatePatcher),
             typeof(RecordingGroupStore),
+            // RecordingStore services (ARCH-RECORDINGSTORE-GOD-OBJECT): statics moved off the store.
+            typeof(RecordingSidecarStore),
         };
 
         private readonly List<string> logLines = new List<string>();

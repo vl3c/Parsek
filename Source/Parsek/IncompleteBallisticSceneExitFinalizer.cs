@@ -3045,7 +3045,7 @@ namespace Parsek
             bool ghostOnlySnapshot = result.vesselSnapshot == null && result.ghostVisualSnapshot != null;
             ApplyTerminalSnapshots(recording, result, logContext);
 
-            GhostSnapshotMode recomputedGhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
+            GhostSnapshotMode recomputedGhostSnapshotMode = RecordingSidecarStore.DetermineGhostSnapshotMode(recording);
             if (recording.GhostSnapshotMode != recomputedGhostSnapshotMode)
             {
                 ParsekLog.Verbose("Extrapolator",
@@ -3082,7 +3082,7 @@ namespace Parsek
                         : recording.VesselSnapshot.CreateCopy();
                 }
                 else if (result.ghostVisualSnapshot != null
-                    && !RecordingStore.ConfigNodesEquivalent(recording.GhostVisualSnapshot, result.ghostVisualSnapshot))
+                    && !RecordingSidecarStore.ConfigNodesEquivalent(recording.GhostVisualSnapshot, result.ghostVisualSnapshot))
                 {
                     ParsekLog.Verbose("Extrapolator",
                         $"{logContext ?? "SceneExitFinalizer"}: preserved existing ghost visual snapshot for " +
@@ -3098,7 +3098,7 @@ namespace Parsek
                         $"{logContext ?? "SceneExitFinalizer"}: applied ghost-only scene-exit finalization for " +
                         $"'{recording.RecordingId}' without a vessel snapshot");
                 }
-                else if (!RecordingStore.ConfigNodesEquivalent(recording.GhostVisualSnapshot, result.ghostVisualSnapshot))
+                else if (!RecordingSidecarStore.ConfigNodesEquivalent(recording.GhostVisualSnapshot, result.ghostVisualSnapshot))
                 {
                     ParsekLog.Verbose("Extrapolator",
                         $"{logContext ?? "SceneExitFinalizer"}: preserved existing ghost visual snapshot for " +
