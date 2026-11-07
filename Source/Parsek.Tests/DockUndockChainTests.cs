@@ -80,7 +80,7 @@ namespace Parsek.Tests
             rec2.ChainBranch = 0;
             RecordingStore.CommitRecordingDirect(rec2);
 
-            Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
+            Assert.True(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
 
         [Fact]
@@ -108,10 +108,10 @@ namespace Parsek.Tests
             RecordingStore.CommitRecordingDirect(rec3);
 
             // Branch 1 recording — always returns false (ghost-only, despawns normally)
-            Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
 
             // Branch 0 index 0 — mid-chain (branch 0 has higher index)
-            Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
+            Assert.True(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
 
         #endregion
@@ -147,7 +147,7 @@ namespace Parsek.Tests
             var seg1 = RecordingStore.CommittedRecordings[1];
 
             // Chain end should be branch 0's max EndUT (seg1), not branch 1's
-            Assert.Equal(seg1.EndUT, RecordingStore.GetChainEndUT(seg0));
+            Assert.Equal(seg1.EndUT, RecordingChainQueries.GetChainEndUT(seg0));
         }
 
         #endregion
@@ -180,7 +180,7 @@ namespace Parsek.Tests
             rec3.ChainBranch = 1;
             RecordingStore.CommitRecordingDirect(rec3);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             // All should preserve their chain metadata
             foreach (var rec in RecordingStore.CommittedRecordings)
@@ -222,7 +222,7 @@ namespace Parsek.Tests
             rec4.ChainBranch = 1;
             RecordingStore.CommitRecordingDirect(rec4);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             // All branches degraded (entire chain invalidated)
             foreach (var rec in RecordingStore.CommittedRecordings)
@@ -428,13 +428,13 @@ namespace Parsek.Tests
             RecordingStore.CommitRecordingDirect(stationRec);
 
             // Validation should pass
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
             foreach (var rec in RecordingStore.CommittedRecordings)
                 Assert.Equal("dock-undock", rec.ChainId);
 
             // Chain end only considers branch 0
             var approach = RecordingStore.CommittedRecordings[0];
-            double chainEnd = RecordingStore.GetChainEndUT(approach);
+            double chainEnd = RecordingChainQueries.GetChainEndUT(approach);
             var undocked = RecordingStore.CommittedRecordings[2];
             Assert.Equal(undocked.EndUT, chainEnd);
 
@@ -445,15 +445,15 @@ namespace Parsek.Tests
 
             // Only branch 0 final segment can spawn
             Assert.NotNull(undocked.VesselSnapshot);
-            Assert.False(RecordingStore.IsChainMidSegment(undocked));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(undocked));
 
             // Branch 1 never spawns
-            Assert.False(RecordingStore.IsChainMidSegment(station));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(station));
 
             // Mid-chain checks for branch 0
-            Assert.True(RecordingStore.IsChainMidSegment(approach));
+            Assert.True(RecordingChainQueries.IsChainMidSegment(approach));
             var docked = RecordingStore.CommittedRecordings[1];
-            Assert.True(RecordingStore.IsChainMidSegment(docked));
+            Assert.True(RecordingChainQueries.IsChainMidSegment(docked));
         }
 
         #endregion
@@ -493,7 +493,7 @@ namespace Parsek.Tests
             station2Rec.ChainBranch = 2;
             RecordingStore.CommitRecordingDirect(station2Rec);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             // All recordings should still be valid chain members
             foreach (var rec in RecordingStore.CommittedRecordings)
@@ -501,10 +501,10 @@ namespace Parsek.Tests
 
             // Only the final branch 0 segment spawns
             Assert.NotNull(RecordingStore.CommittedRecordings[4].VesselSnapshot);
-            Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[4]));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[4]));
 
             // Chain end comes from branch 0's last segment
-            double chainEnd = RecordingStore.GetChainEndUT(RecordingStore.CommittedRecordings[0]);
+            double chainEnd = RecordingChainQueries.GetChainEndUT(RecordingStore.CommittedRecordings[0]);
             Assert.Equal(RecordingStore.CommittedRecordings[4].EndUT, chainEnd);
         }
 
@@ -543,7 +543,7 @@ namespace Parsek.Tests
             rec3.RecordingId = "boarded";
             RecordingStore.CommitRecordingDirect(rec3);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             // All three segments valid
             foreach (var rec in RecordingStore.CommittedRecordings)
@@ -589,7 +589,7 @@ namespace Parsek.Tests
             stationNewRec.ChainBranch = 2;
             RecordingStore.CommitRecordingDirect(stationNewRec);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             // All 6 recordings valid
             Assert.Equal(6, RecordingStore.CommittedRecordings.Count);
@@ -627,7 +627,7 @@ namespace Parsek.Tests
             rec3.ChainBranch = 1;
             RecordingStore.CommitRecordingDirect(rec3);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
