@@ -3521,7 +3521,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # The bound ratchets: it is tightened to the measured replayed residue, 283.
         # Wave 2 W1a (VesselLaunchIdentity's two store calls become installed rules) takes
         # it to 272 of 459 (greedy 272 too); W1b (RewindVesselHold.Hold carries the plain
-        # ReFlyHoldEntry, not ReFlyInvokeHold's nested type) to 263 of 450, the bound pinned here.
+        # ReFlyHoldEntry, not ReFlyInvokeHold's nested type) to 263 of 450, the last bound
+        # pinned here.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which
@@ -3541,8 +3542,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # forwarder counts as a call to the forwarded type, so code can no
         # longer move this text residue by adding or deleting forwarders
         # (test_semantic.RealTreeSemanticTests.test_the_semantic_residue_ratchet,
-        # bound 250 = the semantic residue on 62d9b1b56, a tree that still
-        # passed the text bound 272 here). The text residue stays measured and
+        # bound 250 = the semantic residue on be2512a0d, a tree that still
+        # passed the text bound 263 here). The text residue stays measured and
         # reported (`archview.py --check`, `semantic.py`), not bounded:
         # deleting the RecordingStore metric forwarders (W4c) raises it.
         largest = self.model["knots"][0]

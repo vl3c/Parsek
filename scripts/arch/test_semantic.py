@@ -466,16 +466,18 @@ class RealTreeSemanticTests(unittest.TestCase):
 
     def test_the_semantic_residue_ratchet(self):
         # The architecture ratchet (W4a2, 2026-11-07). The bound is the
-        # semantic residue measured on 62d9b1b56, the tree where the text
+        # semantic residue measured on be2512a0d, the tree where the text
         # residue (test_archview.test_cut_sequence_halves_the_largest_knot)
-        # still passed its bound 272: greedy 250, replayed 250 with
-        # SEMANTIC_CUT_ORDER. Like the text ratchet before it, the measure is
-        # min(greedy residue, replayed residue); the replay never rises when a
-        # reference is removed. A call through a forwarder is a call to the
-        # forwarded type here, so adding or deleting a forwarder does not move
-        # it. Tighten the bound to the measured value in the PR that lowers it;
-        # never loosen it, not even for a new type that only splits a residue
-        # member.
+        # still passed its bound 263: greedy 250, replayed 250 with
+        # SEMANTIC_CUT_ORDER (also 250 on 62d9b1b56 under the text bound 272;
+        # W1b's deletion of the false text edge ReFlyInvokeHold -> Hold moved
+        # the text residue 9 and this one 0). Like the text ratchet before it,
+        # the measure is min(greedy residue, replayed residue); the replay never
+        # rises when a reference is removed. A call through a forwarder is a
+        # call to the forwarded type here, so adding or deleting a forwarder
+        # does not move it. Tighten the bound to the measured value in the PR
+        # that lowers it; never loosen it, not even for a new type that only
+        # splits a residue member.
         self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 250)
 
 if __name__ == "__main__":
