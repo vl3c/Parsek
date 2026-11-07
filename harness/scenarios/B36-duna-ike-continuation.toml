@@ -1,0 +1,185 @@
+schema = 1
+id = "B36-duna-ike-continuation"
+# =====================================================================================
+# B36: the Kerbin -> Duna -> Ike forge. AUTHORED 2026-11-07, NEVER FLOWN.
+#
+# WHAT IT IS FOR. The lone-moon arrival hold (PR #2468, design
+# docs/dev/design-mission-multimoon-alignment.md section 9) engages only on a looped
+# tree that crosses the planet's SOI AND one moon's SOI. No committed fixture has
+# one: B23 starts from the Parsek-stripped `duna-park-probe` on purpose, so its Ike
+# hop is its own Duna-rooted tree. This lane flies B23's machine unchanged from the
+# UNSTRIPPED `duna-direct-recorded` (B17's harvest), so the hop is appended to B17's
+# committed Kerbin -> Duna tree `ccb5e4afd7974dbe9118090468ac00ae`. Its produced
+# save is the `duna-ike-recorded` fixture the V31M / V31T loop lanes replay
+# (drafts: /mnt/project-files/missions/moon-lane-drafts/).
+#
+# THE FIXTURE. `duna-direct-recorded` is byte-identical to `duna-park-probe` outside
+# the ParsekScenario node (diffed 2026-11-07: one deleted hunk, the scenario
+# children, plus the save title), so B23's entry gate and delta-v hold verbatim:
+# the DD1 parks at SMA 1,038,214.95 m, ECC 0.0012696, INC 1.967 deg around Duna at
+# UT 9,160,396.76 (activeVessel = 1), ~1,180 m/s left against a ~600 m/s worst-case
+# hop (B23 header). No missionParam moved.
+#
+# THE ONE MACHINE CHANGE: NO StopRecording / DiscardTree in the preamble. Since
+# 2026-10-03 (HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE) a seam
+# DiscardTree suppresses the committed-spawned restore for the active vessel, so
+# B23's pair here would make StartRecording mint a fresh standalone tree
+# (`already=false`) - the opposite of this lane. Without the pair, OnFlightReady's
+# TryRestoreCommittedTreeForSpawnedActiveVessel resumes the fixture's tree before
+# LoadGame answers OK (a FLIGHT LoadGame completes after onFlightReady), and the
+# seam StartRecording answers `already=true` (B23 flight 1's measured shape).
+#
+# READ BEFORE HARVESTING. The restore prefers the tree's `activeRecordingId`
+# (311d98e3...), and a load-time optimizer split does not move it to the split's
+# tail. If the boundary line below names `activeRec=311d98e3...` AND the same log
+# shows `Split recording 'DD1 Duna Direct Probe' ... (tree=ccb5e4af...)` at load,
+# the hop sits on the Kerbin ascent head segment (B23 flight 1: one recording
+# `startUT=4653504.3, endUT=9181612.7`). That still proves "one tree", but read the
+# loop lane's reading before trusting the fixture.
+#
+# Fast-lane checklist: B23's measured machine, nothing re-sized (items 2-6 hold as
+# B23 flew them: rails coast, burns at 1x, no b5 lead - the only crossing is the
+# target approach, see test_mlib DROPPED_2026_10_14 - 60 s park dwell). Items 7-9
+# (tight windows, tier by p50, flight_efficiency) wait on the first flight.
+#
+# HARVEST after a green flight, from the run's own snapshot, never `--force`
+# (harness/README.md "The produced-save snapshot"):
+#   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
+#       --target-name duna-ike-recorded --expect-situation ORBITING --keep-parsek
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-07, NEVER FLOWN. The Kerbin->Duna->Ike forge for the lone-moon arrival hold: B23's orbit-start Duna->Ike machine flown from the UNSTRIPPED `duna-direct-recorded` (B17's harvest), with no StopRecording/DiscardTree, so the committed-spawned restore resumes B17's tree and the seam StartRecording answers `already=true`. The Ike hop is appended to the Kerbin->Duna tree ccb5e4af, giving one tree that crosses Duna's SOI and Ike's. Produces the `duna-ike-recorded` fixture for the V31M/V31T loop lanes."
+instanceProfile = "stock-minimal"
+tags = ["B36", "ike", "duna", "moon", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "tree-continuation", "lone-moon-hold", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-direct-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b23_ike_orbit"
+
+# `steps` MUST stay above the [driver.missionParams] header. No kill pair: see the
+# header. StartRecording is kept as the seam's own evidence (`already=true`).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 3600 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+# B23's missionParams verbatim (derivations in B23-ike-orbit.toml).
+[driver.missionParams]
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 300000
+startInOrbitMaxApoapsisMeters   = 1500000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+homeBodyName               = "Duna"
+targetBodyName             = "Ike"
+interplanetaryTransfer     = false
+returnBodyName             = "Duna"
+transferMinApoapsisMeters  = 2000000
+courseCorrectPeriapsisMeters = 150000
+maxCorrectionDvMps         = 80
+correctionTriggerAltsMeters = [0, 1500000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+transferBurnTimeoutSeconds = 40000
+coastTimeoutSeconds        = 120000
+flybyTimeoutSeconds        = 60000
+coastWarpFactor            = 4
+soiLeadSeconds             = 3000
+approachWindowSeconds      = 6000
+approachMaxWarpFactor      = 4
+flybyWarpFactor            = 3
+flybyMaxWarpFactor         = 4
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 20000
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 20000
+parkMaxApoapsisMeters      = 500000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+
+# B23's claims, gated by the same tokens below.
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["duna", "ike", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED, not measured: the fixture ships 2 sidecars and the load-time split of the
+# main recording reads 2-3 on V2/V3R; the commit-time optimizer may split the
+# resumed recording once or twice more. Re-pin from the first reading.
+count = { min = 2, max = 6 }
+
+[expectations.logContracts]
+# The tree identity is the whole point, so three lines carry it:
+#   `startrecording ... already=true`   ParsekTestCommandAddon.StartRecordingImpl:
+#       the seam found the recorder already live (the resumed committed tree).
+#   `TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree '<name>'`
+#       ParsekFlight: the committed-spawned restore took B17's tree back.
+#   `SOI change boundary suppressed in tree mode: Duna to Ike (tree=<id>,`
+#       ParsekFlight.HandleSoiChangeSplit: the moon crossing was recorded INTO
+#       B17's tree id, i.e. after its own Kerbin -> Duna boundary.
+# `already=false` is forbidden: it is the fresh standalone tree B23 makes.
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'DD1 Duna Direct Probe'",
+  "startrecording recordingId=\\w+ already=true",
+  "SOI change boundary suppressed in tree mode: Duna to Ike \\(tree=ccb5e4afd7974dbe9118090468ac00ae,",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Ike",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording recordingId=\\w+ already=false",
+  "discardtree discarded=true",
+]
+
+[expectations.rewind]
+# REPORT-ONLY: B17's harvest and B23 both read 0 / 0 / 0.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY. One committed tree in the produced save is the save-side proof that
+# the hop joined B17's tree; a standalone hop tree would read 2.
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+# B23's arithmetic: 300 LoadGame + 3,600 mission + tail, minus two seam verbs.
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

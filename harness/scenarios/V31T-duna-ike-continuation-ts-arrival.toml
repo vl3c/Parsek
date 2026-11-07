@@ -1,0 +1,133 @@
+schema = 1
+id = "V31T-duna-ike-continuation-ts-arrival"
+# =====================================================================================
+# AUTHORED 2026-11-07, NEVER FLOWN. Committed once `duna-ike-recorded` was harvested from
+# B36's first green flight and V31M's reading filled the jump. Order and commands:
+# docs/dev/plans/moon-lane-drafts/README.md.
+#
+# THE TRACKING-STATION HALF (modelled on V14T): one TimeJump to just past the
+# replayed Ike SOI entry, SaveGame, reload into the Tracking Station, and read the
+# ghost's TS icon on Ike (the per-segment TS lens, V14T / V17T), then the
+# MoonArrivalHold batch at the Space Center.
+#
+# THE JUMP, filled from V31M's reading `2026-11-07_2248` (PASS attempt 1):
+#   encounterUT = phaseAnchor + (recordedMoonEntryUT - spanStartUT - cutsBeforeIt) + hold + 140
+#   phaseAnchor = 24,306,580.0710 and cutSeconds=0 (loiterCuts=0) from the ENGAGED line;
+#   hold = 2,282.8735 at recordedArrivalUT = 9,128,108.755 (the Duna SOI entry, before
+#   the hop) from the ARRIVAL HOLD line; spanStartUT = 4,653,504.304 (the tree's first
+#   recording; anchorUt 9,181,512.1 - spanSeconds 4,528,005.4 agrees to the second);
+#   recordedMoonEntryUT = 9,177,489.5566, the startUT of the first TRACK_SECTION reading
+#   `body = Ike` in 9e2f5bfa...prec.txt (the Duna->Ike hop).
+#   -> 24,306,580.0710 + 4,523,985.2526 + 2,282.8735 + 140 = 28,832,988.2
+#
+# THE SUBJECT. `duna-ike-recorded`, harvested from `B36-duna-ike-continuation`: the Duna -> Ike hop
+# appended to `duna-direct-recorded`'s committed Kerbin -> Duna tree `ccb5e4afd7974dbe9118090468ac00ae` (the forge
+# resumes that tree, so the id is unchanged). One tree that crosses Duna's SOI and
+# Ike's is exactly the shape PR #2468's lone-moon arrival hold engages on.
+#
+# WHAT THE LOG MUST SHOW (literals from Source/Parsek/MissionLoopUnitBuilder.cs):
+#   `MissionLoopUnit: ... ENGAGED re-aim Kerbin->Duna via Sun` - the re-aim
+#       engages on the Kerbin -> Duna member, as on the source fixture's own lanes.
+#   `ARRIVAL HOLD dest=Duna kind=config Talign=<P_Ike>s moons=1 ...
+#       (aligns the moon orbital phases, mode=` - the lone-moon configuration hold on
+#       Ike's period (65,517.86 s; one participant, so T_config = P_Ike).
+#   `BATCH_COMPLETE ... category=MoonArrivalHold scene=SPACECENTER` - the live
+#       LoneMoonHoldInGameTest cell (1 test, SPACECENTER), pinned whole.
+# `MOON HOLD keeps the destination loiter whole` is a CANDIDATE only (commented below):
+# it logs only when the loiter compressor cut time AFTER the Duna SOI entry, i.e.
+# when the forge's Duna park ran 2+ whole orbits before the hop. Read the reading's
+# `ENGAGED re-aim ... loiterCuts=` and the MOON HOLD line (or its absence) first.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-07, NEVER FLOWN. The Tracking Station half of the Kerbin->Duna->Ike loop (tree harvested by B36-duna-ike-continuation): after a jump past the replayed Ike SOI entry, the TS ghost icon sits on Ike with the lone-moon arrival hold engaged; the live MoonArrivalHold cell runs at the Space Center."
+instanceProfile = "stock-minimal"
+tags = ["V31", "tracking-station", "loop-arrival", "reaim", "arrival-hold", "lone-moon-hold", "duna", "ike", "moon", "map-render", "ingame-batch", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-ike-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "ccb5e4afd7974dbe9118090468ac00ae", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "ccb5e4afd7974dbe9118090468ac00ae" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump",   args = { ut = "28832988.2" },                       expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "RunTests",   args = { category = "MoonArrivalHold" },             expect = "OK", budget = 300 },
+  # The export sits right before teardown (RenderComposeVerifierWiringTests placement
+  # rule): the recorder accumulates from Awake, so an earlier export drops later steps.
+  { cmd = "ExportRenderManifest",                                            expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D11 = ["arrival-hold"]
+D14 = ["duna", "ike", "scene-ts", "scene-ksc", "sandbox"]
+
+[expectations]
+# V14T / V15T / V16T measured `icon-off-orbit` after a single jump; if the reading
+# raises it, read it before allowing it (V14T's precedent), never allow it blind.
+allowedAnomalies = []
+
+[expectations.recordings]
+# As V31M: `duna-ike-recorded` ships N = 4 `.prec` sidecars, so {N, N + 1}.
+count = { min = 4, max = 5 }
+
+[expectations.logContracts]
+# CANDIDATE, not required (see the header): "MOON HOLD keeps the destination loiter whole: dest=Duna moons=1 ",
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "MissionLoopUnit: mission='DD1 Duna Direct Probe' ENGAGED re-aim Kerbin->Duna via Sun",
+  "ARRIVAL HOLD dest=Duna kind=config Talign=6551[78]\\.[0-9]+s moons=1 ",
+  "ARRIVAL HOLD dest=Duna kind=config .*\\(aligns the moon orbital phases, mode=",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=MoonArrivalHold scene=SPACECENTER",
+  "loadgame trackstation route: booting to TRACKSTATION save=",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Ike scene=TRACKSTATION",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "FORCED FAITHFUL",
+  "no member yields a re-aim transfer",
+  "MOON HOLD declined",
+  "Arrival amber SET: tree=ccb5e4afd7974dbe9118090468ac00ae",
+  "timejump refused reason=backward-jump",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[expectations.renderComposition]
+
+[runtime]
+# 3 x 300 LoadGame + 300 StartLoopPlayback + 300 TimeJump + 300 RunTests + margin.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1,0 +1,167 @@
+schema = 1
+id = "B37-eve-gilly-continuation"
+# =====================================================================================
+# B37: the Kerbin -> Eve -> Gilly forge. AUTHORED 2026-11-07, NEVER FLOWN.
+#
+# WHAT IT IS FOR. The lone-moon arrival hold (PR #2468) needs a looped tree that
+# crosses Eve's SOI AND Gilly's. B24 starts from the Parsek-stripped
+# `eve-park-kerbalx` on purpose (its hop is its own Eve-rooted tree); this lane
+# flies B24's machine unchanged from the UNSTRIPPED `eve-orbit-recorded` (B16's
+# harvest), so the hop is appended to B16's committed Kerbin -> Eve tree
+# `16af6b5e546a4bef86fcd8cde1ddc924`. Its produced save is the
+# `eve-gilly-recorded` fixture the V32M / V32T loop lanes replay. Gilly is the
+# eccentric, not tidally locked moon: a declined hold (amber) is a plausible first
+# reading there, and the loop lanes pin whatever it measures.
+#
+# THE FIXTURE. `eve-orbit-recorded` is byte-identical to `eve-park-kerbalx`
+# outside the ParsekScenario node (diffed 2026-11-07), so B24's entry gate and
+# delta-v hold verbatim: the crewed Kerbal X stage parks at SMA 5,685,808.54 m,
+# ECC 6.36e-05, INC 5.337 deg around Eve at UT 15,764,031.83 (activeVessel = 1),
+# 1,023 m/s available against a 753 m/s worst-geometry hop (B24 header: the
+# tightest margin of the three, guarded by its 50 m/s correction cap). No
+# missionParam moved. The source still carries B16's crew bookkeeping (Jebediah
+# reserved, Suster as stand-in), which B24's strip removed; the commit may log a
+# crew swap on the live vessel.
+#
+# THE ONE MACHINE CHANGE: NO StopRecording / DiscardTree in the preamble, for the
+# reason B36's header gives (a seam DiscardTree suppresses the committed-spawned
+# restore since 2026-10-03, which would make StartRecording mint a fresh tree).
+# Here the restore resumes B16's tree and StartRecording answers `already=true`.
+# Read B36's "READ BEFORE HARVESTING" note too: the restore prefers the tree's
+# `activeRecordingId` (75a6ab25...), which a load-time split leaves on the head.
+#
+# Fast-lane checklist: B24's measured machine, nothing re-sized (no b5 lead: the
+# only crossing is the target approach). Items 7-9 wait on the first flight.
+#
+# HARVEST after a green flight, from the run's own snapshot, never `--force`:
+#   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
+#       --target-name eve-gilly-recorded --expect-situation ORBITING --keep-parsek
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-07, NEVER FLOWN. The Kerbin->Eve->Gilly forge for the lone-moon arrival hold: B24's orbit-start Eve->Gilly machine flown from the UNSTRIPPED `eve-orbit-recorded` (B16's harvest), with no StopRecording/DiscardTree, so the committed-spawned restore resumes B16's tree and the seam StartRecording answers `already=true`. The Gilly hop is appended to the Kerbin->Eve tree 16af6b5e, giving one tree that crosses Eve's SOI and Gilly's. Produces the `eve-gilly-recorded` fixture for the V32M/V32T loop lanes."
+instanceProfile = "stock-minimal"
+tags = ["B37", "gilly", "eve", "moon", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "tree-continuation", "lone-moon-hold", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eve-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b24_gilly_orbit"
+
+# `steps` MUST stay above the [driver.missionParams] header. No kill pair: see the
+# header. StartRecording is kept as the seam's own evidence (`already=true`).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 3600 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+# B24's missionParams verbatim (derivations in B24-gilly-orbit.toml).
+[driver.missionParams]
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 1000000
+startInOrbitMaxApoapsisMeters   = 10000000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+homeBodyName               = "Eve"
+targetBodyName             = "Gilly"
+interplanetaryTransfer     = false
+returnBodyName             = "Eve"
+transferMinApoapsisMeters  = 9000000
+courseCorrectPeriapsisMeters = 30000
+maxCorrectionDvMps         = 50
+correctionTriggerAltsMeters = [0, 10000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+transferBurnTimeoutSeconds = 100000
+transferNodeWaitWarp       = true
+coastTimeoutSeconds        = 800000
+flybyTimeoutSeconds        = 30000
+coastWarpFactor            = 5
+soiLeadSeconds             = 1200
+approachWindowSeconds      = 8000
+approachMaxWarpFactor      = 2
+flybyWarpFactor            = 1
+flybyMaxWarpFactor         = 2
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 8000
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 30000
+parkMinPeriapsisMeters     = 8000
+parkMaxApoapsisMeters      = 60000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+
+# B24's claims, gated by the same tokens below.
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["eve", "gilly", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED, not measured: the fixture ships 8 sidecars and reads 9 after the
+# load-time split (V8 / V8T); the commit-time optimizer may split the resumed
+# recording once or twice more. Re-pin from the first reading.
+count = { min = 8, max = 12 }
+
+[expectations.logContracts]
+# Tree identity, as B36: the restore took B16's tree back, the seam found the
+# recorder already live, and the Gilly crossing was recorded INTO tree 16af6b5e.
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Kerbal X'",
+  "startrecording recordingId=\\w+ already=true",
+  "SOI change boundary suppressed in tree mode: Eve to Gilly \\(tree=16af6b5e546a4bef86fcd8cde1ddc924,",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Gilly",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording recordingId=\\w+ already=false",
+  "discardtree discarded=true",
+]
+
+[expectations.rewind]
+# REPORT-ONLY: V8 / V8T on this fixture and B24 all read 0 / 0 / 0.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY. One committed tree is the save-side proof the hop joined B16's tree.
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
