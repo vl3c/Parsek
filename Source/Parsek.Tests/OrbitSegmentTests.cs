@@ -1202,7 +1202,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = System.IO.Path.Combine(root, "Source", "Parsek", "ParsekFlight.cs");
             Assert.True(System.IO.File.Exists(path), "Source file not found at " + path);
-            return System.IO.File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadAll(System.IO.Path.GetDirectoryName(path));
         }
 
         #endregion

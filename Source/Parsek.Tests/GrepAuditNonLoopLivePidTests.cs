@@ -93,6 +93,11 @@ namespace Parsek.Tests
             new AuditCheck("Source/Parsek/GhostPlaybackEngine.SectionPositioning.cs", "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid", "engine live-anchor appearance diagnostics"),
             new AuditCheck("Source/Parsek/GhostPlaybackEngine.SpawnDestroy.cs", "DescribeAppearanceLiveAnchorContext|TryGetLiveAnchorWorldPosition|legacyAnchorPid", "engine live-anchor appearance diagnostics"),
             new AuditCheck("Source/Parsek/ParsekFlight.cs", @"target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid", "recorded-relative flight playback live PID read"),
+            new AuditCheck("Source/Parsek/ParsekFlight.Accessors.cs", @"target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid", "recorded-relative flight playback live PID read"),
+            new AuditCheck("Source/Parsek/ParsekFlight.GhostPositioner.cs", @"target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid", "recorded-relative flight playback live PID read"),
+            new AuditCheck("Source/Parsek/ParsekFlight.GhostPositioning.cs", @"target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid", "recorded-relative flight playback live PID read"),
+            new AuditCheck("Source/Parsek/ParsekFlight.Spawning.cs", @"target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid", "recorded-relative flight playback live PID read"),
+            new AuditCheck("Source/Parsek/ParsekFlight.TimelinePlayback.cs", @"target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid", "recorded-relative flight playback live PID read"),
             new AuditCheck("Source/Parsek/GhostRenderTrace.cs", @"context\.AnchorVesselId\s*=|section\.AnchorVesselId", "recorded-relative trace section PID propagation"),
             new AuditCheck("Source/Parsek/ParsekKSC.cs", @"KscAnchorLookup|TryLookupKscAnchorFrame|FindVesselByPid\(anchorVesselId|anchorPid=|section\.anchorVesselId", "KSC Relative live PID playback"),
             new AuditCheck("Source/Parsek/GhostMapPresence.cs", @"ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFly\w*Point|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId", "map Relative live PID playback"),
@@ -109,8 +114,8 @@ namespace Parsek.Tests
 
         private static readonly AuditCheck[] RequiredChecks =
         {
-            new AuditCheck("Source/Parsek/ParsekFlight.cs", @"relativeLoopLiveAnchor\s*=\s*true", "loop-only LateUpdate live-anchor flag"),
-            new AuditCheck("Source/Parsek/ParsekFlight.cs", @"NonLoopLivePidGuard\.NonLoopRelativeLivePidLookupAttempted", "non-loop LateUpdate live-PID DEBUG guard"),
+            new AuditCheck("Source/Parsek/ParsekFlight.GhostPositioning.cs", @"relativeLoopLiveAnchor\s*=\s*true", "loop-only LateUpdate live-anchor flag"),
+            new AuditCheck("Source/Parsek/ParsekFlight.TimelinePlayback.cs", @"NonLoopLivePidGuard\.NonLoopRelativeLivePidLookupAttempted", "non-loop LateUpdate live-PID DEBUG guard"),
         };
 
         [Fact]

@@ -2856,6 +2856,16 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   (`python3 -m unittest discover -s scripts/refactor -p "test_*.py"`), and
   `ParsekFlightSourceFiles` (the whole-class reader, no split files declared yet). No
   Source/Parsek change. Filed LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED from the inventory.
+- PF1a landed: the playback side of ParsekFlight.cs is in five new partial files, written by
+  `split_parsekflight.py`: `.GhostPositioning.cs` (5,069 lines), `.GhostPositioner.cs` (1,807),
+  `.TimelinePlayback.cs` (3,282), `.Spawning.cs` (1,388), `.Accessors.cs` (187); 283
+  declarations of 274 names, every byte verbatim, the 16 region pairs dropped. ParsekFlight.cs
+  30,388 -> 18,668 lines. IL identical (`il_compare.py`: 3,908 types, 23,947 fields, 25,847
+  methods, 0 differences). Knot 462 and the cut residue unchanged (a file split does not move
+  the type graph). Gates re-pointed: the source readers whose text moved, two whole-file
+  negative scans and the recovery-crew count (still 2) read `ParsekFlightSourceFiles`; the
+  non-loop live-PID audit names every split file; the ERS / ELS and UI-complexity allowlists
+  list the partials that read what ParsekFlight.cs read.
 
 ## ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type [FILED 2026-09-14 off the architecture program (item 4). OPEN; the first item with real design content, after the cheap cuts. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

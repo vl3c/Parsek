@@ -22,6 +22,11 @@ namespace Parsek.Tests
     {
         internal static readonly string[] SplitFileNames =
         {
+            "ParsekFlight.Accessors.cs",
+            "ParsekFlight.GhostPositioner.cs",
+            "ParsekFlight.GhostPositioning.cs",
+            "ParsekFlight.Spawning.cs",
+            "ParsekFlight.TimelinePlayback.cs",
         };
 
         /// <summary>
