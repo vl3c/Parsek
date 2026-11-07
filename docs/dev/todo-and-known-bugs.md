@@ -2869,6 +2869,14 @@ each PR lands on the refactor branch, IL-proven a pure move).
   seams and their two statics) and `ReconcileReadableSidecarMirrorsForKnownRecordings`, which
   reads the committed list and the pending slot. `RecordingStore` 9,663 -> 9,311 lines, 314 ->
   258 methods; cut residue 285 -> 287 (`RecordingSidecarStore`, `RouteProofCodec`).
+- PR4 (service D) landed: `IsChainMidSegment`, `GetChainPredecessorIndex`, `GetChainEndUT`,
+  `ValidateChains` (the OnLoad chain degrade) and `IsChainLooping` left the store as
+  `RecordingChainQueries`, bodies verbatim apart from reading the committed list through
+  `RecordingStore.CommittedRecordings` and logging through `RecordingStore.Log` (tag kept).
+  No statics, no forwarder; the production call sites (9 files) and 4 test files moved.
+  The new file is on the ERS / ELS allowlist (raw committed indices, as inside the store).
+  `RecordingStore` 9,311 -> 9,120 lines, 258 -> 253 methods; knot 458 -> 459 (the new type
+  sits on a cycle), cut residue unchanged at 287.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -2906,11 +2914,31 @@ each PR lands on the refactor branch, IL-proven a pure move).
     the pair / frame / segment helpers stay on `TrajectoryMath`; the log tag stays
     "TrajectoryMath". IL: 2 moved bodies identical, 1 re-pointed call site. Trajectory ->
     Recording 1 -> 0; upward edges 85 -> 84 (weight 835 -> 834).
+  - PR 4 (pure move): `GhostMapPresence.TrySelectGapGlidePair` with its private
+    `FindGapGlideSection` / `IsGapGlidePartner` and the consts `GapGlidePairPointNotFound` /
+    `GapGlidePairSingleSample` -> `OrbitReseed` (Trajectory). IL: 3 moved bodies identical, 2
+    re-pointed call sites, field set identical. Trajectory -> Ghost 1 -> 0; upward edges 84 ->
+    83 (weight 813 -> 812). The knot stays 459, but the greedy second cut is now
+    `VesselLaunchIdentity` (441 -> 424) and the greedy residue rises 287 -> 291; the
+    replayed residue the ratchet also reads stays 287 (see ARCH-TOOLING-ROSLYN-AND-CI).
+    `scripts/refactor/split_ghostmappresence.py` still maps these members to
+    `.StateVectors`: a re-split from main's single file must re-apply this move.
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
 move the route structure list into Logistics or read it through an interface Missions owns.
 Update `modules.toml` in the same commits so the placement report stays true.
+
+**Progress, VesselSpawner placement PRs 6-10** of the 2026-11-06 file-placement plan (one
+sub-branch each, merged into the refactor branch in order; each move proven by a per-method IL
+compare).
+- PR 6: the crew-in-snapshot and situation family (18 declarations, 391 lines) moved from
+  `VesselSpawner` to `VesselSnapshotOps`; `ApplySituationToNode` and `IsLandedLikeSnapshot`
+  widened private -> internal. `ExtractCrewManifest` (its default trait lookup reads the
+  roster) and `RemoveDuplicateCrewFromSnapshotCore` (reads crew through
+  `CrewReservationManager`) stay in `VesselSpawner`: moved, they pulled `VesselSnapshotOps`
+  into the type knot (457 -> 459). The one module-level change is Core -> Trajectory +1
+  (`TerminalState`, Trajectory since PR 2); upward edges and knots do not move.
 
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -2940,6 +2968,15 @@ Update `modules.toml` in the same commits so the placement report stays true.
   GameActions 17 -> 1 (the real call, still VIOLATION), Recording -> GameActions 20 -> 15,
   Trajectory and Logistics -> GameActions 1 -> 0; upward edges 88 -> 85, weight 836 -> 826;
   knots unchanged (457, 4, 3).
+- 2026-11-07 (refactor branch): the cut-residue ratchet
+  (`test_cut_sequence_halves_the_largest_knot`) now bounds min(greedy residue, replayed
+  residue). `archview.replay_cut_residue` removes the outgoing references of a pinned cut order
+  (`RATCHET_CUT_ORDER`, the greedy order on the branch that day) and returns the largest
+  component left; for a fixed cut set, deleting a reference can only shrink components, so a
+  pure move that removes a reference can no longer red the ratchet through a greedy reorder
+  (file-placement PR 4 deletes `OrbitReseed -> GhostMapPresence`: on the tree it was measured
+  on, greedy 285 -> 290, replayed 285). The bound is unchanged by this (287 after RecordingStore
+  PR3) and the greedy sequence stays the documented one.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

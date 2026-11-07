@@ -914,7 +914,7 @@ namespace Parsek
 
                 // Remove specific crew (e.g. EVA'd kerbals) — they spawn via child recordings
                 if (excludeCrew != null && excludeCrew.Count > 0)
-                    RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
+                    VesselSnapshotOps.RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
 
                 // Set reserved crew back to Available so KSP can assign them to this vessel
                 CrewReservationManager.UnreserveCrewInSnapshot(spawnNode);
@@ -1280,13 +1280,13 @@ namespace Parsek
             spawnNode.SetValue("lon", lon.ToString("R", CultureInfo.InvariantCulture), true);
             spawnNode.SetValue("alt", alt.ToString("R", CultureInfo.InvariantCulture), true);
 
-            string sit = DetermineSituation(alt, overWater, speed, orbitalSpeed);
+            string sit = VesselSnapshotOps.DetermineSituation(alt, overWater, speed, orbitalSpeed);
 
             // Override FLYING situation from terminal state (#176 for Orbiting/Docked, #264
             // for Landed/Splashed). Without this, an EVA kerbal walking at alt > 0 with
             // low speed classifies as FLYING and hits the OrbitDriver updateMode=UPDATE
             // stale-orbit bug on the first physics frame after load.
-            string overriddenSit = OverrideSituationFromTerminalState(sit, terminalState);
+            string overriddenSit = VesselSnapshotOps.OverrideSituationFromTerminalState(sit, terminalState);
             if (overriddenSit != sit)
             {
                 ParsekLog.Info("Spawner",
@@ -1296,7 +1296,7 @@ namespace Parsek
                 sit = overriddenSit;
             }
 
-            ApplySituationToNode(spawnNode, sit);
+            VesselSnapshotOps.ApplySituationToNode(spawnNode, sit);
             ParsekLog.Verbose("Spawner",
                 $"SpawnAtPosition: determined sit={sit} (alt={alt.ToString("F0", CultureInfo.InvariantCulture)}, speed={speed.ToString("F1", CultureInfo.InvariantCulture)}, " +
                 $"orbitalSpeed={orbitalSpeed.ToString("F1", CultureInfo.InvariantCulture)}, overWater={overWater})");
@@ -1389,7 +1389,7 @@ namespace Parsek
                 // reseeded orbit (rejecting a non-finite orbit is correct there).
                 bool substitutedSurfaceOrbit = false;
                 if (orbitWasReseeded
-                    && IsLandedLikeSituation(sit)
+                    && VesselSnapshotOps.IsLandedLikeSituation(sit)
                     && OrbitReseed.HasNonFiniteOrbitElement(orbit, out string nonFiniteOrbitElements))
                 {
                     if (TryResolveBodyIndex(body, out int surfaceBodyIndex))
@@ -1432,7 +1432,7 @@ namespace Parsek
                 RemoveDeadCrewFromSnapshot(spawnNode);
                 EnsureCrewExistInRoster(spawnNode);
                 if (excludeCrew != null && excludeCrew.Count > 0)
-                    RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
+                    VesselSnapshotOps.RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
                 CrewReservationManager.UnreserveCrewInSnapshot(spawnNode);
 
                 // Remove crew that already exist on a loaded vessel (prevents duplication)
@@ -2060,7 +2060,7 @@ namespace Parsek
             // Correct unsafe snapshot situation before spawning (#169).
             // Vessels captured mid-flight have sit=FLYING but terminal state may be Landed/Orbiting.
             // Without correction, KSP's on-rails pressure check destroys the vessel immediately.
-            CorrectUnsafeSnapshotSituation(rec.VesselSnapshot, rec.TerminalStateValue);
+            VesselSnapshotOps.CorrectUnsafeSnapshotSituation(rec.VesselSnapshot, rec.TerminalStateValue);
 
             // Crew protection: strip crew from spawn snapshot when recording ended in
             // destruction to prevent killing crew during spawn-death cycles (#114).
@@ -2070,7 +2070,7 @@ namespace Parsek
             {
                 if (rec.VesselSnapshot != null)
                 {
-                    int stripped = StripAllCrewFromSnapshot(rec.VesselSnapshot);
+                    int stripped = VesselSnapshotOps.StripAllCrewFromSnapshot(rec.VesselSnapshot);
                     ParsekLog.Info("Spawner",
                         $"Stripped {stripped} crew from spawn snapshot for destroyed recording " +
                         $"#{index} ({rec.VesselName}) — prevents crew death on spawn");
@@ -2493,9 +2493,9 @@ namespace Parsek
                     : SpawnCoordinateSource.BreakupEndpoint;
             }
 
-            if (TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out double snapLat)
-                && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out double snapLon)
-                && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out double snapAlt))
+            if (VesselSnapshotOps.TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out double snapLat)
+                && VesselSnapshotOps.TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out double snapLon)
+                && VesselSnapshotOps.TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out double snapAlt))
             {
                 lat = snapLat;
                 lon = snapLon;
@@ -3077,9 +3077,9 @@ namespace Parsek
             ConfigNode snapshot,
             out List<string> snapshotCrew)
         {
-            snapshotCrew = ExtractCrewNamesFromSnapshot(snapshot);
+            snapshotCrew = VesselSnapshotOps.ExtractCrewNamesFromSnapshot(snapshot);
             var deadSet = BuildDeadCrewSet(snapshotCrew);
-            bool block = ShouldBlockSpawnForDeadCrew(snapshotCrew, deadSet);
+            bool block = VesselSnapshotOps.ShouldBlockSpawnForDeadCrew(snapshotCrew, deadSet);
 
             // (#608/#609/#687) When the carve-out lets a snapshot through that
             // the pre-fix code would have abandoned, log a Verbose breakdown
@@ -3364,7 +3364,7 @@ namespace Parsek
 
             // Extract crew from the snapshot and find duplicates
             var snapshotCrew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
-            var duplicates = FindDuplicateCrew(
+            var duplicates = VesselSnapshotOps.FindDuplicateCrew(
                 snapshotCrew, new HashSet<string>(existingCrew.Keys));
 
             if (duplicates.Count == 0)
@@ -3410,27 +3410,8 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Info("Spawner", DescribeCrewDedupOutcome(snapshotCrew.Count, removedCount));
+            ParsekLog.Info("Spawner", VesselSnapshotOps.DescribeCrewDedupOutcome(snapshotCrew.Count, removedCount));
             return removedCount;
-        }
-
-        /// <summary>
-        /// Pure summary line for <see cref="RemoveDuplicateCrewFromSnapshot"/>: states how
-        /// many of the snapshot's seats were vacated and, when ALL of them were, says so
-        /// explicitly. The all-empty case is the one worth a named line - the materialized
-        /// craft arrives crewless, which looks like a Parsek bug from the outside and is
-        /// actually the correct answer (every recorded kerbal is aboard something else that
-        /// is still flying). Extracted so the wording is unit-testable without a live scene.
-        /// </summary>
-        internal static string DescribeCrewDedupOutcome(int snapshotCrewCount, int removedCount)
-        {
-            int remaining = snapshotCrewCount - removedCount;
-            if (remaining < 0) remaining = 0;
-            string tail = removedCount > 0 && remaining == 0
-                ? " — vessel materializes with EVERY seat empty (all recorded crew are aboard other live vessels)"
-                : "";
-            return $"Crew dedup: removed {removedCount} of {snapshotCrewCount} snapshot crew, " +
-                $"{remaining} seat(s) still filled{tail}";
         }
 
         /// <summary>
@@ -3471,63 +3452,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure decision: given a set of crew in a snapshot and a set of crew already
-        /// on loaded vessels, returns the names that would be duplicated.
-        /// Extracted for testability.
-        /// </summary>
-        internal static HashSet<string> FindDuplicateCrew(
-            List<string> snapshotCrew, HashSet<string> existingCrew)
-        {
-            var duplicates = new HashSet<string>();
-            if (snapshotCrew == null || existingCrew == null) return duplicates;
-
-            foreach (string name in snapshotCrew)
-            {
-                if (!string.IsNullOrEmpty(name) && existingCrew.Contains(name))
-                    duplicates.Add(name);
-            }
-            return duplicates;
-        }
-
-        public static void RemoveSpecificCrewFromSnapshot(ConfigNode snapshot, HashSet<string> crewNames)
-        {
-            if (snapshot == null || crewNames == null || crewNames.Count == 0)
-            {
-                ParsekLog.VerboseRateLimited("Spawner", "remove-specific-crew-skipped",
-                    "RemoveSpecificCrewFromSnapshot skipped due to missing snapshot or crew set", 5.0);
-                return;
-            }
-
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
-            {
-                var names = partNode.GetValues("crew");
-                if (names.Length == 0) continue;
-
-                var keep = new List<string>();
-                bool removedAny = false;
-                foreach (string name in names)
-                {
-                    if (crewNames.Contains(name))
-                    {
-                        removedAny = true;
-                        ParsekLog.Info("Spawner", $"Removed EVA'd crew '{name}' from vessel snapshot");
-                    }
-                    else
-                    {
-                        keep.Add(name);
-                    }
-                }
-
-                if (removedAny)
-                {
-                    partNode.RemoveValues("crew");
-                    foreach (string name in keep)
-                        partNode.AddValue("crew", name);
-                }
-            }
-        }
-
-        /// <summary>
         /// Pure decision: should crew be stripped from the spawn snapshot?
         /// Returns true when the recording's terminal state is Destroyed,
         /// preventing crew deaths during spawn-death cycles. (#114)
@@ -3536,68 +3460,6 @@ namespace Parsek
         {
             return rec.TerminalStateValue.HasValue
                 && rec.TerminalStateValue.Value == TerminalState.Destroyed;
-        }
-
-        /// <summary>
-        /// Pure decision: determines the corrected situation string when the snapshot's
-        /// situation is unsafe (FLYING/SUB_ORBITAL) but the terminal state indicates the
-        /// vessel safely reached a stable state. Returns the corrected situation string, or
-        /// null if no correction is needed.
-        ///
-        /// Bug #169: EVA vessels captured with sit=FLYING but terminal state Landed are
-        /// destroyed by KSP's on-rails atmospheric pressure check when spawned outside
-        /// physics range. The snapshot's sit field must be corrected to match the terminal
-        /// state before spawning. Also handles Orbiting: vessels captured during ascent
-        /// (FLYING) that achieved orbit.
-        /// </summary>
-        internal static string ComputeCorrectedSituation(string snapshotSit, TerminalState? terminalState)
-        {
-            if (string.IsNullOrEmpty(snapshotSit))
-                return null;
-
-            bool isUnsafe = snapshotSit.Equals("FLYING", StringComparison.OrdinalIgnoreCase)
-                         || snapshotSit.Equals("SUB_ORBITAL", StringComparison.OrdinalIgnoreCase);
-            if (!isUnsafe)
-                return null;
-
-            if (!terminalState.HasValue)
-                return null;
-
-            switch (terminalState.Value)
-            {
-                case TerminalState.Landed:
-                    return "LANDED";
-                case TerminalState.Splashed:
-                    return "SPLASHED";
-                case TerminalState.Orbiting:
-                    return "ORBITING";
-                default:
-                    return null;
-            }
-        }
-
-        /// <summary>
-        /// Corrects the snapshot's situation field if it is FLYING/SUB_ORBITAL but the
-        /// terminal state indicates the vessel safely reached a stable state (Landed/Splashed/Orbiting).
-        /// Modifies the snapshot in-place. Returns true if a correction was applied.
-        /// Bug #169: prevents KSP's on-rails pressure check from destroying spawned vessels.
-        /// </summary>
-        internal static bool CorrectUnsafeSnapshotSituation(ConfigNode snapshot, TerminalState? terminalState)
-        {
-            if (snapshot == null)
-                return false;
-
-            string currentSit = snapshot.GetValue("sit");
-            string corrected = ComputeCorrectedSituation(currentSit, terminalState);
-            if (corrected == null)
-                return false;
-
-            ApplySituationToNode(snapshot, corrected);
-            NormalizeCorrectedSituationLocationFields(snapshot);
-            ParsekLog.Info("Spawner",
-                $"Corrected unsafe snapshot situation: {currentSit} -> {corrected} " +
-                $"(terminal={terminalState}) — prevents on-rails pressure destruction (#169)");
-            return true;
         }
 
         internal static ConfigNode NormalizeStableSnapshotForPersistence(
@@ -3609,7 +3471,7 @@ namespace Parsek
             if (snapshot == null)
                 return null;
 
-            CorrectUnsafeSnapshotSituation(snapshot, terminalState);
+            VesselSnapshotOps.CorrectUnsafeSnapshotSituation(snapshot, terminalState);
             if ((terminalState == TerminalState.Landed
                     || terminalState == TerminalState.Splashed)
                 && !object.ReferenceEquals(body, null))
@@ -3618,15 +3480,6 @@ namespace Parsek
             }
 
             return snapshot;
-        }
-
-        private static void NormalizeCorrectedSituationLocationFields(ConfigNode snapshot)
-        {
-            if (snapshot == null)
-                return;
-
-            snapshot.SetValue("landedAt", string.Empty, true);
-            snapshot.SetValue("displaylandedAt", string.Empty, true);
         }
 
         /// <summary>
@@ -3791,33 +3644,6 @@ namespace Parsek
                     }
                 }
             }
-        }
-
-        /// <summary>
-        /// Strips ALL crew from a vessel snapshot. Removes crew values from PART
-        /// nodes and resets the crewAssignment field. Returns the number of crew removed.
-        /// Modifies the snapshot in-place. (#114)
-        /// </summary>
-        internal static int StripAllCrewFromSnapshot(ConfigNode snapshot)
-        {
-            if (snapshot == null) return 0;
-
-            int removedCount = 0;
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
-            {
-                var crewNames = partNode.GetValues("crew");
-                if (crewNames.Length > 0)
-                {
-                    for (int c = 0; c < crewNames.Length; c++)
-                    {
-                        ParsekLog.Verbose("Spawner",
-                            $"StripAllCrewFromSnapshot: removing '{crewNames[c]}'");
-                    }
-                    removedCount += crewNames.Length;
-                    partNode.RemoveValues("crew");
-                }
-            }
-            return removedCount;
         }
 
         /// <summary>
@@ -4039,102 +3865,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure decision: should a spawn be blocked because all crew in the snapshot are dead?
-        /// Returns true when every crew member listed in the snapshot is in the dead names set.
-        /// A vessel with no crew at all returns false (crewless vessels can spawn).
-        /// Extracted for testability. (#170)
-        /// </summary>
-        /// <param name="crewNamesInSnapshot">Crew names from the vessel snapshot PART nodes.</param>
-        /// <param name="deadCrewNames">Set of crew names known to be dead/missing.</param>
-        internal static bool ShouldBlockSpawnForDeadCrew(
-            List<string> crewNamesInSnapshot, HashSet<string> deadCrewNames)
-        {
-            if (crewNamesInSnapshot == null || crewNamesInSnapshot.Count == 0)
-            {
-                ParsekLog.Verbose("Spawner", "ShouldBlockSpawnForDeadCrew: no crew in snapshot — not blocking");
-                return false;
-            }
-
-            if (deadCrewNames == null || deadCrewNames.Count == 0)
-            {
-                ParsekLog.Verbose("Spawner",
-                    $"ShouldBlockSpawnForDeadCrew: no dead crew — not blocking ({crewNamesInSnapshot.Count} crew alive)");
-                return false;
-            }
-
-            int deadCount = 0;
-            for (int i = 0; i < crewNamesInSnapshot.Count; i++)
-            {
-                if (deadCrewNames.Contains(crewNamesInSnapshot[i]))
-                    deadCount++;
-            }
-
-            bool allDead = deadCount == crewNamesInSnapshot.Count;
-
-            ParsekLog.Verbose("Spawner",
-                $"ShouldBlockSpawnForDeadCrew: {deadCount}/{crewNamesInSnapshot.Count} crew dead — " +
-                (allDead ? "blocking spawn (all crew dead)" : "allowing spawn (some crew alive)"));
-
-            return allDead;
-        }
-
-        /// <summary>
-        /// Extracts all crew names from a vessel snapshot's PART nodes.
-        /// Returns an empty list if the snapshot is null or has no crew.
-        /// </summary>
-        internal static List<string> ExtractCrewNamesFromSnapshot(ConfigNode snapshot)
-        {
-            var names = new List<string>();
-            if (snapshot == null) return names;
-
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
-            {
-                var crewNames = partNode.GetValues("crew");
-                for (int i = 0; i < crewNames.Length; i++)
-                {
-                    if (!string.IsNullOrEmpty(crewNames[i]))
-                        names.Add(crewNames[i]);
-                }
-            }
-            return names;
-        }
-
-        /// <summary>One crew name a spawn snapshot needs that the roster lacks.</summary>
-        internal struct MissingCrewEntry
-        {
-            public string Name;
-            /// <summary>The timeline says he rode as a tourist: re-create him as one.</summary>
-            public bool AsTourist;
-        }
-
-        /// <summary>
-        /// The crew names of <paramref name="snapshot"/> that <paramref name="isInRoster"/>
-        /// does not know, each once, in snapshot order, with whether
-        /// <paramref name="hasTouristEvidence"/> says he rode as a tourist. Pure.
-        /// </summary>
-        internal static List<MissingCrewEntry> PlanMissingCrew(
-            ConfigNode snapshot, Func<string, bool> isInRoster, Func<string, bool> hasTouristEvidence)
-        {
-            var result = new List<MissingCrewEntry>();
-            if (snapshot == null || isInRoster == null) return result;
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
-            {
-                foreach (string name in partNode.GetValues("crew"))
-                {
-                    if (string.IsNullOrEmpty(name) || !seen.Add(name)) continue;
-                    if (isInRoster(name)) continue;
-                    result.Add(new MissingCrewEntry
-                    {
-                        Name = name,
-                        AsTourist = hasTouristEvidence != null && hasTouristEvidence(name)
-                    });
-                }
-            }
-            return result;
-        }
-
-        /// <summary>
         /// Ensure all crew referenced in the snapshot exist in the game's CrewRoster.
         /// Synthetic recordings or cross-save imports may reference kerbals that were
         /// never added to this career's roster, causing NullRef in Part.RegisterCrew.
@@ -4153,7 +3883,7 @@ namespace Parsek
                 return;
             }
 
-            var missing = PlanMissingCrew(
+            var missing = VesselSnapshotOps.PlanMissingCrew(
                 snapshot, name => roster[name] != null, KerbalsModule.HasTouristEvidence);
 
             int createdCount = 0;
@@ -4966,8 +4696,8 @@ namespace Parsek
         private static double ResolveRelocatedAltitude(
             Recording rec, CelestialBody body, double latitude, double longitude)
         {
-            bool landedLike = IsLandedLikeSnapshot(rec?.VesselSnapshot);
-            bool hasSnapshotAlt = TryGetSnapshotDouble(rec?.VesselSnapshot, "alt", out double snapshotAlt);
+            bool landedLike = VesselSnapshotOps.IsLandedLikeSnapshot(rec?.VesselSnapshot);
+            bool hasSnapshotAlt = VesselSnapshotOps.TryGetSnapshotDouble(rec?.VesselSnapshot, "alt", out double snapshotAlt);
             double selectedAltitude;
             if (landedLike)
             {
@@ -4985,40 +4715,6 @@ namespace Parsek
                 $"Relocation altitude selected={selectedAltitude:F1} source={(hasSnapshotAlt ? "snapshot" : "fallback")} " +
                 $"landedLike={landedLike}");
             return selectedAltitude;
-        }
-
-        private static bool IsLandedLikeSnapshot(ConfigNode snapshot)
-        {
-            if (snapshot == null) return false;
-
-            string sit = snapshot.GetValue("sit") ?? string.Empty;
-            if (sit.Equals("LANDED", StringComparison.OrdinalIgnoreCase) ||
-                sit.Equals("PRELAUNCH", StringComparison.OrdinalIgnoreCase) ||
-                sit.Equals("SPLASHED", StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            if (TryGetSnapshotBool(snapshot, "landed", out bool landed) && landed)
-                return true;
-            if (TryGetSnapshotBool(snapshot, "splashed", out bool splashed) && splashed)
-                return true;
-
-            return false;
-        }
-
-        private static bool TryGetSnapshotBool(ConfigNode node, string key, out bool value)
-        {
-            value = false;
-            if (node == null) return false;
-            string raw = node.GetValue(key);
-            return bool.TryParse(raw, out value);
-        }
-
-        internal static bool TryGetSnapshotDouble(ConfigNode node, string key, out double value)
-        {
-            value = 0.0;
-            if (node == null) return false;
-            string raw = node.GetValue(key);
-            return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
 
         internal static bool TryGetSnapshotReferenceBodyName(ConfigNode snapshot, out string bodyName)
@@ -5183,7 +4879,7 @@ namespace Parsek
             }
 
             ConfigNode snapshot = sourceSnapshot.CreateCopy();
-            CorrectUnsafeSnapshotSituation(snapshot, rec.TerminalStateValue);
+            VesselSnapshotOps.CorrectUnsafeSnapshotSituation(snapshot, rec.TerminalStateValue);
 
             if (!TryValidateSnapshotHasParts(snapshot, out materializationRejectionReason))
             {
@@ -5344,7 +5040,7 @@ namespace Parsek
             out string reason)
         {
             reason = null;
-            if (!TryGetSnapshotDouble(node, key, out double value) || !IsFinite(value))
+            if (!VesselSnapshotOps.TryGetSnapshotDouble(node, key, out double value) || !IsFinite(value))
             {
                 reason = $"{metadataKind} metadata '{key}' is missing or non-finite";
                 return false;
@@ -5517,7 +5213,7 @@ namespace Parsek
                 hasEndpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out endpointBodyName);
             bool landedLike = rec.TerminalStateValue == TerminalState.Landed
                 || rec.TerminalStateValue == TerminalState.Splashed
-                || IsLandedLikeSnapshot(snapshot);
+                || VesselSnapshotOps.IsLandedLikeSnapshot(snapshot);
             bool? bodyMismatch = hasEndpointBody && hasSnapshotBody
                 ? (bool?)!string.Equals(snapshotBodyName, endpointBodyName, StringComparison.Ordinal)
                 : null;
@@ -7124,94 +6820,6 @@ namespace Parsek
         internal static bool ShouldRegenerateIdentity(bool preserveIdentity)
         {
             return !preserveIdentity;
-        }
-
-        /// <summary>
-        /// Pure decision: determine vessel situation string from altitude, water presence,
-        /// speed, and orbital speed. Used by SpawnAtPosition.
-        /// 4-way classifier: returns SPLASHED | LANDED | ORBITING | FLYING (never SUB_ORBITAL —
-        /// that's handled upstream by `ComputeCorrectedSituation` reading the stored snapshot sit).
-        ///
-        /// NOTE: there are currently three layers of situation correction applied before a
-        /// spawn: (1) <see cref="ComputeCorrectedSituation"/> in `PrepareSnapshotForSpawn`
-        /// rewrites the snapshot's `sit` field based on the stored situation, (2) this
-        /// method ignores the corrected `snapshot.sit` and classifies fresh from
-        /// altitude+velocity, (3) <see cref="OverrideSituationFromTerminalState"/> then
-        /// overrides FLYING based on the recording's terminal state. The triple layering
-        /// is historical — a cleanup PR could replace this method with "read corrected
-        /// snapshot.sit first, fall through to altitude/velocity classifier only if still
-        /// FLYING/SUB_ORBITAL" for a cleaner invariant. Tracked under the #264 follow-ups
-        /// in docs/dev/todo-and-known-bugs.md.
-        /// </summary>
-        internal static string DetermineSituation(double alt, bool overWater, double speed, double orbitalSpeed)
-        {
-            if (alt <= 0 && overWater)
-                return "SPLASHED";
-            if (alt <= 0)
-                return "LANDED";
-            if (speed > orbitalSpeed * 0.9)
-                return "ORBITING";
-            return "FLYING";
-        }
-
-        /// <summary>
-        /// Pure decision: override a FLYING situation to match the recording's terminal state.
-        /// Returns the overridden situation string, or the input unchanged if no override applies.
-        ///
-        /// When DetermineSituation returns FLYING (alt &gt; 0, speed &lt; 0.9*orbitalSpeed), the
-        /// classifier can't tell whether the vessel was flying, walking (EVA), or stationary.
-        /// The recording's TerminalStateValue holds the authoritative answer. This override
-        /// was originally added for Orbiting/Docked terminals (#176) to prevent on-rails
-        /// pressure destruction; #264 extended it to Landed/Splashed for EVA kerbals walking
-        /// at alt &gt; 0, which would otherwise hit the OrbitDriver updateMode=UPDATE stale-orbit
-        /// bug on the first physics frame after load.
-        ///
-        /// Only fires when input is FLYING — if the classifier returned ORBITING due to high
-        /// speed, we trust that signal over a potentially stale terminal state (a fast-moving
-        /// vessel should not be forced into LANDED just because the recording ended with
-        /// Landed; that indicates data inconsistency and the safer path is orbital spawn).
-        /// </summary>
-        internal static string OverrideSituationFromTerminalState(string sit, TerminalState? terminalState)
-        {
-            if (sit != "FLYING" || !terminalState.HasValue)
-                return sit;
-
-            switch (terminalState.Value)
-            {
-                case TerminalState.Orbiting:
-                case TerminalState.Docked:
-                    return "ORBITING";
-                case TerminalState.Landed:
-                    return "LANDED";
-                case TerminalState.Splashed:
-                    return "SPLASHED";
-                default:
-                    return sit;
-            }
-        }
-
-        /// <summary>
-        /// Apply a situation string and its corresponding landed/splashed flags to a spawn node.
-        /// </summary>
-        private static void ApplySituationToNode(ConfigNode spawnNode, string sit)
-        {
-            bool landed = sit == "LANDED";
-            bool splashed = sit == "SPLASHED";
-            spawnNode.SetValue("landed", landed ? "True" : "False", true);
-            spawnNode.SetValue("splashed", splashed ? "True" : "False", true);
-            spawnNode.SetValue("sit", sit, true);
-        }
-
-        /// <summary>
-        /// Pure decision: is this spawn situation string a landed-like surface state
-        /// (LANDED / SPLASHED)? Used by SpawnAtPosition to decide whether a non-finite
-        /// reseeded orbit may be substituted with the canonical surface orbit tuple.
-        /// </summary>
-        internal static bool IsLandedLikeSituation(string situation)
-        {
-            if (string.IsNullOrEmpty(situation)) return false;
-            return situation.Equals("LANDED", StringComparison.OrdinalIgnoreCase)
-                || situation.Equals("SPLASHED", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

@@ -168,7 +168,7 @@ namespace Parsek.Tests
                 single, Sections(single, ReferenceFrame.Absolute), s.Tail, s.TailPos, Lookup(0.0),
                 KerbinRotationPeriod, true, KerbinInverseRotThreshold);
             Assert.Equal(OrbitReseed.SeedVelocitySourceRecorded, v.Source);
-            Assert.Equal(GhostMapPresence.GapGlidePairSingleSample, v.DeclineReason);
+            Assert.Equal(OrbitReseed.GapGlidePairSingleSample, v.DeclineReason);
             Assert.Equal(0.0, (Vel(s.Tail) - v.VelocityYup).magnitude);
         }
 
@@ -190,7 +190,7 @@ namespace Parsek.Tests
             OrbitReseed.RecordedSampleSeedVelocity interpolated = OrbitReseed.ResolveRecordedSampleSeedVelocity(
                 points, Sections(points, ReferenceFrame.Absolute), lerped, s.TailPos, Lookup(0.0),
                 KerbinRotationPeriod, true, KerbinInverseRotThreshold);
-            Assert.Equal(GhostMapPresence.GapGlidePairPointNotFound, interpolated.DeclineReason);
+            Assert.Equal(OrbitReseed.GapGlidePairPointNotFound, interpolated.DeclineReason);
             Assert.Equal(0.0, (Vel(lerped) - interpolated.VelocityYup).magnitude);
         }
 

@@ -672,7 +672,7 @@ namespace Parsek
                 //
                 // Note (inRange vs chainEndUT): inRange uses traj.EndUT and
                 // pastEffectiveEnd uses f.chainEndUT.
-                // RecordingStore.GetChainEndUT returns Max(rec.EndUT, ...)
+                // RecordingChainQueries.GetChainEndUT returns Max(rec.EndUT, ...)
                 // over branch-0 chain peers, so chainEndUT >= EndUT and
                 // inRange implies !pastEffectiveEnd. Shadow firing here
                 // therefore cannot collide with the past-end branch below.

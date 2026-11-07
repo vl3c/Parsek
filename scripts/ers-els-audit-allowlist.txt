@@ -17,6 +17,13 @@ Source/Parsek/EffectiveState.cs
 # round-trip the snapshot exists to provide. No ledger reads.
 Source/Parsek/RecordingStoreTestSnapshot.cs
 
+# RecordingChainQueries holds the chain queries moved out of RecordingStore.cs
+# verbatim (the RecordingStore services plan, PR4). A chain is a physical
+# sequence of committed recordings, superseded ones included: ValidateChains
+# degrades a broken chain on load and the index queries answer in raw
+# committed-list indices, as they did inside the store. No ledger reads.
+Source/Parsek/RecordingChainQueries.cs
+
 # --- Serialization (I/O not semantics) ---
 Source/Parsek/ParsekScenario.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.

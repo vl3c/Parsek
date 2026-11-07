@@ -427,7 +427,7 @@ namespace Parsek.Tests
         [Fact]
         public void DetermineSituation_NegativeAlt_OverWater_ReturnsSplashed()
         {
-            string result = VesselSpawner.DetermineSituation(
+            string result = VesselSnapshotOps.DetermineSituation(
                 alt: -5.0, overWater: true, speed: 0, orbitalSpeed: 2200);
             Assert.Equal("SPLASHED", result);
         }
@@ -435,7 +435,7 @@ namespace Parsek.Tests
         [Fact]
         public void DetermineSituation_ZeroAlt_OverWater_ReturnsSplashed()
         {
-            string result = VesselSpawner.DetermineSituation(
+            string result = VesselSnapshotOps.DetermineSituation(
                 alt: 0, overWater: true, speed: 0, orbitalSpeed: 2200);
             Assert.Equal("SPLASHED", result);
         }
@@ -443,7 +443,7 @@ namespace Parsek.Tests
         [Fact]
         public void DetermineSituation_NegativeAlt_NotOverWater_ReturnsLanded()
         {
-            string result = VesselSpawner.DetermineSituation(
+            string result = VesselSnapshotOps.DetermineSituation(
                 alt: -2.0, overWater: false, speed: 0, orbitalSpeed: 2200);
             Assert.Equal("LANDED", result);
         }
@@ -451,7 +451,7 @@ namespace Parsek.Tests
         [Fact]
         public void DetermineSituation_ZeroAlt_NotOverWater_ReturnsLanded()
         {
-            string result = VesselSpawner.DetermineSituation(
+            string result = VesselSnapshotOps.DetermineSituation(
                 alt: 0, overWater: false, speed: 10, orbitalSpeed: 2200);
             Assert.Equal("LANDED", result);
         }
@@ -462,7 +462,7 @@ namespace Parsek.Tests
             // speed > orbitalSpeed * 0.9 -> ORBITING
             double orbitalSpeed = 2200;
             double speed = orbitalSpeed * 0.95;
-            string result = VesselSpawner.DetermineSituation(
+            string result = VesselSnapshotOps.DetermineSituation(
                 alt: 70000, overWater: false, speed: speed, orbitalSpeed: orbitalSpeed);
             Assert.Equal("ORBITING", result);
         }
@@ -473,7 +473,7 @@ namespace Parsek.Tests
             // speed == orbitalSpeed * 0.9 + epsilon -> ORBITING
             double orbitalSpeed = 2200;
             double speed = orbitalSpeed * 0.9 + 0.001;
-            string result = VesselSpawner.DetermineSituation(
+            string result = VesselSnapshotOps.DetermineSituation(
                 alt: 70000, overWater: false, speed: speed, orbitalSpeed: orbitalSpeed);
             Assert.Equal("ORBITING", result);
         }
@@ -484,7 +484,7 @@ namespace Parsek.Tests
             // speed < orbitalSpeed * 0.9 -> FLYING
             double orbitalSpeed = 2200;
             double speed = orbitalSpeed * 0.5;
-            string result = VesselSpawner.DetermineSituation(
+            string result = VesselSnapshotOps.DetermineSituation(
                 alt: 5000, overWater: false, speed: speed, orbitalSpeed: orbitalSpeed);
             Assert.Equal("FLYING", result);
         }
@@ -492,7 +492,7 @@ namespace Parsek.Tests
         [Fact]
         public void DetermineSituation_HighAlt_ZeroSpeed_ReturnsFlying()
         {
-            string result = VesselSpawner.DetermineSituation(
+            string result = VesselSnapshotOps.DetermineSituation(
                 alt: 100, overWater: false, speed: 0, orbitalSpeed: 2200);
             Assert.Equal("FLYING", result);
         }
@@ -501,7 +501,7 @@ namespace Parsek.Tests
         public void DetermineSituation_BoundaryAlt_PositiveSmall_Flying()
         {
             // alt > 0, slow speed -> FLYING (not LANDED)
-            string result = VesselSpawner.DetermineSituation(
+            string result = VesselSnapshotOps.DetermineSituation(
                 alt: 0.1, overWater: false, speed: 5, orbitalSpeed: 2200);
             Assert.Equal("FLYING", result);
         }
@@ -513,71 +513,71 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeCorrectedSituation_FlyingToLanded()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Landed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Landed);
             Assert.Equal("LANDED", result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_FlyingToSplashed()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Splashed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Splashed);
             Assert.Equal("SPLASHED", result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_FlyingToOrbiting()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Orbiting);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Orbiting);
             Assert.Equal("ORBITING", result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_SubOrbitalToOrbiting()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Orbiting);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Orbiting);
             Assert.Equal("ORBITING", result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_SubOrbitalToLanded()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Landed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Landed);
             Assert.Equal("LANDED", result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_NoCorrection_SafeSituation()
         {
-            Assert.Null(VesselSpawner.ComputeCorrectedSituation("LANDED", TerminalState.Landed));
-            Assert.Null(VesselSpawner.ComputeCorrectedSituation("ORBITING", TerminalState.Orbiting));
-            Assert.Null(VesselSpawner.ComputeCorrectedSituation("SPLASHED", TerminalState.Splashed));
-            Assert.Null(VesselSpawner.ComputeCorrectedSituation("PRELAUNCH", TerminalState.Landed));
+            Assert.Null(VesselSnapshotOps.ComputeCorrectedSituation("LANDED", TerminalState.Landed));
+            Assert.Null(VesselSnapshotOps.ComputeCorrectedSituation("ORBITING", TerminalState.Orbiting));
+            Assert.Null(VesselSnapshotOps.ComputeCorrectedSituation("SPLASHED", TerminalState.Splashed));
+            Assert.Null(VesselSnapshotOps.ComputeCorrectedSituation("PRELAUNCH", TerminalState.Landed));
         }
 
         [Fact]
         public void ComputeCorrectedSituation_NoCorrection_DestroyedTerminal()
         {
-            Assert.Null(VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Destroyed));
+            Assert.Null(VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Destroyed));
         }
 
         [Fact]
         public void ComputeCorrectedSituation_NoCorrection_NullTerminal()
         {
-            Assert.Null(VesselSpawner.ComputeCorrectedSituation("FLYING", null));
+            Assert.Null(VesselSnapshotOps.ComputeCorrectedSituation("FLYING", null));
         }
 
         [Fact]
         public void ComputeCorrectedSituation_NoCorrection_NullOrEmptySit()
         {
-            Assert.Null(VesselSpawner.ComputeCorrectedSituation(null, TerminalState.Orbiting));
-            Assert.Null(VesselSpawner.ComputeCorrectedSituation("", TerminalState.Orbiting));
+            Assert.Null(VesselSnapshotOps.ComputeCorrectedSituation(null, TerminalState.Orbiting));
+            Assert.Null(VesselSnapshotOps.ComputeCorrectedSituation("", TerminalState.Orbiting));
         }
 
         [Fact]
         public void ComputeCorrectedSituation_CaseInsensitive()
         {
-            Assert.Equal("ORBITING", VesselSpawner.ComputeCorrectedSituation("flying", TerminalState.Orbiting));
-            Assert.Equal("LANDED", VesselSpawner.ComputeCorrectedSituation("sub_orbital", TerminalState.Landed));
+            Assert.Equal("ORBITING", VesselSnapshotOps.ComputeCorrectedSituation("flying", TerminalState.Orbiting));
+            Assert.Equal("LANDED", VesselSnapshotOps.ComputeCorrectedSituation("sub_orbital", TerminalState.Landed));
         }
 
         #endregion

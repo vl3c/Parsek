@@ -457,8 +457,8 @@ namespace Parsek
                         var spawn = GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
                             rec, System.Math.Max(currentUT, rec.EndUT), chains, (HashSet<string>)null);
                         input.NeedsSpawn = spawn.needsSpawn;
-                        input.IsMidChain = RecordingStore.IsChainMidSegment(rec);
-                        input.ChainEndUT = RecordingStore.GetChainEndUT(rec);
+                        input.IsMidChain = RecordingChainQueries.IsChainMidSegment(rec);
+                        input.ChainEndUT = RecordingChainQueries.GetChainEndUT(rec);
                         GhostCommNetMath.ApplyContinuationHold(
                             ref input, rec, committed, chains,
                             spawn.reason == GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink,

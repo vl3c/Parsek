@@ -588,7 +588,7 @@ namespace Parsek
                 return false;
             // A looped phase does not make the chain's tip non-final: the first run is
             // real (design 12.7), the same answer ShouldSpawnAtRecordingEnd gives.
-            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainMidSegment(rec))
+            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingChainQueries.IsChainMidSegment(rec))
                 return false;
 
             bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue
@@ -853,7 +853,7 @@ namespace Parsek
             // Intermediate chain segments should not spawn — only the chain tip spawns.
             // In Flight, ShouldSuppressSpawnForChain handles this via runtime GhostChain
             // state, but at KSC there are no GhostChain objects. Use the committed data.
-            if (RecordingStore.IsChainMidSegment(rec))
+            if (RecordingChainQueries.IsChainMidSegment(rec))
                 return (false, "intermediate chain segment (not tip)");
 
             // Scene-agnostic #573 rewind lift: a standalone Rewind-to-Launch target the

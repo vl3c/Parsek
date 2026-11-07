@@ -1088,7 +1088,7 @@ namespace Parsek
             }
             GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
                 Tag, "TRACKSTATION", index, rec, currentUT,
-                !string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainLooping(rec.ChainId));
+                !string.IsNullOrEmpty(rec.ChainId) && RecordingChainQueries.IsChainLooping(rec.ChainId));
             try
             {
                 if (TrackingStationSpawnOverrideForTesting != null)
@@ -1224,7 +1224,7 @@ namespace Parsek
             if (!spawnResult.needsSpawn)
                 return spawnResult;
 
-            if (RecordingStore.IsChainMidSegment(rec))
+            if (RecordingChainQueries.IsChainMidSegment(rec))
                 return (false, TrackingStationSpawnSkipIntermediateChainSegment);
             var chainSuppressed = GhostPlaybackLogic.ShouldSuppressSpawnForChain(chains, rec);
             if (chainSuppressed.suppressed)

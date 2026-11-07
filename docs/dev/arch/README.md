@@ -223,7 +223,7 @@ attribute itself.
 A **knot** is a strongly connected component of the type graph with more than
 one member: a group of types that reach one another in a cycle, directly or
 through other members. Longest-path levelling condenses a cycle to one level,
-so the kernel's 458-type knot collapses into level 10 and only the types above
+so the kernel's 459-type knot collapses into level 10 and only the types above
 it (levels 11 to 14 here, mostly patches and entry points) rise above. A knot
 is why that level is flat: the levelling cannot order types that depend on each
 other.
@@ -232,7 +232,7 @@ other.
 component in largest-first order, or null outside a knot, and `sublevel` is
 the type's level inside its knot after the cut edges are removed (again null
 outside). On the current tree, the refactor branch claude/project-thread-bkwmrr,
-the knots are one of 458, then of 4 and 3 (re-derived 2026-11-06 on main's 1.0.0
+the knots are one of 459, then of 4 and 3 (re-derived 2026-11-06 on main's 1.0.0
 code plus the branch's re-cuts: placing 50 root files the map had skipped took
 the kernel to 584 on 2026-11-01 and merged the 7-type stock-screen decoration
 knot into it; teaching the scanner that a field, property or enum member
@@ -241,7 +241,8 @@ knot, leaving 542 on main's code. Making `Recording` plain data again and
 moving `GameAction`'s real `CaptureSequence` call to the leaf
 `CaptureSequenceCodec` take it to 457 here; those re-cuts are not on main. Moving the
 segment labels out of `RecordingStore` into `RecordingSegmentLabels`, which still reaches
-the knot through `RecordingOptimizer`, adds one: 458).
+the knot through `RecordingOptimizer`, adds one: 458; moving the chain queries into
+`RecordingChainQueries` adds one more: 459).
 It was 301, 7, 4, 2 and 2 on 2026-09-25; 286, 4, 2 and 2 on 2026-09-22; and
 391, 4 and 2 before the 2026-09-14 pass made `ParsekLog` and `Recording` leaves.
 
@@ -254,15 +255,31 @@ reports the references that were dropped. On main's code, `542 -> cut Recording 
 means removing `Recording`'s two references inside the knot
 (`LaunchSiteOnlyGhost`, `SidecarVersions`) splits off 46 members, and the
 second row, `GameAction` (`CaptureSequence`), 40 more; this branch makes both
-cuts in code, so its sequence starts at `458 -> cut Route -> 440`. Some cuts are
+cuts in code, so its sequence starts at `459 -> cut Route -> 441`, then
+`441 -> cut VesselLaunchIdentity -> 424` (its `RecordingSidecarStore` and `VesselNameStore`
+references; the flight controller was second until a 2026-11-07 pure move deleted
+one unrelated reference and reordered the greedy steps). Some cuts are
 cheap inversions like those - one or two references between hubs holding a
 whole region together, and those are the references a refactor should look at
 first - while the rest touch many small references at once (the `RecordingStore`
-cut, third on the current tree, drops 48), and the named
+cut drops 40 on the current tree), and the named
 sink there often needs a new abstraction (an interface, a data boundary) rather
 than moved edges. The table is a research list, not a verdict - the tool never says a
 reference is wrong, only that it holds a cycle together. Nothing in this phase
 changes any dependency; it reports them.
+
+The residue after the last cut is a ratchet in `scripts/arch/test_archview.py`
+(`test_cut_sequence_halves_the_largest_knot`, 287 of 459 on the current tree):
+refactor work must not loosen it. Because the greedy sequence is a heuristic,
+deleting a real reference can change which sink wins an early step and leave a
+larger residue after the same 12 steps, so the ratchet measures the smaller of
+the greedy residue and the **replayed residue** (`replay_cut_residue`): the
+largest component left after removing the outgoing references of a fixed,
+pinned cut order (`RATCHET_CUT_ORDER`, the greedy order as of 2026-11-07). For
+a fixed set of cut types, deleting a reference can only shrink the remaining
+components, so a pure move that removes a reference can never red the ratchet;
+adding a reference, or a new type that sits inside the residue, still can. The
+printed and documented sequence stays the greedy one.
 
 `ladder.html` shows the same information in place. The row of a knot level is
 split into sub-rows, top to bottom by descending sublevel (level 0 of the knot
@@ -336,12 +353,15 @@ meaning of Core from here on.
 `VesselSnapshotOps.cs` is the ninth and the newest: the 2026-09-14
 `VesselSpawner` split created it as the pure-over-ConfigNode subset the ledger,
 Logistics, the route proof and the UI all call, and named it in the `Core` rule
-in the same PR. Its R2 evidence reads `externalRefs=8 share=0.50
-top=Logistics(4) second=Recording(2)`, exactly on the R2 bar, so the placement
-report lists it under "Placement rules whose destination does not match the
-current map": the mechanical rule would send it to Logistics, the operator
-decision keeps it in the kernel. That line is the standing note about the
-disagreement, not a defect.
+in the same PR. The 2026-11-07 placement PR 6 moved the crew-in-snapshot and
+situation helpers into it as well (18 declarations; the two crew members that
+read the roster or `CrewReservationManager` stayed in `VesselSpawner`, which
+keeps it out of the type knot). Its R2 evidence then reads `externalRefs=10
+share=0.50 top=Logistics(5) second=Controllers(2)`, exactly on the R2 bar, so
+the placement report lists it under "Placement rules whose destination does not
+match the current map": the mechanical rule would send it to Logistics, the
+operator decision keeps it in the kernel. That line is the standing note about
+the disagreement, not a defect.
 
 ## The atlas
 

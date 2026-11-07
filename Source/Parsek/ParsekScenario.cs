@@ -5101,7 +5101,7 @@ namespace Parsek
 
                 // Validate chain integrity before any playback
                 loadPhase = "chain-validation";
-                RecordingStore.ValidateChains();
+                RecordingChainQueries.ValidateChains();
 
                 // The vessel name decisions read only their own node; loading them before the
                 // trees keeps a tree-load fault from dropping them on the next save.

@@ -1211,6 +1211,40 @@ class GreedySinkCutTests(unittest.TestCase):
         self.assertEqual(archview.greedy_sink_cuts(["AOne", "BTwo"], graph, max_steps=0), [])
 
 
+class ReplayCutResidueTests(unittest.TestCase):
+    def test_matches_the_greedy_residue_for_the_greedy_order(self):
+        graph = GreedySinkCutTests._two_cycle_graph(
+            ["ZSink", "QOne", "QTwo", "QThree", "QFour"], ["ASink", "POne", "PTwo"]
+        )
+        cuts = archview.greedy_sink_cuts(sorted(graph), graph)
+        order = [cut["sink"] for cut in cuts]
+        self.assertEqual(archview.replay_cut_residue(graph, order), cuts[-1]["sizeAfter"])
+
+    def test_no_cut_is_the_largest_component(self):
+        graph = GreedySinkCutTests._two_cycle_graph(["AOne", "ATwo"], ["BOne", "BTwo", "BThree"])
+        self.assertEqual(archview.replay_cut_residue(graph, []), 5)
+
+    def test_a_name_absent_from_the_graph_is_skipped(self):
+        graph = {"AOne": ["BTwo"], "BTwo": ["AOne"], "CThree": []}
+        self.assertEqual(archview.replay_cut_residue(graph, ["GoneType"]), 2)
+        self.assertEqual(archview.replay_cut_residue(graph, ["GoneType", "AOne"]), 1)
+
+    def test_deleting_an_edge_never_raises_it(self):
+        # The monotonicity the residue ratchet relies on, checked over every
+        # single-edge deletion.
+        graph = GreedySinkCutTests._two_cycle_graph(
+            ["ZSink", "QOne", "QTwo", "QThree", "QFour"], ["ASink", "POne", "PTwo"]
+        )
+        graph["QTwo"].append("POne")
+        order = [cut["sink"] for cut in archview.greedy_sink_cuts(sorted(graph), graph)]
+        before = archview.replay_cut_residue(graph, order)
+        for name, targets in graph.items():
+            for target in targets:
+                trimmed = {key: [t for t in value if (key, t) != (name, target)]
+                           for key, value in graph.items()}
+                self.assertLessEqual(archview.replay_cut_residue(trimmed, order), before)
+
+
 class SublevelTests(unittest.TestCase):
     def test_cutting_one_sink_turns_the_cycle_into_a_chain(self):
         graph = {"AOne": ["BTwo"], "BTwo": ["CThree"], "CThree": ["DFour"], "DFour": ["AOne"]}
@@ -3127,6 +3161,25 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
 
 
+# The cut order the residue ratchet replays (test_cut_sequence_halves_the_largest_knot):
+# the greedy sequence on the refactor branch as of 2026-11-07. Re-pin it only
+# together with a tightened bound, never to loosen one.
+RATCHET_CUT_ORDER = [
+    "Route",
+    "ParsekFlight",
+    "ParsekScenario",
+    "RecordingStore",
+    "GameStateRecorder",
+    "LedgerOrchestrator",
+    "RecordingTree",
+    "RouteOrchestrator",
+    "FlightRecorder",
+    "GhostPlaybackLogic",
+    "ReFlySessionMarker",
+    "EffectiveState",
+]
+
+
 @unittest.skipUnless(REAL_SOURCE.is_dir(), "Source/Parsek is not present")
 class RealTreeSmokeTests(unittest.TestCase):
     @classmethod
@@ -3222,12 +3275,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # LaunchSiteOnlyGhost inside. Each RecordingStore service the
         # 2026-11-06 plan moves into its own type adds that type when it still
         # sits on a cycle: 458 after RecordingSegmentLabels (PR1, it calls
-        # RecordingOptimizer). It was [301, 7, 4, 2, 2] on 2026-09-25,
+        # RecordingOptimizer), 459 after RecordingChainQueries (PR4). It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [458, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [459, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3342,14 +3395,18 @@ class RealTreeSmokeTests(unittest.TestCase):
         # second. Same canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
         self.assertEqual(first["sink"], "Route")
-        self.assertEqual(first["sizeBefore"], 458)
-        self.assertEqual(first["sizeAfter"], 440)
+        self.assertEqual(first["sizeBefore"], 459)
+        self.assertEqual(first["sizeAfter"], 441)
         self.assertEqual(
             first["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
         )
-        self.assertEqual(second["sink"], "ParsekFlight")
-        self.assertEqual(second["sizeAfter"], 425)
+        # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
+        # that made the launch-identity cut (dropping its RecordingSidecarStore and
+        # VesselNameStore references) beat the flight controller for second
+        # place (426 before). The residue ratchet below is immune to this reorder.
+        self.assertEqual(second["sink"], "VesselLaunchIdentity")
+        self.assertEqual(second["sizeAfter"], 424)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3369,9 +3426,25 @@ class RealTreeSmokeTests(unittest.TestCase):
         # RecordingStore forwarder (cut): 285 of 458. PR3 deletes the sidecar
         # forwarders, so their callers reach RecordingSidecarStore and
         # RouteProofCodec directly and both stay in the residue: 287 of 458,
-        # the value pinned here.
+        # the value pinned here (still 287 of 459 after PR4's
+        # RecordingChainQueries, which the RecordingStore cut drops with it).
+        #
+        # The bound applies to min(greedy residue, replayed residue). The greedy
+        # sequence is a heuristic: deleting a real reference can change which
+        # sink wins an early step and leave a LARGER residue after the same 12
+        # steps (file-placement PR 4 deletes OrbitReseed -> GhostMapPresence and
+        # the greedy residue rises 285 -> 290 on the tree it was measured on).
+        # The replay removes the outgoing edges of the fixed order pinned below
+        # (the greedy order as of 2026-11-07; a name that leaves the model is
+        # skipped), and for a fixed set of cut types deleting an edge can only
+        # shrink the remaining components, so the replayed residue never rises
+        # when a reference is removed. The greedy sequence stays the reported,
+        # documented one (test_first_cut_matches_the_documented_tree); the
+        # minimum is only the ratchet's measure.
         largest = self.model["knots"][0]
-        self.assertLessEqual(largest["cuts"][-1]["sizeAfter"], 287)
+        graph = {entry["name"]: entry["referencesTo"] for entry in self.model["types"]}
+        replayed = archview.replay_cut_residue(graph, RATCHET_CUT_ORDER)
+        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 287)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

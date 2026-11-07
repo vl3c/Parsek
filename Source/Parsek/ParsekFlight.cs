@@ -6350,8 +6350,8 @@ namespace Parsek
             string fallbackKey,
             out double value)
         {
-            return VesselSpawner.TryGetSnapshotDouble(snapshot, primaryKey, out value)
-                || VesselSpawner.TryGetSnapshotDouble(snapshot, fallbackKey, out value);
+            return VesselSnapshotOps.TryGetSnapshotDouble(snapshot, primaryKey, out value)
+                || VesselSnapshotOps.TryGetSnapshotDouble(snapshot, fallbackKey, out value);
         }
 
         private static bool IsRouteEndpointSurfaceSituation(Vessel.Situations situation)
@@ -20569,7 +20569,7 @@ namespace Parsek
             if (rec.ChainBranch != 0) return false;
             if (rec.ChainIndex <= 0) return false;
 
-            int predIdx = RecordingStore.GetChainPredecessorIndex(rec);
+            int predIdx = RecordingChainQueries.GetChainPredecessorIndex(rec);
             if (predIdx < 0) return false;
             var committed = RecordingStore.CommittedRecordings;
             if (predIdx >= committed.Count) return false;
@@ -20626,7 +20626,7 @@ namespace Parsek
                 bool hasData = GhostPlaybackEngine.HasRenderableGhostData(rec);
 
                 bool chainLooping = rec.IsChainRecording &&
-                    RecordingStore.IsChainLooping(rec.ChainId);
+                    RecordingChainQueries.IsChainLooping(rec.ChainId);
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec, IsActiveTreeRecording(rec));
@@ -20764,8 +20764,8 @@ namespace Parsek
                     spawnSuppressedCount++;
                 }
 
-                bool isMidChain = RecordingStore.IsChainMidSegment(rec);
-                double chainEndUT = RecordingStore.GetChainEndUT(rec);
+                bool isMidChain = RecordingChainQueries.IsChainMidSegment(rec);
+                double chainEndUT = RecordingChainQueries.GetChainEndUT(rec);
                 // Ghost CommNet relay window inputs (design 15.6): the same gates as the
                 // ghost, minus the display-only playback toggle, plus the real-run scope
                 // gate (the spawn variant, so a loop member's first run is gated too).

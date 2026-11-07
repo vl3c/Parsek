@@ -319,7 +319,7 @@ namespace Parsek.Tests
             rec.LoopPlayback = true;
             RecordingStore.CommitRecordingDirect(rec);
 
-            Assert.True(RecordingStore.IsChainLooping("chain-disabled-loop"));
+            Assert.True(RecordingChainQueries.IsChainLooping("chain-disabled-loop"));
         }
 
         // ─────────────────────────────────────────────────────────────

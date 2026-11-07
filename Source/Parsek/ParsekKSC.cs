@@ -1957,7 +1957,7 @@ namespace Parsek
                 return;
             }
 
-            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainLooping(rec.ChainId))
+            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingChainQueries.IsChainLooping(rec.ChainId))
                 GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
                     "KSCSpawn", "SPACECENTER", recIdx, rec, Planetarium.GetUniversalTime(), true);
 
@@ -2071,7 +2071,7 @@ namespace Parsek
 
             // Correct unsafe snapshot situation before spawning (#169).
             // Same guard as SpawnOrRecoverIfTooClose - prevents on-rails pressure destruction.
-            VesselSpawner.CorrectUnsafeSnapshotSituation(spawnSnapshot, rec.TerminalStateValue);
+            VesselSnapshotOps.CorrectUnsafeSnapshotSituation(spawnSnapshot, rec.TerminalStateValue);
             HashSet<string> excludeCrew = VesselSpawner.BuildExcludeCrewSet(rec);
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
             bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;

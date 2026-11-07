@@ -7831,9 +7831,9 @@ namespace Parsek.Tests
 
                 // The production correction fires on exactly this snapshot and terminal.
                 Assert.Equal("LANDED",
-                    VesselSpawner.ComputeCorrectedSituation(snap.GetValue("sit"), rec.TerminalStateValue));
+                    VesselSnapshotOps.ComputeCorrectedSituation(snap.GetValue("sit"), rec.TerminalStateValue));
                 ConfigNode copy = snap.CreateCopy();
-                Assert.True(VesselSpawner.CorrectUnsafeSnapshotSituation(copy, rec.TerminalStateValue));
+                Assert.True(VesselSnapshotOps.CorrectUnsafeSnapshotSituation(copy, rec.TerminalStateValue));
                 Assert.Equal("LANDED", copy.GetValue("sit"));
                 Assert.Contains(logLines, l => l.Contains("[Spawner]")
                     && l.Contains("Corrected unsafe snapshot situation: FLYING -> LANDED (terminal=Landed)"));
