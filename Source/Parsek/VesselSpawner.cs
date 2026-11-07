@@ -232,16 +232,16 @@ namespace Parsek
 
             bool allow = ShouldAllowExistingSourceDuplicateForReplay(
                 sourcePid,
-                RecordingStore.SceneEntryActiveVesselPid,
+                SceneEntryVesselScope.SceneEntryActiveVesselPid,
                 activeVesselPid,
-                RecordingStore.RewindReplayTargetSourcePid);
+                SceneEntryVesselScope.RewindReplayTargetSourcePid);
             if (allow && rec != null)
             {
                 string reason;
                 allow = ShouldKeepReplayBypassForLaunchIdentity(
                     rec,
-                    RecordingStore.SceneEntryActiveVesselPid,
-                    RecordingStore.SceneEntryActiveVesselGuid,
+                    SceneEntryVesselScope.SceneEntryActiveVesselPid,
+                    SceneEntryVesselScope.SceneEntryActiveVesselGuid,
                     activeVesselPid,
                     activeVesselGuid,
                     VesselLaunchIdentity.LiveGuidIsRecordedLaunchOrLinked,
@@ -255,11 +255,11 @@ namespace Parsek
                         string.Format(CultureInfo.InvariantCulture,
                             "existing-source-dup-narrowed|{0}|{1}|{2}|{3}",
                             rec.RecordingId ?? "(none)", reason,
-                            RecordingStore.SceneEntryActiveVesselPid, activeVesselPid),
+                            SceneEntryVesselScope.SceneEntryActiveVesselPid, activeVesselPid),
                         $"ShouldAllowExistingSourceDuplicateForCurrentFlight=false " +
                         $"rec={rec.RecordingId ?? "(none)"} sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
                         $"reason={reason} recGuid={VesselLaunchIdentity.NormalizeGuid(rec.RecordedVesselGuid) ?? "(none)"} " +
-                        $"sceneEntryGuid={VesselLaunchIdentity.NormalizeGuid(RecordingStore.SceneEntryActiveVesselGuid) ?? "(none)"} " +
+                        $"sceneEntryGuid={VesselLaunchIdentity.NormalizeGuid(SceneEntryVesselScope.SceneEntryActiveVesselGuid) ?? "(none)"} " +
                         $"activeGuid={VesselLaunchIdentity.NormalizeGuid(activeVesselGuid) ?? "(none)"} " +
                         "- #226 bypass withheld, spawn goes through guid-aware adoption");
                 }
@@ -268,9 +268,9 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Spawner",
                     BuildExistingSourceDuplicateLogKey(
-                        "current-flight", sourcePid, RecordingStore.SceneEntryActiveVesselPid, activeVesselPid),
+                        "current-flight", sourcePid, SceneEntryVesselScope.SceneEntryActiveVesselPid, activeVesselPid),
                     $"ShouldAllowExistingSourceDuplicateForCurrentFlight=true sourcePid={sourcePid.ToString(CultureInfo.InvariantCulture)} " +
-                    $"sceneEntryActiveVesselPid={RecordingStore.SceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"sceneEntryActiveVesselPid={SceneEntryVesselScope.SceneEntryActiveVesselPid.ToString(CultureInfo.InvariantCulture)} " +
                     $"activeVesselPid={activeVesselPid.ToString(CultureInfo.InvariantCulture)}");
             }
             return allow;

@@ -360,7 +360,7 @@ namespace Parsek.Tests
                 VesselSnapshot = null
             };
             RecordingStore.AddCommittedInternal(rec);
-            RecordingStore.SceneEntryActiveVesselPid = 777;
+            SceneEntryVesselScope.SceneEntryActiveVesselPid = 777;
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 777);
             var chains = new Dictionary<uint, GhostChain>
             {
@@ -391,7 +391,7 @@ namespace Parsek.Tests
                 VesselSnapshot = null
             };
             RecordingStore.AddCommittedInternal(rec);
-            RecordingStore.SceneEntryActiveVesselPid = 888;
+            SceneEntryVesselScope.SceneEntryActiveVesselPid = 888;
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 888);
             var chains = new Dictionary<uint, GhostChain>
             {

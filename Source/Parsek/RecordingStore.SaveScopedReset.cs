@@ -59,10 +59,7 @@ namespace Parsek
             committedTreeRestoreAttemptEventCutoffs = null;
             durableCommittedRecordingIdHint = null;
 
-            SceneEntryActiveVesselPid = 0;
-            SceneEntryActiveVesselGuid = null;
-            SceneEntryFreshRolloutVesselPid = 0;
-            ClearRewindReplayTargetScope();
+            SceneEntryVesselScope.ResetForLoad();
             rewindCarriedRewindPoints = null;
             rewindCarriedStagedLists = null;
             RewindUTAdjustmentPending = false;
