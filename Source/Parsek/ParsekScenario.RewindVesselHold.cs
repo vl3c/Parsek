@@ -75,7 +75,7 @@ namespace Parsek
             Func<string, bool> recordingReplays = id =>
                 RewindSpawnScope.WillReplayAfterRewind(FindEffectiveRecordingById(id), rewindUT);
             int chainsNotReplayed;
-            List<ReFlyInvokeHold.Entry> chainEntries = RewindVesselHold.CollectChainHolds(
+            List<ReFlyHoldEntry> chainEntries = RewindVesselHold.CollectChainHolds(
                 chains, rewindUT, guidOf, recordingReplays, out chainsNotReplayed);
 
             var supersededClaimants = GhostChainWalker.BuildSupersededClaimantMap(RecordingSupersedes);
@@ -86,17 +86,17 @@ namespace Parsek
                 out claimsSkipped);
             int matchedWithoutFuture;
             int fliesNotReplayed;
-            List<ReFlyInvokeHold.Entry> futureEntries = ReFlyInvokeHold.Classify(
+            List<ReFlyHoldEntry> futureEntries = ReFlyInvokeHold.Classify(
                 survivors, null, EffectiveState.ComputeERS(), EffectiveState.ComputeELS(),
                 changeClaims, rewindUT, rec => RewindSpawnScope.WillReplayAfterRewind(rec, rewindUT),
                 out matchedWithoutFuture, out fliesNotReplayed);
 
-            List<ReFlyInvokeHold.Entry> merged = RewindVesselHold.Merge(chainEntries, futureEntries);
+            List<ReFlyHoldEntry> merged = RewindVesselHold.Merge(chainEntries, futureEntries);
             var held = new List<RewindVesselHold.Hold>();
             int notInWorld = 0, claimsReleased = 0;
             for (int m = 0; m < merged.Count; m++)
             {
-                ReFlyInvokeHold.Entry entry = merged[m];
+                ReFlyHoldEntry entry = merged[m];
                 int index = FindHeldProtoVesselIndex(protoVessels, entry.Pid, entry.LaunchGuid);
                 if (index < 0)
                 {

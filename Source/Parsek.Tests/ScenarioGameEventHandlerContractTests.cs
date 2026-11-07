@@ -109,7 +109,7 @@ namespace Parsek.Tests
             {
                 string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekScenario.cs");
                 if (File.Exists(candidate))
-                    return File.ReadAllText(candidate);
+                    return ParsekScenarioSourceFiles.ReadText(candidate);
                 dir = Path.GetDirectoryName(dir);
             }
             throw new FileNotFoundException(

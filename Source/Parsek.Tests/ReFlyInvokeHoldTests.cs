@@ -40,7 +40,7 @@ namespace Parsek.Tests
             };
         }
 
-        private static List<ReFlyInvokeHold.Entry> Classify(
+        private static List<ReFlyHoldEntry> Classify(
             List<(uint, string)> survivors, List<Recording> recs, List<GameAction> ledger,
             out int matchedWithoutFuture, params uint[] excluded)
         {

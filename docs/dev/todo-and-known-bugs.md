@@ -1985,9 +1985,9 @@ were placed, it merged into the kernel knot (584). The fix direction below is un
   replayed residue 283 -> 265 and greedy residue 290 -> 238. As an extra cut,
   `StrategyReservationPredicates` is worth 283 -> 282 only.
 - Done (W3b, MOVE, 2026-11-07): `ReasonColorHex` and `AppendReason` now live on `StockUiText`.
-  Measured after W1a (base 272 of 459): knots [441, 9, 4, 3, 2], greedy residue 272 -> 228
-  (the greedy sequence now cuts `ParsekUI` at step 11). The ratchet order is re-pinned to that
-  sequence and the bound tightened to 228.
+  Measured after W1a / W1b (base 263 of 450): knots [432, 9, 4, 3, 2], greedy residue
+  263 -> 220 (the greedy sequence now cuts `ParsekUI` at step 11). The ratchet order is
+  re-pinned to that sequence and the bound tightened to 220.
 
 **Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
 explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
@@ -2951,6 +2951,9 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `VesselNameStore` and `RecordingSidecarStore` install from their own type initialisers and
   from `RecordingStore`'s, next to `Recording.GhostHiddenRule`. Knot 477 -> 459 (plus a 2-type
   knot `OrbitReseed` / `RecordedTailVelocityResolver`), replayed residue 283 -> 272.
+- Wave 2 W1b (2026-11-07, this branch): the hold decision record `ReFlyInvokeHold.Entry` is the
+  top-level plain type `ReFlyHoldEntry` (same file, same fields), so `RewindVesselHold.Hold`
+  no longer references the classifier. Knot 459 -> 450, replayed residue 272 -> 263.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

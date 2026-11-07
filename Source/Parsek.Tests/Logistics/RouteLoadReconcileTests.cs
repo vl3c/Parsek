@@ -592,7 +592,7 @@ namespace Parsek.Tests.Logistics
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(repo, "Source", "Parsek", "ParsekScenario.cs");
             Assert.True(File.Exists(path), "ParsekScenario.cs not found at " + path);
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
 
             const string sig = "public override void OnLoad(ConfigNode node)";
             int sigIdx = prepared.IndexOf(sig, StringComparison.Ordinal);

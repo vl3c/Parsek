@@ -3296,9 +3296,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # VesselLaunchIdentity a sink: its link-row test and sidecar hydration are rules
         # VesselNameStore and RecordingSidecarStore install, so the knot drops to 459 and
         # OrbitReseed / RecordedTailVelocityResolver, which only reached it through
-        # launch identity, are left as their own 2-type knot. Wave 2 W3b moves the
+        # launch identity, are left as their own 2-type knot. W1b moves the hold decision
+        # record out of ReFlyInvokeHold into the plain ReFlyHoldEntry, so the rewind hold
+        # (RewindVesselHold.Hold) no longer reaches the classifier: 450. Wave 2 W3b moves the
         # ReasonColorHex const and AppendReason from StockUiRnDDecoration onto StockUiText,
-        # the two references that held 18 stock-screen types in the kernel: 441, and nine of
+        # the two references that held 18 stock-screen types in the kernel: 432, and nine of
         # them (the overlay controller, the RnD / facility / astronaut decorations, the live
         # snapshot, the reason tooltip, the Mission Control UI and two patches, which call
         # each other) are left as their own 9-type knot.
@@ -3307,7 +3309,7 @@ class RealTreeSmokeTests(unittest.TestCase):
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [441, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [432, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3438,21 +3440,21 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (474 before, still 454 after), and PF7's ParsekFlightSplitBrancher (475 before,
         # still 454 after), and PF8's ParsekFlightMergeFlow (476 before, still 454 after),
         # and PF9's ParsekFlightSwitchContinuation (477 before, still 454 after).
-        # Wave 2 W1a takes VesselLaunchIdentity out of the knot (459 before, 437 after).
-        # Wave 2 W3b takes 18 stock-screen types out (441 before, 419 after; each of the
-        # first three cuts lands 18 lower).
+        # Wave 2 W1a takes VesselLaunchIdentity out of the knot (459 before, 437 after),
+        # W1b the rewind hold record (450 before, 428 after), W3b 18 stock-screen types
+        # (432 before, 410 after; each of the first three cuts lands 18 lower).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 441)
-        self.assertEqual(first["sizeAfter"], 419)
+        self.assertEqual(first["sizeBefore"], 432)
+        self.assertEqual(first["sizeAfter"], 410)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
                         "ParsekFlightSpawnHost", "ParsekFlightSplitBrancher",
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "Route")
-        self.assertEqual(second["sizeBefore"], 419)
-        self.assertEqual(second["sizeAfter"], 401)
+        self.assertEqual(second["sizeBefore"], 410)
+        self.assertEqual(second["sizeAfter"], 392)
         self.assertEqual(
             second["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
@@ -3472,10 +3474,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # ParsekFlightGhostPositioner (433 before) and PF3's
         # ParsekFlightPostSwitchAutoRecord (434 before); PF4 moved it to third
         # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
-        # no longer a cut; the third cut is the scenario module.
+        # no longer a cut; the third cut is the scenario module (419 -> 404 then, 410 -> 395
+        # after W1b, 392 -> 377 after W3b).
         self.assertEqual(third["sink"], "ParsekScenario")
-        self.assertEqual(third["sizeBefore"], 401)
-        self.assertEqual(third["sizeAfter"], 386)
+        self.assertEqual(third["sizeBefore"], 392)
+        self.assertEqual(third["sizeAfter"], 377)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3520,11 +3523,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # after PF9's ParsekFlightSwitchContinuation (the same shape).
         # The bound ratchets: it is tightened to the measured replayed residue, 283.
         # Wave 2 W1a (VesselLaunchIdentity's two store calls become installed rules) takes
-        # it to 272 of 459 (greedy 272 too). Wave 2 W3b (ReasonColorHex and AppendReason
-        # move onto StockUiText) takes 18 stock-screen types out of the knot; the greedy
-        # sequence then cuts ParsekUI at step 11 (282 -> 238) and ends at 228 of 441, while
-        # the 2026-11-07 order replays to 254. The order below is re-pinned to the new
-        # greedy one, which replays to 228, the bound pinned here.
+        # it to 272 of 459 (greedy 272 too); W1b (RewindVesselHold.Hold carries the plain
+        # ReFlyHoldEntry, not ReFlyInvokeHold's nested type) to 263 of 450. Wave 2 W3b
+        # (ReasonColorHex and AppendReason move onto StockUiText) takes 18 stock-screen types
+        # out of the knot; the greedy sequence then cuts ParsekUI at step 11 (273 -> 230) and
+        # ends at 220 of 432, while the earlier 2026-11-07 order replays to 245. The order
+        # above is re-pinned to the new greedy one, which replays to 220, the bound pinned here.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which
@@ -3541,7 +3545,7 @@ class RealTreeSmokeTests(unittest.TestCase):
         largest = self.model["knots"][0]
         graph = {entry["name"]: entry["referencesTo"] for entry in self.model["types"]}
         replayed = archview.replay_cut_residue(graph, RATCHET_CUT_ORDER)
-        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 228)
+        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 220)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

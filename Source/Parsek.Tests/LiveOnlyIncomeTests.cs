@@ -409,7 +409,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory,
                 "..", "..", "..", "..", "..", "Source", "Parsek", file));
             Assert.True(File.Exists(path), "source file not found for scan: " + path);
-            return File.ReadAllText(path);
+            return ParsekScenarioSourceFiles.ReadText(path);
         }
     }
 }
