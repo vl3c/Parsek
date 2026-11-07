@@ -3461,7 +3461,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # services PR8's CommittedListOptimizer, which the RecordingStore cut
         # drops with it, of 463 after PR9's CommittedTreeRestoreAttempt and of
         # 464 after PR10's PendingTreeSlot and of 465 after PR11's
-        # SwitchSegmentAttempts); the bound stays 287.
+        # SwitchSegmentAttempts); the bound stayed 287.
+        # The bound ratchets: it is tightened to the measured replayed residue, 283.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which
@@ -3478,7 +3479,7 @@ class RealTreeSmokeTests(unittest.TestCase):
         largest = self.model["knots"][0]
         graph = {entry["name"]: entry["referencesTo"] for entry in self.model["types"]}
         replayed = archview.replay_cut_residue(graph, RATCHET_CUT_ORDER)
-        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 287)
+        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 283)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

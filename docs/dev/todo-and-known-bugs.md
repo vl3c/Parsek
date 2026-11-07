@@ -3045,7 +3045,7 @@ each PR lands on the refactor branch, IL-proven a pure move).
   `RecordingStore` cut (replayed residue +4 with them direct). Five source gates now read `SwitchSegmentAttempts.cs`
   (two of them had kept passing on the forwarder's matching signature). `RecordingStore` partials
   6,911 -> 6,195 lines, 214 -> 202 IL methods; knot 464 -> 465 (measured after the tip's
-  LiveVesselSnapshot follow-up), replayed cut residue 283 unchanged (bound 287).
+  LiveVesselSnapshot follow-up), replayed cut residue 283 unchanged (bound 283 since #2427).
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -3161,6 +3161,7 @@ compare).
   bound back to 287; upward edges unchanged (81 / 792). IL: 4 moved bodies
   identical, 39 re-pointed call sites. Moving them back to `VesselSpawner` measured the same
   knot and residue but +2 upward weight (Recording and Rewind -> Controllers).
+  The ratchet then tightened 287 -> 283, the measured replayed residue.
 
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
