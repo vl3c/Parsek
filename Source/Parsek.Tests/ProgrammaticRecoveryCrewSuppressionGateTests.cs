@@ -63,12 +63,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Theory]
-        [InlineData("ParsekFlight.cs", 0)]
-        [InlineData("ParsekFlight.Accessors.cs", 0)]
-        [InlineData("ParsekFlight.GhostPositioner.cs", 0)]
-        [InlineData("ParsekFlight.GhostPositioning.cs", 0)]
-        [InlineData("ParsekFlight.Spawning.cs", 2)]
-        [InlineData("ParsekFlight.TimelinePlayback.cs", 0)]
+        [InlineData("ParsekFlight.cs", 2)]
         [InlineData("VesselSpawner.cs", 1)]
         public void EveryProductionRecoverVesselFromFlightCallIsCrewSuppressed(
             string relPath, int expectedCallSites)
@@ -175,9 +170,12 @@ namespace Parsek.Tests
             if (!File.Exists(path))
                 path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            // VesselSpawner is a partial class; its gate reads every split file as one text.
+            // VesselSpawner and ParsekFlight are partial classes; each gate reads every split
+            // file as one text.
             if (relPath == "VesselSpawner.cs")
                 return VesselSpawnerSourceFiles.ReadAll(Path.GetDirectoryName(path));
+            if (relPath == "ParsekFlight.cs")
+                return ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path));
             return File.ReadAllText(path);
         }
     }
