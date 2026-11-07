@@ -568,8 +568,16 @@ namespace Parsek.Tests
             // the same decision E2_PoweredSoiCrossing_StillSplits pins synthetically.
             // Widening ShouldKeepCohesiveCrossBodyExoCoast to swallow this would fuse
             // a Kerbin ascent to a Duna orbit across a 9.7 Ms gap.
+            // `duna-ike-recorded` (B36, harvested 2026-11-07) adds the same shape on its pad-head
+            // root: the per-frame Kerbin ascent ends at UT 4,653,681.9 and a ~1 s ExoBallistic
+            // Ike section sits at 9,181,509.7, two seconds after the tree's in-flight commit, past
+            // the root's explicitEndUT. It is the committed-restore resuming the tree on its ROOT
+            // id after the commit (todo COMMITTED-RESTORE-APPENDS-TO-ROOT), pinned here as the
+            // fixture's measured reading; a fix that stops the stray tail flips this entry.
             var expectedBodySplits = new[]
             {
+                "311d98e32547491e8dd37aec2526d25d.prec.txt :: 1->2 @ut 9181509.7 "
+                + ": Atmospheric(Absolute)/Kerbin -> ExoBallistic(Absolute)/Ike",
                 "ffffab0a00b743a89ae829aa3c83cc92.prec.txt :: 4->5 @ut 52566541.2 "
                 + ": Atmospheric(Absolute)/Kerbin -> ExoBallistic(OrbitalCheckpoint)/Duna",
             };
