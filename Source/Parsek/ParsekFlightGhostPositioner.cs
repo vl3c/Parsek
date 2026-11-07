@@ -4271,8 +4271,11 @@ namespace Parsek
             string anchorRecordingId)
         {
             return $"RELATIVE playback: contract=anchor-local " +
-                $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
-                $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m " +
+                $"version={recordingFormatVersion.ToString(CultureInfo.InvariantCulture)} " +
+                $"dx={dx.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"dy={dy.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"dz={dz.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz).ToString("F2", CultureInfo.InvariantCulture)}m " +
                 $"anchorRec={(string.IsNullOrEmpty(anchorRecordingId) ? "(missing)" : anchorRecordingId)} source=recorded";
         }
 

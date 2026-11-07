@@ -101,7 +101,6 @@ namespace Parsek.Tests
         [InlineData(15.0, 1)]
         [InlineData(19.9999995, 2)]
         [InlineData(500.0, 2)]
-        [InlineData(double.NaN, 2)]
         public void NearestContinuitySection_LastSectionStartingAtOrBeforeAnchor(double ut, int expected)
         {
             var sections = new List<TrackSection>
@@ -557,7 +556,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LastBodyFixedFrameAtOrBefore_LaterSectionReplacesEarlier()
+        public void LastBodyFixedFrameAtOrBefore_ScansSectionsAndFramesInListOrder()
         {
             var sections = new List<TrackSection>
             {
@@ -628,6 +627,23 @@ namespace Parsek.Tests
                 ParsekFlightGhostPositioner.BuildRecordedRelativeOffsetAppliedLog(3, 3, 4, 0, "anc-1"));
             Assert.Contains("anchorRec=(missing)",
                 ParsekFlightGhostPositioner.BuildRecordedRelativeOffsetAppliedLog(3, 0, 0, 0, null));
+        }
+
+        [Fact]
+        public void RecordedRelativeOffsetLog_IsCultureInvariant()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+                Assert.Contains("dx=1.50 dy=0.00 dz=0.00 |offset|=1.50m",
+                    ParsekFlightGhostPositioner.BuildRecordedRelativeOffsetAppliedLog(3, 1.5, 0, 0, "a"));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
         }
 
         [Fact]

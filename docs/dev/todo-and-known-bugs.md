@@ -53,6 +53,23 @@ test stand between an unrelated later tree and a terminal spawn supersede mark.
 **Fix.** Skip recordings without trajectory bounds or an explicit start in `GetTreeStartUT`
 (NaN when none is left), with a unit test beside the existing `GetTreeStartUT_*` cells.
 
+## TRACE-SEP-DEBRIS-ROW-MISREPORTS: the PositionDebris trace row can blame playback math or the recorder for a diagnostic artifact [FILED 2026-11-07 from the review of the ghost positioner unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2457), by code reading. OPEN; trace-only (`ghostRenderTracing`), low]
+
+**What is true.** `ParsekFlightGhostPositioner.TraceDebrisBodyFixedPrimaryPlayback` (the Trace-Sep
+`PositionDebris` row, moved verbatim out of `TryPositionFromBodyFixedPrimary`):
+- `predictedWorld` stays `Vector3d.zero` when the bracket is one-sided (playback past the last
+  body-fixed frame) or the body does not resolve, so `predictedVsActual` / `|predDelta|` log the
+  ghost's whole world position, which the row's own triage rule reads as a playback-math defect.
+- `recordedBodyFixedDist` subtracts the parent's last body-fixed sample at or before the playback
+  UT from the debris bracket's before-frame without matching their UTs (a 0.9 s skew at orbital
+  speed is about 1.8 km), resolves the parent sample on the debris sample's body, and
+  `FindLastBodyFixedFrameAtOrBefore` takes the qualifying sample of the LAST section in list order
+  rather than the latest by UT.
+
+**Fix.** Log `predictedWorld` / `predDelta` as unresolved when no two-sided bracket resolved, and
+compute the parent sample at the debris before-frame's UT on the parent's own body (or log the
+two UTs side by side). Flight behaviour is unaffected; only the trace row is misleading.
+
 ## SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE: the scoped switch-segment Discard leaves three things the committed-tree prune repairs [FILED 2026-11-07 from the review of the discard-service unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2454), by code reading. OPEN; not reproduced in play, low]
 
 **What is true.** `SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt` (pending-tree-prune
