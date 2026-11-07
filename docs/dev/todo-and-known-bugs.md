@@ -103,7 +103,7 @@ background split line `at SOI boundary ... pid=<wingman>` and one section per bo
 wingman's recording (a wingman that close likely records Relative to the active vessel, so expect
 `closingSample=0` and two Relative sections, not two Absolute ones); not built.
 
-## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; craft re-cut 2026-11-06 with an outrigger stance (branch `cs7lander`), which stood on the Mun in flight `2026-11-07_0104` and ran out of fuel in the Mun ascent; re-cut 2026-11-07 for the fuel (branch `cs7fuel`), re-flight owed; test harness, low; no Parsek defect]
+## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; craft re-cut 2026-11-06 with an outrigger stance (branch `cs7lander`), which stood on the Mun in flight `2026-11-07_0104` and ran out of fuel in the Mun ascent; re-cut 2026-11-07 for the fuel (branch `cs7fuel`), which flew on `baf036d` and broke its core at the booster drop; re-cut 2026-11-08 for the staging, re-flight owed; test harness, low; no Parsek defect]
 
 From the run's KSP.log and mission rows: no Parsek line spawns, packs or moves the lander in
 the window (the only spawn lines are the periodic `Spawn suppressed`, as in the green run). Both
@@ -164,6 +164,20 @@ drop plus the panels' share this cut loses (each 1x second credited at the phase
 landed SAS settle 9.3, burns and holds the rest); x1.25 = 195 against 249.5 above the 0.5 floor, a 60% margin.
 The builder now gates the pod's charge on 1.25 x that table. Not covered: a panel square to the sun on every
 burning second, all of it eaten by the wheel (283 EC).
+Flight 2026-11-07 on `baf036d` (the fuel cut; both attempts lost in MJ-ASCENT, about 257 s wall): the three
+TD-12s dropped the hung Thumpers at 12.4 km as staged, four fuelTank pieces left within 0.2 s, MechJeb's
+autostage fired the core decoupler and the Terrier 0.84 s later (the Swivel left with no shutdown line), and the
+lander, its four tanks full (720 LF), fell back from a 26.3 km apoapsis. Rollout 13127 as predicted. The part
+tree was right (each TD-12 took only its Thumper); the read is the drop path: the Thumpers slid back along the
+core 0.18 m beside it with nothing pushing them clear and broke it up, and the starved Swivel let MechJeb stage.
+Fix (2026-11-08, the staging cut): the Thumpers go back on TT-38Ks on the core, CS Mun Lander's placement that
+the 2026-10-31 and 2026-11-07 flights both dropped cleanly; 30 parts, cost 14292 (rollout pin 143xx). Their
+three open tops are the first solar cut's, whose ascent cost about 3392 m/s; the lander's 25% margin holds to
+3512 (32% at 3392). New builder gate (`solar_staging`): it fires the stages on the WRITTEN craft's part tree as
+KSP's decouplers do, requires each stage to drop exactly its group while the lander keeps its four tanks,
+three legs and three cones, each liquid engine to feed from its own stage's tanks only, and no part dropped off
+the axis by a stack decoupler within 1.0 m of the stack it slides past; it refuses the flown fuel cut (0.18 m).
+The re-flight should watch the booster drop (three Thumper debris, no other piece) and the core drop's altitude.
 
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 

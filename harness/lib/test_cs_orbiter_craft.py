@@ -524,8 +524,8 @@ def _same_rotation(a, b):
 
 class CsMunSolarLanderCraftTests(unittest.TestCase):
     """`CS Mun Solar Lander.craft` (CS-7's craft, `--variant solar`, in
-    `cs-career-mun4`): the outrigger stance with the Thumpers hung under the
-    outriggers and nose cones on them (the 2026-11-07 fuel re-cut)."""
+    `cs-career-mun4`): the outrigger stance with nose cones on the outriggers and
+    CS Mun Lander's Thumpers on TT-38Ks on the core (the 2026-11-08 staging cut)."""
 
     @classmethod
     def setUpClass(cls):
@@ -550,16 +550,16 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertLessEqual(self.fig["height"], 36.0)
         self.assertEqual(self.fig["parts"], len(_parts(_read(SOLAR_CRAFT))))
 
-    def test_it_is_cs_mun_lander_with_the_outriggers_the_hung_thumpers_and_a_z200(self):
+    def test_it_is_cs_mun_lander_with_the_coned_outriggers_and_a_z200(self):
         lander = _parts(_read(LANDER_CRAFT))
         mine = _parts(_read(SOLAR_CRAFT))
-        # The three cones move from the Thumpers' tops to the outriggers' tops; the three
-        # TT-38Ks become TD-12s; the power is one Z-200; one core FL-T400 goes.
+        # The three cones move from the Thumpers' tops to the outriggers' tops; the
+        # Thumpers keep their TT-38Ks; the power is one Z-200; one core FL-T400 goes.
         self.assertEqual(3, lander.count("noseCone"))
         self.assertEqual(3, mine.count("noseCone"))
         self.assertEqual(3, lander.count("radialDecoupler"))
-        self.assertEqual(0, mine.count("radialDecoupler"))
-        self.assertEqual(lander.count("Decoupler.1") + 3, mine.count("Decoupler.1"))
+        self.assertEqual(3, mine.count("radialDecoupler"))
+        self.assertEqual(lander.count("Decoupler.1"), mine.count("Decoupler.1"))
         self.assertEqual(["batteryBankMini"],
                          [n for n in mine if n in ("batteryBankMini", "batteryPack",
                                                    "solarPanels5")])
@@ -591,7 +591,7 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertEqual([p.pos for p in base if p.name == "mk1pod.v2"],
                          [p.pos for p in layout if p.name == "mk1pod.v2"])
 
-    def test_the_outriggers_carry_a_leg_a_cone_and_a_hung_thumper_each(self):
+    def test_the_outriggers_carry_a_leg_and_a_cone_each(self):
         b = self.b
         parts = b.solar_layout()
         tank = [p for p in parts if p.key.startswith("utank")]
@@ -619,7 +619,7 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
                              b._quat_y(180.0 - b._azimuth_deg(local)).split(","))
                 self.assertTrue(_same_rotation(want, got))
                 kids = {p.name: p for p in parts if p.parent is arm}
-                self.assertEqual({"miniLandingLeg", "noseCone", "Decoupler.1"}, set(kids))
+                self.assertEqual({"miniLandingLeg", "noseCone"}, set(kids))
                 # The leg on the outer wall, attPos0 / attRot0 in the outrigger's frame.
                 leg = kids["miniLandingLeg"]
                 self.assertEqual(arm.uid, leg.srfn)
@@ -630,50 +630,49 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
                 self.assertAlmostEqual(-math.hypot(leg_local[0], leg_local[2]),
                                        leg.att_pos0[0], places=9)
                 self.assertEqual("0,0,0,1", leg.att_rot0)
-                # The cone on the top node, the TD-12 on the bottom node, the Thumper on
-                # the TD-12: stack attached on the outrigger's axis, no relative turn.
-                cone, dec = kids["noseCone"], kids["Decoupler.1"]
-                thumper = [p for p in parts if p.parent is dec]
-                self.assertEqual(["solidBooster1-1"], [p.name for p in thumper])
-                thumper = thumper[0]
-                for child, pnode, cnode in ((cone, "top", "bottom01"),
-                                            (dec, "bottom", "top"),
-                                            (thumper, "bottom", "top")):
-                    parent = child.parent
-                    self.assertEqual(0, child.attm)
-                    self.assertIsNone(child.srfn)
-                    self.assertEqual("0,0,0,1", child.att_rot0)
-                    self.assertEqual(parent.rot, child.rot)
-                    self.assertAlmostEqual(parent.pos[0], child.pos[0], places=12)
-                    self.assertAlmostEqual(parent.pos[2], child.pos[2], places=12)
-                    self.assertAlmostEqual(
-                        parent.y + b.NODE_OFFSET[parent.name][pnode],
-                        child.y + b.NODE_OFFSET[child.name][cnode], places=9)
-                    self.assertIn((pnode, child.uid, b.NODE_OFFSET[parent.name][pnode]),
-                                  parent.attn)
-                    self.assertIn((cnode, parent.uid, b.NODE_OFFSET[child.name][cnode]),
-                                  child.attn)
+                # The cone on the top node: stack attached on the outrigger's axis, no
+                # relative turn; nothing on the bottom node (THE STAGING).
+                cone = kids["noseCone"]
+                parent = cone.parent
+                self.assertEqual(0, cone.attm)
+                self.assertIsNone(cone.srfn)
+                self.assertEqual("0,0,0,1", cone.att_rot0)
+                self.assertEqual(parent.rot, cone.rot)
+                self.assertAlmostEqual(parent.pos[0], cone.pos[0], places=12)
+                self.assertAlmostEqual(parent.pos[2], cone.pos[2], places=12)
+                self.assertAlmostEqual(parent.y + b.NODE_OFFSET["fuelTank"]["top"],
+                                       cone.y + b.NODE_OFFSET["noseCone"]["bottom01"],
+                                       places=9)
+                self.assertIn(("top", cone.uid, b.NODE_OFFSET["fuelTank"]["top"]),
+                              parent.attn)
+                self.assertIn(("bottom01", parent.uid, b.NODE_OFFSET["noseCone"]["bottom01"]),
+                              cone.attn)
                 self.assertEqual(("upper", -1), (cone.group, cone.sidx))
-                # The TD-12 leaves with the Thumper (its explosive node is the top).
-                self.assertEqual(("boosters", b.LANDER_STAGE_BOOSTER_DROP),
-                                 (dec.group, dec.istg))
-                self.assertEqual(("boosters", b.LANDER_STAGE_LAUNCH),
-                                 (thumper.group, thumper.istg))
-                # A dropped Thumper falls back along the core 0.18 m clear of it, and
-                # hangs no lower than the core's bottom.
-                gap = math.hypot(thumper.pos[0], thumper.pos[2]) - 1.25
-                self.assertAlmostEqual(0.178, gap, delta=0.001)
-                self.assertGreater(thumper.y + b.NODE_OFFSET["solidBooster1-1"]["bottom"],
-                                   core[-1].y + b.NODE_OFFSET["fuelTank"]["bottom"])
+                self.assertNotIn("bottom", [n for n, _, _ in arm.attn])
+        # The Thumpers are CS Mun Lander's: same TT-38Ks on the core's second tank from
+        # the bottom, same placement relative to the core's bottom.
+        base = b.lander_layout()
+
+        def boosters(parts):
+            bottom = [p for p in parts if p.key.startswith("ctank")][-1].y
+            return sorted((p.name, tuple(round(c, 9) for c in
+                                         (p.pos[0], p.pos[1] - bottom, p.pos[2])),
+                           p.istg, p.group, p.parent.name)
+                          for p in parts if p.name in ("radialDecoupler", "solidBooster1-1"))
+        self.assertEqual(boosters(base), boosters(parts))
         hatch = b._azimuth_deg(b.MUNSCI_HATCH_POS)
         for arm in arms:
             off = abs((b._azimuth_deg(arm.pos) - hatch + 180.0) % 360.0 - 180.0)
             self.assertGreaterEqual(off, 59.9, arm.key)
 
-    def test_no_blunt_face_off_the_axis_meets_the_airflow(self):
+    def test_only_the_thumper_tops_meet_the_airflow(self):
         # The outrigger cut flew six (three open Thumper tops, three outrigger tops) on
-        # the launch stage and three on the core's; this cut closes every one.
-        self.assertEqual({"launch": 0, "core": 0}, self.fig["open_faces"])
+        # the launch stage and three on the core's; this cut closes the outriggers' and
+        # keeps the Thumpers' three, as the first solar cut flew them (3392 m/s).
+        self.assertEqual({"launch": 3, "core": 0}, self.fig["open_faces"])
+        self.assertEqual(self.b.SOLAR_OPEN_FACES, self.fig["open_faces"])
+        self.assertAlmostEqual(3392.0, self.b.SOLAR_FIRST_CUT_LKO_COST, places=6)
+        self.assertGreaterEqual(self.fig["budget"]["at"]["first"]["margin"], 0.30)
         # The counter itself: CS Mun Lander's coned Thumpers read 0, without the cones 3.
         self.assertEqual({"launch": 0, "core": 0},
                          self.b.solar_open_faces(self.b.lander_layout()))
@@ -714,11 +713,55 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertGreaterEqual(self.fig["stages"][1]["twr_vac"], 1.0)
         self.assertGreaterEqual(self.fig["mun_twr"], 3.0)
 
-    def test_the_stage_order_drops_the_thumpers_on_the_td12s(self):
+    def test_the_stage_order_drops_the_thumpers_on_the_tt38ks(self):
         want = self.b.lander_stage_want()
-        want[self.b.LANDER_STAGE_BOOSTER_DROP] = ["Decoupler.1"] * 3
         self.assertEqual(want, self.b.solar_stage_want())
         self.assertEqual(want, self.b.stage_table(self.b.solar_layout()))
+
+    def test_the_staging_simulation_drops_each_group_and_keeps_the_lander(self):
+        b = self.b
+        text = _read(SOLAR_CRAFT)
+        self.assertEqual([], b.solar_staging(b.solar_layout(), text))
+        names = lambda uids: sorted(u.rsplit("_", 1)[0] for u in uids)
+        sim = dict((stage, (dropped, left)) for stage, dropped, left in b.staging_sim(text))
+        dropped, left = sim[b.LANDER_STAGE_BOOSTER_DROP]
+        self.assertEqual(["solidBooster1-1"] * 3, names(dropped))
+        dropped, left = sim[b.LANDER_STAGE_CORE_DROP]
+        self.assertEqual(["Decoupler.1"] + ["fuelTank"] * b.SOLAR_CORE_TANKS
+                         + ["liquidEngine2"] + ["radialDecoupler"] * 3, names(dropped))
+        # The lander keeps its four tanks, three legs and three cones to the separation.
+        lander = names(left)
+        self.assertEqual(4, lander.count("fuelTank"))
+        self.assertEqual(3, lander.count("miniLandingLeg"))
+        self.assertEqual(3, lander.count("noseCone"))
+        self.assertEqual(16, len(left))
+        dropped, left = sim[b.LANDER_STAGE_POD_SEPARATION]
+        self.assertEqual(["HeatShield1", "batteryBankMini", "mk1pod.v2", "parachuteSingle"],
+                         names(left))
+        # Each liquid engine draws from its own stage's tanks only.
+        tree = b.craft_tree(text)
+        _, left = sim[b.LANDER_STAGE_LAUNCH]
+        for engine, want in (("liquidEngine2", b.SOLAR_CORE_TANKS), ("liquidEngine3.v2", 4)):
+            uid = [u for u, n in tree.items() if n["name"] == engine][0]
+            self.assertEqual(want, len(b.engine_feeds(tree, uid, left)), engine)
+
+    def test_the_staging_gate_refuses_the_flown_hung_thumpers(self):
+        # baf036d's fuel cut: each Thumper dropped by a TD-12 along the core, 0.18 m
+        # beside it (both 2026-11-07 attempts lost in MJ-ASCENT, THE STAGING).
+        bad = self.b.solar_staging(self.b.solar_hung_layout())
+        self.assertEqual(3, len(bad), bad)
+        for line in bad:
+            self.assertRegex(line, r"^stage 3 drops solidBooster1-1_\d+ along the stack "
+                                   r"axis 0\.18 m beside the stack \(< 1\.0\)$")
+
+    def test_the_staging_gate_refuses_a_misstaged_decoupler(self):
+        # The pod's TD-12 fired with the boosters would take the whole lander away.
+        b = self.b
+        parts = b.solar_layout()
+        dec1 = [p for p in parts if p.key == "dec1"][0]
+        dec1.istg = dec1.sqor = b.LANDER_STAGE_BOOSTER_DROP
+        bad = b.solar_staging(parts)
+        self.assertTrue(any("off the lander" in m for m in bad), bad)
 
     def test_every_part_is_on_the_hosts_tech(self):
         allowed = set()
@@ -792,10 +835,11 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         for token in re.findall(r"(?m)^\tpart = (\S+)$", text)[1:]:
             with self.subTest(part=token):
                 self.assertIn("\tlink = %s\n" % token, text)
-        # Each Thumper rides a TD-12 by its top node, no surface attach.
-        self.assertEqual(3, len(re.findall(r"(?m)^\tattN = top,Decoupler\.1_\d+_0\|3\.92\|0$",
+        # Each Thumper rides a TT-38K by surface attach (THE STAGING); no TD-12 holds one.
+        self.assertEqual(3, len(re.findall(r"(?m)^\tsrfN = srfAttach,radialDecoupler_\d+$",
                                            text)))
-        self.assertNotIn("radialDecoupler", text)
+        self.assertEqual(0, len(re.findall(r"(?m)^\tattN = top,Decoupler\.1_\d+_0\|3\.92\|0$",
+                                           text)))
 
     def test_the_spec_flies_this_craft_from_cs6cs_save(self):
         with open(CS7_SPEC, "rb") as fh:
