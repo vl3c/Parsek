@@ -847,8 +847,7 @@ namespace Parsek.Logistics
         /// </summary>
         /// <remarks>
         /// Copies the excluded interval keys into <see cref="Mission.ExcludedIntervalKeys"/>
-        /// ONLY — <see cref="Mission.ExcludedThroughLineHeadIds"/> stays empty (that
-        /// coarse field drops a whole vessel), and unions in the (M-MIS-9)
+        /// and unions in the (M-MIS-9)
         /// auto-excluded post-creation branch keys
         /// (<see cref="ComputeAutoExcludedNewIntervalKeys"/>, signature-gated and
         /// cached on the route) so a branch landing on the tree after creation

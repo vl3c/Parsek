@@ -68,7 +68,7 @@ namespace Parsek.InGameTests
 
             // Pre-rewind debris in the closure is intentionally excluded from
             // the supersede write-set so it stays visible in the recordings
-            // table after commit (see SupersedeCommit.IsPreRewindDebris).
+            // table after commit (see SupersedeCommit.IsPreRewindDebrisForTesting).
             // The expected added-row count is the closure size minus that
             // exclusion; the per-row Contains check below still uses the
             // unfiltered closure (correct: every added row's OldRecordingId
@@ -78,7 +78,7 @@ namespace Parsek.InGameTests
             foreach (var id in subtreeBefore)
             {
                 var rec = FindRecording(id);
-                if (rec != null && SupersedeCommit.IsPreRewindDebris(rec, marker))
+                if (rec != null && SupersedeCommit.IsPreRewindDebrisForTesting(rec, marker))
                 {
                     preRewindDebrisInClosure++;
                     expectedAdded--;
@@ -96,7 +96,7 @@ namespace Parsek.InGameTests
             // CommitPendingTree; in this test the tree-commit already happened
             // when the re-fly terminal state was captured, so we exercise the
             // Phase 8 commit step in isolation.
-            SupersedeCommit.CommitSupersede(marker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(marker, provisional);
 
             // Assert the invariants.
             InGameAssert.AreEqual(MergeState.Immutable, provisional.MergeState,

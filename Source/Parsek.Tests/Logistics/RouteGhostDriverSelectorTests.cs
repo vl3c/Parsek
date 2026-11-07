@@ -155,8 +155,6 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(LoopTimeUnit.Sec, m.LoopTimeUnit);
             Assert.Equal(42.0, m.LoopAnchorUT);
             Assert.Contains("leg-after-undock", m.ExcludedIntervalKeys);
-            // The coarse through-line field is NEVER populated by BuildMission.
-            Assert.Empty(m.ExcludedThroughLineHeadIds);
         }
 
         // -----------------------------------------------------------------

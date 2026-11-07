@@ -197,9 +197,11 @@ forbidden = [
   "SafeWritePersistent: persistent\\.sfs written dest=EDITOR",
   # R2: the check launch runs no orphan recovery armed by the editor revert.
   "MISSIONMARK label=rev1-reverted ut=[\\s\\S]*CleanupOrphanedSpawnedVessels: recovering ",
-  # The revert is no quickload, and the editor revert opens no merge dialog.
+  # The revert is no quickload, and the editor revert opens no post-transition merge
+  # dialog (the line MergeDialog.ShowTreeDialog(tree) writes; the deferred-dialog canary
+  # this used to match was retired with that dialog, todo GUI-D5).
   "Load classified: early=\\w+ refined=QuickloadFlight ",
-  "MISSIONMARK label=rev1-flying ut=(?:(?!MISSIONMARK label=rev1-reverted )[\\s\\S])*Deferred merge dialog fired",
+  "MISSIONMARK label=rev1-flying ut=(?:(?!MISSIONMARK label=rev1-reverted )[\\s\\S])*\\[MergeDialog\\] Tree merge dialog: tree=",
 ]
 
 [runtime]

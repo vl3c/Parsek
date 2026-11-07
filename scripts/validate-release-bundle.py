@@ -35,7 +35,7 @@ PROFILE_TESTS = {
     ),
     "release-core-playback": (
         "RuntimeTests.TreeMergeDialog_DiscardButton_ClearsPendingTree",
-        "RuntimeTests.TreeMergeDialog_DeferredMergeButton_CommitsPendingTree",
+        "RuntimeTests.TreeMergeDialog_MergeButton_CommitsPendingTree",
         "RuntimeTests.KeepVessel_FastForwardIntoPlayback_SpawnsExactlyOnce",
     ),
     "release-scene-transitions": (

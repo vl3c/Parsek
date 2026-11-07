@@ -2778,8 +2778,7 @@ namespace Parsek
         /// <c>HighLogic.LoadScene</c> proceeds and
         /// <see cref="OnSceneChangeRequested"/> sees
         /// <c>activeTree == null</c>, so no pending tree is stashed and
-        /// the destination scene's OnLoad does not show a deferred merge
-        /// dialog.</para>
+        /// the destination scene's OnLoad has nothing to commit.</para>
         /// </summary>
         internal void AutoDiscardIdleActiveTree(string reason)
         {
@@ -3310,7 +3309,7 @@ namespace Parsek
             // session pointing at it. Without this, the idle-on-pad scene-exit
             // fast path (SceneExitInterceptor) tears the tree down but the
             // session (already persisted by the pre-exit OnSave) survives
-            // into the save and resurfaces as a deferred merge dialog on the
+            // into the save and resurfaces as a pending tree on the
             // next load. ClearSwitchSegmentSession no-ops when none is armed
             // (e.g. the Case B no-session Switch-To discard).
             ParsekScenario.Instance?.ClearSwitchSegmentSession(
@@ -3661,7 +3660,7 @@ namespace Parsek
                     // (which offers Revert / Space Center) must surface first so the player can
                     // revert without Parsek pre-committing their mission. The tree gets finalized
                     // + stashed below and either auto-discards on revert (ParsekScenario isRevert
-                    // branch) or surfaces the deferred merge dialog in the destination scene.
+                    // branch) or auto-commits in the destination scene's OnLoad.
                     treeDestructionDialogPending = true;
                     ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
                     StartCoroutine(ShowPostDestructionTreeMergeDialog());
@@ -3856,9 +3855,8 @@ namespace Parsek
             // The tree is stashed; the stock KSP crash report shows first (with Revert /
             // Space Center). If the player reverts, ParsekScenario.OnLoad's isRevert branch
             // auto-discards the pending tree via RecordingStore.DiscardPendingTree (see #431
-            // for the purge semantics). Otherwise the scene-exit path surfaces the merge
-            // dialog (autoMerge off) or auto-commits (autoMerge on) in the destination scene
-            // via ParsekScenario.ShowDeferredMergeDialog / the OnLoad auto-commit branch.
+            // for the purge semantics). Otherwise the destination scene's OnLoad auto-commit
+            // branch commits it (no dialog: the deferred merge dialog was retired, todo GUI-D5).
             ParsekLog.Info("Flight",
                 "ShowPostDestructionTreeMergeDialog: pending tree stashed — deferring to post-report scene transition");
         }
@@ -16040,7 +16038,7 @@ namespace Parsek
 
                     // MergeDiscard's scoped switch-segment step is not run here, so a session
                     // bound to this tree would outlive it and resolve the committed tree on
-                    // the next load (deferred merge dialog). Clear it.
+                    // the next load. Clear it.
                     var session = object.ReferenceEquals(null, scenario)
                         ? null : scenario.ActiveSwitchSegmentSession;
                     if (session != null && string.Equals(session.TreeId, treeId, StringComparison.Ordinal))
@@ -21289,9 +21287,8 @@ namespace Parsek
         // Recompute the Mission LoopUnitSet only when its inputs change, then push the cached set
         // into the engine every frame. The signature captures everything MissionLoopUnitBuilder.Build
         // reads that can move the unit: the looping mission's identity (Id), tree (TreeId), cadence
-        // (LoopIntervalSeconds + LoopTimeUnit), phase anchor (LoopAnchorUT), and selection (both the
-        // sorted ExcludedThroughLineHeadIds and the interval-level ExcludedIntervalKeys that actually
-        // drive the members + span), plus the looping tree's topology (branch + recording counts) and
+        // (LoopIntervalSeconds + LoopTimeUnit), phase anchor (LoopAnchorUT), and selection (the
+        // interval-level ExcludedIntervalKeys that drive the members + span), plus the looping tree's topology (branch + recording counts) and
         // the committed-list identity (count + a rolling hash of RecordingIds, since member indices
         // are committed-list indices). No looping mission -> a constant "none:" prefix over the same
         // committed signature, so toggling looping off still rebuilds to Empty exactly once.

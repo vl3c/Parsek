@@ -6,6 +6,15 @@ All notable changes to Parsek are documented here.
 
 ## Unreleased
 
+### Changed
+
+- **A recording's hover says what the flight used and carried.** Hovering a recording's Status
+  in the Recordings window now also lists the fuel and other resources it used or gained, the
+  cargo parts it unloaded or loaded, and crew changes. (GUI-I)
+- **A Re-Fly merge says what it undid.** When merging a Re-Fly takes the old flight's losses off
+  your career, a short message names them: a kerbal's death, contract failures, reputation
+  penalties. (GUI-EXPOSURE-4)
+
 ### Fixed
 
 - **Recovering a re-flown vessel no longer rewrites the flight it replaced.** After a Re-Fly, a

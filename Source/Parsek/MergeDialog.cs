@@ -73,7 +73,7 @@ namespace Parsek
         internal static System.Action<RecordingTree> OnTreeCommitted;
 
         /// <summary>
-        /// Clears the deferred merge dialog flag and removes the input lock.
+        /// Clears the merge-dialog-pending flag and removes the input lock.
         /// Called from button callbacks and popup teardown paths.
         /// </summary>
         internal static void ClearPendingFlag(string reason = null)

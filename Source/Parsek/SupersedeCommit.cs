@@ -112,32 +112,31 @@ namespace Parsek
         /// <see cref="ParsekScenario.ActiveReFlySessionMarker"/>.
         ///
         /// <para>
-        /// Retained as the synchronous legacy entry point for direct callers
-        /// (Phase 8 tests, the <c>SessionMerger</c> advisory path, and the
-        /// <see cref="InGameTests.MergeCrashedReFlyCreatesCPSupersedeTest"/> /
-        /// <see cref="InGameTests.MergeLandedReFlyCreatesImmutableSupersedeTest"/>
-        /// live-scene tests). Phase 10's <see cref="MergeJournalOrchestrator.RunMerge"/>
-        /// invokes the decomposed helpers directly so it can insert journal
-        /// phase markers between them.
+        /// TEST-ONLY entry point (todo GUI-D8, owner ruling 2026-11-06: a test-only
+        /// seam is allowed and carries <c>ForTesting</c> in its name). The game never
+        /// calls this: a Re-Fly merge commits through
+        /// <see cref="MergeJournalOrchestrator.RunMerge"/>, which runs the same
+        /// decomposed helpers with durable journal phases between them, so a test that
+        /// must prove the shipped ORDER drives RunMerge instead.
         /// </para>
         /// </summary>
-        internal static void CommitSupersede(ReFlySessionMarker marker, Recording provisional)
+        internal static void CommitSupersedeForTesting(ReFlySessionMarker marker, Recording provisional)
         {
             if (marker == null)
             {
-                ParsekLog.Warn(Tag, "CommitSupersede: marker is null — nothing to commit");
+                ParsekLog.Warn(Tag, "CommitSupersedeForTesting: marker is null — nothing to commit");
                 return;
             }
             if (provisional == null)
             {
-                ParsekLog.Warn(Tag, "CommitSupersede: provisional is null — nothing to commit");
+                ParsekLog.Warn(Tag, "CommitSupersedeForTesting: provisional is null — nothing to commit");
                 return;
             }
 
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario))
             {
-                ParsekLog.Warn(Tag, "CommitSupersede: no ParsekScenario instance — nothing to commit");
+                ParsekLog.Warn(Tag, "CommitSupersedeForTesting: no ParsekScenario instance — nothing to commit");
                 return;
             }
 
@@ -199,7 +198,7 @@ namespace Parsek
             // Use ReferenceEquals to skip Unity's Object == null override,
             // which would treat a destroyed ScenarioModule as null even when
             // the test fixture installed a plain-CLR instance without a
-            // Unity lifecycle. The outer CommitSupersede / RunMerge call sites
+            // Unity lifecycle. The outer CommitSupersedeForTesting / RunMerge call sites
             // have already validated scenario before dispatching here.
             if (marker == null || provisional == null
                 || object.ReferenceEquals(null, scenario))
@@ -328,7 +327,7 @@ namespace Parsek
             //      post-rewind portion (becomes the new supersede target).
             // Both are excluded from the supersede write-set AND from the
             // returned subtree so the downstream tombstone scan
-            // (CommitSupersede / MergeJournalOrchestrator route this return
+            // (CommitSupersedeForTesting / MergeJournalOrchestrator route this return
             // value into CommitTombstones) leaves their attributed ledger
             // actions alone too. The session-suppressed closure walk itself
             // is intentionally unchanged: closure inclusion still drives
@@ -389,7 +388,7 @@ namespace Parsek
                     {
                         skippedExisting++;
                         ParsekLog.Verbose(Tag,
-                            $"CommitSupersede: skip existing relation old={oldId} new={newRecordingId}");
+                            $"CommitSupersedeForTesting: skip existing relation old={oldId} new={newRecordingId}");
                         continue;
                     }
                     // Pre-rewind carve-out is filtered LAST so the existing
@@ -552,7 +551,7 @@ namespace Parsek
         /// <see cref="MergeJournalOrchestrator"/>'s <c>RebuildSubtree</c> loop,
         /// so callers hoist the resolution once. Pass <c>null</c> to fall back
         /// to the internal lookup (single-shot callers, tests, the
-        /// <see cref="IsPreRewindDebris"/> wrapper).
+        /// <see cref="IsPreRewindDebrisForTesting"/> wrapper).
         /// </summary>
         internal static bool IsPreRewindCarveOut(
             Recording rec, ReFlySessionMarker marker,
@@ -779,12 +778,12 @@ namespace Parsek
         /// <see cref="IsPreRewindCarveOut"/>. Returns true only for the
         /// debris case (matching the pre-Task-A3 contract). The
         /// load-bearing logic lives in
-        /// <see cref="IsPreRewindCarveOut"/>; this thin wrapper preserves
-        /// the symbol's binary contract for the in-game tests at
+        /// <see cref="IsPreRewindCarveOut"/>; this TEST-ONLY wrapper (no production
+        /// caller, todo GUI-D8) is the predicate the in-game tests read at
         /// <c>InGameTests/MergeCrashedReFlyCreatesCPSupersedeTest.cs</c>
         /// and <c>InGameTests/MergeLandedReFlyCreatesImmutableSupersedeTest.cs</c>.
         /// </summary>
-        internal static bool IsPreRewindDebris(Recording rec, ReFlySessionMarker marker)
+        internal static bool IsPreRewindDebrisForTesting(Recording rec, ReFlySessionMarker marker)
         {
             return IsPreRewindCarveOut(rec, marker, out var reason)
                 && reason == PreRewindCarveOutReason.PreRewindDebris;
@@ -793,7 +792,7 @@ namespace Parsek
         /// <summary>
         /// Computes the cutoff UT below which a debris recording is treated
         /// as pre-rewind by the debris case of <see cref="IsPreRewindCarveOut"/>
-        /// (and by its <see cref="IsPreRewindDebris"/> back-compat wrapper).
+        /// (and by its <see cref="IsPreRewindDebrisForTesting"/> back-compat wrapper).
         /// Prefers <see cref="ReFlySessionMarker.RewindPointUT"/> (added in
         /// PR #858 as the stable, drift-immune <c>rp.UT</c> capture — see
         /// <c>RewindInvoker.AtomicMarkerWrite</c>) and falls back to
@@ -882,7 +881,7 @@ namespace Parsek
                 // last-wins (`recById[id] = r`) is a cosmetic divergence — duplicate
                 // ids in CommittedRecordings are pathological and either policy
                 // resolves to "some entry"; we just need a stable Recording reference
-                // to feed IsPreRewindDebris.
+                // to feed IsPreRewindDebrisForTesting.
                 if (!index.ContainsKey(rec.RecordingId))
                     index.Add(rec.RecordingId, rec);
             }
@@ -903,7 +902,7 @@ namespace Parsek
         /// <paramref name="preserveMarker"/> is set by
         /// <see cref="MergeJournalOrchestrator.RunMerge"/> so the marker
         /// clear is deferred until AFTER Durable Save #1 (design §6.6
-        /// step 11). Legacy <see cref="CommitSupersede"/> keeps the original
+        /// step 11). Legacy <see cref="CommitSupersedeForTesting"/> keeps the original
         /// synchronous behavior with <paramref name="preserveMarker"/> =
         /// <c>false</c>.
         /// </para>
@@ -918,7 +917,7 @@ namespace Parsek
         /// therefore stay SILENT: a route flip driven by the recovered merge
         /// leaves no marker row. That lost-marker residual is repaired by the
         /// revalidation catch-up net (<c>RouteStore.AutoResumeCatchUpReason</c>)
-        /// on the next live pass. The live callers (<see cref="CommitSupersede"/>,
+        /// on the next live pass. The live callers (<see cref="CommitSupersedeForTesting"/>,
         /// <see cref="MergeJournalOrchestrator.RunMerge"/>) leave it false and
         /// emit through <see cref="ParsekScenario.BumpSupersedeStateVersionLive"/>,
         /// whose own OnLoad-in-progress guard is the second net.
@@ -965,7 +964,7 @@ namespace Parsek
             provisional.SupersedeTargetId = null;
 
             // Route-timeline events: on the live merge paths (player-driven
-            // commit via CommitSupersede / RunMerge) emit auto-pause /
+            // commit via CommitSupersedeForTesting / RunMerge) emit auto-pause /
             // auto-resume markers for any route whose sources this supersede
             // just retired or restored; the Live helper's OnLoad-in-progress
             // guard plus the explicit onLoadContext flag (RunFinisher re-drives
@@ -2590,6 +2589,9 @@ namespace Parsek
                 }
                 rowsToTombstone.Add(a);
             }
+            // The replaced flight's rows are the head of the list; variant B appends the
+            // re-fly attempt's own rows after them, which the undone message must not name.
+            int replacedFlightRowCount = rowsToTombstone.Count;
             int tombstonedAttemptRepLoss = 0;
             if (variantB)
             {
@@ -2692,6 +2694,8 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Supersede tombstone effects: tombstoned {tombstoned} recording-scoped career actions; " +
                 "contracts/milestones/facilities/strategies/science-spending/science/funds/reputation/kerbals from the old subtree are removed from ELS.");
+
+            AnnounceReFlyUndone(rowsToTombstone.GetRange(0, replacedFlightRowCount), retiringRecordingId);
 
             scenario.BumpTombstoneStateVersion();
 

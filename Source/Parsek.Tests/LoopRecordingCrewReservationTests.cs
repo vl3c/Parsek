@@ -123,14 +123,14 @@ namespace Parsek.Tests
             Assert.Equal(EndUT, Kerbals.Reservations[Jeb].ReservedUntilUT);
             Assert.False(Kerbals.Reservations[Jeb].IsPermanent);
             Assert.True(Kerbals.IsReservedNow(Jeb));
-            Assert.False(Kerbals.IsKerbalAvailable(Jeb));
+            Assert.False(Kerbals.IsKerbalAvailableForTesting(Jeb));
             Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
                 && l.Contains("Loop recording holds crew like its real first run: 'Jebediah Kerman' recording 'rec-loop'"));
 
             // The loop replays after the first run are ghosts: they extend nothing.
             Walk(EndUT + 5000.0);
             Assert.False(Kerbals.IsReservedNow(Jeb));
-            Assert.True(Kerbals.IsKerbalAvailable(Jeb));
+            Assert.True(Kerbals.IsKerbalAvailableForTesting(Jeb));
         }
 
         // catches: the same skip for a flight that ended with the crew still aboard (a

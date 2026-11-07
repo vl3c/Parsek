@@ -20,7 +20,7 @@ namespace Parsek.Tests
     /// (<see cref="LedgerOrchestrator.RecalculateAndPatch"/> and the current-UT cutoff
     /// the live clock paths pass) with the clock before the flight's launch, during it,
     /// at its end and long after, and read what the rest of Parsek reads:
-    /// <see cref="KerbalsModule.IsKerbalAvailable"/>,
+    /// <see cref="KerbalsModule.IsKerbalAvailableForTesting"/>,
     /// <see cref="KerbalsModule.ShouldFilterFromCrewDialog"/> (the VAB/SPH crew dialog
     /// filter), the reservation kind, and the roster pass's stand-in lifecycle.</para>
     ///
@@ -134,7 +134,7 @@ namespace Parsek.Tests
             Assert.False(kerbals.Reservations[Jeb].IsPermanent);
             Assert.True(kerbals.IsReservedNow(Jeb), "not held at clock " + clock);
             Assert.True(kerbals.ActiveReservations.ContainsKey(Jeb));
-            Assert.False(kerbals.IsKerbalAvailable(Jeb),
+            Assert.False(kerbals.IsKerbalAvailableForTesting(Jeb),
                 "kerbal reads available at clock " + clock);
             Assert.True(kerbals.ShouldFilterFromCrewDialog(Jeb),
                 "kerbal not filtered from the crew dialog at clock " + clock);
@@ -151,7 +151,7 @@ namespace Parsek.Tests
             Assert.Equal(EndUT, kerbals.Reservations[Jeb].ReservedUntilUT);
             Assert.False(kerbals.IsReservedNow(Jeb), "still held at clock " + clock);
             Assert.False(kerbals.ActiveReservations.ContainsKey(Jeb));
-            Assert.True(kerbals.IsKerbalAvailable(Jeb),
+            Assert.True(kerbals.IsKerbalAvailableForTesting(Jeb),
                 "kerbal not available at clock " + clock);
             Assert.False(kerbals.ShouldFilterFromCrewDialog(Jeb),
                 "kerbal still filtered from the crew dialog at clock " + clock);
@@ -474,7 +474,7 @@ namespace Parsek.Tests
 
             KerbalsModule kerbals = LedgerOrchestrator.Kerbals;
             Assert.False(kerbals.Reservations.ContainsKey(Jeb));
-            Assert.True(kerbals.IsKerbalAvailable(Jeb));
+            Assert.True(kerbals.IsKerbalAvailableForTesting(Jeb));
             Assert.False(kerbals.ShouldFilterFromCrewDialog(Jeb));
         }
 
@@ -616,7 +616,7 @@ namespace Parsek.Tests
             Assert.Equal(0, roster.CreatedCount);
             Assert.False(module.Slots.ContainsKey(Jeb));
             Assert.False(CrewReservationManager.CrewReplacements.ContainsKey(Jeb));
-            Assert.True(module.IsKerbalAvailable(Jeb));
+            Assert.True(module.IsKerbalAvailableForTesting(Jeb));
             Assert.False(module.ShouldFilterFromCrewDialog(Jeb));
             Assert.Contains(logLines, l => l.Contains("PostWalk summary: reservations=1 permanent=0 temporary=1")
                 && l.Contains("released=1"));
@@ -651,7 +651,7 @@ namespace Parsek.Tests
             Assert.Equal(1, roster.RemovedCount);
             Assert.False(CrewReservationManager.CrewReplacements.ContainsKey(Jeb));
             Assert.Equal(Jeb, module.GetActiveOccupant(Jeb));
-            Assert.True(module.IsKerbalAvailable(Jeb));
+            Assert.True(module.IsKerbalAvailableForTesting(Jeb));
             Assert.False(module.ShouldFilterFromCrewDialog(Jeb));
             Assert.Equal(standIn, module.Slots[Jeb].Chain[0]); // name kept for rewinds
 

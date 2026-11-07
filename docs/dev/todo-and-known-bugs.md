@@ -3396,7 +3396,20 @@ another pid, a chain claim before any carrier, the gates, the precedence).
 point, so its node is excluded `no-relay-or-control-capability` whatever the hold says. A lane
 needs a claimed vessel that relays.
 
-## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it~~ [FILED 2026-09-11 by the GUI fix batch; DONE 2026-11-06, owner ruling: retire it]
+
+**Done 2026-11-06 (owner ruling V, thread "Decide the five cleanup leftovers"): retired.**
+`ParsekScenario.ShowDeferredMergeDialog` and both `!IsAutoMerge` arming branches in OnLoad are
+gone: a pending tree found outside FLIGHT on a non-revert load always goes through
+`AutoCommitPendingTreeOutsideFlight` (which still reads the setting to pick full-fidelity vs
+ghost-only), so OnLoad never opens a dialog. The pre-transition dialog (SceneExitInterceptor;
+auto-merge OFF in the harness, Re-Fly exit, journal-finishing main-menu exit) is untouched, so
+`H21-scene-exit-merge-isolated` and its two `ExitToSpaceCenter_*` tests (which drive THAT dialog
+despite their names) stay. The one in-game test that reached the coroutine by reflection now opens
+the dialog directly (`TreeMergeDialog_MergeButton_CommitsPendingTree`, same category, same tally),
+and REV-1's forbid on the retired canary line now forbids the post-transition dialog's own
+`Tree merge dialog: tree=` line in the same window.
+
 
 **Evidence.** `MergeDialog.cs:103` via `ParsekScenario.ShowDeferredMergeDialog:6054`, armed
 at `:3971` and `:4377` on the `!IsAutoMerge` branch. `autoMerge` is clamped true for every
@@ -3409,7 +3422,18 @@ GUI-P14 above.)
 the source. Note that it is not simply dead: the two always-ask exits still route through
 `MergeDialog`, so only the deferred ARMING is unreachable.
 
-## GUI-D6-MISSIONSELECTION-IS-PERSISTED-CLONED-AND-NEVER-WRITTEN [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-D6-MISSIONSELECTION-IS-PERSISTED-CLONED-AND-NEVER-WRITTEN~~ [FILED 2026-09-11 by the GUI fix batch; DONE 2026-11-06, owner ruling: delete it]
+
+**Done 2026-11-06 (owner ruling V, thread "Decide the five cleanup leftovers"): deleted.**
+`MissionSelection.cs` (whose cascade only tests called), `Mission.ExcludedThroughLineHeadIds`,
+its clone / save / load, its stale-drop in `MissionStore.ReconcileSelections` and its fold into
+`MissionLoopUnitBuilder.BuildSignature` are gone. No gameplay change: nothing ever wrote the set
+and no production path read it beyond the signature. Save format (policy section "deleting a
+retired feature's keys"): no bump; `excludedHead` stays in `Mission.KnownKeys` so an old save's
+value is consumed and dropped on the next save instead of being kept as an unknown key (pinned by
+`MissionStoreTests.RetiredExcludedHeadKey_IsIgnoredOnLoad_AndDroppedOnSave`). No committed fixture
+carries the key.
+
 
 **Evidence.** `MissionSelection.cs:23`, `:41` and `Mission.ExcludedThroughLineHeadIds`
 (`Mission.cs:18`) are a coarse per-vessel exclusion model that is persisted, cloned,
@@ -3421,7 +3445,24 @@ it. The per-interval model (`ExcludedIntervalKeys`) replaced it.
 synthetic recordings, a look at whether any committed fixture carries the key) rather than
 a grep-and-delete.
 
-## GUI-D8-LEGACY-SURFACES-KEPT-ALIVE-BY-TESTS: cleanup candidates, listed [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-D8-LEGACY-SURFACES-KEPT-ALIVE-BY-TESTS: cleanup candidates, listed~~ [FILED 2026-09-11 by the GUI fix batch; DONE 2026-11-06, owner ruling: allowed, named *ForTesting]
+
+**Done 2026-11-06 (owner ruling V, thread "Decide the five cleanup leftovers"): a test-only seam
+may exist, and its name ends in `ForTesting`** so a grep tells it from game code (the existing
+convention). Renamed: `SupersedeCommit.CommitSupersedeForTesting`,
+`SupersedeCommit.IsPreRewindDebrisForTesting`, `KerbalsModule.IsKerbalAvailableForTesting`, each
+with a doc line naming the path the game runs instead. `ComputeTombstoneRewindCutoffUT` has
+production callers now (the retire set, `ReFlyMergeDominance`), so it is not test-only and keeps
+its name; `FinalizeAutomaticExitForTesting` already conformed. And, per V, the key Re-Fly commit
+cells now drive the real path, `MergeJournalOrchestrator.RunMerge` (durable saves recorded by
+the `DurableSaveForTesting` hook, not written), so they also prove the journal's phase order:
+`SupersedeCommitTests.LandedTerminal_ProducesImmutable`, `CrashedTerminal_ProducesCommittedProvisional`,
+`CrashedTerminal_WithRpSlot_StaysOpenAndDoesNotSeal`, `LandedTerminal_WithRpSlot_AutoSealsViaFocusOverride`,
+and `SupersedeCommitTombstoneTests.CommitTombstones_KerbalDeathAndItsRepPenalty_BothTombstoned`,
+`CommitTombstones_SupersededSubtreeContract_Tombstoned`,
+`CommitTombstones_RetiredDeath_ShowsOneUndoneMessage`. The remaining cells (and the in-game
+merge tests) keep `CommitSupersedeForTesting`.
+
 
 Production-dead symbols whose only callers are tests, so those tests prove something the
 product does not run. Each is safe where it stands; the entry exists so the set is known
@@ -3445,7 +3486,20 @@ rather than re-discovered.
 should be named `*ForTesting` (as the watch-mode one is) so a grep can tell the two
 populations apart.
 
-## GUI-EXPOSURE-4-THE-CAREER-LEDGER-IS-REWRITTEN-WITH-ONE-MESSAGE-IN-THE-WHOLE-SUBSYSTEM [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-EXPOSURE-4-THE-CAREER-LEDGER-IS-REWRITTEN-WITH-ONE-MESSAGE-IN-THE-WHOLE-SUBSYSTEM~~ [FILED 2026-09-11 by the GUI fix batch; DONE 2026-11-06, owner ruling: one message after the merge]
+
+**Done 2026-11-06 (owner ruling V, thread "Decide the five cleanup leftovers"): one message
+after a Re-Fly merge.** `SupersedeCommit.CommitTombstones` hands the rows it just retired from
+the REPLACED flight (never variant B's attempt rows) to the pure
+`SupersedeCommit.BuildReFlyUndoneMessage`, which names deaths (a death's bundled KerbalDeath
+reputation penalty is not counted again), counts contract failures and other reputation
+penalties, and returns null for a merge that retired only crew bookkeeping or zero-value rows;
+`AnnounceReFlyUndone` shows it once (`ParsekLog.ScreenMessage`, 6 s) and logs
+`Re-Fly undone message shown`. A journal re-run finds the rows already tombstoned and shows
+nothing. No dialog-side preview (the option not picked). Cells: `ReFlyUndoneMessageTests`,
+`SupersedeCommitTombstoneTests.CommitTombstones_RetiredDeath_ShowsOneUndoneMessage` /
+`..._RerunOverAlreadyTombstonedDeath_ShowsNoMessage`.
+
 
 **Evidence.** `GameActions/LedgerOrchestrator.cs:1837`+ (14 call sites) and
 `GameActions/KspStatePatcher.cs:61` rewrite funds, science, reputation, the tech tree,
@@ -3462,7 +3516,19 @@ no-new-surfaces rule means the candidates are the merge dialog's existing body t
 one-shot ScreenMessages for events that actually changed something - which a supersede
 genuinely is.
 
-## GUI-EXPOSURE-46-RATE-LIMITED-REFUSALS-A-PLAYER-CANNOT-SEE [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-EXPOSURE-46-RATE-LIMITED-REFUSALS-A-PLAYER-CANNOT-SEE~~ [FILED 2026-09-11 by the GUI fix batch; CLOSED 2026-11-06: already fixed by the Logistics interact-cell rebuild]
+
+**Closed 2026-11-06 (thread "Decide the five cleanup leftovers"; told V, no ruling needed).**
+Re-checked against the code: the Logistics row's interact cell (`LogisticsWindowUI.DrawRouteInteractCell`)
+draws exactly the button the route's state accepts. Activate is drawn only in the Paused table,
+which holds only `RouteStatus.Paused` routes (`LogisticsRoutePresentation.BelongsInPausedTable`),
+the one state `TryActivate` accepts; Pause only in the Active table, never on a Paused route (the
+one state `TryPause` refuses); Send greys with `SendDisabledReason` through `DisabledHoverEcho`
+in every state `TrySendOneCycleNow` would refuse; the in-flight Delivering / Pausing buttons grey
+with their reason; Create Route opens its confirm, and its one refusal is a null candidate. So a
+click the player can make no longer no-ops silently. The remaining rate-limited sites are standing
+conditions the Status cell already words.
+
 
 **Evidence.** 46 sites mod-wide route a refusal to `InfoRateLimited` / `WarnRateLimited`
 only. The census named these: `Logistics/RouteEndpointResolver.cs:293` (docked-composite
@@ -3476,7 +3542,17 @@ its refusal reasons at about 1 Hz and already owns a disabled-hover echo; the sh
 carry the reason into that echo for the button the player just pressed, not to add 46
 messages. That is one design decision about one window, so it is filed as one item.
 
-## GUI-I-DRAWRECORDINGTOOLTIP-IS-DEAD-CODE-WITH-FULL-TEST-COVERAGE: decide before deleting [FILED 2026-09-11 by the GUI fix batch; the triage explicitly held this one back]
+## ~~GUI-I-DRAWRECORDINGTOOLTIP-IS-DEAD-CODE-WITH-FULL-TEST-COVERAGE: decide before deleting~~ [FILED 2026-09-11 by the GUI fix batch; the triage explicitly held this one back; DONE 2026-11-06, owner ruling: wire it into the row hover]
+
+**Done 2026-11-06 (owner ruling V, thread "Decide the five cleanup leftovers"): wired back as
+hover text, the dead panel deleted.** The Recordings Status hover gains one clause from the pure
+`RecordingsTableFormatters.FormatManifestChangeSummary` ("Used 3,400 Liquid Fuel; unloaded 4
+OX-STAT ...; crew -2 Engineer"): only what changed, only when the recording has both a start and
+an end manifest of that kind, one line (the strip is single-line), stock display names through
+`PartResourceLibrary` / `PartLoader` at the live site, cached per recording by manifest
+reference. `DrawRecordingTooltip`, its unused style and the three multi-line formatters are gone;
+`ManifestChangeSummaryTests` replaces their three test files.
+
 
 **Evidence.** `RecordingsTableUI.DrawRecordingTooltip` (`:5451`) is 78 lines rendering a
 per-recording hover panel: stats, chain status, a storage / efficiency breakdown, and

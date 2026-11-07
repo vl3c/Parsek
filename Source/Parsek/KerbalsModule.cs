@@ -3431,9 +3431,10 @@ namespace Parsek
         /// <summary>
         /// Check if a kerbal is available for a new recording: no reservation in force at
         /// this walk's clock (<see cref="IsReservedNow"/>). A Recovered flight's hold
-        /// whose end the clock has reached no longer counts.
+        /// whose end the clock has reached no longer counts. TEST-ONLY (no production
+        /// caller, todo GUI-D8): the assertion surface the reservation tests read.
         /// </summary>
-        internal bool IsKerbalAvailable(string kerbalName)
+        internal bool IsKerbalAvailableForTesting(string kerbalName)
         {
             bool reserved = IsReservedNow(kerbalName);
             ParsekLog.Verbose(Tag,

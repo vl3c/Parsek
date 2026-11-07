@@ -157,7 +157,7 @@ namespace Parsek
             // display-effective group membership without losing NotCommitted
             // management rows. Pending rows matter during active-tree restore:
             // the mission tree can be temporarily detached from committed
-            // storage while still awaiting a deferred merge dialog.
+            // storage while still awaiting its commit.
             var cleanupRecordings = RecordingStore.BuildKnownRecordingsForCleanup();
             var scenario = ParsekScenario.Instance;
             var timelineInactiveIds = EffectiveState.ComputeTimelineInactiveRecordingIds(

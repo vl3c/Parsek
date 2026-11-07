@@ -1389,7 +1389,7 @@ the two cursor-anchored ghost menus size themselves.
 
 | dialog title | popup name | spawn site | trigger | buttons |
 |---|---|---|---|---|
-| `Confirm: Merge to Timeline` / `Confirm: Commit to Timeline` (post-transition) | `MergeDialog.DialogName` | `MergeDialog` (post-transition show) | a pending tree surviving into FLIGHT (`ParsekFlight` finalization) or the deferred non-FLIGHT coroutine (`ParsekScenario`) | 2 or 3: the merge label, `Merge & Seal` for a not-yet-sealable Re-Fly attempt, `Discard` |
+| `Confirm: Merge to Timeline` / `Confirm: Commit to Timeline` (post-transition) | `MergeDialog.DialogName` | `MergeDialog` (post-transition show) | a pending tree surviving into FLIGHT (`ParsekFlight` finalization; the deferred non-FLIGHT coroutine was retired 2026-11-06, GUI-D5) | 2 or 3: the merge label, `Merge & Seal` for a not-yet-sealable Re-Fly attempt, `Discard` |
 | `Confirm: Merge to Timeline` / `Re-Fly attempt - leaving flight` (pre-transition) | `MergeDialog.DialogName` | `MergeDialog` (pre-transition show) | the `HighLogic.LoadScene` prefix blocking a flight exit (`SceneExitInterceptor`); never a rewind's own Space Center load, which resolves as auto-merge, and under auto-merge never a main-menu exit or a switch-segment session with no live tree, and never a stock Quit without saving outside a Re-Fly (2026-11-01) | 1 (journal active), 2 or 3 |
 | `Pending switch-segment recording` | - | `MergeDialog.ShowPreSwitchDecisionDialog` | `MapContextMenuOptions.FocusObject.OnSelect` prefix, cases A, B and C (`Patches/MapFocusObjectOnSelectPatch.cs`), only with auto-merge off (an automation hook) or while a Re-Fly session or merge journal is live; otherwise `TryAutoResolvePreSwitch` presses the button itself (2026-10-24) | 2: `Merge`, `Discard`. No Cancel by design; Esc is defeated by a re-spawn |
 | `Revert during Re-Fly` | - | `ReFlyRevertDialog` | `RevertInterceptor.Prefix` on stock Revert while a Re-Fly marker lives | 2 (journal active) or 3: `Retry from Rewind Point`, `Discard Re-Fly`, `Continue Flying` |
@@ -1825,10 +1825,9 @@ tab, since a node that produced no controls gets a blank label. Storage is untou
 (`ParameterNode.Save` writes every public field regardless of `GameMode`), so existing saves keep
 every key and the sidecar, Settings window and harness `SetSetting` seam all behave as before.
 Pinned by `ParsekSettingsTests.StockDifficultyScreen_DrawsNoParsekSection`. This leaves the
-hidden-clamped-fields half of the question open. And `D5`: the deferred post-transition Merge/Discard dialog is
-unreachable in shipping play because `autoMerge` is clamped, yet the guide describes it
-(`docs/user-guide.md:45-61`) and the harness still needs it - retire the dialog or keep it as a
-harness-only path?
+hidden-clamped-fields half of the question open. And `D5`: the deferred post-transition Merge/Discard dialog was
+unreachable in shipping play because `autoMerge` is clamped. DECIDED + DONE 2026-11-06: retired (OnLoad
+always commits a pending tree it finds outside FLIGHT; the pre-transition dialog stays).
 
 **Is Gloops retired, or is it coming back? ANSWERED 2026-10-05 (owner): delete the subsystem. The Gloops recorder, its window, launcher, `UiSurface` key, Basic-mode guard, group, seam verbs and lanes are gone from Parsek, which resolves D1, D15, H2 and P13; Gloops is planned as a separate mod (`docs/dev/gloops-recorder-design.md`).** The question as filed: it was in the worst of both states: the
 launcher was retired in BOTH modes (`UI/UiComplexityMode.cs:140-143`), so the window, its 377
@@ -1855,11 +1854,11 @@ One line each for the rest:
 | P19 | The Candidates empty-state sentence tells the player to do what the near-miss list below shows they already did: reword, or suppress it when near-misses exist? DECIDED + FIXED 2026-10-24: reworded to point at the near-miss list when it has rows |
 | P20 | Four route cells read `Stops[0]` only while `RouteBuilder` builds multi-stop routes: is multi-stop display in scope, or should the labels be scoped to the first stop? |
 | D3 | `GhostCommNetRelay` is dead while `GhostCommNetVesselPatch` cites it as the justification for destroying each ghost's `CommNetVessel`: do ghost relays contribute to CommNet or not? RULED A 2026-09-26: yes; rebuilt as `GhostCommNet` / `GhostCommNetManager` (design 15.6, todo GUI-D3) |
-| D6 | `MissionSelection` and `Mission.ExcludedThroughLineHeadIds` are persisted but never written: removal touches the mission save schema, so does it go now or wait for a generation bump? |
-| D8 | The legacy `SupersedeCommit` public surfaces are kept alive only by their in-game tests, which therefore prove something the product does not run: delete both, or re-point the tests? |
+| D6 | `MissionSelection` and `Mission.ExcludedThroughLineHeadIds` are persisted but never written: removal touches the mission save schema, so does it go now or wait for a generation bump? DECIDED + DONE 2026-11-06: deleted now, no bump (retired-key rule); the key is consumed and dropped on save |
+| D8 | The legacy `SupersedeCommit` public surfaces are kept alive only by their in-game tests, which therefore prove something the product does not run: delete both, or re-point the tests? DECIDED + DONE 2026-11-06: test-only seams allowed, named `*ForTesting`; seven key Re-Fly commit cells re-pointed at `MergeJournalOrchestrator.RunMerge` |
 | D18 | The virtual Unfinished Flights hide-all branch is unreachable; P17's fix should make the ordinary path carry the same guard: verify after, then decide whether the branch stays |
-| I | `DrawRecordingTooltip` (`UI/RecordingsTableUI.cs:5451`) is a fully unit-tested 78-line hover panel with no caller, and the SOLE production caller of `FormatResourceManifest` / `FormatInventoryManifest` / `FormatCrewManifest`: wire it back, or delete it and three green formatter test suites with it? |
-| exposure | 46 `InfoRateLimited` / `WarnRateLimited` sites mean a Logistics Pause / Activate / Send Once / Create click can no-op invisibly: is a log-only refusal acceptable for a click the player made? |
+| I | `DrawRecordingTooltip` (`UI/RecordingsTableUI.cs:5451`) is a fully unit-tested 78-line hover panel with no caller, and the SOLE production caller of `FormatResourceManifest` / `FormatInventoryManifest` / `FormatCrewManifest`: wire it back, or delete it and three green formatter test suites with it? DECIDED + DONE 2026-11-06: wired back as one line in the Status hover (`FormatManifestChangeSummary`); the panel and the multi-line formatters deleted |
+| exposure | 46 `InfoRateLimited` / `WarnRateLimited` sites mean a Logistics Pause / Activate / Send Once / Create click can no-op invisibly: is a log-only refusal acceptable for a click the player made? CLOSED 2026-11-06: already fixed, every refusable Logistics button is drawn only where it is accepted or greyed with its reason |
 | tooling | the `StockUiOverlay` stock-control annotations (R&D, Astronaut Complex, Mission Control; badges until 2026-09-25) are invisible to the GuiTree recorder (uGUI) and their explanation text is hover-only: is a uGUI capture path worth building? |
 
 The eight empty-surface captures, the 21 unphotographed dialogs and the 7 unphotographed

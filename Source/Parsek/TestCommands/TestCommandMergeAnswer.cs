@@ -62,9 +62,9 @@ namespace Parsek.TestCommands
         WaitForResume,
 
         /// <summary>The settle budget expired with the tree never active (a restore
-        /// give-up / placeholder-mode attempt): drive anyway and let the deferred
-        /// POST-transition dialog conclude the session, exactly as before the wait
-        /// existed.</summary>
+        /// give-up / placeholder-mode attempt): drive anyway. The deferred POST-transition
+        /// dialog that used to conclude such a session is retired (todo GUI-D5), so the
+        /// exit auto-commits and the verb times out rather than answering.</summary>
         DriveUnsettled,
     }
 
