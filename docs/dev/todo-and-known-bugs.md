@@ -19,6 +19,27 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED: two loop-seam trace dictionaries in ParsekFlight are keyed by committed index and never shift [FILED 2026-11-07 from the ParsekFlight seam inventory (`plan-parsekflight-seams-2026-11-07.md`, refactor branch `claude/project-thread-bkwmrr` at f3400b90a), by code reading. OPEN; diagnostics only, low]
+
+**What is true.**
+- `ParsekFlight.reaimLastGhostFrame` and `ParsekFlight.loopSeamLastGhostFrame` are
+  `Dictionary<int, ...>` keyed by the loop member's committed-list index (written by the
+  re-aim seam trace and `TrackLoopSeamTeleport`, read on the next frame to log a seam jump).
+- `OnCommittedRecordingRemoved` / `OnCommittedRecordingInserted` shift or clear every other
+  index-keyed slot (engine, held ghosts, map presence, watch mode, orbit caches, the two
+  `loggedOrbit*` sets) but neither of these, and nothing clears them at a scene change other
+  than the MonoBehaviour going away.
+- Effect: after a mid-list insert or removal, a member's first seam check compares against the
+  previous frame of the recording that used to hold its index, so a `ReaimSeam` /
+  loop-seam teleport line can report a jump that never happened (or miss one). Both are gated
+  diagnostics (`ghostRenderTracing` for the loop-seam instrument, Verbose for `ReaimSeam`);
+  nothing a player sees and no positioning reads them.
+
+**Fix.** Clear both dictionaries in `OnCommittedRecordingRemoved` and
+`OnCommittedRecordingInserted` (as the `loggedOrbit*` sets are), or key them by recording id.
+A clear costs at most one missed seam line per member after a list change. Not part of the
+pure-move refactor; land it on its own after the ParsekFlight playback split.
+
 ## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
 
 **Symptom.** `FlightRecorder.OnVesselSOIChanged` returned at once unless the vessel was on rails,
@@ -2823,6 +2844,18 @@ hookup (`FlightRecorder` / `BackgroundRecorder`), playback hosting, spawning, th
 `WatchModeController`, `ParsekPlaybackPolicy` and `ChainSegmentManager` are prior extractions
 of the same shape. Do this AFTER ARCH-KNOT-CHEAP-CUTS and ARCH-RECORDINGSTORE-GOD-OBJECT, which
 make the types it touches easier to reason about.
+
+**Progress** (the PR-by-PR plan is `plan-parsekflight-seams-2026-11-07.md` in the project
+files, PF0-PF10; Phase A splits ParsekFlight.cs into partial files with identical IL, Phase B
+moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the refactor branch
+`claude/project-thread-bkwmrr`. Phase B waits until the RecordingStore series is done.)
+- PF0 landed: the tooling. `scripts/refactor/split_parsekflight.py` (the split_* pattern;
+  drops the 16 region pairs because they do not survive a split) with the PF1a mapping,
+  `scripts/refactor/il_compare.py` (types, fields, properties and method bodies, ordinal
+  normalization, a `--fold OLD=NEW` mode for Phase B), their unit tests
+  (`python3 -m unittest discover -s scripts/refactor -p "test_*.py"`), and
+  `ParsekFlightSourceFiles` (the whole-class reader, no split files declared yet). No
+  Source/Parsek change. Filed LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED from the inventory.
 
 ## ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type [FILED 2026-09-14 off the architecture program (item 4). OPEN; the first item with real design content, after the cheap cuts. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
