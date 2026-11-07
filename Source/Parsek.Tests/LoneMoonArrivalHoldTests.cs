@@ -256,36 +256,81 @@ namespace Parsek.Tests
         private static readonly GhostPlaybackLogic.LoopCut DestCut =
             new GhostPlaybackLogic.LoopCut { StartUT = 1.1e6, LengthSeconds = 6000.0 };
 
+        private static IReadOnlyList<GhostPlaybackLogic.LoopCut> KeepCuts(
+            List<PhaseConstraint> trip, IReadOnlyList<GhostPlaybackLogic.LoopCut> all,
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> launchSide, out int postEntryCuts)
+        {
+            int moons;
+            return MissionLoopUnitBuilder.KeepLaunchSideCutsForMoonConfigurationHold(
+                Extraction(trip), Plan(), all, launchSide, TransitedBodyRotationMode.Loose,
+                new DunaFake(), out moons, out postEntryCuts);
+        }
+
+        // The span and cadence the builder hands the wrapper: slack = cadence - (span - cuts).
+        private static ArrivalHoldPlanner.ArrivalHoldResult BuilderHold(
+            List<PhaseConstraint> trip, IReadOnlyList<GhostPlaybackLogic.LoopCut> all,
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> launchSide, double cadence, double span,
+            out IReadOnlyList<GhostPlaybackLogic.LoopCut> cutsUsed)
+        {
+            return MissionLoopUnitBuilder.ComputeArrivalHoldKeepingMoonLoiterWhole(
+                "Ike Trip", Extraction(trip), Plan(), all, launchSide,
+                TransitedBodyRotationMode.Loose, 350.0, 0.0, new DunaFake(),
+                KerbinDunaSynodic, cadence, span, out cutsUsed);
+        }
+
         [Fact]
-        public void Builder_LoneMoon_DropsDestinationCut_KeepsLaunchSide_AndLogs()
+        public void Builder_LoneMoon_DropsDestinationCut_KeepsLaunchSide()
         {
             var all = new List<GhostPlaybackLogic.LoopCut> { LaunchCut, DestCut };
             var launchSide = new List<GhostPlaybackLogic.LoopCut> { LaunchCut };
-            IReadOnlyList<GhostPlaybackLogic.LoopCut> kept =
-                MissionLoopUnitBuilder.KeepLaunchSideCutsForMoonConfigurationHold(
-                    "Ike Trip", Extraction(IkeOrbitTrip()), Plan(), all, launchSide,
-                    TransitedBodyRotationMode.Loose, new DunaFake());
+            var kept = KeepCuts(IkeOrbitTrip(), all, launchSide, out int postEntry);
             Assert.Same(launchSide, kept);
+            Assert.Equal(1, postEntry);
+        }
+
+        [Fact]
+        public void Builder_LoneMoon_HoldEngages_KeepsLoiterWhole_AndLogs()
+        {
+            var all = new List<GhostPlaybackLogic.LoopCut> { LaunchCut, DestCut };
+            var launchSide = new List<GhostPlaybackLogic.LoopCut> { LaunchCut };
+            // Plenty of slack: cadence one synodic period, span a tenth of it.
+            var r = BuilderHold(IkeOrbitTrip(), all, launchSide,
+                KerbinDunaSynodic, 0.1 * KerbinDunaSynodic, out var used);
+            Assert.True(r.Applied);
+            Assert.True(r.IsConfigHold);
+            Assert.Same(launchSide, used);
             Assert.Contains(logLines, l => l.Contains("[Reaim]")
                 && l.Contains("MOON HOLD keeps the destination loiter whole")
                 && l.Contains("dest=Duna") && l.Contains("moons=1")
                 && l.Contains("droppedPostEntryCuts=1") && l.Contains("keptLaunchSideCuts=1"));
+        }
 
-            // The planner then engages on the kept cuts.
-            var r = Compute(IkeOrbitTrip(), cuts: kept);
-            Assert.True(r.Applied);
-            Assert.True(r.IsConfigHold);
+        [Fact]
+        public void Builder_LoneMoon_HoldDeclines_RestoresCompressedLoiter()
+        {
+            var all = new List<GhostPlaybackLogic.LoopCut> { LaunchCut, DestCut };
+            var launchSide = new List<GhostPlaybackLogic.LoopCut> { LaunchCut };
+            // Span ends just under the cadence: with the destination cut dropped the slack is
+            // cadence - (span - launchCut) = 1000 + 5e4 s, below one Ike orbit, so the hold declines.
+            double cadence = KerbinDunaSynodic;
+            double span = cadence - 1000.0;
+            var r = BuilderHold(IkeOrbitTrip(), all, launchSide, cadence, span, out var used);
+            Assert.False(r.Applied);
+            Assert.Contains("loop slack", r.AmberReason);
+            Assert.Same(all, used);
+            Assert.DoesNotContain(logLines, l => l.Contains("MOON HOLD keeps"));
+            Assert.Contains(logLines, l => l.Contains("[Reaim]")
+                && l.Contains("MOON HOLD declined, destination loiter stays compressed")
+                && l.Contains("restoredCuts=2") && l.Contains("loop slack"));
         }
 
         [Fact]
         public void Builder_LoneMoon_OnlyDestinationCut_ReturnsNull()
         {
             var all = new List<GhostPlaybackLogic.LoopCut> { DestCut };
-            var kept = MissionLoopUnitBuilder.KeepLaunchSideCutsForMoonConfigurationHold(
-                "Ike Trip", Extraction(IkeOrbitTrip()), Plan(), all,
-                new List<GhostPlaybackLogic.LoopCut>(),
-                TransitedBodyRotationMode.Loose, new DunaFake());
+            var kept = KeepCuts(IkeOrbitTrip(), all, new List<GhostPlaybackLogic.LoopCut>(), out int postEntry);
             Assert.Null(kept);
+            Assert.Equal(1, postEntry);
         }
 
         [Fact]
@@ -294,11 +339,12 @@ namespace Parsek.Tests
             var trip = IkeOrbitTrip();
             trip.Add(Rotation("Duna", IkeOrbit));
             var all = new List<GhostPlaybackLogic.LoopCut> { LaunchCut, DestCut };
-            var kept = MissionLoopUnitBuilder.KeepLaunchSideCutsForMoonConfigurationHold(
-                "Duna Landing", Extraction(trip), Plan(), all,
-                new List<GhostPlaybackLogic.LoopCut> { LaunchCut },
-                TransitedBodyRotationMode.Loose, new DunaFake());
+            var kept = KeepCuts(trip, all, new List<GhostPlaybackLogic.LoopCut> { LaunchCut }, out int postEntry);
             Assert.Same(all, kept);
+            Assert.Equal(0, postEntry);
+            var r = BuilderHold(trip, all, new List<GhostPlaybackLogic.LoopCut> { LaunchCut },
+                KerbinDunaSynodic, 0.1 * KerbinDunaSynodic, out var used);
+            Assert.Same(all, used);
             Assert.DoesNotContain(logLines, l => l.Contains("MOON HOLD"));
         }
 
@@ -306,21 +352,19 @@ namespace Parsek.Tests
         public void Builder_NoPostEntryCut_LeavesCutsUnchanged()
         {
             var all = new List<GhostPlaybackLogic.LoopCut> { LaunchCut };
-            var kept = MissionLoopUnitBuilder.KeepLaunchSideCutsForMoonConfigurationHold(
-                "Ike Trip", Extraction(IkeOrbitTrip()), Plan(), all, all,
-                TransitedBodyRotationMode.Loose, new DunaFake());
+            var kept = KeepCuts(IkeOrbitTrip(), all, all, out int postEntry);
             Assert.Same(all, kept);
+            Assert.Equal(0, postEntry);
         }
 
         [Fact]
         public void Builder_NoMoon_LeavesCutsUnchanged()
         {
             var all = new List<GhostPlaybackLogic.LoopCut> { LaunchCut, DestCut };
-            var kept = MissionLoopUnitBuilder.KeepLaunchSideCutsForMoonConfigurationHold(
-                "Duna Orbit", Extraction(new List<PhaseConstraint> { Orbital("Duna") }), Plan(),
-                all, new List<GhostPlaybackLogic.LoopCut> { LaunchCut },
-                TransitedBodyRotationMode.Loose, new DunaFake());
+            var kept = KeepCuts(new List<PhaseConstraint> { Orbital("Duna") }, all,
+                new List<GhostPlaybackLogic.LoopCut> { LaunchCut }, out int postEntry);
             Assert.Same(all, kept);
+            Assert.Equal(0, postEntry);
         }
     }
 }

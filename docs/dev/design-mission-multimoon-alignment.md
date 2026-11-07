@@ -205,11 +205,13 @@ relative leg anchored to the live moon while the approach flew to the recorded o
   on-camera landing wins, and for Duna the rotation equals Ike's period anyway.
 - **Rigid destination timeline.** The entry-referenced hold is valid only while the
   recorded in-SOI timeline is rigid, which a destination parking-loiter cut breaks (the L8
-  guard in D6). `MissionLoopUnitBuilder.KeepLaunchSideCutsForMoonConfigurationHold` keeps
-  the launch-side cuts and drops the post-entry ones for EVERY configuration-hold shape
-  (lone or multi-moon), so the destination parking replays whole and the hold engages
-  instead of ambering. The phase anchor shift counts only cuts before the departure, so
-  it is unchanged.
+  guard in D6). `MissionLoopUnitBuilder.ComputeArrivalHoldKeepingMoonLoiterWhole` tries
+  EVERY configuration-hold shape (lone or multi-moon) with the launch-side cuts only, so
+  the destination parking replays whole and the cut no longer ambers the hold. When the
+  hold still declines (loop slack below one anchor period, no recurrence, no window) the
+  original cuts come back with that amber, so a declined hold keeps the compressed
+  loiter. The phase anchor shift counts only cuts before the departure, so it is
+  unchanged.
 - **Known limit.** On the heliocentric-parking departure path (F2) the resolver shifts the
   target-bodied capture conics by `captureShift` while moon-bodied segments keep their
   recorded times; a moon leg on that path can still tear. Filed with the render backlog
