@@ -233,7 +233,7 @@ namespace Parsek.Tests
         // The whole commit order of a fresh flight: optimizer split, then the ledger
         // notify, then a Re-Fly of the SECOND segment from a rewind point inside it.
         // MUTATION NOTE: removing the event / pending-science retag in
-        // RecordingStore.RetagLedgerActionsAfterOptimizationSplit reds every assertion
+        // CommittedListOptimizer.RetagLedgerActionsAfterOptimizationSplit reds every assertion
         // after the split: the milestone and the science row land on seg1 (the science
         // at seg1's end, UT 20), no KerbalDeath penalty row is filed at all, and the
         // Re-Fly then keeps the milestone and the science it superseded.
@@ -365,7 +365,7 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------
         // OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY: the merge moves all three carriers
         // MUTATION NOTE: dropping the event / pending-science retag in
-        // RecordingStore.RetagLedgerActionsAfterOptimizationMerge leaves the milestone and
+        // CommittedListOptimizer.RetagLedgerActionsAfterOptimizationMerge leaves the milestone and
         // the pending subject on 'seg-b', a recording the merge removed.
         // ------------------------------------------------------------------
 

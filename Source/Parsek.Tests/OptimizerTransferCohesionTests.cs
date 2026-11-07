@@ -148,7 +148,7 @@ namespace Parsek.Tests
         // METHOD NOTE, and it corrects a detail of the plan. The plan's mirror
         // said FindSplitCandidatesForOptimizer "accepts two" candidates on the
         // Dres main. It does not, and it never could: the production consumer
-        // (RecordingStore.RunOptimizationSplitPass) is a while-loop that calls
+        // (CommittedListOptimizer.RunOptimizationSplitPass) is a while-loop that calls
         // the finder, splits ONE chosen candidate, and re-scans. So a single
         // call returning one candidate is correct, and the measured "+2" is the
         // loop's cumulative result. These cells therefore assert the PREDICATE

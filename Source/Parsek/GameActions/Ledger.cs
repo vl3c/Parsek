@@ -1505,7 +1505,7 @@ namespace Parsek
 
         /// <summary>
         /// An optimizer split gave part of a recording a new id and moved its captured
-        /// events there (<c>RecordingStore.RetagLedgerActionsAfterOptimizationSplit</c>).
+        /// events there (<c>CommittedListOptimizer.RetagLedgerActionsAfterOptimizationSplit</c>).
         /// When the original was uncommitted at the live-pool reputation seed's read
         /// (<see cref="GameAction.SeedPendingRecordingIds"/>), the second half is the same
         /// recorded flight, so it joins the list: otherwise its awards from before the read

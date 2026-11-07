@@ -602,7 +602,7 @@ namespace Parsek
                 return false;
             }
             // #614: walk both BranchPoint-parents AND chain-predecessors. Optimizer
-            // splits (RecordingStore.RunOptimizationSplitPass) connect chain segments
+            // splits (CommittedListOptimizer.RunOptimizationSplitPass) connect chain segments
             // via shared ChainId / ChainIndex, NOT via ParentBranchPointId — so the
             // older BP-only walk silently terminated when it reached a chain segment
             // whose parent was a previous chain segment with no BP link, missing the

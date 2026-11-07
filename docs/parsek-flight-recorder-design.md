@@ -1103,7 +1103,7 @@ its own): the logistics transport lineage does, and the mission Log lets any lat
 own a stage whose branch point still names an earlier segment that ended before it (a repair
 that had to stop).
 
-**Career results across a split** (`RecordingStore.RetagLedgerActionsAfterOptimizationSplit`):
+**Career results across a split** (`CommittedListOptimizer.RetagLedgerActionsAfterOptimizationSplit`):
 three things carry the recording id as their owner, and the split moves each one whose UT is
 at or after the cut to the second half, with the same `>=` sense as the parent links: the
 ledger rows (`Ledger.RetagActionsForSplitSecondHalf`, attribution UT: a death row and an

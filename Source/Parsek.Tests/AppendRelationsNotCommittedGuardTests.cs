@@ -310,7 +310,7 @@ namespace Parsek.Tests
             // (CreatingSessionId == marker.SessionId) on the population that is
             // the only reason it exists.
             //
-            // RecordingStore.Optimization's CopySplitIdentityFields gives the
+            // CommittedListOptimizer's CopySplitIdentityFields gives the
             // second half of a split a FRESH RecordingId (Guid.NewGuid) while
             // copying CreatingSessionId, ProvisionalForRpId AND
             // VesselPersistentId from the original. Split a session-tagged

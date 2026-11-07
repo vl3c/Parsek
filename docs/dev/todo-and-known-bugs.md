@@ -2936,6 +2936,24 @@ each PR lands on the refactor branch, IL-proven a pure move).
   files outside the store and 11 xUnit files reference the new type, and `modules.toml` places it in Recording. It
   references nothing in the knot. `RecordingStore` partials 8,095 -> 8,041 lines, 255 -> 253 IL
   methods, 5 fewer statics; knot 461 and cut residue 287 unchanged.
+- PR8 (service G) landed: the optimization pass left the store as `CommittedListOptimizer` (the
+  former `RecordingStore.Optimization.cs`): `RunOptimizationPass` and its merge / split /
+  tail-trim passes, `ChooseSplitCandidateIndex`, `CopySplitIdentityFields`, the three
+  merge / split retags and `PopulateLoopSyncParentIndices`. The pass reads the committed list
+  read-only (`RecordingStore.CommittedRecordings`; `RecordingOptimizer.FindMergeCandidates`,
+  `FindSplitCandidatesForOptimizer`, `ReindexChain`, `TrimBoringTailInternal` and
+  `IsLeafRecording` widened to `IReadOnlyList`) and changes it only through two new store
+  primitives, `RemoveCommittedAt(index, absorbedInto)` and `InsertCommittedAt(index, rec)`;
+  `RemoveCommittedAtWithNotifications` and `InsertCommittedAfter` route through them too, and
+  `CommittedListNotificationTests` pins the pass's Removing / Removed(target) / Inserted order
+  with the bumps between. `RecordingStore.RunOptimizationPass` stays as a forwarder (3
+  production call sites plus 3 in-game files and 20 xUnit files). Kept on the store, in
+  `RecordingStore.OptimizerSupport.cs`: the dirty-file flush (`FlushDirtyFiles`, its epoch
+  rule, and `FlushDirtyCommittedFiles` for the pass), which the commit paths share, and
+  `ShouldMoveChildBranchPointToSplitSecondHalf`, which the Re-Fly tree splitter also calls (on
+  the new type that edge closes a cycle around the `RecordingStore` cut: residue 287 -> 289).
+  The optimizer is on the ERS / ELS allowlist. `RecordingStore` partials 8,041 -> 7,522
+  lines, 253 -> 247 IL methods; knot 461 -> 462, cut residue 287.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

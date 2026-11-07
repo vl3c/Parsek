@@ -24,7 +24,7 @@ namespace Parsek
         /// Returns true if the recording is a leaf — no child branch point and
         /// not a mid-chain segment with a successor.
         /// </summary>
-        internal static bool IsLeafRecording(Recording rec, List<Recording> allRecordings)
+        internal static bool IsLeafRecording(Recording rec, IReadOnlyList<Recording> allRecordings)
         {
             // Breakup-continuous effective leaf: ChildBranchPointId is set but no
             // same-PID child exists — the recording IS the leaf for its vessel. (#224)
@@ -747,7 +747,7 @@ namespace Parsek
         /// <c>unstable-terminal</c>, <c>no-points-past-trim-ut</c>, <c>keep-count-too-low</c>.
         /// </summary>
         internal static bool TrimBoringTailInternal(
-            Recording rec, List<Recording> allRecordings,
+            Recording rec, IReadOnlyList<Recording> allRecordings,
             double bufferSeconds, bool logSkipReason, out string skipCategory)
         {
             skipCategory = null;

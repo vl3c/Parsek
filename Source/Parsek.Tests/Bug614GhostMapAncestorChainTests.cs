@@ -10,7 +10,7 @@ namespace Parsek.Tests
     /// followed only <see cref="Recording.ParentBranchPointId"/> links and stopped
     /// at the first recording whose parent BP was missing — which is the steady
     /// state for the second half of an optimizer-split chain. Optimizer splits
-    /// (<see cref="RecordingStore"/> RunOptimizationSplitPass) connect chain
+    /// (<see cref="CommittedListOptimizer"/> RunOptimizationSplitPass) connect chain
     /// segments via shared <see cref="Recording.ChainId"/> alone; the second
     /// half never receives a <see cref="Recording.ParentBranchPointId"/>. The
     /// pre-#614 walk therefore declared the root recording "not in the parent
