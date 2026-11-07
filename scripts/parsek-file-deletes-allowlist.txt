@@ -45,12 +45,12 @@ Source/Parsek/GameStateStore.cs 1
 Source/Parsek/ParsekScenario.cs 4
 # Pre-Parsek backup staging directories (outside Parsek/).
 Source/Parsek/PreParsekBackup.cs 2
-# Save-root temp copies of a rewind save.
-Source/Parsek/RecordingStore.cs 2
 # Discard Re-fly save-root temps.
 Source/Parsek/RevertInterceptor.cs 2
 # Re-Fly save-root temp quicksave.
 Source/Parsek/RewindInvoker.cs 1
+# Save-root temp copies of a rewind save.
+Source/Parsek/RewindLauncher.cs 2
 # Harness screenshot command: its own output file.
 Source/Parsek/TestCommands/ParsekTestCommandAddon.CaptureScreenshot.cs 1
 # Harness NewGame command: stock's New Game overwrite of the run's own saves/<save> folder

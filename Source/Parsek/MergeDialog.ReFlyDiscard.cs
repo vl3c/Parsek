@@ -593,7 +593,7 @@ namespace Parsek
         /// <param name="rewindLabel">Log label of the rewind that ended the session.</param>
         /// <param name="droppedLiveTreeId">Id of the live tree the scene exit was armed to drop,
         /// else null; the rewind undoes the drop when its load fails
-        /// (<see cref="RecordingStore.UndoLiveTreeDropAfterFailedRewind"/>).</param>
+        /// (<see cref="RewindLauncher.UndoLiveTreeDropAfterFailedRewind"/>).</param>
         /// <param name="droppedTreeRestoredToCommitted">True when that tree was also put back in
         /// the committed store.</param>
         /// <returns>True when a live session was ended.</returns>

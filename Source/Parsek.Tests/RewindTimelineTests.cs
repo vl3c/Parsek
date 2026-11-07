@@ -6,7 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for the spawn-at-recording-end decision logic (GhostPlaybackLogic.ShouldSpawnAtRecordingEnd)
-    /// and CanRewind validation (RecordingStore.CanRewind).
+    /// and CanRewind validation (RewindLauncher.CanRewind).
     /// These cover the pure guard logic extracted from ParsekFlight.UpdateTimelinePlayback.
     /// </summary>
     [Collection("Sequential")]
@@ -461,7 +461,7 @@ namespace Parsek.Tests
             var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
 
             string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
+            Assert.False(RewindLauncher.CanRewind(rec, out reason, isRecording: false));
             Assert.Equal("Rewind already in progress", reason);
         }
 
@@ -471,7 +471,7 @@ namespace Parsek.Tests
             var rec = new Recording { RewindSaveFileName = null };
 
             string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
+            Assert.False(RewindLauncher.CanRewind(rec, out reason, isRecording: false));
             Assert.Equal("No rewind save available", reason);
         }
 
@@ -481,7 +481,7 @@ namespace Parsek.Tests
             var rec = new Recording { RewindSaveFileName = "" };
 
             string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
+            Assert.False(RewindLauncher.CanRewind(rec, out reason, isRecording: false));
             Assert.Equal("No rewind save available", reason);
         }
 
@@ -491,7 +491,7 @@ namespace Parsek.Tests
             var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
 
             string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: true));
+            Assert.False(RewindLauncher.CanRewind(rec, out reason, isRecording: true));
             Assert.Equal("Stop recording before rewinding", reason);
         }
 
@@ -504,7 +504,7 @@ namespace Parsek.Tests
             var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
 
             string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
+            Assert.False(RewindLauncher.CanRewind(rec, out reason, isRecording: false));
             Assert.Equal("Merge or discard pending tree first", reason);
         }
 
@@ -518,7 +518,7 @@ namespace Parsek.Tests
             var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
 
             string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: true));
+            Assert.False(RewindLauncher.CanRewind(rec, out reason, isRecording: true));
             Assert.Equal("Rewind already in progress", reason);
         }
 
@@ -538,7 +538,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.False(rec.VesselSpawned);
             Assert.Equal(0u, rec.SpawnedVesselPersistentId);
@@ -558,7 +558,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec, isActiveChainMember: false);
@@ -938,7 +938,7 @@ namespace Parsek.Tests
         /// Driving the production sequence end-to-end through
         /// <see cref="ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly"/>
         /// (the helper that <see cref="ParsekScenario.HandleRewindOnLoad"/>
-        /// invokes after <see cref="RecordingStore.ResetAllPlaybackState"/>):
+        /// invokes after <see cref="RewindLauncher.ResetAllPlaybackState"/>):
         /// only the active/source recording gets <c>SpawnSuppressedByRewind</c>
         /// set. Same-tree future recordings remain eligible for normal terminal
         /// materialization when playback reaches their EndUT (#589).
@@ -1150,7 +1150,7 @@ namespace Parsek.Tests
             };
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.False(rec.SpawnSuppressedByRewind);
             Assert.Null(rec.SpawnSuppressedByRewindReason);

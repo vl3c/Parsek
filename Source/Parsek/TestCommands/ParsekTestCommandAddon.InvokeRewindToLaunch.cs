@@ -12,7 +12,7 @@ namespace Parsek.TestCommands
     ///
     /// <para>
     /// WHY THIS VERB EXISTS. Rewind-to-Launch is the Recordings-table "R" button
-    /// (<c>RecordingsTableUI.ShowRewindConfirmation</c> -> <c>RecordingStore.InitiateRewind</c>):
+    /// (<c>RecordingsTableUI.ShowRewindConfirmation</c> -> <c>RewindLauncher.InitiateRewind</c>):
     /// reload the <c>parsek_rw_*</c> quicksave captured at a flight's launch, wound back by
     /// the pre-launch lead time, with the flight's own vessel stripped so it replays as a
     /// ghost. It is a DIFFERENT mechanism from Re-Fly / Rewind-to-Separation, which
@@ -44,7 +44,7 @@ namespace Parsek.TestCommands
     /// <para>
     /// (1) <c>InitiateRewind</c> RETURNS VOID and its failure paths only LOG (no owner, an
     /// active merge journal, a null <c>LoadGame</c>, a throwing copy / pre-process). The
-    /// applier therefore treats <c>RecordingStore.IsRewinding</c> immediately after the
+    /// applier therefore treats <c>RewindContext.IsRewinding</c> immediately after the
     /// call as the synchronous success test: the whole pre-load half of
     /// <c>ExecuteRewindSaveLoad</c> runs inside that call, and every failure path inside it
     /// ends at <c>ResetRewindFlags</c>. Still false -> terminal ERROR <c>rewind-failed</c>,
@@ -56,7 +56,7 @@ namespace Parsek.TestCommands
     /// synchronously inside <c>InitiateRewind</c> (right after the save parses, before the
     /// <c>LoadScene</c>), and <c>RewindContext.EndRewind()</c> - the very tail of
     /// <c>HandleRewindOnLoad</c> that MAKES the completion CompleteOk - zeroes it again.
-    /// Reading <c>RecordingStore.RewindAdjustedUT</c> at completion time would therefore
+    /// Reading <c>RewindContext.RewindAdjustedUT</c> at completion time would therefore
     /// report <c>0.0</c> on every successful rewind. It is read once, here, while it is
     /// still populated.
     /// </para>
@@ -74,7 +74,7 @@ namespace Parsek.TestCommands
 
         // ----- InvokeRewindToLaunch (two-phase, irreversible, gate-routed) -----
         // Resolves the target committed tree + its root recording, routes through the real
-        // RecordingStore.CanRewind gate (decline -> REJECTED rewind-gate <reason> verbatim),
+        // RewindLauncher.CanRewind gate (decline -> REJECTED rewind-gate <reason> verbatim),
         // then InitiateRewind and hold the FIFO head until the loaded Space Center settles
         // with the rewind flags cleared. Dispatch already refused merge-journal /
         // load-in-flight / recording-active.
@@ -161,7 +161,7 @@ namespace Parsek.TestCommands
             // source DispatchState.Recording uses (dispatch already rejects a live recorder,
             // so this is belt-and-suspenders rather than a second policy).
             bool isRecording = ParsekFlight.HasLiveRecorderForTagging();
-            if (!RecordingStore.CanRewind(rootRec, out string reason, isRecording))
+            if (!RewindLauncher.CanRewind(rootRec, out string reason, isRecording))
             {
                 string msg = TestCommandRewindToLaunch.GateRefusalMsg(reason);
                 ParsekLog.Warn(Tag,
@@ -178,9 +178,9 @@ namespace Parsek.TestCommands
                 "- plain Rewind-to-Launch (NOT a Re-Fly)");
 
             // Synchronous pre-load half + the LoadScene request happen inside this call.
-            RecordingStore.InitiateRewind(rootRec);
+            RewindLauncher.InitiateRewind(rootRec);
 
-            if (!RecordingStore.IsRewinding)
+            if (!RewindContext.IsRewinding)
             {
                 // Contract (1): every failure path inside InitiateRewind /
                 // ExecuteRewindSaveLoad ends at ResetRewindFlags and only logs, so a cleared
@@ -196,7 +196,7 @@ namespace Parsek.TestCommands
             // Contract (2): latch the adjusted UT while EndRewind has not yet zeroed it.
             rewindToLaunchRecArg = recId;
             rewindToLaunchTreeArg = target.TreeId;
-            rewindToLaunchAdjustedUt = RecordingStore.RewindAdjustedUT;
+            rewindToLaunchAdjustedUt = RewindContext.RewindAdjustedUT;
             ParsekLog.Info(Tag,
                 $"invokerewindtolaunch armed tree={target.TreeId} rec={recId} " +
                 $"adjustedUT={rewindToLaunchAdjustedUt.ToString("F1", CultureInfo.InvariantCulture)} " +
@@ -212,7 +212,7 @@ namespace Parsek.TestCommands
         {
             double elapsed = now - completionStartedAt;
             double budget = DeferralBudget.BudgetSeconds("InvokeRewindToLaunch");
-            bool isRewinding = RecordingStore.IsRewinding;
+            bool isRewinding = RewindContext.IsRewinding;
             // The deferred half of HandleRewindOnLoad: both flags are armed immediately
             // BEFORE the EndRewind() that clears IsRewinding, and are cleared by
             // ApplyRewindResourceAdjustment (the UT set, then the ledger recalc's finally).
@@ -265,12 +265,12 @@ namespace Parsek.TestCommands
                     // ParsekScenario.OnLoad would then take the rewind branch for a load
                     // nobody asked to rewind, and every later CanRewind would refuse. The
                     // verb owns the abort, so it owns the reset.
-                    if (RecordingStore.IsRewinding)
+                    if (RewindContext.IsRewinding)
                     {
                         ParsekLog.Info(Tag,
                             "invokerewindtolaunch timeout-cleanup: rewind flags reset " +
                             "(IsRewinding was still armed; a stale flag would hijack the next OnLoad's rewind branch)");
-                        RecordingStore.ResetRewindFlags();
+                        RewindLauncher.ResetRewindFlags();
                     }
                     EmitExecutedTerminal(id, seq, verb, "ERROR", null, "rewind-timeout", dequeueHead: true);
                     break;

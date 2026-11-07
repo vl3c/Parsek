@@ -613,7 +613,7 @@ count = { min = 6, max = 6 }
 #          keyword exists.
 #
 # TOKEN 14 THE PRODUCT ENTRY POINT, `Rewind-to-Launch initiated to UT` from
-#          `RecordingStore.BeginRewindForOwner`. Pinned separately from the seam's own
+#          `RewindLauncher.BeginRewindForOwner`. Pinned separately from the seam's own
 #          lines because it is the PRODUCT saying the rewind started, not the verb saying
 #          it asked - GS-4 pins the same token for the same reason.
 #

@@ -87,7 +87,7 @@ namespace Parsek.TestCommands
             {
                 bool followsTheSave = NoSaveSceneExit.ShouldFollowTheSave(
                     GameScenes.SPACECENTER, noSaveExit: true,
-                    rewinding: RecordingStore.IsRewinding,
+                    rewinding: RewindContext.IsRewinding,
                     reFlyActive: scenario != null && scenario.ActiveReFlySessionMarker != null,
                     mergeJournalActive: scenario != null && scenario.ActiveMergeJournal != null);
                 gate = TestCommandExitToSpaceCenter.DecideQuitWithoutSavingGate(followsTheSave, gate);

@@ -58,9 +58,7 @@ namespace Parsek
             RewindUTAdjustmentPending = false;
             RewindUTAdjustmentTargetUT = double.NaN;
 
-            PendingCleanupPids = null;
-            PendingCleanupNames = null;
-            PendingRevertPreExistingPids = null;
+            RewindLauncher.ResetForLoad();
             // The cold branch reloads committed trees from the save; inert ones come with them.
             InertRecordingTrees.ResetForLoad("save-scoped-reset");
             // Each recording carries its own auto-group key, which the cold load restores.

@@ -658,7 +658,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(continued);
             RecordingStore.AddCommittedTreeInternal(tree);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal("continued-butterfly",
                 prior.TerminalSpawnSupersededByRecordingId);

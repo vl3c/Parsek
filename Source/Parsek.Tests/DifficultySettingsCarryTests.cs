@@ -53,7 +53,7 @@ namespace Parsek.Tests
         // Each of Parsek's own time-travel loads captures the live parameters before its
         // LoadGame and installs them before the loaded game is written or started.
         [Theory]
-        [InlineData("RecordingStore.cs", "WriteRewindGameAsPersistent(game, messageLabel);")]
+        [InlineData("RewindLauncher.cs", "WriteRewindGameAsPersistent(game, messageLabel);")]
         [InlineData("RewindInvoker.cs", "FlightDriver.StartAndFocusVessel(game, activeIdx);")]
         [InlineData("RevertInterceptor.cs", "HighLogic.CurrentGame = game;")]
         public void EveryParsekTimeTravelLoad_KeepsTheLiveParameters(string file, string consumer)

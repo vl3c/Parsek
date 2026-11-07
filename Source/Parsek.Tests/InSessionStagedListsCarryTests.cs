@@ -84,7 +84,7 @@ namespace Parsek.Tests
         private static void ResetAll()
         {
             RecordingStore.ResetForTesting();
-            RecordingStore.ResetRewindFlags();
+            RewindLauncher.ResetRewindFlags();
             RewindContext.ResetForTesting();
             RewindInvokeContext.Clear();
             InSessionStagedStateHandoff.ResetForTesting();

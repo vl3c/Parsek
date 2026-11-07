@@ -152,8 +152,8 @@ namespace Parsek.Tests
                 RecordingId = "rec",
                 VesselName = "Rocket"
             });
-            RecordingStore.PendingCleanupPids = new HashSet<uint> { 42u };
-            RecordingStore.PendingCleanupNames = new HashSet<string> { "Ghost" };
+            RewindLauncher.PendingCleanupPids = new HashSet<uint> { 42u };
+            RewindLauncher.PendingCleanupNames = new HashSet<string> { "Ghost" };
 
             var pendingTree = new RecordingTree
             {
@@ -229,8 +229,8 @@ namespace Parsek.Tests
                 ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady);
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.False(RecordingStore.HasPendingTree);
-            Assert.Null(RecordingStore.PendingCleanupPids);
-            Assert.Null(RecordingStore.PendingCleanupNames);
+            Assert.Null(RewindLauncher.PendingCleanupPids);
+            Assert.Null(RewindLauncher.PendingCleanupNames);
             Assert.Empty(GroupHierarchyStore.GroupParents);
             Assert.Empty(GroupHierarchyStore.HiddenGroups);
             Assert.Equal(0, GameStateStore.EventCount);

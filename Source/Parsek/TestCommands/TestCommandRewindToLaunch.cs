@@ -6,7 +6,7 @@ namespace Parsek.TestCommands
 {
     /// <summary>
     /// The two-phase <c>InvokeRewindToLaunch</c> completion outcome. Rewind-to-Launch
-    /// (<c>RecordingStore.InitiateRewind</c>, the Recordings-table "R" button) straddles a
+    /// (<c>RewindLauncher.InitiateRewind</c>, the Recordings-table "R" button) straddles a
     /// KSP scene reload into SPACECENTER: the synchronous half copies the
     /// <c>parsek_rw_*</c> quicksave, parses it, stamps
     /// <c>RewindContext.SetAdjustedUT</c> and calls <c>HighLogic.LoadScene</c>, while the
@@ -19,7 +19,7 @@ namespace Parsek.TestCommands
     /// <c>RewindInvoker.StartInvoke</c> over a RewindPoint / ChildSlot and completes on a
     /// fresh <c>ReFlySessionMarker</c>; this verb drives the plain launch rewind, which
     /// creates no RewindPoint, no marker and no MergeJournal (see
-    /// <c>RecordingStore.BeginRewindForOwner</c>'s own log line saying exactly that). Two
+    /// <c>RewindLauncher.BeginRewindForOwner</c>'s own log line saying exactly that). Two
     /// mechanisms, two verbs, two completion deciders.</para>
     /// </summary>
     internal enum RewindToLaunchCompletionDecision
@@ -38,7 +38,7 @@ namespace Parsek.TestCommands
         CompleteOk,
 
         /// <summary>The flags cleared but we never reached SPACECENTER: the load failed and
-        /// <c>RecordingStore.ResetRewindFlags</c> ran (LoadGame returned null, or the copy /
+        /// <c>RewindLauncher.ResetRewindFlags</c> ran (LoadGame returned null, or the copy /
         /// pre-process threw), leaving the scene unchanged. Terminal ERROR
         /// (rewind-failed).</summary>
         RewindFailed,
@@ -106,8 +106,8 @@ namespace Parsek.TestCommands
     /// <summary>
     /// Pure decision + payload helpers for the two-phase <c>InvokeRewindToLaunch</c> seam
     /// verb. The Unity applier on the addon resolves the target tree's root recording,
-    /// routes through the real <c>RecordingStore.CanRewind</c> gate, calls
-    /// <c>RecordingStore.InitiateRewind</c>, and samples the live rewind flags / scene;
+    /// routes through the real <c>RewindLauncher.CanRewind</c> gate, calls
+    /// <c>RewindLauncher.InitiateRewind</c>, and samples the live rewind flags / scene;
     /// every decision it makes is factored here so it is xUnit-covered without a live KSP
     /// scene reload. Sibling of <see cref="TestCommandInvokeRewind"/>, which does the same
     /// job for the DIFFERENT (Re-Fly) mechanism.
@@ -138,7 +138,7 @@ namespace Parsek.TestCommands
         /// <para>CompleteOk needs ALL THREE halves and none is redundant.
         /// <c>RewindContext.EndRewind()</c> has TWO callers: the success tail of
         /// <c>HandleRewindOnLoad</c> (ParsekScenario), and
-        /// <c>RecordingStore.ResetRewindFlags</c> on the load-failure paths inside
+        /// <c>RewindLauncher.ResetRewindFlags</c> on the load-failure paths inside
         /// <c>ExecuteRewindSaveLoad</c> - which leave the scene exactly where it was
         /// (FLIGHT). <c>!isRewinding</c> alone would therefore read a failed load as a
         /// success. A SPACECENTER reading alone proves nothing while the flags are still
@@ -166,7 +166,7 @@ namespace Parsek.TestCommands
             return RewindToLaunchCompletionDecision.RewindFailed;
         }
 
-        /// <summary>The gate-decline <c>msg</c>: the real <c>RecordingStore.CanRewind</c>
+        /// <summary>The gate-decline <c>msg</c>: the real <c>RewindLauncher.CanRewind</c>
         /// reason surfaced VERBATIM behind a stable <c>rewind-gate</c> prefix so the
         /// orchestrator sees WHY, not a bare failure. Same shape as
         /// <see cref="TestCommandInvokeRewind.GateRefusalMsg"/>'s <c>refly-gate</c>, and

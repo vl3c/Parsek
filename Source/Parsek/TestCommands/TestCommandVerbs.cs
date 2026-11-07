@@ -116,7 +116,7 @@ namespace Parsek.TestCommands
             // drives the Re-Fly / Rewind-to-Separation system (RewindPoint + ChildSlot ->
             // RewindInvoker.StartInvoke -> a ReFlySessionMarker and a merge journal), while
             // this one drives the Recordings-table "R" button
-            // (RecordingStore.InitiateRewind: reload the parsek_rw_* launch quicksave, no
+            // (RewindLauncher.InitiateRewind: reload the parsek_rw_* launch quicksave, no
             // RewindPoint, no marker, no journal, no supersede write). Two mechanisms, two
             // verbs; folding them into one would make the wire token ambiguous about which
             // half of the timeline machinery a spec exercised.

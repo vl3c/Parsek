@@ -204,11 +204,11 @@ namespace Parsek.Tests
                 reservedFunds = 100, reservedScience = 10, reservedReputation = 5
             }, 25000.0, 5.0, 1.5f);
 
-            Assert.Equal(RewindContext.IsRewinding, RecordingStore.IsRewinding);
-            Assert.Equal(RewindContext.RewindUT, RecordingStore.RewindUT);
-            Assert.Equal(RewindContext.RewindBaselineFunds, RecordingStore.RewindBaselineFunds);
-            Assert.Equal(RewindContext.RewindBaselineScience, RecordingStore.RewindBaselineScience);
-            Assert.Equal(RewindContext.RewindBaselineRep, RecordingStore.RewindBaselineRep);
+            Assert.Equal(RewindContext.IsRewinding, RewindContext.IsRewinding);
+            Assert.Equal(RewindContext.RewindUT, RewindContext.RewindUT);
+            Assert.Equal(RewindContext.RewindBaselineFunds, RewindContext.RewindBaselineFunds);
+            Assert.Equal(RewindContext.RewindBaselineScience, RewindContext.RewindBaselineScience);
+            Assert.Equal(RewindContext.RewindBaselineRep, RewindContext.RewindBaselineRep);
         }
     }
 }

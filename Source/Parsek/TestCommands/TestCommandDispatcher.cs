@@ -223,7 +223,7 @@ namespace Parsek.TestCommands
 
         // ----- Rewind-to-Launch (the Recordings-table "R" button; additive) -----
         // Distinct from InvokeRewind above: that one is the Re-Fly / Rewind-to-Separation
-        // system, this one is the plain launch rewind (RecordingStore.InitiateRewind).
+        // system, this one is the plain launch rewind (RewindLauncher.InitiateRewind).
         void InvokeRewindToLaunch(ParsedCommand cmd);
 
         // ----- Logistics lane (the fifth + sixth promoted reserved verbs) -----
@@ -446,7 +446,7 @@ namespace Parsek.TestCommands
         /// <summary>
         /// The scenes whose Parsek window draws the Recordings table with its "R" button:
         /// FLIGHT (<c>UIMode.Flight</c>) and the Space Center (<c>UIMode.KSC</c>). The button
-        /// draws in both modes with the same <c>RecordingStore.CanRewind</c> gate.
+        /// draws in both modes with the same <c>RewindLauncher.CanRewind</c> gate.
         /// </summary>
         internal static bool IsRewindScene(TestCommandScene scene)
             => scene == TestCommandScene.Flight

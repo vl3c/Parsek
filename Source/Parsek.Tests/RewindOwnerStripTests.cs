@@ -142,7 +142,7 @@ namespace Parsek.Tests
 
         private static void PreProcess(string path, Recording owner)
         {
-            RecordingStore.PreProcessRewindSave(
+            RewindLauncher.PreProcessRewindSave(
                 path, RewindSpawnScope.BuildRewindOwnerStrip(owner),
                 RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds);
@@ -331,7 +331,7 @@ namespace Parsek.Tests
 
             // Playback reset + the guid-aware post-strip reconcile keep the first flight linked
             // to its vessel; the rewound flight is reset and re-spawns at its end.
-            RecordingStore.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
+            RewindLauncher.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
             ParsekScenario.ReconcileSpawnStateAfterStrip(SurvivingIdentities(sfs), all);
             Assert.True(shape.first.VesselSpawned);
             Assert.Equal(FirstPid, shape.first.SpawnedVesselPersistentId);

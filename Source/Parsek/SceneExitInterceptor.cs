@@ -297,7 +297,7 @@ namespace Parsek
         internal static bool IsAutoMergeForSceneExitLive(GameScenes destination, string site)
         {
             bool isAutoMerge = ParsekScenario.IsAutoMerge;
-            bool rewindSceneExit = IsRewindSceneExit(destination, RecordingStore.IsRewinding);
+            bool rewindSceneExit = IsRewindSceneExit(destination, RewindContext.IsRewinding);
             if (rewindSceneExit && !isAutoMerge)
             {
                 ParsekLog.Info("SceneExit",
@@ -392,7 +392,7 @@ namespace Parsek
             bool hasScenario = !object.ReferenceEquals(null, scenario);
             bool reFlyActive = hasScenario && scenario.ActiveReFlySessionMarker != null;
             bool journalActive = hasScenario && scenario.ActiveMergeJournal != null;
-            bool rewinding = RecordingStore.IsRewinding;
+            bool rewinding = RewindContext.IsRewinding;
             if (!NoSaveSceneExit.ShouldFollowTheSave(
                     destination, noSaveExit: true, rewinding, reFlyActive, journalActive))
             {
@@ -1034,7 +1034,7 @@ namespace Parsek
                 var scenarioForSession = ParsekScenario.Instance;
                 var session = scenarioForSession?.ActiveSwitchSegmentSession;
                 if (session != null
-                    && SceneExitInterceptor.IsRewindSceneExit(scene, RecordingStore.IsRewinding))
+                    && SceneExitInterceptor.IsRewindSceneExit(scene, RewindContext.IsRewinding))
                 {
                     // A rewind's own load never asks (owner ruling 2026-11-01). The
                     // session's segment lies in the future the rewind leaves, so the

@@ -330,7 +330,7 @@ namespace Parsek.Tests
             rec.SpawnSuppressedByRewindUT = 0.0;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.False(rec.SpawnSuppressedByRewind);
             Assert.Null(rec.SpawnSuppressedByRewindReason);
