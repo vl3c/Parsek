@@ -461,7 +461,7 @@ namespace Parsek.Tests
             CommitRecording("Second", 200);
             CommitRecording("Third", 300);
 
-            RecordingStore.RemoveRecordingAt(1);
+            TreeDiscardService.RemoveRecordingAt(1);
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
             Assert.Equal("First", RecordingStore.CommittedRecordings[0].VesselName);
@@ -474,7 +474,7 @@ namespace Parsek.Tests
             CommitRecording("First", 100);
             CommitRecording("Second", 200);
 
-            RecordingStore.RemoveRecordingAt(0);
+            TreeDiscardService.RemoveRecordingAt(0);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("Second", RecordingStore.CommittedRecordings[0].VesselName);
@@ -486,7 +486,7 @@ namespace Parsek.Tests
             CommitRecording("First", 100);
             CommitRecording("Second", 200);
 
-            RecordingStore.RemoveRecordingAt(1);
+            TreeDiscardService.RemoveRecordingAt(1);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("First", RecordingStore.CommittedRecordings[0].VesselName);
@@ -497,7 +497,7 @@ namespace Parsek.Tests
         {
             CommitRecording("Only", 100);
 
-            RecordingStore.RemoveRecordingAt(0);
+            TreeDiscardService.RemoveRecordingAt(0);
 
             Assert.Empty(RecordingStore.CommittedRecordings);
         }
@@ -507,7 +507,7 @@ namespace Parsek.Tests
         {
             CommitRecording("A", 100);
 
-            RecordingStore.RemoveRecordingAt(-1);
+            TreeDiscardService.RemoveRecordingAt(-1);
 
             Assert.Single(RecordingStore.CommittedRecordings);
         }
@@ -517,7 +517,7 @@ namespace Parsek.Tests
         {
             CommitRecording("A", 100);
 
-            RecordingStore.RemoveRecordingAt(5);
+            TreeDiscardService.RemoveRecordingAt(5);
 
             Assert.Single(RecordingStore.CommittedRecordings);
         }
@@ -532,7 +532,7 @@ namespace Parsek.Tests
             CommitRecording("Standalone", 400); // not in chain
 
             // Remove middle segment
-            RecordingStore.RemoveRecordingAt(1);
+            TreeDiscardService.RemoveRecordingAt(1);
 
             // Remaining chain members should be degraded to standalone
             Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
@@ -561,7 +561,7 @@ namespace Parsek.Tests
             CommitRecording("Branch0", 100, chainId, 0, 1);
 
             // Remove primary
-            RecordingStore.RemoveRecordingAt(0);
+            TreeDiscardService.RemoveRecordingAt(0);
 
             // Branch member should be degraded
             Assert.Single(RecordingStore.CommittedRecordings);
@@ -580,7 +580,7 @@ namespace Parsek.Tests
             CommitRecording("Seg1", 200, chainId, 1);
 
             // Remove standalone (index 0)
-            RecordingStore.RemoveRecordingAt(0);
+            TreeDiscardService.RemoveRecordingAt(0);
 
             // Chain should be intact
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
@@ -599,7 +599,7 @@ namespace Parsek.Tests
             CommitRecording("B1", 400, "chain-b", 1);
 
             // Remove from chain-a
-            RecordingStore.RemoveRecordingAt(0);
+            TreeDiscardService.RemoveRecordingAt(0);
 
             // chain-a sibling degraded
             Assert.Null(RecordingStore.CommittedRecordings[0].ChainId);

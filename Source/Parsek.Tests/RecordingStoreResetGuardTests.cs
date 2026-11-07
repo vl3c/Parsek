@@ -207,7 +207,7 @@ namespace Parsek.Tests
 
             // Test mutates the pending slot (e.g. discards it as the in-game test
             // might if it were poorly designed, or replaces it with a synthetic one).
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
             Assert.False(RecordingStore.HasPendingTree);
 
             snapshot.Restore();

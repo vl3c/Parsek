@@ -117,7 +117,7 @@ namespace Parsek.Tests
             Assert.True(RecordingStore.HasPendingTree);
 
             RecordingStore.SuppressLogging = false;
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
         }

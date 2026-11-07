@@ -1238,7 +1238,7 @@ Runs from `ParsekScenario.OnLoad` AFTER `MergeJournalOrchestrator.RunFinisher` a
 
 File: `Source/Parsek/TreeDiscardPurge.cs`.
 
-Triggered by merge-discard (`RecordingStore.DiscardPendingTree`) or by any other path that discards a whole tree. Note: the Revert-during-re-fly dialog's Discard Re-fly button does NOT reach this path — design §6.14's `DiscardReFlyHandler` is session-scoped and leaves the tree's supersede / tombstone / RP state untouched. `TreeDiscardPurge.PurgeTree(treeId)` removes every Rewind-to-Separation artifact tied to the tree:
+Triggered by merge-discard (`TreeDiscardService.DiscardPendingTree`) or by any other path that discards a whole tree. Note: the Revert-during-re-fly dialog's Discard Re-fly button does NOT reach this path — design §6.14's `DiscardReFlyHandler` is session-scoped and leaves the tree's supersede / tombstone / RP state untouched. `TreeDiscardPurge.PurgeTree(treeId)` removes every Rewind-to-Separation artifact tied to the tree:
 
 - Remove every RP whose `BranchPointId` is in the tree; delete each RP's quicksave file on disk.
 - Remove every `RecordingSupersedeRelation` with either endpoint in the tree.
@@ -1247,7 +1247,7 @@ Triggered by merge-discard (`RecordingStore.DiscardPendingTree`) or by any other
 - Clear `ActiveMergeJournal` if it references the tree.
 - Recompute crew reservations via `CrewReservationManager.RecomputeAfterTombstones` when tombstones shrank.
 
-**What this does NOT do:** it does not remove the tree's committed recordings themselves and does not delete the tree from `RecordingStore.CommittedTrees`. Removal of the recordings (for a pending tree being discarded before commit) is the caller's responsibility — `TreeDiscardPurge.PurgeTree` is invoked by `RecordingStore.DiscardPendingTree` BEFORE the recordings are removed from `CommittedRecordings` so the purge can still resolve recording ids to tree membership. The Revert-during-re-fly dialog's Discard Re-fly button is explicitly NOT a caller of this purge — it only clears the session artifacts and reloads the origin RP's quicksave; the tree's other RPs / supersede relations / tombstones are preserved (design §6.14).
+**What this does NOT do:** it does not remove the tree's committed recordings themselves and does not delete the tree from `RecordingStore.CommittedTrees`. Removal of the recordings (for a pending tree being discarded before commit) is the caller's responsibility — `TreeDiscardPurge.PurgeTree` is invoked by `TreeDiscardService.DiscardPendingTree` BEFORE the recordings are removed from `CommittedRecordings` so the purge can still resolve recording ids to tree membership. The Revert-during-re-fly dialog's Discard Re-fly button is explicitly NOT a caller of this purge — it only clears the session artifacts and reloads the origin RP's quicksave; the tree's other RPs / supersede relations / tombstones are preserved (design §6.14).
 
 Purging a tree's rewind-state is the **only** path that deletes supersede relations or ledger tombstones (invariant 7). Orphans left by partial crash states stay in place and are logged on every load.
 

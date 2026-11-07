@@ -79,7 +79,7 @@ namespace Parsek.Tests
             Assert.True(RecordingStore.HasPendingTree);
             Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
             Assert.False(RecordingStore.HasPendingTree);
         }
     }

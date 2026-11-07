@@ -368,7 +368,7 @@ namespace Parsek.Tests
         {
             var tree = MakeTree("tree_a", "Mun", 2);
             PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
             Assert.Null(RecordingStore.PendingTree);
             Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
         }

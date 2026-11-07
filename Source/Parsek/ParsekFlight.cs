@@ -2439,7 +2439,7 @@ namespace Parsek
                         rehomeIds, $"AutoDiscardActiveTreeCore: {reason}");
             }
 
-            // Rec-3 observability (see RecordingStore.DiscardPendingTree): report any
+            // Rec-3 observability (see TreeDiscardService.DiscardPendingTree): report any
             // supply-route physical mutation that fired inside this discarded active-tree
             // window and persists un-reversed (funds+cargo both kept). Behavior-neutral;
             // rewind/RP-backed sessions are skipped inside the reporter. Read BEFORE
@@ -3039,7 +3039,7 @@ namespace Parsek
             // #434: do NOT show the in-flight merge dialog or commit via auto-merge here.
             // The tree is stashed; the stock KSP crash report shows first (with Revert /
             // Space Center). If the player reverts, ParsekScenario.OnLoad's isRevert branch
-            // auto-discards the pending tree via RecordingStore.DiscardPendingTree (see #431
+            // auto-discards the pending tree via TreeDiscardService.DiscardPendingTree (see #431
             // for the purge semantics). Otherwise the scene-exit path surfaces the merge
             // dialog (autoMerge off) or auto-commits (autoMerge on) in the destination scene
             // via ParsekScenario.ShowDeferredMergeDialog / the OnLoad auto-commit branch.
@@ -15033,7 +15033,7 @@ namespace Parsek
                     // discard is automatic, and overwriting the player's quicksave without a
                     // player action would destroy their F5 point.
                     if (serialized)
-                        RecordingStore.RefreshPersistentSaveAfterDiscard(
+                        TreeDiscardService.RefreshPersistentSaveAfterDiscard(
                             "fresh-rollout refusal discard", total);
                     break;
                 }

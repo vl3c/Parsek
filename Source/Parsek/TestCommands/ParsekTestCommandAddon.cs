@@ -2751,7 +2751,7 @@ namespace Parsek.TestCommands
                 // still holds this tree must start a fresh recording, not resume into
                 // the deleted ids.
                 if (fullyRemoved > 0)
-                    RecordingStore.NoteTreeDiscardedThisSession(discardedTreeId, discardedTreeName, fullyRemoved);
+                    TreeDiscardService.NoteTreeDiscardedThisSession(discardedTreeId, discardedTreeName, fullyRemoved);
             }
 
             ParsekLog.Info(Tag, "discardtree discarded=true");

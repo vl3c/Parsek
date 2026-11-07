@@ -561,10 +561,11 @@ namespace Parsek.Tests
         public void PendingAndScopedDiscardPaths_KeepOwningTheirOwnSidecarDeletes()
         {
             // Inventory pin: the whole-pending-tree discard and the scoped
-            // switch-segment discard already delete sidecars at the store level, so
-            // this fix deliberately adds nothing there. If either loses its delete the
-            // gap reopens somewhere this fix does not cover.
-            string source = ReadProjectSource("RecordingStore.cs");
+            // switch-segment discard already delete sidecars in their services
+            // (TreeDiscardService, SwitchSegmentAttempts), so this fix deliberately adds
+            // nothing there. If either loses its delete the gap reopens somewhere this
+            // fix does not cover.
+            string source = ReadProjectSource("TreeDiscardService.cs");
             int discardPending = source.IndexOf("public static void DiscardPendingTree(",
                 StringComparison.Ordinal);
             Assert.True(discardPending > 0, "DiscardPendingTree not found");
@@ -682,7 +683,7 @@ namespace Parsek.Tests
             int end = source.IndexOf("\n        private ", start + 1, StringComparison.Ordinal);
             string body = source.Substring(start, (end > start ? end : source.Length) - start);
             int reapLine = body.IndexOf("discardtree sidecar-reap: treeRecordings=", StringComparison.Ordinal);
-            int note = body.IndexOf("RecordingStore.NoteTreeDiscardedThisSession(discardedTreeId", StringComparison.Ordinal);
+            int note = body.IndexOf("TreeDiscardService.NoteTreeDiscardedThisSession(discardedTreeId", StringComparison.Ordinal);
             Assert.True(reapLine > 0, "the verb's reap summary line not found");
             Assert.True(note > reapLine, "the verb must note the tree after its reap");
         }
@@ -697,7 +698,7 @@ namespace Parsek.Tests
             DiscardSidecarReap.ReapDiscardedTreeSidecars(
                 new List<Recording> { Rec("rec-note-a") }, skipReason: null,
                 context: "pre-switch-dialog discard", treeId: "tree-note", treeName: "Note Tree");
-            Assert.True(RecordingStore.WasTreeDiscardedThisSession("tree-note"));
+            Assert.True(TreeDiscardService.WasTreeDiscardedThisSession("tree-note"));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]")
                 && l.Contains("Noted tree 'Note Tree' id=tree-note as discarded this session (removedSidecarSets=1"));
@@ -707,7 +708,7 @@ namespace Parsek.Tests
             DiscardSidecarReap.ReapDiscardedTreeSidecars(
                 new List<Recording> { Rec("rec-note-b") }, skipReason: null,
                 context: "pre-switch-dialog discard", treeId: "tree-note-failed", treeName: "Failed");
-            Assert.False(RecordingStore.WasTreeDiscardedThisSession("tree-note-failed"));
+            Assert.False(TreeDiscardService.WasTreeDiscardedThisSession("tree-note-failed"));
 
             // No tree id (a caller that captured none): reaps as before, notes nothing.
             DiscardSidecarReap.DeleteRecordingFilesForTesting = rec => true;

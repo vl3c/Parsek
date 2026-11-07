@@ -148,7 +148,7 @@ namespace Parsek.InGameTests
                 if (RecordingStore.HasPendingTree
                     && object.ReferenceEquals(RecordingStore.PendingTree, tree))
                 {
-                    RecordingStore.DiscardPendingTree();
+                    TreeDiscardService.DiscardPendingTree();
                 }
                 // Restore the marker, then re-align RenderSessionState with
                 // it. Skip-on-active-session guarantees savedMarker is null
@@ -253,7 +253,7 @@ namespace Parsek.InGameTests
                 if (RecordingStore.HasPendingTree
                     && object.ReferenceEquals(RecordingStore.PendingTree, tree))
                 {
-                    RecordingStore.DiscardPendingTree();
+                    TreeDiscardService.DiscardPendingTree();
                 }
                 // Restore the marker, then re-align RenderSessionState with
                 // it. Skip-on-active-session guarantees savedMarker is null

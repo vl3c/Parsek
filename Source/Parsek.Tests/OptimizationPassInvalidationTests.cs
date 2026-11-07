@@ -322,7 +322,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedRecordingRemoved += (index, removed, absorbedInto) =>
                 sequence.Add($"removed:{index}:{removed.RecordingId}:target={(absorbedInto == null ? "none" : absorbedInto.RecordingId)}:count={RecordingStore.CommittedRecordings.Count}");
 
-            RecordingStore.RemoveRecordingAt(1);
+            TreeDiscardService.RemoveRecordingAt(1);
 
             Assert.Equal(new[]
             {

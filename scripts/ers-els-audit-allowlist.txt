@@ -46,6 +46,13 @@ Source/Parsek/RecordingFileJanitor.cs
 # store's primitives. No Ledger.Actions reads (it retags rows through Ledger).
 Source/Parsek/CommittedListOptimizer.cs
 
+# TreeDiscardService holds the tree discard moved out of RecordingStore.cs (the
+# RecordingStore services plan, PR12 K). RemoveRecordingAt removes one physical
+# committed recording by index, degrading its chain siblings, as it did inside the
+# store; it changes the list only through RecordingStore.RemoveCommittedAt. No
+# Ledger.Actions reads.
+Source/Parsek/TreeDiscardService.cs
+
 # --- Serialization (I/O not semantics) ---
 Source/Parsek/ParsekScenario.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.

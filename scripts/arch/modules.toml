@@ -252,10 +252,11 @@ placement = "R0"
 # dedup and the replay bypass read; the committed-list optimizer is the store's
 # optimization pass; the committed-tree restore attempt is store state the commit and
 # discard paths read; the pending-tree slot is store state OnSave serializes and OnLoad
-# dispatches
+# dispatches; the tree discard service is the store's pending-tree discard and committed
+# removal
 [[module]]
 name = "Recording"
-prefix = "^SceneEntryVesselScope[.]cs$|^CommittedListOptimizer[.]cs$|^CommittedTreeRestoreAttempt[.]cs$|^PendingTreeSlot[.]cs$"
+prefix = "^SceneEntryVesselScope[.]cs$|^CommittedListOptimizer[.]cs$|^CommittedTreeRestoreAttempt[.]cs$|^PendingTreeSlot[.]cs$|^TreeDiscardService[.]cs$"
 placement = "R0"
 
 # live snapshot support for the recorders: the snapshot normalizers, the body-name /

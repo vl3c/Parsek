@@ -176,7 +176,7 @@ namespace Parsek
         /// <param name="treeId">
         /// The discarded tree's id, captured with the recordings. When at least one
         /// sidecar set was fully removed, the tree is noted as discarded this session
-        /// (<see cref="RecordingStore.NoteTreeDiscardedThisSession"/>), so a later load of
+        /// (<see cref="TreeDiscardService.NoteTreeDiscardedThisSession"/>), so a later load of
         /// a save that still holds it as the active tree starts a fresh recording instead
         /// of resuming into the deleted ids.
         /// </param>
@@ -279,7 +279,7 @@ namespace Parsek
                 $"reaped={outcome.Reaped} failed={outcome.Failed} " +
                 $"preservedKnown={outcome.PreservedKnown} invalidId={outcome.InvalidId}");
             if (outcome.Reaped > 0)
-                RecordingStore.NoteTreeDiscardedThisSession(treeId, treeName, outcome.Reaped);
+                TreeDiscardService.NoteTreeDiscardedThisSession(treeId, treeName, outcome.Reaped);
             return outcome;
         }
     }

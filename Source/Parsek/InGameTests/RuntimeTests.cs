@@ -5103,7 +5103,7 @@ namespace Parsek.InGameTests
             {
                 MergeDialog.DismissAndClearPendingFlag("runtime merge discard cleanup");
                 if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
-                    RecordingStore.DiscardPendingTree();
+                    TreeDiscardService.DiscardPendingTree();
                 ParsekScenario.MergeDialogPending = originalMergeDialogPending;
             }
         }
@@ -5203,7 +5203,7 @@ namespace Parsek.InGameTests
             {
                 MergeDialog.DismissAndClearPendingFlag("runtime deferred merge commit cleanup");
                 if (RecordingStore.HasPendingTree && object.ReferenceEquals(RecordingStore.PendingTree, tree))
-                    RecordingStore.DiscardPendingTree();
+                    TreeDiscardService.DiscardPendingTree();
                 RemoveCommittedTreeByIdForRuntimeTest(tree.Id);
                 ParsekScenario.MergeDialogPending = originalMergeDialogPending;
             }

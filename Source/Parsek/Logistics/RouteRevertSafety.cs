@@ -24,7 +24,7 @@ namespace Parsek.Logistics
     /// <para>So if a route physically fires <b>inside a segment the player then
     /// discards WITHOUT a load</b>, that mutation leaks into the surviving timeline
     /// with no rollback path. The discard cores
-    /// (<c>RecordingStore.DiscardPendingTree</c> /
+    /// (<c>TreeDiscardService.DiscardPendingTree</c> /
     /// <c>TryDiscardActiveSwitchSegmentAttempt</c> /
     /// <c>ParsekFlight.AutoDiscardActiveTreeCore</c>) and the merge dialog's
     /// <c>MergeDialog.ReFlyDiscard</c> hold no quicksave - the latter reverts purely via

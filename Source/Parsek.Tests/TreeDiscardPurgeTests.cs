@@ -464,7 +464,7 @@ namespace Parsek.Tests
                     },
                 });
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Contains(scenario.RewindPoints, rp => rp.RewindPointId == "rp_committed");
@@ -535,7 +535,7 @@ namespace Parsek.Tests
                         Slot(0, "rec_pending_child")),
                 });
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.Empty(scenario.RewindPoints);
             Assert.Contains("rp_pending_child", deletedRpIds);
@@ -595,7 +595,7 @@ namespace Parsek.Tests
                     Rp("rp_pure", "bp_pending_pure", Slot(0, "rec_pending_pure")),
                 });
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.Contains(scenario.RewindPoints, rp => rp.RewindPointId == "rp_mixed");
             Assert.DoesNotContain(scenario.RewindPoints, rp => rp.RewindPointId == "rp_pure");

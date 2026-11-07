@@ -49,7 +49,7 @@ namespace Parsek
 
             PendingTreeSlot.ResetForLoad();
 
-            treesDiscardedThisSession.Clear();
+            TreeDiscardService.ResetForLoad();
             CommittedTreeRestoreAttempt.ResetForLoad();
             durableCommittedRecordingIdHint = null;
 
