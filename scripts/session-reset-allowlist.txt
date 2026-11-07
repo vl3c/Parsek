@@ -2,11 +2,10 @@
 # deliberately leaves alone (design-load-restores-the-save.md section 4.2). Every other static field
 # of RecordingStore, GameStateStore, MilestoneStore, GameStateRecorder, LedgerOrchestrator,
 # KspStatePatcher, ParsekScenario, InertRecordingTrees, RewindContext, RewindInvokeContext,
-# RouteRunPrompt, FacilityStatePatcher, RecordingGroupStore and RecordingSidecarStore must be reset by that helper; SaveScopedSessionResetTests
+# RouteRunPrompt, FacilityStatePatcher, RecordingGroupStore, RecordingSidecarStore and RecordingFileJanitor must be reset by that helper; SaveScopedSessionResetTests
 # proves each one (set, reset, read) and fails on a field that is on neither side.
 # Format: one `Type.field reason` per line; auto-property backing fields use the property name.
 RecordingStore.ApplicationIsPlayingForTesting test seam
-RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting test seam
 RecordingStore.CommittedRecordingInserted committed-list notification event; the new scene's controllers subscribe to it, never nulled
 RecordingStore.CommittedRecordingRemoved committed-list notification event; the new scene's controllers subscribe to it, never nulled
 RecordingStore.CommittedRecordingRemoving committed-list notification event; the new scene's controllers subscribe to it, never nulled
@@ -14,7 +13,6 @@ RecordingStore.RecordingPlaybackEnabledChanged UI notification event subscriptio
 RecordingStore.committedRecordings cleared by the cold branch's ClearCommittedInternal with notifications, then filled from the save
 RecordingStore.committedTrees cleared by the cold branch (ClearCommittedInternal, LoadRecordingTrees), then filled from the save
 RecordingStore.ghostHiddenRuleInstalled write-once marker of the type initialiser that installs Recording.GhostHiddenRule, not save state
-RecordingStore.RecordingFileSuffixes constant table
 RecordingStore.PostRewindPersistentWriteForTesting test seam
 RecordingStore.RewindWritePersistentForTesting test seam
 RecordingStore.SaveGameForTesting test seam
@@ -88,3 +86,5 @@ ParsekScenario.s_instance the live scenario instance (a process object, not save
 FacilityStatePatcher.IC constant culture
 RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting test seam
 RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting test seam
+RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting test seam
+RecordingFileJanitor.RecordingFileSuffixes constant table

@@ -296,7 +296,7 @@ namespace Parsek.Tests
             string precHash = rec.PrecHash;
             string vesselHash = rec.VesselSnapshotHash;
 
-            Assert.True(RecordingStore.DeleteRecordingFiles(rec));
+            Assert.True(RecordingFileJanitor.DeleteRecordingFiles(rec));
 
             Assert.False(File.Exists(PrecPath("d1")));
             Assert.False(File.Exists(VesselPath("d1")));

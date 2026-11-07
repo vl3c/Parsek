@@ -1090,7 +1090,7 @@ namespace Parsek
                     continue;
                 if (!attemptIds.Contains(rec.RecordingId))
                     continue;
-                RecordingStore.DeleteRecordingFiles(rec);
+                RecordingFileJanitor.DeleteRecordingFiles(rec);
                 deleted++;
             }
             return deleted;

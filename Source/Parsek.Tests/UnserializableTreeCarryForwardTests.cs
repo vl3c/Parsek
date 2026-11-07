@@ -602,7 +602,7 @@ namespace Parsek.Tests
             string root = Path.Combine(Path.GetTempPath(), saveFolder);
             string recordingsDir = Path.Combine(root, "Parsek", "Recordings");
             Directory.CreateDirectory(recordingsDir);
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
             cleanupRoots.Add(root);
             return recordingsDir;
         }

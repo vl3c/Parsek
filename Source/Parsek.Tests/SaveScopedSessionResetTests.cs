@@ -39,6 +39,7 @@ namespace Parsek.Tests
             typeof(RecordingGroupStore),
             // RecordingStore services (ARCH-RECORDINGSTORE-GOD-OBJECT): statics moved off the store.
             typeof(RecordingSidecarStore),
+            typeof(RecordingFileJanitor),
         };
 
         private readonly List<string> logLines = new List<string>();

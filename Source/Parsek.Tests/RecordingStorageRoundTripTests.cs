@@ -2153,7 +2153,7 @@ namespace Parsek.Tests
         private static void AssertNoTransientSidecarArtifacts(string dir)
         {
             string[] files = Directory.GetFiles(dir);
-            Assert.DoesNotContain(files, f => RecordingStore.IsTransientSidecarArtifactFile(Path.GetFileName(f)));
+            Assert.DoesNotContain(files, f => RecordingFileJanitor.IsTransientSidecarArtifactFile(Path.GetFileName(f)));
         }
 
         private static SidecarFileCommitBatch.StagedChange CreateStagedDeleteChangeForTesting(string finalPath)
