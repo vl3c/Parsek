@@ -179,6 +179,8 @@ namespace Parsek.Tests
             int start = flight.IndexOf("internal bool IsActiveTreeIdleOnPad()\n", StringComparison.Ordinal);
             Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
             int walk = flight.IndexOf("AllRecordingsIdleOnPadAfterBackfill(host.activeTree, out bool anyHasPoints)", start, StringComparison.Ordinal);
+            int bodyEnd = flight.IndexOf("\n        }\n", start, StringComparison.Ordinal);
+            Assert.True(walk > start && walk < bodyEnd, "distance walk must be called inside IsActiveTreeIdleOnPad");
             Assert.True(walk > start, "IsActiveTreeIdleOnPad distance walk not found");
             string head = flight.Substring(start, walk - start);
             Assert.Contains("TreeHasLabPayoutsForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", head);

@@ -349,6 +349,8 @@ namespace Parsek.Tests
             Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
             int flush = source.IndexOf("FlushRecorderIntoActiveTreeForSerialization();", start, StringComparison.Ordinal);
             int walk = source.IndexOf("AllRecordingsIdleOnPadAfterBackfill(host.activeTree, out bool anyHasPoints)", start, StringComparison.Ordinal);
+            int bodyEnd = source.IndexOf("\n        }\n", start, StringComparison.Ordinal);
+            Assert.True(walk > start && walk < bodyEnd, "distance walk must be called inside IsActiveTreeIdleOnPad");
             int evidence = source.IndexOf("TreeHasPadEvidenceForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", start, StringComparison.Ordinal);
             Assert.True(flush > start, "flush not found in IsActiveTreeIdleOnPad");
             Assert.True(walk > flush, "distance walk must run after the recorder flush");

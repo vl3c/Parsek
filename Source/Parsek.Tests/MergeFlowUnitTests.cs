@@ -23,12 +23,26 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            Ledger.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            InFlightRecoveryRequest.ResetForTesting();
+            CommittedTreeRestoreAttempt.ResetForTesting();
+            Parsek.Logistics.RouteEventLog.ResetForTesting();
         }
 
         public void Dispose()
         {
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            Ledger.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
+            InFlightRecoveryRequest.ResetForTesting();
+            CommittedTreeRestoreAttempt.ResetForTesting();
+            Parsek.Logistics.RouteEventLog.ResetForTesting();
             ParsekLog.ResetTestOverrides();
         }
 
@@ -48,7 +62,7 @@ namespace Parsek.Tests
             return flight;
         }
 
-        private static RecordingTree ActiveTree(RecordingTree tree, ParsekFlight flight)
+        private static RecordingTree ActiveTree(ParsekFlight flight)
         {
             FieldInfo field = typeof(ParsekFlight).GetField(
                 "activeTree", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
@@ -158,7 +172,7 @@ namespace Parsek.Tests
             var flight = Flight(Tree(rec));
             flight.MergeFlow.AutoDiscardActiveTreeWithMessage(
                 "unit-test", null, "unit-recalc", reapSidecars: false);
-            Assert.Null(ActiveTree(null, flight));
+            Assert.Null(ActiveTree(flight));
             Assert.Contains(logLines, l => l.Contains("AutoDiscardActiveTreeCore: discarding live tree reason='unit-test'")
                 && l.Contains("ledgerRecalcReason='unit-recalc'"));
         }
@@ -299,6 +313,8 @@ namespace Parsek.Tests
             Assert.False(ParsekFlightMergeFlow.ShouldApplyFinalSegmentPhaseFromCapture(null, "r", new Recording { SegmentPhase = "exo" }));
             Assert.False(ParsekFlightMergeFlow.ShouldApplyFinalSegmentPhaseFromCapture(rec, "r", null));
             Assert.False(ParsekFlightMergeFlow.ShouldApplyFinalSegmentPhaseFromCapture(rec, "r", new Recording()));
+            Assert.True(ParsekFlightMergeFlow.ShouldApplyFinalSegmentPhaseFromCapture(rec, "r", new Recording { SegmentPhase = "exo" }));
+            Assert.False(ParsekFlightMergeFlow.ShouldApplyFinalSegmentPhaseFromCapture(rec, "other", new Recording { SegmentPhase = "exo" }));
         }
 
         [Theory]
