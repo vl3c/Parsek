@@ -69,6 +69,15 @@ namespace Parsek
 
         internal static bool GhostHiddenRuleInstalledForTesting => ghostHiddenRuleInstalled;
 
+        // VesselLaunchIdentity reads the vessel-name link rows and hydrates sidecar snapshots
+        // through rules their owners install (each also from its own type initialiser);
+        // installing them here too puts them in place before any committed recording is read.
+        private static readonly bool launchIdentityRulesInstalled =
+            VesselNameStore.EnsureLaunchIdentityLinkRuleInstalled()
+            & RecordingSidecarStore.EnsureLaunchIdentityHydrateRuleInstalled();
+
+        internal static bool LaunchIdentityRulesInstalledForTesting => launchIdentityRulesInstalled;
+
         /// <summary>
         /// Amount of pre-launch setup time rewind-to-launch restores before the launch UT.
         /// </summary>

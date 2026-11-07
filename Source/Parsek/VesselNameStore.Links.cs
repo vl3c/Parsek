@@ -55,6 +55,21 @@ namespace Parsek
         private static readonly Dictionary<uint, DockAbsorbRow> dockAbsorbs = new Dictionary<uint, DockAbsorbRow>();
         private static bool linkApplyDue;
 
+        // VesselLaunchIdentity reads the link rows through a rule this store installs. The
+        // rows live in this type's static fields, so installing it from this type's
+        // initialiser guarantees it is in place before any row can exist.
+        private static readonly bool launchIdentityLinkRuleInstalled = EnsureLaunchIdentityLinkRuleInstalled();
+
+        internal static bool LaunchIdentityLinkRuleInstalledForTesting => launchIdentityLinkRuleInstalled;
+
+        /// <summary>Idempotent installer for <see cref="VesselLaunchIdentity.GuidLinkRule"/>.
+        /// Returns true so a static field initialiser can call it.</summary>
+        internal static bool EnsureLaunchIdentityLinkRuleInstalled()
+        {
+            VesselLaunchIdentity.GuidLinkRule = GuidContinuesIdentity;
+            return true;
+        }
+
         internal static int LinkCount => links.Count;
         internal static int DockAbsorbCount => dockAbsorbs.Count;
 

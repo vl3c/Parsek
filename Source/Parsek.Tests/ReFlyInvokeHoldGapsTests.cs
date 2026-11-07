@@ -191,7 +191,7 @@ namespace Parsek.Tests
                 SessionId = "sess_1", TreeId = "tree_1", ActiveReFlyRecordingId = "rec_prov",
                 OriginChildRecordingId = "rec_origin", RewindPointId = "rp_1", InvokedUT = 1000.0,
             };
-            var flies = new ReFlyInvokeHold.Entry
+            var flies = new ReFlyHoldEntry
             {
                 Pid = 42u, LaunchGuid = GuidA, RecordingId = "rec_later", FirstClaimUT = 1500.25,
                 Evidence = ReFlyInvokeHold.EvidenceFlies,
@@ -199,7 +199,7 @@ namespace Parsek.Tests
             flies.FlyingRecordingIds.Add("rec_later");
             flies.FlyingRecordingIds.Add("rec_later2");
             marker.InvokeHolds.Add(flies);
-            marker.InvokeHolds.Add(new ReFlyInvokeHold.Entry
+            marker.InvokeHolds.Add(new ReFlyHoldEntry
             {
                 Pid = 43u, LaunchGuid = null, RecordingId = "rec_tug", FirstClaimUT = 1700.0,
                 Evidence = ReFlyInvokeHold.EvidenceChanges,
@@ -299,7 +299,7 @@ namespace Parsek.Tests
         public void DecideReloadAction_TruthTable(
             double currentUT, bool ghosted, bool live, string liveGuid, bool hasCopy, string expected)
         {
-            var entry = new ReFlyInvokeHold.Entry { Pid = 42u, LaunchGuid = GuidA, FirstClaimUT = 1500.0 };
+            var entry = new ReFlyHoldEntry { Pid = 42u, LaunchGuid = GuidA, FirstClaimUT = 1500.0 };
 
             Assert.Equal(expected,
                 ReFlyInvokeHold.DecideReloadAction(entry, currentUT, ghosted, live, liveGuid, hasCopy));

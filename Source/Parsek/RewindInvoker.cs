@@ -1628,15 +1628,15 @@ namespace Parsek
                 id => supersededClaimants.ContainsKey(id) || SessionSuppressionState.IsSuppressed(id),
                 out claimsSkipped);
             int matchedWithoutFuture;
-            List<ReFlyInvokeHold.Entry> entries = ReFlyInvokeHold.Classify(
+            List<ReFlyHoldEntry> entries = ReFlyInvokeHold.Classify(
                 survivors, excluded, RecordingStore.CommittedRecordings, Ledger.Actions,
                 changeClaims, rewindUT, out matchedWithoutFuture);
 
             int notLive, alreadyHeld;
-            List<ReFlyInvokeHold.Entry> held = flight.HoldReFlyInvokeVessels(entries, out notLive, out alreadyHeld);
+            List<ReFlyHoldEntry> held = flight.HoldReFlyInvokeVessels(entries, out notLive, out alreadyHeld);
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
             if (marker != null)
-                marker.InvokeHolds = new List<ReFlyInvokeHold.Entry>(held);
+                marker.InvokeHolds = new List<ReFlyHoldEntry>(held);
 
             var ic = CultureInfo.InvariantCulture;
             for (int i = 0; i < held.Count; i++)
