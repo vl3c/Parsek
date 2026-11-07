@@ -855,6 +855,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # the MINE-11 hosts). Both inherit the node.
         "miner-rover-full": True,
         "miner-rover-starved": True,
+        # `miner-rover-landed` with a docking port on the miner's front and an Ore Depot
+        # (the miner without drills, ports facing) 1.5 m ahead of it
+        # (harness/tools/build_miner_rover_depot.py, the MINE-5b host). Inherits the node.
+        "miner-rover-depot": True,
         "fresh-career": False,
         "fresh-sandbox": False,
         # `fresh-sandbox` plus the HH1 Hitchhiker Drop craft in the VAB (CX-2).

@@ -154,6 +154,132 @@ namespace Parsek.Tests
                 usable, gameElapsed, requested, maxSpeed, wallElapsed, budget).ToString());
         }
 
+        // ----- dock mode -----
+
+        [Theory]
+        // No untilDocked: the plain modes; maxSpeed alone would be silently ignored.
+        [InlineData(null, null, false, null, false, 0.0)]
+        [InlineData(null, "0.2", false, "drivevessel-maxspeed-arg-unexpected", false, 0.0)]
+        // untilDocked=true, the default cap under stock's captureMaxRvel.
+        [InlineData("true", null, false, null, true, 0.25)]
+        [InlineData("true", "0.2", false, null, true, 0.2)]
+        [InlineData("true", "1", false, null, true, 1.0)]
+        // Closed to "true"; refused in settle mode.
+        [InlineData("True", null, false, "drivevessel-dock-arg-invalid", false, 0.0)]
+        [InlineData("1", null, false, "drivevessel-dock-arg-invalid", false, 0.0)]
+        [InlineData("", null, false, "drivevessel-dock-arg-invalid", false, 0.0)]
+        [InlineData("true", null, true, "drivevessel-dock-arg-conflict", false, 0.0)]
+        // maxSpeed bounds.
+        [InlineData("true", "0", false, "drivevessel-maxspeed-arg-invalid", false, 0.0)]
+        [InlineData("true", "-0.1", false, "drivevessel-maxspeed-arg-invalid", false, 0.0)]
+        [InlineData("true", "1.01", false, "drivevessel-maxspeed-arg-invalid", false, 0.0)]
+        [InlineData("true", "NaN", false, "drivevessel-maxspeed-arg-invalid", false, 0.0)]
+        [InlineData("true", "slow", false, "drivevessel-maxspeed-arg-invalid", false, 0.0)]
+        public void ValidateDock_ParsesTheModeAndTheCap(string untilDocked, string maxSpeed,
+            bool settle, string reason, bool expectDocked, double expectSpeed)
+        {
+            Assert.Equal(reason, TestCommandDriveVessel.ValidateDock(untilDocked, maxSpeed, settle,
+                out bool docked, out double speed));
+            Assert.Equal(expectDocked, docked);
+            Assert.Equal(expectSpeed, speed, 9);
+        }
+
+        [Fact]
+        public void ValidateDock_IsInvariantCulture_AndTheDefaultCapIsUnderStockCapture()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.Null(TestCommandDriveVessel.ValidateDock("true", "0.15", false, out _, out double speed));
+                Assert.Equal(0.15, speed, 9);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+            // ModuleDockingNode.captureMaxRvel = 0.3 (KSP 1.12.5 decompiled).
+            Assert.True(TestCommandDriveVessel.DefaultDockMaxSpeed < 0.3);
+            Assert.Equal("untilDocked", TestCommandDriveVessel.UntilDockedKey);
+            Assert.Equal("maxSpeed", TestCommandDriveVessel.MaxSpeedKey);
+        }
+
+        [Theory]
+        [InlineData(0.5f, 0.0, 0.25, false, 0.5f)]
+        [InlineData(0.5f, 0.24, 0.25, false, 0.5f)]
+        [InlineData(0.5f, 0.25, 0.25, false, 0f)]
+        [InlineData(0.5f, 0.4, 0.25, false, 0f)]
+        [InlineData(0.5f, 0.0, 0.25, true, 0f)]
+        [InlineData(-0.5f, 0.1, 0.25, false, -0.5f)]
+        public void ResolveDockThrottle_CoastsAboveTheCap_AndStopsOnceDocked(float throttle,
+            double speed, double cap, bool docked, float expected)
+        {
+            Assert.Equal(expected, TestCommandDriveVessel.ResolveDockThrottle(throttle, speed, cap, docked));
+        }
+
+        [Theory]
+        // A couple ends the drive OK even when the driven vessel was the one absorbed.
+        [InlineData(true, false, 3.0, 20.0, 3.0, 60.0, "Docked")]
+        [InlineData(true, true, 25.0, 20.0, 70.0, 60.0, "Docked")]
+        [InlineData(false, false, 3.0, 20.0, 3.0, 60.0, "VesselLost")]
+        [InlineData(false, true, 20.0, 20.0, 21.0, 60.0, "DidNotDock")]
+        [InlineData(false, true, 2.0, 20.0, 60.0, 60.0, "Timeout")]
+        [InlineData(false, true, 2.0, 20.0, 3.0, 60.0, "StillDriving")]
+        public void DecideDockCompletion(bool docked, bool usable, double gameElapsed,
+            double requested, double wallElapsed, double budget, string expected)
+        {
+            Assert.Equal(expected, TestCommandDriveVessel.DecideDockCompletion(
+                docked, usable, gameElapsed, requested, wallElapsed, budget).ToString());
+        }
+
+        [Fact]
+        public void DecideGate_DockModeNeedsAReadyPort_AfterTheMotorCheck()
+        {
+            Assert.Equal("drivevessel-no-docking-port",
+                TestCommandDriveVessel.DecideGate(true, true, true, 4, false, true, 0));
+            Assert.Null(TestCommandDriveVessel.DecideGate(true, true, true, 4, false, true, 1));
+            Assert.Equal("drivevessel-no-wheel-motor",
+                TestCommandDriveVessel.DecideGate(true, true, true, 0, false, true, 0));
+            // The plain drive never asks for a port.
+            Assert.Null(TestCommandDriveVessel.DecideGate(true, true, true, 4, false, false, 0));
+            Assert.Contains("drivevessel-no-docking-port", TestCommandDriveVessel.Reasons);
+            Assert.Contains(TestCommandDriveVessel.DidNotDockReason, TestCommandDriveVessel.ErrorReasons);
+            Assert.Equal("drivevessel-did-not-dock", TestCommandDriveVessel.DidNotDockReason);
+        }
+
+        [Fact]
+        public void DockLinesAndPayload_AreInvariantAndGrepStable()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.Equal("drivevessel dock start: vessel=Mining Rover RC pid=110406740 wheelThrottle=0.50 "
+                    + "seconds=30.0 maxSpeed=0.25 readyPorts=1 brakesWereOn=true startUT=1815.50 srfSpeed=0.01",
+                    TestCommandDriveVessel.FormatDockStartLine("Mining Rover RC", 110406740u, 0.5f, 30.0,
+                        0.25, 1, true, 1815.5, 0.01));
+                Assert.Equal("drivevessel dock end: outcome=docked vessel=Mining Rover RC pid=110406740 "
+                    + "gameSeconds=9.40 maxSrfSpeed=0.26 pathMeters=1.6 dockUT=1824.90 port='dockingPort3' "
+                    + "partnerPart='dockingPort3' partnerPid=42 partnerName='Ore Depot' activePid=110406740 "
+                    + "activeName='Mining Rover RC' activeParts=52",
+                    TestCommandDriveVessel.FormatDockEndLine("docked", "Mining Rover RC", 110406740u, 9.4,
+                        0.26, 1.6, 1824.9, "dockingPort3", "dockingPort3", 42u, "Ore Depot", 110406740u,
+                        "Mining Rover RC", 52));
+                List<KeyValuePair<string, string>> payload = TestCommandDriveVessel.BuildDockedPayload(
+                    9.4, 0.26, 1.6, 1824.9, 42u, "Ore Depot", 110406740u, "Mining Rover RC", 52);
+                var keys = new List<string>();
+                foreach (var kv in payload) keys.Add(kv.Key);
+                Assert.Equal(new[] { "docked", "gameSeconds", "maxSrfSpeed", "pathMeters", "dockUT",
+                    "partnerPid", "partnerName", "activePid", "activeName", "activeParts" }, keys.ToArray());
+                Assert.Equal("true", payload[0].Value);
+                Assert.Equal("1824.90", payload[4].Value);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
         [Fact]
         public void SurfaceDistance_MatchesArcLength()
         {

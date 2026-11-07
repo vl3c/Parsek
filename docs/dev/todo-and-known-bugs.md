@@ -505,11 +505,14 @@ in-game cell asserts each window's harvest under its own rate x duration x 1.5, 
 run's plausible totals, a whole-harvest delivery unchanged by the clamp, and the window's Ore
 equal to stock's tank gain, logging the measured `ratio=` (stock production / rate x duration).
 Still open: record that ratio after the first flight; a delivery that clamps to nothing leaves
-its stop with an empty manifest rather than refusing the route.
+its stop with an empty manifest rather than refusing the route. The route itself is lane
+`MINE-5b-rover-dock-depot-harvest-route` (AUTHORED 2026-11-07, never flown): a real harvest-origin
+route from the miner docking a depot; its first flight reads whether the
+`harvest-origin delivery capped` line fires and the delivered Ore against the run's own.
 
 ---
 
-## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 and the route half of MINE-5 (both need a dockable surface craft pair), the lab lane XS-5, and first flights of MINE-5a and S1.9's MINE-0 tokens; harness / fixture]
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-4 (unblocked 2026-11-07 by the scripted `miner-rover-depot` pair, not written), the lab lane XS-5, and first flights of MINE-5a, MINE-5b and S1.9's MINE-0 tokens; harness / fixture]
 
 Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
 from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a
@@ -586,6 +589,27 @@ Progress 2026-11-06 (branch `mine5`, nothing flown yet):
   miner with a forward docking port or a claw, and a landed depot with a matching port and an Ore
   tank, parked in line within a straight drive), then a lane that mines, drives in, docks,
   transfers, undocks, commits, creates the route (`RouteCommand create`) and dispatches it.
+
+Progress 2026-11-07 (branch `mine4`, nothing flown yet): the craft pair is SCRIPTED instead of
+built by hand, and MINE-5's route half is lane `MINE-5b-rover-dock-depot-harvest-route`.
+- Fixture `miner-rover-depot` (`harness/tools/build_miner_rover_depot.py`, gated by
+  `harness/lib/test_miner_rover_depot.py`): `miner-rover-landed` with a `dockingPort3` stacked on
+  the miner's free front adapter node (+y, the driving direction; port state Ready, derived
+  ids), plus an `Ore Depot` at index 2: the ported miner without its four drills, turned 180
+  degrees about its ground normal and placed 1.5 m face to face ahead (root lat / lon / alt and
+  `srfRelRotation` derived from the decompiled ProtoVessel placement, committed as literals). The
+  miner is heavier with the same vessel type, so it is the dominant side of the dock.
+- Seam: `DriveVessel untilDocked=true maxSpeed=<m/s>` drives until stock couples one of the
+  vessel's Ready ports (`onPartCouple`), the throttle cut above maxSpeed; no couple in `seconds`
+  is ERROR `drivevessel-did-not-dock` (a fast driver INVALID). `PartAction button=transfer
+  part= resource= [partPid=]` moves a resource from every other part of the vessel into one
+  named part (the stock docked-vessel transfer; total unchanged); `partPid=` picks one of several
+  same-named parts on any button.
+- The lane: half an hour of mining at 100x, the drive and dock, the transfer, the undock (Ore
+  conserved at each step through ReadVesselResources sums), commit, `SealSlot`, `RouteCommand
+  create` (gated `eligible=True`, `harvest origin`, `harvestOrigin=1`), `send-once`, a TimeJump,
+  and the depot's Ore read above its pre-route amount. First-flight watch items are in the spec
+  header (dock geometry, wheel drive direction, the mined amount on 3 EC/s of RTGs, the cap line).
 
 ---
 

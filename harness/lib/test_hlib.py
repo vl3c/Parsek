@@ -17760,7 +17760,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
                   "RadiatorOffToken", "ActivateToken", "ExplodeToken", "ChuteToken",
-                  "RunTestToken")
+                  "RunTestToken", "TransferToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -17781,11 +17781,20 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertIn('internal const string AllTrueToken = "true";', text)
         self.assertIn("=> kind != PartActionKind.Unknown && kind != PartActionKind.Undock\n"
                       "                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom\n"
-                      "                && kind != PartActionKind.Explode;",
+                      "                && kind != PartActionKind.Explode && kind != PartActionKind.Transfer;",
                       text)
         self.assertEqual(tuple(b for b in hlib.PARTACTION_BUTTON_VALUES
-                               if b not in ("undock", "decouple", "controlfrom", "explode")),
+                               if b not in ("undock", "decouple", "controlfrom", "explode",
+                                            "transfer")),
                          hlib.PARTACTION_BUTTONS_ACCEPTING_ALL)
+        # partPid= (any button) and the transfer-only resource=.
+        self.assertIn('internal const string PartPidKey = "%s";' % hlib.PARTACTION_PART_PID_KEY,
+                      text)
+        self.assertIn('internal const string ResourceKey = "%s";' % hlib.PARTACTION_RESOURCE_KEY,
+                      text)
+        self.assertIn("internal static bool IsTransferKind(PartActionKind kind)\n"
+                      "            => kind == PartActionKind.Transfer;", text)
+        self.assertEqual(("transfer",), hlib.PARTACTION_BUTTONS_ACCEPTING_RESOURCE)
         self.assertEqual(list(hlib.PARTACTION_REASONS),
                          StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
         for reason in hlib.PARTACTION_REASONS:
@@ -17810,7 +17819,16 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # inherits it) and nothing else on the part, and counts the engine modules for its
         # engine-not-found gate.
         self.assertIn("if (!(module is ModuleEngines)) continue;", applier)
-        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : -1", applier)
+        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : -1", applier)
+        # The transfer: partPid filters before the name, a destination must hold the
+        # resource, the plan is refused before anything changes, and the move conserves.
+        self.assertIn("if (hasPartPid && p.persistentId != partPid) continue;", applier)
+        self.assertIn("if (p.Resources == null || p.Resources.Get(resourceName) == null) continue;",
+                      applier)
+        self.assertLess(applier.index("reason = TestCommandPartAction.DecideTransfer(transferMoved);"),
+                        applier.index("List<uint> before = ReadLivePids();"))
+        self.assertIn("transferSources[i].amount -= take;", applier)
+        self.assertIn("dest.amount += take;", applier)
         self.assertIn("new PartActionWarpContext(v.packed,", applier)
         # labprocess: the experiment's own Review Data opens a missing page, the page's
         # labValue is written before the gates, and only then the page's lab callback runs.
@@ -17879,6 +17897,30 @@ class PartActionSourceSyncTests(unittest.TestCase):
         for bad in ("0", "abc", "4294967296", "+5"):
             with self.subTest(pid=bad):
                 self.assertIn("partaction-pid-arg-invalid", v(0, {"button": "undock", "pid": bad})[0])
+
+    def test_the_step_validator_transfer_and_part_pid(self):
+        v = hlib.validate_part_action_step
+        ok = {"button": "transfer", "part": "RadialOreTank", "resource": "Ore"}
+        self.assertEqual([], v(0, ok))
+        self.assertEqual([], v(0, dict(ok, partPid="1158021052")))
+        self.assertEqual([], v(0, dict(ok, partPid="${dep.tank}")))
+        self.assertEqual([], v(0, {"button": "inspect", "part": "RadialOreTank",
+                                   "partPid": "1158021052"}))
+        cases = (
+            ({"button": "transfer", "part": "RadialOreTank"}, "partaction-resource-arg-missing"),
+            ({"button": "transfer", "resource": "Ore"}, "partaction-part-arg-missing"),
+            ({"button": "inspect", "part": "RadialOreTank", "resource": "Ore"},
+             "partaction-resource-arg-unexpected"),
+            (dict(ok, all="true"), "partaction-all-arg-unexpected"),
+            (dict(ok, partPid="0"), "partaction-part-pid-arg-invalid"),
+            (dict(ok, partPid="12x"), "partaction-part-pid-arg-invalid"),
+            (dict(ok, partPid="4294967296"), "partaction-part-pid-arg-invalid"),
+        )
+        for args, reason in cases:
+            with self.subTest(args=args):
+                errs = v(0, args)
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn(reason, errs[0])
 
     def test_the_step_validator_inspect_snapshot_args(self):
         v = hlib.validate_part_action_step
@@ -18822,6 +18864,15 @@ class DriveVesselSourceSyncTests(unittest.TestCase):
         self.assertIn('internal const string SecondsKey = "%s";' % hlib.DRIVEVESSEL_SECONDS_KEY, text)
         self.assertIn("internal const double MaxSeconds = %.1f;" % hlib.DRIVEVESSEL_MAX_SECONDS, text)
         self.assertIn('internal const string SettleBelowKey = "%s";' % hlib.DRIVEVESSEL_SETTLE_KEY, text)
+        self.assertIn('internal const string UntilDockedKey = "%s";'
+                      % hlib.DRIVEVESSEL_UNTIL_DOCKED_KEY, text)
+        self.assertIn('internal const string MaxSpeedKey = "%s";' % hlib.DRIVEVESSEL_MAX_SPEED_KEY,
+                      text)
+        self.assertEqual(("true",), hlib.DRIVEVESSEL_UNTIL_DOCKED_VALUES)
+        self.assertIn('internal const string UntilDockedTrueToken = "true";', text)
+        self.assertIn("internal const double MaxDockSpeed = %.1f;" % hlib.DRIVEVESSEL_MAX_DOCK_SPEED,
+                      text)
+        self.assertIn("parsed <= 0.0 || parsed > MaxDockSpeed", text)
         self.assertIn("internal const double MaxSettleBelow = %.1f;"
                       % hlib.DRIVEVESSEL_MAX_SETTLE_BELOW, text)
         self.assertIn("parsed <= 0.0 || parsed > MaxSettleBelow", text)
@@ -18847,6 +18898,11 @@ class DriveVesselSourceSyncTests(unittest.TestCase):
         self.assertIn("v.OnFlyByWire += DriveVesselFlyByWire;", applier)
         self.assertIn("v.OnFlyByWire -= DriveVesselFlyByWire;", applier)
         self.assertIn("s.wheelThrottle = driveThrottle;", applier)
+        # The dock drive ends on stock's own couple of one of the vessel's Ready ports, and
+        # every exit path unhooks it.
+        self.assertIn("GameEvents.onPartCouple.Add(OnDriveVesselPartCouple);", applier)
+        self.assertIn("GameEvents.onPartCouple.Remove(OnDriveVesselPartCouple);", applier)
+        self.assertIn("TestCommandDriveVessel.ReadyPortStateName", applier)
         addon = self._source("TestCommands", "ParsekTestCommandAddon.cs")
         # ClearTwoPhase owns the unsubscribe, so no exit path leaves the callback behind.
         clear = addon[addon.index("private void ClearTwoPhase()"):]
@@ -18894,6 +18950,27 @@ class DriveVesselSourceSyncTests(unittest.TestCase):
                 self.assertEqual(1, len(errs), errs)
                 self.assertIn("drivevessel-settle-arg-invalid", errs[0])
         self.assertIn("drivevessel-seconds-arg-missing", v(0, {"settleBelow": "0.05"})[0])
+        # Dock mode: untilDocked=true (the STRING), an optional cap, never with settle.
+        self.assertEqual([], v(0, {"wheelThrottle": "0.5", "seconds": "30", "untilDocked": "true"}))
+        self.assertEqual([], v(0, {"wheelThrottle": "0.5", "seconds": "30", "untilDocked": "true",
+                                   "maxSpeed": "0.2"}))
+        for bad in ("True", "1", True, "yes"):
+            with self.subTest(untilDocked=bad):
+                errs = v(0, {"wheelThrottle": "0.5", "seconds": "30", "untilDocked": bad})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("drivevessel-dock-arg-invalid", errs[0])
+        errs = v(0, {"settleBelow": "0.05", "seconds": "20", "untilDocked": "true"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("drivevessel-dock-arg-conflict", errs[0])
+        for bad in ("0", "-0.2", "1.5", "nan", "slow"):
+            with self.subTest(maxSpeed=bad):
+                errs = v(0, {"wheelThrottle": "0.5", "seconds": "30", "untilDocked": "true",
+                             "maxSpeed": bad})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("drivevessel-maxspeed-arg-invalid", errs[0])
+        errs = v(0, {"wheelThrottle": "0.5", "seconds": "30", "maxSpeed": "0.2"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("drivevessel-maxspeed-arg-unexpected", errs[0])
 
     def test_validate_spec_runs_the_step_validator(self):
         spec = copy.deepcopy(load_spec(self.SPEC))
