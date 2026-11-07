@@ -1274,8 +1274,6 @@ namespace Parsek
             {
                 case "intermediate ghost chain link":
                     return TrackingStationSpawnSkipIntermediateGhostChainLink;
-                case "terminated ghost chain":
-                    return TrackingStationSpawnSkipTerminatedGhostChain;
                 default:
                     return reason;
             }

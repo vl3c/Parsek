@@ -2333,7 +2333,21 @@ and route it through the body-fixed surface (or `TryResolveRelativeWorldPosition
 test can build a parent-anchored debris recording with Relative sections, promote it, and
 assert the distance.
 
-## VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH: the #266 vessel-switch stash (`StashActiveTreeForVesselSwitch`) never fires for a real far Switch-To [FILED 2026-09-23 from the #1780 review. OPEN; a design follow-up, no player-visible regression]
+## ~~VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH: the #266 vessel-switch stash (`StashActiveTreeForVesselSwitch`) never fires for a real far Switch-To~~ [FILED 2026-09-23 from the #1780 review. CLOSED 2026-11-07 (owner ruling: fix or close): a far Switch-To is decided before the switch by the pre-switch handling, so the #266 stash is not owed for it]
+
+**Closed 2026-11-07 (branch `cleanup-2`, code reading, no code change).** Re-verified: nothing
+subscribes to `onVesselSwitchingToUnloaded`, and `ParsekScenario.TryArmVesselSwitchFlag` is still
+the only place the flag arms. A far Switch-To with a live recording never reaches the scene
+change undecided: `MapFocusObjectOnSelectPatch` runs `DecidePreSwitchDialogAction` (Case B,
+`targetIsUnloaded`) and `TryAutoResolvePreSwitch` merges or discards the leaving recording
+(design section 5.4) before `FlightGlobals.SetActiveVessel`; the TS / KSC Fly paths leave from
+another scene and the alarm Jump button is routed through the same map gates (GC-13). So the
+player-facing rule for a far switch is that pre-switch decision, owner-ruled and shipping, and
+reviving #266's "carry the live tree across a far switch" would contradict it, not fill a gap.
+The #266 stash itself is not dead (an in-scene `onVesselSwitching` after onFlightReady followed
+within 60 frames by a FLIGHT->FLIGHT scene change still takes it, with the OnLoad
+`SafetyNetFinalize` fallback), so it stays as is; deleting it would mean reworking the OnLoad
+limbo dispatch for no player gain. No work is owed.
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): unchanged, no player harm. Nothing
 subscribes to `onVesselSwitchingToUnloaded`, and the flag still arms only in
@@ -2377,7 +2391,19 @@ and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or
 `digest=6ad6ec1c` (a fixture-derived literal in two required tokens), so it needs CI-3
 re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
 (`bbd83d3b`, `8952919c`) recomputed.
-## TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE: `GhostPlaybackLogic.ShouldSuppressSpawnForChain`'s terminated-chain arm cannot fire in production [FILED 2026-10-03 on branch `d18-recovery`; OPEN, low priority, no player effect]
+## ~~TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE: `GhostPlaybackLogic.ShouldSuppressSpawnForChain`'s terminated-chain arm cannot fire in production~~ [FILED 2026-10-03 on branch `d18-recovery`. FIXED 2026-11-07, branch `cleanup-2`, xUnit: the dead arm is deleted]
+
+**Fixed 2026-11-07 (branch `cleanup-2`).** Re-verified the three callers below, then deleted the
+arm (and its `Terminated chain spawn suppressed:` line), the TS reason
+`TrackingStationSpawnSkipTerminatedGhostChain` it alone produced, that reason's
+`NormalizeTrackingStationSpawnSuppressionReason` case and its tooltip text in
+`GhostTrackingStationPatch`. The terminating set is now one named predicate,
+`GhostChainWalker.IsChainTerminatingTerminal` (Destroyed / Recovered / Disassembled), used by
+`ResolveTermination`. Cells: `ChainSpawnSuppressionTests.ChainTerminatingTerminals_AreNeverSpawnable`
+(walks every `TerminalState`: a terminating terminal is never spawnable, the invariant that made
+the arm dead) and `TerminatedChain_TipNotRefusedByChainCheck_TerminalRefusesIt` (the chain check
+no longer refuses a terminated tip; `ShouldSpawnAtRecordingEnd` refuses it as `terminal state
+Destroyed`). No player effect: the spawn outcome of every reachable input is unchanged.
 
 The arm logs `Terminated chain spawn suppressed: rec=... vessel=... vesselPid=...` when the
 chain is `IsTerminated` and `rec` is its tip. Its three callers:
@@ -2807,7 +2833,21 @@ state map plus facade), the KNOTS greedy cuts and the upward-edge count; the rem
 items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
 ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
 
-## TQ-2-wheel-damage-guard-needs-live-transform: `GhostVisualBuilder.IsRendererOnDamagedTransform`'s names guard and ancestor walk have no test that can fail [FILED 2026-09-22 off test-quality-audit Phase B, row F-catchall-060-02. A COVERAGE gap, not a defect. OPEN]
+## ~~TQ-2-wheel-damage-guard-needs-live-transform: `GhostVisualBuilder.IsRendererOnDamagedTransform`'s names guard and ancestor walk have no test that can fail~~ [FILED 2026-09-22 off test-quality-audit Phase B, row F-catchall-060-02. FIXED 2026-11-07, branch `cleanup-2`, xUnit (headless, no in-game test needed)]
+
+**Fixed 2026-11-07 (branch `cleanup-2`).** The names guard and the ancestor walk moved into the
+pure generic `GhostVisualBuilder.IsNodeOrAncestorNamed<T>` (name and parent read through
+delegates); `IsRendererOnDamagedTransform` keeps only the Unity null check and passes static
+`Transform` adapters (the parent adapter maps a destroyed parent to a real null). Behaviour is
+unchanged (the walk still includes the hierarchy root; the old doc comment saying otherwise was
+wrong and is corrected). Cells in `WheelDamageFilterTests` over a fake node chain:
+`IsNodeOrAncestorNamed_MatchOnParent_ReturnsTrue`, `_MatchOnSelfAndOnRoot_ReturnsTrue`,
+`_UnrelatedNames_ReturnsFalse`, `_MatchBelowStart_IsNotSeen`,
+`_NullOrEmptyNames_ReturnsFalseWithLiveNode`. Deleting the walk reds the parent and root cells;
+deleting the names guard reds the null-names cell. The in-game test the fix below proposed is
+not needed.
+
+Original filing:
 
 **What is untested.** `IsRendererOnDamagedTransform(Transform, HashSet<string>)` in
 `Source/Parsek/GhostVisualBuilder.Parsing.cs` (called from the two damaged-wheel mesh filters in
@@ -2821,11 +2861,10 @@ green because the walk's own `cur != null` test answers false for a null start.
 **Why headless cannot.** The xUnit host cannot build a `Transform` (no Unity runtime), and an
 uninitialized one compares equal to null under Unity's operator.
 
-**Fix.** An `[InGameTest]` that builds a small GameObject chain (parent named like a damaged-wheel
+~~**Fix.** An `[InGameTest]` that builds a small GameObject chain (parent named like a damaged-wheel
 transform, child carrying the renderer) and asserts: a match on the parent is true, an unrelated
-name set is false, and a null or empty set is false with a live transform. Adding the cell to a
-category a committed harness spec pins moves that spec's `BATCH_COMPLETE total=` tally
-(`CommittedBatchTallySourceSyncTests`), so pick the category with that in mind.
+name set is false, and a null or empty set is false with a live transform.~~ Superseded by the
+headless fix above.
 
 ## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines (30,126 on 2026-11-01; the type is 35,099 over 14 files) and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -2914,7 +2953,21 @@ Update `modules.toml` in the same commits so the placement report stays true.
 3. Then the mechanical namespace rename to match `modules.toml`, and arm the three forbidden
    edges as failing tests.
 
-## V23M-FORWARD-JUMP-PACKS-LANDED-WHEELS: does the loop forward jump pack a landed wheeled vessel in a state stock never packs it in? [FILED 2026-09-22 off UNITY-PARSEK-FRAME-CALLER-SHAPE. A PRODUCT QUESTION, not a verified defect. Report-only: V23M's `maxParsekThrowSite = 0` does not see it (a caller shape), and its `maxParsekFrames` / `maxTotal` stay unarmed]
+## ~~V23M-FORWARD-JUMP-PACKS-LANDED-WHEELS: does the loop forward jump pack a landed wheeled vessel in a state stock never packs it in?~~ [FILED 2026-09-22 off UNITY-PARSEK-FRAME-CALLER-SHAPE. CLOSED 2026-11-07 (owner ruling: fix or close): the jump packs through the same stock entry point stock's own rails warp uses, and the throw is stock wheel noise]
+
+**Closed 2026-11-07 (branch `cleanup-2`, decompile reading, no code change).** Decompiled KSP
+1.12.5 `Assembly-CSharp` (ilspycmd): `OrbitPhysicsManager` packs the ACTIVE vessel, landed or
+not, with `activeVessel.GoOnRails()` whenever rails warp engages, and every other loaded vessel
+with `vessel.GoOnRails()`; `Vessel.Load` / unload and `FlightGlobals` call it too. The
+`Packing <name> for orbit` line in the stack is printed by `Vessel.GoOnRails` itself, for every
+caller. `TimeJumpManager.PutLoadedVesselsOnRails` calls that same public `Vessel.GoOnRails()` on
+a loaded, unpacked vessel, so the jump does not reach `Part.Pack` by any path stock lacks; the
+NRE is thrown inside stock `VPWheelCollider.OnDisableVehicle`, and the same craft throws the same
+wheel NRE class about 10,700 times per run with no Parsek frame at all. The jump completes
+(`Forward jump complete`) and the lane passes, so no player harm is known. Answering the A/B
+question live (a stock warp over the same lander) would cost a dev-instance reading for a
+stock-noise classification only; not owed. A real Parsek throw site is still caught by V23M's
+armed `maxParsekThrowSite = 0`.
 
 **What is measured.** In every one of V23M's 5 unique runs (6 collected logs,
 `2026-08-24_1924` through `2026-09-10_2102`) exactly 6 NREs carry a Parsek frame, all
@@ -3116,7 +3169,24 @@ another pid, a chain claim before any carrier, the gates, the precedence).
 point, so its node is excluded `no-relay-or-control-capability` whatever the hold says. A lane
 needs a claimed vessel that relays.
 
-## LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED: a loop anchored to the vessel the player is flying at scene load never plays its ghost [first shape FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit; the recorded-anchor zone-distance shape below stays open]
+## ~~LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED: a loop anchored to the vessel the player is flying at scene load never plays its ghost~~ [first shape FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Rest CLOSED 2026-11-07 (owner ruling: fix or close): no shipping flow sets a loop anchor, so the zone-distance shape and the owed live variant are unreachable by players]
+
+**Closed 2026-11-07 (branch `cleanup-2`, code reading, no code change).** Re-verified on
+origin/main 22d28a47: `Recording.LoopAnchorVesselId` is still written only by the codec load of
+the `loopAnchorPid` key (`RecordingTreeRecordCodec`) and the clone (`Recording.cs`); no recorder
+path, UI control or seam verb writes it, so a player cannot create a loop-anchored recording.
+The three leftovers below are closed on that ground:
+- The RL-1 variant anchored to the active vessel: a flight for a test-only benefit on a path no
+  player reaches; the seeding decision itself is pinned by `LoopAnchorSeedTests`. Not owed.
+- The in-game test runner's between-run cleanup leaving the set unseeded: every in-game test
+  that sets `LoopAnchorVesselId` (`RuntimeTests` V13 loop debris, the Phase 6 per-source
+  fixture) builds its own `GhostPlaybackEngine` or stubs the resolver and never reads
+  `ParsekFlight`'s set, so nothing consumes it. Not owed.
+- The second shape (zone distance through the recorded anchor while placement uses the live
+  one): it differs only for a MOVING anchor, which needs a loop-anchored recording, which only a
+  hand-authored save has. Which distance a live-anchored loop should use is a design choice for
+  the feature that first writes a loop anchor, made with that feature; nothing is owed until
+  then.
 
 **Fixed 2026-10-24 (first shape).** `ParsekFlight.OnFlightReady` now seeds the loaded-anchor set
 from `FlightGlobals.VesselsLoaded` before any early return (pure
@@ -3147,7 +3217,7 @@ Filed 2026-09-23 by the D3 `relative-loop` lane (register item C5, branch `d3-re
 
 **A second, related shape (seen on RL-1's first attempt, `2026-09-23_2034`).** The flight engine's zone distance for a RELATIVE section (`ParsekFlight.TryResolvePlaybackWorldPosition` -> `TryResolveRelativeWorldPosition`) always resolves through the RECORDED anchor (`anchorRecordingId`), even when the recording is loop-anchored and will be PLACED from the live vessel. With no recorded anchor the distance reads `unresolved` (`double.MaxValue`), the zone LOD hides the ghost before positioning (`loop hidden by distance LOD at unresolved`) and the live-PID positioner never runs. The recorder never writes a RELATIVE section without `anchorRecordingId`, so the fixture now carries a recorded anchor track (a separate ProbeShip ghost recording at the rover's position, not the rover's own recording: it only feeds the zone distance), but the mismatch remains for a moving anchor: the zone reads where the anchor WAS at loopUT while the ghost is placed where the anchor IS now, so a loop around an orbiting station could be hidden (or shown) by the wrong distance. RL-1's rover is stationary, so the two agree there.
 
-**Fix direction (not taken).** Seed `loadedAnchorVessels` from the already-loaded vessels (at least `FlightGlobals.ActiveVessel`) when `ParsekFlight` starts or on `onFlightReady`, skipping ghost map vessels the same way `OnVesselLoaded` does. Needs a unit cell on the seeding decision and an RL-1 variant anchored to the active vessel as the live witness.
+**Fix direction (taken 2026-10-24 for the first shape; the live witness closed 2026-11-07, see above).** Seed `loadedAnchorVessels` from the already-loaded vessels (at least `FlightGlobals.ActiveVessel`) when `ParsekFlight` starts or on `onFlightReady`, skipping ghost map vessels the same way `OnVesselLoaded` does. Needs a unit cell on the seeding decision and an RL-1 variant anchored to the active vessel as the live witness.
 
 ## ~~PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE: routing the segment lookup to the effective tip does not restore presence at a UT NEITHER member's conics cover~~ FIXED 2026-11-07
 

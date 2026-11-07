@@ -174,7 +174,6 @@ namespace Parsek
         internal const string TrackingStationSpawnSkipBeforeEnd = "before-recording-end";
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
         internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
-        internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
         internal const string TrackingStationSpawnSkipSupersededByRelation = "superseded-by-relation";
         internal const string TrackingStationSpawnSkipRewindRetired = "rewind-retired";
         internal const string SoiGapStateVectorFallbackReason = "soi-gap-state-vector-fallback";
