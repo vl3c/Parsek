@@ -313,18 +313,20 @@ namespace Parsek.Tests
             // deferred reload coroutine, AFTER the reload commits, never before it.
             // Deleting the snapshot before the reload would destroy the clean ledger
             // source (the BUG-F regression this fix closes).
+            // The slice is the coroutine's own brace-matched body (comments blanked), so a
+            // sweep call placed anywhere else in the partial class cannot satisfy it.
             string source = ReadSource("ParsekScenario.cs");
-            int deferredStart = source.IndexOf(
-                "DeferredReloadAfterTestBatchCrashReconcile(\n", StringComparison.Ordinal);
-            if (deferredStart < 0)
-                deferredStart = source.IndexOf(
-                    "IEnumerator DeferredReloadAfterTestBatchCrashReconcile(", StringComparison.Ordinal);
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(source);
+            int deferredStart = prepared.IndexOf(
+                "IEnumerator DeferredReloadAfterTestBatchCrashReconcile(", StringComparison.Ordinal);
             Assert.True(deferredStart >= 0, "DeferredReloadAfterTestBatchCrashReconcile not found");
-            int deferredEnd = source.IndexOf(
-                "private static void TryDeletePersistentBackupAndSnapshotArtifacts(",
-                deferredStart, StringComparison.Ordinal);
-            Assert.True(deferredEnd > deferredStart, "deferred reload method end not found");
-            string body = source.Substring(deferredStart, deferredEnd - deferredStart);
+            Assert.True(prepared.IndexOf(
+                    "IEnumerator DeferredReloadAfterTestBatchCrashReconcile(",
+                    deferredStart + 1, StringComparison.Ordinal) < 0,
+                "DeferredReloadAfterTestBatchCrashReconcile declared twice");
+            int bodyOpen = prepared.IndexOf('{', deferredStart);
+            Assert.True(bodyOpen > deferredStart, "deferred reload method body not found");
+            string body = SourceScanText.BraceMatchedBlock(prepared, bodyOpen);
 
             int loadGame = body.IndexOf("GamePersistence.LoadGame(", StringComparison.Ordinal);
             int sweep = body.IndexOf(
