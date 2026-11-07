@@ -95,7 +95,7 @@ namespace Parsek
                 NotifyCommittedRecordingRemoved(idxB, absorbed, target);
 
                 // Delete absorbed recording's sidecar files
-                try { DeleteRecordingFiles(absorbed); }
+                try { RecordingFileJanitor.DeleteRecordingFiles(absorbed); }
                 catch (System.Exception ex)
                 {
                     ParsekLog.Warn("RecordingStore",

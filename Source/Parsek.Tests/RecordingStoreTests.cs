@@ -418,7 +418,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording();
             rec.RecordingId = null;
-            RecordingStore.DeleteRecordingFiles(rec);
+            RecordingFileJanitor.DeleteRecordingFiles(rec);
         }
 
         [Fact]
@@ -428,7 +428,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "test123"
             };
-            RecordingStore.DeleteRecordingFiles(rec);
+            RecordingFileJanitor.DeleteRecordingFiles(rec);
         }
 
         [Theory]
@@ -451,7 +451,7 @@ namespace Parsek.Tests
         [InlineData(null, null)]
         public void ExtractRecordingIdFromFileName_Works(string fileName, string expected)
         {
-            Assert.Equal(expected, RecordingStore.ExtractRecordingIdFromFileName(fileName));
+            Assert.Equal(expected, RecordingFileJanitor.ExtractRecordingIdFromFileName(fileName));
         }
 
         [Theory]
@@ -468,7 +468,7 @@ namespace Parsek.Tests
         [InlineData(null, false)]
         public void IsTransientSidecarArtifactFile_Works(string fileName, bool expected)
         {
-            Assert.Equal(expected, RecordingStore.IsTransientSidecarArtifactFile(fileName));
+            Assert.Equal(expected, RecordingFileJanitor.IsTransientSidecarArtifactFile(fileName));
         }
 
         [Theory]

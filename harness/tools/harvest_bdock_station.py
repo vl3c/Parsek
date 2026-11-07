@@ -122,7 +122,7 @@ _PRUNE_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
 # `RewindInvoker.PartLoaderPrecondition.Check` deep-parses those.
 _PRUNE_PARSEK_SUBDIRS = ("Saves",)
 # Directories under Parsek/Recordings/ that a fixture must never carry.
-# `_quarantine` is `RecordingStore.OrphanQuarantineDirName`: where
+# `_quarantine` is `RecordingFileJanitor.OrphanQuarantineDirName`: where
 # `CleanOrphanFiles` PARKS orphaned sidecars instead of deleting them, so a
 # long-lived hand-played save accumulates every sidecar whose recording the
 # store could no longer resolve. It is recovery exhaust by construction - the

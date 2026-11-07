@@ -2734,7 +2734,7 @@ namespace Parsek.TestCommands
                 {
                     try
                     {
-                        if (RecordingStore.DeleteRecordingFiles(rec))
+                        if (RecordingFileJanitor.DeleteRecordingFiles(rec))
                             fullyRemoved++;
                         reaped++;
                     }

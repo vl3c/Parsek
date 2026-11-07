@@ -49,7 +49,7 @@ namespace Parsek.InGameTests
     ///   <item><description><c>_ghost.craft</c> - ghost-only snapshot.</description></item>
     ///   <item><description><c>_ghost.craft.txt</c> - readable ghost mirror.</description></item>
     /// </list>
-    /// The list mirrors <c>RecordingStore.RecordingFileSuffixes</c>; if a new sidecar suffix is
+    /// The list mirrors <c>RecordingFileJanitor.RecordingFileSuffixes</c>; if a new sidecar suffix is
     /// added to the recording pipeline, <c>RecordingPaths</c> grows a new builder and
     /// this list must grow alongside it.</para>
     /// </summary>
@@ -72,7 +72,7 @@ namespace Parsek.InGameTests
         internal static int DeleteSidecarsForIds(
             IEnumerable<string> recordingIds, string context = DefaultContext)
         {
-            string recordingsDir = RecordingStore.ResolveRecordingsDirectoryForCurrentSave();
+            string recordingsDir = RecordingFileJanitor.ResolveRecordingsDirectoryForCurrentSave();
             return DeleteSidecarsForIdsIn(
                 recordingsDir, recordingIds, context, RecordingStore.BuildKnownRecordingIds());
         }
@@ -164,7 +164,7 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Every sidecar suffix the recording pipeline writes (mirroring
-        /// <c>RecordingStore.RecordingFileSuffixes</c>). Any new suffix added to the production write/delete paths must be
+        /// <c>RecordingFileJanitor.RecordingFileSuffixes</c>). Any new suffix added to the production write/delete paths must be
         /// added here too. See <see cref="RecordingPaths"/> for the canonical builders.
         /// </summary>
         private static readonly string[] SidecarSuffixes =

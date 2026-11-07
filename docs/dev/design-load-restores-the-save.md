@@ -412,7 +412,7 @@ the backup after a successful batch (`CleanupCommittedBackups`). For the three h
 
 A `DeleteExisting` change (a recording deleted by a discard, a merge-journal rollback, an
 optimizer merge) is a retention too: the deleted head goes through the same steps.
-`RecordingStore.DeleteRecordingFiles` therefore deletes only the non-hashed kinds (`.pann`,
+`RecordingFileJanitor.DeleteRecordingFiles` therefore deletes only the non-hashed kinds (`.pann`,
 `.txt` mirrors) and routes the three hashed kinds through a batch.
 
 **Loads resolve the version the save names, on Cold loads only.** Version resolution and promote
@@ -465,7 +465,7 @@ moves to the collector or stops deleting:
 | Site | Today | After |
 |---|---|---|
 | `RecordingStore.CleanOrphanFiles` (OrphanCleanup.cs:345) | quarantines heads of ids no loaded tree names | decision moves to the collector (reference set below) |
-| `RecordingStore.DeleteRecordingFiles` | deletes all kinds | non-hashed kinds only; hashed kinds retained (4.4) |
+| `RecordingFileJanitor.DeleteRecordingFiles` | deletes all kinds | non-hashed kinds only; hashed kinds retained (4.4) |
 | `SidecarFileCommitBatch.CleanupCommittedBackups` | deletes `.bak.<guid>` | hashed kinds filed into `_versions` (4.4); others as today |
 | `RewindPointReaper.TryDeleteQuicksaveFile` (:249) | deletes a sealed point's file | unlists only; the collector deletes |
 | `TreeDiscardPurge.TryDeleteQuicksaveFile` (TreeDiscardPurge.cs:381) | deletes a discarded tree's point files | unlists only; the collector deletes |

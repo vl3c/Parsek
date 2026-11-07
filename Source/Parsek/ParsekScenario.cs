@@ -1854,7 +1854,7 @@ namespace Parsek
             // completed load from a mid-load fault.
             if (RecordingStore.CommittedTrees.Count != 0 || committedTreeStateLoaded)
                 return;
-            var strandedIds = RecordingStore.CollectSidecarIdsOnDisk();
+            var strandedIds = RecordingFileJanitor.CollectSidecarIdsOnDisk();
             if (!ShouldPreserveCommittedTreeState(
                     committedTreeStateLoaded, RecordingStore.CommittedTrees.Count, strandedIds.Count))
                 return;

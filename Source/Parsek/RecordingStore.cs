@@ -251,7 +251,6 @@ namespace Parsek
         private static string committedTreeRestoreAttemptReason;
         private static HashSet<string> committedTreeRestoreAttemptRecordingIds;
         private static Dictionary<string, double> committedTreeRestoreAttemptEventCutoffs;
-        internal static string CleanOrphanFilesDirectoryOverrideForTesting;
 
         public static IReadOnlyList<Recording> CommittedRecordings => committedRecordings;
         public static List<RecordingTree> CommittedTrees => committedTrees;
@@ -2959,7 +2958,7 @@ namespace Parsek
                 }
                 // Counted only when nothing was left behind: a locked file that survives
                 // is not proof of a discard.
-                if (DeleteRecordingFiles(rec))
+                if (RecordingFileJanitor.DeleteRecordingFiles(rec))
                     removedSidecarSets++;
             }
             if (removedSidecarSets > 0)
@@ -3170,7 +3169,7 @@ namespace Parsek
                         && segmentTree.Recordings.TryGetValue(id, out rec)
                         && rec != null)
                     {
-                        DeleteRecordingFiles(rec);
+                        RecordingFileJanitor.DeleteRecordingFiles(rec);
                         deletedSidecars++;
                     }
                 }
@@ -3906,7 +3905,7 @@ namespace Parsek
                     Log($"[Parsek]   Pruned recording id={rec.RecordingId} from {prunedFromTrees} committed tree membership(s)");
             }
 
-            DeleteRecordingFiles(rec);
+            RecordingFileJanitor.DeleteRecordingFiles(rec);
             RemoveCommittedAtWithNotifications(index);
             Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
         }
@@ -4417,7 +4416,7 @@ namespace Parsek
             committedTreeRestoreAttemptReason = null;
             committedTreeRestoreAttemptRecordingIds = null;
             committedTreeRestoreAttemptEventCutoffs = null;
-            CleanOrphanFilesDirectoryOverrideForTesting = null;
+            RecordingFileJanitor.ResetForTesting();
             RecordingSidecarStore.ResetForTesting();
             SceneEntryActiveVesselPid = 0;
             SceneEntryActiveVesselGuid = null;

@@ -544,7 +544,7 @@ lose the run-happened evidence; it only moves it out of the findings list.
      `InitiateRewind` never read `MergeState`), so the rule does not claim
      "provisional = rewindable, sealed = not". A missing rewind save on a sealed
      (`MergeState.Immutable`) recording is far likelier a dangling reference than
-     proven corruption: `RecordingStore.DeleteRecordingFiles` deletes a rewind save
+     proven corruption: `RecordingFileJanitor.DeleteRecordingFiles` deletes a rewind save
      with a discarded recording WITHOUT reference-counting siblings that share the
      same save via `ParsekFlight.CopyRewindSaveToRoot` ("first recorder wins"), and
      production treats a missing rewind hint as benign
