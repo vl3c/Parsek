@@ -3275,12 +3275,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # LaunchSiteOnlyGhost inside. Each RecordingStore service the
         # 2026-11-06 plan moves into its own type adds that type when it still
         # sits on a cycle: 458 after RecordingSegmentLabels (PR1, it calls
-        # RecordingOptimizer). It was [301, 7, 4, 2, 2] on 2026-09-25,
+        # RecordingOptimizer), 459 after RecordingChainQueries (PR4). It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [458, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [459, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3395,18 +3395,18 @@ class RealTreeSmokeTests(unittest.TestCase):
         # second. Same canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
         self.assertEqual(first["sink"], "Route")
-        self.assertEqual(first["sizeBefore"], 458)
-        self.assertEqual(first["sizeAfter"], 440)
+        self.assertEqual(first["sizeBefore"], 459)
+        self.assertEqual(first["sizeAfter"], 441)
         self.assertEqual(
             first["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
         )
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
-        # that made the launch-identity cut (dropping its RecordingStore and
+        # that made the launch-identity cut (dropping its RecordingSidecarStore and
         # VesselNameStore references) beat the flight controller for second
-        # place (425 before). The residue ratchet below is immune to this reorder.
+        # place (426 before). The residue ratchet below is immune to this reorder.
         self.assertEqual(second["sink"], "VesselLaunchIdentity")
-        self.assertEqual(second["sizeAfter"], 423)
+        self.assertEqual(second["sizeAfter"], 424)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3426,7 +3426,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # RecordingStore forwarder (cut): 285 of 458. PR3 deletes the sidecar
         # forwarders, so their callers reach RecordingSidecarStore and
         # RouteProofCodec directly and both stay in the residue: 287 of 458,
-        # the value pinned here.
+        # the value pinned here (still 287 of 459 after PR4's
+        # RecordingChainQueries, which the RecordingStore cut drops with it).
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which

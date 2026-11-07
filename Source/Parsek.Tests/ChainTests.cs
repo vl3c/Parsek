@@ -196,7 +196,7 @@ namespace Parsek.Tests
                 RecordingStore.CommitRecordingDirect(rec);
             }
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             var committed = RecordingStore.CommittedRecordings;
             Assert.Equal(3, committed.Count);
@@ -222,7 +222,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 2;
             RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
@@ -243,7 +243,7 @@ namespace Parsek.Tests
                 RecordingStore.CommitRecordingDirect(rec);
             }
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
@@ -267,7 +267,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 1;
             RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
@@ -302,7 +302,7 @@ namespace Parsek.Tests
             bad2.ChainIndex = 2;
             RecordingStore.CommitRecordingDirect(bad2);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             Assert.Equal("chain-good", RecordingStore.CommittedRecordings[0].ChainId);
             Assert.Equal("chain-good", RecordingStore.CommittedRecordings[1].ChainId);
@@ -317,7 +317,7 @@ namespace Parsek.Tests
             Assert.NotNull(rec);
             RecordingStore.CommitRecordingDirect(rec);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             Assert.Null(RecordingStore.CommittedRecordings[0].ChainId);
             Assert.Equal(-1, RecordingStore.CommittedRecordings[0].ChainIndex);
@@ -332,7 +332,7 @@ namespace Parsek.Tests
             rec.ChainIndex = 0;
             RecordingStore.CommitRecordingDirect(rec);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             Assert.Equal("chain-solo", RecordingStore.CommittedRecordings[0].ChainId);
             Assert.Equal(0, RecordingStore.CommittedRecordings[0].ChainIndex);
@@ -354,7 +354,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 1;
             RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             Assert.Equal("chain-eq-ut", RecordingStore.CommittedRecordings[0].ChainId);
             Assert.Equal("chain-eq-ut", RecordingStore.CommittedRecordings[1].ChainId);
@@ -376,7 +376,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 2;
             RecordingStore.CommitRecordingDirect(rec2);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
@@ -388,7 +388,7 @@ namespace Parsek.Tests
         [Fact]
         public void ValidateChains_NoCommittedRecordings_NoError()
         {
-            RecordingStore.ValidateChains(); // Should not throw
+            RecordingChainQueries.ValidateChains(); // Should not throw
         }
 
         #endregion
@@ -410,7 +410,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 1;
             RecordingStore.CommitRecordingDirect(rec2);
 
-            Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
+            Assert.True(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
 
         [Fact]
@@ -428,7 +428,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 1;
             RecordingStore.CommitRecordingDirect(rec2);
 
-            Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
         }
 
         [Fact]
@@ -438,7 +438,7 @@ namespace Parsek.Tests
             Assert.NotNull(rec);
             RecordingStore.CommitRecordingDirect(rec);
 
-            Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
 
         // The three degenerate cells below each commit a PEER whose ChainId
@@ -463,7 +463,7 @@ namespace Parsek.Tests
             CommitChainPeer(null, 1);
 
             var rec = new Recording { ChainId = null, ChainIndex = 0 };
-            Assert.False(RecordingStore.IsChainMidSegment(rec));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(rec));
         }
 
         [Fact]
@@ -472,7 +472,7 @@ namespace Parsek.Tests
             CommitChainPeer("", 1);
 
             var rec = new Recording { ChainId = "", ChainIndex = 0 };
-            Assert.False(RecordingStore.IsChainMidSegment(rec));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(rec));
         }
 
         [Fact]
@@ -481,7 +481,7 @@ namespace Parsek.Tests
             CommitChainPeer("some-chain", 1);
 
             var rec = new Recording { ChainId = "some-chain", ChainIndex = -1 };
-            Assert.False(RecordingStore.IsChainMidSegment(rec));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(rec));
         }
 
         [Fact]
@@ -493,7 +493,7 @@ namespace Parsek.Tests
             rec.ChainIndex = 0;
             RecordingStore.CommitRecordingDirect(rec);
 
-            Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
 
         [Fact]
@@ -508,9 +508,9 @@ namespace Parsek.Tests
                 RecordingStore.CommitRecordingDirect(rec);
             }
 
-            Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
-            Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
-            Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[2]));
+            Assert.True(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
+            Assert.True(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[2]));
         }
 
         #endregion
@@ -535,8 +535,8 @@ namespace Parsek.Tests
             var seg0 = RecordingStore.CommittedRecordings[0];
             var seg1 = RecordingStore.CommittedRecordings[1];
 
-            Assert.Equal(seg1.EndUT, RecordingStore.GetChainEndUT(seg0));
-            Assert.Equal(seg1.EndUT, RecordingStore.GetChainEndUT(seg1));
+            Assert.Equal(seg1.EndUT, RecordingChainQueries.GetChainEndUT(seg0));
+            Assert.Equal(seg1.EndUT, RecordingChainQueries.GetChainEndUT(seg1));
         }
 
         [Fact]
@@ -547,7 +547,7 @@ namespace Parsek.Tests
             RecordingStore.CommitRecordingDirect(rec);
 
             var committed = RecordingStore.CommittedRecordings[0];
-            Assert.Equal(committed.EndUT, RecordingStore.GetChainEndUT(committed));
+            Assert.Equal(committed.EndUT, RecordingChainQueries.GetChainEndUT(committed));
         }
 
         [Fact]
@@ -562,8 +562,8 @@ namespace Parsek.Tests
 
             var rec = new Recording();
             rec.Points.AddRange(MakePoints(3, 100));
-            Assert.Equal(rec.EndUT, RecordingStore.GetChainEndUT(rec));
-            Assert.NotEqual(other.EndUT, RecordingStore.GetChainEndUT(rec));
+            Assert.Equal(rec.EndUT, RecordingChainQueries.GetChainEndUT(rec));
+            Assert.NotEqual(other.EndUT, RecordingChainQueries.GetChainEndUT(rec));
         }
 
         [Fact]
@@ -576,7 +576,7 @@ namespace Parsek.Tests
             RecordingStore.CommitRecordingDirect(rec);
 
             var committed = RecordingStore.CommittedRecordings[0];
-            Assert.Equal(committed.EndUT, RecordingStore.GetChainEndUT(committed));
+            Assert.Equal(committed.EndUT, RecordingChainQueries.GetChainEndUT(committed));
         }
 
         [Fact]
@@ -593,7 +593,7 @@ namespace Parsek.Tests
 
             double lastEndUT = RecordingStore.CommittedRecordings[2].EndUT;
             for (int i = 0; i < 3; i++)
-                Assert.Equal(lastEndUT, RecordingStore.GetChainEndUT(RecordingStore.CommittedRecordings[i]));
+                Assert.Equal(lastEndUT, RecordingChainQueries.GetChainEndUT(RecordingStore.CommittedRecordings[i]));
         }
 
         #endregion
@@ -615,7 +615,7 @@ namespace Parsek.Tests
             rec1.ChainIndex = 1;
             RecordingStore.CommitRecordingDirect(rec1);
 
-            Assert.Equal(0, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+            Assert.Equal(0, RecordingChainQueries.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
         }
 
         [Fact]
@@ -627,7 +627,7 @@ namespace Parsek.Tests
             rec0.ChainIndex = 0;
             RecordingStore.CommitRecordingDirect(rec0);
 
-            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[0]));
+            Assert.Equal(-1, RecordingChainQueries.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[0]));
         }
 
         [Fact]
@@ -639,7 +639,7 @@ namespace Parsek.Tests
             CommitChainPeer(null, -1);
 
             var rec = new Recording { ChainId = null, ChainIndex = 0 };
-            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(rec));
+            Assert.Equal(-1, RecordingChainQueries.GetChainPredecessorIndex(rec));
         }
 
         [Fact]
@@ -661,7 +661,7 @@ namespace Parsek.Tests
             rec1.ChainBranch = 1;
             RecordingStore.CommitRecordingDirect(rec1);
 
-            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+            Assert.Equal(-1, RecordingChainQueries.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
         }
 
         [Fact]
@@ -681,7 +681,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 2;
             RecordingStore.CommitRecordingDirect(rec2);
 
-            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+            Assert.Equal(-1, RecordingChainQueries.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
         }
 
         [Fact]
@@ -1255,7 +1255,7 @@ namespace Parsek.Tests
             // Chain EndUT also updates (it reads EndUT from the recording)
             committed.ChainId = "extend-test";
             committed.ChainIndex = 0;
-            Assert.Equal(200, RecordingStore.GetChainEndUT(committed));
+            Assert.Equal(200, RecordingChainQueries.GetChainEndUT(committed));
         }
 
         #endregion
@@ -1280,7 +1280,7 @@ namespace Parsek.Tests
             rec.LoopPlayback = true;
             RecordingStore.CommitRecordingDirect(rec);
 
-            Assert.True(RecordingStore.IsChainLooping("chain1"));
+            Assert.True(RecordingChainQueries.IsChainLooping("chain1"));
         }
 
         [Fact]
@@ -1304,7 +1304,7 @@ namespace Parsek.Tests
             rec.LoopPlayback = true;
             RecordingStore.CommitRecordingDirect(rec);
 
-            Assert.True(RecordingStore.IsChainLooping("chain-disabled-loop"));
+            Assert.True(RecordingChainQueries.IsChainLooping("chain-disabled-loop"));
         }
 
         [Fact]
