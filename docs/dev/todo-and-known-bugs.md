@@ -2842,6 +2842,14 @@ make the types it touches easier to reason about.
 (optimizer, purge, sidecar commit, session merge) as services on top that the scenario module
 calls directly. One service per PR; the co-change with `ParsekScenario.cs` is the measure.
 
+**Progress** (the PR-by-PR plan is `plan-recordingstore-services-2026-11-06.md`, services A-O;
+each PR lands on the refactor branch, IL-proven a pure move).
+- PR1 (service A) landed: the segment phase / body-path labels left the store as
+  `RecordingSegmentLabels` (12 methods, pure, no statics, no forwarder; 6 production call
+  sites re-pointed). `RecordingStore` 10,008 -> 9,768 lines, 340 -> 328 methods; co-change
+  with `ParsekScenario.cs` still 163. Knot 457 -> 458 and cut residue 282 -> 284: the new type
+  keeps the `RecordingOptimizer` edge the `RecordingStore` cut used to drop.
+
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
@@ -2862,6 +2870,16 @@ calls directly. One service per PR; the co-change with `ParsekScenario.cs` is th
   - PR 1 (measurement): the two nested types the scanner misread renamed
     (`CareerSettingsLock.LockDecision`, `ProducerSliceBook.HeldSlice`; see
     ARCH-TOOLING-ROSLYN-AND-CI). Ghost -> GameActions 17 -> 1; upward edges 85 (weight 826).
+  - PR 2 (placement, `modules.toml` only): `TrackSection.cs` (TrackSection, ReferenceFrame,
+    SegmentEnvironment, TrackSectionSource; it references only TrajectoryPoint and
+    OrbitSegment) and `TerminalState.cs` (references nothing) move from Recording to
+    Trajectory by one R0 rule ("trajectory data vocabulary"); TerminalState's old R2 rule is
+    dropped. Trajectory -> Recording 10 -> 1 (only `TrajectoryMath.ComputeStats`, PR 3), Core
+    -> Recording 30 -> 23; Trajectory 16 -> 18 files, instability 0.063 -> 0.024; Recording
+    0.249 -> 0.322, just past GameActions (0.321) and Crew, so two pairs flip reading
+    (GameActions -> Recording 37 and Crew -> Recording 6 are now upward; Recording ->
+    GameActions 15 and Recording -> Crew 3 stop being). Ordering, not new coupling: upward
+    edges stay 85, weight 826 -> 835. Knots unchanged.
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;

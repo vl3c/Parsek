@@ -320,7 +320,7 @@ namespace Parsek
                 // toggles below so all four hide and restore identically.
                 RecordingStore.SetRecordingPlaybackEnabled(rec, enabled);
                 ParsekLog.Info("UI", $"Recording '{rec.VesselName}' playback {(enabled ? "enabled" : "disabled")}" +
-                    (!string.IsNullOrEmpty(rec.SegmentPhase) ? $" (segment: {RecordingStore.GetSegmentPhaseLabel(rec)})" : ""));
+                    (!string.IsNullOrEmpty(rec.SegmentPhase) ? $" (segment: {RecordingSegmentLabels.GetSegmentPhaseLabel(rec)})" : ""));
             }
 
             // #
@@ -337,7 +337,7 @@ namespace Parsek
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowName");
 
             // Phase label
-            string phaseLabel = RecordingStore.GetSegmentPhaseLabel(rec);
+            string phaseLabel = RecordingSegmentLabels.GetSegmentPhaseLabel(rec);
             if (!string.IsNullOrEmpty(phaseLabel))
             {
                 GUIStyle phaseStyle;
