@@ -2666,7 +2666,7 @@ namespace Parsek
         /// every recording in the active tree is idle-on-pad (max
         /// distance from launch &lt; pad-localized threshold) computed
         /// from live data via
-        /// <see cref="VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(Recording)"/>,
+        /// <see cref="LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(Recording)"/>,
         /// which reads the body-fixed surface of an Absolute section
         /// (<c>frames</c>) and of a Relative section (<c>bodyFixedFrames</c>)
         /// and never a Relative section's anchor-local <c>frames</c>.
@@ -2675,7 +2675,7 @@ namespace Parsek
         /// <see cref="FlushRecorderIntoActiveTreeForSerialization"/> first
         /// so the live recorder's <c>Recording</c> + open
         /// <c>TrackSections</c> become populated on the tree recordings
-        /// (<see cref="VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(Recording)"/>
+        /// (<see cref="LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(Recording)"/>
         /// reads <c>rec.TrackSections</c> only). Without this, atmospheric
         /// flights that haven't crossed an env boundary or saved yet have
         /// empty <c>TrackSections</c> and the helper would falsely report
@@ -2726,7 +2726,7 @@ namespace Parsek
             foreach (var rec in activeTree.Recordings.Values)
             {
                 if (rec == null) continue;
-                VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
+                LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
                 if (rec.Points != null && rec.Points.Count > 0)
                     anyHasPoints = true;
                 if (!IsIdleOnPad(rec))
@@ -6171,7 +6171,7 @@ namespace Parsek
         /// resolves but BOTH disjuncts fail: no usable pre-couple snapshot (KSP already
         /// reparented <c>data.from.vessel</c> onto <c>data.to.vessel</c> — the retroactive
         /// path's own §5.1 note — or the partner has no parts, or
-        /// <c>VesselSpawner.TryBackupSnapshot</c> returned null) AND
+        /// <c>LiveVesselSnapshot.TryBackupSnapshot</c> returned null) AND
         /// <c>IsKnownDockPartnerForRoute</c> finds nothing, since it compares ONLY against
         /// <see cref="Recording.VesselPersistentId"/> and a Parsek-spawned vessel is live
         /// under its KSP-unique <c>SpawnedVesselPersistentId</c>. That narrow set is
@@ -6300,7 +6300,7 @@ namespace Parsek
                 return false;
             }
 
-            VesselSpawner.TryGetSnapshotReferenceBodyName(snapshot, out string bodyName);
+            LiveVesselSnapshot.TryGetSnapshotReferenceBodyName(snapshot, out string bodyName);
 
             // Same stamp from the SNAPSHOT path: the background parent's own VESSEL node is
             // a pre-couple record of the endpoint, so its `root` index names the launch-unique
@@ -6482,8 +6482,8 @@ namespace Parsek
             }
 
             // Take snapshots for both child vessels
-            ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
-            ConfigNode bgSnapshot = VesselSpawner.TryBackupSnapshot(backgroundVessel);
+            ConfigNode activeSnapshot = LiveVesselSnapshot.TryBackupSnapshot(activeVessel);
+            ConfigNode bgSnapshot = LiveVesselSnapshot.TryBackupSnapshot(backgroundVessel);
 
             // BOTH ROUTE CONSUMERS BELOW ARE UNDOCK-ONLY, AND THAT IS THE CONTRACT.
             // A joint break, a stack decoupler or a radial decoupler also reaches
@@ -6801,8 +6801,8 @@ namespace Parsek
                 return;
             }
 
-            ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
-            ConfigNode bgSnapshot = VesselSpawner.TryBackupSnapshot(backgroundVessel);
+            ConfigNode activeSnapshot = LiveVesselSnapshot.TryBackupSnapshot(activeVessel);
+            ConfigNode bgSnapshot = LiveVesselSnapshot.TryBackupSnapshot(backgroundVessel);
             int parentGen = parentRecording.Generation;
 
             var (bp, activeChild, bgChild) = BuildSplitBranchData(
@@ -7187,7 +7187,7 @@ namespace Parsek
             Vessel partnerVessel = FlightRecorder.FindVesselByPid(partnerPid);
             if (partnerVessel != null)
             {
-                ConfigNode partnerSnapshot = VesselSpawner.TryBackupSnapshot(partnerVessel);
+                ConfigNode partnerSnapshot = LiveVesselSnapshot.TryBackupSnapshot(partnerVessel);
                 if (partnerSnapshot != null)
                 {
                     List<uint> pids = VesselSnapshotOps.CollectPartPersistentIds(partnerSnapshot);
@@ -7345,7 +7345,7 @@ namespace Parsek
 
             // 6. Take snapshot of merged vessel
             ConfigNode mergedSnapshot = (mergedVessel != null)
-                ? VesselSpawner.TryBackupSnapshot(mergedVessel) : null;
+                ? LiveVesselSnapshot.TryBackupSnapshot(mergedVessel) : null;
             mergedChild.GhostVisualSnapshot = mergedSnapshot;
             mergedChild.VesselSnapshot = mergedSnapshot != null ? mergedSnapshot.CreateCopy() : null;
 
@@ -8298,7 +8298,7 @@ namespace Parsek
                         string trajectoryPointSource = "none";
                         Vessel childVessel = FlightRecorder.FindVesselByPid(newPid);
                         if (childVessel != null)
-                            preSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
+                            preSnapshot = LiveVesselSnapshot.TryBackupSnapshot(childVessel);
                         TrajectoryPoint capturedPoint = default;
                         bool hasCapturedPoint = decoupleCreatedTrajectoryPoints != null
                             && decoupleCreatedTrajectoryPoints.TryGetValue(newPid, out capturedPoint);
@@ -8695,7 +8695,7 @@ namespace Parsek
 
             if (vessel != null)
             {
-                ConfigNode liveSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+                ConfigNode liveSnapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
                 SeedBreakupChildSnapshots(childRec, pid, liveSnapshot, fallbackSnapshot);
             }
             else if (fallbackSnapshot != null)
@@ -9018,7 +9018,7 @@ namespace Parsek
                 : FlightRecorder.FindVesselByPid(parentVesselPid);
             if (parentVessel != null && parentVessel.persistentId == activeRec.VesselPersistentId)
             {
-                var snap = VesselSpawner.TryBackupSnapshot(parentVessel);
+                var snap = LiveVesselSnapshot.TryBackupSnapshot(parentVessel);
                 if (snap != null)
                     activeRec.VesselSnapshot = snap;
                 ParsekLog.Info("Coalescer",
@@ -11401,7 +11401,7 @@ namespace Parsek
             if (state == null || v == null)
                 return false;
 
-            ConfigNode vesselSnapshot = VesselSpawner.TryBackupSnapshot(v);
+            ConfigNode vesselSnapshot = LiveVesselSnapshot.TryBackupSnapshot(v);
             state.BaselineCaptured = true;
             state.BaselineCapturedUt = currentUT;
             state.ComparisonsReadyUt =
@@ -11750,7 +11750,7 @@ namespace Parsek
             partStateChanged = false;
             if (evaluateManifestDiff)
             {
-                ConfigNode currentSnapshot = VesselSpawner.TryBackupSnapshot(v);
+                ConfigNode currentSnapshot = LiveVesselSnapshot.TryBackupSnapshot(v);
                 var currentCrew = VesselSpawner.ExtractCrewManifest(currentSnapshot);
                 var crewDelta = CrewManifest.ComputeCrewDelta(state.BaselineCrew, currentCrew);
                 int crewDeltaKeys = CountMeaningfulCrewDelta(crewDelta);
@@ -11858,7 +11858,7 @@ namespace Parsek
                 Controllers = ControllerInfo.CaptureFromVessel(v)
             };
 
-            ConfigNode startSnapshot = VesselSpawner.TryBackupSnapshot(v);
+            ConfigNode startSnapshot = LiveVesselSnapshot.TryBackupSnapshot(v);
             if (startSnapshot != null)
                 recording.GhostVisualSnapshot = startSnapshot;
 
@@ -12502,7 +12502,7 @@ namespace Parsek
 
                     if (partner != null && partner.parts != null && partner.parts.Count > 0)
                     {
-                        pendingDockPartnerSnapshot = VesselSpawner.TryBackupSnapshot(partner);
+                        pendingDockPartnerSnapshot = LiveVesselSnapshot.TryBackupSnapshot(partner);
                         pendingDockPartnerSnapshotPid = partner.persistentId;
                         ParsekLog.Verbose("Flight",
                             $"OnPartCouple: captured pre-couple partner snapshot " +
@@ -12514,7 +12514,7 @@ namespace Parsek
                     Vessel self = ResolveSelfVessel(data, recorder.RecordingVesselId);
                     if (self != null && self.parts != null && self.parts.Count > 0)
                     {
-                        pendingDockSelfSnapshot = VesselSpawner.TryBackupSnapshot(self);
+                        pendingDockSelfSnapshot = LiveVesselSnapshot.TryBackupSnapshot(self);
                         pendingDockSelfSnapshotPid = self.persistentId;
                         ParsekLog.Verbose("Flight",
                             $"OnPartCouple: captured pre-couple self snapshot " +
@@ -12669,7 +12669,7 @@ namespace Parsek
                             : (data.to.vessel.persistentId != absorbedPid ? data.to.vessel : null);
                         if (partnerR != null && partnerR.parts != null && partnerR.parts.Count > 0)
                         {
-                            pendingDockPartnerSnapshot = VesselSpawner.TryBackupSnapshot(partnerR);
+                            pendingDockPartnerSnapshot = LiveVesselSnapshot.TryBackupSnapshot(partnerR);
                             pendingDockPartnerSnapshotPid = partnerR.persistentId;
                             ParsekLog.Verbose("Flight",
                                 $"OnPartCouple (retroactive): captured pre-couple partner snapshot " +
@@ -12683,7 +12683,7 @@ namespace Parsek
                         Vessel selfR = ResolveSelfVessel(data, recorder.RecordingVesselId);
                         if (selfR != null && selfR.parts != null && selfR.parts.Count > 0)
                         {
-                            pendingDockSelfSnapshot = VesselSpawner.TryBackupSnapshot(selfR);
+                            pendingDockSelfSnapshot = LiveVesselSnapshot.TryBackupSnapshot(selfR);
                             pendingDockSelfSnapshotPid = selfR.persistentId;
                             ParsekLog.Verbose("Flight",
                                 $"OnPartCouple (retroactive): captured pre-couple self snapshot " +
@@ -14903,7 +14903,7 @@ namespace Parsek
                 // time and may reflect a reduced part count.
                 if (FlightGlobals.ActiveVessel != null)
                 {
-                    var startSnap = VesselSpawner.TryBackupSnapshot(FlightGlobals.ActiveVessel);
+                    var startSnap = LiveVesselSnapshot.TryBackupSnapshot(FlightGlobals.ActiveVessel);
                     if (startSnap != null)
                         rootRec.GhostVisualSnapshot = startSnap;
                 }
@@ -16486,7 +16486,7 @@ namespace Parsek
                 Vessel v = FlightRecorder.FindVesselByPid(rec.VesselPersistentId);
                 if (v != null && rec.VesselSnapshot == null)
                 {
-                    ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(v);
+                    ConfigNode freshSnapshot = LiveVesselSnapshot.TryBackupSnapshot(v);
                     if (freshSnapshot != null)
                     {
                         rec.VesselSnapshot = freshSnapshot;
@@ -18702,7 +18702,7 @@ namespace Parsek
                 return false;
 
             var ts = rec.TerminalStateValue.Value;
-            ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            ConfigNode freshSnapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
             if (freshSnapshot == null)
             {
                 ParsekLog.Verbose("Flight",
@@ -18739,7 +18739,7 @@ namespace Parsek
             TerminalState terminalState,
             CelestialBody body = null)
         {
-            return VesselSpawner.NormalizeStableSnapshotForPersistence(
+            return LiveVesselSnapshot.NormalizeStableSnapshotForPersistence(
                 freshSnapshot,
                 terminalState,
                 body,

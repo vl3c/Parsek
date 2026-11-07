@@ -1444,14 +1444,14 @@ namespace Parsek
                 // frame is the authoritative start.
                 var firstPt = ResolveSecondHalfStartPoint(second);
                 second.StartBodyName = firstPt.bodyName;
-                second.StartBiome = VesselSpawner.TryResolveBiome(firstPt.bodyName, firstPt.latitude, firstPt.longitude);
+                second.StartBiome = LiveVesselSnapshot.TryResolveBiome(firstPt.bodyName, firstPt.latitude, firstPt.longitude);
                 // StartSituation left null — ambiguous from environment alone
             }
 
             if (original.Points.Count > 0)
             {
                 var lastPt = original.Points[original.Points.Count - 1];
-                original.EndBiome = VesselSpawner.TryResolveBiome(lastPt.bodyName, lastPt.latitude, lastPt.longitude);
+                original.EndBiome = LiveVesselSnapshot.TryResolveBiome(lastPt.bodyName, lastPt.latitude, lastPt.longitude);
             }
 
             // 10. Transfer terminal-state fields to second half (represents end-of-recording state)

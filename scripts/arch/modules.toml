@@ -255,6 +255,14 @@ name = "Recording"
 prefix = "^SceneEntryVesselScope[.]cs$"
 placement = "R0"
 
+# live vessel capture at recorder stop and split time (TryBackupSnapshot, SnapshotVessel),
+# the body-name / body-index registry the snapshots read, and the max-distance family;
+# moved out of VesselSpawner by file-placement PR 8 (2026-11-06)
+[[module]]
+name = "Recording"
+prefix = "^LiveVesselSnapshot[.]cs$"
+placement = "R0"
+
 [[module]]
 name = "Missions"
 prefix = "^Mission"

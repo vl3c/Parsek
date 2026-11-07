@@ -3276,12 +3276,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # 2026-11-06 plan moves into its own type adds that type when it still
         # sits on a cycle: 458 after RecordingSegmentLabels (PR1, it calls
         # RecordingOptimizer), 459 after RecordingChainQueries (PR4), 460 after
-        # RewindSpawnScope (PR5), 461 after RecordingFileJanitor (PR6). It was [301, 7, 4, 2, 2] on 2026-09-25,
+        # RewindSpawnScope (PR5), 461 after RecordingFileJanitor (PR6). File-placement
+        # PR 8 splits LiveVesselSnapshot out of VesselSpawner: both halves sit on a
+        # cycle (TryBackupSnapshot reverse-maps crew names through KerbalsModule),
+        # so the knot gains that one type and no reference: 462. It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [461, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [462, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3348,14 +3351,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
         self.assertIn("| Core |", fresh)
-        # 197: the historical before-state collects every root file the narrowed
+        # 198: the historical before-state collects every root file the narrowed
         # family rules leave behind (138 on 2026-09-25, 126 before the stock-UI
         # reservation files landed at the root; the 2026-11-01 refresh placed
         # 50 more by hand, the first 2026-11-04 merge of main three more, the
         # second two more while main deleted one, and the RecordingStore
         # services plan's SceneEntryVesselScope, which no family prefix names,
-        # one more); 9 after, the kernel list as it stands today.
-        self.assertIn("| Core | 197 | 9 |", fresh)
+        # one more, and file-placement PR 8's LiveVesselSnapshot one more); 9
+        # after, the kernel list as it stands today.
+        self.assertIn("| Core | 198 | 9 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -3397,8 +3401,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # second. Same canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
         self.assertEqual(first["sink"], "Route")
-        self.assertEqual(first["sizeBefore"], 461)
-        self.assertEqual(first["sizeAfter"], 443)
+        self.assertEqual(first["sizeBefore"], 462)
+        self.assertEqual(first["sizeAfter"], 444)
         self.assertEqual(
             first["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
@@ -3408,9 +3412,10 @@ class RealTreeSmokeTests(unittest.TestCase):
         # VesselNameStore references) beat the flight controller for second
         # place (426 before). The residue ratchet below is immune to this reorder.
         # File-placement PR 5 (2026-11-07) deleted the Ghost -> GameActions call,
-        # which tightened this cut by one (426 before).
+        # which tightened this cut by one (426 before); PR 8's LiveVesselSnapshot
+        # is one more knot member on the uncut side (425 before).
         self.assertEqual(second["sink"], "VesselLaunchIdentity")
-        self.assertEqual(second["sizeAfter"], 425)
+        self.assertEqual(second["sizeAfter"], 426)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3433,7 +3438,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # the value pinned here (still 287 of 459 after PR4's
         # RecordingChainQueries, which the RecordingStore cut drops with it, and
         # 287 of 460 after PR5's RewindSpawnScope and of 461 after PR6's
-        # RecordingFileJanitor).
+        # RecordingFileJanitor). File-placement PR 8 splits LiveVesselSnapshot
+        # out of VesselSpawner, a residue member; the new type keeps the
+        # KerbalsModule crew-name call VesselSpawner already made, so it stays in
+        # the residue as one more node with no new reference: 288 of 462, the
+        # value pinned here.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which
@@ -3450,7 +3459,7 @@ class RealTreeSmokeTests(unittest.TestCase):
         largest = self.model["knots"][0]
         graph = {entry["name"]: entry["referencesTo"] for entry in self.model["types"]}
         replayed = archview.replay_cut_residue(graph, RATCHET_CUT_ORDER)
-        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 287)
+        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 288)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

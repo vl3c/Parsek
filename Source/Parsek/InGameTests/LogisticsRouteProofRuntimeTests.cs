@@ -293,7 +293,7 @@ namespace Parsek.InGameTests
                 return false;
             }
 
-            ConfigNode beforeSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            ConfigNode beforeSnapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
             if (beforeSnapshot == null)
             {
                 skipReason = "Could not snapshot active vessel before inventory move";
@@ -454,7 +454,7 @@ namespace Parsek.InGameTests
             uint partPersistentId,
             string identityHash)
         {
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            ConfigNode snapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
             if (snapshot == null)
                 return null;
 

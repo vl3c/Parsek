@@ -36,7 +36,7 @@ namespace Parsek.Tests
     {
         private readonly List<string> logLines = new List<string>();
         private readonly CultureInfo originalCulture;
-        private readonly VesselSpawner.ResolveBodyByNameDelegate originalBodyResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyByNameDelegate originalBodyResolver;
         private readonly bool originalSuppressLogging;
 
         // Yaw +90 deg about world Y. Stands in for "the body has rotated under the vessel".
@@ -52,7 +52,7 @@ namespace Parsek.Tests
         {
             originalCulture = Thread.CurrentThread.CurrentCulture;
             Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
-            originalBodyResolver = VesselSpawner.BodyResolverForTesting;
+            originalBodyResolver = LiveVesselSnapshot.BodyResolverForTesting;
             originalSuppressLogging = RecordingStore.SuppressLogging;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
@@ -64,7 +64,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            VesselSpawner.BodyResolverForTesting = originalBodyResolver;
+            LiveVesselSnapshot.BodyResolverForTesting = originalBodyResolver;
             ParsekLog.ResetTestOverrides();
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = originalSuppressLogging;
@@ -429,7 +429,7 @@ namespace Parsek.Tests
         [Fact]
         public void TryResolvePreferredSpawnRotation_UnresolvableBody_KeepsSurfaceRelativeAndNullsBodyRotation()
         {
-            VesselSpawner.BodyResolverForTesting = (string name, out CelestialBody body) =>
+            LiveVesselSnapshot.BodyResolverForTesting = (string name, out CelestialBody body) =>
             {
                 body = null;
                 return false;
@@ -479,7 +479,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyResolvedSpawnStateToSnapshot_LandedRecording_WritesRawSurfaceRelativeRot()
         {
-            VesselSpawner.BodyResolverForTesting = (string name, out CelestialBody body) =>
+            LiveVesselSnapshot.BodyResolverForTesting = (string name, out CelestialBody body) =>
             {
                 body = null;
                 return false;

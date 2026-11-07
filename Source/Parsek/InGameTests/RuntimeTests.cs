@@ -347,7 +347,7 @@ namespace Parsek.InGameTests
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("name", token);
-            VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot);
+            LiveVesselSnapshot.ResolveLocalizedVesselNameInSnapshot(snapshot);
             InGameAssert.AreEqual(expected, snapshot.GetValue("name"));
             InGameAssert.IsTrue(snapshot.GetValue("name") != token,
                 $"Snapshot retained raw token '{token}'");
@@ -6949,7 +6949,7 @@ namespace Parsek.InGameTests
             if (vessel == null)
                 InGameAssert.Skip("No active vessel");
 
-            ConfigNode recordedStartSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            ConfigNode recordedStartSnapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
             int recordedStartParts = CountPartNodes(recordedStartSnapshot);
             if (recordedStartParts == 0)
                 InGameAssert.Skip("Active vessel backup snapshot has no PART nodes");
@@ -12104,7 +12104,7 @@ namespace Parsek.InGameTests
 
             try
             {
-                ConfigNode donor = Parsek.VesselSpawner.TryBackupSnapshot(active);
+                ConfigNode donor = Parsek.LiveVesselSnapshot.TryBackupSnapshot(active);
                 if (donor == null)
                 {
                     InGameAssert.Skip("TryBackupSnapshot of the active vessel returned null; cannot build a donor");
@@ -12542,7 +12542,7 @@ namespace Parsek.InGameTests
             {
                 // The spawned vessel is an uncrewed copy of the active vessel: real parts, real
                 // bounds, nobody aboard to duplicate.
-                ConfigNode donor = Parsek.VesselSpawner.TryBackupSnapshot(activeVessel);
+                ConfigNode donor = Parsek.LiveVesselSnapshot.TryBackupSnapshot(activeVessel);
                 if (donor == null)
                 {
                     InGameAssert.Skip("TryBackupSnapshot of the active vessel returned null");
@@ -16070,7 +16070,7 @@ namespace Parsek.InGameTests
             InGameAssert.IsNotNull(vessel, "No active vessel in flight");
 
             // Take snapshot (same path as recording system)
-            var snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            var snapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
             InGameAssert.IsNotNull(snapshot, "Failed to snapshot active vessel");
 
             // Extract resource manifest
@@ -16250,7 +16250,7 @@ namespace Parsek.InGameTests
                 return false;
             }
 
-            ConfigNode sourceSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
+            ConfigNode sourceSnapshot = LiveVesselSnapshot.TryBackupSnapshot(activeVessel);
             if (sourceSnapshot == null)
             {
                 skipReason = "failed to snapshot active vessel";

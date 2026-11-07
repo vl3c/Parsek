@@ -465,7 +465,7 @@ namespace Parsek
             // DELIBERATE SCOPE BOUNDARY: an ABSENT or unrecognised `sit` is left on
             // today's behaviour (allowed) rather than tightened to "reject on no
             // evidence". Every real snapshot carries the field — they are written by
-            // VesselSpawner.TryBackupSnapshot -> ProtoVessel.Save — so the population
+            // LiveVesselSnapshot.TryBackupSnapshot -> ProtoVessel.Save — so the population
             // without one is synthetic test fixtures, of which 16 cells across 5 files
             // pin the current answer, `MergeDialogVesselTests.CanPersistVessel_-
             // NullTerminalState_ReturnsTrue` by name. Tightening it is a separable
