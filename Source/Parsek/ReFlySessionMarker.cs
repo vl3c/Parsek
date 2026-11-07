@@ -130,7 +130,7 @@ namespace Parsek
         /// (<c>ParsekFlight.RestoreReFlyInvokeHoldsFromMarker</c>). Stored as
         /// <see cref="ReFlyInvokeHold.EntryNodeName"/> children; empty when nothing was held.
         /// </summary>
-        internal List<ReFlyInvokeHold.Entry> InvokeHolds = new List<ReFlyInvokeHold.Entry>();
+        internal List<ReFlyHoldEntry> InvokeHolds = new List<ReFlyHoldEntry>();
 
         /// <summary>
         /// True only on a marker read back by <see cref="LoadFrom"/>; never saved. The invoke
@@ -277,7 +277,7 @@ namespace Parsek
             {
                 for (int i = 0; i < holds.Length; i++)
                 {
-                    ReFlyInvokeHold.Entry entry = ReFlyInvokeHold.LoadEntry(holds[i]);
+                    ReFlyHoldEntry entry = ReFlyInvokeHold.LoadEntry(holds[i]);
                     if (entry != null)
                         m.InvokeHolds.Add(entry);
                 }

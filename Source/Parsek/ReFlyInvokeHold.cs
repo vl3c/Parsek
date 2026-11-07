@@ -46,7 +46,7 @@ namespace Parsek
         internal const string EvidenceFlies = "flies";
         internal const string EvidenceChanges = "changes";
 
-        /// <summary>Child node of the session marker holding one <see cref="Entry"/>.</summary>
+        /// <summary>Child node of the session marker holding one <see cref="ReFlyHoldEntry"/>.</summary>
         internal const string EntryNodeName = "INVOKE_HOLD";
 
         /// <summary>
@@ -62,28 +62,6 @@ namespace Parsek
             public string Kind;
         }
 
-        /// <summary>One survivor the committed future uses.</summary>
-        internal sealed class Entry
-        {
-            public uint Pid;
-            public string LaunchGuid;
-
-            /// <summary>The committed recording whose future use decided the hold (the earliest claim).</summary>
-            public string RecordingId;
-
-            /// <summary>UT of the first committed use after the rewind UT: the hold ghost shows until then.</summary>
-            public double FirstClaimUT;
-
-            /// <summary><see cref="EvidenceRecovery"/>, <see cref="EvidenceFlies"/> or <see cref="EvidenceChanges"/>.</summary>
-            public string Evidence;
-
-            /// <summary>
-            /// Recordings of this launch with trajectory after the rewind UT: their end spawn
-            /// claim on the held pid is released, so the vessel comes back at their end.
-            /// </summary>
-            public List<string> FlyingRecordingIds = new List<string>();
-        }
-
         /// <summary>
         /// Pure: the survivors the committed future uses after <paramref name="rewindUT"/>.
         /// <paramref name="excludedPids"/> are never held (the re-flown vessel, the stripped
@@ -94,7 +72,7 @@ namespace Parsek
         /// earliest recovery UT). <paramref name="matchedWithoutFuture"/> counts survivors that
         /// matched a recording with neither.
         /// </summary>
-        internal static List<Entry> Classify(
+        internal static List<ReFlyHoldEntry> Classify(
             IReadOnlyList<(uint pid, string guid)> survivors,
             ICollection<uint> excludedPids,
             IReadOnlyList<Recording> committedRecordings,
@@ -112,7 +90,7 @@ namespace Parsek
         /// after the rewind UT names (pid equal, launch guids known and equal) is held with
         /// <see cref="EvidenceChanges"/> until the claim's UT, unless an earlier use decides it.
         /// </summary>
-        internal static List<Entry> Classify(
+        internal static List<ReFlyHoldEntry> Classify(
             IReadOnlyList<(uint pid, string guid)> survivors,
             ICollection<uint> excludedPids,
             IReadOnlyList<Recording> committedRecordings,
@@ -132,7 +110,7 @@ namespace Parsek
         /// neither ghost nor spawn the vessel back) decides nothing and is counted in
         /// <paramref name="fliesNotReplayed"/>. A null filter keeps every use.
         /// </summary>
-        internal static List<Entry> Classify(
+        internal static List<ReFlyHoldEntry> Classify(
             IReadOnlyList<(uint pid, string guid)> survivors,
             ICollection<uint> excludedPids,
             IReadOnlyList<Recording> committedRecordings,
@@ -145,7 +123,7 @@ namespace Parsek
         {
             matchedWithoutFuture = 0;
             fliesNotReplayed = 0;
-            var result = new List<Entry>();
+            var result = new List<ReFlyHoldEntry>();
             if (survivors == null || survivors.Count == 0) return result;
             bool hasRecordings = committedRecordings != null && committedRecordings.Count > 0;
             bool hasClaims = changeClaims != null && changeClaims.Count > 0;
@@ -160,7 +138,7 @@ namespace Parsek
                 if (pid == 0u || !seen.Add(pid)) continue;
                 if (excludedPids != null && excludedPids.Contains(pid)) continue;
 
-                Entry entry = null;
+                ReFlyHoldEntry entry = null;
                 bool matched = false;
                 for (int r = 0; hasRecordings && r < committedRecordings.Count; r++)
                 {
@@ -180,7 +158,7 @@ namespace Parsek
                     }
 
                     if (entry == null)
-                        entry = new Entry { Pid = pid, LaunchGuid = guid, FirstClaimUT = double.PositiveInfinity };
+                        entry = new ReFlyHoldEntry { Pid = pid, LaunchGuid = guid, FirstClaimUT = double.PositiveInfinity };
                     if (evidence == EvidenceFlies)
                         entry.FlyingRecordingIds.Add(rec.RecordingId);
                     if (claimUT < entry.FirstClaimUT)
@@ -199,7 +177,7 @@ namespace Parsek
                     matched = true;
                     if (double.IsNaN(claim.UT) || claim.UT <= rewindUT) continue;
                     if (entry == null)
-                        entry = new Entry { Pid = pid, LaunchGuid = guid, FirstClaimUT = double.PositiveInfinity };
+                        entry = new ReFlyHoldEntry { Pid = pid, LaunchGuid = guid, FirstClaimUT = double.PositiveInfinity };
                     if (claim.UT < entry.FirstClaimUT)
                     {
                         entry.FirstClaimUT = claim.UT;
@@ -277,7 +255,7 @@ namespace Parsek
         }
 
         /// <summary>Writes <paramref name="entry"/> as an <see cref="EntryNodeName"/> child of <paramref name="parent"/>.</summary>
-        internal static void SaveEntry(ConfigNode parent, Entry entry)
+        internal static void SaveEntry(ConfigNode parent, ReFlyHoldEntry entry)
         {
             if (parent == null || entry == null || entry.Pid == 0u) return;
             var ic = CultureInfo.InvariantCulture;
@@ -301,7 +279,7 @@ namespace Parsek
         }
 
         /// <summary>Reads one <see cref="EntryNodeName"/> node; null when it names no vessel or no claim UT.</summary>
-        internal static Entry LoadEntry(ConfigNode node)
+        internal static ReFlyHoldEntry LoadEntry(ConfigNode node)
         {
             if (node == null) return null;
             var ic = CultureInfo.InvariantCulture;
@@ -312,7 +290,7 @@ namespace Parsek
             if (!double.TryParse(node.GetValue("firstClaimUT"), NumberStyles.Float, ic, out firstClaimUT)
                 || double.IsNaN(firstClaimUT))
                 return null;
-            var entry = new Entry
+            var entry = new ReFlyHoldEntry
             {
                 Pid = pid,
                 LaunchGuid = NullIfEmpty(node.GetValue("launchGuid")),
@@ -368,7 +346,7 @@ namespace Parsek
         /// the rewind point's save has no copy, else <c>restore</c>.
         /// </summary>
         internal static string DecideReloadAction(
-            Entry entry, double currentUT, bool alreadyGhosted, bool live, string liveGuid,
+            ReFlyHoldEntry entry, double currentUT, bool alreadyGhosted, bool live, string liveGuid,
             bool hasRewindSaveCopy)
         {
             if (entry == null || entry.Pid == 0u) return "invalid";
@@ -425,5 +403,31 @@ namespace Parsek
             evidence = EvidenceRecovery;
             return true;
         }
+    }
+
+    /// <summary>
+    /// One survivor the committed future uses: the hold decision of a Re-Fly invoke
+    /// (<see cref="ReFlyInvokeHold"/>) and of a plain rewind (<see cref="RewindVesselHold"/>).
+    /// Plain data, so a hold that carries one does not reference the classifier.
+    /// </summary>
+    internal sealed class ReFlyHoldEntry
+    {
+        public uint Pid;
+        public string LaunchGuid;
+
+        /// <summary>The committed recording whose future use decided the hold (the earliest claim).</summary>
+        public string RecordingId;
+
+        /// <summary>UT of the first committed use after the rewind UT: the hold ghost shows until then.</summary>
+        public double FirstClaimUT;
+
+        /// <summary><see cref="ReFlyInvokeHold.EvidenceRecovery"/>, <see cref="ReFlyInvokeHold.EvidenceFlies"/> or <see cref="ReFlyInvokeHold.EvidenceChanges"/>.</summary>
+        public string Evidence;
+
+        /// <summary>
+        /// Recordings of this launch with trajectory after the rewind UT: their end spawn
+        /// claim on the held pid is released, so the vessel comes back at their end.
+        /// </summary>
+        public List<string> FlyingRecordingIds = new List<string>();
     }
 }
