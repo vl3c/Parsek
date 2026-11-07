@@ -137,28 +137,9 @@ namespace Parsek
             for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
             {
                 Recording prior = RecordingStore.CommittedRecordings[i];
-                if (prior == null || string.IsNullOrEmpty(prior.RecordingId))
-                    continue;
-                if (string.Equals(prior.RecordingId, mergedContinuationRecordingId,
-                        StringComparison.Ordinal))
-                    continue;
-                if (!string.IsNullOrEmpty(prior.TerminalSpawnSupersededByRecordingId))
-                    continue;
-
-                bool uniqueSpawnMatch = prior.SpawnedVesselPersistentId != 0
-                    && prior.SpawnedVesselPersistentId == absorbedPid
-                    && prior.SpawnedVesselPersistentId != prior.VesselPersistentId;
-                bool bakedPidMatch = prior.VesselPersistentId != 0
-                    && prior.VesselPersistentId == absorbedPid;
-                if (!uniqueSpawnMatch && !bakedPidMatch)
-                    continue;
-
-                // Guid-gate the craft-baked-pid identity (reusable across relaunches of the
-                // same craft); a unique spawn pid cannot collide so it stays pid-only. A
-                // null/unknown guid is not conclusive -> falls back to pid-only.
-                if (!uniqueSpawnMatch
-                    && VesselLaunchIdentity.GuidsConclusivelyDiffer(
-                        prior.RecordedVesselGuid, absorbedLaunchGuid))
+                if (!IsDockMergeAbsorbedLeaf(
+                        prior, absorbedPid, absorbedLaunchGuid, mergedContinuationRecordingId,
+                        out bool uniqueSpawnMatch))
                     continue;
 
                 prior.TerminalSpawnSupersededByRecordingId = mergedContinuationRecordingId;
@@ -186,7 +167,48 @@ namespace Parsek
             return marked;
         }
 
-        private static bool ShouldMarkSupersededTerminalSpawn(
+        /// <summary>
+        /// The identity test of <see cref="MarkTerminalSpawnSupersededByDockMerge"/> for one
+        /// committed recording: it has an id, is not the merged continuation, is not already
+        /// superseded, and its terminal spawn is the absorbed vessel - by a unique spawn pid
+        /// (pid-only, <paramref name="uniqueSpawnMatch"/> true) or by the craft-baked recorded
+        /// pid, which a launch guid that conclusively differs rejects. Pure.
+        /// </summary>
+        internal static bool IsDockMergeAbsorbedLeaf(
+            Recording prior,
+            uint absorbedPid,
+            string absorbedLaunchGuid,
+            string mergedContinuationRecordingId,
+            out bool uniqueSpawnMatch)
+        {
+            uniqueSpawnMatch = false;
+            if (prior == null || string.IsNullOrEmpty(prior.RecordingId))
+                return false;
+            if (string.Equals(prior.RecordingId, mergedContinuationRecordingId,
+                    StringComparison.Ordinal))
+                return false;
+            if (!string.IsNullOrEmpty(prior.TerminalSpawnSupersededByRecordingId))
+                return false;
+
+            uniqueSpawnMatch = prior.SpawnedVesselPersistentId != 0
+                && prior.SpawnedVesselPersistentId == absorbedPid
+                && prior.SpawnedVesselPersistentId != prior.VesselPersistentId;
+            bool bakedPidMatch = prior.VesselPersistentId != 0
+                && prior.VesselPersistentId == absorbedPid;
+            if (!uniqueSpawnMatch && !bakedPidMatch)
+                return false;
+
+            // Guid-gate the craft-baked-pid identity (reusable across relaunches of the
+            // same craft); a unique spawn pid cannot collide so it stays pid-only. A
+            // null/unknown guid is not conclusive -> falls back to pid-only.
+            if (!uniqueSpawnMatch
+                && VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    prior.RecordedVesselGuid, absorbedLaunchGuid))
+                return false;
+            return true;
+        }
+
+        internal static bool ShouldMarkSupersededTerminalSpawn(
             Recording prior,
             Recording continued,
             double continuationTreeStartUT,
@@ -313,7 +335,7 @@ namespace Parsek
 
         internal const double LaterSpawnOwnerEndToleranceSeconds = 1e-3;
 
-        private static double GetTreeStartUT(RecordingTree tree)
+        internal static double GetTreeStartUT(RecordingTree tree)
         {
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return double.NaN;
