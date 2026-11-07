@@ -89,10 +89,10 @@ summary = "Routes between recorded vessels: endpoints, stops, proofs of origin a
 summary = "The ledger: game actions, recalculation, resource modules, KSP state patching, game-state events."
 
 [modules.Trajectory]
-summary = "Pure math over orbits and samples: segments, points, frames, ballistic extrapolation."
+summary = "Pure math over orbits and samples, and the trajectory data vocabulary: segments, points, track sections and their frames, terminal states, ballistic extrapolation."
 
 [modules.Recording]
-summary = "The recording itself: <span class=\"id\">Recording</span>, its tree, track sections, the store, the flight and background recorders, sidecar codecs, the optimizer."
+summary = "The recording itself: <span class=\"id\">Recording</span>, its tree, the store, the flight and background recorders, sidecar codecs, the optimizer."
 
 [modules.Core]
 summary = "The kernel files used across many modules and owned by none: branch points, the playback trajectory interface, launch identity, the spawner, milestone and group stores, inventory manifests."
@@ -177,7 +177,7 @@ meaning = "The kind of ledger row: which economy, roster or facility effect it r
 
 [[upward_readings]]
 edge = "Recording -> Trajectory"
-reading = "Instabilities 0.19 and 0.21: a near tie, not a real inversion. The extrapolator lives in Trajectory but is used by the recorder."
+reading = "Not upward since the 2026-09-14 placements (Trajectory reads near 0.02 since TrackSection and TerminalState joined it on 2026-11-06). The recorder is Trajectory's main client: the extrapolator, the sample math and the section vocabulary."
 
 [[upward_readings]]
 edge = "MapRender -> Ghost"
@@ -201,7 +201,15 @@ reading = "Perfectly symmetric. Either one module, or a cut is needed."
 
 [[upward_readings]]
 edge = "Core -> Recording"
-reading = "The kernel vocabulary reaching up into the model; mostly <span class=\"id\">BranchPoint</span> and the spawner."
+reading = "The kernel vocabulary reaching up into the model; mostly the spawner, then the playback trajectory interface (part and flag events), milestones and launch identity. The section and terminal vocabulary left this edge on 2026-11-06 (now Trajectory)."
+
+[[upward_readings]]
+edge = "GameActions -> Recording"
+reading = "Ordering, not new coupling: upward since 2026-11-06, when moving TrackSection and TerminalState into Trajectory lifted Recording's instability just past the ledger's (both near 0.32). The ledger reads recordings, trees and the store to tag rows; Recording &rarr; GameActions, the lighter reverse, stopped reading upward."
+
+[[upward_readings]]
+edge = "Crew -> Recording"
+reading = "Ordering, like GameActions &rarr; Recording: the crew reservation manager and kerbals module read recordings and snapshots, and the same 2026-11-06 instability shift turned the pair around."
 
 [[reading_order]]
 title = "The floor."
@@ -210,12 +218,12 @@ text = "Hundreds of types sit at this level (the ladder's bottom row); you need 
 
 [[reading_order]]
 title = "Trajectory math."
-types = ["OrbitSegment", "TrajectoryPoint", "TrajectoryMath"]
+types = ["OrbitSegment", "TrajectoryPoint", "TrackSection", "TrajectoryMath"]
 text = "Plus the frame contracts in CLAUDE.md. Pure, testable, and the ground truth for every position on screen."
 
 [[reading_order]]
 title = "The recording model."
-types = ["Recording", "TrackSection", "RecordingTree", "BranchPoint", "VesselSnapshot"]
+types = ["Recording", "RecordingTree", "BranchPoint", "VesselSnapshot"]
 text = "What a flight becomes on disk."
 
 [[reading_order]]
