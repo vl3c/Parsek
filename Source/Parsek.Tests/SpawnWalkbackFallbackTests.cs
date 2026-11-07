@@ -344,7 +344,8 @@ namespace Parsek.Tests
             // Source-text wiring gate (the codebase's wiring-test pattern): the
             // durable-snapshot strip must run in a finally that covers every resolution
             // exit of the spawn attempt, or a dirty sidecar save can persist the stamp.
-            string source = File.ReadAllText(FindSourceFile("VesselSpawner.cs"));
+            string source = VesselSpawnerSourceFiles.ReadAll(
+                Path.GetDirectoryName(FindSourceFile("VesselSpawner.cs")));
             int callIdx = source.IndexOf(
                 "StripDeliberatePositionOverrideStampFromRecording(rec, logContext);",
                 StringComparison.Ordinal);
