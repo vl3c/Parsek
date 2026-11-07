@@ -3,7 +3,7 @@
 # of RecordingStore, GameStateStore, MilestoneStore, GameStateRecorder, LedgerOrchestrator,
 # KspStatePatcher, ParsekScenario, InertRecordingTrees, RewindContext, RewindInvokeContext,
 # RouteRunPrompt, FacilityStatePatcher, RecordingGroupStore, RecordingSidecarStore, RecordingFileJanitor,
-# SceneEntryVesselScope, CommittedTreeRestoreAttempt, PendingTreeSlot and TreeDiscardService must be reset by that helper; SaveScopedSessionResetTests
+# SceneEntryVesselScope, CommittedTreeRestoreAttempt, PendingTreeSlot, TreeDiscardService and RewindCarry must be reset by that helper; SaveScopedSessionResetTests
 # proves each one (set, reset, read) and fails on a field that is on neither side.
 # Format: one `Type.field reason` per line; auto-property backing fields use the property name.
 RecordingStore.ApplicationIsPlayingForTesting test seam

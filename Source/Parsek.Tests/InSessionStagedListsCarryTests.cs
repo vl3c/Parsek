@@ -297,8 +297,8 @@ namespace Parsek.Tests
             var fresh = new ParsekScenario();
             ParsekScenario.SetInstanceForTesting(fresh);
             Invoke(fresh, "LoadRewindStagingState", saved);
-            RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(fresh);
-            RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(fresh);
+            RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(fresh);
+            RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(fresh);
             fresh.ApplyInSessionStagedStateHandoffStepA(early);
             afterStepA?.Invoke(fresh);
             treeRestore?.Invoke();
@@ -1449,7 +1449,7 @@ namespace Parsek.Tests
             var memory = Memory(s => s.RecordingSupersedes.Add(Rel("rel_mem", "o", "n")));
             ConfigNode saved = SaveNode(null);
             RewindContext.BeginRewind(30.0, default(BudgetSummary), 0, 0, 0f);
-            RecordingStore.CaptureRewindStagedListsForRewind(memory, "Rewind");
+            RewindCarry.CaptureRewindStagedListsForRewind(memory, "Rewind");
 
             var loaded = Load(memory, saved, EarlyLoadKind.PlainRewind);
 

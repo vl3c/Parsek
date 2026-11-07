@@ -39,8 +39,8 @@ namespace Parsek.Tests
             int early = IndexOrFail(body, "LoadReconcilePolicy.ClassifyEarly(");
             int describe = IndexOrFail(body, "InSessionStagedStateHandoff.DescribeForClassification()");
             int staging = IndexOrFail(body, "LoadRewindStagingState(node);");
-            int rpCarry = IndexOrFail(body, "RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(");
-            int listCarry = IndexOrFail(body, "RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(");
+            int rpCarry = IndexOrFail(body, "RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(");
+            int listCarry = IndexOrFail(body, "RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(");
             int stepA = IndexOrFail(body, StepA);
             int rewindBranch = IndexOrFail(body, "HandleRewindOnLoad(node, recordings);");
             int externalFiles = IndexOrFail(body, "LoadExternalFiles(node);");

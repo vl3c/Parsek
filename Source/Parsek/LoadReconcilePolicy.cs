@@ -607,7 +607,7 @@ namespace Parsek
                     return Today(LoadReconcileAction.Save, StagingFromNode);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.RewindCarry,
-                        "RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad");
+                        "RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad");
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle, BundleRestores);
                 case LoadKind.DiscardReFly:
@@ -615,7 +615,7 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Memory,
-                        InSessionHandoffInstalls + " (RecordingStore.MergeCarriedStagedList)");
+                        InSessionHandoffInstalls + " (RewindCarry.MergeCarriedStagedList)");
             }
             throw UnknownKind(kind);
         }
@@ -628,7 +628,7 @@ namespace Parsek
                     return Today(LoadReconcileAction.Save, StagingFromNode);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.RewindCarry,
-                        "RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad, when ShouldCarryMergeJournal "
+                        "RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad, when ShouldCarryMergeJournal "
                         + "(capture null or Complete); otherwise the loaded journal stands");
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle, BundleRestores);
@@ -639,7 +639,7 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Memory,
-                        InSessionHandoffInstalls + " when memory's is null or Complete (RecordingStore.ShouldCarryMergeJournal); "
+                        InSessionHandoffInstalls + " when memory's is null or Complete (RewindCarry.ShouldCarryMergeJournal); "
                         + "an in-flight one keeps the loaded journal with a Warn");
             }
             throw UnknownKind(kind);
@@ -653,7 +653,7 @@ namespace Parsek
                     return Today(LoadReconcileAction.Save, StagingFromNode);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.RewindCarry,
-                        "RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad");
+                        "RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad");
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle, BundleRestores);
                 case LoadKind.DiscardReFly:

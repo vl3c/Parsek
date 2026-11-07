@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace Parsek
 {
-    public static partial class RecordingStore
+    internal static partial class RewindCarry
     {
         // ==================================================================
         // Re-Fly staged lists carried across a plain rewind
@@ -45,7 +45,7 @@ namespace Parsek
             if (object.ReferenceEquals(null, scenario))
             {
                 rewindCarriedStagedLists = null;
-                if (!SuppressLogging)
+                if (!RecordingStore.SuppressLogging)
                     ParsekLog.Info("Rewind",
                         $"{label}: no live scenario staged lists to carry across the rewind load");
                 return;
@@ -58,7 +58,7 @@ namespace Parsek
                 Tombstones = CopyNonNull(scenario.LedgerTombstones),
                 Journal = scenario.ActiveMergeJournal,
             };
-            if (!SuppressLogging)
+            if (!RecordingStore.SuppressLogging)
                 ParsekLog.Info("Rewind",
                     $"{label}: carrying staged lists across the rewind load: " +
                     $"supersedes={rewindCarriedStagedLists.Supersedes.Count.ToString(CultureInfo.InvariantCulture)} " +
@@ -72,7 +72,7 @@ namespace Parsek
         {
             if (rewindCarriedStagedLists == null)
                 return;
-            if (!SuppressLogging)
+            if (!RecordingStore.SuppressLogging)
                 ParsekLog.Info("Rewind",
                     $"Dropped carried staged lists without reinstalling them (reason={reason})");
             rewindCarriedStagedLists = null;
@@ -194,7 +194,7 @@ namespace Parsek
             scenario.BumpSupersedeStateVersion();
             scenario.BumpTombstoneStateVersion();
 
-            if (!SuppressLogging)
+            if (!RecordingStore.SuppressLogging)
             {
                 var ic = CultureInfo.InvariantCulture;
                 ParsekLog.Info("Rewind",

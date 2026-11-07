@@ -54,8 +54,7 @@ namespace Parsek
             durableCommittedRecordingIdHint = null;
 
             SceneEntryVesselScope.ResetForLoad();
-            rewindCarriedRewindPoints = null;
-            rewindCarriedStagedLists = null;
+            RewindCarry.ResetForLoad();
             RewindUTAdjustmentPending = false;
             RewindUTAdjustmentTargetUT = double.NaN;
 

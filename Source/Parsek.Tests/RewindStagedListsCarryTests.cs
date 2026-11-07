@@ -158,14 +158,14 @@ namespace Parsek.Tests
         /// </summary>
         private static void SimulateRewindLoad(ParsekScenario scenario, ConfigNode stalePersistent)
         {
-            RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
             Recording owner = RecordingStore.CommittedRecordings
                 .First(r => r.RecordingId == SceneEntryVesselScope.RewindReplayTargetRecordingId);
-            RecordingStore.LogSupersedesKeptAcrossRewind(owner, RewindAdjustedUT);
-            RecordingStore.CaptureRewindStagedListsForRewind(scenario, "Rewind");
+            RewindCarry.LogSupersedesKeptAcrossRewind(owner, RewindAdjustedUT);
+            RewindCarry.CaptureRewindStagedListsForRewind(scenario, "Rewind");
             Invoke(scenario, "LoadRewindStagingState", stalePersistent);
-            RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
-            RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(scenario);
+            RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
+            RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(scenario);
         }
 
         /// <summary>
@@ -232,7 +232,7 @@ namespace Parsek.Tests
                 && l.Contains("retirements installed=1 loadedFromSave=0 restored=1 staleDropped=0")
                 && l.Contains("tombstones installed=1 loadedFromSave=1 restored=1 staleDropped=1")
                 && l.Contains("journal installed=none loadedFromSave=none"));
-            Assert.False(RecordingStore.HasRewindCarriedStagedLists);
+            Assert.False(RewindCarry.HasRewindCarriedStagedLists);
         }
 
         [Fact]
@@ -355,7 +355,7 @@ namespace Parsek.Tests
         public void ShouldCarryMergeJournal_Pure(string phase, bool expected)
         {
             MergeJournal journal = phase == null ? null : new MergeJournal { Phase = phase };
-            Assert.Equal(expected, RecordingStore.ShouldCarryMergeJournal(journal));
+            Assert.Equal(expected, RewindCarry.ShouldCarryMergeJournal(journal));
         }
 
         // ---------- gating (mirrors the RP carry) -------------------------
@@ -371,15 +371,15 @@ namespace Parsek.Tests
             var stale = NewScenario();
             stale.ActiveMergeJournal = new MergeJournal { JournalId = "mj_disk", Phase = MergeJournal.Phases.Split };
             ConfigNode fromSave = WriteStalePersistent(stale);
-            RecordingStore.CaptureRewindStagedListsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindStagedListsForRewind(scenario, "Rewind");
 
             Invoke(scenario, "LoadRewindStagingState", fromSave);
-            bool installed = RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(scenario);
+            bool installed = RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(scenario);
 
             Assert.False(installed);
             Assert.Empty(scenario.RecordingSupersedes);
             Assert.Equal("mj_disk", scenario.ActiveMergeJournal.JournalId);
-            Assert.False(RecordingStore.HasRewindCarriedStagedLists);
+            Assert.False(RewindCarry.HasRewindCarriedStagedLists);
             Assert.Contains(logLines, l =>
                 l.Contains("Dropped carried staged lists without reinstalling them (reason=load-is-not-a-rewind)"));
         }
@@ -389,16 +389,33 @@ namespace Parsek.Tests
         {
             var scenario = BuildTwoTreeCase(out ConfigNode stalePersistent);
             ArmRewindToLaunch("rec_a_root");
-            RecordingStore.CaptureRewindStagedListsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindStagedListsForRewind(scenario, "Rewind");
 
             RecordingStore.ResetRewindFlags();
 
-            Assert.False(RecordingStore.HasRewindCarriedStagedLists);
+            Assert.False(RewindCarry.HasRewindCarriedStagedLists);
             Invoke(scenario, "LoadRewindStagingState", stalePersistent);
-            Assert.False(RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(scenario));
+            Assert.False(RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(scenario));
             Assert.Equal(new[] { "rel_a", "rel_gone" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
             Assert.Contains(logLines, l =>
                 l.Contains("Dropped carried staged lists without reinstalling them (reason=rewind-flags-reset)"));
+        }
+
+        [Fact]
+        public void StoreTestReset_DropsBothRewindCarries()
+        {
+            // A capture stranded by one test must not reach the next test's reinstall: the store's
+            // test reset drops the staged-list carry as well as the rewind-point carry.
+            var scenario = BuildTwoTreeCase(out ConfigNode stalePersistent);
+            ArmRewindToLaunch("rec_a_root");
+            RewindCarry.CaptureRewindStagedListsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
+            Assert.True(RewindCarry.HasRewindCarriedStagedLists);
+
+            RecordingStore.ResetForTesting();
+
+            Assert.False(RewindCarry.HasRewindCarriedStagedLists);
+            Assert.False(RewindCarry.HasRewindCarriedRewindPoints);
         }
 
         [Fact]
@@ -406,11 +423,11 @@ namespace Parsek.Tests
         {
             var scenario = BuildTwoTreeCase(out ConfigNode stalePersistent);
             ArmRewindToLaunch("rec_a_root");
-            RecordingStore.CaptureRewindStagedListsForRewind(scenario, "Rewind");
+            RewindCarry.CaptureRewindStagedListsForRewind(scenario, "Rewind");
             scenario.LedgerTombstones.Add(Tomb("tomb_late", "act_late", "rec_x", 1.0));
 
             Invoke(scenario, "LoadRewindStagingState", stalePersistent);
-            RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(scenario);
+            RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(scenario);
 
             Assert.Equal(new[] { "tomb_b" }, scenario.LedgerTombstones.Select(t => t.TombstoneId));
         }
@@ -419,8 +436,8 @@ namespace Parsek.Tests
         public void NoScenarioAtCapture_CapturesNothing()
         {
             ArmRewindToLaunch("rec_a_root");
-            RecordingStore.CaptureRewindStagedListsForRewind(null, "Warp-to-game-start");
-            Assert.False(RecordingStore.HasRewindCarriedStagedLists);
+            RewindCarry.CaptureRewindStagedListsForRewind(null, "Warp-to-game-start");
+            Assert.False(RewindCarry.HasRewindCarriedStagedLists);
         }
 
         [Fact]
@@ -435,7 +452,7 @@ namespace Parsek.Tests
                 Tomb("b", "x", "r", 2), Tomb("c", "x", "r", 3), Tomb("d", "x", "r", 4),
             };
 
-            var merged = RecordingStore.MergeCarriedStagedList(
+            var merged = RewindCarry.MergeCarriedStagedList(
                 carried, loaded, t => t.TombstoneId, out int restored, out int staleDropped);
 
             Assert.Equal(new[] { "a", "b", null }, merged.Select(t => t.TombstoneId));
@@ -469,7 +486,7 @@ namespace Parsek.Tests
                 RewindPointSurvivesRewindTests.ReadSource("ParsekScenario.cs"),
                 "public override void OnLoad(ConfigNode node)");
             int staging = body.IndexOf("LoadRewindStagingState(node);", StringComparison.Ordinal);
-            int reinstall = body.IndexOf("RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(this);", StringComparison.Ordinal);
+            int reinstall = body.IndexOf("RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(this);", StringComparison.Ordinal);
             int rewindBranch = body.IndexOf("HandleRewindOnLoad(node, recordings);", StringComparison.Ordinal);
             Assert.True(staging >= 0 && reinstall > staging,
                 "OnLoad must reinstall the carried staged lists after LoadRewindStagingState");

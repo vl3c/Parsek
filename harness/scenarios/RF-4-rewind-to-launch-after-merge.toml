@@ -34,7 +34,7 @@ id = "RF-4-rewind-to-launch-after-merge"
 # THAT FIX MAKES THE VERB SUCCEED AND THROWS THE SUBJECT AWAY, and the reason is
 # mechanical rather than a matter of taste. The kept-rows audit (the rollback before
 # 2026-10-25) is scoped to the OWNER'S TREE.
-# `RecordingStore.LogSupersedesKeptAcrossRewind` resolves `ownerTree` by
+# `RewindCarry.LogSupersedesKeptAcrossRewind` resolves `ownerTree` by
 # `owner.TreeId`; `AuditSupersedesKeptAcrossRewindPure` then builds
 # `rewoundOutOldIds` from the owner plus that tree's recordings with
 # `StartUT >= rewindAdjustedUT`, and keeps ONLY relations whose `OldRecordingId` is in that

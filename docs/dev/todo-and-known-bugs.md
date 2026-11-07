@@ -3072,6 +3072,18 @@ each PR lands on the refactor branch, IL-proven a pure move).
   `RecordingStore -> LedgerOrchestrator` edge is gone. `RecordingStore` partials 5,640 -> 3,812 lines,
   193 -> 160 IL methods; knot 466 -> 467, `RecordingStore` cut drops 34 -> 29 references, replayed cut
   residue 283 unchanged (bound 283).
+- PR13 N (service N) landed: the rewind carry left the store as `RewindCarry` (`RewindCarry.cs` with
+  the rewind-point carry: capture, clear, merge, reinstall after the load, the id formatter and the
+  kept-supersede log; the `RewindStagedListsCarry` and `RewindSupersedeAudit` partials renamed to
+  `RewindCarry.StagedLists.cs` / `RewindCarry.SupersedeAudit.cs` with their nested types). No
+  forwarder: `ParsekScenario`, its in-session handoff, `RecordingRewindRetirement` and the store's own
+  rewind launch call the new type, and both OnLoad wiring gates now pin `RewindCarry.Reinstall*`. New
+  `RewindCarry.ResetForLoad` / `ResetForTesting` drop both carries; the store's save-scoped reset calls
+  the first and `ResetForTestingInternal` the second, which fixes the plan's latent finding (the test
+  reset cleared the rewind-point carry but not the staged-list carry). `LoadReconcilePolicy`'s three
+  unlogged reason strings name `RewindCarry.*`. `RecordingStore` partials 3,812 -> 3,203 lines,
+  160 -> 144 IL methods; knot 467 -> 468, `RecordingStore` cut drops 29, replayed cut residue 283
+  unchanged (bound 283).
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

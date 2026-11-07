@@ -44,6 +44,7 @@ namespace Parsek.Tests
             typeof(CommittedTreeRestoreAttempt),
             typeof(PendingTreeSlot),
             typeof(TreeDiscardService),
+            typeof(RewindCarry),
         };
 
         private readonly List<string> logLines = new List<string>();
