@@ -25,8 +25,8 @@ Normalization, always on:
   ``<M>b__12_0``, ``<>9__12_0``, ``<M>d__12``, local functions, ``CS$<>8__locals1``,
   ``<>u__1``) are blanked;
 - IL offsets (``IL_0000:``), the ``// Code size`` comment and ``// end of method`` trailers
-  are dropped, a branch target names its instruction's ordinal instead of its offset, and
-  runs of whitespace are collapsed;
+  are dropped, a branch target names its instruction's ordinal instead of its offset, a
+  short branch (``br.s``) reads as its long form, and runs of whitespace are collapsed;
 - the blob of an iterator / async state machine attribute is dropped, because it spells the
   generated class name with its ordinal (every other attribute blob is compared);
 - the RVA of a mapped data field (``at I_...``) is dropped: the field's name is the SHA-256 of
@@ -121,6 +121,11 @@ def normalize_name(text):
 _LABEL_DEF = re.compile(r"^\s*(IL_[0-9a-f]{4}):")
 _LABEL_REF = re.compile(r"\bIL_[0-9a-f]{4}\b")
 _CODE_SIZE = re.compile(r"^\s*// Code size\b.*$", re.M)
+# A branch's short form (`br.s`) and long form (`br`) mean the same; the compiler picks the
+# long one once a body grows past a signed byte of offset, which a fold hop can cause.
+_SHORT_BRANCH = re.compile(
+    r"^((?:IL_[0-9a-f]{4}:\s*)?(?:br|brfalse|brtrue|beq|bge|bgt|ble|blt|bne\.un|bge\.un|bgt\.un"
+    r"|ble\.un|blt\.un|leave))\.s(?=\s)", re.M)
 
 
 def _ordinal_labels(text):
@@ -142,6 +147,7 @@ def _ordinal_labels(text):
 def normalize_body(text):
     text = _drop_state_machine_blobs(text)
     text = _CODE_SIZE.sub("", text)
+    text = _SHORT_BRANCH.sub(r"\1", "\n".join(l.strip() for l in text.split("\n")))
     text = _ordinal_labels(text)
     for rx, rep in BODY_ONLY:
         text = rx.sub(rep, text)

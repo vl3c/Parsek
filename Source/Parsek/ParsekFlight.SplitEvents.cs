@@ -112,7 +112,7 @@ namespace Parsek
             PromoteRecordingFromBackground(trackedRecordingId, evaVessel);
 
             if (recorder != null && recorder.IsRecording)
-                DisarmPostSwitchAutoRecord("eva board promotion");
+                PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("eva board promotion");
             else
             {
                 ParsekLog.Warn("Flight",
@@ -146,7 +146,7 @@ namespace Parsek
                     "pendingSplitInProgress",
                     sourcePid,
                     targetPid);
-                ClearPendingEvaAutoRecordState();
+                PostSwitchAutoRecorder.ClearPendingEvaAutoRecordState();
                 return true;
             }
 
@@ -178,7 +178,7 @@ namespace Parsek
                     $"OnCrewOnEva: source vessel pid={sourceVessel.persistentId} is not the live recorder " +
                     $"and is not a tracked background parent ({diagnostic}); suppressing deferred auto-record");
                 ScreenMessage("Recording blocked (EVA source not tracked)", 2f);
-                ClearPendingEvaAutoRecordState();
+                PostSwitchAutoRecorder.ClearPendingEvaAutoRecordState();
                 return true;
             }
 
@@ -189,7 +189,7 @@ namespace Parsek
                     $"(sourcePid={sourceVessel.persistentId}, parentRec={parentRecordingId ?? "null"}, " +
                     $"diagnostic={diagnostic}); suppressing deferred auto-record");
                 ScreenMessage("Recording blocked (invalid EVA tree state)", 2f);
-                ClearPendingEvaAutoRecordState();
+                PostSwitchAutoRecorder.ClearPendingEvaAutoRecordState();
                 return true;
             }
 
@@ -199,14 +199,14 @@ namespace Parsek
                     $"OnCrewOnEva: source vessel pid={sourceVessel.persistentId} is tracked in background " +
                     "but EVA kerbal name could not be extracted; suppressing deferred auto-record");
                 ScreenMessage("Recording blocked (EVA crew unknown)", 2f);
-                ClearPendingEvaAutoRecordState();
+                PostSwitchAutoRecorder.ClearPendingEvaAutoRecordState();
                 return true;
             }
 
             if (decision != EvaBackgroundParentRouteDecision.StartDeferredBackgroundParentBranch)
                 return false;
 
-            ClearPendingEvaAutoRecordState();
+            PostSwitchAutoRecorder.ClearPendingEvaAutoRecordState();
             pendingSplitInProgress = true;
             Log($"Background-parent EVA detected: '{kerbalName}' from pid={sourceVessel.persistentId} " +
                 $"parentRec={parentRecordingId} - starting deferred tree branch");
@@ -281,7 +281,7 @@ namespace Parsek
                 return;
 
             bool hasSourceVessel = data.from?.vessel != null;
-            if (!ShouldQueueAutoRecordOnEva(
+            if (!ParsekFlightPostSwitchAutoRecord.ShouldQueueAutoRecordOnEva(
                 hasSourceVessel,
                 autoRecordOnEvaEnabled: ParsekSettings.Current?.autoRecordOnEva != false))
             {
@@ -320,7 +320,7 @@ namespace Parsek
             ParsekLog.VerboseOnChange("Flight",
                 identity,
                 stateKey,
-                FormatSplitSkipSummary(
+                ParsekFlightPostSwitchAutoRecord.FormatSplitSkipSummary(
                     source,
                     reason,
                     activeRecordingId,

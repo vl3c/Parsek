@@ -54,7 +54,6 @@ namespace Parsek.Tests
             "ParsekFlight.ForeignInventoryTransfer.cs",
             "ParsekFlight.GroundPartPlacement.cs",
             "ParsekFlight.PlacementJump.cs",
-            "ParsekFlight.PostSwitchPredicates.cs",
             "ParsekFlight.TailLift.cs",
             "ParsekFlight.TerminalEvents.cs",
             "ParsekFlight.TerminalOrbit.cs",
@@ -68,6 +67,7 @@ namespace Parsek.Tests
         internal static readonly string[] ServiceFileNames =
         {
             "ParsekFlightGhostPositioner.cs",
+            "ParsekFlightPostSwitchAutoRecord.cs",
         };
 
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)

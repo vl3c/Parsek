@@ -3288,12 +3288,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (services PR12 K), 467 after TreeCommitService (services PR12 L), 468 after
         # RewindCarry (services PR13 N), 469 after RewindLauncher (services PR13 O),
         # 470 after ParsekFlightGhostPositioner (ParsekFlight plan PF2: the flight
-        # scene's IGhostPositioner, which reaches its host). It was [301, 7, 4, 2, 2] on 2026-09-25,
+        # scene's IGhostPositioner, which reaches its host), 471 after
+        # ParsekFlightPostSwitchAutoRecord (PF3). It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [470, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [471, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3417,8 +3418,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # second. Same canary contract as the knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
         self.assertEqual(first["sink"], "Route")
-        self.assertEqual(first["sizeBefore"], 470)
-        self.assertEqual(first["sizeAfter"], 452)
+        self.assertEqual(first["sizeBefore"], 471)
+        self.assertEqual(first["sizeAfter"], 453)
         self.assertEqual(
             first["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
@@ -3434,10 +3435,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # PR10's PendingTreeSlot (427 before), PR11's SwitchSegmentAttempts
         # (428 before), PR12 K's TreeDiscardService (429 before), PR12 L's
         # TreeCommitService (430 before), PR13 N's RewindCarry (431 before), PR13 O's
-        # RewindLauncher (432 before) and ParsekFlight plan PF2's
-        # ParsekFlightGhostPositioner (433 before).
+        # RewindLauncher (432 before), ParsekFlight plan PF2's
+        # ParsekFlightGhostPositioner (433 before) and PF3's
+        # ParsekFlightPostSwitchAutoRecord (434 before).
         self.assertEqual(second["sink"], "VesselLaunchIdentity")
-        self.assertEqual(second["sizeAfter"], 434)
+        self.assertEqual(second["sizeAfter"], 435)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3474,7 +3476,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # after PR12 L's TreeCommitService, of 468 after PR13 N's RewindCarry, and of
         # 469 after PR13 O's RewindLauncher, and of 470 after ParsekFlight plan
         # PF2's ParsekFlightGhostPositioner (only its host reaches it, and the
-        # ParsekFlight cut drops that edge, so it is not in the residue).
+        # ParsekFlight cut drops that edge, so it is not in the residue), and of
+        # 471 after PF3's ParsekFlightPostSwitchAutoRecord (the same shape).
         # The bound ratchets: it is tightened to the measured replayed residue, 283.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy

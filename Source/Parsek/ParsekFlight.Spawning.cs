@@ -676,7 +676,7 @@ namespace Parsek
         // UpdateWatchCamera, ProcessWatchEndHoldTimer, FindWatchedGhostState,
         // TryResolveOverlapRetarget moved to WatchModeController
 
-        bool IsAnyWarpActive() => GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
+        internal bool IsAnyWarpActive() => GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
 
         void ExitAllWarpForPlaybackStart(string context)
         {

@@ -234,7 +234,7 @@ namespace Parsek
         const double TerrainClampAltitudeLimit = 10000;
 
         // Recording (delegated to FlightRecorder)
-        private FlightRecorder recorder;
+        internal FlightRecorder recorder;
 
         /// <summary>
         /// BUG #2: UT at which the CURRENT recorder session began appending.
@@ -259,18 +259,8 @@ namespace Parsek
         // Only triggers auto-record if the vessel was settled for at least this long,
         // filtering out physics bounces (rovers, crashes, EVA kerbals).
         private double lastLandedUT = -1;
-        private const double LandedSettleThreshold = 5.0; // seconds
-        private const double PostSwitchLandedMotionDistanceThreshold = 0.5;
-        private const double PostSwitchLandedMotionSpeedThreshold = 0.5;
-        private const double PostSwitchOrbitSemiMajorAxisThresholdMeters = 5.0;
-        private const double PostSwitchOrbitEccentricityThreshold = 1e-6;
-        private const double PostSwitchOrbitAngleThresholdDegrees = 0.01;
-        private const float PostSwitchAttitudeChangeThresholdDegrees = 3f;
-        private const double PostSwitchAttitudeChangeDebounceSeconds = 0.2;
-        private const double PostSwitchResourceDeltaEpsilon = 0.01;
-        private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
+        internal const double LandedSettleThreshold = 5.0; // seconds
         private const double PostSwitchManifestEvaluateNextFrameUt = 0.0;
-        internal const int PostSwitchManifestDeltaSkipped = -1;
         private const float CommittedSpawnedRestoreRetryIntervalSeconds = 1.0f;
         internal const double MissedVesselSwitchRecoveryRecStateIntervalSeconds = 5.0;
 
@@ -550,19 +540,19 @@ namespace Parsek
         }
 
         // Auto-record: EVA from pad triggers recording after vessel switch completes
-        private bool pendingAutoRecord = false;
-        private PostSwitchAutoRecordState postSwitchAutoRecord;
+        internal bool pendingAutoRecord = false;
+        internal PostSwitchAutoRecordState postSwitchAutoRecord;
 
         // Boarding confirmation via onCrewBoardVessel
-        private uint pendingBoardingTargetPid; // vessel PID from onCrewBoardVessel, 0 = none
+        internal uint pendingBoardingTargetPid; // vessel PID from onCrewBoardVessel, 0 = none
         private int boardingConfirmFrames;     // frames since boarding event (auto-clear after 10)
 
         // Pending dock transition (set by OnPartCouple, consumed by HandleTreeDockMerge)
-        private uint pendingDockMergedPid;          // merged vessel pid, 0 = no pending dock
+        internal uint pendingDockMergedPid;          // merged vessel pid, 0 = no pending dock
         private int dockConfirmFrames;              // frame counter for confirmation window (auto-clear after 5)
 
         // Recording tree mode (null when not in tree mode)
-        private RecordingTree activeTree;
+        internal RecordingTree activeTree;
 
         /// <summary>
         /// Read-only access to the currently-active recording tree, for ParsekScenario.OnSave
@@ -653,6 +643,17 @@ namespace Parsek
                 HighLogic.LoadedScene);
 
         internal bool HasArmedPostSwitchAutoRecordWatch => postSwitchAutoRecord != null;
+
+        // The post-switch auto-record watch's behaviour (ParsekFlightPostSwitchAutoRecord); the
+        // watch state above stays here. Created on first use; holds only this host.
+        private ParsekFlightPostSwitchAutoRecord postSwitchAutoRecorder;
+        internal ParsekFlightPostSwitchAutoRecord PostSwitchAutoRecorder =>
+            postSwitchAutoRecorder ?? (postSwitchAutoRecorder = new ParsekFlightPostSwitchAutoRecord(this));
+
+        // PhysicsFramePatch and the in-game tests call this on the flight; the watch lives on
+        // PostSwitchAutoRecorder.
+        internal void OnPostSwitchAutoRecordPhysicsFrame(Vessel v) =>
+            PostSwitchAutoRecorder.OnPostSwitchAutoRecordPhysicsFrame(v);
 
         internal bool IsPostSwitchAutoRecordArmedForPid(uint vesselPid)
         {
@@ -761,7 +762,7 @@ namespace Parsek
         }
 
         // Background recorder for tree mode (null when not in tree mode)
-        private BackgroundRecorder backgroundRecorder;
+        internal BackgroundRecorder backgroundRecorder;
 
         // #267: reentrancy guard for RestoreActiveTreeFromPending / ForVesselSwitch.
         // Set at coroutine entry, cleared in finally. Guards OnVesselSwitchComplete,
@@ -772,8 +773,8 @@ namespace Parsek
         // Split event detection: deduplication and race-condition guard
         private double lastBranchUT = -1;
         private HashSet<uint> lastBranchVesselPids = new HashSet<uint>();
-        private bool pendingSplitInProgress;
-        private FlightRecorder pendingSplitRecorder;
+        internal bool pendingSplitInProgress;
+        internal FlightRecorder pendingSplitRecorder;
         private DeferredSplitCheckTrigger pendingDeferredSplitCheckTrigger;
         private double pendingSplitTriggerUT = double.NaN;
         // Vessel PIDs that existed before a joint break (for filtering pre-existing vessels)
@@ -807,7 +808,7 @@ namespace Parsek
         private CrashCoalescer crashCoalescer = new CrashCoalescer();
 
         // Merge event detection (tree mode)
-        private bool pendingTreeDockMerge;           // true when a tree dock merge is pending
+        internal bool pendingTreeDockMerge;           // true when a tree dock merge is pending
         private uint pendingDockAbsorbedPid;         // PID of absorbed vessel in dock merge
         // Route partner PID resolved from the couple event (independent of BackgroundMap).
         // 0 means partner was foreign or unresolved; non-zero means the merge child should
@@ -1276,7 +1277,7 @@ namespace Parsek
                 return;
             }
 
-            HandleDeferredAutoRecordEva();
+            PostSwitchAutoRecorder.HandleDeferredAutoRecordEva();
 
             HandleInput();
 
@@ -1463,7 +1464,7 @@ namespace Parsek
             RecordingStore.CommittedRecordingRemoving -= OnCommittedRecordingRemoving;
             RecordingStore.CommittedRecordingRemoved -= OnCommittedRecordingRemoved;
             RecordingStore.CommittedRecordingInserted -= OnCommittedRecordingInserted;
-            DisarmPostSwitchAutoRecord("ParsekFlight destroyed");
+            PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("ParsekFlight destroyed");
 
             if (toolbarControl != null)
             {
@@ -2064,7 +2065,7 @@ namespace Parsek
         /// </summary>
         private void ClearSceneChangeTransientState()
         {
-            DisarmPostSwitchAutoRecord("scene change transient reset");
+            PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("scene change transient reset");
 
             // Clear dock/undock pending state
             ClearDockUndockState();
@@ -2091,7 +2092,7 @@ namespace Parsek
         {
             ParsekLog.Info("Flight", "Resetting flight-ready state");
             RecorderStateLog.RecState("ResetFlightReady:entry", CaptureRecorderState());
-            DisarmPostSwitchAutoRecord("flight ready reset");
+            PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("flight ready reset");
 
             // Phase 6b: Clean up ghost chain state from previous flight scene
             ClearClaimedVesselHoldGhosts("flight-ready-reset");
@@ -2511,6 +2512,6 @@ namespace Parsek
         internal int GhostChainEvaluationCount => ghostChainEvaluationCount;
 
         internal void Log(string message) => ParsekLog.Verbose("Flight", message);
-        void ScreenMessage(string message, float duration) => ParsekLog.ScreenMessage(message, duration);
+        internal void ScreenMessage(string message, float duration) => ParsekLog.ScreenMessage(message, duration);
     }
 }

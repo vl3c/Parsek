@@ -73,7 +73,7 @@ namespace Parsek
         // separating from the vessel it hangs under: a fresh post-switch recording of a vessel
         // the tree did not track (usually another mission's ship the player switched to and
         // flew to a dock), attached under a BranchPointType.Launch branch point by
-        // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording. The node stays a child
+        // ParsekFlightPostSwitchAutoRecord.PrepareActiveTreeForFreshPostSwitchRecording. The node stays a child
         // of the interval it joined at, and its join UT stays a structural edge, so the
         // "/segN" interval keys a mission's ExcludedIntervalKeys stores never renumber. The
         // edge carries no event word (neither does the joined run's own start) and takes

@@ -1983,7 +1983,7 @@ namespace Parsek
                     initialEnvironmentOverride: initialBackgroundEnvOverride);
             }
 
-            ClearPendingEvaAutoRecordState();
+            PostSwitchAutoRecorder.ClearPendingEvaAutoRecordState();
             PrepareSessionStateForRecorderStart("CreateSplitBranchFromBackgroundParent");
 
             ParsekLog.Info("Flight", $"Tree branch created: type=EVA, " +

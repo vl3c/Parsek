@@ -267,6 +267,16 @@ class IlCompareTests(unittest.TestCase):
             "      IL_0007:  brtrue.s   IL_0001\n")
         self.assertEqual(["method-body"], [d[0] for d in self.diffs(self.LAMBDA_BEFORE, changed)])
 
+    def test_short_and_long_branch_forms_are_not_a_difference(self):
+        def with_branch(op):
+            return self.LAMBDA_BEFORE.replace(
+                "      IL_0006:  ldfld      int32 Parsek.Host::count\n",
+                "      IL_0006:  ldfld      int32 Parsek.Host::count\n"
+                "      IL_0007:  %s IL_000b\n" % op)
+        self.assertEqual([], self.diffs(with_branch("brtrue.s  "), with_branch("brtrue    ")))
+        self.assertEqual(["method-body"],
+                         [d[0] for d in self.diffs(with_branch("brtrue.s  "), with_branch("brfalse   "))])
+
     def test_widening_is_listed_not_a_difference_and_the_body_is_still_compared(self):
         widened = IL_BASE.replace(".field private int32 count", ".field assembly int32 count")
         a = il_compare.parse_il(IL_BASE)

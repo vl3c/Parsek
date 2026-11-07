@@ -19,7 +19,7 @@ namespace Parsek.Tests
             bool newVesselIsGhost,
             bool expected)
         {
-            bool result = ParsekFlight.ShouldArmPostSwitchAutoRecord(
+            bool result = ParsekFlightPostSwitchAutoRecord.ShouldArmPostSwitchAutoRecord(
                 enabled,
                 isRecording,
                 hasNewVessel,
@@ -45,7 +45,7 @@ namespace Parsek.Tests
             bool newVesselIsEva,
             int expected)
         {
-            var result = ParsekFlight.EvaluatePostSwitchAutoRecordArmDecision(
+            var result = ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchAutoRecordArmDecision(
                 shouldArm,
                 trackedInActiveTree,
                 newVesselIsEva);
@@ -56,7 +56,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluatePostSwitchAutoRecordSuppression_StableFrame_ReturnsNone()
         {
-            var result = ParsekFlight.EvaluatePostSwitchAutoRecordSuppression(
+            var result = ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchAutoRecordSuppression(
                 autoRecordOnFirstModificationAfterSwitchEnabled: true,
                 isRecording: false,
                 hasActiveVessel: true,
@@ -94,7 +94,7 @@ namespace Parsek.Tests
             bool activeVesselPacked,
             int expected)
         {
-            var result = ParsekFlight.EvaluatePostSwitchAutoRecordSuppression(
+            var result = ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchAutoRecordSuppression(
                 enabled,
                 isRecording,
                 hasActiveVessel,
@@ -124,13 +124,13 @@ namespace Parsek.Tests
         {
             // The invalidation half of the name comes from production:
             // NeedsPostSwitchModuleCacheRefresh is the derivation the trigger pass runs
-            // (ParsekFlight.EvaluatePostSwitchAutoRecordTrigger). The cell used to compute
+            // (ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchAutoRecordTrigger). The cell used to compute
             // "moduleCachesDirty || cachedPartCount != currentPartCount" itself, which made
             // the last two Theory parameters decorative: a change to the production
             // derivation could not reach this assertion at all.
-            bool needsCacheRefresh = ParsekFlight.NeedsPostSwitchModuleCacheRefresh(
+            bool needsCacheRefresh = ParsekFlightPostSwitchAutoRecord.NeedsPostSwitchModuleCacheRefresh(
                 moduleCachesDirty, cachedPartCount, currentPartCount);
-            bool result = ParsekFlight.ShouldEvaluatePostSwitchManifestDiff(
+            bool result = ParsekFlightPostSwitchAutoRecord.ShouldEvaluatePostSwitchManifestDiff(
                 currentUT,
                 nextManifestEvaluationUt,
                 needsCacheRefresh);
@@ -147,7 +147,7 @@ namespace Parsek.Tests
             double speedMetersPerSecond,
             bool expected)
         {
-            bool result = ParsekFlight.HasMeaningfulLandedMotionChange(
+            bool result = ParsekFlightPostSwitchAutoRecord.HasMeaningfulLandedMotionChange(
                 distanceDeltaMeters,
                 speedMetersPerSecond);
 
@@ -157,7 +157,7 @@ namespace Parsek.Tests
         [Fact]
         public void HasMeaningfulAttitudeChange_BelowThreshold_IgnoresNoise()
         {
-            bool result = ParsekFlight.HasMeaningfulAttitudeChange(
+            bool result = ParsekFlightPostSwitchAutoRecord.HasMeaningfulAttitudeChange(
                 armedVesselPid: 42,
                 activeVesselPid: 42,
                 hasBaselineRotation: true,
@@ -170,7 +170,7 @@ namespace Parsek.Tests
         [Fact]
         public void HasMeaningfulAttitudeChange_AboveThreshold_AcceptsDeliberateRotation()
         {
-            bool result = ParsekFlight.HasMeaningfulAttitudeChange(
+            bool result = ParsekFlightPostSwitchAutoRecord.HasMeaningfulAttitudeChange(
                 armedVesselPid: 42,
                 activeVesselPid: 42,
                 hasBaselineRotation: true,
@@ -183,7 +183,7 @@ namespace Parsek.Tests
         [Fact]
         public void HasMeaningfulAttitudeChange_NoBaseline_IgnoresRotation()
         {
-            bool result = ParsekFlight.HasMeaningfulAttitudeChange(
+            bool result = ParsekFlightPostSwitchAutoRecord.HasMeaningfulAttitudeChange(
                 armedVesselPid: 42,
                 activeVesselPid: 42,
                 hasBaselineRotation: false,
@@ -196,7 +196,7 @@ namespace Parsek.Tests
         [Fact]
         public void HasMeaningfulAttitudeChange_WrongVessel_IgnoresRotation()
         {
-            bool result = ParsekFlight.HasMeaningfulAttitudeChange(
+            bool result = ParsekFlightPostSwitchAutoRecord.HasMeaningfulAttitudeChange(
                 armedVesselPid: 42,
                 activeVesselPid: 7,
                 hasBaselineRotation: true,
@@ -223,7 +223,7 @@ namespace Parsek.Tests
             var current = baseline;
             current.SemiMajorAxis += 20.0;
 
-            Assert.True(ParsekFlight.HasMeaningfulOrbitChange(baseline, current));
+            Assert.True(ParsekFlightPostSwitchAutoRecord.HasMeaningfulOrbitChange(baseline, current));
         }
 
         [Fact]
@@ -244,7 +244,7 @@ namespace Parsek.Tests
             current.SemiMajorAxis += 0.5;
             current.Eccentricity += 1e-8;
 
-            Assert.False(ParsekFlight.HasMeaningfulOrbitChange(baseline, current));
+            Assert.False(ParsekFlightPostSwitchAutoRecord.HasMeaningfulOrbitChange(baseline, current));
         }
 
         [Fact]
@@ -257,9 +257,9 @@ namespace Parsek.Tests
                 ["evaJetpack"] = new InventoryItem { count = -1, slotsTaken = -1 }
             };
 
-            Assert.True(ParsekFlight.HasMeaningfulCrewDelta(crewDelta));
-            Assert.True(ParsekFlight.HasMeaningfulResourceDelta(resourceDelta));
-            Assert.True(ParsekFlight.HasMeaningfulInventoryDelta(inventoryDelta));
+            Assert.True(ParsekFlightPostSwitchAutoRecord.HasMeaningfulCrewDelta(crewDelta));
+            Assert.True(ParsekFlightPostSwitchAutoRecord.HasMeaningfulResourceDelta(resourceDelta));
+            Assert.True(ParsekFlightPostSwitchAutoRecord.HasMeaningfulInventoryDelta(inventoryDelta));
         }
 
         [Fact]
@@ -267,7 +267,7 @@ namespace Parsek.Tests
         {
             var resourceDelta = new Dictionary<string, double> { ["LiquidFuel"] = 0.001 };
 
-            Assert.False(ParsekFlight.HasMeaningfulResourceDelta(resourceDelta));
+            Assert.False(ParsekFlightPostSwitchAutoRecord.HasMeaningfulResourceDelta(resourceDelta));
         }
 
         [Fact]
@@ -276,13 +276,13 @@ namespace Parsek.Tests
             var baseline = new HashSet<string> { "gear:1:0" };
             var current = new HashSet<string>();
 
-            Assert.True(ParsekFlight.HasMeaningfulPartStateTokenChange(baseline, current));
+            Assert.True(ParsekFlightPostSwitchAutoRecord.HasMeaningfulPartStateTokenChange(baseline, current));
         }
 
         [Fact]
         public void HasMeaningfulPartStateChange_NonCosmeticTrigger_ReturnsTrue()
         {
-            bool result = ParsekFlight.HasMeaningfulPartStateChange(
+            bool result = ParsekFlightPostSwitchAutoRecord.HasMeaningfulPartStateChange(
                 new[] { PartEventType.GearDeployed });
 
             Assert.True(result);
@@ -291,7 +291,7 @@ namespace Parsek.Tests
         [Fact]
         public void HasMeaningfulPartStateChange_CosmeticOnly_ReturnsFalse()
         {
-            bool result = ParsekFlight.HasMeaningfulPartStateChange(
+            bool result = ParsekFlightPostSwitchAutoRecord.HasMeaningfulPartStateChange(
                 new[] { PartEventType.LightOn, PartEventType.LightBlinkRate });
 
             Assert.False(result);
@@ -318,7 +318,7 @@ namespace Parsek.Tests
             bool orbitChanged,
             int expected)
         {
-            var result = ParsekFlight.EvaluatePostSwitchAutoRecordTrigger(
+            var result = ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchAutoRecordTrigger(
                 engineTriggered,
                 rcsTriggered,
                 attitudeChanged,
@@ -334,7 +334,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluatePostSwitchAutoRecordStartDecision_TrackedBackgroundMember_Promotes()
         {
-            var result = ParsekFlight.EvaluatePostSwitchAutoRecordStartDecision(
+            var result = ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchAutoRecordStartDecision(
                 armedVesselPid: 42,
                 activeVesselPid: 42,
                 hasActiveTree: true,
@@ -350,7 +350,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluatePostSwitchAutoRecordStartDecision_Outsider_StartsFresh()
         {
-            var result = ParsekFlight.EvaluatePostSwitchAutoRecordStartDecision(
+            var result = ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchAutoRecordStartDecision(
                 armedVesselPid: 42,
                 activeVesselPid: 42,
                 hasActiveTree: true,
@@ -366,7 +366,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluatePostSwitchAutoRecordStartDecision_SuppressedFrame_ReturnsNone()
         {
-            var result = ParsekFlight.EvaluatePostSwitchAutoRecordStartDecision(
+            var result = ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchAutoRecordStartDecision(
                 armedVesselPid: 42,
                 activeVesselPid: 42,
                 hasActiveTree: true,
@@ -380,7 +380,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluatePostSwitchAutoRecordStartDecision_VesselMismatch_ReturnsNone()
         {
-            var result = ParsekFlight.EvaluatePostSwitchAutoRecordStartDecision(
+            var result = ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchAutoRecordStartDecision(
                 armedVesselPid: 42,
                 activeVesselPid: 7,
                 hasActiveTree: true,
