@@ -27,6 +27,11 @@ class re-attributed, `GhostMapPresence` ranks **seventh** (`ParsekFlight`,
 reassignable fields (16 fields plus one static auto-property with a setter) and 35
 `static readonly` collections whose contents change.
 
+The per-field static-state map, measured from IL on 2026-11-07, is
+`docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md`; read section A.4's field
+groups and its `CurrentUTNow` count (a by-name grep that also counted
+`WatchModeController.CurrentUTNow`) from there instead.
+
 Worktree: `C:\Users\vlad3\Documents\Code\Parsek\Parsek\.claude\worktrees\vigorous-greider-b5560b`
 at `ce9a875ae`. Architecture views regenerated with
 `python scripts/arch/archview.py --check` before reading (they are gitignored and go

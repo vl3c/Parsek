@@ -2961,6 +2961,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `.Roster` 1,244, `.Walk` 946, `.CrewEndStates` 900, `.Handoffs` 505, `.Queries` 427,
   `.HoldClock` 404. The ERS / ELS allowlist adds the partial that now holds each raw read
   (`RouteOrchestrator.LoopClock.cs`, `KerbalsModule.Walk.cs`).
+- Wave 2 W5a (2026-11-07, this branch, docs and tooling only): the `GhostMapPresence`
+  static-state map, `docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md`
+  (62 fields: writers, outside writers and readers, reset paths, scenes), read from IL by the
+  new `scripts/refactor/static_state_map.py` so a same-named field of another type is never
+  counted. It also records why a separate source-resolver type would raise the replayed
+  residue 263 -> 264 unless its five knot calls are passed in.
 - Wave 2 W8c, second PR (S3, pure move, IL identical): `UI/MissionsWindowUI.cs` (5,039 lines)
   and `UI/LogisticsWindowUI.cs` (4,782) are partial classes over 8 files each
   (`scripts/refactor/split_missionswindowui.py`, `split_logisticswindowui.py`; every field,
