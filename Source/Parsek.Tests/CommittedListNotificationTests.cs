@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
@@ -395,6 +397,96 @@ namespace Parsek.Tests
             Assert.Same(g3, overlap[3][0]);
             Assert.Equal(new HashSet<int> { 3 }, loggedSpawn);
             Assert.True(cadence.ContainsKey(3));
+        }
+
+        // ParsekFlight is the flight scene's only listener on the committed-list seam: its three
+        // handlers stay in ParsekFlight.cs, subscribe and unsubscribe there, and shift every
+        // index-keyed slot in this order. The services lifted out of it (ParsekFlightSourceFiles
+        // .ServiceFileNames) reach the slots only through these handlers: none subscribes to the
+        // seam itself or writes the committed list.
+        [Fact]
+        public void FlightHandlers_StayOnParsekFlight_InOrder_AndNoServiceListensOrWrites()
+        {
+            string dir = FindParsekSourceDir();
+            string host = StripComments(File.ReadAllText(Path.Combine(dir, "ParsekFlight.cs")));
+            foreach (string evt in new[] { "Removing", "Removed", "Inserted" })
+            {
+                Assert.Contains($"RecordingStore.CommittedRecording{evt} += OnCommittedRecording{evt};", host);
+                Assert.Contains($"RecordingStore.CommittedRecording{evt} -= OnCommittedRecording{evt};", host);
+            }
+
+            AssertCallOrder(host, "private void OnCommittedRecordingRemoving(int index, Recording removed)",
+                "PlaybackHost.DestroyAllOverlapGhosts(index);",
+                "engine.DestroyGhost(index, reason: \"committed-recording-removed\");",
+                "GhostMapPresence.HandleCommittedRecordingRemoving(index);");
+            AssertCallOrder(host, "private void OnCommittedRecordingRemoved(int index, Recording removed, Recording absorbedInto)",
+                "watchMode.OnRecordingDeleted(index);",
+                "engine.ReindexAfterDelete(index);",
+                "policy.ReindexHeldGhostsAfterDelete(index);",
+                "GhostMapPresence.ReindexPresenceAfterDelete(index);",
+                "Positioner.ClearOrbitPlaybackCaches();",
+                "ui?.ClearMapMarkerCache();",
+                "loggedOrbitSegments.Clear();",
+                "loggedOrbitRotationSegments.Clear();",
+                "policy.RemovePendingSpawn(removed.RecordingId);");
+            AssertCallOrder(host, "private void OnCommittedRecordingInserted(int index)",
+                "engine.ReindexAfterInsert(index);",
+                "policy.ReindexHeldGhostsAfterInsert(index);",
+                "GhostMapPresence.ReindexPresenceAfterInsert(index);",
+                "watchMode.OnRecordingInserted(index);",
+                "Positioner.ClearOrbitPlaybackCaches();",
+                "ui?.ClearMapMarkerCache();",
+                "loggedOrbitSegments.Clear();",
+                "loggedOrbitRotationSegments.Clear();");
+
+            var listens = new Regex(@"CommittedRecording(Removing|Removed|Inserted)\s*[+-]=");
+            var writes = new Regex(@"CommittedRecordings\s*\.\s*(RemoveAt|RemoveAll|Remove|Insert|Add|AddRange|Clear|Sort|Reverse)\s*\(");
+            foreach (string name in ParsekFlightSourceFiles.ServiceFileNames)
+            {
+                string service = StripComments(File.ReadAllText(Path.Combine(dir, name)));
+                Assert.False(listens.IsMatch(service), name + " subscribes to the committed-list seam");
+                Assert.False(writes.IsMatch(service), name + " writes the committed list");
+            }
+        }
+
+        private static void AssertCallOrder(string source, string declaration, params string[] calls)
+        {
+            int start = source.IndexOf(declaration, StringComparison.Ordinal);
+            Assert.True(start >= 0, declaration + " is not in ParsekFlight.cs");
+            Assert.Equal(-1, source.IndexOf(declaration, start + 1, StringComparison.Ordinal));
+            int open = source.IndexOf('{', start);
+            int depth = 0, end = open;
+            for (; end < source.Length; end++)
+            {
+                if (source[end] == '{') depth++;
+                else if (source[end] == '}' && --depth == 0) break;
+            }
+            string body = source.Substring(open, end - open);
+            int at = 0;
+            foreach (string call in calls)
+            {
+                int next = body.IndexOf(call, at, StringComparison.Ordinal);
+                Assert.True(next >= 0, $"{declaration}: '{call}' missing or out of order");
+                at = next + call.Length;
+            }
+        }
+
+        private static string StripComments(string source)
+        {
+            source = Regex.Replace(source, @"/\*.*?\*/", "", RegexOptions.Singleline);
+            return Regex.Replace(source, @"//[^\n]*", "");
+        }
+
+        private static string FindParsekSourceDir()
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (!string.IsNullOrEmpty(dir))
+            {
+                string candidate = Path.Combine(dir, "Source", "Parsek");
+                if (File.Exists(Path.Combine(candidate, "ParsekFlight.cs"))) return candidate;
+                dir = Path.GetDirectoryName(dir);
+            }
+            throw new InvalidOperationException("Source/Parsek not found above " + AppDomain.CurrentDomain.BaseDirectory);
         }
     }
 }

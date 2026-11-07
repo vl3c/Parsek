@@ -413,7 +413,7 @@ namespace Parsek.Tests.Rendering
                 "UpdatePlayback preview surface-skip block was not found.");
 
             int callIndex = methodBody.IndexOf(
-                "InterpolateAndPosition(ghostObject, recording, orbitSegments",
+                "InterpolateAndPosition(host.ghostObject, host.recording, host.orbitSegments",
                 surfaceSkipIndex,
                 StringComparison.Ordinal);
             Assert.True(callIndex >= 0,

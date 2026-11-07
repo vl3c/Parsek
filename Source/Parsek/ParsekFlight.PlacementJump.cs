@@ -47,7 +47,7 @@ namespace Parsek
                 () => TryGetDrawnGhostWorldPosition(recId), out _);
             if (!started)
                 return false;
-            RefreshBlockedChainTipGhostOrbitsAfterJump();
+            PlaybackHost.RefreshBlockedChainTipGhostOrbitsAfterJump();
             ParsekLog.ScreenMessage(
                 string.Format(CultureInfo.InvariantCulture,
                     "Warped to departure of \"{0}\" ({1:F0}s)",

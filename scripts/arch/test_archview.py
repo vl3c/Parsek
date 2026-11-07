@@ -3289,12 +3289,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # RewindCarry (services PR13 N), 469 after RewindLauncher (services PR13 O),
         # 470 after ParsekFlightGhostPositioner (ParsekFlight plan PF2: the flight
         # scene's IGhostPositioner, which reaches its host), 471 after
-        # ParsekFlightPostSwitchAutoRecord (PF3). It was [301, 7, 4, 2, 2] on 2026-09-25,
+        # ParsekFlightPostSwitchAutoRecord (PF3), 472 after ParsekFlightPlaybackHost (PF4).
+        # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [471, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [472, 4, 3])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3416,12 +3417,23 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (-> 496) and GameAction (-> 456) are the first two cuts; on 2026-09-25
         # GameAction was first (301 -> 273, dropping Ledger) and RecordingStore
         # second. Same canary contract as the knot sizes above.
-        first, second = self.model["knots"][0]["cuts"][:2]
-        self.assertEqual(first["sink"], "Route")
-        self.assertEqual(first["sizeBefore"], 471)
-        self.assertEqual(first["sizeAfter"], 453)
+        # ParsekFlight plan PF4 (2026-11-07) adds ParsekFlightPlaybackHost, which only its
+        # host reaches: the flight controller's cut now drops it too and ties the route cut
+        # (18 each), so the flight controller goes first and the route cut second, with the
+        # same five references; it was route 471 -> 453, launch identity -> 435 and the
+        # flight controller -> 419 before.
+        first, second, third = self.model["knots"][0]["cuts"][:3]
+        self.assertEqual(first["sink"], "ParsekFlight")
+        self.assertEqual(first["sizeBefore"], 472)
+        self.assertEqual(first["sizeAfter"], 454)
+        for service in ("ParsekFlightGhostPositioner", "ParsekFlightPlaybackHost",
+                        "ParsekFlightPostSwitchAutoRecord"):
+            self.assertIn(service, first["droppedReferences"])
+        self.assertEqual(second["sink"], "Route")
+        self.assertEqual(second["sizeBefore"], 454)
+        self.assertEqual(second["sizeAfter"], 436)
         self.assertEqual(
-            first["droppedReferences"],
+            second["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
         )
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
@@ -3437,9 +3449,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         # TreeCommitService (430 before), PR13 N's RewindCarry (431 before), PR13 O's
         # RewindLauncher (432 before), ParsekFlight plan PF2's
         # ParsekFlightGhostPositioner (433 before) and PF3's
-        # ParsekFlightPostSwitchAutoRecord (434 before).
-        self.assertEqual(second["sink"], "VesselLaunchIdentity")
-        self.assertEqual(second["sizeAfter"], 435)
+        # ParsekFlightPostSwitchAutoRecord (434 before); PF4 moved it to third.
+        self.assertEqual(third["sink"], "VesselLaunchIdentity")
+        self.assertEqual(third["sizeAfter"], 419)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3477,7 +3489,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # 469 after PR13 O's RewindLauncher, and of 470 after ParsekFlight plan
         # PF2's ParsekFlightGhostPositioner (only its host reaches it, and the
         # ParsekFlight cut drops that edge, so it is not in the residue), and of
-        # 471 after PF3's ParsekFlightPostSwitchAutoRecord (the same shape).
+        # 471 after PF3's ParsekFlightPostSwitchAutoRecord, and of 472 after PF4's
+        # ParsekFlightPlaybackHost (the same shape).
         # The bound ratchets: it is tightened to the measured replayed residue, 283.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy

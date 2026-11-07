@@ -163,6 +163,11 @@ Source/Parsek/ParsekFlight.PlacementJump.cs
 # verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF2); it reads the committed list by INDEX to
 # resolve anchor recordings for the engine's index-keyed slots, the same exemption.
 Source/Parsek/ParsekFlightGhostPositioner.cs
+# ParsekFlight's timeline playback host, lifted out of the playback partials with its bodies
+# verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF4); it builds the engine's per-frame trajectory
+# list and flags over the committed list by INDEX (the engine's index-keyed slots), the same
+# exemption as ParsekFlight.cs.
+Source/Parsek/ParsekFlightPlaybackHost.cs
 Source/Parsek/ParsekPlaybackPolicy.cs
 Source/Parsek/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs

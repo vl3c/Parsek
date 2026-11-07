@@ -229,6 +229,63 @@ class IlCompareTests(unittest.TestCase):
 """
         self.assertEqual([], self.diffs(self.LAMBDA_BEFORE, after, self.FOLD))
 
+    def test_fold_merges_a_delegate_cache_both_types_carry(self):
+        before = """\
+.class public auto ansi beforefieldinit Parsek.Host
+  extends [mscorlib]System.Object
+{
+  .class abstract auto ansi sealed nested private beforefieldinit '<>O'
+    extends [mscorlib]System.Object
+  {
+    .field public static class [mscorlib]System.Action '<0>__Keep'
+    .field public static class [mscorlib]System.Action '<1>__Moved'
+  } // end of class '<>O'
+
+} // end of class Parsek.Host
+"""
+        after = """\
+.class public auto ansi beforefieldinit Parsek.Host
+  extends [mscorlib]System.Object
+{
+  .class abstract auto ansi sealed nested private beforefieldinit '<>O'
+    extends [mscorlib]System.Object
+  {
+    .field public static class [mscorlib]System.Action '<0>__Keep'
+  } // end of class '<>O'
+
+} // end of class Parsek.Host
+.class private auto ansi sealed beforefieldinit Parsek.HostService
+  extends [mscorlib]System.Object
+{
+  .class abstract auto ansi sealed nested private beforefieldinit '<>O'
+    extends [mscorlib]System.Object
+  {
+    .field public static class [mscorlib]System.Action '<0>__Moved'
+  } // end of class '<>O'
+
+} // end of class Parsek.HostService
+"""
+        self.assertEqual([], self.diffs(before, after, self.FOLD))
+
+    def test_fold_still_counts_each_display_class_once_per_side(self):
+        dc = """\
+  .class nested private auto ansi sealed beforefieldinit '<>c__DisplayClass{0}_0'
+    extends [mscorlib]System.Object
+  {{
+    .field public int32 x
+  }} // end of class '<>c__DisplayClass{0}_0'
+
+"""
+        def host(name, body):
+            return (".class public auto ansi beforefieldinit Parsek.%s\n"
+                    "  extends [mscorlib]System.Object\n{\n%s} // end of class Parsek.%s\n"
+                    % (name, body, name))
+        before = host("Host", dc.format(1) + dc.format(2))
+        split = host("Host", dc.format(1)) + host("HostService", dc.format(7))
+        self.assertEqual([], self.diffs(before, split, self.FOLD))
+        lost = host("Host", dc.format(1)) + host("HostService", "")
+        self.assertNotEqual([], self.diffs(before, lost, self.FOLD))
+
     def test_fold_drops_the_accessor_reached_through_a_local(self):
         before = """\
 .class public auto ansi beforefieldinit Parsek.Host

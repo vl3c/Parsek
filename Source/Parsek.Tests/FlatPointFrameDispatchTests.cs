@@ -195,7 +195,7 @@ namespace Parsek.Tests
             string code = stripped.ToString();
 
             var call = new Regex(
-                @"(?:InterpolateAndPosition\(\s*[\w\.]+,|TryResolveInterpolatedWorldPosition\()\s*(?<pts>[\w\.\?]+\.Points|recording),",
+                @"(?:InterpolateAndPosition\(\s*[\w\.]+,|TryResolveInterpolatedWorldPosition\()\s*(?<pts>[\w\.\?]+\.Points|(?:host\.)?recording),",
                 RegexOptions.Multiline);
             int seen = 0;
             foreach (Match m in call.Matches(code))

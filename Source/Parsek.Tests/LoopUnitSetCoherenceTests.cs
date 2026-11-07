@@ -56,7 +56,7 @@ namespace Parsek.Tests
 
             // One build site: the signature-gated DriveMissionLoopUnits pushes the cached set into the
             // engine every frame...
-            Assert.Contains("engine.SetLoopUnits(cachedLoopUnits);", source);
+            Assert.Contains("host.engine.SetLoopUnits(host.cachedLoopUnits);", source);
             // ...and the flight map readers (polyline Driver) get the SAME field back.
             Assert.Contains("internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;", source);
         }
