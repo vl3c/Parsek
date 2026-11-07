@@ -2930,6 +2930,15 @@ compare).
   `CrewReservationManager`) stay in `VesselSpawner`: moved, they pulled `VesselSnapshotOps`
   into the type knot (457 -> 459). The one module-level change is Core -> Trajectory +1
   (`TerminalState`, Trajectory since PR 2); upward edges and knots do not move.
+- PR 7: the position-stamp, rotation-node, validation and canonical-orbit family (28
+  declarations of 25 names, 523 lines: `DeliberatePositionOverrideKey`,
+  `OverrideSnapshotPosition`, the stamp has / strip pair, `StripEvaLadderState`, the
+  surface-relative spawn-rotation trio, `CountSnapshotParts`, the finite-metadata validators,
+  `IsFinite` x2, the canonical surface orbit predicates and writer, `DescribeBodyForLog`,
+  `EnsureSpawnReadiness`, `NormalizeOrbitalSpawnMetadata`) moved from `VesselSpawner` to
+  `VesselSnapshotOps`; 11 private members widened to internal (VesselSpawner still calls
+  them). Two consts move (compile-time, no static initializer). Core -> Trajectory +1
+  (`TrajectoryMath.SanitizeQuaternion`); upward edges and knots do not move.
 
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

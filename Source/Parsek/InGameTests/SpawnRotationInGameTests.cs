@@ -18,10 +18,10 @@ namespace Parsek.InGameTests
                 var snapshot = new ConfigNode("VESSEL");
                 Quaternion bodyRotation = Quaternion.Euler(-12f, 25f, 4f);
 
-                Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+                Quaternion expected = VesselSnapshotOps.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                     KerbinPadSurfaceRelativeRotation);
 
-                Quaternion written = VesselSpawner.ApplyProtoVesselSpawnRotationToNode(
+                Quaternion written = VesselSnapshotOps.ApplyProtoVesselSpawnRotationToNode(
                     snapshot,
                     "Kerbin",
                     bodyRotation,
@@ -44,10 +44,10 @@ namespace Parsek.InGameTests
             Quaternion bodyRotation = Quaternion.Euler(18f, -40f, 12f);
             Quaternion munSurfaceRelativeRotation = Quaternion.Euler(-8f, 15f, 27f);
 
-            Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+            Quaternion expected = VesselSnapshotOps.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                 munSurfaceRelativeRotation);
 
-            Quaternion written = VesselSpawner.ApplyProtoVesselSpawnRotationToNode(
+            Quaternion written = VesselSnapshotOps.ApplyProtoVesselSpawnRotationToNode(
                 snapshot,
                 "Mun",
                 bodyRotation,
@@ -64,7 +64,7 @@ namespace Parsek.InGameTests
         {
             var spawnNode = new ConfigNode("VESSEL");
             Quaternion bodyRotation = Quaternion.Euler(-12f, 25f, 4f);
-            Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+            Quaternion expected = VesselSnapshotOps.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                 KerbinPadSurfaceRelativeRotation);
 
             string sit = VesselSpawner.PrepareSpawnNodeAtPosition(
@@ -91,7 +91,7 @@ namespace Parsek.InGameTests
             var spawnNode = new ConfigNode("VESSEL");
             Quaternion bodyRotation = Quaternion.Euler(18f, -40f, 12f);
             Quaternion munSurfaceRelativeRotation = Quaternion.Euler(-8f, 15f, 27f);
-            Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+            Quaternion expected = VesselSnapshotOps.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                 munSurfaceRelativeRotation);
 
             string sit = VesselSpawner.PrepareSpawnNodeAtPosition(
@@ -116,7 +116,7 @@ namespace Parsek.InGameTests
         public static void TryApplySpawnRotationFromSurfaceRelative_NullBody_WritesSurfaceRelativeRotAndLogsFrame()
         {
             Quaternion surfaceRelativeRotation = Quaternion.Euler(3f, 4f, 5f);
-            Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+            Quaternion expected = VesselSnapshotOps.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                 surfaceRelativeRotation);
 
             List<string> logLines = CaptureLogLines(() =>
@@ -124,7 +124,7 @@ namespace Parsek.InGameTests
                 var snapshot = new ConfigNode("VESSEL");
                 snapshot.AddValue("rot", "1,0,0,0");
 
-                bool applied = VesselSpawner.TryApplySpawnRotationFromSurfaceRelative(
+                bool applied = VesselSnapshotOps.TryApplySpawnRotationFromSurfaceRelative(
                     snapshot,
                     body: null,
                     surfaceRelativeRotation: surfaceRelativeRotation,
@@ -290,10 +290,10 @@ namespace Parsek.InGameTests
 
                 Quaternion bodyRotation = Quaternion.Euler(-12f, 25f, 4f);
                 Quaternion surfaceRelativeRotation = Quaternion.Euler(7f, -18f, 33f);
-                Quaternion expected = VesselSpawner.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+                Quaternion expected = VesselSnapshotOps.ComputeProtoVesselSpawnRotationFromSurfaceRelative(
                     surfaceRelativeRotation);
 
-                VesselSpawner.OverrideSnapshotPosition(
+                VesselSnapshotOps.OverrideSnapshotPosition(
                     snapshot,
                     10.5,
                     20.5,

@@ -16281,7 +16281,7 @@ namespace Parsek.InGameTests
             if (double.IsNaN(terminalTerrainAlt) || double.IsInfinity(terminalTerrainAlt))
                 terminalTerrainAlt = endAlt - surfaceClearance;
 
-            VesselSpawner.OverrideSnapshotPosition(vesselSnapshot, endLat, lon, endAlt,
+            VesselSnapshotOps.OverrideSnapshotPosition(vesselSnapshot, endLat, lon, endAlt,
                 -1, activeVessel.vesselName ?? "Runtime Test Vessel", body, landedRotation);
             vesselSnapshot.SetValue("sit", "LANDED", true);
             vesselSnapshot.SetValue("landed", "True", true);
