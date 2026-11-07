@@ -272,9 +272,14 @@ forbidden = [
   # The discounted upgrade reconciles against its observed debit.
   "KSC reconciliation \\(funds\\): action FacilityUpgrade",
   # The upgrade is bought once, and the crossing patches the Runway up once, never down.
+  # Both patch lines are scoped (first flight `2026-11-07_0020`): the purchase's own recalc
+  # patches 0 -> 1 before stock sets the level, and the rewind's OnLoad patches the OUTGOING
+  # scene's Runway 1 -> 0 before stock's ScenarioUpgradeableFacilities loads the rewind save
+  # (`Loading...` after it; the rewind game was written to persistent.sfs). Neither touches the
+  # rewound world. A 1 -> 0 after that load is the #2181 shape (the old world came back).
   "MISSIONMARK label=str4-rewound ut=[\\s\\S]*kscaction action=upgrade-facility target=SpaceCenter/Runway applied=true",
-  "PatchFacilities: 'SpaceCenter/Runway' level 0 -> 1 [\\s\\S]*PatchFacilities: 'SpaceCenter/Runway' level 0 -> 1 ",
-  "PatchFacilities: 'SpaceCenter/Runway' level 1 -> 0 ",
+  "MISSIONMARK label=str4-before-rewind ut=[\\s\\S]*PatchFacilities: 'SpaceCenter/Runway' level 0 -> 1 [\\s\\S]*PatchFacilities: 'SpaceCenter/Runway' level 0 -> 1 ",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*?\\[ScenarioUpgradeableFacilities\\]: Loading[\\s\\S]*PatchFacilities: 'SpaceCenter/Runway' level 1 -> 0 ",
   # From the rewind to the refusal no load switches a strategy: Transponders stays on (its
   # deactivation is committed future), Negotiations stays off (its activation is).
   "MISSIONMARK label=str4-before-rewind ut=(?:(?!MISSIONMARK label=str4-refused )[\\s\\S])*?PatchStrategies: activated=(?:[1-9]|0 deactivated=[1-9])",
