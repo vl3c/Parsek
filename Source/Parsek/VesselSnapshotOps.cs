@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using UnityEngine;
 
 namespace Parsek
 {
@@ -10,11 +11,15 @@ namespace Parsek
     /// Pure snapshot operations over vessel ConfigNode data: resource and
     /// inventory manifest extraction, inventory payload identity (the kind key),
     /// per-part identity regeneration and remapping, the crew-in-snapshot
-    /// helpers (crew names, strip / remove, duplicate and missing-crew planning)
-    /// and the situation family (classify, correct an unsafe sit, write it).
+    /// helpers (crew names, strip / remove, duplicate and missing-crew planning),
+    /// the situation family (classify, correct an unsafe sit, write it), and the
+    /// spawn-node writers and checks: the deliberate position-override stamp,
+    /// the surface-relative rotation node, finite-metadata validation, the
+    /// canonical surface orbit and the spawn-readiness / orbital normalization.
     ///
     /// <para>Nothing here touches live KSP state (no FlightGlobals, no live
-    /// Vessel, no roster) or the recording model (the TerminalState enum is the
+    /// Vessel, no roster; a CelestialBody argument is read for its name and
+    /// rotation only) or the recording model (the TerminalState enum is the
     /// one piece of recording vocabulary it reads), which is what lets the
     /// ledger, the logistics stack, the route-proof capture and the UI call it
     /// without reaching into the spawner. Members that need either of those
@@ -1212,6 +1217,530 @@ namespace Parsek
             if (string.IsNullOrEmpty(situation)) return false;
             return situation.Equals("LANDED", StringComparison.OrdinalIgnoreCase)
                 || situation.Equals("SPLASHED", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Snapshot marker written by <see cref="OverrideSnapshotPosition(ConfigNode,double,double,double,int,string,string,Quaternion?,Quaternion?,string)"/>:
+        /// the snapshot's lat/lon/alt were deliberately rewritten by Parsek's spawn
+        /// position resolution (endpoint override, collision walkback, terminal orbit
+        /// propagation). The degraded-fallback repair
+        /// (<see cref="VesselSpawner.TryRepairSnapshotBodyProvenance"/>) honors this stamp and keeps
+        /// the deliberate coordinates instead of clobbering them back to the recorded
+        /// endpoint. Lifecycle: within-spawn-attempt marker only. It never reaches
+        /// persistent.sfs (stripped from every spawn copy before ProtoVessel load via
+        /// <see cref="StripDeliberatePositionOverrideStamp"/>), and it is stripped from
+        /// the durable rec.VesselSnapshot at spawn resolution
+        /// (<see cref="VesselSpawner.StripDeliberatePositionOverrideStampFromRecording"/>) so it
+        /// cannot ride a dirty &lt;id&gt;_vessel.craft sidecar save across sessions.
+        /// </summary>
+        internal const string DeliberatePositionOverrideKey = "parsekDeliberatePosOverride";
+
+        /// <summary>
+        /// Real-vessel spawn consumes format-v0 surface-relative recording data. `VESSEL.rot`
+        /// is ProtoVessel.rotation and KSP loads it into vesselRef.srfRelRotation, so keep
+        /// it in the recorded surface-relative frame. Do not compose bodyTransform here;
+        /// that conversion is only for assigning live Transform.rotation.
+        /// </summary>
+        internal static Quaternion ComputeProtoVesselSpawnRotationFromSurfaceRelative(
+            Quaternion surfaceRelativeRotation)
+        {
+            return TrajectoryMath.SanitizeQuaternion(surfaceRelativeRotation);
+        }
+
+        internal static Quaternion ApplyProtoVesselSpawnRotationToNode(
+            ConfigNode vesselNode,
+            string bodyName,
+            Quaternion? bodyRotation,
+            Quaternion surfaceRelativeRotation,
+            string context)
+        {
+            Quaternion protoVesselRotation =
+                ComputeProtoVesselSpawnRotationFromSurfaceRelative(surfaceRelativeRotation);
+            vesselNode?.SetValue("rot", KSPUtil.WriteQuaternion(protoVesselRotation), true);
+
+            ParsekLog.Verbose("Spawner",
+                $"Spawn rotation prep ({context}): body={bodyName ?? "?"} " +
+                "frame=surface-relative(format-v0) -> ProtoVessel.rot " +
+                "(KSP loads as vessel.srfRelRotation; no body multiply) " +
+                $"srfRel={KSPUtil.WriteQuaternion(surfaceRelativeRotation)} " +
+                $"bodyRot={(bodyRotation.HasValue ? KSPUtil.WriteQuaternion(bodyRotation.Value) : "(unavailable)")} " +
+                $"rot={KSPUtil.WriteQuaternion(protoVesselRotation)}");
+
+            return protoVesselRotation;
+        }
+
+        internal static bool TryApplySpawnRotationFromSurfaceRelative(
+            ConfigNode vesselNode,
+            string bodyName,
+            Quaternion? bodyRotation,
+            Quaternion? surfaceRelativeRotation,
+            string context)
+        {
+            if (vesselNode == null || !surfaceRelativeRotation.HasValue)
+                return false;
+
+            ApplyProtoVesselSpawnRotationToNode(
+                vesselNode,
+                bodyName,
+                bodyRotation,
+                surfaceRelativeRotation.Value,
+                context);
+            return true;
+        }
+
+        internal static bool TryApplySpawnRotationFromSurfaceRelative(
+            ConfigNode vesselNode,
+            CelestialBody body,
+            Quaternion? surfaceRelativeRotation,
+            string context)
+        {
+            Quaternion? bodyRotation = body != null && body.bodyTransform != null
+                ? (Quaternion?)body.bodyTransform.rotation
+                : null;
+            return TryApplySpawnRotationFromSurfaceRelative(
+                vesselNode,
+                body?.name,
+                bodyRotation,
+                surfaceRelativeRotation,
+                context);
+        }
+
+        /// <summary>
+        /// Overrides the snapshot's lat/lon/alt with the given endpoint coordinates.
+        /// Optionally overrides rotation from the last trajectory point so the vessel
+        /// spawns in its near-landing orientation rather than the mid-flight snapshot orientation.
+        /// Modifies the snapshot in-place.
+        /// </summary>
+        internal static void OverrideSnapshotPosition(ConfigNode snapshot,
+            double lat, double lon, double alt, int index, string vesselName,
+            CelestialBody rotationBody = null,
+            Quaternion? surfaceRelativeRotation = null,
+            string rotationSource = null)
+        {
+            Quaternion? bodyRotation = rotationBody != null && rotationBody.bodyTransform != null
+                ? (Quaternion?)rotationBody.bodyTransform.rotation
+                : null;
+            OverrideSnapshotPosition(
+                snapshot,
+                lat, lon, alt, index, vesselName,
+                rotationBody?.name,
+                bodyRotation,
+                surfaceRelativeRotation,
+                rotationSource);
+        }
+
+        internal static void OverrideSnapshotPosition(ConfigNode snapshot,
+            double lat, double lon, double alt, int index, string vesselName,
+            string rotationBodyName,
+            Quaternion? rotationBodyRotation,
+            Quaternion? surfaceRelativeRotation,
+            string rotationSource = null)
+        {
+            if (snapshot == null) return;
+
+            string oldAlt = snapshot.GetValue("alt") ?? "?";
+
+            snapshot.SetValue("lat", lat.ToString("R", CultureInfo.InvariantCulture), true);
+            snapshot.SetValue("lon", lon.ToString("R", CultureInfo.InvariantCulture), true);
+            snapshot.SetValue("alt", alt.ToString("R", CultureInfo.InvariantCulture), true);
+            // Stamp the deliberate override so the degraded-fallback repair
+            // (TryRepairSnapshotBodyProvenance) does not clobber a walkback/endpoint
+            // correction back to the raw recorded endpoint. Within-spawn-attempt
+            // marker: stripped from spawn copies before every ProtoVessel load (never
+            // reaches persistent.sfs) and from the durable rec.VesselSnapshot at spawn
+            // resolution (never rides the _vessel.craft sidecar across sessions).
+            snapshot.SetValue(DeliberatePositionOverrideKey, "True", true);
+
+            bool rotationRequested = surfaceRelativeRotation.HasValue;
+            string rotationContext = $"Snapshot override #{index} ({vesselName})";
+            if (!string.IsNullOrEmpty(rotationSource))
+                rotationContext += $", source={rotationSource}";
+            bool rotationUpdated = TryApplySpawnRotationFromSurfaceRelative(
+                snapshot,
+                rotationBodyName,
+                rotationBodyRotation,
+                surfaceRelativeRotation,
+                rotationContext);
+
+            ParsekLog.Info("Spawner",
+                $"Snapshot position override for #{index} ({vesselName}): " +
+                $"alt {oldAlt} → {alt.ToString("R", CultureInfo.InvariantCulture)}" +
+                (rotationUpdated
+                    ? $" (rot updated from surface-relative frame{(!string.IsNullOrEmpty(rotationSource) ? $", source={rotationSource}" : "")})"
+                    : rotationRequested ? " (rot unchanged)" : "") +
+                " [deliberate-override stamped]");
+        }
+
+        /// <summary>
+        /// True when the snapshot carries the deliberate position-override stamp
+        /// written by <see cref="OverrideSnapshotPosition(ConfigNode,double,double,double,int,string,string,Quaternion?,Quaternion?,string)"/>.
+        /// </summary>
+        internal static bool HasDeliberatePositionOverrideStamp(ConfigNode snapshot)
+        {
+            return snapshot != null
+                && string.Equals(
+                    snapshot.GetValue(DeliberatePositionOverrideKey),
+                    "True",
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Removes the deliberate position-override stamp from a spawn copy so the
+        /// Parsek-internal marker never rides a ProtoVessel load into KSP save files.
+        /// Tolerant of the key being absent. Returns true when a stamp was removed.
+        /// </summary>
+        internal static bool StripDeliberatePositionOverrideStamp(ConfigNode snapshot, string logContext)
+        {
+            if (snapshot == null || !snapshot.HasValue(DeliberatePositionOverrideKey))
+                return false;
+
+            snapshot.RemoveValue(DeliberatePositionOverrideKey);
+            ParsekLog.Verbose("Spawner",
+                $"Stripped deliberate position-override stamp for {logContext ?? "(unknown)"} " +
+                "(pre-ProtoVessel-load hygiene)");
+            return true;
+        }
+
+        /// <summary>
+        /// Strips ladder-grab animation state from EVA kerbal snapshots.
+        /// KSP's KerbalEVA FSM stores the current state in MODULE data. If the snapshot
+        /// was captured while the kerbal was on a ladder (e.g., at EVA start), the spawned
+        /// kerbal initializes in ladder mode even when far from any ladder. KSP then
+        /// blocks all saves with "There are Kerbals on a ladder. Cannot save."
+        /// This clears the ladder state so the kerbal spawns idle on the ground.
+        /// Modifies the snapshot in-place. (#175 follow-up)
+        /// </summary>
+        internal static void StripEvaLadderState(ConfigNode snapshot, int index, string vesselName)
+        {
+            if (snapshot == null) return;
+
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                foreach (ConfigNode moduleNode in partNode.GetNodes("MODULE"))
+                {
+                    string moduleName = moduleNode.GetValue("name");
+                    if (moduleName != "KerbalEVA" && moduleName != "KerbalEVAFlight")
+                        continue;
+
+                    // Check and clear ladder-related FSM state. Real KerbalEVA states
+                    // are st_idle_gr / st_idle_fl / st_swim_idle — picked at runtime
+                    // by KerbalEVA.StartEVA based on situation. Writing a literal
+                    // "idle" produces an unknown-state exception (caught by KSP, falls
+                    // back to SurfaceContact-driven default). Removing the value lets
+                    // the FSM initialize fresh with the correct state name (#264 follow-up).
+                    string currentState = moduleNode.GetValue("state");
+                    if (currentState != null && currentState.IndexOf("ladder", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        moduleNode.RemoveValue("state");
+                        ParsekLog.Info("Spawner",
+                            $"EVA ladder state stripped for #{index} ({vesselName}): '{currentState}' → (removed; KSP will reinitialize)");
+                    }
+
+                    // Also clear any ladder-related boolean flags
+                    string onLadder = moduleNode.GetValue("OnALadder");
+                    if (onLadder != null && onLadder.ToLowerInvariant() == "true")
+                    {
+                        moduleNode.SetValue("OnALadder", "False", true);
+                        ParsekLog.Verbose("Spawner",
+                            $"EVA OnALadder flag cleared for #{index} ({vesselName})");
+                    }
+                }
+            }
+        }
+
+        internal static int CountSnapshotParts(ConfigNode snapshot)
+        {
+            return snapshot?.GetNodes("PART")?.Length ?? 0;
+        }
+
+        internal static bool TryValidateSnapshotHasParts(ConfigNode snapshot, out string reason)
+        {
+            reason = null;
+            ConfigNode[] partNodes = snapshot?.GetNodes("PART");
+            if (partNodes == null || partNodes.Length == 0)
+            {
+                reason = "snapshot contains no PART subnodes";
+                return false;
+            }
+
+            return true;
+        }
+
+        internal static bool TryValidateFiniteMaterializationMetadata(ConfigNode snapshot, out string reason)
+        {
+            reason = null;
+            if (!TryGetFiniteRequiredSnapshotDouble(snapshot, "lat", "surface", out reason)
+                || !TryGetFiniteRequiredSnapshotDouble(snapshot, "lon", "surface", out reason)
+                || !TryGetFiniteRequiredSnapshotDouble(snapshot, "alt", "surface", out reason))
+            {
+                return false;
+            }
+
+            if (snapshot != null && snapshot.HasValue("hgt")
+                && !TryGetFiniteRequiredSnapshotDouble(snapshot, "hgt", "surface", out reason))
+            {
+                return false;
+            }
+
+            if (!TryValidateFiniteTextVector(snapshot, "nrm", "surface", out reason)
+                || !TryValidateFiniteTextVector(snapshot, "rot", "surface", out reason)
+                || !TryValidateFiniteTextVector(snapshot, "CoM", "surface", out reason))
+            {
+                return false;
+            }
+
+            return TryValidateFiniteOrbitMetadata(snapshot, out reason);
+        }
+
+        internal static bool TryValidateFiniteOrbitMetadata(ConfigNode snapshot, out string reason)
+        {
+            reason = null;
+            ConfigNode orbitNode = snapshot?.GetNode("ORBIT");
+            if (orbitNode == null)
+            {
+                reason = "snapshot is missing ORBIT metadata";
+                return false;
+            }
+
+            string[] orbitKeys = { "SMA", "ECC", "INC", "LPE", "LAN", "MNA", "EPH" };
+            for (int i = 0; i < orbitKeys.Length; i++)
+            {
+                if (!TryGetFiniteRequiredSnapshotDouble(orbitNode, orbitKeys[i], "orbit", out reason))
+                    return false;
+            }
+
+            string rawRef = orbitNode.GetValue("REF");
+            if (!int.TryParse(rawRef, NumberStyles.Integer, CultureInfo.InvariantCulture, out int refIndex)
+                || refIndex < 0)
+            {
+                reason = $"orbit metadata 'REF' is missing, invalid, or negative (value='{rawRef ?? "(null)"}')";
+                return false;
+            }
+
+            return true;
+        }
+
+        internal static bool TryGetFiniteRequiredSnapshotDouble(
+            ConfigNode node,
+            string key,
+            string metadataKind,
+            out string reason)
+        {
+            reason = null;
+            if (!VesselSnapshotOps.TryGetSnapshotDouble(node, key, out double value) || !IsFinite(value))
+            {
+                reason = $"{metadataKind} metadata '{key}' is missing or non-finite";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryValidateFiniteTextVector(
+            ConfigNode node,
+            string key,
+            string metadataKind,
+            out string reason)
+        {
+            reason = null;
+            if (node == null || !node.HasValue(key))
+                return true;
+
+            string raw = node.GetValue(key);
+            if (ContainsNonFiniteToken(raw))
+            {
+                reason = $"{metadataKind} metadata '{key}' contains non-finite values";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool ContainsNonFiniteToken(string raw)
+        {
+            if (string.IsNullOrEmpty(raw))
+                return false;
+
+            return raw.IndexOf("NaN", StringComparison.OrdinalIgnoreCase) >= 0
+                || raw.IndexOf("Infinity", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private const double CanonicalSurfaceOrbitTolerance = 1e-9;
+
+        internal static bool HasCanonicalSurfaceOrbitSignature(ConfigNode snapshot)
+        {
+            ConfigNode orbitNode = snapshot?.GetNode("ORBIT");
+            return OrbitNodeValueMatches(orbitNode, "SMA", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "ECC", 1.0)
+                && OrbitNodeValueMatches(orbitNode, "INC", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "LPE", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "LAN", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "MNA", 0.0)
+                && OrbitNodeValueMatches(orbitNode, "EPH", 0.0);
+        }
+
+        internal static bool HasCanonicalSurfaceOrbitForBody(ConfigNode snapshot, int bodyIndex)
+        {
+            ConfigNode orbitNode = snapshot?.GetNode("ORBIT");
+            return HasCanonicalSurfaceOrbitSignature(snapshot)
+                && OrbitNodeIntValueMatches(orbitNode, "REF", bodyIndex);
+        }
+
+        private static bool OrbitNodeValueMatches(ConfigNode node, string key, double expected)
+        {
+            if (node == null)
+                return false;
+
+            string raw = node.GetValue(key);
+            return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double actual)
+                && Math.Abs(actual - expected) <= CanonicalSurfaceOrbitTolerance;
+        }
+
+        private static bool OrbitNodeIntValueMatches(ConfigNode node, string key, int expected)
+        {
+            if (node == null)
+                return false;
+
+            string raw = node.GetValue(key);
+            return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int actual)
+                && actual == expected;
+        }
+
+        internal static string DescribeBodyForLog(CelestialBody body)
+        {
+            if (object.ReferenceEquals(body, null))
+                return "(unknown)";
+
+            if (!string.IsNullOrEmpty(body.bodyName))
+                return body.bodyName;
+
+            if (!string.IsNullOrEmpty(body.name))
+                return body.name;
+
+            return "(unknown)";
+        }
+
+        /// <summary>
+        /// Writes the canonical KSP surface orbit tuple (SMA=0, ECC=1, INC/LPE/LAN/MNA/EPH=0)
+        /// for a landed/splashed vessel into an ORBIT node. Single implementation shared by
+        /// <see cref="VesselSpawner.ApplySurfaceOrbitToSnapshot"/> and the SpawnAtPosition landed-reseed
+        /// substitution; keep the shape in sync with <see cref="HasCanonicalSurfaceOrbitSignature"/>.
+        /// </summary>
+        internal static void WriteCanonicalSurfaceOrbitValues(ConfigNode orbitNode, int bodyIndex)
+        {
+            if (orbitNode == null)
+                return;
+
+            orbitNode.AddValue("SMA", "0");
+            orbitNode.AddValue("ECC", "1");
+            orbitNode.AddValue("INC", "0");
+            orbitNode.AddValue("LPE", "0");
+            orbitNode.AddValue("LAN", "0");
+            orbitNode.AddValue("MNA", "0");
+            orbitNode.AddValue("EPH", "0");
+            orbitNode.AddValue("REF", bodyIndex.ToString(CultureInfo.InvariantCulture));
+        }
+
+        internal static void EnsureSpawnReadiness(ConfigNode spawnNode)
+        {
+            int fixCount = 0;
+
+            // Discovery info — use DiscoveryLevels.Owned enum to avoid hardcoded magic numbers
+            string ownedState = ((int)DiscoveryLevels.Owned).ToString();
+            ConfigNode disc = spawnNode.GetNode("DISCOVERY");
+            if (disc == null)
+            {
+                disc = spawnNode.AddNode("DISCOVERY");
+                disc.AddValue("state", ownedState);
+                disc.AddValue("lastObservedTime", "0");
+                disc.AddValue("lifetime", "Infinity");
+                disc.AddValue("refTime", "0");
+                disc.AddValue("size", "2");
+                fixCount++;
+            }
+            else
+            {
+                disc.SetValue("state", ownedState, true);
+            }
+
+            // Defensive: ensure required sub-nodes exist (snapshots from BackupVessel
+            // should have these, but synthetic recordings or edge cases might not)
+            if (spawnNode.GetNode("ACTIONGROUPS") == null)
+            { spawnNode.AddNode("ACTIONGROUPS"); fixCount++; }
+            if (spawnNode.GetNode("FLIGHTPLAN") == null)
+            { spawnNode.AddNode("FLIGHTPLAN"); fixCount++; }
+            if (spawnNode.GetNode("CTRLSTATE") == null)
+            { spawnNode.AddNode("CTRLSTATE"); fixCount++; }
+            if (spawnNode.GetNode("VESSELMODULES") == null)
+            { spawnNode.AddNode("VESSELMODULES"); fixCount++; }
+
+            if (fixCount > 0)
+                ParsekLog.Info("Spawner", $"Spawn prep: added {fixCount} missing node(s) to snapshot");
+        }
+
+        /// <summary>
+        /// Orbital spawns can stay on rails for a while during high warp. Normalize both the
+        /// top-level packed vessel flags and the per-part atmospheric fields to stock orbital
+        /// ProtoVessel conventions before Load(), so deferred spawns do not inherit ascent-era
+        /// packed metadata. (#353)
+        /// </summary>
+        internal static void NormalizeOrbitalSpawnMetadata(ConfigNode spawnNode, double ut)
+        {
+            if (spawnNode == null)
+                return;
+
+            var ic = CultureInfo.InvariantCulture;
+            int topLevelFixCount = 0;
+            int partFixCount = 0;
+
+            void SetNodeValue(ConfigNode node, string key, string value, ref int fixCount)
+            {
+                if (node == null)
+                    return;
+
+                string current = node.GetValue(key);
+                if (current == value)
+                    return;
+
+                node.SetValue(key, value, true);
+                fixCount++;
+            }
+
+            SetNodeValue(spawnNode, "hgt", "-1", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "distanceTraveled", "0", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "PQSMin", "0", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "PQSMax", "0", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "altDispState", "DEFAULT", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "skipGroundPositioning", "False", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "skipGroundPositioningForDroppedPart", "False", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "vesselSpawning", "False", ref topLevelFixCount);
+            SetNodeValue(spawnNode, "lastUT", ut.ToString("R", ic), ref topLevelFixCount);
+
+            ConfigNode[] partNodes = spawnNode.GetNodes("PART");
+            for (int i = 0; i < partNodes.Length; i++)
+            {
+                SetNodeValue(partNodes[i], "tempExt", "0", ref partFixCount);
+                SetNodeValue(partNodes[i], "tempExtUnexp", "0", ref partFixCount);
+                SetNodeValue(partNodes[i], "staticPressureAtm", "0", ref partFixCount);
+            }
+
+            if (topLevelFixCount > 0 || partFixCount > 0)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"NormalizeOrbitalSpawnMetadata: rewrote {topLevelFixCount} top-level field(s) " +
+                    $"and {partFixCount} part field(s) for orbital on-rails spawn");
+            }
+        }
+
+        internal static bool IsFinite(double value)
+        {
+            return !(double.IsNaN(value) || double.IsInfinity(value));
+        }
+
+        internal static bool IsFinite(Vector3d value)
+        {
+            return !(double.IsNaN(value.x) || double.IsNaN(value.y) || double.IsNaN(value.z)
+                || double.IsInfinity(value.x) || double.IsInfinity(value.y) || double.IsInfinity(value.z));
         }
     }
 }

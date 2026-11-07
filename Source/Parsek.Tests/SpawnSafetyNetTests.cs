@@ -2017,7 +2017,7 @@ namespace Parsek.Tests
             snapshot.AddValue("vesselSpawning", "True");
             snapshot.AddValue("lastUT", "74.220361328121982");
 
-            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 1323814.6578770601);
+            VesselSnapshotOps.NormalizeOrbitalSpawnMetadata(snapshot, 1323814.6578770601);
 
             Assert.Equal("-1", snapshot.GetValue("hgt"));
             Assert.Equal("0", snapshot.GetValue("distanceTraveled"));
@@ -2039,7 +2039,7 @@ namespace Parsek.Tests
             part.AddValue("tempExtUnexp", "4");
             part.AddValue("staticPressureAtm", "0.10801468253165093");
 
-            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 200.0);
+            VesselSnapshotOps.NormalizeOrbitalSpawnMetadata(snapshot, 200.0);
 
             Assert.Equal("0", part.GetValue("tempExt"));
             Assert.Equal("0", part.GetValue("tempExtUnexp"));
@@ -2052,7 +2052,7 @@ namespace Parsek.Tests
             var snapshot = new ConfigNode("VESSEL");
             var part = snapshot.AddNode("PART");
 
-            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 123.5);
+            VesselSnapshotOps.NormalizeOrbitalSpawnMetadata(snapshot, 123.5);
 
             Assert.Equal("-1", snapshot.GetValue("hgt"));
             Assert.Equal("0", snapshot.GetValue("distanceTraveled"));
@@ -2080,7 +2080,7 @@ namespace Parsek.Tests
             snapshot.AddValue("lon", "2.0");
             snapshot.AddValue("alt", "3.0");
 
-            VesselSpawner.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 0, "Test");
+            VesselSnapshotOps.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 0, "Test");
 
             Assert.Equal("10.5", snapshot.GetValue("lat"));
             Assert.Equal("20.5", snapshot.GetValue("lon"));
@@ -2092,7 +2092,7 @@ namespace Parsek.Tests
         {
             var snapshot = new ConfigNode("VESSEL");
 
-            VesselSpawner.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 0, "Test");
+            VesselSnapshotOps.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 0, "Test");
 
             Assert.Equal("10.5", snapshot.GetValue("lat"));
             Assert.Equal("20.5", snapshot.GetValue("lon"));
@@ -2102,7 +2102,7 @@ namespace Parsek.Tests
         [Fact]
         public void OverrideSnapshotPosition_NullSnapshot_NoThrow()
         {
-            VesselSpawner.OverrideSnapshotPosition(null, 10.5, 20.5, 30.5, 0, "Test");
+            VesselSnapshotOps.OverrideSnapshotPosition(null, 10.5, 20.5, 30.5, 0, "Test");
             // No exception = pass
         }
 
@@ -2114,7 +2114,7 @@ namespace Parsek.Tests
             snapshot.AddValue("lon", "2.0");
             snapshot.AddValue("alt", "3.0");
 
-            VesselSpawner.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 7, "Jeb");
+            VesselSnapshotOps.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 7, "Jeb");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]") && l.Contains("Snapshot position override") && l.Contains("Jeb"));
@@ -2412,7 +2412,7 @@ namespace Parsek.Tests
             module.AddValue("state", "Ladder (Acquire)");
             module.AddValue("OnALadder", "True");
 
-            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+            VesselSnapshotOps.StripEvaLadderState(snapshot, 0, "Jeb");
 
             // The state value is removed entirely so KerbalEVA.StartEVA picks the
             // correct st_idle_gr / st_idle_fl / st_swim_idle name at runtime
@@ -2430,7 +2430,7 @@ namespace Parsek.Tests
             module.AddValue("name", "KerbalEVA");
             module.AddValue("state", "st_idle_gr");
 
-            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+            VesselSnapshotOps.StripEvaLadderState(snapshot, 0, "Jeb");
 
             // Non-ladder state must be left alone — strip only when "ladder" appears.
             Assert.Equal("st_idle_gr", module.GetValue("state"));
@@ -2445,7 +2445,7 @@ namespace Parsek.Tests
             module.AddValue("name", "KerbalEVAFlight");
             module.AddValue("state", "Ladder_Idle");
 
-            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+            VesselSnapshotOps.StripEvaLadderState(snapshot, 0, "Jeb");
 
             Assert.False(module.HasValue("state"));
         }
@@ -2453,7 +2453,7 @@ namespace Parsek.Tests
         [Fact]
         public void StripEvaLadderState_NullSnapshot_NoThrow()
         {
-            VesselSpawner.StripEvaLadderState(null, 0, "Jeb");
+            VesselSnapshotOps.StripEvaLadderState(null, 0, "Jeb");
         }
 
         [Fact]
@@ -2462,7 +2462,7 @@ namespace Parsek.Tests
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddNode("PART");
 
-            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+            VesselSnapshotOps.StripEvaLadderState(snapshot, 0, "Jeb");
         }
 
         [Fact]
@@ -2474,7 +2474,7 @@ namespace Parsek.Tests
             module.AddValue("name", "KerbalEVA");
             module.AddValue("state", "Ladder (Acquire)");
 
-            VesselSpawner.StripEvaLadderState(snapshot, 3, "Val");
+            VesselSnapshotOps.StripEvaLadderState(snapshot, 3, "Val");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]") && l.Contains("ladder state stripped") && l.Contains("Val"));

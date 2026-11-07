@@ -186,7 +186,7 @@ namespace Parsek.Tests
         {
             var orbitNode = new ConfigNode("ORBIT");
 
-            VesselSpawner.WriteCanonicalSurfaceOrbitValues(orbitNode, 3);
+            VesselSnapshotOps.WriteCanonicalSurfaceOrbitValues(orbitNode, 3);
 
             Assert.Equal("0", orbitNode.GetValue("SMA"));
             Assert.Equal("1", orbitNode.GetValue("ECC"));
@@ -201,7 +201,7 @@ namespace Parsek.Tests
         [Fact]
         public void WriteCanonicalSurfaceOrbitValues_NullNode_DoesNotThrow()
         {
-            VesselSpawner.WriteCanonicalSurfaceOrbitValues(null, 0);
+            VesselSnapshotOps.WriteCanonicalSurfaceOrbitValues(null, 0);
         }
 
         [Fact]
@@ -214,7 +214,7 @@ namespace Parsek.Tests
             Assert.True(VesselSpawner.ApplySurfaceOrbitToSnapshot(snapshot, kerbin, "shape-test"));
 
             var direct = new ConfigNode("ORBIT");
-            VesselSpawner.WriteCanonicalSurfaceOrbitValues(direct, 0);
+            VesselSnapshotOps.WriteCanonicalSurfaceOrbitValues(direct, 0);
             ConfigNode applied = snapshot.GetNode("ORBIT");
             foreach (string key in new[] { "SMA", "ECC", "INC", "LPE", "LAN", "MNA", "EPH", "REF" })
                 Assert.Equal(direct.GetValue(key), applied.GetValue(key));
@@ -232,10 +232,10 @@ namespace Parsek.Tests
             snapshot.AddValue("lon", "0.0");
             snapshot.AddValue("alt", "10.0");
 
-            VesselSpawner.OverrideSnapshotPosition(snapshot, 1.5, 2.5, 73.5, 0, "Stamp Test");
+            VesselSnapshotOps.OverrideSnapshotPosition(snapshot, 1.5, 2.5, 73.5, 0, "Stamp Test");
 
-            Assert.Equal("True", snapshot.GetValue(VesselSpawner.DeliberatePositionOverrideKey));
-            Assert.True(VesselSpawner.HasDeliberatePositionOverrideStamp(snapshot));
+            Assert.Equal("True", snapshot.GetValue(VesselSnapshotOps.DeliberatePositionOverrideKey));
+            Assert.True(VesselSnapshotOps.HasDeliberatePositionOverrideStamp(snapshot));
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]")
                 && l.Contains("Snapshot position override")
@@ -248,13 +248,13 @@ namespace Parsek.Tests
         {
             var snapshot = new ConfigNode("VESSEL");
 
-            Assert.False(VesselSpawner.HasDeliberatePositionOverrideStamp(snapshot));
+            Assert.False(VesselSnapshotOps.HasDeliberatePositionOverrideStamp(snapshot));
         }
 
         [Fact]
         public void HasDeliberatePositionOverrideStamp_NullSnapshot_ReturnsFalse()
         {
-            Assert.False(VesselSpawner.HasDeliberatePositionOverrideStamp(null));
+            Assert.False(VesselSnapshotOps.HasDeliberatePositionOverrideStamp(null));
         }
 
         [Theory]
@@ -265,21 +265,21 @@ namespace Parsek.Tests
         public void HasDeliberatePositionOverrideStamp_ParsesValue(string value, bool expected)
         {
             var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue(VesselSpawner.DeliberatePositionOverrideKey, value);
+            snapshot.AddValue(VesselSnapshotOps.DeliberatePositionOverrideKey, value);
 
-            Assert.Equal(expected, VesselSpawner.HasDeliberatePositionOverrideStamp(snapshot));
+            Assert.Equal(expected, VesselSnapshotOps.HasDeliberatePositionOverrideStamp(snapshot));
         }
 
         [Fact]
         public void StripDeliberatePositionOverrideStamp_RemovesKeyAndLogs()
         {
             var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue(VesselSpawner.DeliberatePositionOverrideKey, "True");
+            snapshot.AddValue(VesselSnapshotOps.DeliberatePositionOverrideKey, "True");
 
-            bool stripped = VesselSpawner.StripDeliberatePositionOverrideStamp(snapshot, "strip-test");
+            bool stripped = VesselSnapshotOps.StripDeliberatePositionOverrideStamp(snapshot, "strip-test");
 
             Assert.True(stripped);
-            Assert.False(snapshot.HasValue(VesselSpawner.DeliberatePositionOverrideKey));
+            Assert.False(snapshot.HasValue(VesselSnapshotOps.DeliberatePositionOverrideKey));
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]")
                 && l.Contains("Stripped deliberate position-override stamp")
@@ -291,7 +291,7 @@ namespace Parsek.Tests
         {
             var snapshot = new ConfigNode("VESSEL");
 
-            Assert.False(VesselSpawner.StripDeliberatePositionOverrideStamp(snapshot, "strip-test"));
+            Assert.False(VesselSnapshotOps.StripDeliberatePositionOverrideStamp(snapshot, "strip-test"));
         }
 
         // --- Review follow-up (PR #1281 SHOULD-FIX): the stamp is a within-spawn-attempt
@@ -305,14 +305,14 @@ namespace Parsek.Tests
         public void StripFromRecording_StampedDurableSnapshot_StripsAndReturnsTrue()
         {
             var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue(VesselSpawner.DeliberatePositionOverrideKey, "True");
+            snapshot.AddValue(VesselSnapshotOps.DeliberatePositionOverrideKey, "True");
             var rec = new Recording { VesselSnapshot = snapshot };
 
             bool stripped = VesselSpawner.StripDeliberatePositionOverrideStampFromRecording(
                 rec, "resolve-test");
 
             Assert.True(stripped);
-            Assert.False(rec.VesselSnapshot.HasValue(VesselSpawner.DeliberatePositionOverrideKey));
+            Assert.False(rec.VesselSnapshot.HasValue(VesselSnapshotOps.DeliberatePositionOverrideKey));
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]")
                 && l.Contains("Stripped deliberate position-override stamp")
@@ -465,7 +465,7 @@ namespace Parsek.Tests
             // stale non-surface orbit forces the landed-like repair to run.
             var snapshot = BuildLandedSnapshotWithStaleOrbit(
                 "-0.098282", "-74.557675", "73.5", "0");
-            snapshot.AddValue(VesselSpawner.DeliberatePositionOverrideKey, "True");
+            snapshot.AddValue(VesselSnapshotOps.DeliberatePositionOverrideKey, "True");
 
             var rec = new Recording
             {
@@ -500,7 +500,7 @@ namespace Parsek.Tests
             Assert.Equal("1", repairedOrbit.GetValue("ECC"));
             Assert.Equal("0", repairedOrbit.GetValue("REF"));
             // The stamp never rides the validated copy toward a ProtoVessel load.
-            Assert.False(validated.HasValue(VesselSpawner.DeliberatePositionOverrideKey));
+            Assert.False(validated.HasValue(VesselSnapshotOps.DeliberatePositionOverrideKey));
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]")
                 && l.Contains("using stamped-override surface coordinates")
@@ -543,7 +543,7 @@ namespace Parsek.Tests
             Assert.Equal("4", validated.GetValue("lat"));
             Assert.Equal("5", validated.GetValue("lon"));
             Assert.Equal("6", validated.GetValue("alt"));
-            Assert.False(validated.HasValue(VesselSpawner.DeliberatePositionOverrideKey));
+            Assert.False(validated.HasValue(VesselSnapshotOps.DeliberatePositionOverrideKey));
             Assert.Contains(logLines, l =>
                 l.Contains("using endpoint surface coordinates")
                 && l.Contains("Endpoint First"));
@@ -558,7 +558,7 @@ namespace Parsek.Tests
             // never block a genuine repair: endpoint coordinates still apply.
             var snapshot = BuildLandedSnapshotWithStaleOrbit(
                 "NaN", "-74.557675", "73.5", "0");
-            snapshot.AddValue(VesselSpawner.DeliberatePositionOverrideKey, "True");
+            snapshot.AddValue(VesselSnapshotOps.DeliberatePositionOverrideKey, "True");
 
             var rec = new Recording
             {
@@ -585,7 +585,7 @@ namespace Parsek.Tests
             Assert.Equal("4", validated.GetValue("lat"));
             Assert.Equal("5", validated.GetValue("lon"));
             Assert.Equal("6", validated.GetValue("alt"));
-            Assert.False(validated.HasValue(VesselSpawner.DeliberatePositionOverrideKey));
+            Assert.False(validated.HasValue(VesselSnapshotOps.DeliberatePositionOverrideKey));
             Assert.Contains(logLines, l =>
                 l.Contains("using endpoint surface coordinates")
                 && l.Contains("Stamp No Blocker"));
@@ -601,7 +601,7 @@ namespace Parsek.Tests
             // endpoint repair applies (a stamp never keeps coordinates on the wrong body).
             var snapshot = BuildLandedSnapshotWithStaleOrbit(
                 "-0.098282", "-74.557675", "73.5", "0");
-            snapshot.AddValue(VesselSpawner.DeliberatePositionOverrideKey, "True");
+            snapshot.AddValue(VesselSnapshotOps.DeliberatePositionOverrideKey, "True");
 
             var rec = new Recording
             {

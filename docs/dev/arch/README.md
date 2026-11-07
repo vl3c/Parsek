@@ -358,9 +358,11 @@ Logistics, the route proof and the UI all call, and named it in the `Core` rule
 in the same PR. The 2026-11-07 placement PR 6 moved the crew-in-snapshot and
 situation helpers into it as well (18 declarations; the two crew members that
 read the roster or `CrewReservationManager` stayed in `VesselSpawner`, which
-keeps it out of the type knot). Its R2 evidence then reads `externalRefs=10
-share=0.50 top=Logistics(5) second=Controllers(2)`, exactly on the R2 bar, so
-the placement report lists it under "Placement rules whose destination does not
+keeps it out of the type knot), and PR 7 the position-stamp, rotation-node,
+validation and canonical-orbit writers (28 declarations). Its R2 evidence then
+reads `externalRefs=11 share=0.45 top=Logistics(5) second=Controllers(2)`,
+which still passes R2 (the top module has at least twice the second's
+references), so the placement report lists it under "Placement rules whose destination does not
 match the current map": the mechanical rule would send it to Logistics, the
 operator decision keeps it in the kernel. That line is the standing note about
 the disagreement, not a defect.

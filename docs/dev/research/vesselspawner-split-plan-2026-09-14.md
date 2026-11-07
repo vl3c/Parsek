@@ -7,8 +7,9 @@ numbers are the 2026-09-14 reading of origin/main.
 
 Status 2026-11-07: step 1 shipped as #1686 (`VesselSnapshotOps`). Steps 2-5
 are replaced by the 2026-11-06 file-placement plan, PRs 6-10 (todo
-ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT, which records each one); its PR 6 moved
-the crew-in-snapshot and situation family to `VesselSnapshotOps`.
+ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT, which records each one); its PRs 6 and 7
+moved the crew-in-snapshot, situation, position-stamp, rotation-node,
+validation and canonical-orbit families to `VesselSnapshotOps`.
 
 ## 1. Member inventory
 

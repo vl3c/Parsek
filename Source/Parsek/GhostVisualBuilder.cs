@@ -1762,7 +1762,7 @@ namespace Parsek
                 // recorded surface-relative frame here. Live ghost transforms compose
                 // body.bodyTransform.rotation separately when assigning Transform.rotation.
                 Quaternion surfRot = new Quaternion(evt.rotX, evt.rotY, evt.rotZ, evt.rotW);
-                VesselSpawner.TryApplySpawnRotationFromSurfaceRelative(
+                VesselSnapshotOps.TryApplySpawnRotationFromSurfaceRelative(
                     vesselNode,
                     body,
                     surfRot,
