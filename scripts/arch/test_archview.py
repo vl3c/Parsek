@@ -3401,8 +3401,12 @@ class RealTreeSmokeTests(unittest.TestCase):
             first["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
         )
-        self.assertEqual(second["sink"], "ParsekFlight")
-        self.assertEqual(second["sizeAfter"], 425)
+        # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
+        # that made the launch-identity cut (dropping its RecordingStore and
+        # VesselNameStore references) beat the flight controller for second
+        # place (425 before). The residue ratchet below is immune to this reorder.
+        self.assertEqual(second["sink"], "VesselLaunchIdentity")
+        self.assertEqual(second["sizeAfter"], 423)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave

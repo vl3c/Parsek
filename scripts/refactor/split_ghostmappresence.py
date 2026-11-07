@@ -125,6 +125,10 @@ FAMILIES = collections.OrderedDict([
             "CreateGhostVesselFromStateVectors", "MapResolutionBranch",
             "UpdateGhostOrbitFromStateVectors", "GhostOrbitBodyChanged",
             "GhostOrbitElementsChanged", "IconVsOrbitAngleDeg", "SeamIconOffOrbitAngleDeg",
+            # The refactor branch moved TrySelectGapGlidePair, FindGapGlideSection,
+            # IsGapGlidePartner and the GapGlidePair* consts to OrbitReseed
+            # (file-placement PR 4); after a re-split from main's single file,
+            # re-apply that move.
             "ShouldSeedGapGlideInertial", "TrySelectGapGlidePair", "FindGapGlideSection",
             "IsGapGlidePartner", "ForceImmediateIconDrive",
         ])),
