@@ -252,7 +252,7 @@ namespace Parsek
                 : statusStylePast;
             GUILayout.Label(grpStatusText, grpStatusStyle, GUILayout.Width(ColW_Status));
 
-            bool canDisbandGroup = !RecordingStore.IsPermanentGroup(groupName);
+            bool canDisbandGroup = !RecordingGroupStore.IsPermanentGroup(groupName, RecordingStore.CommittedTrees);
 
             // Group management buttons: custom groups get G + X (wrapped to match the
             // single-G footprint of permanent groups); system-owned groups keep only

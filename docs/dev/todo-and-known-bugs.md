@@ -2849,6 +2849,15 @@ each PR lands on the refactor branch, IL-proven a pure move).
   sites re-pointed). `RecordingStore` 10,008 -> 9,768 lines, 340 -> 328 methods; co-change
   with `ParsekScenario.cs` still 163. Knot 457 -> 458 and cut residue 282 -> 284: the new type
   keeps the `RecordingOptimizer` edge the `RecordingStore` cut used to drop.
+- PR2 (service B) landed: the 14 group forwarders are gone (13 group operations plus the
+  `MarkAutoAssignedStandaloneGroupForTesting` seam). Callers use `RecordingGroupStore`
+  directly and pass `RecordingStore.CommittedRecordings` / `.CommittedTrees`; its list
+  parameters widened from `List` to `IReadOnlyList` (they read the list and retag recordings,
+  never change the list). `AutoGroupTreeRecordings` / `AdoptOrphanedRecordingsIntoTreeGroup`
+  stay with tree commit (L). `MissionGroupLink.cs` joins the ERS / ELS allowlist (a group name
+  is a tag on every committed recording). `RecordingStore` 9,768 -> 9,663 lines, 328 -> 314
+  methods; cut residue 284 -> 285 (`GroupPickerPresentation` now reaches the uncut
+  `RecordingGroupStore`).
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
