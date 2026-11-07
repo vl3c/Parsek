@@ -622,6 +622,77 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Hysteresis — packed-vessel settle (RECORDER-UNPACK-STUB-KEEPS-COAST-PROPULSIVE)
+
+        [Fact]
+        public void SettleForPackedVessel_StaleBurn_SettlesToCoastAndDropsThePendingFlip()
+        {
+            var h = new EnvironmentHysteresis(SegmentEnvironment.ExoPropulsive);
+            // Engines cut: the flip to ExoBallistic is pending inside the 1 s thrust debounce
+            // when the warp packs the vessel.
+            Assert.False(h.Update(SegmentEnvironment.ExoBallistic, 100.0));
+
+            Assert.True(h.SettleForPackedVessel(100.2, "go-on-rails"));
+            Assert.Equal(SegmentEnvironment.ExoBallistic, h.CurrentEnvironment);
+            Assert.Contains(logLines, l => l.Contains("[Environment]")
+                && l.Contains("Environment settled for packed vessel: ExoPropulsive -> ExoBallistic")
+                && l.Contains("UT=100.20") && l.Contains("go-on-rails"));
+
+            // After the unpack the coast is already confirmed: no transition fires.
+            Assert.False(h.Update(SegmentEnvironment.ExoBallistic, 5000.0));
+            Assert.Equal(SegmentEnvironment.ExoBallistic, h.CurrentEnvironment);
+        }
+
+        [Fact]
+        public void SettleForPackedVessel_ARealBurnAfterTheUnpack_StillConfirmsThroughTheThrustDebounce()
+        {
+            var h = new EnvironmentHysteresis(SegmentEnvironment.ExoPropulsive);
+            h.SettleForPackedVessel(100.0, "go-off-rails");
+
+            Assert.False(h.Update(SegmentEnvironment.ExoPropulsive, 200.0));
+            Assert.False(h.Update(SegmentEnvironment.ExoPropulsive, 200.5));
+            Assert.True(h.Update(SegmentEnvironment.ExoPropulsive, 201.0));
+            Assert.Equal(SegmentEnvironment.ExoPropulsive, h.CurrentEnvironment);
+        }
+
+        [Theory]
+        [InlineData(SegmentEnvironment.ExoBallistic)]
+        [InlineData(SegmentEnvironment.Atmospheric)]
+        [InlineData(SegmentEnvironment.SurfaceStationary)]
+        [InlineData(SegmentEnvironment.SurfaceMobile)]
+        [InlineData(SegmentEnvironment.Approach)]
+        public void SettleForPackedVessel_AnyOtherEnvironment_IsLeftAlone(SegmentEnvironment env)
+        {
+            var h = new EnvironmentHysteresis(env);
+            logLines.Clear();
+            Assert.False(h.SettleForPackedVessel(100.0, "go-on-rails"));
+            Assert.Equal(env, h.CurrentEnvironment);
+            Assert.DoesNotContain(logLines, l => l.Contains("Environment settled for packed vessel"));
+        }
+
+        [Fact]
+        public void SettleForPackedVessel_IsCalledAtBothRailsTransitionsBeforeTheSectionOpens()
+        {
+            string path = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "FlightRecorder.cs");
+            string src = System.IO.File.ReadAllText(path);
+            foreach (var pair in new[] {
+                new[] { "public void OnVesselGoOnRails(", "SettleForPackedVessel(onRailsUT, \"go-on-rails\")",
+                        "StartNewTrackSection(currentEnv, ReferenceFrame.OrbitalCheckpoint" },
+                new[] { "public void OnVesselGoOffRails(", "SettleForPackedVessel(offRailsUT, \"go-off-rails\")",
+                        "StartNewTrackSection(currentEnv, ReferenceFrame.Absolute, offRailsUT)" } })
+            {
+                int method = src.IndexOf(pair[0], System.StringComparison.Ordinal);
+                Assert.True(method >= 0, pair[0]);
+                int settle = src.IndexOf(pair[1], method, System.StringComparison.Ordinal);
+                int open = src.IndexOf(pair[2], method, System.StringComparison.Ordinal);
+                Assert.True(settle > method, pair[1] + " missing in " + pair[0]);
+                Assert.True(open > settle, pair[1] + " must run before " + pair[2]);
+            }
+        }
+
+        #endregion
+
         #region Hysteresis — No change
 
         [Fact]

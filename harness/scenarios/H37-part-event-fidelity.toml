@@ -137,8 +137,10 @@ count = { min = 0, max = 0 }
 # expectations mismatches=0, unityExceptions 0, zero downloads, and the deployed DLL
 # byte-verified as carrying the `ClassifyEvaPlumeReconcile` marker. No RUNTIME_SKIPS entry
 # is owed: the measured split equals the attribute derivation
-# (`hlib.derive_batch_tally` -> total 5, attribute_skipped 0). `total=5` remains
-# ATTRIBUTE-EXACT (5 `[InGameTest(Category = "PartEventFidelity")]` declarations in
+# (`hlib.derive_batch_tally` -> total 5, attribute_skipped 0). The sixth cell (the wheel
+# mesh swap, WHEEL-DAMAGE-NOT-RECORDED) flew green on its first flight 2026-11-07
+# (`2026-11-07_1855`, main 6340484c): `total=6 passed=6 failed=0 skipped=0`. `total=6` is
+# ATTRIBUTE-EXACT (6 `[InGameTest(Category = "PartEventFidelity")]` declarations in
 # Source/Parsek/InGameTests/PartEventFidelityInGameTests.cs, all Scene = FLIGHT, all
 # AllowBatchExecution), kept in sync by CommittedBatchTallySourceSyncTests; `failed=0` is
 # the ASSERTION; `scene=FLIGHT` is the gloops-airshow Focusable route, measured by
