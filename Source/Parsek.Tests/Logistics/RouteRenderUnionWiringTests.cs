@@ -44,7 +44,7 @@ namespace Parsek.Tests.Logistics
             // ParsekFlight is split into partial files; read the text that was ParsekFlight.cs.
             if (fileName == "ParsekFlight.cs")
                 return ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path));
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
 
         // The single block of source we care about in each seam: the BRACE-MATCHED body of the

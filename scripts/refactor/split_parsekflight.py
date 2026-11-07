@@ -13,10 +13,13 @@ initializer, constructor and static constructor stays in the main file ``ParsekF
 Only methods, nested types and properties WITHOUT an initializer (accessor-bodied or
 expression-bodied) may move. The script refuses a mapping that moves anything else.
 
-Regions: ParsekFlight.cs groups members in ``#region`` blocks whose members land in
-different files (Timeline Auto-Playback keeps its pad-evidence helpers in the main file,
-the lifecycle region gives up its ghost-pos reapply helpers), so a region cannot travel
-whole. The script therefore drops EVERY ``#region`` / ``#endregion`` line of the main file
+Phases: PF1a (f062b4911) split the playback side; its five files are EXISTING_SIBLINGS now.
+AREAS holds PF1b, the recording side.
+
+Regions: ParsekFlight.cs grouped members in ``#region`` blocks whose members land in
+different files (Timeline Auto-Playback kept its pad-evidence helpers in the main file,
+the lifecycle region gave up its ghost-pos reapply helpers), so a region cannot travel
+whole; PF1a dropped them all, and the rule stays for a re-run on an older file. The script therefore drops EVERY ``#region`` / ``#endregion`` line of the main file
 before splitting (the file names replace them); when a dropped line sat between two blank
 lines, one of the blanks goes with it. The line-multiset check allows exactly those lines.
 
@@ -61,161 +64,225 @@ PARTIAL_DECL = "    public partial class ParsekFlight"
 EXISTING_SIBLINGS = ("AttitudeTrace", "BlockedChainTipGhost", "BreakupChildSeed",
                      "ClaimedVesselHoldGhost", "Finalization", "ForeignInventoryTransfer",
                      "GroundPartPlacement", "PlacementJump", "PostSwitchPredicates", "TailLift",
-                     "TerminalEvents", "TerminalOrbit", "TimeJump")
+                     "TerminalEvents", "TerminalOrbit", "TimeJump",
+                     # PF1a (f062b4911): the playback side, written by this script's first mapping.
+                     "Accessors", "GhostPositioner", "GhostPositioning", "Spawning", "TimelinePlayback")
 
 # Area -> (one-line description written above the class wrapper, member names in it).
 # Order here is the order the files are reported in; members keep their original order
 # inside each file. Every class-level member not named here stays in ParsekFlight.cs.
+# PF1b (the recording side); PF1a's areas are EXISTING_SIBLINGS above.
 AREAS = collections.OrderedDict([
-    ("GhostPositioning", (
-        "Ghost positioning shared by manual and timeline playback: point, orbit, relative-anchor, "
-        "body-fixed and surface placement, spline evaluation and the positioning caches.",
+    ("SplitBranching", (
+        "Split event detection and tree branching: split / merge branch creation, deferred split "
+        "checks, background map entries, breakup children and the fallback commit of a split "
+        "recorder.",
         [
-            "WithRelativeSectionSurfaceVelocity", "FindBodyByNameNoAlloc",
-            "ComputePointHermiteMaxDeviationMeters", "allowSplinePositioning", "allowAnchorCorrection",
-            "allowAnchorCorrectionInterval", "allowRenderAnchorCorrectionInterval",
-            "allowPointHermiteInterpolation", "allowSplinePositioningForPlayback",
-            "FormatStandaloneCoverageRange",
-            "LogPlaybackWorldPositionParentAnchoredDebrisBodyFixedFailClosed", "ResolveRecordingById",
-            "TryComputeLateUpdateSplineWorldPosition", "TryComputeLateUpdateSplineWorldPositionPure",
-            "RecordSplineEvalForLogging", "ResetSplineEvalLoggingForTesting", "FindWaypointIndex",
-            "PositionGhostAt", "FindOrbitSegment", "PredictedOrbitTailContinuityCacheEntry",
-            "ClearOrbitPlaybackCaches", "PositionGhostFromOrbit", "ResolveOrbitContinuityOffset",
-            "TryResolvePredictedOrbitTailContinuityOffset", "BuildPredictedOrbitTailContinuityCacheKey",
-            "ShouldApplyPredictedOrbitTailContinuity",
-            "TryResolvePredictedOrbitTailContinuityAnchorWorldPosition",
-            "FindNearestTrackSectionIndexForContinuityAnchor", "FormatFiniteOrNa",
-            "ComputeOrbitalRotation", "SafeOrbitalLookRotation", "PositionGhostFromOrbitOnly",
-            "PositionGhostAtSurface", "TryResolvePlaybackDistanceReferencePosition", "IsFiniteVector3d",
-            "ResolvePlaybackDistanceForEngine", "ResolveCameraAnchorWorldPosition",
-            "ResolvePlaybackActiveVesselDistanceForEngine",
-            "ResolvePlaybackDistanceFromReferencePosition", "ResolveUnresolvedPlaybackDistanceFallback",
-            "ResolveUnresolvedRelativeSectionDistanceFallback", "IsRelativeSectionAtUT",
-            "TryInterpolateAndPositionCheckpointSection",
-            "TryInterpolateAndPositionCheckpointSectionWithOrbitRotation", "TryGetOrbitForSegment",
-            "TryFindCheckpointOrbitSegment", "TryResolveCheckpointPointInterpolation",
-            "BuildCheckpointOrbitCacheKey", "TryGetCheckpointTrackSection",
-            "HasRenderableCheckpointTrackSection", "LogCheckpointPointPlayback",
-            "TryResolvePlaybackWorldPosition", "TryResolveInterpolatedWorldPosition",
-            "TryResolveOrbitTailWorldPosition", "TryGetAbsoluteSectionPlaybackFrames",
-            "TryGetAbsoluteSectionPlaybackFramesForPlayback", "TryFindAdjacentAbsolutePlaybackFrame",
-            "GetAbsolutePlaybackFrameList", "IsEligibleBoundaryBridgeFrame",
-            "ReFlyDenseAbsolutePlaybackFrameCacheEntry", "TryGetDenseReFlyAbsolutePlaybackFrames",
-            "ShouldUseDenseReFlyAbsolutePlaybackFrames", "BuildDensebodyFixedFramesForSection",
-            "CountDensebodyFixedFramesForSection", "TryGetDenseSectionBracketWidthSeconds",
-            "TryGetBracketWidthSeconds", "PointBelongsToSection", "TryResolvePointWorldPosition",
-            "TryResolveTrajectoryPointWorldPosition", "TryResolveOrbitWorldPosition",
-            "TryResolveRelativeWorldPosition", "TryResolveRelativeOffsetWorldPosition",
-            "TryResolveLoopLiveAnchorPose", "ResolveBodyFixedPrimaryPlaybackFrames",
-            "TryFindBodyFixedPrimaryBridgeFrame", "ShortRecordingId", "TryResolveActiveReFlyPid",
-            "TryResolveRecordedAnchorPoseWithCoverage", "ShouldSkipMutableActiveReFlyAnchorCandidate",
-            "TryResolvePreReFlyFrozenAnchorPose", "FindActiveReFlyRecording",
-            "ReconcileInPlaceForkIntoTreeIfNeeded", "ShouldUsePreReFlyAnchorTrajectory",
-            "TryResolveRecordedAnchorPoseFromCandidate",
-            "TryResolveNearestRecordedAnchorAbsoluteSectionPose",
-            "MaybeWarnLargeRecordedAnchorFallbackGap", "ShouldWarnRecordedAnchorFallbackGap",
-            "BuildRecordedAnchorFallbackGapLog", "DistanceOutsideRecordedAnchorCoverage",
-            "RecordedAnchorPointListCoversUT", "BuildRelativeOffsetAppliedLog",
-            "BuildRecordedRelativeOffsetAppliedLog", "TryResolveRecordedAnchorPointPose",
-            "TryBuildRecordedAnchorPoseFromPoint", "TryResolveSurfaceWorldPosition",
-            "PositionLoopGhost", "InterpolateAndPositionRecordedRelative",
-            "TryCorrectIsolatedRecordedRelativeOffsetSpike", "RecordedRelativeOffset",
-            "LogRecordedRelativeOffsetSpikeCorrection", "TryPositionGhostRecordedRelativeAt",
-            "TryResolveRecordedRelativeAnchorPose", "TryBuildRelativeAnchorResolverContext",
-            "TryFindRelativeAnchorFocusTree", "TryUseRelativeBodyFixedPrimaryFallback",
-            "RetireUnresolvedRecordedRelative", "InterpolateAndPositionLoopRelative",
-            "PositionLoopGhostRelativeAt", "TryDispatchFlatPointEndpoints"
+            "IsTrackableVesselType", "IsTrackableVessel", "ShouldRecordAsOwnBranch", "SafeCrewCount",
+            "ShouldIncludeVesselInDeferredBreakupScan", "IsSpaceObjectLikeBreakupScanReject",
+            "EnumeratePartNames", "EnumerateModuleNames", "ContainsAsteroidOrCometPart",
+            "ContainsAsteroidOrCometModule", "ShouldRecordDebris", "AppendCapturedDataToRecording",
+            "ApplyCapturedLogisticsMetadataToRecording", "HasEntries", "TryAppendCapturedToTree",
+            "ApplyPendingSplitDestructionToCapturedRecording",
+            "ApplyCapturedSplitStateToStandaloneRecording", "ResolveStandaloneRecordedVesselPid",
+            "TryDiscardCaptureOfDroppedTree", "TagSegmentPhaseIfMissing", "BuildSplitBranchData",
+            "GetEvaBackgroundInitialEnvironmentOverride", "TryResolveTrackedBackgroundParentRecording",
+            "CanStartRecorderWithActiveTreeHead", "DecideEvaBackgroundParentRoute",
+            "DecideEvaBackgroundParentFocus", "DecideEvaBoardPromotion",
+            "BuildInvalidActiveTreeHeadRateLimitKey", "BackgroundMapEntrySnapshot",
+            "CaptureBackgroundMapEntries", "RestoreBackgroundMapEntries",
+            "RollbackBackgroundParentBranchMutation", "BuildMergeBranchData",
+            "SuppressRouteWindowForEvaGrab", "ResolveBranchPartnerStampPid", "ResolveBoardPartnerStamp",
+            "ResolveDockPartnerGuidFromEvent", "ResolveDockMergeSpawnSuppressionPid",
+            "ResolveDockRouteTargetPid", "BuildRouteEndpointFromVessel",
+            "TryBuildRouteEndpointFromSnapshot", "TryParseRouteEndpointSituation",
+            "TryGetSnapshotRouteCoordinate", "IsRouteEndpointSurfaceSituation",
+            "CapturePendingDockRouteEndpointProof", "ResolveDockRouteEndpointVesselFromEvent",
+            "GetMergeCauseForBranchType", "CreateSplitBranch", "TryBindStartDockedOriginOnUndock",
+            "CreateSplitBranchFromBackgroundParent", "TryAuthorRewindPointForSplit",
+            "AuthorRewindPointFromVesselRecordings", "TryAuthorRewindPointForBreakup",
+            "ResolveDockPartnerPidFromEvent", "ResolveSelfVessel", "IsKnownDockPartnerForRoute",
+            "ResolveTargetSideAbsorbedPid", "TryDeriveEndpointPartPidsFromPartner",
+            "FlushStoppedRecorderIntoMergeParent", "CreateMergeBranch",
+            "ResolveRecordedVesselNameAtClose", "ResolveStandaloneFallbackLegName",
+            "FallbackCommitSplitRecorder", "ResumeSplitRecorder", "CheckBranchDeduplication",
+            "DeferredUndockBranch", "DeferredEvaBranch", "DeferredEvaBranchFromBackgroundParent",
+            "DeferredJointBreakCheck", "EmitFallbackDecoupleEventsForNewVessels", "TickCrashCoalescer",
+            "EmitPendingSplitBeforeFocusLeaves", "SeedBreakupChildSnapshots",
+            "CreateBreakupChildRecording", "DescribeBreakupChildSeedPose",
+            "ResolveControlledChildInitialTrajectoryPoint", "TryComputeBreakupSeedLiveRootDistance",
+            "FormatVector3", "FormatVector3d", "BackgroundParentAlreadySplit", "WireBreakupIntoTree",
+            "ProcessBreakupEvent"
         ])),
-    ("GhostPositioner", (
-        "The IGhostPositioner implementation the playback engine calls, and zone rendering shared "
-        "by normal, background and looped ghosts.",
+    ("SplitEvents", (
+        "Split event handlers: dock, undock, EVA, board and joint-break GameEvents, OnPartCouple "
+        "and OnVesselsUndocking, and the per-frame split helpers Update calls.",
         [
-            "ApplyZoneRenderingImpl", "ShouldAutoActivateGhost", "DescribeWatchCutoffContext",
-            "ResolveZoneWatchState", "InterpolateAndPosition", "InterpolateAndPositionEntryCore",
-            "InterpolateAndPositionRelative", "TryPositionFromBodyFixedPrimary",
-            "BodyFixedPrimaryCoversPlaybackUT", "ResolveBodyFixedPrimaryBracketUTs", "PositionAtPoint",
-            "TryResolveExplosionAnchorPosition", "ResolveImmediateLandedGhostClearanceFallbackReason",
-            "ResolveExplosionAnchorBodyName", "ResolveImmediateLandedGhostClearanceMeters",
-            "ResolveNaNFallbackLandedGhostClearanceMeters",
-            "ShouldApplyImmediateSurfacePositionClearance", "ShouldApplyImmediatePointSurfaceClearance",
-            "ApplyLandedGhostClearance", "PositionAtSurface", "PositionFromOrbit",
-            "SetOrbitTailInterpolated", "TrackLoopSeamTeleport", "LogReaimGhostTrace", "PositionLoop",
-            "ApplyZoneRendering", "ClearOrbitCache"
+            "OnCrewBoardVessel", "TryPromoteEvaRecordingForBoardMerge",
+            "TryStartEvaBranchFromBackgroundParent", "OnCrewOnEva", "LogSplitSkip",
+            "ExtractEvaKerbalName", "OnPartCouple", "OnPartUndock", "OnVesselsUndocking",
+            "ClearPendingUndockSeed", "DeferredKerbalLeftVehicleNotRecording",
+            "ShouldRouteKerbalLeftVehicleNotRecording", "HandleKerbalLeftVehicleUndock",
+            "AppendSegmentEventToTreeRecording", "ClearDockUndockState", "HandleTreeDockMerge",
+            "HandleTreeBoardMerge", "HandleUnconfirmedBoardingStop", "ResolveDeferredSplitCheckTrigger",
+            "ShouldCaptureDecoupleCreatedVessel", "TrySelectDecouplePartOriginSeed",
+            "ShouldUseUndockPartOriginSeed", "DescribeDecouplePartForDiagnostics",
+            "FindFirstDirectChildPart", "ResolveDeferredSplitBranchUT", "HandleJointBreakDeferredCheck",
+            "OnDecoupleNewVesselDuringSplitCheck"
         ])),
-    ("TimelinePlayback", (
-        "Timeline auto-playback driven through the engine (chain ghosts, skip reasons, playback "
-        "flags, CommNet, loop units, anchor resolvers, timeline ghost teardown), manual preview "
-        "playback, and the camera pre-cull ghost-position reapply.",
+    ("PostSwitchAutoRecord", (
+        "Post-switch auto-record: the watch armed after a vessel switch, its baseline and "
+        "triggers, and the decision to start recording.",
         [
-            "GhostCameraPreCullAction", "ResolveGhostCameraPreCullAction", "ApplyGhostPosEntries",
-            "ApplyGhostReapplyTransform", "ResolveGhostPosEntryRecordingId",
-            "TraceGhostPositionReapply", "ShouldProcessGhostPositionReapply",
-            "LogSkippedNonReFlyCameraPreCull", "TryResolveStoredRecordedAnchorPose",
-            "ClampGhostsToTerrain", "StartPlayback", "StopPlayback", "UpdatePlayback",
-            "FindChainTipForRecording", "FindBackgroundRecordingForVessel",
-            "FindPlaybackFallbackRecordingForVessel", "FindBackgroundRecordingForChain",
-            "FindPreClaimChainRecordingAtUT", "FindExactChainRecordingAtUT",
-            "FindPositionFallbackRecordingForChain", "GetFirstClaimTreeIds",
-            "FindChainPathRecordingAtUT", "FindNextChainRecording", "FindPreferredChildRecording",
-            "FindCommittedTree", "ChainHasStarted", "TryPositionChainFallbackFromRecording",
-            "RecordingHasUsablePlaybackDataAtUT", "RecordingHasUsableNonPointPlaybackDataAtUT",
-            "HasOrbitCoverageAtUT", "HasSurfaceCoverageAtUT", "PositionChainGhosts",
-            "PositionChainGhostFallback", "UpdateChainGhostOrbitIfNeeded", "TryStampChainMapOrbit",
-            "ResolveLiveRecorderRecordingId", "IsActiveGhostChainTipFromPolicy",
-            "FindNextWatchTargetFromPolicy", "TransferWatchToNextSegmentFromPolicy",
-            "ExitWatchModeFromPolicy", "ExitWatchModePreservingLineage", "StartWatchHoldFromPolicy",
-            "GetCurrentWarpRateSafe", "ResolveGhostPlaybackSkipReason", "BuildGhostSkipReasonIdentity",
-            "BuildGhostSkipReasonMessage", "LogGhostSkipReasonChangeCore",
-            "ClearGhostSkipReasonLogState", "ClearGhostSkipReasonLogStateForTesting",
-            "LogGhostSkipReasonChangeForTesting", "LogGhostSkipReasonChangeIfNeeded",
-            "FastForwardWatchHandoffDecision", "ClassifyFastForwardWatchHandoff",
-            "BuildFastForwardWatchHandoffMessage", "LogFastForwardWatchHandoff",
-            "ResolveReFlySettleStabilityForTesting", "ResolveReFlySettleStability",
-            "TryGetReFlySettleStabilityReasonForRecording", "RecordReFlyAnchorHoldCandidate",
-            "LogReFlyAnchorHoldTransitions", "HasAnchorReFlyUnstableFlag",
-            "LogReFlySettleActiveVesselPoseIfArmed", "IsChainSeamSuccessor",
-            "IsChainSeamSuccessorAtFrame", "ComputePlaybackFlags", "BuildSpawnSuppressedSummary",
-            "RecordingEligibleForSessionSuppressedRenderCarveOut", "UpdateTimelinePlaybackViaEngine",
-            "DriveGhostCommNet", "TryResolveGhostCommNetRecordingPosition", "GhostCommNet",
-            "SubstituteReaimTrajectories", "DriveMissionLoopUnits",
-            "BuildGhostRecordingAnchorCandidatesForRecorder", "ShouldRecordGhostAnchorCandidates",
-            "BuildFlightRelativeAnchorResolverContext",
-            "TryResolveLiveLaunchMatchedAnchorPoseForResolver", "TryGetLiveAnchorTransformDelegate",
-            "TryResolveLiveAnchorTransformForResolver", "ResolveAnchorResolverPointWorldPosition",
-            "ResolveAnchorResolverBodyWorldRotation", "TryResolveFlightOrbitalAnchorPose",
-            "FindBodyForAnchorResolver", "ShouldLoopPlayback", "IsActiveTreeRecording",
-            "TryGetLoopSchedule", "GetLoopIntervalSeconds", "TryComputeLoopPlaybackUT",
-            "FindTipRecordingById", "DestroyTimelineGhost", "DestroyAllTimelineGhosts",
-            "DestroyAllOverlapGhosts"
+            "PostSwitchAutoRecordStartDecision", "PostSwitchAutoRecordArmDecision",
+            "PostSwitchAutoRecordTrigger", "PostSwitchAutoRecordSuppressionReason",
+            "PostSwitchOrbitSnapshot", "PostSwitchAutoRecordState", "ClearPendingEvaAutoRecordState",
+            "EvaluateAutoRecordLaunchDecision", "EvaluateAutoRecordStagingDecision",
+            "ShouldQueueAutoRecordOnEva", "ShouldStartDeferredAutoRecordEva",
+            "ShouldArmPostSwitchAutoRecord", "EvaluatePostSwitchAutoRecordArmDecision",
+            "EvaluatePostSwitchAutoRecordSuppression", "NeedsPostSwitchModuleCacheRefresh",
+            "ShouldEvaluatePostSwitchManifestDiff", "BuildPostSwitchAutoRecordDecisionStateKey",
+            "BuildPostSwitchManifestDeltaStateKey", "FormatPostSwitchManifestDeltaCount",
+            "FormatPostSwitchAutoRecordDecisionSummary", "LogPostSwitchAutoRecordDecision",
+            "HasPendingPostSwitchAutoRecordTransition", "ArmPostSwitchAutoRecord",
+            "DisarmPostSwitchAutoRecord", "NormalizeAngleDeltaDegrees",
+            "CapturePostSwitchOrbitSnapshot", "RefreshPostSwitchAutoRecordModuleCaches",
+            "CapturePostSwitchAutoRecordBaseline", "CapturePostSwitchPartStateTokens",
+            "EvaluatePostSwitchAutoRecordTrigger", "RefreshPostSwitchAutoRecordModuleCachesIfNeeded",
+            "EvaluatePostSwitchEngineActivity", "EvaluatePostSwitchRcsActivity",
+            "EvaluatePostSwitchAttitudeChange", "EvaluatePostSwitchManifestChanges",
+            "EvaluatePostSwitchLandedMotion", "EvaluatePostSwitchOrbitChange",
+            "PrepareActiveTreeForFreshPostSwitchRecording", "SeedPostSwitchAlignmentWindow",
+            "TryStartPostSwitchAutoRecord", "OnPostSwitchAutoRecordPhysicsFrame",
+            "HandleDeferredAutoRecordEva"
         ])),
-    ("Spawning", (
-        "Vessel spawning from playback: chain-tip spawn, tree-leaf spawn, chain ghosting at "
-        "flight ready, orphaned and recovered timeline spawns, proximity candidates, warp-to and "
-        "fast-forward, and ghost labels.",
+    ("Flags", (
+        "Flag planting and pick-up capture into the active tree.",
         [
-            "EvaluateAndApplyGhostChains", "SelectChainPidsToGhost", "LiveVesselGuidOrNull",
-            "FilterAndGhostChains", "SpawnTreeLeaves", "CleanupOrphanedSpawnedVessels",
-            "IsTimelineSpawnOfLeafVessel", "RecoverTimelineSpawnedVessel",
-            "SpawnVesselOrChainTipFromPolicy", "ResolveChainGhostOnSpawn", "RetargetReplacedChainTip",
-            "RetireChainAtKsc", "DeferredActivateVesselFromPolicy", "SpawnVesselOrChainTip",
-            "IsAnyWarpActive", "ExitAllWarpForPlaybackStart", "DeferredActivateVessel",
-            "DetermineRecordingBlockReason", "DrawGhostLabels", "GetChainStatusForRecording",
-            "UpdateProximityCheck", "CollectNearbySpawnCandidates", "NotifyNewProximityCandidates",
-            "WarpToRecordingEnd", "ArmSpawnWarpWatch", "TickSpawnWarpWatch",
-            "BuildSpawnWarpOutcomeInput", "WarpToDeparture", "FastForwardToRecording",
-            "FastForwardToEventUT", "WarpToNextCraftSpawn"
+            "OnAfterFlagPlanted", "TryCaptureFlagPickUp", "FormatPlaqueWithDate",
+            "ShouldRecordFlagEvent", "CrewContainsKerbalNamed", "ResolveBackgroundFlagOwnerPid",
+            "AppendFlagEventToTreeRecording"
         ])),
-    ("Accessors", (
-        "Public accessors for ParsekUI, the watch-mode diagnostics and the pre-cleanup watch exit "
-        "and camera retarget.",
+    ("RecorderSession", (
+        "The recorder session: start, stop, flush and promote, rails and warp transitions, SOI "
+        "and boundary splits.",
         [
-            "IsRecording", "IsPlaying", "PreviewGhost", "TimelineGhosts", "HasActiveTree",
-            "StructuralSplitPending", "BoardMergeQuiescent", "IsWatchingGhost",
-            "WatchedRecordingIndexForDiagnostics", "WatchedLoopCycleIndexForDiagnostics",
-            "WatchedRecordingIndex", "DescribeWatchFocusForLogs", "DescribeWatchEligibilityForLogs",
-            "ExitWatchModeBeforeTimelineGhostCleanup", "RetargetStockCamerasBeforeTimelineGhostCleanup"
+            "FlushRecorderToTreeRecording", "FormatRecorderDropDiagnostics",
+            "PromoteRecordingFromBackground", "PostPhysicsPoseCaptureLoop",
+            "EnsureBackgroundRecorderAttached", "OnVesselSituationChange", "OnStageActivate",
+            "OnVesselWasModified", "OnVesselGoOnRails", "OnVesselGoOffRails", "OnVesselLoaded",
+            "SeedLoadedAnchorVessels", "SeedLoadedAnchorVesselsFromScene", "ReadLoadedVesselPids",
+            "OnVesselUnloaded", "OnVesselSOIChanged", "HandleCheatTeleport", "OnTimeWarpRateChanged",
+            "RecalculateLedgerAfterWarpExit", "ShouldSkipDuplicateWarpCheckpointEvent",
+            "CaptureFreshRolloutVesselPidIfApplicable", "ShouldSuppressBoundarySplit",
+            "HandleAtmosphereBoundarySplit", "HandleSoiChangeSplit", "HandleAltitudeBoundarySplit",
+            "HandleTreeBackgroundFlush", "StartRecording", "PrepareSessionStateForRecorderStart",
+            "PrepareRecorderStartCollections", "StopRecording"
+        ])),
+    ("MergeFlow", (
+        "The merge flow: scene-exit finalize, tree commit, auto-discard of idle or no-op trees, "
+        "and terminal inference.",
+        [
+            "FinalizeTreeOnSceneChange", "FinalizeTreeOnSceneChangeForTesting",
+            "FinalizeTreeOnSceneChangeForCallback", "LiveRecordingIdForVessel", "IsActiveTreeIdleOnPad",
+            "AutoDiscardIdleActiveTree", "AutoDiscardActiveTreeWithMessage",
+            "AutoDiscardActiveTreeCore", "ShouldStashLiveTreeForSaveFileLoad",
+            "FinalizeTreeOnSceneChangeCore", "DiscardActiveTreeForSuppressedSceneExit",
+            "ShowPostDestructionTreeMergeDialog", "ApplyFinalSegmentPhaseFromCapture",
+            "ShouldApplyFinalSegmentPhaseFromCapture", "ShouldAllowFinalEndpointSegmentPhase",
+            "HasCommittedChainSegmentOwnership", "HasExplicitReFlyProvisionalIdentity",
+            "SetFinalSegmentPhase", "FormatSegmentPhaseForLog", "OnTreeCommittedFromMergeDialog",
+            "CommitTreeFlight", "RunInFlightCommitOptimizationPass", "FormatCommitTerminalLine",
+            "IsSurfaceTerminalState", "FirstNonEmpty", "FormatCommitTerminalSummaryLine",
+            "LogCommitTerminalVerdicts", "ReserveCrewForLeaves", "CommitTreeRevert",
+            "CommitTreeSceneExit", "FinalizeTreeRecordings", "FinalizeTreeRecordingsAfterFlush",
+            "IsActiveRecorderCacheCandidate", "CacheIdentityMatchesRecording",
+            "HasFallbackCandidateCache", "TryApplyFinalizationCacheFallback",
+            "ShouldRepairExistingTerminalFromDestroyedCache", "IsCacheTerminalAtOrBeforeCommit",
+            "LogDestroyedCacheRepairRejected", "ShouldRefreshActiveEffectiveLeafSnapshot",
+            "RefreshActiveEffectiveLeafSnapshot", "ApplyFinalEndpointSegmentPhase",
+            "TryResolveFinalEndpointSegmentPhase", "TryResolveTerminalStateSegmentPhase",
+            "TryResolveTrackSectionEnvironmentSegmentPhase", "TryGetTerminalSurfaceBodyName",
+            "TryGetReliableRelativeEndpointBodyName", "TryResolveAbsoluteEndpointPointSegmentPhase",
+            "TryGetFinalTrackSection", "TryGetLastBodyFixedPrimaryPoint",
+            "TryGetFinalAbsoluteEndpointPoint", "GetBestEndpointBodyName",
+            "InferTerminalStateFromTrajectory", "HasStableOrbitEvidenceForTerminalInference",
+            "TryResolveTerminalInferenceBody", "TryResolveTerminalInferenceBodyLive",
+            "ShouldSkipSceneExitSurfaceInferenceForRestoredRecording",
+            "HasOnlySubOrbitalFallbackEvidence", "ShouldPreserveRestoredSceneExitTerminalState",
+            "PopulateTerminalPositionFromLastPoint", "TryCaptureTerrainHeightFromLastTrajectoryPoint",
+            "UsesTerminalOrbitMetadata", "DidSceneExitUpdateTerminalOrbitMetadata",
+            "TryRefreshStableTerminalSnapshot", "NormalizeStableTerminalSnapshotForPersistence"
+        ])),
+    ("PadEvidence", (
+        "Pad evidence: the idle-on-pad and pad-failure heuristics and the tree evidence they "
+        "read.",
+        [
+            "IsPadFailure", "IsIdleOnPad", "PadEvidenceReason", "HasPadEvidence", "TreePadEvidence",
+            "TreeHasPadEvidenceForIdle", "DecideDestroyedSplitRecordingDiscard",
+            "HasPadLocalizedMotionOverride", "TryGetPadLocalizedMotionMetrics",
+            "GetPadHeuristicBodyRadius", "ComputeTerrainClearance", "IsTreePadFailure",
+            "CountPlacedGroundParts", "CountPlantedFlags", "CountPlayerConverterToggles",
+            "TreeHasConverterWorkForIdle", "CountTaggedLabPayouts", "TreeHasLabPayoutsForIdle",
+            "TreeHasPendingLabRecoveryForIdle", "TreeHasPlantedFlagsForIdle", "FindEvaOfHeldKerbal",
+            "TreeMovesHeldKerbalForIdle", "FindForeignVesselInteraction",
+            "TreeCarriesVesselOutsideChildren", "TreeInteractsWithForeignVesselForIdle",
+            "TreeHasPlacedGroundPartsForIdle", "IsTreeIdleOnPad"
+        ])),
+    ("TreeRestore", (
+        "Pending and committed tree restore (with the two restore coroutines), the vessel-switch "
+        "stash, the fresh-rollout refusal and restore suppression.",
+        [
+            "CopyRewindSaveToRoot", "TryRestoreCommittedTreeForSpawnedActiveVessel",
+            "DeferredResumeScreenMessage", "CollectLivePartPersistentIds",
+            "TryContinueRestoredSpawnInNewSegment", "ResumeCommittedActiveRecording",
+            "TryBuildLiveVesselPidSet", "ConsumeFreshRecordingAfterDiscardedRestore",
+            "RestoreActiveTreeFromPending", "ShouldRefuseVesselSwitchRestoreForFreshRollout",
+            "FreshRolloutRefusedTreeDisposition", "IsFreshRolloutRefusedTreeResolved",
+            "ClassifyFreshRolloutRefusedTree", "DisposeFreshRolloutRefusedPendingTree",
+            "CommitFreshRolloutRefusedPendingTree", "TryRevertPreTransitionForVesselSwitch",
+            "RestoreActiveTreeFromPendingForVesselSwitch", "StashActiveTreeAsPendingLimbo",
+            "CanPreTransitionForVesselSwitch", "ShouldResumeSplitOnRecordedVessel",
+            "ResolveBreakupParentVesselPid", "ShouldShowOnFlightReadyMergeDialog",
+            "ShouldUpgradeRestoreModeForReFlyRetry", "ShouldAcceptFinalizedPendingTreeForReFlyRetry",
+            "SuppressCommittedSpawnedRestoreForActiveVessel",
+            "IsCommittedSpawnedRestoreSuppressedForVessel",
+            "ResolveCommittedSpawnedRestoreSuppressionClearReason",
+            "BeginCommittedSpawnedRestoreSuppression", "TickCommittedSpawnedRestoreSuppression",
+            "ShouldAttemptCommittedSpawnedRestoreInUpdate", "IsFreshLaunchStartupBehaviour",
+            "ShouldSkipCommittedTreeRestoreForFreshLaunch", "TryFindCommittedTreeForSpawnedVessel",
+            "IsCommittedRecordingAheadOfLiveClock", "TryGetLatestRecordedUT",
+            "TrackSectionHoldsRecordedSamples", "LogRefusedAheadOfClockRestores",
+            "TryTakeCommittedTreeForSpawnedVesselRestore",
+            "PrepareCommittedTreeRestoreForSpawnedVessel", "ResolveLiveTreeRecordingPidForRestore",
+            "IsCommittedSpawnedRecordingRestorable", "HasNextChainSegmentInTree",
+            "IsPreferredCommittedSpawnedRestoreCandidate", "RemoveRecordingIdFromBackgroundMap",
+            "ApplyPreTransitionForVesselSwitch", "StashActiveTreeForVesselSwitch"
+        ])),
+    ("SwitchContinuation", (
+        "Stock-action intent consume, switch continuation segments, missed-switch recovery and "
+        "no-op segment evaluation.",
+        [
+            "MissedVesselSwitchRecoveryDiagnosticContext", "TryEvaluateActiveSwitchSegmentNoOp",
+            "AutoDiscardNoOpStandaloneSwitchSegment",
+            "DiscardActiveSwitchSegmentAttemptRevertingLiveClone",
+            "TryEvaluateNoSessionCommittedResumeNoOp", "AutoDiscardNoOpNoSessionCommittedResume",
+            "OnVesselSwitchComplete", "ReplayVesselSwitchCompleteForMissedSwitchRecovery",
+            "LogOnVesselSwitchCompleteRecState", "IsInPlaceContinuationArrivalForMarker",
+            "MapIntentActionToEntryReason", "BuildSwitchSegmentBoundaryPoint",
+            "TryConsumeStockActionIntent", "TryResolvePreSwitchVesselPid",
+            "TryRouteCommittedSpawnedClone", "IsAdoptableResumedSpawnSession",
+            "TryAdoptResumedSpawnSegmentForIntent", "IsTreeIdInCommittedTrees",
+            "TryFindCommittedTreeMatchingVessel", "IsCommittedSpawnStampMatch",
+            "IsOtherLaunchSpawnStamp", "LogRefusedOtherLaunchSpawnStamps",
+            "StartBgMemberContinuationSegment", "StampTerminalOnSwitchClosedBgOrigin",
+            "StartStandaloneContinuationSegment", "ArmSwitchSegmentSessionForRoute",
+            "ArmSwitchSegmentSession", "BindLiveRecorderToSwitchSegment",
+            "DispatchConsumeIntentIfArmed", "HandleMissedVesselSwitchRecovery",
+            "ShouldRecoverMissedVesselSwitch"
         ])),
 ])
+
 
 MOVABLE_KINDS = ("method", "type", "property")
 

@@ -223,7 +223,7 @@ namespace Parsek.Tests
         public void DropSites_PassTheirPreserveFlag(string file, string signature, string expected)
         {
             string body = ExtractMethodBody(
-                SourceScanText.StripCSharpComments(File.ReadAllText(LocateParsekSourceFile(file))),
+                SourceScanText.StripCSharpComments(ParsekFlightSourceFiles.ReadText(LocateParsekSourceFile(file))),
                 signature);
             Assert.Contains("preserveIrreversibleTails: " + expected, body);
             string other = expected == "true" ? "false" : "true";

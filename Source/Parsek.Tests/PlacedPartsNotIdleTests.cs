@@ -231,7 +231,7 @@ namespace Parsek.Tests
             string projectRoot = Path.GetFullPath(
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
-            string source = File.ReadAllText(
+            string source = ParsekFlightSourceFiles.ReadText(
                 Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs"))
                 .Replace("\r\n", "\n");
 
@@ -251,7 +251,7 @@ namespace Parsek.Tests
             string projectRoot = Path.GetFullPath(
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
-            string source = File.ReadAllText(
+            string source = ParsekFlightSourceFiles.ReadText(
                 Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs"))
                 .Replace("\r\n", "\n");
 

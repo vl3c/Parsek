@@ -176,7 +176,7 @@ namespace Parsek.Tests
                 return VesselSpawnerSourceFiles.ReadAll(Path.GetDirectoryName(path));
             if (relPath == "ParsekFlight.cs")
                 return ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path));
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
     }
 }

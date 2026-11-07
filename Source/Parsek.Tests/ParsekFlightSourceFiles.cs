@@ -23,10 +23,19 @@ namespace Parsek.Tests
         internal static readonly string[] SplitFileNames =
         {
             "ParsekFlight.Accessors.cs",
+            "ParsekFlight.Flags.cs",
             "ParsekFlight.GhostPositioner.cs",
             "ParsekFlight.GhostPositioning.cs",
+            "ParsekFlight.MergeFlow.cs",
+            "ParsekFlight.PadEvidence.cs",
+            "ParsekFlight.PostSwitchAutoRecord.cs",
+            "ParsekFlight.RecorderSession.cs",
             "ParsekFlight.Spawning.cs",
+            "ParsekFlight.SplitBranching.cs",
+            "ParsekFlight.SplitEvents.cs",
+            "ParsekFlight.SwitchContinuation.cs",
             "ParsekFlight.TimelinePlayback.cs",
+            "ParsekFlight.TreeRestore.cs",
         };
 
         /// <summary>
@@ -63,6 +72,18 @@ namespace Parsek.Tests
         internal static string ReadAll(string parsekSourceDir)
         {
             return string.Join("\n", Paths(parsekSourceDir).Select(File.ReadAllText));
+        }
+
+        /// <summary>
+        /// <see cref="File.ReadAllText(string)"/> for a source reader that takes a path: the
+        /// path of <c>ParsekFlight.cs</c> reads <see cref="ReadAll"/> (the text that was
+        /// ParsekFlight.cs), any other path reads that one file.
+        /// </summary>
+        internal static string ReadText(string path)
+        {
+            if (string.Equals(Path.GetFileName(path), "ParsekFlight.cs", StringComparison.Ordinal))
+                return ReadAll(Path.GetDirectoryName(path));
+            return File.ReadAllText(path);
         }
     }
 }

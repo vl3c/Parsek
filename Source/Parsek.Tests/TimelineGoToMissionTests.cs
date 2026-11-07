@@ -403,7 +403,7 @@ namespace Parsek.Tests
             if (!File.Exists(path))
                 path = Path.Combine(projectRoot, "Parsek", "UI", "TimelineWindowUI.cs");
             Assert.True(File.Exists(path), $"TimelineWindowUI.cs not found at {path}");
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
     }
 }

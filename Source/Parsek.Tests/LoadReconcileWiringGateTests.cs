@@ -85,7 +85,7 @@ namespace Parsek.Tests
                 {
                     continue;
                 }
-                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 int count = callPattern.Matches(prepared).Count;
                 if (count > 0)
                     actual[rel] = count;
@@ -253,7 +253,7 @@ namespace Parsek.Tests
             var consumers = new List<string>();
             foreach (string path in Directory.GetFiles(ParsekSourceRoot(), "*.cs", SearchOption.AllDirectories))
             {
-                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 if (Occurrences(prepared, "SaveFileLoadIntent.TryConsume(") > 0)
                     consumers.Add(Path.GetFileName(path));
             }
@@ -560,7 +560,7 @@ namespace Parsek.Tests
                 {
                     continue;
                 }
-                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 if (prepared.Contains("ConfigurePendingQuickloadResumeContext("))
                     armFiles.Add(rel);
             }
@@ -629,7 +629,7 @@ namespace Parsek.Tests
                 {
                     continue;
                 }
-                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 for (int i = 0; i < Occurrences(prepared, "DiscardReFlyLoadIntent.Arm("); i++)
                     armSites.Add(rel);
                 for (int i = 0; i < Occurrences(prepared, "DiscardReFlyLoadIntent.TryConsume("); i++)
@@ -924,7 +924,7 @@ namespace Parsek.Tests
                     if (rel.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
                         || rel.StartsWith("obj/", StringComparison.OrdinalIgnoreCase))
                         continue;
-                    if (File.ReadAllText(path).IndexOf(type.Name, StringComparison.Ordinal) < 0)
+                    if (ParsekFlightSourceFiles.ReadText(path).IndexOf(type.Name, StringComparison.Ordinal) < 0)
                         continue;
                     Source src = LoadSource(path);
                     if (declares.IsMatch(src.Masked))
@@ -937,7 +937,7 @@ namespace Parsek.Tests
             {
                 if (sources.TryGetValue(path, out Source cached))
                     return cached;
-                string stripped = SourceScanText.StripCSharpComments(File.ReadAllText(path));
+                string stripped = SourceScanText.StripCSharpComments(ParsekFlightSourceFiles.ReadText(path));
                 var src = new Source
                 {
                     Name = Path.GetFileName(path),
@@ -1110,7 +1110,7 @@ namespace Parsek.Tests
         {
             string path = Path.Combine(ParsekSourceRoot(), relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
     }
 }

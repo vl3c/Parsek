@@ -53,7 +53,7 @@ namespace Parsek.Tests
             // ParsekFlight is split into partial files; read the text that was ParsekFlight.cs.
             string text = relativePath == "ParsekFlight.cs"
                 ? ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path))
-                : File.ReadAllText(path);
+                : ParsekFlightSourceFiles.ReadText(path);
             return SourceScanText.StripCommentsAndMaskLiterals(text);
         }
 

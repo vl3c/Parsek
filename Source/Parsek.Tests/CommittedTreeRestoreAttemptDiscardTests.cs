@@ -301,7 +301,7 @@ namespace Parsek.Tests
         private static string ReadStrippedParsekSource(string relativePath)
         {
             return SourceScanText.StripCSharpComments(
-                File.ReadAllText(LocateParsekSourceFile(relativePath)));
+                ParsekFlightSourceFiles.ReadText(LocateParsekSourceFile(relativePath)));
         }
 
         /// <summary>

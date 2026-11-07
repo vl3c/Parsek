@@ -267,7 +267,7 @@ namespace Parsek.Tests
             // this gate. StripCSharpComments is length- and line-preserving, and string
             // literals survive whole, so the exact-format assertion below still holds.
             string src = SourceScanText.StripCSharpComments(
-                File.ReadAllText(LocateParsekFlightSource()));
+                ParsekFlightSourceFiles.ReadText(LocateParsekFlightSource()));
             string body = ExtractMethodBody(src, "void ResetFlightReadyState()");
 
             int clearing = body.IndexOf(
@@ -342,7 +342,7 @@ namespace Parsek.Tests
             // Comments stripped, same as the cell above: the clear-callee and reason
             // needles must match code, not the comment that documents them.
             string src = SourceScanText.StripCSharpComments(
-                File.ReadAllText(LocateParsekFlightSource()));
+                ParsekFlightSourceFiles.ReadText(LocateParsekFlightSource()));
             string body = ExtractMethodBody(src, signature);
 
             const string clearCallee = "ClearCommittedTreeRestoreAttemptForDroppedTree(";

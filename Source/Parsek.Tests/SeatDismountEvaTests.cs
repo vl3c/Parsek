@@ -94,7 +94,7 @@ namespace Parsek.Tests
 
         private static string ReadParsekFlight()
         {
-            return File.ReadAllText(Path.Combine(
+            return ParsekFlightSourceFiles.ReadText(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
                 "..", "..", "..", "..", "..", "Source", "Parsek", "ParsekFlight.cs"));
         }

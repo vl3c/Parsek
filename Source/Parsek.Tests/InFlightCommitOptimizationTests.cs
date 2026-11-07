@@ -323,7 +323,7 @@ namespace Parsek.Tests
             string path = LocateParsekFlightSource();
             Assert.True(System.IO.File.Exists(path), $"ParsekFlight.cs not found at {path}");
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
-                System.IO.File.ReadAllText(path).Replace(CrLf, Lf));
+                ParsekFlightSourceFiles.ReadText(path).Replace(CrLf, Lf));
 
             const string decl = "public void CommitTreeFlight()";
             int declIdx = prepared.IndexOf(decl, StringComparison.Ordinal);
