@@ -249,7 +249,7 @@ namespace Parsek
             StartBodyName = v.mainBody?.name;
             StartSituation = v.isEVA ? "EVA" : VesselSpawner.HumanizeSituation(v.situation);
             StartBiome = VesselSpawner.TryResolveBiome(v.mainBody?.name, v.latitude, v.longitude);
-            uint freshRolloutPid = RecordingStore.SceneEntryFreshRolloutVesselPid;
+            uint freshRolloutPid = SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid;
             string landedAtSite = ResolveLandedAtLaunchSite(v.situation, v.landedAt);
             string launchSiteGate;
             bool captureSite = ShouldCaptureLaunchSite(

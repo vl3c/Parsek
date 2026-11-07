@@ -70,7 +70,7 @@ WHAT IT DOES, in order:
      vessel and the tree RVR-2 seals and promotes. Two reasons, both load-bearing
      and neither cosmetic:
        * A PRELAUNCH-focused boot is the FRESH-ROLLOUT shape Parsek's recorder
-         has a fast path for (`RecordingStore.SceneEntryFreshRolloutVesselPid`).
+         has a fast path for (`SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid`).
          A lane whose whole subject is committed-tree state should not open on
          the one vessel posture that invites the recorder to do something.
        * `B` is where an operator would be sitting to create this route.

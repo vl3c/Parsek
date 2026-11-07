@@ -41,7 +41,7 @@ namespace Parsek
     /// .claude/CLAUDE.md): a name or pid match is NEVER proof of same-launch identity.
     /// The launch-unique discriminator is Vessel.id, captured as
     /// Recording.RecordedVesselGuid; the scene-entry fresh-rollout pid
-    /// (RecordingStore.SceneEntryFreshRolloutVesselPid) is the cheap same-scene fast
+    /// (SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid) is the cheap same-scene fast
     /// path that identifies a brand-new launch even before guids are compared.
     /// An unknown guid on either side stays inconclusive so legacy recordings keep the
     /// pre-guid pid fallback behavior; the name fallback is reserved for recordings with

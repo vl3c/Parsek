@@ -675,12 +675,12 @@ namespace Parsek.Tests
         {
             var rewindTarget = MakeRecording("rewind-target", null, pid: 123u);
 
-            RecordingStore.SetRewindReplayTargetScope(rewindTarget);
+            SceneEntryVesselScope.SetRewindReplayTargetScope(rewindTarget);
             RecordingStore.ClearCommittedInternal();
             RecordingStore.ClearCommittedTreesInternal();
 
-            Assert.Equal(123u, RecordingStore.RewindReplayTargetSourcePid);
-            Assert.Equal("rewind-target", RecordingStore.RewindReplayTargetRecordingId);
+            Assert.Equal(123u, SceneEntryVesselScope.RewindReplayTargetSourcePid);
+            Assert.Equal("rewind-target", SceneEntryVesselScope.RewindReplayTargetRecordingId);
         }
 
         [Fact]

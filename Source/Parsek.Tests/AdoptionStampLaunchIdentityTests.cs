@@ -566,8 +566,8 @@ namespace Parsek.Tests
         public void CurrentFlightBypass_SameLaunchReFlight_KeepsBypassAndSkipsAdoption()
         {
             var rec = UnspawnedLaunchOneRecording();
-            RecordingStore.SceneEntryActiveVesselPid = BakedPid;
-            RecordingStore.SceneEntryActiveVesselGuid = LaunchOneGuid;
+            SceneEntryVesselScope.SceneEntryActiveVesselPid = BakedPid;
+            SceneEntryVesselScope.SceneEntryActiveVesselGuid = LaunchOneGuid;
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == BakedPid);
             VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(pid => LaunchOneGuid);
 
@@ -588,8 +588,8 @@ namespace Parsek.Tests
         public void CurrentFlightBypass_DifferentLaunch_WithheldButAdoptionStillRefuses()
         {
             var rec = UnspawnedLaunchOneRecording();
-            RecordingStore.SceneEntryActiveVesselPid = BakedPid;
-            RecordingStore.SceneEntryActiveVesselGuid = LaunchTwoGuid;
+            SceneEntryVesselScope.SceneEntryActiveVesselPid = BakedPid;
+            SceneEntryVesselScope.SceneEntryActiveVesselGuid = LaunchTwoGuid;
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == BakedPid);
             VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(pid => LaunchTwoGuid);
 

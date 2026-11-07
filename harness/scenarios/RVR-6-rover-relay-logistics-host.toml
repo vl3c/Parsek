@@ -208,7 +208,7 @@ kind = "seam"
 # ONE EXTRA REASON THE TRIPLE MATTERS HERE. The fixture's builder re-points
 # `activeVessel` off a stock ASTEROID (the source was saved from the SPACE CENTER, so KSP
 # left index 0 focused on `Ast. UYX-230`) onto the LANDED `rover C`. A LANDED rover is
-# not the fresh-rollout shape `RecordingStore.SceneEntryFreshRolloutVesselPid` has a fast
+# not the fresh-rollout shape `SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid` has a fast
 # path for, so the boot does not put a rollout-shaped vessel under the
 # `autoRecordOnLaunch` gate one step before that gate closes.
 #

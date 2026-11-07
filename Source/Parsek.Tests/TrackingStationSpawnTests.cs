@@ -273,7 +273,7 @@ namespace Parsek.Tests
         public void TryRunTrackingStationSpawnHandoffs_MatchingSceneEntryPidMarksRecordingMaterialized()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
-            RecordingStore.SceneEntryActiveVesselPid = 777;
+            SceneEntryVesselScope.SceneEntryActiveVesselPid = 777;
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
 
             GhostMapPresence.TryRunTrackingStationSpawnHandoffs(

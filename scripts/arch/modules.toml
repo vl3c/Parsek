@@ -247,6 +247,14 @@ name = "Trajectory"
 prefix = "^TrackSection[.]cs$|^TerminalState[.]cs$"
 placement = "R0"
 
+# RecordingStore services whose names the family prefixes below miss (the 2026-11-06
+# RecordingStore services plan): the scene-entry vessel scope is store state the spawn
+# dedup and the replay bypass read
+[[module]]
+name = "Recording"
+prefix = "^SceneEntryVesselScope[.]cs$"
+placement = "R0"
+
 [[module]]
 name = "Missions"
 prefix = "^Mission"
