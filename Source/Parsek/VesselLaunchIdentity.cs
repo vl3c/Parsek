@@ -237,7 +237,7 @@ namespace Parsek
             try
             {
                 if (rec.VesselSnapshot == null)
-                    RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+                    RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
                 return TryReadVesselGuid(rec.VesselSnapshot);
             }
             catch (Exception ex)

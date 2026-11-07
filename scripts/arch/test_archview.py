@@ -3366,9 +3366,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # which the RecordingStore cut dropped, so it and RecordingsTableFormatters
         # stay in the residue: 284 of 458. PR2 points GroupPickerPresentation's
         # IsInvalidGroupName call at RecordingGroupStore (uncut) instead of the
-        # RecordingStore forwarder (cut): 285 of 458, the value pinned here.
+        # RecordingStore forwarder (cut): 285 of 458. PR3 deletes the sidecar
+        # forwarders, so their callers reach RecordingSidecarStore and
+        # RouteProofCodec directly and both stay in the residue: 287 of 458,
+        # the value pinned here.
         largest = self.model["knots"][0]
-        self.assertLessEqual(largest["cuts"][-1]["sizeAfter"], 285)
+        self.assertLessEqual(largest["cuts"][-1]["sizeAfter"], 287)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

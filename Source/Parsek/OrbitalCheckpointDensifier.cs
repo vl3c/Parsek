@@ -80,7 +80,7 @@ namespace Parsek
             if (totalAdded > 0)
             {
                 if (syncFlatTrajectory)
-                    RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec, allowRelativeSections: true);
+                    TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(rec, allowRelativeSections: true);
                 rec.CachedStats = null;
                 rec.CachedStatsPointCount = 0;
             }

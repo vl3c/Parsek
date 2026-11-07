@@ -359,7 +359,7 @@ namespace Parsek.Tests
 
         // =====================================================================
         // Bug #262: ShouldExpectSidecarFile pure predicate
-        // Mirrors RecordingStore.SaveRecordingFiles' write conditions:
+        // Mirrors RecordingSidecarStore.SaveRecordingFiles' write conditions:
         //   .prec → always
         //   _vessel.craft → only when rec.VesselSnapshot != null
         //   _ghost.craft → only when ghostSnapshotMode resolves to Separate

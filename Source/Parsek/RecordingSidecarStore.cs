@@ -735,7 +735,7 @@ namespace Parsek
             }
 
             SnapshotSidecarProbe probe;
-            bool loadOk = RecordingStore.TryLoadSnapshotSidecar(vesselPath, out ConfigNode node, out probe);
+            bool loadOk = SnapshotSidecarCodec.TryLoad(vesselPath, out ConfigNode node, out probe);
             if (loadOk && probe.Supported && node != null)
             {
                 rec.VesselSnapshot = node;
@@ -813,7 +813,7 @@ namespace Parsek
                 return RecordingStore.SnapshotSidecarLoadState.Missing;
 
             SnapshotSidecarProbe probe;
-            bool loadOk = RecordingStore.TryLoadSnapshotSidecar(path, out node, out probe);
+            bool loadOk = SnapshotSidecarCodec.TryLoad(path, out node, out probe);
             if (loadOk && probe.Supported && node != null)
                 return RecordingStore.SnapshotSidecarLoadState.Loaded;
 
@@ -1135,7 +1135,7 @@ namespace Parsek
             // next load would mark SidecarLoadFailed.
             SnapshotSidecarProbe probe;
             ConfigNode scratchNode;
-            bool loadOk = RecordingStore.TryLoadSnapshotSidecar(path, out scratchNode, out probe);
+            bool loadOk = SnapshotSidecarCodec.TryLoad(path, out scratchNode, out probe);
 
             if (!probe.Success)
             {
@@ -1162,6 +1162,22 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Bug #585 follow-up: a recording whose sidecar load failed (most often
+        /// bug #270's stale-sidecar-epoch mitigation on a Re-Fly quicksave) sits
+        /// in memory with empty trajectory + null snapshots, while the on-disk
+        /// .prec still holds the original mission's data. If the recorder never
+        /// rebinds (any non-active recording in the loaded tree), writing the
+        /// empty in-memory state back to disk would clobber the original .prec
+        /// — permanently destroying user data. PR #558 fixed this for the
+        /// active recording (recorder rebind repopulates it) but did nothing
+        /// for siblings; the playtest at <c>logs/2026-04-25_2210_refly-bugs/</c>
+        /// caught a sibling launch recording (22c28f04…) being overwritten with
+        /// <c>points=0 orbitSegments=0 trackSections=0 wroteVessel=False</c> on
+        /// scene exit. This guard returns true when both flags are set and the
+        /// in-memory state has no recorded data: the saver must skip the write
+        /// to preserve the on-disk .prec.
+        /// </summary>
         internal static bool ShouldSkipSaveToPreserveStaleSidecar(Recording rec)
         {
             if (rec == null) return false;
@@ -1247,7 +1263,7 @@ namespace Parsek
             var summary = new TrajectoryPersistenceSummary
             {
                 TrackSectionCount = rec?.TrackSections?.Count ?? 0,
-                SectionAuthoritative = RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(rec)
+                SectionAuthoritative = TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(rec)
             };
 
             if (rec == null)
@@ -1256,7 +1272,7 @@ namespace Parsek
             if (summary.SectionAuthoritative)
             {
                 var rebuiltPoints = new List<TrajectoryPoint>();
-                RecordingStore.RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
+                TrajectoryTextSidecarCodec.RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
                 summary.EffectivePointCount = rebuiltPoints.Count;
             }
             else
@@ -1313,7 +1329,7 @@ namespace Parsek
                 {
                     EffectivePointCount = existing.Points?.Count ?? 0,
                     TrackSectionCount = existing.TrackSections?.Count ?? 0,
-                    SectionAuthoritative = RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(existing),
+                    SectionAuthoritative = TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(existing),
                     ProbeRecordingId = probe.RecordingId,
                     ProbeSidecarEpoch = probe.SidecarEpoch,
                     ProbeFormatVersion = probe.FormatVersion,
@@ -1784,7 +1800,7 @@ namespace Parsek
             if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
                 precNode.AddValue("recordingId", rec.RecordingId);
             precNode.AddValue("sidecarEpoch", sidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            RecordingStore.SerializeTrajectoryInto(precNode, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(precNode, rec);
             SafeWriteConfigNode(precNode, path);
         }
 
@@ -1804,7 +1820,7 @@ namespace Parsek
             if (string.IsNullOrEmpty(authoritativePath) || !File.Exists(authoritativePath))
                 return null;
 
-            if (!RecordingStore.TryLoadSnapshotSidecar(authoritativePath, out ConfigNode node, out SnapshotSidecarProbe probe))
+            if (!SnapshotSidecarCodec.TryLoad(authoritativePath, out ConfigNode node, out SnapshotSidecarProbe probe))
             {
                 throw new InvalidOperationException(
                     $"failed to load authoritative snapshot sidecar '{Path.GetFileName(authoritativePath)}' for readable mirror");

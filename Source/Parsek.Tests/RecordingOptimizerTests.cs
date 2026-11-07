@@ -1270,7 +1270,7 @@ namespace Parsek.Tests
             rec.OrbitSegments.Add(PredictedOrbitSegment(recordedEndUT, 400.0));
             rec.OrbitSegments.Add(PredictedOrbitSegment(400.0, terminalUT));
 
-            Assert.True(RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+            Assert.True(TrajectoryTextSidecarCodec.FlatTrajectoryExtendsTrackSectionPayload(
                 rec, rec.TrackSections, allowRelativeSections: true));
 
             var second = RecordingOptimizer.SplitAtSection(rec, 1);
@@ -1286,7 +1286,7 @@ namespace Parsek.Tests
             Assert.All(second.OrbitSegments, seg => Assert.True(seg.isPredicted));
             Assert.Equal(recordedEndUT, second.OrbitSegments[0].startUT);
             Assert.Equal(terminalUT, second.OrbitSegments[second.OrbitSegments.Count - 1].endUT);
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(second));
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(second));
             Assert.Contains(logLines, l =>
                 l.Contains("[Optimizer]")
                 && l.Contains("SplitAtSection: split split-predicted-tail")
@@ -4504,7 +4504,7 @@ namespace Parsek.Tests
             Assert.Single(rec.TrackSections[1].frames);
             Assert.Equal(17050, rec.TrackSections[1].frames[0].ut);
 
-            Assert.True(RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec));
+            Assert.True(TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(rec));
             Assert.Equal(17050, rec.EndUT);
             Assert.Equal(17050, rec.Points[rec.Points.Count - 1].ut);
         }
@@ -4560,7 +4560,7 @@ namespace Parsek.Tests
             Assert.Single(rec.TrackSections[1].checkpoints);
             Assert.Equal(17060, rec.TrackSections[1].checkpoints[0].endUT);
 
-            Assert.True(RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec));
+            Assert.True(TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(rec));
             Assert.Equal(17060, rec.EndUT);
             Assert.Single(rec.OrbitSegments);
             Assert.Equal(17060, rec.OrbitSegments[0].endUT);

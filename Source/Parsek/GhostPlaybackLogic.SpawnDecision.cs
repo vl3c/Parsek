@@ -332,7 +332,7 @@ namespace Parsek
                     && rec.TerminalStateValue.HasValue
                     && IsSpawnableTerminal(rec.TerminalStateValue.Value);
                 if (!worthHydrating
-                    || !RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec))
+                    || !RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec))
                 {
                     return (false, "no vessel snapshot");
                 }

@@ -24,7 +24,7 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_SerializationRoundtrip()
         {
-            // Production codec on BOTH ends: RecordingStore.SerializeTrajectoryInto writes
+            // Production codec on BOTH ends: TrajectoryTextSidecarCodec.SerializeTrajectoryInto writes
             // the PART_EVENT nodes and DeserializeTrajectoryFrom reads them back. The old
             // body hand-rolled the read, so a regression in
             // TrajectoryTextSidecarCodec.DeserializePartEvents left it green.
@@ -47,10 +47,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Equal(2, loaded.PartEvents.Count);
 
@@ -78,12 +78,12 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 110, altitude = 200, bodyName = "Kerbin" });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
             Assert.Empty(node.GetNodes("PART_EVENT"));
             Assert.NotEmpty(node.GetNodes());
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Equal(2, loaded.Points.Count);
             Assert.NotNull(loaded.PartEvents);
@@ -869,10 +869,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.LightOn, loaded.PartEvents[0].eventType);
@@ -897,10 +897,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.LightBlinkEnabled, loaded.PartEvents[0].eventType);
@@ -1209,10 +1209,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.GearDeployed, loaded.PartEvents[0].eventType);
@@ -1236,10 +1236,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.GearRetracted, loaded.PartEvents[0].eventType);
@@ -1363,10 +1363,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.CargoBayOpened, loaded.PartEvents[0].eventType);
@@ -1390,10 +1390,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.CargoBayClosed, loaded.PartEvents[0].eventType);
@@ -1455,10 +1455,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.FairingJettisoned, loaded.PartEvents[0].eventType);
@@ -1669,10 +1669,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.RCSActivated, loaded.PartEvents[0].eventType);
@@ -1698,10 +1698,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.RCSStopped, loaded.PartEvents[0].eventType);
@@ -1733,10 +1733,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Equal(2, loaded.PartEvents.Count);
             Assert.Equal(PartEventType.RCSThrottle, loaded.PartEvents[0].eventType);
@@ -1936,10 +1936,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.RoboticPositionSample, loaded.PartEvents[0].eventType);
@@ -2156,10 +2156,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.ThermalAnimationHot, loaded.PartEvents[0].eventType);
@@ -2185,10 +2185,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.ThermalAnimationMedium, loaded.PartEvents[0].eventType);
@@ -2216,7 +2216,7 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             // Manually inject an unknown event type (999)
             var unknownEvtNode = new ConfigNode("PART_EVENT");
@@ -2229,7 +2229,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-forward-compat";
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             // The unknown event (type=999) should be skipped, only the valid event remains
             Assert.Single(loaded.PartEvents);
@@ -2258,10 +2258,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.EngineIgnited, loaded.PartEvents[0].eventType);
@@ -2284,7 +2284,7 @@ namespace Parsek.Tests
             // No "value" or "midx" keys
 
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
             Assert.Single(rec.PartEvents);
             Assert.Equal(0f, rec.PartEvents[0].value);
@@ -2318,10 +2318,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Equal(2, loaded.PartEvents.Count);
             Assert.Equal(PartEventType.EngineThrottle, loaded.PartEvents[0].eventType);

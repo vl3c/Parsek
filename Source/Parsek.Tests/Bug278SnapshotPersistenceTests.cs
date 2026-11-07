@@ -202,7 +202,7 @@ namespace Parsek.Tests
                 System.IO.File.WriteAllText(vesselPath, persisted);
                 long persistedLength = new System.IO.FileInfo(vesselPath).Length;
 
-                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                     rec, precPath, vesselPath, ghostPath, incrementEpoch: true));
 
                 Assert.True(System.IO.File.Exists(vesselPath),
