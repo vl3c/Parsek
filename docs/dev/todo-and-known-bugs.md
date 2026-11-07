@@ -20,6 +20,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT: a replace commit can mark a surviving replacement destroyed and keep a stale situation [FILED 2026-11-07 from the review of the TreeCommitService unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2452), by code reading. OPEN; not reproduced in play, low]
+
+**What is true.**
+- `TreeCommitService.PreserveFinalStateDiagnosticsOnReplace` (the last cluster of
+  `PreserveLiveRuntimeFieldsOnReplace`) copies each field from the committed recording onto its
+  replacement when the replacement holds the default. `VesselDestroyed` defaults to false, so a
+  destroyed committed recording always hands `VesselDestroyed = true` to its replacement, even
+  when the replacement flew on and survived.
+- The guard on `SceneExitSituation` reads `!incoming.VesselDestroyed` BEFORE that copy and the
+  guard on `VesselSituation` reads it AFTER, so with existing `VesselDestroyed=true,
+  SceneExitSituation=2` and a default replacement the result is `VesselDestroyed=true`,
+  `SceneExitSituation=2`, `VesselSituation=null`: destroyed, with a live situation code.
+- `MarkDestroyedAtTerminal` clears both situation fields on the destroyed side, so the mixed
+  result needs a destroyed recording that still carries a situation code. Whether a Re-Fly
+  replace can hand a destroyed committed copy to a surviving replacement is not established.
+
+**Fix.** Decide whether `VesselDestroyed` should copy at all onto a replacement whose own
+terminal is not Destroyed (the spawn claim already refuses a vesselless terminal the same way),
+and read the destroyed state once before the cluster so both situation guards agree. The unit
+tests in `TreeCommitServiceUnitTests` cover each field alone and do not pin the mixed case.
+
+## TREE-START-UT-EMPTY-RECORDING-READS-ZERO: one empty recording pulls a continuation tree's start to UT 0 [FILED 2026-11-07 from the same review, by code reading. OPEN; not reproduced in play, low]
+
+**What is true.** `TreeCommitService.GetTreeStartUT` takes the minimum `Recording.StartUT` over
+the tree, and `StartUT` reads 0.0 for a recording with no trajectory and no explicit start. One
+such recording makes the tree start at 0, so the contiguity half of
+`ShouldMarkSupersededTerminalSpawn` (`continuationTreeStartUT > prior.EndUT + 1e-3`) never
+rejects and only the same-launch / same-name test and the prior-end-before-continuation-start
+test stand between an unrelated later tree and a terminal spawn supersede mark.
+
+**Fix.** Skip recordings without trajectory bounds or an explicit start in `GetTreeStartUT`
+(NaN when none is left), with a unit test beside the existing `GetTreeStartUT_*` cells.
+
 ## SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE: the scoped switch-segment Discard leaves three things the committed-tree prune repairs [FILED 2026-11-07 from the review of the discard-service unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2454), by code reading. OPEN; not reproduced in play, low]
 
 **What is true.** `SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt` (pending-tree-prune
