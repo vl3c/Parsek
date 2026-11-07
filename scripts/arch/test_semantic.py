@@ -442,11 +442,33 @@ class RealTreeSemanticTests(unittest.TestCase):
             with self.subTest(member=key):
                 self.assertEqual(resolved.get(key), service)
 
+    def test_the_known_false_names_are_explained(self):
+        # Two text false positives the wave-2 streams found carrying residue
+        # weight: `State` (StockUiReasonTooltip's private nested class, matched
+        # by every `Contract.State` / `RDTech.State` in GameActions) and `Hold`
+        # (RewindVesselHold's nested class, matched by enum members such as
+        # `ChainBridgeAction.Hold`). Every text-only edge into them must carry
+        # an explained reason, and no GameActions type may use `State` in IL.
+        for target in ("State", "Hold"):
+            edges = {
+                edge: value
+                for edge, value in self.result["classified"].items()
+                if edge[1] == target and value[0] == "text-only"
+            }
+            self.assertTrue(edges, target)
+            for edge, (_side, reasons, evidence) in edges.items():
+                with self.subTest(edge=edge):
+                    self.assertTrue(set(reasons) <= semantic.TEXT_ONLY_EXPLAINED, evidence)
+        modules = self.result["typeModules"]
+        users = [name for name, refs in self.result["semantic"].items()
+                 if "State" in refs and modules.get(name) == "GameActions"]
+        self.assertEqual(users, [])
+
     def test_the_semantic_residue_ratchet(self):
         # The architecture ratchet (W4a2, 2026-11-07). The bound is the
-        # semantic residue measured on 088feb067, the tree where the text
+        # semantic residue measured on 62d9b1b56, the tree where the text
         # residue (test_archview.test_cut_sequence_halves_the_largest_knot)
-        # still passed its bound 283: greedy 258, replayed 258 with
+        # still passed its bound 272: greedy 250, replayed 250 with
         # SEMANTIC_CUT_ORDER. Like the text ratchet before it, the measure is
         # min(greedy residue, replayed residue); the replay never rises when a
         # reference is removed. A call through a forwarder is a call to the
@@ -454,7 +476,7 @@ class RealTreeSemanticTests(unittest.TestCase):
         # it. Tighten the bound to the measured value in the PR that lowers it;
         # never loosen it, not even for a new type that only splits a residue
         # member.
-        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 258)
+        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 250)
 
 if __name__ == "__main__":
     unittest.main()

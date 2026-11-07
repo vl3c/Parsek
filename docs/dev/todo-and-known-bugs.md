@@ -3598,7 +3598,7 @@ compare).
   extractor: `scripts/arch/ilgraph.py` parses the `ikdasm` dump of the built Parsek.dll (stdlib
   Python, no new package; the DLL is built by every test run) and `semantic.py` measures the
   same knot and residue over the text model's nodes, with a call to a forwarder credited to the
-  forwarded type. On 088feb067: text residue 283, semantic 258 (knot 477 vs 420); 715 text-only
+  forwarded type. On 62d9b1b56: text residue 272, semantic 250 (knot 459 vs 405); 715 text-only
   and 637 IL-only edges, all classified (inlined constants, enum members and `nameof`, nested
   qualifiers, text false positives on the text side; members reached through values, `var`,
   inferred generics and base lists, which the text scan never reads, on the IL side). CI runs
@@ -3607,8 +3607,8 @@ compare).
   disagree with the model (`PROSE_NUMBER_CLAIMS`). The ratchet still reads the text scan until
   W4a2 switches it.
 - 2026-11-07 (refactor branch, W4a2): the residue ratchet reads the semantic graph:
-  `test_semantic.test_the_semantic_residue_ratchet`, bound 258 (min of greedy and replayed over
-  `SEMANTIC_CUT_ORDER` on 088feb067, a tree that still passed the text bound 283). The text
+  `test_semantic.test_the_semantic_residue_ratchet`, bound 250 (min of greedy and replayed over
+  `SEMANTIC_CUT_ORDER` on 62d9b1b56, a tree that still passed the text bound 272). The text
   residue cell keeps measuring, unbounded, so deleting the RecordingStore metric forwarders (W4c)
   no longer fights the ratchet. The ratchet runs only with `PARSEK_ARCH_IL` (CI after the build).
 

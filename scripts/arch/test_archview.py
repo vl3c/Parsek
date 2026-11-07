@@ -3536,8 +3536,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # forwarder counts as a call to the forwarded type, so code can no
         # longer move this text residue by adding or deleting forwarders
         # (test_semantic.RealTreeSemanticTests.test_the_semantic_residue_ratchet,
-        # bound 258 = the semantic residue on 088feb067, a tree that still
-        # passed the text bound 283 here). The text residue stays measured and
+        # bound 250 = the semantic residue on 62d9b1b56, a tree that still
+        # passed the text bound 272 here). The text residue stays measured and
         # reported (`archview.py --check`, `semantic.py`), not bounded:
         # deleting the RecordingStore metric forwarders (W4c) raises it.
         largest = self.model["knots"][0]
