@@ -1,0 +1,135 @@
+schema = 1
+id = "V32M-eve-gilly-continuation-player-loop"
+# =====================================================================================
+# DRAFT - NEVER FLOWN - NOT COMMITTED. Do not commit until `eve-gilly-recorded` exists in
+# harness/fixtures/saves/ (a committed spec naming a missing fixture reds the suites).
+# Order and commands: moon-lane-drafts/README.md.
+#
+# THE PLAYER-LOOP HALF (modelled on V15M's preamble and V13's build-log reading):
+# MissionConfig loop=true + StartLoopPlayback on the Kerbin -> Eve -> Gilly tree,
+# reading the loop unit's build lines, then the MoonArrivalHold batch at the
+# Space Center. No jump table yet: its UTs come from this lane's own reading
+# (`phaseAnchor=` / `cadence=` on the ENGAGED line, `hold=` / `recordedArrivalUT=`
+# on the ARRIVAL HOLD line). The second revision adds the -180/-60/+140 brackets
+# around the replayed Gilly SOI entry and pins V17's lens there:
+# `shadow .*coverage=InSegment segIdx=\d+ treatment=TracedPath visible=True .*body=Gilly`
+# (the Director TracedPath drive; NOT the flight-scene proto line, which
+# fail-closes to the root frame for a nested-SOI recording).
+#
+# THE SUBJECT. `eve-gilly-recorded`, harvested from `B37-eve-gilly-continuation`: the Eve -> Gilly hop
+# appended to `eve-orbit-recorded`'s committed Kerbin -> Eve tree `16af6b5e546a4bef86fcd8cde1ddc924` (the forge
+# resumes that tree, so the id is unchanged). One tree that crosses Eve's SOI and
+# Gilly's is exactly the shape PR #2468's lone-moon arrival hold engages on.
+#
+# WHAT THE LOG MUST SHOW (literals from Source/Parsek/MissionLoopUnitBuilder.cs):
+#   `MissionLoopUnit: ... ENGAGED re-aim Kerbin->Eve via Sun` - the re-aim
+#       engages on the Kerbin -> Eve member, as on the source fixture's own lanes.
+#   `ARRIVAL HOLD dest=Eve kind=config Talign=<P_Gilly>s moons=1 ...
+#       (aligns the moon orbital phases, mode=` - the lone-moon configuration hold on
+#       Gilly's period (388,587.38 s; one participant, so T_config = P_Gilly).
+#   `BATCH_COMPLETE ... category=MoonArrivalHold scene=SPACECENTER` - the live
+#       LoneMoonHoldInGameTest cell (1 test, SPACECENTER), pinned whole.
+# `MOON HOLD keeps the destination loiter whole` is a CANDIDATE only (commented below):
+# it logs only when the loiter compressor cut time AFTER the Eve SOI entry, i.e.
+# when the forge's Eve park ran 2+ whole orbits before the hop. Read the reading's
+# `ENGAGED re-aim ... loiterCuts=` and the MOON HOLD line (or its absence) first.
+# GILLY IS THE PLAUSIBLE DECLINE (eccentric e 0.55, i 12 deg, a ~200 s SOI
+# crossing tolerance, not tidally locked). The plan's rule: pin what the first
+# reading measures, never a guess. This draft REQUIRES the engage (the planner's
+# prediction, MoonArrivalHold's live cell passes for Gilly); if the reading declines
+# instead, the run reds on exactly the ARRIVAL HOLD token and the forbidden amber.
+# Then swap them: require `Arrival amber SET: tree=16af6b5e546a4bef86fcd8cde1ddc924
+# mission='[^']*' 1 constrained moon of 'Eve'` (ArrivalHoldPlanner's amber, logged by
+# MissionLoopUnitBuilder.LogArrivalAmberTransition) with the reason the reading
+# names, and forbid the ARRIVAL HOLD line.
+# =====================================================================================
+tier = "operator"
+description = "DRAFT, NEVER FLOWN. The player loop on the Kerbin->Eve->Gilly tree harvested by B37-eve-gilly-continuation: re-aim Kerbin->Eve engages and the lone-moon arrival hold (PR #2468) aligns Gilly's orbital phase on its period at the Eve SOI entry; the live MoonArrivalHold cell runs at the Space Center."
+instanceProfile = "stock-minimal"
+tags = ["V32", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "eve", "gilly", "moon", "ingame-batch", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eve-gilly-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# The V-lane preamble (the restore-stub kill pair, tracers, verbose), the loop
+# reading, then the Space Center batch. The kill pair before the second LoadGame is
+# the TS-lane rule (LoadGame refuses while a recorder is live).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "16af6b5e546a4bef86fcd8cde1ddc924", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "16af6b5e546a4bef86fcd8cde1ddc924" }, expect = "OK", budget = 300 },
+  # SECOND REVISION: the bracket jump table around the replayed Gilly SOI entry goes here.
+  { cmd = "ExportRenderManifest",                                            expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "RunTests",   args = { category = "MoonArrivalHold" },             expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# Every claim is gated below: D11 arrival-hold by the ARRIVAL HOLD line, D14 the
+# bodies by the dest= / Talign tokens, scene-ksc by the batch's scene=SPACECENTER.
+[dimensionsCovered]
+D11 = ["arrival-hold"]
+D14 = ["eve", "gilly", "scene-flight", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RE-PIN AT HARVEST: the harvested fixture's `.prec` count N, then {N, N + 1} (a
+# load-time optimizer split adds at most one here). The forge's derived window:
+count = { min = 8, max = 12 }
+
+[expectations.logContracts]
+# CANDIDATE, not required (see the header): "MOON HOLD keeps the destination loiter whole: dest=Eve moons=1 ",
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "ENGAGED re-aim Kerbin->Eve via Sun",
+  "ARRIVAL HOLD dest=Eve kind=config Talign=38858[67]\\.[0-9]+s moons=1 ",
+  "ARRIVAL HOLD dest=Eve kind=config .*\\(aligns the moon orbital phases, mode=",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=MoonArrivalHold scene=SPACECENTER",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "FORCED FAITHFUL",
+  "no member yields a re-aim transfer",
+  "MOON HOLD declined",
+  "Arrival amber SET: tree=16af6b5e546a4bef86fcd8cde1ddc924",
+  "timejump refused reason=backward-jump",
+]
+
+[expectations.rewind]
+# REPORT-ONLY until a reading; the source fixture's lanes read 0 / 0 / 0.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY: the forge's one committed tree.
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[expectations.renderComposition]
+
+[runtime]
+# 2 x 300 LoadGame + 300 StartLoopPlayback + 300 RunTests + 120 manifest + margin.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
