@@ -1131,8 +1131,8 @@ namespace Parsek
         /// name back to the owner before writing <c>CrewEndStates</c>, so the owner-keyed
         /// end states alone cannot say WHO flew a given flight, and this is the per-flight
         /// record that can. Rebuilt every walk (cleared in <see cref="Reset"/>), so a
-        /// recording whose snapshot the load-time sweep dropped is simply absent - the
-        /// window then falls back to <c>CrewReservationManager.CrewReplacements</c>.
+        /// recording with neither snapshot (both sidecars missing) and no EVA name is simply
+        /// absent - the window then falls back to <c>CrewReservationManager.CrewReplacements</c>.
         /// <para>Snapshot copy, safe to enumerate while the module recalculates.</para>
         /// </summary>
         internal IReadOnlyDictionary<string, IReadOnlyCollection<string>>

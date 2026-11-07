@@ -1537,13 +1537,13 @@ namespace Parsek
         /// ModuleColorChanger: none of it is a persistent KSPField, so a PART node KSP itself wrote
         /// into a save, a .craft or a Parsek ghost sidecar carries only
         /// <c>isEnabled</c> / <c>animState</c> / <c>stagingEnabled</c>. Reading the snapshot node
-        /// alone therefore resolved NOTHING on any ghost built from a recording, while a synthetic
-        /// showcase node (which authors the fields by hand) resolved fine - the exact asymmetry
-        /// GS6-GHOST-HAS-NO-COLORCHANGER-STATE measured.
+        /// alone therefore resolved NOTHING on any ghost built from a recording, and nothing on a
+        /// synthetic part showcase row either (its node declares no ModuleColorChanger); only a
+        /// test node that authors the fields by hand resolved (GS6-GHOST-HAS-NO-COLORCHANGER-STATE).
         ///
         /// The rule, one per ModuleColorChanger instance and matched by DECLARATION ORDER:
-        /// prefer the snapshot node when it actually carries a shaderProperty (so every synthetic
-        /// and showcase path keeps its exact historical behaviour, overrides included), else fall
+        /// prefer the snapshot node when it actually carries a shaderProperty (so a node that
+        /// authors the fields keeps its exact behaviour, overrides included), else fall
         /// back to the prefab's own part config at the same index. When the snapshot part node
         /// declares no ModuleColorChanger at all, the prefab's list is used whole.
         /// </summary>

@@ -247,6 +247,69 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void PutAnchorWithPriority_OversizedNonLiveSeparationEpsilon_EmitsWarn()
+        {
+            // What makes it fail: the HR-9 magnitude check living only on the
+            // LiveSeparation path, so a 12 km OrbitalCheckpoint epsilon written
+            // through the priority insert lands silently.
+            var ac = new AnchorCorrection("recOrb", 3, AnchorSide.End, 100.0,
+                new Vector3d(12000.0, 0.0, 0.0), AnchorSource.OrbitalCheckpoint);
+
+            Assert.True(RenderSessionState.PutAnchorWithPriority(ac));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Pipeline-Anchor]")
+                && l.Contains("exceeds bubble radius")
+                && l.Contains("recordingId=recOrb")
+                && l.Contains("sectionIndex=3")
+                && l.Contains("side=End")
+                && l.Contains("anchorSource=OrbitalCheckpoint")
+                && l.Contains("epsilonMagnitudeM=12000"));
+            // HR-9 keeps the value: the anchor is stored, not zeroed.
+            Assert.True(RenderSessionState.TryLookup("recOrb", 3, AnchorSide.End, out AnchorCorrection stored));
+            Assert.Equal(12000.0, stored.Epsilon.x);
+        }
+
+        [Fact]
+        public void PutAnchorWithPriority_InRangeEpsilon_NoBubbleWarn()
+        {
+            var ac = new AnchorCorrection("recSoi", 1, AnchorSide.Start, 100.0,
+                new Vector3d(2499.0, 0.0, 0.0), AnchorSource.SoiTransition);
+
+            Assert.True(RenderSessionState.PutAnchorWithPriority(ac));
+
+            Assert.DoesNotContain(logLines, l => l.Contains("exceeds bubble radius"));
+        }
+
+        [Fact]
+        public void PutAnchorWithPriority_OversizedCandidateThatLosesPriority_NoBubbleWarn()
+        {
+            // The Warn describes the value that LANDS. A lower-priority
+            // candidate that is rejected never reaches a render.
+            Assert.True(RenderSessionState.PutAnchorWithPriority(new AnchorCorrection(
+                "recDock", 0, AnchorSide.Start, 50.0,
+                new Vector3d(10.0, 0.0, 0.0), AnchorSource.RelativeBoundary)));
+
+            Assert.False(RenderSessionState.PutAnchorWithPriority(new AnchorCorrection(
+                "recDock", 0, AnchorSide.Start, 50.0,
+                new Vector3d(0.0, 9000.0, 0.0), AnchorSource.DockOrMerge)));
+
+            Assert.DoesNotContain(logLines, l => l.Contains("exceeds bubble radius"));
+        }
+
+        [Theory]
+        [InlineData(0.0, false)]
+        [InlineData(2500.0, false)]
+        [InlineData(2500.001, true)]
+        [InlineData(12000.0, true)]
+        [InlineData(double.NaN, true)]
+        [InlineData(double.PositiveInfinity, true)]
+        public void EpsilonExceedsBubbleRadius_Boundary(double magnitudeM, bool expected)
+        {
+            Assert.Equal(expected, RenderSessionState.EpsilonExceedsBubbleRadius(magnitudeM));
+        }
+
+        [Fact]
         public void Clear_LogsReason()
         {
             // What makes it fail: a Clear() that dropped the reason from

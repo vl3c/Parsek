@@ -415,21 +415,47 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks whether a renderer's transform (or any of its ancestors up to but not
-        /// including the hierarchy root) has a name matching one of the damaged wheel
-        /// transform names. The damaged mesh may be a child of the named transform.
+        /// Checks whether a renderer's transform or any of its ancestors (the hierarchy
+        /// root included) has a name matching one of the damaged wheel transform names.
+        /// The damaged mesh may be a child of the named transform. The walk itself is
+        /// <see cref="IsNodeOrAncestorNamed{T}"/>, so it is unit-testable without Unity.
         /// </summary>
         internal static bool IsRendererOnDamagedTransform(Transform rendererTransform, HashSet<string> damagedNames)
         {
-            if (rendererTransform == null || damagedNames == null || damagedNames.Count == 0)
+            // Unity's overloaded null check: a destroyed transform reads as null here.
+            if (rendererTransform == null)
+                return false;
+            return IsNodeOrAncestorNamed(rendererTransform, damagedNames,
+                TransformNameOf, TransformParentOf);
+        }
+
+        private static readonly System.Func<Transform, string> TransformNameOf = t => t.name;
+
+        // Unity's overloaded null check maps a destroyed parent to a real null, so the
+        // generic walk's reference check stops there.
+        private static readonly System.Func<Transform, Transform> TransformParentOf = t =>
+        {
+            Transform parent = t.parent;
+            return parent != null ? parent : null;
+        };
+
+        /// <summary>
+        /// Pure: true when <paramref name="start"/> or any node reached through
+        /// <paramref name="parentOf"/> has a name in <paramref name="names"/>. A null or
+        /// empty name set matches nothing.
+        /// </summary>
+        internal static bool IsNodeOrAncestorNamed<T>(
+            T start, HashSet<string> names,
+            System.Func<T, string> nameOf, System.Func<T, T> parentOf) where T : class
+        {
+            if (start == null || names == null || names.Count == 0
+                || nameOf == null || parentOf == null)
                 return false;
 
-            Transform cur = rendererTransform;
-            while (cur != null)
+            for (T cur = start; cur != null; cur = parentOf(cur))
             {
-                if (damagedNames.Contains(cur.name))
+                if (names.Contains(nameOf(cur)))
                     return true;
-                cur = cur.parent;
             }
             return false;
         }

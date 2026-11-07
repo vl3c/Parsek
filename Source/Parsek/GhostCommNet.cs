@@ -843,6 +843,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Real seconds one FLIGHT host tick is assumed to span when sizing the continuation-hold
+        /// lookahead. FLIGHT ticks every frame; this covers Unity's default maximum frame delta
+        /// (0.333 s) with margin, so a slow frame at high warp cannot step past EndUT unseen.
+        /// </summary>
+        internal const double FlightHoldPredictionTickSeconds = 0.5;
+
+        /// <summary>
+        /// Should a scene host resolve a recording's continuation hold
+        /// (<see cref="ApplyContinuationHold"/>, which scans the committed list) at
+        /// <paramref name="currentUT"/>? The hold is read only past EndUT: by
+        /// <see cref="EvaluateEligibility"/> after the window, and in the window only through
+        /// <see cref="ExpectsHoldPastEnd"/>, which the CommNet hook consults once it sees a UT
+        /// past EndUT before the host's next tick. So it is needed past the end, or within
+        /// <paramref name="lookaheadSeconds"/> of it; earlier ticks skip the scan.
+        /// </summary>
+        internal static bool ShouldResolveContinuationHold(
+            double currentUT, double endUT, double lookaheadSeconds)
+        {
+            if (double.IsNaN(currentUT) || double.IsNaN(endUT))
+                return false;
+            return currentUT > endUT || ShouldPredictHoldPastEnd(currentUT, endUT, lookaheadSeconds);
+        }
+
+        /// <summary>
         /// Game-time lookahead for <see cref="ShouldPredictHoldPastEnd"/>: two host ticks at the
         /// current warp rate, never less than one second.
         /// </summary>
