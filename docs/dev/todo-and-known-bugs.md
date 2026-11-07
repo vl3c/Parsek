@@ -3054,8 +3054,8 @@ each PR lands on the refactor branch, IL-proven a pure move).
   CommittedListNotificationTests cells). `SaveGameForTesting` stays on the store (shared with the
   merge journal, the Re-Fly discard and `RefreshQuicksaveAfterMerge`). Every
   `DiscardPendingTree` caller calls the service; the store keeps a `RefreshSaveAndQuicksaveAfterDiscard`
-  forwarder for `MergeDialog` (calling the service directly: replayed residue 283 -> 287). `RecordingStore` partials 6,195 -> 5,650
-  lines, 202 -> 194 IL methods; knot 465 -> 466, `RecordingStore` cut drops 36 -> 34 references,
+  forwarder for `MergeDialog` (calling the service directly: replayed residue 283 -> 287). `RecordingStore` partials 6,195 -> 5,640
+  lines, 202 -> 193 IL methods; knot 465 -> 466, `RecordingStore` cut drops 36 -> 34 references,
   replayed cut residue 283 unchanged (bound 283).
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
