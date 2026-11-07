@@ -21,7 +21,7 @@ namespace Parsek
     ///
     /// <para>
     /// This matches the legacy rewind-to-launch pattern in
-    /// <see cref="RecordingStore.InitiateRewind"/> — the only known-good way to
+    /// <see cref="RewindLauncher.InitiateRewind"/> — the only known-good way to
     /// resume Parsek work after a KSP quickload in a fresh scene.
     /// </para>
     ///

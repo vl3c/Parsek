@@ -705,7 +705,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void ExecuteRewindSaveLoad_CapturesTheParsedSavesRoutesBeforeTheSceneLoad()
         {
-            string body = Between(ReadSource("RecordingStore.cs"),
+            string body = Between(ReadSource("RewindLauncher.cs"),
                 "private static bool ExecuteRewindSaveLoad(", "internal static bool InitiateRewindToCareerStart(");
 
             int loadIdx = body.IndexOf("GamePersistence.LoadGame(", StringComparison.Ordinal);

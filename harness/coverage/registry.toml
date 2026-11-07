@@ -250,7 +250,7 @@ values = ["science", "funds", "reputation", "milestones", "kerbals", "facilities
 # "rewind-to-launch-repeat" (added 2026-09-15 per the growth rule, operator ruling B2 off
 # memo s2): the SAME committed tree is rewound to launch TWICE, and the second rewind
 # reuses the SAME `parsek_rw_<id>` launch quicksave the first one used. The property is
-# that the rewind save is COPIED, NOT CONSUMED - `RecordingStore.ExecuteRewindSaveLoad`
+# that the rewind save is COPIED, NOT CONSUMED - `RewindLauncher.ExecuteRewindSaveLoad`
 # copies `Parsek/Saves/parsek_rw_<id>.sfs` to the saves root, loads the copy and deletes
 # ONLY that temporary copy, so the source survives with the committed root's
 # `RewindSaveFileName` hint still pointing at it.

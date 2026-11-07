@@ -19,7 +19,7 @@ id = "GS-9-kerbalx-repeat-rewind"
 # =====================================================================================
 # THE CODE FACTS THIS SPEC RESTS ON - read, not assumed.
 #
-# (1) THE REWIND SAVE IS COPIED, NOT CONSUMED. `RecordingStore.ExecuteRewindSaveLoad`
+# (1) THE REWIND SAVE IS COPIED, NOT CONSUMED. `RewindLauncher.ExecuteRewindSaveLoad`
 #     copies `Parsek/Saves/parsek_rw_<id>.sfs` to the saves root, loads the copy, and
 #     deletes ONLY that temporary copy (`TryDeleteFileQuietly(tempPath)`). The source
 #     quicksave stays, and the committed root keeps its `RewindSaveFileName` hint.

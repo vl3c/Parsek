@@ -12760,7 +12760,7 @@ namespace Parsek
             // the protoVessel stripping in OnLoad (e.g., FLIGHT→FLIGHT revert where
             // SpaceCenter was never visited, or name change edge cases).
             // Here FlightGlobals.Vessels is populated and vessel.persistentId is reliable.
-            if (RecordingStore.ShouldRunPendingCleanupOnFlightReady())
+            if (RewindLauncher.ShouldRunPendingCleanupOnFlightReady())
             {
                 // BUG-H: the live-vessel cleanup is launch-identity-aware (pid + Vessel.id Guid) and
                 // scoped to the reverted flight (skips vessels in the revert-target launch quicksave).
@@ -12769,10 +12769,10 @@ namespace Parsek
                 // whitelist so a real, separately-launched craft is never recovered by name.
                 CleanupOrphanedSpawnedVessels(
                     RecordingStore.CollectAllCommittedRecordings(),
-                    RecordingStore.PendingRevertPreExistingPids);
-                RecordingStore.PendingCleanupPids = null;
-                RecordingStore.PendingCleanupNames = null;
-                RecordingStore.PendingRevertPreExistingPids = null;
+                    RewindLauncher.PendingRevertPreExistingPids);
+                RewindLauncher.PendingCleanupPids = null;
+                RewindLauncher.PendingCleanupNames = null;
+                RewindLauncher.PendingRevertPreExistingPids = null;
             }
             else
             {

@@ -140,7 +140,7 @@ namespace Parsek.Tests
             string sfs = WriteRewindQuicksave();
 
             // Pre-load: the production resolver scopes the PID strip at the save's adjusted UT.
-            RecordingStore.PreProcessRewindSave(
+            RewindLauncher.PreProcessRewindSave(
                 sfs, new HashSet<string> { "Jebediah Kerman" },
                 RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds);
@@ -175,7 +175,7 @@ namespace Parsek.Tests
                 out _, out _));
 
             // Playback reset keeps the capsule linked to its committed recording.
-            RecordingStore.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
+            RewindLauncher.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
             Assert.Equal(CapsulePid, shape.head.SpawnedVesselPersistentId);
             Assert.True(shape.head.VesselSpawned);
             Assert.Equal(0u, shape.jeb.SpawnedVesselPersistentId);
@@ -328,7 +328,7 @@ namespace Parsek.Tests
             File.WriteAllText(path,
                 "FLIGHTSTATE\n{\n  VESSEL\n  {\n    name = #autoLOC_501232\n    persistentId = " + CapsulePid + "\n  }\n}\n");
             double seen = 0;
-            RecordingStore.PreProcessRewindSave(path, new HashSet<string> { "Jebediah Kerman" },
+            RewindLauncher.PreProcessRewindSave(path, new HashSet<string> { "Jebediah Kerman" },
                 ut => { seen = ut; return RewindSpawnScope.ResolveRewindStripSpawnedPids(ut); },
                 RecordingStore.RewindToLaunchLeadTimeSeconds);
 
@@ -341,7 +341,7 @@ namespace Parsek.Tests
         public void ResetAllPlaybackState_NoKeepSet_ResetsEverySpawnState()
         {
             var shape = BuildEva6Shape();
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal(0u, shape.head.SpawnedVesselPersistentId);
             Assert.False(shape.head.VesselSpawned);
@@ -353,7 +353,7 @@ namespace Parsek.Tests
         {
             // The kept spawn state is still subject to the guid-aware post-strip reconcile.
             var shape = BuildEva6Shape();
-            RecordingStore.ResetAllPlaybackState(new HashSet<string> { shape.head.RecordingId });
+            RewindLauncher.ResetAllPlaybackState(new HashSet<string> { shape.head.RecordingId });
             Assert.Equal(CapsulePid, shape.head.SpawnedVesselPersistentId);
 
             int reset = ParsekScenario.ReconcileSpawnStateAfterStrip(

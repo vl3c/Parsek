@@ -3084,6 +3084,21 @@ each PR lands on the refactor branch, IL-proven a pure move).
   unlogged reason strings name `RewindCarry.*`. `RecordingStore` partials 3,812 -> 3,203 lines,
   160 -> 144 IL methods; knot 467 -> 468, `RecordingStore` cut drops 29, replayed cut residue 283
   unchanged (bound 283).
+- PR13 O (service O) landed: the plain rewind left the store as `RewindLauncher` (`RewindLauncher.cs`
+  plus the `RewindPersistentWrite` partial renamed to `RewindLauncher.PersistentWrite.cs`): the
+  can-rewind / can-fast-forward gates, `InitiateRewind` / `InitiateRewindToCareerStart` with
+  `BeginRewindForOwner`, `ExecuteRewindSaveLoad` and its temp-copy cleanup, `ResetRewindFlags`, the failed-load
+  undo, the five `PreProcessRewindSave` overloads, the persistent.sfs writes and their test seams,
+  `ResetAllPlaybackState`, `CollectSpawnedVesselInfo` and the one-shot cleanup sets (new
+  `ResetForLoad` / `ResetForTesting`). The eight `RewindContext` forwarders are gone; their callers read
+  `RewindContext`. Measured exceptions: the deferred UT-adjustment flags and the lead-time constant
+  stay on the store (the ghost map presence, the KSC / tracking-station hosts and the kerbal walk read
+  them; on the launcher those reads put it on their cycles: replayed residue 283 -> 293), and so do
+  six gate / entry-point forwarders for the recordings table, the timeline window and
+  `WarpToTimeController`. `LoadReconcilePolicy`'s LoadGame initiator row and the `parsek-file-deletes`
+  pin now name `RewindLauncher.cs`. `RecordingStore` partials 3,203 -> 2,172 lines, 144 -> 110 IL
+  methods; knot 468 -> 469, `RecordingStore` cut drops 29 -> 24, replayed cut residue 283 unchanged
+  (bound 283).
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

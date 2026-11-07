@@ -252,7 +252,7 @@ namespace Parsek.Tests
             };
 
             string reason;
-            bool result = RecordingStore.CanRewind(rec, out reason, isRecording: false);
+            bool result = RewindLauncher.CanRewind(rec, out reason, isRecording: false);
 
             Assert.False(result);
             Assert.Equal("No rewind save available", reason);
@@ -269,7 +269,7 @@ namespace Parsek.Tests
             string resolvedSave = RecordingStore.GetRewindSaveFileName(branch);
 
             string reason;
-            bool result = RecordingStore.CanRewindWithResolvedSaveState(
+            bool result = RewindLauncher.CanRewindWithResolvedSaveState(
                 resolvedSave, saveExists: false, out reason, isRecording: false);
 
             Assert.False(result);
@@ -287,7 +287,7 @@ namespace Parsek.Tests
             string resolvedSave = RecordingStore.GetRewindSaveFileName(branch);
 
             string reason;
-            bool result = RecordingStore.CanRewindWithResolvedSaveState(
+            bool result = RewindLauncher.CanRewindWithResolvedSaveState(
                 resolvedSave, saveExists: false, out reason, isRecording: false);
 
             Assert.False(result);

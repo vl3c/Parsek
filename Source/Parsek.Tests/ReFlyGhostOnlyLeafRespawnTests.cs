@@ -153,7 +153,7 @@ namespace Parsek.Tests
             // Rewind-to-Launch to before the leaf's start: the committed tree's spawn
             // tracking is reset (the leaf is not kept committed history).
             RecordingStore.AddCommittedTreeForTesting(tree);
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
             Assert.False(leaf.VesselSpawned);
             Assert.Equal(0u, leaf.SpawnedVesselPersistentId);
             Assert.Null(leaf.VesselSnapshot); // still null in memory across the in-session load
@@ -216,7 +216,7 @@ namespace Parsek.Tests
             Assert.False(File.Exists(VesselSidecarPath(LeafId)));
 
             RecordingStore.AddCommittedTreeForTesting(tree);
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(leaf, false, tree);
             Assert.False(needsSpawn);

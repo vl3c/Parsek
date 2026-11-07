@@ -139,7 +139,7 @@ namespace Parsek.Tests
             string sfs = WriteRewindQuicksave();
             double seenUT = double.NaN;
 
-            RecordingStore.PreProcessRewindSave(
+            RewindLauncher.PreProcessRewindSave(
                 sfs, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
                 RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds,
@@ -161,7 +161,7 @@ namespace Parsek.Tests
             var shape = BuildEva11Shape();
             string sfs = WriteRewindQuicksave();
 
-            RecordingStore.PreProcessRewindSave(
+            RewindLauncher.PreProcessRewindSave(
                 sfs, new HashSet<string> { "Bill Kerman" },
                 RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds);
@@ -187,7 +187,7 @@ namespace Parsek.Tests
                 out _, out _));
 
             // The member's spawn state resets, so the chain tip spawns again at its end.
-            RecordingStore.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
+            RewindLauncher.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
             Assert.Equal(0u, shape.rover.SpawnedVesselPersistentId);
             Assert.False(shape.rover.VesselSpawned);
             Assert.Equal(0u, shape.bill.SpawnedVesselPersistentId);
@@ -417,7 +417,7 @@ namespace Parsek.Tests
             var spawner = CommitLinkedSpawnerTree("r222");
             string sfs = WriteRewindQuicksave();
 
-            RecordingStore.PreProcessRewindSave(
+            RewindLauncher.PreProcessRewindSave(
                 sfs, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
                 RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds,

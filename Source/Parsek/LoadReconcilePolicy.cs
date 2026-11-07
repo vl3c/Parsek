@@ -248,7 +248,7 @@ namespace Parsek
                         "DeferredReloadAfterTestBatchCrashReconcile; PrepareInMemoryStateForTestBatchCrashReload set initialLoadDone=false first")
                 },
                 {
-                    "RecordingStore.cs",
+                    "RewindLauncher.cs",
                     new KnownLoadInitiator(1, new[] { EarlyLoadKind.PlainRewind },
                         "ExecuteRewindSaveLoad (Rewind-to-Launch, Warp-to-game-start); the rewind context is armed before the load")
                 },

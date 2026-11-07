@@ -424,22 +424,22 @@ namespace Parsek
         internal static void ArmRevertCleanupData(
             Func<(HashSet<uint> pids, HashSet<string> names)> collectSpawnedVesselInfo)
         {
-            bool alreadyHasCleanupData = RecordingStore.PendingCleanupPids != null
-                                          || RecordingStore.PendingCleanupNames != null;
+            bool alreadyHasCleanupData = RewindLauncher.PendingCleanupPids != null
+                                          || RewindLauncher.PendingCleanupNames != null;
             if (alreadyHasCleanupData)
             {
                 ParsekLog.Info("Scenario",
                     $"OnLoad: revert path skipping cleanup collection — " +
-                    $"already set ({RecordingStore.PendingCleanupPids?.Count ?? 0} pid(s), " +
-                    $"{RecordingStore.PendingCleanupNames?.Count ?? 0} name(s)) from prior rewind/revert");
+                    $"already set ({RewindLauncher.PendingCleanupPids?.Count ?? 0} pid(s), " +
+                    $"{RewindLauncher.PendingCleanupNames?.Count ?? 0} name(s)) from prior rewind/revert");
                 return;
             }
 
             var info = collectSpawnedVesselInfo();
             var spawnedPids = info.pids != null && info.pids.Count > 0 ? info.pids : null;
             var spawnedNames = info.names != null && info.names.Count > 0 ? info.names : null;
-            RecordingStore.PendingCleanupPids = spawnedPids;
-            RecordingStore.PendingCleanupNames = spawnedNames;
+            RewindLauncher.PendingCleanupPids = spawnedPids;
+            RewindLauncher.PendingCleanupNames = spawnedNames;
             ParsekLog.Verbose("Scenario",
                 $"OnLoad: revert cleanup collected — " +
                 $"{spawnedPids?.Count ?? 0} pid(s), {spawnedNames?.Count ?? 0} name(s)");
@@ -458,11 +458,11 @@ namespace Parsek
         {
             if (loadedScene == GameScenes.FLIGHT)
                 return false;
-            bool wasArmed = RecordingStore.ShouldRunPendingCleanupOnFlightReady()
-                || RecordingStore.PendingRevertPreExistingPids != null;
-            RecordingStore.PendingCleanupPids = null;
-            RecordingStore.PendingCleanupNames = null;
-            RecordingStore.PendingRevertPreExistingPids = null;
+            bool wasArmed = RewindLauncher.ShouldRunPendingCleanupOnFlightReady()
+                || RewindLauncher.PendingRevertPreExistingPids != null;
+            RewindLauncher.PendingCleanupPids = null;
+            RewindLauncher.PendingCleanupNames = null;
+            RewindLauncher.PendingRevertPreExistingPids = null;
             ParsekLog.Info("Scenario",
                 $"Revert cleanup released: scene={loadedScene} wasArmed={wasArmed} - the protoVessel " +
                 "strip covered every vessel; no OnFlightReady recovery is left armed for a later launch");
@@ -4547,7 +4547,7 @@ namespace Parsek
                     if (isRevert)
                     {
                         loadPhase = "revert-cleanup";
-                        ArmRevertCleanupData(RecordingStore.CollectSpawnedVesselInfo);
+                        ArmRevertCleanupData(RewindLauncher.CollectSpawnedVesselInfo);
 
                         // Clear pending tree/recording from a PREVIOUS flight — dialog was shown
                         // but user reverted before acting on it. Prevents OnFlightReady fallback
@@ -4615,7 +4615,7 @@ namespace Parsek
                         // Preserve for the OnFlightReady belt-and-suspenders cleanup (FLIGHT->FLIGHT
                         // launch revert recovers LOADED vessels, which OnLoad's protoVessel strip
                         // does not see). Null is a meaningful "fail-closed" scope there too.
-                        RecordingStore.PendingRevertPreExistingPids = revertTargetPids;
+                        RewindLauncher.PendingRevertPreExistingPids = revertTargetPids;
 
                         var flightState = HighLogic.CurrentGame?.flightState;
                         if (flightState != null)
@@ -5575,15 +5575,15 @@ namespace Parsek
             MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
 
             // Collect spawned vessel PIDs for belt-and-suspenders in OnFlightReady
-            var (rewindSpawnedPids, _) = RecordingStore.CollectSpawnedVesselInfo();
-            RecordingStore.PendingCleanupPids = rewindSpawnedPids.Count > 0 ? rewindSpawnedPids : null;
+            var (rewindSpawnedPids, _) = RewindLauncher.CollectSpawnedVesselInfo();
+            RewindLauncher.PendingCleanupPids = rewindSpawnedPids.Count > 0 ? rewindSpawnedPids : null;
 
             // Collect ALL recording vessel names for flightState stripping.
             // On rewind, ANY vessel matching a recording name is from the future
             // and must be stripped — not just those with non-zero SpawnedVesselPersistentId.
             // (PIDs may already be zero from a previous rewind's ResetAllPlaybackState.)
             var allRecordingNames = RecordingStore.CollectAllRecordingVesselNames();
-            RecordingStore.PendingCleanupNames = allRecordingNames.Count > 0 ? allRecordingNames : null;
+            RewindLauncher.PendingCleanupNames = allRecordingNames.Count > 0 ? allRecordingNames : null;
             ParsekLog.Info("Rewind",
                 $"OnLoad: rewind cleanup data set — " +
                 $"{rewindSpawnedPids.Count} pid(s), {allRecordingNames.Count} name(s)");
@@ -5591,7 +5591,7 @@ namespace Parsek
             // Reset ALL playback state (recordings + trees), except the spawn state of
             // committed history whose vessel the pre-load strip kept (an earlier tree's
             // spawned vessel that no replaying recording re-produces).
-            var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState(
+            var (standaloneCount, treeCount) = RewindLauncher.ResetAllPlaybackState(
                 RewindContext.RewindHistoricalSpawnKeepRecordingIds);
             ParsekLog.Info("Rewind",
                 $"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees");
@@ -5652,7 +5652,7 @@ namespace Parsek
             // that would match freshly-spawned past vessels (bug #134). The revert path's
             // alreadyHasCleanupData guard (line ~352) will see null and collect
             // fresh data from CollectSpawnedVesselInfo() if needed.
-            RecordingStore.ClearPendingCleanupAfterRewindStrip();
+            RewindLauncher.ClearPendingCleanupAfterRewindStrip();
 
             // Strip PRELAUNCH vessels from the future (bug #129).
             // StripOrphanedSpawnedVessels filters by name — unrecorded PRELAUNCH vessels
@@ -7956,7 +7956,7 @@ namespace Parsek
             // last live Parsek node); put the stripped world, the holds and the patched pools on
             // disk together so a crash from here on cold-loads a consistent file.
             if (rewindGameWrittenToPersistent)
-                RecordingStore.WritePersistentAfterRewindAdjustment();
+                RewindLauncher.WritePersistentAfterRewindAdjustment();
         }
 
         #endregion
@@ -9606,9 +9606,9 @@ namespace Parsek
                 lastSaveFolder = null;
                 lastOnSaveScene = GameScenes.MAINMENU;
                 lastSceneChangeRequestedUT = -1.0;
-                RecordingStore.PendingCleanupPids = null;
-                RecordingStore.PendingCleanupNames = null;
-                RecordingStore.PendingRevertPreExistingPids = null;
+                RewindLauncher.PendingCleanupPids = null;
+                RewindLauncher.PendingCleanupNames = null;
+                RewindLauncher.PendingRevertPreExistingPids = null;
                 // BUG-B: drop per-recording replay-scope latches on game unload so a
                 // later save's recordings start out historical (dormant) rather than
                 // inheriting a stale "in replay scope" mark from a previous game.

@@ -293,7 +293,7 @@ namespace Parsek.Tests
             BeginPlainRewind();
             RewindCarry.CaptureRewindPointsForRewind(scenario, "Rewind");
 
-            RecordingStore.ResetRewindFlags();
+            RewindLauncher.ResetRewindFlags();
 
             Assert.False(RewindCarry.HasRewindCarriedRewindPoints);
             var loaded = Rp("rp_loaded", 1.0);
@@ -581,7 +581,7 @@ namespace Parsek.Tests
         [Fact]
         public void ExecuteRewindSaveLoad_CapturesTheRpListBeforeItLoads()
         {
-            string body = MethodBody(ReadSource("RecordingStore.cs"),
+            string body = MethodBody(ReadSource("RewindLauncher.cs"),
                 "private static bool ExecuteRewindSaveLoad(");
             int capture = body.IndexOf("CaptureRewindPointsForRewind(ParsekScenario.Instance", StringComparison.Ordinal);
             int load = body.IndexOf("GamePersistence.LoadGame(", StringComparison.Ordinal);

@@ -415,7 +415,7 @@ namespace Parsek.Tests
                 }
             });
 
-            bool canFastForward = RecordingStore.CanFastForwardAtUT(
+            bool canFastForward = RewindLauncher.CanFastForwardAtUT(
                 rec, now: 10.0, out string reason, isRecording: false);
 
             Assert.False(canFastForward);

@@ -133,8 +133,8 @@ namespace Parsek
 
         /// <summary>
         /// Whether the captured merge journal replaces the loaded one. A plain rewind is
-        /// refused while an in-memory journal is in flight (<see cref="InitiateRewind"/> and
-        /// <see cref="InitiateRewindToCareerStart"/>), so the capture is null or a <c>Complete</c> leftover, and a
+        /// refused while an in-memory journal is in flight (<see cref="RewindLauncher.InitiateRewind"/> and
+        /// <see cref="RewindLauncher.InitiateRewindToCareerStart"/>), so the capture is null or a <c>Complete</c> leftover, and a
         /// journal on disk is one memory already drove or rolled back: installing the
         /// capture keeps the next load's <c>RunFinisher</c> from driving it a second time
         /// (the rewind branch itself runs no finisher). An in-flight capture cannot reach

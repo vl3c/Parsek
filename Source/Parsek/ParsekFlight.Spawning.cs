@@ -1274,7 +1274,7 @@ namespace Parsek
             // Land RewindToLaunchLeadTimeSeconds before launch, matching Rewind's pre-launch lead.
             double targetUT = TimeJumpManager.ApplyJumpLead(rec.StartUT, currentUT);
 
-            if (!RecordingStore.CanFastForwardAtUT(rec, currentUT, out string ffReason, IsRecording))
+            if (!RewindLauncher.CanFastForwardAtUT(rec, currentUT, out string ffReason, IsRecording))
             {
                 ParsekLog.Warn("Flight",
                     $"FastForwardToRecording: '{rec.VesselName}' id={rec.RecordingId ?? "<none>"} blocked: {ffReason}");

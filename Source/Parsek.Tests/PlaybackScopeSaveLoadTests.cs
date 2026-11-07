@@ -201,7 +201,7 @@ namespace Parsek.Tests
             bool inScopeAtResolve = false;
             try
             {
-                RecordingStore.PreProcessRewindSave(
+                RewindLauncher.PreProcessRewindSave(
                     sfs, null,
                     ut => { inScopeAtResolve = PlaybackScopeTracker.IsInReplayScope("saved"); return null; },
                     RecordingStore.RewindToLaunchLeadTimeSeconds);

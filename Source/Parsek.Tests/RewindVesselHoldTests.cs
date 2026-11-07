@@ -28,8 +28,8 @@ namespace Parsek.Tests
             RewindVesselHold.ResetForTesting();
             RewindContext.ResetForTesting();
             SceneExitInterceptor.ResetTestOverrides();
-            RecordingStore.RewindWritePersistentForTesting = null;
-            RecordingStore.PostRewindPersistentWriteForTesting = null;
+            RewindLauncher.RewindWritePersistentForTesting = null;
+            RewindLauncher.PostRewindPersistentWriteForTesting = null;
         }
 
         public void Dispose()
@@ -37,8 +37,8 @@ namespace Parsek.Tests
             RewindVesselHold.ResetForTesting();
             RewindContext.ResetForTesting();
             SceneExitInterceptor.ResetTestOverrides();
-            RecordingStore.RewindWritePersistentForTesting = null;
-            RecordingStore.PostRewindPersistentWriteForTesting = null;
+            RewindLauncher.RewindWritePersistentForTesting = null;
+            RewindLauncher.PostRewindPersistentWriteForTesting = null;
             ParsekLog.ResetTestOverrides();
         }
 
@@ -418,11 +418,11 @@ namespace Parsek.Tests
         public void RewindGameWritten_MarksTheRewind_AndASceneExitSaveThenSkips()
         {
             RewindContext.BeginRewind(500.0, default(BudgetSummary), 0, 0, 0f);
-            RecordingStore.RewindWritePersistentForTesting = g => true;
+            RewindLauncher.RewindWritePersistentForTesting = g => true;
             int saves = 0;
             SceneExitInterceptor.PersistentSaveStepForTesting = _ => saves++;
 
-            Assert.True(RecordingStore.WriteRewindGameAsPersistent(null, "Rewind"));
+            Assert.True(RewindLauncher.WriteRewindGameAsPersistent(null, "Rewind"));
             Assert.True(RewindContext.RewindGameWrittenToPersistent);
 
             Assert.True(SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER));
@@ -441,11 +441,11 @@ namespace Parsek.Tests
         public void RewindGameNotWritten_SceneExitSavesAsBefore()
         {
             RewindContext.BeginRewind(500.0, default(BudgetSummary), 0, 0, 0f);
-            RecordingStore.RewindWritePersistentForTesting = g => false;
+            RewindLauncher.RewindWritePersistentForTesting = g => false;
             int saves = 0;
             SceneExitInterceptor.PersistentSaveStepForTesting = _ => saves++;
 
-            Assert.False(RecordingStore.WriteRewindGameAsPersistent(null, "Rewind"));
+            Assert.False(RewindLauncher.WriteRewindGameAsPersistent(null, "Rewind"));
             Assert.False(RewindContext.RewindGameWrittenToPersistent);
             Assert.True(SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER));
             Assert.Equal(1, saves);
@@ -455,7 +455,7 @@ namespace Parsek.Tests
         public void WriteRewindGame_NoGame_Refuses()
         {
             RewindContext.BeginRewind(500.0, default(BudgetSummary), 0, 0, 0f);
-            Assert.False(RecordingStore.WriteRewindGameAsPersistent(null, "Rewind"));
+            Assert.False(RewindLauncher.WriteRewindGameAsPersistent(null, "Rewind"));
             Assert.False(RewindContext.RewindGameWrittenToPersistent);
             Assert.Contains(logLines, l => l.Contains("[Rewind]")
                 && l.Contains("Rewind: no rewind game to write to persistent.sfs"));
@@ -465,8 +465,8 @@ namespace Parsek.Tests
         public void PostRewindPersistentWrite_IsLogged()
         {
             int writes = 0;
-            RecordingStore.PostRewindPersistentWriteForTesting = () => { writes++; return true; };
-            Assert.True(RecordingStore.WritePersistentAfterRewindAdjustment());
+            RewindLauncher.PostRewindPersistentWriteForTesting = () => { writes++; return true; };
+            Assert.True(RewindLauncher.WritePersistentAfterRewindAdjustment());
             Assert.Equal(1, writes);
             Assert.Contains(logLines, l => l.Contains("[Rewind]")
                 && l.Contains("Post-rewind persistent.sfs write ok=true"));

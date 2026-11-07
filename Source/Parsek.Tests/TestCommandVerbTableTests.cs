@@ -116,7 +116,7 @@ namespace Parsek.Tests
             // second spelling of InvokeRewind - that verb drives the Re-Fly /
             // Rewind-to-Separation system (RewindPoint + slot -> RewindInvoker.StartInvoke
             // -> a ReFlySessionMarker), this one drives the Recordings-table "R" button
-            // (RecordingStore.InitiateRewind: no RewindPoint, no marker, no merge journal).
+            // (RewindLauncher.InitiateRewind: no RewindPoint, no marker, no merge journal).
             //
             // The map-view pair is ADDITIVE too (27 implemented, reserved unchanged at 7):
             // the reserved envelope never carried a camera / scene-presentation verb.

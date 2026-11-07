@@ -67,6 +67,13 @@ Source/Parsek/TreeCommitService.SupersedeTerminalSpawn.cs
 # it changes nothing.
 Source/Parsek/RewindCarry.cs
 
+# RewindLauncher holds the plain rewind moved out of RecordingStore (the RecordingStore
+# services plan, PR13 O). The playback-state reset a rewind runs and the spawned-vessel
+# collection walk every physical committed recording, and the fast-forward gate checks a
+# recording's rewind retirement against the physical list, as they did inside the store.
+# No Ledger.Actions reads.
+Source/Parsek/RewindLauncher.cs
+
 # --- Serialization (I/O not semantics) ---
 Source/Parsek/ParsekScenario.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.

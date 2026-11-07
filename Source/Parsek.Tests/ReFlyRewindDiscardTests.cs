@@ -336,7 +336,7 @@ namespace Parsek.Tests
             MergeDialog.TryDiscardLiveReFlySessionForRewind(
                 s.Tree, "Rewind", out string droppedLiveTreeId, out bool restored);
 
-            RecordingStore.UndoLiveTreeDropAfterFailedRewind(droppedLiveTreeId, restored, "Rewind");
+            RewindLauncher.UndoLiveTreeDropAfterFailedRewind(droppedLiveTreeId, restored, "Rewind");
 
             Assert.False(CommittedTreeHas(TreeId));
             Assert.False(CommittedHas(OriginId));
@@ -354,7 +354,7 @@ namespace Parsek.Tests
         {
             PendingTreeSlot.ArmNextTreeSceneExitCommitSuppression("owned-by-someone-else");
 
-            RecordingStore.UndoLiveTreeDropAfterFailedRewind(null, false, "Rewind");
+            RewindLauncher.UndoLiveTreeDropAfterFailedRewind(null, false, "Rewind");
 
             Assert.True(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
         }
@@ -365,7 +365,7 @@ namespace Parsek.Tests
             var committed = new RecordingTree { Id = "tree-committed-bystander", TreeName = "Bystander" };
             PendingTreeSlot.ArmNextTreeSceneExitCommitSuppression("discardReFlyForRewind sess=x");
 
-            RecordingStore.UndoLiveTreeDropAfterFailedRewind(committed.Id, false, "Rewind");
+            RewindLauncher.UndoLiveTreeDropAfterFailedRewind(committed.Id, false, "Rewind");
 
             Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Contains(logLines, l => l.Contains("removedFromCommitted=False"));
@@ -446,7 +446,7 @@ namespace Parsek.Tests
         public void InitiateRewind_EndsTheLiveSessionAfterTheJournalGate_BeforeTheRewindIsArmed()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
-                RewindPointSurvivesRewindTests.ReadSource("RecordingStore.cs"),
+                RewindPointSurvivesRewindTests.ReadSource("RewindLauncher.cs"),
                 "internal static void InitiateRewind(Recording rec)");
             int journal = body.IndexOf("ActiveMergeJournal.Phase != MergeJournal.Phases.Complete", StringComparison.Ordinal);
             int end = body.IndexOf("MergeDialog.TryDiscardLiveReFlySessionForRewind(", StringComparison.Ordinal);
@@ -463,7 +463,7 @@ namespace Parsek.Tests
         public void InitiateRewindToCareerStart_EndsTheLiveSessionBeforeTheRewindIsArmed()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
-                RewindPointSurvivesRewindTests.ReadSource("RecordingStore.cs"),
+                RewindPointSurvivesRewindTests.ReadSource("RewindLauncher.cs"),
                 "internal static bool InitiateRewindToCareerStart(string saveFileName)");
             int refusal = body.IndexOf("InitiateRewindToCareerStart refused", StringComparison.Ordinal);
             int end = body.IndexOf("MergeDialog.TryDiscardLiveReFlySessionForRewind(", StringComparison.Ordinal);

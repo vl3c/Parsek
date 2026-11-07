@@ -204,7 +204,7 @@ namespace Parsek.Tests
             debris.TerminalSpawnCannotSpawnSafely = true;
             RecordingStore.AddRecordingWithTreeForTesting(debris, "Rewound Mission");
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal(TerminalState.Destroyed, debris.TerminalStateValue);
             AssertSpawnFieldsReset(debris);
@@ -257,7 +257,7 @@ namespace Parsek.Tests
             debrisB.VesselSpawned = true;
 
             // ... and the rewind OnLoad resets playback state.
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal(TerminalState.Destroyed, debrisA.TerminalStateValue);
             Assert.Equal(TerminalState.Destroyed, debrisB.TerminalStateValue);
@@ -339,7 +339,7 @@ namespace Parsek.Tests
             var merged = MergedSpawnedParentEndingDestroyed();
             RecordingStore.AddRecordingWithTreeForTesting(merged, "Relay Mission");
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal(TerminalState.Destroyed, merged.TerminalStateValue);
             Assert.False(merged.VesselSpawned);
@@ -369,8 +369,8 @@ namespace Parsek.Tests
             string scenario = StripComments(ReadParsekSource("ParsekScenario.cs"));
             string helper = BraceBody(scenario,
                 "internal static int ResetTreeRecordingMutableStateForLoad(");
-            string store = StripComments(ReadParsekSource("RecordingStore.cs"));
-            string rewind = BraceBody(store,
+            string launcher = StripComments(ReadParsekSource("RewindLauncher.cs"));
+            string rewind = BraceBody(launcher,
                 "private static void ResetRecordingPlaybackFields(");
 
             foreach (var body in new[] { helper, rewind })

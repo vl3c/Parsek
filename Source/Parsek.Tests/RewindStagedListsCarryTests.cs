@@ -42,7 +42,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             HighLogic.LoadedScene = previousScene;
-            RecordingStore.ResetRewindFlags();
+            RewindLauncher.ResetRewindFlags();
             RewindContext.ResetForTesting();
             RecordingStore.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
@@ -391,7 +391,7 @@ namespace Parsek.Tests
             ArmRewindToLaunch("rec_a_root");
             RewindCarry.CaptureRewindStagedListsForRewind(scenario, "Rewind");
 
-            RecordingStore.ResetRewindFlags();
+            RewindLauncher.ResetRewindFlags();
 
             Assert.False(RewindCarry.HasRewindCarriedStagedLists);
             Invoke(scenario, "LoadRewindStagingState", stalePersistent);
@@ -467,7 +467,7 @@ namespace Parsek.Tests
         public void ExecuteRewindSaveLoad_CapturesTheStagedLists_AfterTheSupersedeAudit_BeforeTheSceneLoad()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
-                RewindPointSurvivesRewindTests.ReadSource("RecordingStore.cs"),
+                RewindPointSurvivesRewindTests.ReadSource("RewindLauncher.cs"),
                 "private static bool ExecuteRewindSaveLoad(");
             int audit = body.IndexOf("LogSupersedesKeptAcrossRewind(supersedeAuditOwner", StringComparison.Ordinal);
             int capture = body.IndexOf("CaptureRewindStagedListsForRewind(ParsekScenario.Instance", StringComparison.Ordinal);
@@ -497,7 +497,7 @@ namespace Parsek.Tests
         public void ResetRewindFlags_DropsTheStagedCapture()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
-                RewindPointSurvivesRewindTests.ReadSource("RecordingStore.cs"),
+                RewindPointSurvivesRewindTests.ReadSource("RewindLauncher.cs"),
                 "internal static void ResetRewindFlags()");
             Assert.Contains("ClearRewindCarriedStagedLists(\"rewind-flags-reset\");", body);
         }

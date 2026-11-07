@@ -2,7 +2,7 @@ using System;
 
 namespace Parsek
 {
-    public static partial class RecordingStore
+    internal static partial class RewindLauncher
     {
         /// <summary>
         /// Test seam: when non-null, replaces the persistent.sfs write of the parsed rewind game

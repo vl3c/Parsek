@@ -234,7 +234,7 @@ namespace Parsek.Tests
             var shape = BuildBoardShape();
             string sfs = WriteRewindQuicksave();
 
-            RecordingStore.PreProcessRewindSave(
+            RewindLauncher.PreProcessRewindSave(
                 sfs, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
                 RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds,
@@ -262,7 +262,7 @@ namespace Parsek.Tests
                 out _, out _));
 
             // The child's adoption stamp resets, so the chain tip resolves again at its end.
-            RecordingStore.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
+            RewindLauncher.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
             Assert.Equal(0u, shape.child.SpawnedVesselPersistentId);
             Assert.False(shape.child.VesselSpawned);
         }
