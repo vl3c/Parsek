@@ -22,6 +22,10 @@ namespace Parsek.Tests
     /// headless runtime refuses that native call (MissingMethodException on mono, SecurityException on the Windows
     /// test host), which ends the frame after everything else in it has run. The transcript records only that the
     /// call was refused.
+    ///
+    /// Every case that enters a method whose body calls a Unity native method (all but the skipped-entry
+    /// cells) is a <see cref="UnityEntryFactAttribute"/>: it runs on mono, which CI runs, and is skipped on
+    /// a host that refuses such a body on entry (the Windows .NET Framework test host).
     /// </summary>
     [Collection("Sequential")]
     public class EnginePlaybackDispatchCharacterizationTests : IDisposable
@@ -172,7 +176,7 @@ namespace Parsek.Tests
                 + "\n--- transcript ---\n" + text);
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void UpdatePlayback_GuardMatrix_AtNormalWarp()
         {
             var engine = NewEngine();
@@ -226,7 +230,7 @@ namespace Parsek.Tests
             AssertGolden("F8429E3149AF0367", 23);
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void UpdatePlayback_WarpHides_PlainLoopAndOverlapLoop()
         {
             var engine = NewEngine();
@@ -245,7 +249,7 @@ namespace Parsek.Tests
             AssertGolden("93FE56AE1BF50B7E", 13);
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void UpdatePlayback_SessionSuppressedSubtree()
         {
             var engine = NewEngine();
@@ -264,7 +268,7 @@ namespace Parsek.Tests
             AssertGolden("87B3523FBAC53004", 7);
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void UpdatePlayback_ChainSeamShadow()
         {
             var engine = NewEngine();
@@ -299,7 +303,7 @@ namespace Parsek.Tests
             }
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void UpdateLoopingPlayback_HeadlessBranches()
         {
             var engine = NewEngine();
@@ -360,7 +364,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(transcript, l => l.Contains("Disabled past-end completion"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void ShadowChainHead_WithoutAHeadGhost_LogsAndTracesTheShadow()
         {
             var engine = NewEngine();
@@ -372,7 +376,7 @@ namespace Parsek.Tests
             Assert.Contains(transcript, l => l.Contains("reason=chain-shadowed"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void PlaybackEntry_BeforeActivation_TracesAndCountsNoGhost()
         {
             var engine = NewEngine();
@@ -387,7 +391,7 @@ namespace Parsek.Tests
             Assert.Contains(transcript, l => l.Contains("reason=before-activation-start-ut"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void PlaybackEntry_PastEnd_QueuesTheCompletion()
         {
             var engine = NewEngine();
@@ -402,7 +406,7 @@ namespace Parsek.Tests
             Assert.True(engine.PendingCompletedEventsForTesting[0].PastEffectiveEnd);
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void CompletePlaybackFrame_DeliversDeferredEventsBeforeTheUnityClockRead()
         {
             var engine = NewEngine();
@@ -426,7 +430,7 @@ namespace Parsek.Tests
             Assert.Contains(transcript, l => l.StartsWith("EVT Completed #0 "));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void OverlapLoopDispatch_AtWarp_HidesAndCountsWarpHidden()
         {
             var engine = NewEngine();
