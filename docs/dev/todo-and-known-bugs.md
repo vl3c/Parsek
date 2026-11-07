@@ -2937,6 +2937,20 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   `il_compare.py` reads `ldarg.0; ldfld host; dup` (a compound assignment through the host) as
   `ldarg.0; ldarg.0` and merges the `<>c` cache's own instance field and constructors. Knot 472 ->
   473, replayed residue 283 unchanged (canaries re-pinned).
+- PF6 landed: `ParsekFlightSurfaceCapture` (751 lines, lazy `SurfaceCapture`) is the surface
+  capture seam: flag plant and pick-up capture, ground-science part deploy / retrieve, EVA
+  construction attach / detach and drop, the foreign inventory slot readings and the foreign
+  construction pick-up adoption: 23 methods and the 4 fields only it reads (`.Flags.cs` 242 -> 107
+  lines, `.GroundPartPlacement.cs` 248 -> 55; `.ForeignInventoryTransfer.cs` deleted;
+  ParsekFlight.cs 2,512). ParsekFlight keeps the nine GameEvents handlers `Start` / `OnDestroy`
+  subscribe (each now one forwarding line, same subscription order), the
+  `DeferredGroundPartPlacement` coroutine and the flag statics other files name. 5 declarations
+  widened private -> internal. IL (`--fold`): 0 moved-body differences; the 15 left are the
+  accessor (field, property, getter), the service's host field and constructor, the nine
+  forwarders and the host constructor minus the 3 moved initializers. `il_compare.py` pairs a
+  body moved behind a same-named forwarder with its twin and reads `callvirt` on a non-virtual
+  Unity base member (`StartCoroutine`, `gameObject`) as `call`. Knot 473 -> 474, replayed residue
+  283 unchanged (canaries re-pinned).
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 

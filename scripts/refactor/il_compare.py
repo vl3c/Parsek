@@ -156,6 +156,16 @@ def normalize_body(text):
     return "\n".join(" ".join(l.split()) for l in text.split("\n") if l.strip())
 
 
+# Non-virtual members a MonoBehaviour host inherits; `host.X()` compiles to callvirt where the
+# host's own `X()` compiled to call. Only these are folded: a virtual member's call vs
+# callvirt is a real dispatch difference.
+HOST_BASE_NONVIRTUAL = (
+    "MonoBehaviour::StartCoroutine", "MonoBehaviour::StopCoroutine", "MonoBehaviour::StopAllCoroutines",
+    "Component::get_gameObject", "Component::get_transform",
+    "Behaviour::get_enabled", "Behaviour::set_enabled",
+)
+
+
 def apply_folds(text, folds, host_field):
     """Rewrite NEW-type tokens back to OLD and drop the host hop instructions."""
     for old, new in folds:
@@ -175,7 +185,10 @@ def apply_folds(text, folds, host_field):
         # ... and the lazy accessor `call(virt) instance class NEW OLD::get_X()`.
         text = re.sub(r"\n\s*(?:IL_[0-9a-f]{4}:\s*)?call(?:virt)?\s+instance\s+class\s+%s\s+%s::get_\w+\(\)[ \t]*(?=\n)"
                       % (n, o), "", text)
-        # this.M() compiles to call, service.M() / host.M() to callvirt.
+        # this.M() compiles to call, service.M() / host.M() to callvirt. The same holds for
+        # the host's non-virtual Unity base members (host.StartCoroutine(...)).
+        text = re.sub(r"callvirt(\s+instance\s+[^\n]*?[\s\]]UnityEngine\.(?:%s)\()"
+                      % "|".join(re.escape(m) for m in HOST_BASE_NONVIRTUAL), r"call\1", text)
         text = re.sub(r"callvirt(\s+instance\s+[^\n]*?\s(?:%s|%s)(?:/[^\s:]+)?::)" % (o, n), r"call\1", text)
         # Every remaining NEW token (member owner, field / local / parameter type, nested
         # display class path) reads OLD. NEW's own `.class` line keeps its name, so
@@ -345,6 +358,20 @@ def widenings(a, b, paths):
                             (kind == "method" or ca[k] == cb[kb]):
                         found.append((kind, path, k, kb))
                         break
+            if kind == "method":
+                # A private member that moved and left a same-named forwarder behind: the
+                # before key is still on OLD (the forwarder) and its widened twin appears
+                # only after (the moved original). Paired only when that twin's body is the
+                # before body, so the pairing can never hide a change; the forwarder's own
+                # body is still reported as a difference.
+                for k in ca:
+                    if k not in cb or " private " not in " %s " % k.replace("(", " ("):
+                        continue
+                    for kb in by_neutral.get(_strip_access(k), []):
+                        if " assembly " in " %s " % kb.replace("(", " (") and \
+                                sorted(ca[k]) == sorted(cb[kb]):
+                            found.append(("forwarded", path, k, kb))
+                            break
     return found
 
 
@@ -360,6 +387,8 @@ def compare(a, b, widened=()):
             ta.header[kb] += ta.header.pop(ka)
         elif kind == "field":
             ta.fields[kb] += ta.fields.pop(ka)
+        elif kind == "forwarded":
+            ta.methods[kb] = list(ta.methods[ka])
         else:
             ta.methods[kb] = ta.methods.pop(ka)
     diffs = []
@@ -438,11 +467,17 @@ def main(argv=None):
     for old, new in folds:
         if new in b_raw:
             print("folded %s onto %s: %s" % (new, old, " | ".join(sorted(b_raw[new].header))))
-    if widened:
+    forwarded = [w for w in widened if w[0] == "forwarded"]
+    plain = [w for w in widened if w[0] != "forwarded"]
+    if plain:
         print("widened private -> internal: %d %s" % (
-            len(widened), dict(sorted(collections.Counter(w[0] for w in widened).items()))))
-        for kind, path, ka, kb in widened[:args.limit]:
+            len(plain), dict(sorted(collections.Counter(w[0] for w in plain).items()))))
+        for kind, path, ka, kb in plain[:args.limit]:
             print("  widened %-6s %s :: %s" % (kind, path, kb[:200]))
+    if forwarded:
+        print("moved verbatim behind a same-named forwarder: %d" % len(forwarded))
+        for kind, path, ka, kb in forwarded[:args.limit]:
+            print("  forwarded %s :: %s" % (path, kb[:200]))
     counts = collections.Counter(d[0] for d in diffs)
     print("differences: %d %s" % (len(diffs), dict(sorted(counts.items())) if diffs else ""))
     for kind, path, detail in diffs[:args.limit]:

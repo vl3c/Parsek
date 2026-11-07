@@ -351,10 +351,10 @@ namespace Parsek.Tests
             string terminal = ReadSource("ParsekFlight.TerminalEvents.cs");
             Assert.Contains(
                 "if (!activeTree.BackgroundMap.TryGetValue(v.persistentId, out recordingId))\n" +
-                "                return TryAdoptForeignConstructionPickup(v);",
+                "                return SurfaceCapture.TryAdoptForeignConstructionPickup(v);",
                 terminal.Replace("\r\n", "\n"));
 
-            string seam = ReadSource("ParsekFlight.ForeignInventoryTransfer.cs");
+            string seam = ReadSource("ParsekFlightSurfaceCapture.cs");
             Assert.Contains("ForeignInventoryTransfer.ShouldAdoptConstructionPickup(deathKind, verdict)", seam);
             Assert.Contains("GhostMapPresence.IsGhostMapVessel(changedPid)", seam);
             Assert.Contains("ForeignInventoryTransfer.AttachPickedUpMember(", seam);
