@@ -870,6 +870,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # CreateNewGame writes every AddToAllGames module, ParsekScenario among them.
         "cs-science-new": True,
         "cs-career-new": True,
+        # `cs-career-new` plus a second Offered copy of its 'reach space' exploration
+        # offer under another guid and seed (harness/tools/build_career_new_goal_twin.py,
+        # the CTW-1 host). Inherits the node.
+        "career-new-goal-twin": True,
         # `fresh-career` WITH A REPUTATION SEED and nothing else - two lines of
         # the save differ. It inherits the base's deliberate ABSENCE of a
         # ParsekScenario node (False) along with everything else, which is right

@@ -252,7 +252,7 @@ required = [
   "MISSIONMARK label=str4-crossed ut=(?:(?!MISSIONMARK label=str4-check )[\\s\\S])*?Strategy conversion recorded: type=ReputationPenalty, currency=Reputation, delta=-[0-9][0-9.E+-]*, UT=[0-9.]+, reason=VesselRollout",
 
   # ---- the ground truth: the pools and the strategy list exact ----
-  "(?s)MISSIONMARK label=str4-check .*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "(?s)MISSIONMARK label=str4-check .*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "(?s)MISSIONMARK label=str4-check .*?result: hardFailures=0 ",
   "(?s)MISSIONMARK label=str4-check .*?CompareStrategies: managed=\\[[^\\]]*AgressiveNegotiations[^\\]]*RecoveryTransponders[^\\]]*\\] ledgerActive=\\[AgressiveNegotiations\\] saveActive=\\[AgressiveNegotiations\\] diverged=0 \\[\\]",
 ]

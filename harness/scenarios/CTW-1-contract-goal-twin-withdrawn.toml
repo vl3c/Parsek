@@ -1,0 +1,151 @@
+schema = 1
+id = "CTW-1-contract-goal-twin-withdrawn"
+tier = "operator"
+# =====================================================================================
+# CTW-1: A REGENERATED COPY OF A COMMITTED EXPLORATION CONTRACT IS WITHDRAWN AFTER A
+# REWIND, BY ITS GOAL. Todo CONTRACT-TWIN-GUID-SEEDED-TYPES (owner ruling 2026-10-27,
+# "check both IDs and the other identifiers"). AUTHORED 2026-11-06; FIRST FLIGHT 2026-11-06_2339 red on one spec anchor, re-anchored; LIVE-PROVEN 2026-11-07_0132.
+#
+# THE PLAYER'S STORY. A career accepts "reach space" (an exploration contract) at the
+# Space Center, then rewinds to a launch made before that accept. The committed timeline
+# still accepts the contract later. Stock can offer the same goal again under a new guid;
+# before the fix the player could accept that copy too and both copies paid. With the fix
+# the copy is withdrawn, so the player cannot accept it.
+#
+# WHY A DERIVED FIXTURE. Stock generates such a copy only by chance (its exploration seeds
+# draw from the incomplete progress nodes). `career-new-goal-twin`
+# (harness/tools/build_career_new_goal_twin.py) is CS-0's `cs-career-new` with the stock
+# "reach space" offer 31f5240c-4c87-4a98-803b-1e84e1f19ce6 copied once under guid
+# d7c2a0b4-5e1f-4c3a-9b8e-2f6a1c4d7e90 and another seed: the pair a regeneration makes.
+# The copy's stock `ContractID` differs from the original's (the exploration contract's
+# `ProgressTrackingParameter` hashes `SuperSeed(Root)`, which reads the guid), so the id
+# half of the rule cannot catch it; only the goal key `ExplorationContract:REACHSPACE@1` can.
+#
+# THE TIMELINE.
+#   ~0.4   boot at the Space Center (the host holds stock's asteroid: CS-1's trap).
+#   600    WarpToUT at the Space Center, so the launch's rewind lands well above UT 0.
+#   L      the Jumping Flea from the VAB, StartRecording on the pad (the rewind save is
+#          written at L), StopRecording, CommitTree: the committed launch to rewind to.
+#   700    back at the Space Center, WarpToUT 700, then Mission Control's Accept on the
+#          original 31f5240c (KscAction accept-contract, stock's Contract.Accept). The
+#          accept row is KSC-origin, so it is committed, with `goal=` captured from the
+#          contract node. The copy stays Offered: the accept is not in the future yet.
+#   rewind InvokeRewindToLaunch tree=latest: the clock goes back to L - 15 s, the pool
+#          comes back from the rewind save (both copies Offered), and the recalculation's
+#          contract patch runs `WithdrawOfferedContractTwins` against the committed future
+#          accept at ~700: the copy is withdrawn, `matched=goal(...)`.
+#   check  KscAction accept-contract on the copy is refused (the copy is no longer Offered:
+#          `contract-not-offered`, or `unknown-contract` if stock dropped it from the list).
+#
+# FIRST FLIGHT `2026-11-06_2339` (FAIL on one spec anchor, product correct): the copy was
+# withdrawn `matched=goal(ExplorationContract:REACHSPACE@1)` during the rewind's load, after
+# `invokerewindtolaunch invoking` and before its `complete`, which the "nothing withdrawn
+# before the rewind" forbid had anchored on. It now anchors on `invoking`.
+#
+# RED WITH THE FIX REVERTED (id-only matching): no `withdrew offer` line, and the accept
+# of the copy is applied (step 16 expects REJECTED), which is the double payment's first
+# half.
+#
+# GUESSES (not measured; read a first red against these):
+#   * The two stock ids differ, so the withdrawal line says `matched=goal(...)`; a
+#     `matched=stockId` would mean stock's id does not read the guid for this contract
+#     (forbidden below: the lane would then not prove the goal half).
+#   * Stock does not withdraw either copy as a surplus offer: four Offered contracts plus
+#     one at Mission Control level 0, two of them Significant. If stock withdrew one, the
+#     accept step or the withdrawal line misses; read `Contract.Withdraw`'s stock lines.
+#   * The original 31f5240c, Offered again after the rewind, is not touched by the twin
+#     pass (it is the committed accept's own guid). Its accept is blocked by the committed-
+#     future click block (KB-3's C1), not by this rule; not pinned.
+#   * The rewind lands at L - 15 s with L between 600 and 610.
+# =====================================================================================
+description = "CTW-1, LIVE-PROVEN 2026-11-07: on career-new-goal-twin (a new Career with the stock 'reach space' exploration offer and a second Offered copy of it under another guid and seed), launch and commit the Jumping Flea at ~600, accept the original at the Space Center at ~700, Rewind-to-Launch. The contract patch must withdraw the copy as a twin of the committed future accept by its goal key (matched=goal(ExplorationContract:REACHSPACE@1)), and Mission Control's Accept on the copy must be refused. Live proof of the CONTRACT-TWIN-GUID-SEEDED-TYPES fix (a duplicate contract payment across a rewind)."
+instanceProfile = "stock-tree"
+tags = ["CTW-1", "career", "contracts", "contract-twin", "rewind-to-launch", "ledger",
+        "editor", "derived-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-new-goal-twin"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # scene = "spacecenter": the host holds stock's asteroid (CS-1's first-flight trap).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "600", maxRate = "100" },                  expect = "OK", budget = 120 },
+  # The committed launch the rewind goes back to.
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },     expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                        expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                       expect = "OK", budget = 120 },
+  # The accept, after the launch.
+  { cmd = "WarpToUT",       args = { ut = "700", maxRate = "100" },                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ctw1-accept" },                        expect = "OK" },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "31f5240c-4c87-4a98-803b-1e84e1f19ce6" }, expect = "OK", budget = 60 },
+  # Back to before the accept.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                        expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "ctw1-rewound" },                       expect = "OK" },
+  # THE PLAYER'S CLICK: Accept on the copy must be refused.
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "d7c2a0b4-5e1f-4c3a-9b8e-2f6a1c4d7e90" }, expect = "REJECTED", budget = 60 },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The one pad recording; the rewind removes none.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=SPACECENTER save=.* game-loaded=true expected=SpaceCenter",
+  "launchfromeditor complete scene=FLIGHT ",
+  "Captured rewind save at UT ",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true",
+  # THE ACCEPT: applied at the Space Center, with the goal captured on the accept row.
+  "(?s)MISSIONMARK label=ctw1-accept (?:(?!MISSIONMARK label=ctw1-rewound ).)*kscaction action=accept-contract target=31f5240c-4c87-4a98-803b-1e84e1f19ce6 applied=true manifestKind=contract-accept observedAfter=state=Active ",
+  "ConvertContractAccepted: contractId='31f5240c-4c87-4a98-803b-1e84e1f19ce6' [^\\r\\n]* goal=ExplorationContract:REACHSPACE@1",
+  "invokerewindtolaunch complete ",
+  # THE FIX: the copy withdrawn by its goal, naming the committed accept as its holder.
+  "(?s)kscaction action=accept-contract target=31f5240c-4c87-4a98-803b-1e84e1f19ce6 applied=true .*\\[ContractTwin\\] PatchContracts: withdrew offer '[^'\\r\\n]*' \\(guid=d7c2a0b4-5e1f-4c3a-9b8e-2f6a1c4d7e90 stockId=-?[0-9]+ goal=ExplorationContract:REACHSPACE@1\\): it twins '[^'\\r\\n]*' \\(guid=31f5240c-4c87-4a98-803b-1e84e1f19ce6 stockId=-?[0-9]+ goal=ExplorationContract:REACHSPACE@1, accepted by the committed timeline at ut=[0-9.]+[^\\r\\n]*\\) at ut=[0-9.]+ matched=goal\\(ExplorationContract:REACHSPACE@1\\)",
+  "\\[ContractTwin\\] PatchContracts: [1-9] of [1-9] twin offer\\(s\\) withdrawn ",
+  # THE PLAYER'S CLICK on the copy, refused because it is no longer on offer.
+  "(?s)MISSIONMARK label=ctw1-rewound (?:(?!kscaction ).)*kscaction refused action=accept-contract reason=(?:contract-not-offered|unknown-contract) target=d7c2a0b4-5e1f-4c3a-9b8e-2f6a1c4d7e90",
+  "savegame name=persistent folder=.+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The copy accepted: the double payment's first half.
+  "kscaction action=accept-contract target=d7c2a0b4-5e1f-4c3a-9b8e-2f6a1c4d7e90 applied=true",
+  # Nothing is withdrawn before the rewind (no committed accept lies in the future then).
+  # (The withdrawal runs inside the rewind's own load, before its `complete` line: first
+  # flight `2026-11-06_2339`.)
+  "(?s)^(?:(?!invokerewindtolaunch invoking ).)*PatchContracts: withdrew offer",
+  # The committed accept's own guid is never its own twin.
+  "PatchContracts: withdrew offer '[^'\\r\\n]*' \\(guid=31f5240c-4c87-4a98-803b-1e84e1f19ce6",
+  # The lane is about the goal half: a stock id match would not prove it.
+  "\\[ContractTwin\\] [^\\r\\n]*guid=d7c2a0b4-5e1f-4c3a-9b8e-2f6a1c4d7e90[^\\r\\n]*matched=stockId",
+]
+
+[runtime]
+# LoadGame 300 + two warps 240 + editor 120 + launch 180 + StartRecording 180 + commit 120
+# + exit 120 + KscAction 60 + rewind 300 + KscAction 60 + SaveGame 120, plus short steps.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

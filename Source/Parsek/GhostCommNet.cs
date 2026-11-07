@@ -199,6 +199,13 @@ namespace Parsek
         public bool RewindRetired;
         public bool SessionSuppressed;
         public bool ExternalVesselSuppressed;
+        /// <summary>
+        /// A real vessel of this recording's launch is in the world and not chain-ghosted, so
+        /// its own stock node relays for it (design 15.6, one node per vessel). The visual
+        /// ghost of a tree-owned recording still draws (<see cref="ExternalVesselSuppressed"/>
+        /// exempts it), but a second CommNet node would count the vessel twice.
+        /// </summary>
+        public bool RealVesselRelays;
         /// <summary>BUG-B scope gate for the REAL run (the spawn variant, so loop members are gated too).</summary>
         public bool HistoricalNeverReplayed;
         public double ActivationStartUT;
@@ -299,6 +306,7 @@ namespace Parsek
         internal const string ReasonContinuationGapHold = "continuation-gap-hold";
         internal const string ReasonWindowEnded = "window-ended";
         internal const string ReasonInWindow = "in-window";
+        internal const string ReasonRealVesselRelays = "real-vessel-relays";
         /// <summary>UT slack when comparing a recording's end with a takeover UT.</summary>
         internal const double ContinuationTakeoverToleranceSeconds = 1e-3;
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -782,6 +790,7 @@ namespace Parsek
             if (input.SupersededByRelation) return Excluded("superseded");
             if (input.SessionSuppressed) return Excluded("re-fly-session-suppressed");
             if (input.ExternalVesselSuppressed) return Excluded("real-vessel-exists");
+            if (input.RealVesselRelays) return Excluded(ReasonRealVesselRelays);
             if (input.HistoricalNeverReplayed) return Excluded("historical-never-replayed");
             if (double.IsNaN(currentUT) || currentUT < input.ActivationStartUT)
                 return Excluded("before-window");

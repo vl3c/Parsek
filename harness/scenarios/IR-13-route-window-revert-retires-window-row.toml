@@ -1,0 +1,157 @@
+schema = 1
+id = "IR-13-route-window-revert-retires-window-row"
+tier = "nightly"
+# =====================================================================================
+# IR-13: A ROUTE ACTION INSIDE A REWIND'S 15 S LEAD WINDOW, TAKEN BACK BY A REVERT TO A
+# LAUNCH MADE IN THAT WINDOW. Todo ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS (fixed
+# 2026-10-25 for the in-session loads, xUnit only until this lane). AUTHORED 2026-11-06,
+# LIVE-PROVEN 2026-11-06 on its first flight (`2026-11-06_2342` PASS).
+#
+# THE PLAYER'S STORY. A Rewind-to-Launch puts the clock 15 s before the rewound launch.
+# Inside those 15 s the player launches Kerbal X, re-activates a paused supply route, then
+# picks Revert to Launch. The revert returns to the moment of the launch, so the route
+# activation made after it must be undone: the route is Paused again.
+#
+# THE DEFECT. The go-back keys its route cutoff to the rewind save's own UT (~15 s ahead of
+# the wound-back clock), and every save written before the clock passes it carries that
+# route state floor. A load of such a save keyed its route cutoff to the floor, not to its
+# own UT, so a route row written after the save but before the floor survived: here the
+# `RouteResumed player-activate` row, which the kept-status derivation then read as the
+# player's latest word (route Active after the revert). The fix
+# (`RouteLoadReconcile.ReconcileAtInSessionLoad` with a `RouteSaveWindow`) retires the rows in
+# (save clock, floor] the loaded save's own ROUTE_EVENT_LOG does not hold.
+# Stock F9 and the pause-menu Load no longer reach this path (save-file loads are Cold and
+# read the save's routes whole); the stock revert is the in-session load that does.
+#
+# THE HOST AND THE PLAYER ROWS are H58's (`rover-route-recorded`, save clock ~979.48, the
+# transport rover focused): create, activate and pause at the boot UT (a resume row and a
+# pause row, no crossing fires: the route is paused in the same few frames), `TimeJump
+# ut=1600`, StartRecording / StopRecording / CommitTree on the focused rover (the rewind
+# save at ~1600.5), `InvokeRewindToLaunch tree=latest` (Space Center at ~1585.5, route
+# cutoff and floor ~1600.5, the kept rows end in the pause, so the route stays Paused). Then
+# IR-2's launch: Kerbal X from the VAB onto the pad (the endpoint rover sits on the runway),
+# the route activated at once in flight (a resume row at ~159x, inside the window), and
+# Revert to Launch. Activation is AFTER the launch on purpose: the revert state must not
+# hold the row.
+#
+# RED WITH THE FIX REVERTED. No window line and no `RetireUnheldWindowRows` line; the
+# post-revert read-back shows `status=Active ... resumed=2` instead of `status=Paused ...
+# resumed=1`, and the kept-status line reads `derivedPaused=0`.
+#
+# GUESSES (not measured; read a first red against these):
+#   * THE 15 S BUDGET. The launch and the activation must both land before the floor
+#     (~1600.5). The Space Center clock runs at 1x until the editor opens, the editor
+#     freezes it, and the flight runs it again from the launch; the activation is the first
+#     step after LaunchFromEditor. If the launch lands past the floor the window line never
+#     prints; if only the activation does, it reads `unheldWindowRows=0` (both pinned, so
+#     the lane cannot pass vacuously). The `ir13-activated` mark logs the UT.
+#   * The revert is classified StockRevert and its reconcile cutoff is raised to the floor
+#     the launch state carries (IR-2's line, with the window fields appended).
+#   * The launch state's route log holds the two boot rows (the go-back kept them, the
+#     launch save wrote them), so exactly one row is unheld.
+# =====================================================================================
+description = "IR-13, LIVE-PROVEN 2026-11-06: on rover-route-recorded create, activate and pause the rover route, jump to 1600, record and commit the focused rover, Rewind-to-Launch (clock ~1585.5, route floor ~1600.5), launch Kerbal X inside that 15 s window, re-activate the route in flight, Revert to Launch. The revert must retire the activation row written after the launch state and before the floor (RetireUnheldWindowRows), so the route is Paused again with one resume row. Live proof of the ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS fix."
+instanceProfile = "stock-minimal"
+tags = ["IR-13", "logistics", "route", "revert", "rewind-to-launch", "route-state-floor",
+        "timeline-ops", "recorded-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" },   expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "IR13 Rover Supply" }, expect = "OK", budget = 120 },
+  # The two player rows the go-back keeps: a resume, then a pause.
+  { cmd = "RouteCommand", args = { action = "activate", route = "IR13 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "pause",    route = "IR13 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1600" },                               expect = "OK", budget = 300 },
+  # The launch to rewind to.
+  { cmd = "StartRecording",                                                     expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "CommitTree",                                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                   expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir13-rewound" },                    expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  # INSIDE THE 15 S WINDOW: launch, then the route action the revert must take back.
+  { cmd = "GoToEditor",   args = { facility = "VAB", craft = "Kerbal X" },      expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                   expect = "OK", budget = 180 },
+  { cmd = "RouteCommand", args = { action = "activate", route = "IR13 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "ir13-activated" },                  expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  # THE STOCK REVERT (load kind StockRevert, an in-session load).
+  { cmd = "RevertToLaunch",                                                     expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ir13-reverted" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "SaveGame",                                                           expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's five committed recordings plus the rover recording; the reverted launch is
+# not recorded (autoRecordOnLaunch is off).
+count = { min = 6, max = 6 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='IR13 Rover Supply' status=Paused",
+  "Captured rewind save at UT 1600",
+  # THE GO-BACK: cutoff at the rewind save's UT; the kept rows end in the pause.
+  "invokerewindtolaunch complete ",
+  "OnLoad: go-back route reconcile at cutoff=1600[0-9.]* retiredRouteRows=0 committedRoutes=1 dormantRoutes=0 cutoffSource=rewind-save-ut ",
+  "(?s)MISSIONMARK label=ir13-rewound (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR13 Rover Supply' status=Paused [^\\r\\n]* paused=1 resumed=1 ",
+  # INSIDE THE WINDOW: Kerbal X launched, the route re-activated after it.
+  "launchfromeditor complete scene=FLIGHT vessel=Kerbal X ",
+  "routecommand complete action=activate route=.* name='IR13 Rover Supply' match=name statusBefore=Paused status=Active",
+  "MISSIONMARK label=ir13-activated ut=1(?:58[5-9]|59[0-9]|600)\\.",
+  "(?s)MISSIONMARK label=ir13-activated (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR13 Rover Supply' status=Active [^\\r\\n]* paused=1 resumed=2 ",
+  # THE REVERT, and THE FIX: the activation row written after the launch state retired.
+  "reverttolaunch start pid=[0-9]+ name='Kerbal X' situation=PRELAUNCH ",
+  "Load classified: early=\\w+ refined=StockRevert scene=FLIGHT",
+  "Route reconcile at in-session load: kind=StockRevert save written inside a go-back window saveUT=1(?:58[5-9]|59[0-9]|600)\\.[0-9]* floorUT=1600[0-9.]* savedEvents=[0-9]+ savedRoutes=1 unheldWindowRows=1 routesCreatedAfterTheSave=0",
+  "RetireUnheldWindowRows: removed 1 route event\\(s\\) in \\(\\S+, \\S+\\] the loaded save does not hold \\(written after it\\) for 1 route\\(s\\)",
+  "OnLoad in-session StockRevert: kept-route status fidelity at cutoff \\S+: derivedPaused=1 derivedActive=0 ",
+  "Route reconcile at in-session load: kind=StockRevert cutoff=\\S+ loadedSaveUT=\\S+ evidence=\\S+ retiredRouteRows=[0-9]+ committedRoutes=1 newlyDormant=0 savedRoutes=1 [^\\r\\n]* windowRowsRetired=1 windowRoutesDormant=0",
+  "reverttolaunch complete pid=[0-9]+ name='[^'\\r\\n]*' situation=PRELAUNCH elapsed=",
+  "(?s)MISSIONMARK label=ir13-reverted (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR13 Rover Supply' status=Paused [^\\r\\n]* paused=1 resumed=1 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "routecommand refused",
+  "listhandles rejected",
+  # The route never runs a cycle here: it is paused before the jump and after the revert.
+  "Delivery write: route=",
+]
+
+[runtime]
+# LoadGame 300, the jump 300, StartRecording 180, commit 120, the rewind 300, editor 120,
+# launch 180, the revert 180, SaveGame 120, plus the short steps.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

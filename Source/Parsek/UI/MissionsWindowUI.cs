@@ -5024,14 +5024,15 @@ namespace Parsek
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
-            // Reserve the vertical-scrollbar column so the fixed header's right edge
+            // Reserve the vertical scrollbar's footprint so the fixed header's right edge
             // aligns with the row cells' right edges (the scroll view always shows a
-            // vertical scrollbar). Same trick as the recordings window header.
-            float scrollbarWidth = GUI.skin.verticalScrollbar != null
-                ? GUI.skin.verticalScrollbar.fixedWidth
-                : 16f;
-            if (scrollbarWidth <= 0f) scrollbarWidth = 16f;
-            GUILayout.Space(scrollbarWidth);
+            // vertical scrollbar). A scroll view spends fixedWidth + margin.left on the bar
+            // (16 in KSP's skin), not fixedWidth alone: reserving 15 left the header's
+            // expanding column 1 px wider than the rows' and every data column 1 px right of
+            // its cells. This tab's body box has no right padding and its last cell no right
+            // margin, so it owes the bare footprint, not the Recordings tab's gutter
+            // (footprint + one cell margin).
+            GUILayout.Space(ParsekUI.VerticalScrollbarFootprintWidth());
 
             GUILayout.EndHorizontal();
         }

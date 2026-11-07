@@ -155,8 +155,8 @@ and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5
   silently when two slots resolve to one recording.
 - [ ] C1 remainder: no per-resource conservation check (origin debit = delivered + by-design loss)
   in an in-game category or the harness (HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES).
-  Progress 2026-11-06 (branch `routecons`): lane `RCN-1-route-conservation-across-loads` (AUTHORED,
-  never flown) reads both ends of the two-stop relay route on `rover-relay-c-recorded` and gates
+  Progress 2026-11-06 (branch `routecons`): lane `RCN-1-route-conservation-across-loads` (LIVE-PROVEN
+  `2026-11-07_0010`) reads both ends of the two-stop relay route on `rover-relay-c-recorded` and gates
   origin + destination against the equation from the route's own windows (debit 154.4 + transport
   launch-cargo drawdown 45.6 = credit 200, no by-design loss there) across two F9s and a go-back
   rewind. Still open: no in-game category, and no host with a nonzero loss term (the relay on
@@ -168,8 +168,7 @@ and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5
 - [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost and the rest
   of the audit's list).
 - [ ] Fixes proven by xUnit only, never seen in game: ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER,
-  ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH, ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS,
-  CONTRACT-TWIN-GUID-SEEDED-TYPES, the three 2026-10-31 low ledger fixes
+  the three 2026-10-31 low ledger fixes
   (STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE, OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY,
   SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED), RESCUE-PLACED-MARKER-SESSION-ONLY,
   RESCUE-PLACED-MARKER-NEVER-RETIRES, the drop path of
@@ -223,7 +222,7 @@ copy, after which the restore re-adds it Active. Tests: `ContractCrossedOutcomeA
 produced saves hold it in `CONTRACT_FINISHED` with `state = DeadlineExpired`, not in `CONTRACT`, with
 one penalty. That witnesses the reflection write against the live stock assembly. The Archive UI
 listing the filed contract was not looked at: the lane reads the save, not the screen.
-## ~~CONTRACT-TWIN-GUID-SEEDED-TYPES: a regenerated copy of a guid-seeded contract is offered again after a rewind, and both copies pay~~ [FILED 2026-10-27 from the step 7b review; owner ruling 2026-10-27 ("check both IDs and the other identifiers"); BUILT 2026-10-27 on branch `contract-twin-goal`, unit-tested only, NOT FLOWN; product, medium (a duplicate contract payment across a rewind)]
+## ~~CONTRACT-TWIN-GUID-SEEDED-TYPES: a regenerated copy of a guid-seeded contract is offered again after a rewind, and both copies pay~~ [FILED 2026-10-27 from the step 7b review; owner ruling 2026-10-27 ("check both IDs and the other identifiers"); BUILT 2026-10-27 on branch `contract-twin-goal`, unit-tested only; LIVE-PROVEN by lane CTW-1 `2026-11-07_0132`; product, medium (a duplicate contract payment across a rewind)]
 
 LEDGER-EVENT-IDENTITY step 7b keeps a twin of a committed future accept out of the offer pool by stock's own `Contract.ContractID`. That id is a goal identity only for `PartTest` with `ONCEPERPART` or `BODYANDSITUATION` repeatability and for `CollectScience` (plus the Breaking Ground `CollectDeployedScience`, `CollectROCScienceArm` and `CollectROCScienceRetrieval`, which hash subject id and body). Everything else is per copy: `Contract.SetupID` hashes the type name, `GetHashString()` and each top-level parameter's type and `HashString`, after `Contract.Generate` has set a fresh `contractGuid`, and most types hash `SystemUtilities.SuperSeed(this)` (guid + mission seed): `ARMContract`, `BaseContract`, `ISRUContract`, `SatelliteContract`, `StationContract`, `SurveyContract`, `TourismContract`, `CometSampleContract`, `GrandTour`, `PlantFlag`, `RecoverAsset`, `VesselRepairContract`, `OrbitalConstructionContract`, `RoverConstructionContract`. `ExplorationContract`'s `ProgressTrackingParameter` hashes `SuperSeed(Root)` plus its id, and a `PartTest` with `ALWAYS` adds a seeded unique id.
 
@@ -231,13 +230,13 @@ Consequence: after a rewind to before a committed accept of, say, "Explore the M
 
 Owner ruling (2026-10-27): check both IDs and the other identifiers. A contract twins a committed future accept (UT strictly after the clock, another guid) when its stock `ContractID` matches OR its goal identity matches, for the contract types whose goal stock itself offers only once per career. The rest of step 7b is unchanged: never-reduce, the rule only blocks or withdraws offers and never zeroes a ledger row, and a career that never rewinds is offered exactly as before.
 
-Fix (built): `ContractGoalKey` (pure) names the goal key, `Type:token[,token]`, of the three stock types the decompile shows offer one goal at most once per career: `ExplorationContract` (its `ProgressTrackingParameter` milestones, `TYPE@body`; seeds only from incomplete progress nodes, `MeetRequirements` ends an offer once a milestone is complete), `PlantFlag` at Significant prestige (the body; offered only for a body with no manned landing, one current per body), `CometSampleContract` (the comet's persistent id; refused while a current or completed sample names the comet). Keys match within one type on a shared token (an exploration copy may draw another subset of the same body's milestones). No key, repeatable: `GrandTour` (tours bodies already reached), tourism, rescue, satellite, station, base, ISRU, ARM, survey, construction, repair, the Trivial plant flag (offered again on a flagged body once its crew left), `PartTest` `ALWAYS`; no key, id already the goal: `PartTest` `ONCEPERPART` / `BODYANDSITUATION`, `CollectScience`, the Breaking Ground science contracts; no key: Contract Configurator. The comet sample is the one call against the review's first list of repeatables: the type repeats, the same comet does not (decompiled `GetCompletedContracts` check). Capture: the recorder derives the key from the accept's saved contract node (`goal=` in the detail, additive row key `contractGoal`, written only when set, `CommittedFutureEntry.GoalKey`). `ContractTwinRule.FindTwinHolder` matches on the id or the goal key (the id names the match when both do); the three doors read a candidate's key from its public members (`ContractGoalKeyReader`) only when a committed future accept of that type carries one (`AnyFutureGoalHolderOfType`), and each line says `matched=stockId` or `matched=goal(<key>)` (the generation door still rate-limited per holder). Per-type verdicts with decompile evidence: design 3.15 item 8, Scope. Tests: `ContractTwinGoalKeyTests`, `ContractTwinRuleTests`; mutation (goal match dropped) under `logs/mutation/2026-10-27-contract-twin-goal/`. Not done: an accept row from before this build carries no goal key and is judged by id only; no harness lane flies a rewound exploration or plant-flag offer. Decompiles: `logs/decompile/contract-id/`.
+Fix (built): `ContractGoalKey` (pure) names the goal key, `Type:token[,token]`, of the three stock types the decompile shows offer one goal at most once per career: `ExplorationContract` (its `ProgressTrackingParameter` milestones, `TYPE@body`; seeds only from incomplete progress nodes, `MeetRequirements` ends an offer once a milestone is complete), `PlantFlag` at Significant prestige (the body; offered only for a body with no manned landing, one current per body), `CometSampleContract` (the comet's persistent id; refused while a current or completed sample names the comet). Keys match within one type on a shared token (an exploration copy may draw another subset of the same body's milestones). No key, repeatable: `GrandTour` (tours bodies already reached), tourism, rescue, satellite, station, base, ISRU, ARM, survey, construction, repair, the Trivial plant flag (offered again on a flagged body once its crew left), `PartTest` `ALWAYS`; no key, id already the goal: `PartTest` `ONCEPERPART` / `BODYANDSITUATION`, `CollectScience`, the Breaking Ground science contracts; no key: Contract Configurator. The comet sample is the one call against the review's first list of repeatables: the type repeats, the same comet does not (decompiled `GetCompletedContracts` check). Capture: the recorder derives the key from the accept's saved contract node (`goal=` in the detail, additive row key `contractGoal`, written only when set, `CommittedFutureEntry.GoalKey`). `ContractTwinRule.FindTwinHolder` matches on the id or the goal key (the id names the match when both do); the three doors read a candidate's key from its public members (`ContractGoalKeyReader`) only when a committed future accept of that type carries one (`AnyFutureGoalHolderOfType`), and each line says `matched=stockId` or `matched=goal(<key>)` (the generation door still rate-limited per holder). Per-type verdicts with decompile evidence: design 3.15 item 8, Scope. Tests: `ContractTwinGoalKeyTests`, `ContractTwinRuleTests`; mutation (goal match dropped) under `logs/mutation/2026-10-27-contract-twin-goal/`. Not done: an accept row from before this build carries no goal key and is judged by id only. Lane `CTW-1-contract-goal-twin-withdrawn` (LIVE-PROVEN `2026-11-07_0132`) flies the withdrawal door on the derived fixture `career-new-goal-twin` (`harness/tools/build_career_new_goal_twin.py`: a new Career with a second Offered copy of the 'reach space' exploration offer): accept the original at the Space Center after a committed launch, Rewind-to-Launch, the copy withdrawn `matched=goal(...)` and Mission Control's Accept on it refused. The generation and auto-accept doors stay xUnit only (stock offers a copy only by chance). Decompiles: `logs/decompile/contract-id/`.
 
 
 Review notes (2026-10-27, non-blocking, not fixed): (A) the rule skips only the holder with the candidate's own guid, so an Offered contract that is itself a committed future accept can be withdrawn as a twin of a LATER committed accept of the same goal (a Significant flag accepted, failed at its deadline, a second one accepted later; rewind to before the first accept): no money moves, the first is rebuilt Active from its accept snapshot at its UT, but the blocked offer vanishes early; the stock-id types already behave the same. Fix if it matters: skip a candidate whose own guid is a committed accept. (B) In the tutorial exploration chain every seed draws the same milestones, so a hidden committed `{FIRSTLAUNCH}` accept stalls the later tutorial offers until its milestone completes or its accept UT passes; an indirect effect of hiding the committed contract, not of the rule. (C) A Trivial plant flag on the body of a committed Significant flag is not caught (fail-open, documented scope).
 ---
 
-## ~~ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH: a load back to a save written between a multi-stop route's windows sends the cycle a second time~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, found while tracing ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS; reproduced in xUnit on main 802f8e4, not flown. product, medium]
+## ~~ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH: a load back to a save written between a multi-stop route's windows sends the cycle a second time~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, found while tracing ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS; reproduced in xUnit on main 802f8e4; LIVE-PROVEN by lane IR-12 `2026-11-07_0133`. product, medium]
 
 A multi-stop loop route delivers one cycle in several windows under one cycle id, and its later
 windows resume the cycle's logged dispatch. A load back in time to a save written between two
@@ -258,11 +257,12 @@ it. Shared by all three exits (in-session load, go-back rewind, Re-Fly start). T
 summary gains `counters=N`; each change logs `cycle counters completed A->B skipped C->D (saved;
 next cycle id cycle-N)`. xUnit: `RouteMultiStopLoadResumeTests` (F9 and go-back between the
 windows resume cycle-0 with one dispatch, and so does a Re-Fly start; control before the cycle; clock changed keeps the
-rebuild; the pure pair restore). A lane is owed: no committed route lane flies a multi-stop route
-across a load. Lane authored 2026-11-06, never flown: `RCN-1-route-conservation-across-loads`
-(the relay route resumed after an F9 and after a go-back rewind to saves written between its
-windows; a second dispatch or origin debit after either is forbidden). Since #2155 an F9 is a cold
-load, so the fix itself only runs on the go-back and Re-Fly exits.
+rebuild; the pure pair restore). Lane `IR-12-multistop-rewind-between-windows` (LIVE-PROVEN `2026-11-07_0133`) flies the go-back half on `rover-relay-c-recorded`: pickup window crossed, a launch of the
+transport rover committed between the windows, the delivery window crossed, Rewind-to-Launch, and
+the delivery window must resume cycle-0 with no second dispatch. An F9 no longer reaches this code
+(a save-file load is Cold and reads the quicksave's routes whole, IR-1).
+The origin-and-destination conservation half is `RCN-1-route-conservation-across-loads` (LIVE-PROVEN
+`2026-11-07_0010`): both ends' tanks read across two F9s and a go-back rewind, the sum exact at every mark.
 
 Follow-up (review, 2026-10-25): the two exits that still key their cutoff to the floor alone (a
 go-back to a rewind save written inside an earlier go-back's window, a Re-Fly start from an RP
@@ -403,7 +403,7 @@ inert-step settle is now a 1x `WarpToUT maxRate=1` to a UT read off the logs:
 
 ---
 
-## ~~ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it~~ [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. FIXED 2026-10-25 on branch `claude/project-thread-re9fpq` for the in-session loads; xUnit only, not flown. product, low; by construction, not reproduced in game]
+## ~~ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it~~ [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. FIXED 2026-10-25 on branch `claude/project-thread-re9fpq` for the in-session loads; LIVE-PROVEN by lane IR-13 `2026-11-06_2342`. product, low; by construction, not reproduced in game]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): release rating low, not a blocker.
 Since LOGISTICS-WITHOUT-MONEY a second in-window crossing no longer charges funds; it can still
@@ -461,6 +461,11 @@ the Space Center, the one-shots, the revert to an in-window launch, the route cr
 save, a route the save holds, the multi-stop resume, a save outside any window and a cold load
 unchanged, a forward scene change, and the pure rules); mutation-checked (no window: 7 red;
 retiring the whole window regardless of the saved log: 5 red, the multi-stop resume among them).
+Lane `IR-13-route-window-revert-retires-window-row` (LIVE-PROVEN `2026-11-06_2342`) flies the
+revert-to-an-in-window-launch cell: a paused route, Rewind-to-Launch, Kerbal X launched and the route
+re-activated inside the 15 s window, Revert to Launch, and the route must be Paused again
+(`unheldWindowRows=1`, `RetireUnheldWindowRows: removed 1`). Stock F9 now classifies Cold, so the
+revert is the in-session load left on this path.
 Not covered: a go-back rewind to a rewind save written inside an earlier window, and a Re-Fly start
 from an RP quicksave written inside one, still key to the floor alone (both need a launch or a
 separation within 15 s of a go-back, then a route action, then that exact rewind; a route with a
@@ -495,8 +500,8 @@ or a ghost's shape. The items below are code reads, not reproductions; each beco
 with a red test once confirmed.
 
 - [x] ~~STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.~~ Same defect as STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD, fixed 2026-10-16 in PR #2123 (the door tags its rows like the award, `GameStateRecorder.ResolveStrategyConversionRecordingTag`; live-proven by QL-2c `2026-10-16_2239`). Re-checked 2026-10-24 on main f3a22ce: the F9 half is moot since save-file loads are cold (PR #2155; the save's own ledger never held the share, QL-2c reshaped), and the Re-Fly half holds (`TombstoneEligibility.IsSupersedeTombstoneEligible` takes every tagged conversion row type; `StrategyConversionTimelineTests.ReFlyMerge_TombstonesTheConvertedShareOfTheSupersededFlight`).
-- [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1. Traced 2026-10-24 (branch `claude/project-thread-dkcvpn`): rewind / F9 / revert hold through the expiry gate and the patch's future guards; three gaps found and fixed, STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED, STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION, STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT. Lanes authored 2026-10-25 (branch `claude/project-thread-eo3rd8`): STR-1 (Bail-Out Grant + Appreciation Campaign across a Rewind-to-Launch and an F9), STR-2 (an activation crossed inside a Re-Fly), STR-3 (Leadership Initiative's shares taken back by a stock revert); QL-2c already covers the share across an F9, and LedgerGroundTruth now compares the strategy list. Still open: expiry across a timeline operation (stock 1.12.5 durations read 0 without KSPCF, so no stock-only lane can reach an expiry). Aggressive Negotiations ran in game since (RW-9 repair, RW-23 part purchase, RW-24, RW-10, all LIVE-PROVEN 2026-10-28 / 10-31). Traced 2026-11-06 (branch `str4`, no defect): a facility upgrade under it books the observed net debit with no funds leg and its reputation leg as its own uncaused row, both applied once at the crossing; Recovery Transponder Fitting has no currency effect (stock folds it into the recovery factor, factor 1 on the pad or runway either way), so the recovery is the observed payout. Lane STR-4 (authored, never flown) runs both across a Rewind-to-Launch, with a committed deactivation crossed by time, the nearest stock-reachable stand-in for an expiry.
-- [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked. Progress 2026-11-06: routes have a lane, `RCN-1-route-conservation-across-loads` (AUTHORED, never flown; origin + destination summed at ten points across two F9s and a go-back rewind).
+- [x] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1. Traced 2026-10-24 (branch `claude/project-thread-dkcvpn`): rewind / F9 / revert hold through the expiry gate and the patch's future guards; three gaps found and fixed, STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED, STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION, STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT. Lanes authored 2026-10-25 (branch `claude/project-thread-eo3rd8`): STR-1 (Bail-Out Grant + Appreciation Campaign across a Rewind-to-Launch and an F9), STR-2 (an activation crossed inside a Re-Fly), STR-3 (Leadership Initiative's shares taken back by a stock revert); QL-2c already covers the share across an F9, and LedgerGroundTruth now compares the strategy list. Still open: expiry across a timeline operation (stock 1.12.5 durations read 0 without KSPCF, so no stock-only lane can reach an expiry). Aggressive Negotiations ran in game since (RW-9 repair, RW-23 part purchase, RW-24, RW-10, all LIVE-PROVEN 2026-10-28 / 10-31). Traced 2026-11-06 (branch `str4`, no defect): a facility upgrade under it books the observed net debit with no funds leg and its reputation leg as its own uncaused row, both applied once at the crossing; Recovery Transponder Fitting has no currency effect (stock folds it into the recovery factor, factor 1 on the pad or runway either way), so the recovery is the observed payout. Lane STR-4 (LIVE-PROVEN `2026-11-07_0408`, its first flight red only on two over-broad spec forbids) runs both across a Rewind-to-Launch, with a committed deactivation crossed by time, the nearest stock-reachable stand-in for an expiry. DONE for stock: every stock strategy has now run across a timeline operation; an expiry stays unreachable without KSPCF.
+- [x] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked. Progress 2026-11-06: routes have a lane, `RCN-1-route-conservation-across-loads` (LIVE-PROVEN `2026-11-07_0010`; origin + destination summed at ten points across two F9s and a go-back rewind).
 - [x] ~~Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run.~~ Roadmap TC-4, GP-1. DONE 2026-10-25: L8 covers repeated rewinds; the harness walked past the clock (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK, fixed), and L13 runs it after a Re-Fly merge and an F9, live-proven `2026-10-25_0228` after its second flight found EDITOR-LOAD-WALKS-PAST-THE-CLOCK.
 - [x] ~~Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.~~ DONE: all six re-flown green on main 412d48e (`2026-10-16_2155` .. `_2208`), and green again in the 2026-11-06 full run.
 - [x] ~~EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.~~ Same defect as CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE, fixed 2026-10-16 (live-proven by EVA-11 `2026-10-16_2322`); re-confirmed by code reading 2026-10-23.
@@ -743,7 +748,7 @@ route conservation, and the FZ-1 lane.
 
 ---
 
-## ~~EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded~~ [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. KSC-retirement side note FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. Detach-then-drop half FIXED 2026-10-31, branch `claude/project-thread-ucsdk0`, xUnit; lane EVA-16 not flown]
+## ~~EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded~~ [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. KSC-retirement side note FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. Detach-then-drop half FIXED 2026-10-31, branch `claude/project-thread-ucsdk0`; LIVE-PROVEN by EVA-16 `2026-11-01_0025`]
 
 **Detach-then-drop half FIXED 2026-10-31** (branch `claude/project-thread-ucsdk0`). Decompiled KSP
 1.12.5: a held construction part is set down only by `EVAConstructionModeEditor.DropAttachablePart`
@@ -1548,7 +1553,7 @@ parts beside the pod, board, `WarpToUT` about 10 game minutes (ten 60 s transmis
 ids with an empty recording tag, and the log line of the untagged route. Estimate: one
 reading flight after the builder; no product change expected.
 
-## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override; 2026-10-03 (branch `settings-risks`): S4 struck and live-proven by ZF-1, reward multipliers with money changing hands live-proven by HC-2, the quickload-off Re-Fly closed by evidence under S7; S10 (UI_SCALE) fixed 2026-11-04, lane UIS-1 not yet flown]
+## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override; 2026-10-03 (branch `settings-risks`): S4 struck and live-proven by ZF-1, reward multipliers with money changing hands live-proven by HC-2, the quickload-off Re-Fly closed by evidence under S7; S10 (UI_SCALE) fixed 2026-11-04, LIVE-PROVEN by UIS-1 `2026-11-04_1925`]
 
 Audit of every player-facing stock KSP 1.12.5 setting (new-game modes and presets, the 103
 `GameParameters` fields, the 306 `settings.cfg` keys, the Alt+F12 cheats) against what
@@ -1858,7 +1863,7 @@ KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 
 ---
 
-## ~~RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL: a recovery stamps the non-leaf earlier segment of the recovered vessel too~~ [FILED 2026-09-26 from the MatchesVessel trace. FIXED 2026-09-27, branch `kss2-career`; the Re-Fly sibling edge below stays OPEN]
+## ~~RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL: a recovery stamps the non-leaf earlier segment of the recovered vessel too~~ [FILED 2026-09-26 from the MatchesVessel trace. FIXED 2026-09-27, branch `kss2-career`; the Re-Fly sibling edge below FIXED 2026-11-06, branch `claude/project-thread-esanuo`]
 
 Segments of one vessel share pid, launch guid and name: a breakup parent (its
 `ChildBranchPointId` set) and its same-vessel parent continuation
@@ -1899,7 +1904,7 @@ tip matches whenever an earlier segment does). Cells: `TerminalEventEarlierSegme
 (split parent, breakup-continuous still stamped, dock dominant parent keeps Docked, background
 chain, terminate path, exactly one recovery funds row on commit, the log line).
 
-Still OPEN (Re-Fly sibling edge, not traced): a Re-Fly provisional is a SIBLING of the origin
+~~Still OPEN (Re-Fly sibling edge, not traced)~~ FIXED 2026-11-06 (see below): a Re-Fly provisional is a SIBLING of the origin
 child (same parent branch point, same pid + guid, `SupersedeTargetId` = the prior tip); if the
 origin copy is in the pending tree at the recovery, both are leaves and both are stamped, and
 both could pair the recovery event at commit. Neither predicate separates them; it would need
@@ -1907,6 +1912,24 @@ both could pair the recovery event at commit. Neither predicate separates them; 
 whether `SupersedeCommit` already strips the origin's ledger rows. Defensive follow-up worth
 considering with it: refuse a second recovery row with the same recovery dedup key within one
 tree commit.
+
+TRACED + FIXED 2026-11-06 (branch `claude/project-thread-esanuo`). Reachable whenever the prior
+tip's terminal can still be overwritten (Orbiting / SubOrbital / Landed / Splashed; a Destroyed
+prior tip is blocked by `CanOverwriteTerminalState`). The in-place fork is attached to the session
+tree (`RewindInvoker` AtomicMarkerWrite -> `FindTreeForReFlyFork`), which also holds a CLONE of
+the prior tip (`SpliceMissingCommittedRecordingsIntoLoadedTree`); both match the recovered vessel
+by pid + guid and both are leaves, so a recovery (in-flight `InFlightRecoveryRequest`, or TS / KSC
+with the tree stashed pending) stamped both, and `FinalizeTreeCommit` then replaced the committed
+prior tip with the stretched clone. `NotifyLedgerTreeCommitted` booked a second FundsEarning
+(Recovery) row on the prior tip's id; the merge's tombstone pass retired it from ELS (transient
+double funds until the post-tombstone recalc, a permanent raw row), and
+`RecoveryDispatchScope.DecideOwner` read `pending-owner-ambiguous`. Fix:
+`ParsekScenario.IsTerminalEventTarget` refuses a recording another tree recording names as its
+`SupersedeTargetId` (the live fork) or that a supersede relation replaces (a merged or nested
+Re-Fly), so all three callers stay in step; one `skippedReplacedByReFly=N` Info line per event.
+The dedup-key guard was not added: with the predicate fixed no second row is produced. Cells:
+`TerminalEventEarlierSegmentTests.ReFlySibling_*` (stamp, relation variant, one funds row; all
+three red with the guard removed).
 
 ---
 
@@ -3107,7 +3130,7 @@ entry below is one line of that split. Struck entries were fixed in this batch, 
 evidence that found them; open entries carry the proposed fix and, where the triage said
 so, a `Decision:` naming what the operator must choose.
 
-## GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL: the Missions window's merged first header cell leaves the Name column 1 px off in both tabs [FILED 2026-09-11 off the census dumps; the Recordings tab's -5 on the data columns turned out to be the gutter and is FIXED + confirmed by run 2026-09-11_1729. OPEN for the 1 px residual; needs a flight to verify any fix]
+## ~~GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL: the Missions window's merged first header cell leaves the Name column 1 px off in both tabs~~ [FILED 2026-09-11 off the census dumps; the Recordings tab's -5 on the data columns turned out to be the gutter and is FIXED + confirmed by run 2026-09-11_1729. The Missions tab's data-column 1 px FIXED 2026-11-06 (gutter); the Name-cell 1 px left as the text lead gap, see the 2026-11-06 note]
 
 **Evidence.** The last two rows of the table in
 GUI-TABLE-HEADERS-OFFSET-FROM-CELLS above.
@@ -3139,6 +3162,16 @@ entry's own fix section already prefers, which moves every row draw in that tab 
 cannot be checked without re-running a census dump; and the merged-cell half is the
 multi-row-shape change described below. Both belong in a change whose own flight re-diffs the
 GUI-4 `bd-missions-*` dumps, not in a PR whose flights are pointed at dialogs and hover.
+
+**2026-11-06 (branch `claude/project-thread-esanuo`).** The Missions tab's header now reserves
+`ParsekUI.VerticalScrollbarFootprintWidth()` (16, the bare footprint this entry derived) instead
+of `verticalScrollbar.fixedWidth` (15), so its data columns move 1 px left onto their cells
+(source pin `TableRowInsetAlignmentTests.TheMissionsTabHeaderReservesTheBareScrollbarFootprint`;
+not re-measured by a census flight, per the 2026-10-31 ruling that GUI is judged in game). The
+merged-cell part is left: only the expanding Name column's left edge moves (76 header vs 77 row
+in the Recordings tab), and the body's 5 px lead gap (`NameColumnLeadGap` / the Missions tab's
+`BodyCellTextIndent`) exists to put the row TEXT under the heading text, so matching the rects
+would move the text 1 px off instead. Closed as cosmetic unless seen in game.
 
 **Fix (proposed, not applied).** Wrap the body rows' leading toggle + index pair in a
 container of the header's merged width, and open every row with
@@ -3196,7 +3229,7 @@ drives the DESIGNED flag through a real career.
   `TerminalSpawnSupersededByRecordingId` set, scanning the committed list even far from EndUT (O(K*n)
   per frame). Fine at today's scales. Fix: gate it to near or past EndUT as the Tracking Station does.
 
-## ~~GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance~~ [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15. DONE 2026-09-26, branch `commnet-followups`; two Tracking Station sub-cases left dark, below]
+## ~~GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance~~ [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15. DONE 2026-09-26, branch `commnet-followups`; of the two Tracking Station sub-cases below, the double count is FIXED 2026-11-06 and the pre-claim gap stays dark]
 
 Design 15.6 scenario 15 says a real vessel despawned because a committed future recording claims
 it keeps relaying until the claim resolves. What shipped covered only the stretch BEFORE the first
@@ -3249,11 +3282,16 @@ another pid, a chain claim before any carrier, the gates, the precedence).
   a vessel a flight despawned (and the save therefore no longer holds) has no despawn snapshot to
   relay from there. It relays again once a recording carrying it starts. A snapshot relay would
   need the flight's despawn snapshots carried across the scene change; not done.
-- Tracking Station, chain-claimed vessel still real there (no flight ran after the load, so it was
+- ~~Tracking Station, chain-claimed vessel still real there (no flight ran after the load, so it was
   never despawned): its stock node relays, and an in-window committed recording of it in the
   claiming tree also registers a ghost node (`ShouldSkipExternalVesselGhost` lets a tree's own
   recording through). A narrow pre-existing double count, not introduced here; it needs a save
-  loaded straight into the Space Center or Tracking Station with a claim still ahead.
+  loaded straight into the Space Center or Tracking Station with a claim still ahead.~~ FIXED
+  2026-11-06 (branch `claude/project-thread-esanuo`): a new eligibility input `RealVesselRelays`
+  (`GhostPlaybackLogic.RealVesselRelaysForRecording`: a launch-matched real vessel exists and is
+  not chain-ghosted; no tree-owned exemption, so the VISUAL ghost still draws) excludes the node
+  `real-vessel-relays` in both hosts, per the one-node rule (scenarios 13 and 15). Cells in
+  `GhostCommNetTests` (`RealVesselRelays_*`, the exclusion theory row).
 
 **Live proof: none cheap.** `bdock-second-dock-recorded` has the gap shape, but the station
 (Mk1-3 pods, Communotron 88-88 direct dishes, no RC-L01) has no relay antenna and no probe control
@@ -3414,8 +3452,21 @@ not a segment-lookup one: in the same session the flight-scene engine had the TI
 and driven (`[i=1 rec=8da7c2c2 ... endUT=2348.5][out:vis=T ...]`, KSP.log:20211) while
 map-presence resolution never ran for it at all.
 
-Fix: unknown - needs a reading of which member the map-presence lifecycle pass selects for
-a chain and why the TIP never entered the pending-create queue. Not scheduled.
+~~Fix: unknown - needs a reading of which member the map-presence lifecycle pass selects for
+a chain and why the TIP never entered the pending-create queue.~~ ANSWERED 2026-11-06 (code
+reading, branch `claude/project-thread-esanuo`): the TIP is refused by the terminal gate, not by
+a chain hand-off. `GhostMapPresence.HandleFlightGhostCreatedMapPresence` returns at
+`IsTerminalStateEligibleForMapPresence` (accepts only null / Orbiting / Docked / SubOrbital), and
+the optimizer split moved the Destroyed terminal (the predicted ballistic tail's impact at 2348.5)
+to the TIP and nulled the HEAD's, so the HEAD passes and the TIP never enters pending-create. The
+skip line carried no recording id, so a grep for the TIP's id found nothing; it now prints
+`rec=<id>`. In the gap the HEAD's proto (if already created) clamps to its last point and reseeds
+from it, showing the pre-burn ellipse for about 25 s of game time; creating one there fails
+(`no-state-vector-point`). An eligible TIP would not fill it either (`before-terminal-orbit` until
+its first conic at 216.70). The span is powered flight, so no conic is right there; the only
+truthful source is the TIP's own points, a design change. Open policy question, not scheduled:
+should a chain HEAD whose effective tip ends Destroyed be map-ineligible like an unsplit flight
+that ends Destroyed? Cosmetic, not a release item.
 
 ## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; the GUI-tree dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on 2026-09-11 with one `RunTests` step, so the axis reads 113 of 113 by SPEC COVERAGE again and this cell is once more the only named unreachable one]
 
