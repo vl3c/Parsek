@@ -144,7 +144,7 @@ namespace Parsek.Tests
         {
             var future = MakeFutureTree("ql_plain");
             WriteSidecarsAtEpoch(future, 2);
-            RecordingStore.StashPendingTree(future, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(future, PendingTreeState.Limbo);
             ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_plain"), committedTree: null);
 
             logLines.Clear();
@@ -170,7 +170,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(committed);
             RecordingStore.ArmCommittedTreeRestoreAttempt(committed, "test copy-on-write resume");
             var finalizedClone = RecordingTree.DeepClone(committed);
-            RecordingStore.StashPendingTree(finalizedClone, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(finalizedClone, PendingTreeState.Finalized);
             ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_finalized"), committedTree: null);
 
             logLines.Clear();
@@ -329,7 +329,7 @@ namespace Parsek.Tests
             RecordingStore.ArmCommittedTreeRestoreAttempt(committed, "test copy-on-write resume");
             var clone = RecordingTree.DeepClone(committed);
             SetPoints(clone.Recordings[clone.RootRecordingId], 100.0, 150.0, 320.0, 340.0);
-            RecordingStore.StashPendingTree(clone, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(clone, PendingTreeState.Limbo);
             return clone;
         }
 

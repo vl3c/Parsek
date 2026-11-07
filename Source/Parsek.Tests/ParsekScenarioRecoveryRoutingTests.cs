@@ -37,7 +37,7 @@ namespace Parsek.Tests
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 40000.0 });
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             Assert.False(ParsekScenario.ShouldPatchRecoveryFundsOutsideFlight(
                 GameScenes.SPACECENTER,
@@ -56,7 +56,7 @@ namespace Parsek.Tests
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 40000.0 });
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             Assert.False(ParsekScenario.ShouldPatchRecoveryFundsOutsideFlight(
                 GameScenes.SPACECENTER,
@@ -83,7 +83,7 @@ namespace Parsek.Tests
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 40000.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 200.0, funds = 40000.0 });
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromNames("#autoLOC_501224", "Jumping Flea"),
@@ -102,7 +102,7 @@ namespace Parsek.Tests
         public void UpdateRecordingsForTerminalEvent_SameNameDifferentPid_LeavesPendingRecording()
         {
             var rec = MakeNamedPendingDebris("pending-debris-a", 4242u, guid: null);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromRawName("Flea Debris"),
@@ -119,7 +119,7 @@ namespace Parsek.Tests
         public void UpdateRecordingsForTerminalEvent_SameNameSamePid_UpdatesPendingRecording()
         {
             var rec = MakeNamedPendingDebris("pending-debris-b", 4242u, guid: null);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromRawName("Flea Debris"),
@@ -139,7 +139,7 @@ namespace Parsek.Tests
         {
             var rec = MakeNamedPendingDebris(
                 "pending-debris-c", 4242u, guid: "0123456789abcdef0123456789abcdef");
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromRawName(
@@ -160,7 +160,7 @@ namespace Parsek.Tests
             uint recordingPid, uint recoveredPid)
         {
             var rec = MakeNamedPendingDebris("pending-debris-d", recordingPid, guid: null);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromRawName("Flea Debris"),
@@ -179,7 +179,7 @@ namespace Parsek.Tests
         public void ShouldPatchRecoveryFundsOutsideFlight_SameNameDifferentPid_Patches()
         {
             var rec = MakeNamedPendingDebris("pending-debris-e", 4242u, guid: null);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             Assert.True(ParsekScenario.ShouldPatchRecoveryFundsOutsideFlight(
                 GameScenes.SPACECENTER,

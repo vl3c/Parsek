@@ -175,7 +175,7 @@ namespace Parsek.Tests
             // that live tree as Limbo. A restore pops it for the loaded tree; so does the decline,
             // or the Limbo dispatch would try to resume it onto the loaded vessel.
             RecordingTree live = MakeTree("ql_live");
-            RecordingStore.StashPendingTree(live, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(live, PendingTreeState.Limbo);
 
             logLines.Clear();
             Assert.False(ParsekScenario.TryRestoreActiveTreeNode(quicksave));
@@ -294,7 +294,7 @@ namespace Parsek.Tests
             clone.RebuildBackgroundMap();
             ConfigNode quicksave = QuicksaveNode(clone);
 
-            RecordingStore.StashPendingTree(RecordingTree.DeepClone(clone), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(RecordingTree.DeepClone(clone), PendingTreeState.Finalized);
             RecordingStore.DiscardPendingTree();
             Assert.True(RecordingStore.WasTreeDiscardedThisSession("ql_cow"));
             Assert.False(File.Exists(TrajectoryPath("seg_ql_cow")));
@@ -321,7 +321,7 @@ namespace Parsek.Tests
             ConfigNode quicksave = F5(tree);
             Discard(tree);
             RecordingTree sameId = RecordingTree.DeepClone(tree);
-            RecordingStore.StashPendingTree(sameId, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(sameId, PendingTreeState.Limbo);
 
             logLines.Clear();
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(quicksave));
@@ -591,7 +591,7 @@ namespace Parsek.Tests
         {
             RecordingTree flown = RecordingTree.DeepClone(tree);
             SetPoints(flown.Recordings[flown.RootRecordingId], 100.0, 200.0, 320.0);
-            RecordingStore.StashPendingTree(flown, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(flown, PendingTreeState.Finalized);
             RecordingStore.DiscardPendingTree();
             Assert.False(RecordingStore.HasPendingTree);
         }

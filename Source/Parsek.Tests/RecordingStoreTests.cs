@@ -560,32 +560,32 @@ namespace Parsek.Tests
         [Fact]
         public void StashPendingTree_SetsPendingStashedThisTransition()
         {
-            Assert.False(RecordingStore.PendingStashedThisTransition);
+            Assert.False(PendingTreeSlot.PendingStashedThisTransition);
 
             var tree = new RecordingTree { TreeName = "TestTree" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.PendingStashedThisTransition);
+            Assert.True(PendingTreeSlot.PendingStashedThisTransition);
         }
 
         [Fact]
         public void StashPendingTree_Null_DoesNotSetFlag()
         {
-            RecordingStore.StashPendingTree(null);
+            PendingTreeSlot.StashPendingTree(null);
 
-            Assert.False(RecordingStore.PendingStashedThisTransition);
+            Assert.False(PendingTreeSlot.PendingStashedThisTransition);
         }
 
         [Fact]
         public void ResetForTesting_ClearsPendingStashedFlag()
         {
             var tree = new RecordingTree { TreeName = "Ship" };
-            RecordingStore.StashPendingTree(tree);
-            Assert.True(RecordingStore.PendingStashedThisTransition);
+            PendingTreeSlot.StashPendingTree(tree);
+            Assert.True(PendingTreeSlot.PendingStashedThisTransition);
 
             RecordingStore.ResetForTesting();
 
-            Assert.False(RecordingStore.PendingStashedThisTransition);
+            Assert.False(PendingTreeSlot.PendingStashedThisTransition);
         }
 
         // ── SanitizeNonLoopableLoopPlayback (load-time non-loopable cleanup) ──
@@ -1596,7 +1596,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "r1",
             };
             pendingTree.Recordings["r1"] = pendingRec;
-            RecordingStore.StashPendingTree(pendingTree);
+            PendingTreeSlot.StashPendingTree(pendingTree);
 
             // Seed a committed entry with the same id via the test seam.
             // Reach into committedTrees via the public list accessor.

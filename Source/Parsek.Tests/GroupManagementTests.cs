@@ -297,7 +297,7 @@ namespace Parsek.Tests
             };
             tree.AddOrReplaceRecording(root);
             tree.AddOrReplaceRecording(debris);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
 
             int removed = GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("test-pending");
 
@@ -324,7 +324,7 @@ namespace Parsek.Tests
             };
             tree.AddOrReplaceRecording(oldRec);
             tree.AddOrReplaceRecording(newRec);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
             ParsekScenario.SetInstanceForTesting(new ParsekScenario
             {
                 RecordingSupersedes = new List<RecordingSupersedeRelation>

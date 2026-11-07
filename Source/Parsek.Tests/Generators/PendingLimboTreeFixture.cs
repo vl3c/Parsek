@@ -11,7 +11,7 @@ namespace Parsek.Tests.Generators
     /// writes plain COMMITTED tree nodes. Those never reach
     /// <c>ParsekScenario.AutoCommitPendingTreeOutsideFlight</c> at all, and a tree
     /// written under <c>isPending</c> reaches it only as <c>Finalized</c> — because
-    /// <c>RecordingStore.RestorePendingTreeFromSave</c> hard-sets that state — which
+    /// <c>PendingTreeSlot.RestorePendingTreeFromSave</c> hard-sets that state — which
     /// takes the SILENT FULL-FIDELITY branch. The <c>isActive</c> marker is the ONLY
     /// on-disk shape that restores non-Finalized: <c>TryRestoreActiveTreeNode</c>
     /// stashes it <c>Limbo</c> (ActiveRecordingId present) or <c>LimboVesselSwitch</c>

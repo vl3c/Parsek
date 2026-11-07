@@ -180,11 +180,11 @@ namespace Parsek.Tests
                 VesselName = "Reverted Flight",
                 TerminalStateValue = TerminalState.Destroyed,
             };
-            RecordingStore.StashPendingTree(reverted, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(reverted, PendingTreeState.Finalized);
             Assert.True(RecordingStore.HasPendingTree);
 
             // The two OnLoad revert steps this change sits between.
-            RecordingStore.UnstashPendingTreeOnRevert();
+            PendingTreeSlot.UnstashPendingTreeOnRevert();
             ParsekScenario.ResetTreeRecordingMutableStateForLoad(RecordingStore.CommittedRecordings);
 
             Assert.False(RecordingStore.HasPendingTree);

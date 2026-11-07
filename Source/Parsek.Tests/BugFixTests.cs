@@ -38,7 +38,7 @@ namespace Parsek.Tests
         public void HasPendingTree_WhenTreeStashed_ReturnsTrue()
         {
             var tree = new RecordingTree { Id = "test-tree-64" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.True(RecordingStore.HasPendingTree);
         }
@@ -47,7 +47,7 @@ namespace Parsek.Tests
         public void DiscardPendingTree_ClearsPendingState()
         {
             var tree = new RecordingTree { Id = "test-tree-64-discard" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.True(RecordingStore.HasPendingTree);
 
@@ -78,7 +78,7 @@ namespace Parsek.Tests
         public void DiscardPendingTree_ClearsAllPendingState()
         {
             var tree = new RecordingTree { Id = "test-tree-64-both" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.True(RecordingStore.HasPendingTree);
 
@@ -731,15 +731,15 @@ namespace Parsek.Tests
             // (ParsekScenario.ClassifyRevertPendingTreeDisposition), which the OnLoad revert branch
             // dispatches over.
             var tree = new RecordingTree { TreeName = "FreshTree" };
-            RecordingStore.StashPendingTree(tree);
-            Assert.True(RecordingStore.PendingStashedThisTransition);
+            PendingTreeSlot.StashPendingTree(tree);
+            Assert.True(PendingTreeSlot.PendingStashedThisTransition);
             Assert.True(RecordingStore.HasPendingTree);
             Assert.Equal("FreshTree", RecordingStore.PendingTree.TreeName);
 
             Assert.Equal(
                 ParsekScenario.RevertPendingTreeDisposition.KeepFreshlyStashed,
                 ParsekScenario.ClassifyRevertPendingTreeDisposition(
-                    RecordingStore.PendingStashedThisTransition,
+                    PendingTreeSlot.PendingStashedThisTransition,
                     RecordingStore.HasPendingTree,
                     RecordingStore.PendingTreeStateValue));
         }

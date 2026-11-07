@@ -54,7 +54,7 @@ namespace Parsek.Tests
         public void SaveTreeRecordings_WritesPendingTreeNode_WithIsPendingTrue()
         {
             var tree = MakeTree("tree_pending_save", "Pending Mission", "rec_pending_save");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
 
             var node = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(node);
@@ -65,7 +65,7 @@ namespace Parsek.Tests
             Assert.False(ParsekScenario.IsActiveTreeNode(treeNodes[0]));
             Assert.Equal("True", treeNodes[0].GetValue("isPending"));
             Assert.Equal(tree.Id, treeNodes[0].GetValue("id"));
-            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+            Assert.True(PendingTreeSlot.PendingTreeSerializedForSave);
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]") && l.Contains("wrote PENDING tree")
                 && l.Contains("Pending Mission"));
@@ -78,7 +78,7 @@ namespace Parsek.Tests
             File.WriteAllText(Path.Combine(recordingsDir, "rec_pending_sidecar.prec"), "p");
 
             var tree = MakeTree("tree_pending_sidecar", "Pending Sidecar", "rec_pending_sidecar");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
             logLines.Clear();
 
             var node = new ConfigNode("PARSEK_SCENARIO");
@@ -99,7 +99,7 @@ namespace Parsek.Tests
             string recordingsDir = CreateRecordingsDir("limbo-active-resume");
             File.WriteAllText(Path.Combine(recordingsDir, "rec_limbo.prec"), "p");
             var limbo = MakeTree("tree_limbo", "Limbo Mission", "rec_limbo");
-            RecordingStore.StashPendingTree(limbo, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(limbo, PendingTreeState.Limbo);
 
             var node = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(node);
@@ -109,7 +109,7 @@ namespace Parsek.Tests
             Assert.True(ParsekScenario.IsActiveTreeNode(treeNodes[0]));
             Assert.False(ParsekScenario.IsPendingTreeNode(treeNodes[0]));
             Assert.Equal("tree_limbo", treeNodes[0].GetValue("id"));
-            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+            Assert.True(PendingTreeSlot.PendingTreeSerializedForSave);
             Assert.DoesNotContain(logLines, l => l.Contains("stranded sidecar"));
             Assert.Contains(logLines, l =>
                 l.Contains("serializing Limbo pending tree") && l.Contains("isActive resume node"));
@@ -132,7 +132,7 @@ namespace Parsek.Tests
             // LimboVesselSwitch — the stash state is re-derived from the null active rec id.
             var vesselSwitch = MakeTree("tree_limbo_switch", "Switch Mission", "rec_limbo_switch");
             vesselSwitch.ActiveRecordingId = null; // outsider state at stash time (#266)
-            RecordingStore.StashPendingTree(vesselSwitch, PendingTreeState.LimboVesselSwitch);
+            PendingTreeSlot.StashPendingTree(vesselSwitch, PendingTreeState.LimboVesselSwitch);
 
             var node = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(node);
@@ -140,7 +140,7 @@ namespace Parsek.Tests
             ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
             Assert.Single(treeNodes);
             Assert.True(ParsekScenario.IsActiveTreeNode(treeNodes[0]));
-            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+            Assert.True(PendingTreeSlot.PendingTreeSerializedForSave);
 
             RecordingStore.ResetForTesting();
             bool restored = ParsekScenario.TryRestoreActiveTreeNode(node);
@@ -162,12 +162,12 @@ namespace Parsek.Tests
             var tree = MakeTree("tree_refused", "Refused Mission", "rec_tip");
             tree.Recordings["rec_tip"].RecordedVesselGuid = "97813bb6fd9b462288d98258fcff0bbd";
             Assert.True(ParsekFlight.ApplyPreTransitionForVesselSwitch(tree, 12345));
-            RecordingStore.StashPendingTree(tree, PendingTreeState.LimboVesselSwitch);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.LimboVesselSwitch);
 
             Assert.True(ParsekFlight.TryRevertPreTransitionForVesselSwitch(
                 RecordingStore.PendingTree, out string restored));
             Assert.Equal("rec_tip", restored);
-            Assert.True(RecordingStore.ConvertPendingVesselSwitchStashToLimbo("test"));
+            Assert.True(PendingTreeSlot.ConvertPendingVesselSwitchStashToLimbo("test"));
             Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
             Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
                 && l.Contains("transitioned LimboVesselSwitch -> Limbo"));
@@ -197,7 +197,7 @@ namespace Parsek.Tests
             // reinstalls it on whatever vessel is active).
             var tree = MakeTree("tree_unreverted", "Unreverted Mission", "rec_tip");
             Assert.True(ParsekFlight.ApplyPreTransitionForVesselSwitch(tree, 12345));
-            RecordingStore.StashPendingTree(tree, PendingTreeState.LimboVesselSwitch);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.LimboVesselSwitch);
 
             var node = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(node);
@@ -219,9 +219,9 @@ namespace Parsek.Tests
         {
             var tree = MakeTree("tree_outsider", "Outsider Mission", "rec_tip");
             tree.ActiveRecordingId = null;
-            RecordingStore.StashPendingTree(tree, PendingTreeState.LimboVesselSwitch);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.LimboVesselSwitch);
 
-            Assert.False(RecordingStore.ConvertPendingVesselSwitchStashToLimbo("test"));
+            Assert.False(PendingTreeSlot.ConvertPendingVesselSwitchStashToLimbo("test"));
             Assert.Equal(PendingTreeState.LimboVesselSwitch, RecordingStore.PendingTreeStateValue);
         }
 
@@ -323,7 +323,7 @@ namespace Parsek.Tests
             var pending = MakeTree("tree_pending_restore", "Restored Pending", "rec_pending_restore");
             var node = new ConfigNode("PARSEK_SCENARIO");
             AddTreeNode(node, pending, isPending: true, isActive: false);
-            RecordingStore.PendingStashedThisTransition = true;
+            PendingTreeSlot.PendingStashedThisTransition = true;
 
             bool restored = ParsekScenario.TryRestorePendingTreeNode(node);
 
@@ -331,8 +331,8 @@ namespace Parsek.Tests
             Assert.True(RecordingStore.HasPendingTree);
             Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
             Assert.Equal("tree_pending_restore", RecordingStore.PendingTree.Id);
-            Assert.False(RecordingStore.PendingStashedThisTransition);
-            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+            Assert.False(PendingTreeSlot.PendingStashedThisTransition);
+            Assert.True(PendingTreeSlot.PendingTreeSerializedForSave);
             Assert.Contains(logLines, l =>
                 l.Contains("TryRestorePendingTreeNode: restored pending tree")
                 && l.Contains("Restored Pending"));
@@ -361,10 +361,10 @@ namespace Parsek.Tests
             Assert.True(RecordingStore.HasPendingTree);
             Assert.Equal("tree_active_conflict", RecordingStore.PendingTree.Id);
             Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
-            Assert.True(RecordingStore.HasSavedPendingTreeDuringActiveRestore);
+            Assert.True(PendingTreeSlot.HasSavedPendingTreeDuringActiveRestore);
             Assert.Equal("tree_pending_conflict",
-                RecordingStore.SavedPendingTreeDuringActiveRestore.Id);
-            Assert.True(RecordingStore.IsPendingRecordingId("rec_pending_conflict"));
+                PendingTreeSlot.SavedPendingTreeDuringActiveRestore.Id);
+            Assert.True(PendingTreeSlot.IsPendingRecordingId("rec_pending_conflict"));
 
             HashSet<string> validIds = ParsekScenario.BuildValidRecordingIdsForKspLoad();
             Assert.Contains("rec_active_conflict", validIds);
@@ -387,13 +387,13 @@ namespace Parsek.Tests
             Assert.Equal("tree_active_conflict", activeNode.GetValue("id"));
             Assert.Equal("tree_pending_conflict", pendingNode.GetValue("id"));
 
-            var poppedActive = RecordingStore.PopPendingTree();
+            var poppedActive = PendingTreeSlot.PopPendingTree();
             Assert.Equal("tree_active_conflict", poppedActive.Id);
-            Assert.True(RecordingStore.PromoteSavedPendingTreeAfterActiveRestore("test"));
+            Assert.True(PendingTreeSlot.PromoteSavedPendingTreeAfterActiveRestore("test"));
             Assert.True(RecordingStore.HasPendingTree);
             Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
             Assert.Equal("tree_pending_conflict", RecordingStore.PendingTree.Id);
-            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+            Assert.True(PendingTreeSlot.PendingTreeSerializedForSave);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN][Scenario]")
@@ -419,11 +419,11 @@ namespace Parsek.Tests
 
             Assert.True(restored);
             Assert.True(RecordingStore.HasPendingTree);
-            Assert.False(RecordingStore.HasSavedPendingTreeDuringActiveRestore);
+            Assert.False(PendingTreeSlot.HasSavedPendingTreeDuringActiveRestore);
             Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
             Assert.Equal("tree_pending_fallback", RecordingStore.PendingTree.Id);
-            Assert.True(RecordingStore.PendingTreeSerializedForSave);
-            Assert.True(RecordingStore.IsPendingRecordingId("rec_pending_fallback"));
+            Assert.True(PendingTreeSlot.PendingTreeSerializedForSave);
+            Assert.True(PendingTreeSlot.IsPendingRecordingId("rec_pending_fallback"));
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN][Scenario]")
                 && l.Contains("alongside 1 active marker")
@@ -434,8 +434,8 @@ namespace Parsek.Tests
         public void QuickloadDiscard_DoesNotDiscardPendingRestoredFromSave()
         {
             var pending = MakeTree("tree_pending_quickload", "Quickload Pending", "rec_pending_quickload");
-            RecordingStore.RestorePendingTreeFromSave(pending);
-            Assert.False(RecordingStore.PendingStashedThisTransition);
+            PendingTreeSlot.RestorePendingTreeFromSave(pending);
+            Assert.False(PendingTreeSlot.PendingStashedThisTransition);
             logLines.Clear();
 
             ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 400.0, currentUT: 370.0);
@@ -457,7 +457,7 @@ namespace Parsek.Tests
             File.WriteAllText(orphanPrec, "orphan");
 
             var pending = MakeTree("tree_pending_keep", "Pending Keep", "rec_pending_keep");
-            RecordingStore.RestorePendingTreeFromSave(pending);
+            PendingTreeSlot.RestorePendingTreeFromSave(pending);
 
             ParsekFileCollector.Run("test");
 
@@ -469,7 +469,7 @@ namespace Parsek.Tests
         public void OnKspLoadValidIds_IncludesPendingTreeIds()
         {
             var pending = MakeTree("tree_pending_valid_ids", "Pending Valid", "rec_pending_valid");
-            RecordingStore.RestorePendingTreeFromSave(pending);
+            PendingTreeSlot.RestorePendingTreeFromSave(pending);
 
             HashSet<string> validIds = ParsekScenario.BuildValidRecordingIdsForKspLoad();
 
@@ -487,7 +487,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(committed, "Committed Shared Tree");
             var pending = MakeTree(
                 "tree_pending_shared_discard", "Pending Shared", "rec_shared_discard");
-            RecordingStore.StashPendingTree(pending, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(pending, PendingTreeState.Finalized);
             logLines.Clear();
 
             RecordingStore.DiscardPendingTree();

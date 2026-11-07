@@ -130,7 +130,7 @@ namespace Parsek.Tests
         public void UpdateRecordingsForTerminalEvent_RenamedVessel_StampedAndLogged()
         {
             var rec = MakeRec("pending-renamed", "Probe", 4242u, GuidA);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromRawName("Relay-2", GuidA, 4242u),
@@ -148,7 +148,7 @@ namespace Parsek.Tests
         public void UpdateRecordingsForTerminalEvent_SameNameDifferentLaunch_LeftAlone()
         {
             var rec = MakeRec("pending-other", "Kerbal X", 4242u, GuidA);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromRawName("Kerbal X", GuidB, 4242u),
@@ -164,7 +164,7 @@ namespace Parsek.Tests
         public void UpdateRecordingsForTerminalEvent_SameNameMatch_DoesNotLogRenamedLine()
         {
             var rec = MakeRec("pending-same", "Kerbal X", 4242u, GuidA);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             Assert.True(ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromRawName("Kerbal X", GuidA, 4242u),
@@ -176,7 +176,7 @@ namespace Parsek.Tests
         public void ShouldPatchRecoveryFundsOutsideFlight_RenamedPendingOwner_DefersToCommit()
         {
             var rec = MakeRec("pending-funds", "Probe", 4242u, GuidA);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             // The renamed vessel is still owned by its pending recording: the commit pays it.
             Assert.False(ParsekScenario.ShouldPatchRecoveryFundsOutsideFlight(
@@ -192,7 +192,7 @@ namespace Parsek.Tests
         public void RecoveryDispatchScope_RenamedPendingVessel_OwnsTheProgressEvent()
         {
             var rec = MakeRec("pending-scope", "Probe", 4242u, GuidA);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             RecoveryDispatchScope.Open(
                 RecoveredVesselIdentity.FromRawName("Relay-2", GuidA, 4242u), 4242u, "test");

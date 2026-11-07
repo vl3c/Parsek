@@ -139,7 +139,7 @@ namespace Parsek.Tests
         public void CanFastForward_HasPendingTree_ReturnsFalse()
         {
             var rec = MakeFutureRecording();
-            RecordingStore.StashPendingTree(new RecordingTree());
+            PendingTreeSlot.StashPendingTree(new RecordingTree());
             Assert.True(RecordingStore.HasPendingTree);
 
             string reason;

@@ -113,7 +113,7 @@ namespace Parsek.Tests
         public void DiscardPendingTree_ClearsStalePendingTree()
         {
             var tree = MakeSimpleTree("pending_tree");
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             Assert.True(RecordingStore.HasPendingTree);
 
             RecordingStore.SuppressLogging = false;

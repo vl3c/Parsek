@@ -124,7 +124,7 @@ namespace Parsek.Tests
                 ChildRecordingIds = new List<string> { OriginId, ProvisionalId },
             });
             if (treeInPendingSlot)
-                RecordingStore.StashPendingTree(tree);
+                PendingTreeSlot.StashPendingTree(tree);
 
             var originRp = new RewindPoint
             {
@@ -226,7 +226,7 @@ namespace Parsek.Tests
             Assert.True(EffectiveState.IsUnfinishedFlight(s.Origin));
             // The scene exit drops the live reference without a stash, and the
             // SceneExitInterceptor prefix bypasses on the same flag (no Re-Fly dialog).
-            Assert.True(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.True(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Equal(TreeId, droppedLiveTreeId);
             Assert.True(restored);
             Assert.Contains(logLines, l => l.Contains("[ReFlySession]")
@@ -299,7 +299,7 @@ namespace Parsek.Tests
             Assert.Contains(RecordingStore.CommittedTrees, t => object.ReferenceEquals(t, committedOriginal));
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => object.ReferenceEquals(t, s.Tree));
             // The clone is dropped at the scene exit; nothing was put back.
-            Assert.True(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.True(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Equal(TreeId, droppedLiveTreeId);
             Assert.False(restored);
             Assert.Contains(logLines, l => l.Contains("End reason=discardReFlyForRewind")
@@ -321,7 +321,7 @@ namespace Parsek.Tests
             Assert.True(CommittedTreeHas(TreeId));
             Assert.False(CommittedHas(ProvisionalId));
             // An unrelated live tree takes the ordinary scene-exit commit.
-            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Null(droppedLiveTreeId);
             Assert.False(restored);
             Assert.Contains(logLines, l => l.Contains("End reason=discardReFlyForRewind")
@@ -340,7 +340,7 @@ namespace Parsek.Tests
 
             Assert.False(CommittedTreeHas(TreeId));
             Assert.False(CommittedHas(OriginId));
-            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.True(s.Tree.Recordings.ContainsKey(OriginId));
             // The session stays ended.
             Assert.Null(s.Scenario.ActiveReFlySessionMarker);
@@ -352,22 +352,22 @@ namespace Parsek.Tests
         [Fact]
         public void FailedRewindLoad_NothingDropped_UndoIsANoOp()
         {
-            RecordingStore.ArmNextTreeSceneExitCommitSuppression("owned-by-someone-else");
+            PendingTreeSlot.ArmNextTreeSceneExitCommitSuppression("owned-by-someone-else");
 
             RecordingStore.UndoLiveTreeDropAfterFailedRewind(null, false, "Rewind");
 
-            Assert.True(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.True(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
         }
 
         [Fact]
         public void FailedRewindLoad_DroppedButNotRestored_UndoStillDisarms_LeavesCommittedStoreAlone()
         {
             var committed = new RecordingTree { Id = "tree-committed-bystander", TreeName = "Bystander" };
-            RecordingStore.ArmNextTreeSceneExitCommitSuppression("discardReFlyForRewind sess=x");
+            PendingTreeSlot.ArmNextTreeSceneExitCommitSuppression("discardReFlyForRewind sess=x");
 
             RecordingStore.UndoLiveTreeDropAfterFailedRewind(committed.Id, false, "Rewind");
 
-            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Contains(logLines, l => l.Contains("removedFromCommitted=False"));
         }
 
@@ -398,7 +398,7 @@ namespace Parsek.Tests
             Assert.Null(dropped);
             Assert.Single(scenario.RewindPoints);
             Assert.True(foreignRp.SessionProvisional);
-            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.DoesNotContain(logLines, l => l.Contains("End reason="));
         }
 
@@ -415,7 +415,7 @@ namespace Parsek.Tests
             Assert.NotNull(s.Scenario.ActiveReFlySessionMarker);
             Assert.True(CommittedHas(ProvisionalId));
             Assert.Equal(2, s.Scenario.RewindPoints.Count);
-            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Contains(logLines, l => l.Contains("[ReFlySession]")
                 && l.Contains("Rewind discard refused: merge journal active"));
         }
@@ -430,7 +430,7 @@ namespace Parsek.Tests
             MergeDialog.MergeDiscard(s.Tree);
 
             Assert.Null(s.Scenario.ActiveReFlySessionMarker);
-            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.False(PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Contains(logLines, l => l.Contains("[ReFlySession]")
                 && l.Contains("End reason=discardReFlyAttemptFromMergeDialog sess=" + SessionId));
             Assert.Contains(logLines, l => l.Contains("Origin RP promoted to persistent rp=" + OriginRpId)

@@ -318,7 +318,7 @@ namespace Parsek.Tests
             int beforeCount = GameStateStore.EventCount;
             Assert.Equal(1, beforeCount);
 
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             string discardReason;
             RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out discardReason);
 

@@ -267,7 +267,7 @@ namespace Parsek
                     committedTreeRestoreAttemptTreeId,
                     recordingId)
                 || TreeContainsRecordingId(
-                    RecordingStore.SavedPendingTreeDuringActiveRestore,
+                    PendingTreeSlot.SavedPendingTreeDuringActiveRestore,
                     committedTreeRestoreAttemptTreeId,
                     recordingId)
                 || ParsekFlight.IsActiveTreeRecordingIdForTree(

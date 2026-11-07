@@ -109,7 +109,7 @@ namespace Parsek.Tests
                 RecordingId = "rec_pending",
                 VesselName = "Pending Vessel"
             };
-            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(pendingTree, PendingTreeState.Limbo);
 
             var scenario = new ParsekScenario
             {
@@ -173,7 +173,7 @@ namespace Parsek.Tests
                     RecordingId = "rec_save_pending",
                     VesselName = "Pending Save Vessel"
                 };
-                RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+                PendingTreeSlot.StashPendingTree(pendingTree, PendingTreeState.Limbo);
 
                 var scenario = new ParsekScenario
                 {

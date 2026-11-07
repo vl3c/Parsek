@@ -924,7 +924,7 @@ namespace Parsek.Tests
         public void MergeCommit_DominanceThrows_LeavesTheTreePendingAndReShowsTheDialog()
         {
             var pending = InstallLiveFixture();
-            RecordingStore.StashPendingTree(pending);
+            PendingTreeSlot.StashPendingTree(pending);
             ReFlyMergeDominance.PreviewBuilderForTesting = t =>
                 throw new InvalidOperationException("injected preview failure");
             RecordingTree reShown = null;
@@ -942,7 +942,7 @@ namespace Parsek.Tests
         public void MergeCommit_DominanceRefused_LeavesTheTreePendingAndTheLedgerUntouched()
         {
             var pending = InstallLiveFixture();
-            RecordingStore.StashPendingTree(pending);
+            PendingTreeSlot.StashPendingTree(pending);
             string ledgerBefore = LedgerCommitRowBuildTests.CanonicalLedger(Ledger.Actions);
             int committedBefore = RecordingStore.CommittedRecordings.Count;
             int refusalsBefore = MergeDialog.MergeDominanceRefusalCount;

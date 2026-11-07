@@ -188,7 +188,7 @@ namespace Parsek.Tests
         {
             RecordingTree clone = ArmAttemptOnCommittedRecording();
             AddEvent(GameStateEventType.ContractCompleted, "guid-pending", 250.0);
-            RecordingStore.StashPendingTree(clone);
+            PendingTreeSlot.StashPendingTree(clone);
 
             RecordingStore.DiscardPendingTree();
 
@@ -203,7 +203,7 @@ namespace Parsek.Tests
         {
             RecordingTree clone = ArmAttemptOnCommittedRecording();
             AddEvent(GameStateEventType.ContractCompleted, "guid-abandon", 250.0);
-            RecordingStore.StashPendingTree(clone);
+            PendingTreeSlot.StashPendingTree(clone);
 
             RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
 

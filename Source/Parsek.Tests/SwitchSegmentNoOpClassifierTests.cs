@@ -599,7 +599,7 @@ namespace Parsek.Tests
         {
             var seg = Segment("rec_seg", "tree_s", noOp: true);
             var tree = Tree("tree_s", "rec_seg", seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_s", "rec_seg");
 
             bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
@@ -615,7 +615,7 @@ namespace Parsek.Tests
         {
             var seg = Segment("rec_seg", "tree_s", noOp: false); // ExoPropulsive
             var tree = Tree("tree_s", "rec_seg", seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_s", "rec_seg");
 
             bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
@@ -632,7 +632,7 @@ namespace Parsek.Tests
             var parent = new Recording { RecordingId = "rec_parent", TreeId = "tree_c" };
             var seg = Segment("rec_seg", "tree_c", noOp: true);
             var tree = Tree("tree_c", "rec_seg", parent, seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_c", "rec_seg", parentId: "rec_parent");
 
             bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
@@ -675,7 +675,7 @@ namespace Parsek.Tests
             var other = Member("rec_a", "tree_k", 160, 190, propulsive: true);
             var seg = Segment("rec_seg", "tree_k", noOp: true);
             var tree = Tree("tree_k", "rec_seg", parent, other, seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test");
             ArmSession("tree_k", "rec_seg", parentId: "rec_b", committedTreeId: "tree_k");
 
@@ -698,7 +698,7 @@ namespace Parsek.Tests
             var other = Member("rec_a", "tree_h", 40, 90, propulsive: true);
             var seg = Segment("rec_seg", "tree_h", noOp: true);
             var tree = Tree("tree_h", "rec_seg", parent, other, seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test");
             ArmSession("tree_h", "rec_seg", parentId: "rec_b", committedTreeId: "tree_h");
 
@@ -733,7 +733,7 @@ namespace Parsek.Tests
             var seg = Segment("rec_seg", "tree_n", noOp: true);
             // Active recording is the PARENT, not the segment.
             var tree = Tree("tree_n", "rec_parent", parent, seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_n", "rec_seg", parentId: "rec_parent");
 
             bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
@@ -762,7 +762,7 @@ namespace Parsek.Tests
                 ParentRecordingIds = new List<string> { "rec_seg" },
                 ChildRecordingIds = new List<string> { "rec_child" },
             });
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_d", "rec_seg");
 
             bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
@@ -777,7 +777,7 @@ namespace Parsek.Tests
         {
             var seg = Segment("rec_seg", "tree_s", noOp: true);
             var tree = Tree("tree_s", "rec_seg", seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_s", "rec_seg");
 
             RecordingStore.TryClassifyActiveSwitchSegmentNoOp(out _, out _);

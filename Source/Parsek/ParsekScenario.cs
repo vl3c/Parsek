@@ -962,7 +962,7 @@ namespace Parsek
         /// The truth table that matters:
         /// <list type="bullet">
         ///   <item>Pure F5/F9 quickload (<c>isRevert=false</c>, UT back, flight-to-flight): <b>true</b> — hard-discard the stashed-this-transition tree.</item>
-        ///   <item>Revert to Launch (<c>isRevert=true</c>, UT back, flight-to-flight): <b>false</b> — the revert branch owns pending-tree handling via <see cref="RecordingStore.UnstashPendingTreeOnRevert"/>, which preserves sidecar files for F9-from-flight-quicksave.</item>
+        ///   <item>Revert to Launch (<c>isRevert=true</c>, UT back, flight-to-flight): <b>false</b> — the revert branch owns pending-tree handling via <see cref="PendingTreeSlot.UnstashPendingTreeOnRevert"/>, which preserves sidecar files for F9-from-flight-quicksave.</item>
         ///   <item>Active re-fly / retry invoke (<c>isReFlySessionActive=true</c>): <b>false</b> — the session owns the pending tree and rewind point being reloaded.</item>
         ///   <item>Scene reload with same UT: <b>false</b> — nothing to discard.</item>
         /// </list>
@@ -1181,7 +1181,7 @@ namespace Parsek
         /// Discards any pending tree that was stashed
         /// during the current scene transition, on a detected quickload
         /// (UT regressed between OnSceneChangeRequested and OnLoad). Clears
-        /// <see cref="RecordingStore.PendingStashedThisTransition"/> and also
+        /// <see cref="PendingTreeSlot.PendingStashedThisTransition"/> and also
         /// clears in-memory science subjects accumulated post-F5 (they are
         /// not serialized to .sfs, so they can only ever be stale on
         /// quickload). Limbo pending trees are explicitly preserved — they
@@ -1258,7 +1258,7 @@ namespace Parsek
             int discardedTree = 0;
 
             if (RecordingStore.HasPendingTree
-                && RecordingStore.PendingStashedThisTransition
+                && PendingTreeSlot.PendingStashedThisTransition
                 && RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo
                 && RecordingStore.PendingTreeStateValue != PendingTreeState.LimboVesselSwitch)
             {
@@ -1276,7 +1276,7 @@ namespace Parsek
                     $"({recCount} recording(s), state != Limbo)");
             }
 
-            RecordingStore.PendingStashedThisTransition = false;
+            PendingTreeSlot.PendingStashedThisTransition = false;
 
             // Science subjects are never serialized to .sfs, so any entries
             // in PendingScienceSubjects accumulated between the quicksave and
@@ -1670,7 +1670,7 @@ namespace Parsek
         /// have been rewound to pre-flight: those paths intentionally discard or unstash
         /// the pending tree instead of committing it. None of the current callers are on
         /// that path — the revert branch runs <see cref="RecordingStore.DiscardPendingTree"/>
-        /// (or <see cref="RecordingStore.UnstashPendingTreeOnRevert"/>) instead (#434).</para>
+        /// (or <see cref="PendingTreeSlot.UnstashPendingTreeOnRevert"/>) instead (#434).</para>
         /// </summary>
         internal static void CommitPendingTreeAsApplied(RecordingTree tree)
         {
@@ -2426,7 +2426,7 @@ namespace Parsek
                 }
             }
 
-            var savedPending = RecordingStore.SavedPendingTreeDuringActiveRestore;
+            var savedPending = PendingTreeSlot.SavedPendingTreeDuringActiveRestore;
             if (savedPending != null
                 && !ReferenceEquals(savedPending, RecordingStore.PendingTree))
             {
@@ -2516,9 +2516,9 @@ namespace Parsek
             if (!string.IsNullOrEmpty(resumeRewindSave))
                 treeNode.AddValue("resumeRewindSave", resumeRewindSave);
             if (preservedDuringActiveRestore)
-                RecordingStore.MarkSavedPendingTreeDuringActiveRestoreSerializedForSave("SavePendingTreeIfAny");
+                PendingTreeSlot.MarkSavedPendingTreeDuringActiveRestoreSerializedForSave("SavePendingTreeIfAny");
             else
-                RecordingStore.MarkPendingTreeSerializedForSave("SavePendingTreeIfAny");
+                PendingTreeSlot.MarkPendingTreeSerializedForSave("SavePendingTreeIfAny");
 
             ParsekLog.Info("Scenario",
                 $"OnSave: wrote {(string.IsNullOrEmpty(markerKey) ? "COMMITTED" : (markerKey == "isActive" ? "ACTIVE-RESUME" : "PENDING"))} tree '{pendingTree.TreeName}' " +
@@ -2593,7 +2593,7 @@ namespace Parsek
             }
             if (RecordingStore.HasPendingTree && !string.IsNullOrEmpty(RecordingStore.PendingTree?.Id))
                 ids.Add(RecordingStore.PendingTree.Id);
-            var savedPending = RecordingStore.SavedPendingTreeDuringActiveRestore;
+            var savedPending = PendingTreeSlot.SavedPendingTreeDuringActiveRestore;
             if (savedPending != null && !string.IsNullOrEmpty(savedPending.Id))
                 ids.Add(savedPending.Id);
             // GC-3: committed trees kept inert exist in the save too; their missions stay.
@@ -4558,7 +4558,7 @@ namespace Parsek
                         // On true revert the later soft-unstash branch below clears it again;
                         // on quickload/non-revert paths other dispatch owns it.
                         var revertDisposition = ClassifyRevertPendingTreeDisposition(
-                            RecordingStore.PendingStashedThisTransition,
+                            PendingTreeSlot.PendingStashedThisTransition,
                             RecordingStore.HasPendingTree,
                             RecordingStore.PendingTreeStateValue);
                         if (revertDisposition == RevertPendingTreeDisposition.KeepFreshlyStashed)
@@ -4566,7 +4566,7 @@ namespace Parsek
                             ParsekLog.Info("Scenario",
                                 "Revert: keeping freshly-stashed pending (stashed this transition) — " +
                                 $"tree={RecordingStore.HasPendingTree}");
-                            RecordingStore.PendingStashedThisTransition = false;
+                            PendingTreeSlot.PendingStashedThisTransition = false;
                         }
                         else if (revertDisposition == RevertPendingTreeDisposition.KeepLimbo)
                         {
@@ -4748,7 +4748,7 @@ namespace Parsek
                         // was actually unstashed, since the user's only observable action was the
                         // revert itself.
                         bool hadPendingTree = RecordingStore.HasPendingTree;
-                        RecordingStore.UnstashPendingTreeOnRevert();
+                        PendingTreeSlot.UnstashPendingTreeOnRevert();
 
                         // Drop orphan ledger actions earned live during the reverted flight that
                         // carry no recording id (e.g. launch-pad science transmitted during the
@@ -5188,7 +5188,7 @@ namespace Parsek
                     node, coldActiveTreeRestoredFromSave);
                 if (coldPendingTreeRestoredFromSave)
                 {
-                    string pendingRestoreDisposition = RecordingStore.HasSavedPendingTreeDuringActiveRestore
+                    string pendingRestoreDisposition = PendingTreeSlot.HasSavedPendingTreeDuringActiveRestore
                         ? "preserved alongside active-tree restore"
                         : "restored as finalized pending";
                     ParsekLog.Info("Scenario",
@@ -6882,9 +6882,9 @@ namespace Parsek
             SplitParentLinks.RepairStaleParents(tree, "TryRestorePendingTreeNode");
 
             if (preserveDuringActiveRestore)
-                RecordingStore.PreservePendingTreeFromSaveDuringActiveRestore(tree);
+                PendingTreeSlot.PreservePendingTreeFromSaveDuringActiveRestore(tree);
             else
-                RecordingStore.RestorePendingTreeFromSave(tree);
+                PendingTreeSlot.RestorePendingTreeFromSave(tree);
             EmitSidecarHydrationRollup(
                 tree.TreeName, sidecarHydrationFailures, syntheticFixtureFailures, "pending tree");
 
@@ -6893,7 +6893,7 @@ namespace Parsek
                 (preserveDuringActiveRestore ? "preserved" : "restored") +
                 $" pending tree '{tree.TreeName}' " +
                 $"({tree.Recordings.Count} recording(s), sidecarFailures={sidecarHydrationFailures}, " +
-                $"stashedThisTransition={RecordingStore.PendingStashedThisTransition})");
+                $"stashedThisTransition={PendingTreeSlot.PendingStashedThisTransition})");
             RecorderStateLog.RecState("TryRestorePendingTreeNode:restored", CaptureScenarioRecorderState());
             return true;
         }
@@ -6956,7 +6956,7 @@ namespace Parsek
             if (RewindContext.IsRewinding)
             {
                 pendingActiveTreeResumeRewindSave = null;
-                if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
+                if (PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression(
                     "TryRestoreActiveTreeNode:rewind-in-progress",
                     out string rewindSuppressReason))
                 {
@@ -6995,7 +6995,7 @@ namespace Parsek
                     $"TryRestoreActiveTreeNode: captured quicksave facts tree='{tree.TreeName}' id={tree.Id} " +
                     $"members={lastRestoredQuicksaveTreeFacts?.Members.Count ?? 0} " +
                     $"treeCommittedInQuicksave={(lastRestoredQuicksaveTreeFacts != null && lastRestoredQuicksaveTreeFacts.TreeCommittedInQuicksave ? "true" : "false")}");
-                if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
+                if (PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression(
                     "TryRestoreActiveTreeNode:active-tree",
                     out string suppressReason))
                 {
@@ -7173,7 +7173,7 @@ namespace Parsek
                 // the user is rewinding to). PopPendingTree is non-destructive (doesn't
                 // delete sidecar files), and avoids the "overwriting existing pending tree"
                 // warning on the expected-overwrite quickload path.
-                RecordingStore.PopPendingTree();
+                PendingTreeSlot.PopPendingTree();
 
                 // Bug #266: pick the stash state based on whether the saved tree had a
                 // live active recording. If ActiveRecordingId is null, the tree was in
@@ -7183,7 +7183,7 @@ namespace Parsek
                 var stashState = string.IsNullOrEmpty(tree.ActiveRecordingId)
                     ? PendingTreeState.LimboVesselSwitch
                     : PendingTreeState.Limbo;
-                RecordingStore.StashPendingTree(tree, stashState);
+                PendingTreeSlot.StashPendingTree(tree, stashState);
 
                 // Read resume hints for the restore coroutine (rewind save filename only).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
@@ -7204,7 +7204,7 @@ namespace Parsek
                 RecorderStateLog.RecState("TryRestoreActiveTreeNode:stashed", CaptureScenarioRecorderState());
                 return true;
             }
-            if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
+            if (PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression(
                 "TryRestoreActiveTreeNode:no-active-tree",
                 out string noActiveSuppressReason))
             {
@@ -7454,7 +7454,7 @@ namespace Parsek
             ParsekFlight.PruneZeroPointLeaves(tree);
             ParsekFlight.PruneSinglePointDebrisLeaves(tree);
 
-            RecordingStore.MarkPendingTreeFinalized();
+            PendingTreeSlot.MarkPendingTreeFinalized();
             ParsekLog.Info("Scenario",
                 $"FinalizePendingLimboTreeForRevert: {newlySet} recording(s) got terminal state set, " +
                 $"{alreadyTerminal} already had it, in tree '{tree.TreeName}' — " +

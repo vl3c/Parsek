@@ -192,7 +192,7 @@ namespace Parsek.InGameTests
                     ActiveRecordingId = recId,
                 };
                 tree.Recordings[recId] = new Recording { RecordingId = recId, TreeId = tree.Id };
-                RecordingStore.StashPendingTree(tree);
+                PendingTreeSlot.StashPendingTree(tree);
 
                 // REAL discard (genuine vs abandon) + REAL recalc against live KSP.
                 RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay);

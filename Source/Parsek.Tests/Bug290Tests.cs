@@ -45,11 +45,11 @@ namespace Parsek.Tests
                 RecordingId = "rec1",
                 VesselName = "TestRocket"
             };
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
-            Assert.True(RecordingStore.PendingStashedThisTransition);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
+            Assert.True(PendingTreeSlot.PendingStashedThisTransition);
 
             // Quickload discard resets the flag (but preserves Limbo trees)
-            RecordingStore.PendingStashedThisTransition = false;
+            PendingTreeSlot.PendingStashedThisTransition = false;
 
             // The revert path should still preserve the Limbo tree
             Assert.True(RecordingStore.HasPendingTree);
@@ -72,8 +72,8 @@ namespace Parsek.Tests
                 RecordingId = "rec1",
                 VesselName = "TestRocket"
             };
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-            RecordingStore.PendingStashedThisTransition = false;
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.PendingStashedThisTransition = false;
 
             // Finalized tree with cleared flag should be discardable
             Assert.True(RecordingStore.HasPendingTree);
