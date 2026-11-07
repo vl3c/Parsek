@@ -694,7 +694,7 @@ namespace Parsek
                 Vessel childVessel = FlightRecorder.FindVesselByPid(child.VesselPersistentId);
                 if (childVessel != null)
                 {
-                    child.VesselSnapshot = LiveVesselSnapshot.TryBackupSnapshot(childVessel);
+                    child.VesselSnapshot = FlightRecorder.TryBackupSnapshot(childVessel);
                     child.GhostVisualSnapshot = child.VesselSnapshot != null
                         ? child.VesselSnapshot.CreateCopy() : null;
                     child.StartResources = VesselSnapshotOps.ExtractResourceManifest(child.VesselSnapshot);

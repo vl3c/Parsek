@@ -234,7 +234,7 @@ namespace Parsek
 
                 var snapshot = PatchedConicSnapshot.SnapshotPatchedConicChain(vessel, commitUT);
 
-                ConfigNode snapshotNode = LiveVesselSnapshot.TryBackupSnapshot(vessel);
+                ConfigNode snapshotNode = FlightRecorder.TryBackupSnapshot(vessel);
 
                 if (!TryCompleteFinalizationFromPatchedSnapshot(
                         recording,

@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// Tests for <see cref="KerbalsModule.ReverseMapCrewNamesInSnapshot"/>, the
     /// snapshot-capture-time helper that rewrites stand-in crew names back to
     /// the original kerbal names. Called from
-    /// <see cref="LiveVesselSnapshot.TryBackupSnapshot"/> so every captured snapshot
+    /// <see cref="FlightRecorder.TryBackupSnapshot"/> so every captured snapshot
     /// persists originals — not whichever stand-in happens to be seated on the
     /// live vessel at capture time.
     /// </summary>

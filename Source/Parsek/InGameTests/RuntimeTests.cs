@@ -6949,7 +6949,7 @@ namespace Parsek.InGameTests
             if (vessel == null)
                 InGameAssert.Skip("No active vessel");
 
-            ConfigNode recordedStartSnapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
+            ConfigNode recordedStartSnapshot = FlightRecorder.TryBackupSnapshot(vessel);
             int recordedStartParts = CountPartNodes(recordedStartSnapshot);
             if (recordedStartParts == 0)
                 InGameAssert.Skip("Active vessel backup snapshot has no PART nodes");
@@ -12104,7 +12104,7 @@ namespace Parsek.InGameTests
 
             try
             {
-                ConfigNode donor = Parsek.LiveVesselSnapshot.TryBackupSnapshot(active);
+                ConfigNode donor = Parsek.FlightRecorder.TryBackupSnapshot(active);
                 if (donor == null)
                 {
                     InGameAssert.Skip("TryBackupSnapshot of the active vessel returned null; cannot build a donor");
@@ -12542,7 +12542,7 @@ namespace Parsek.InGameTests
             {
                 // The spawned vessel is an uncrewed copy of the active vessel: real parts, real
                 // bounds, nobody aboard to duplicate.
-                ConfigNode donor = Parsek.LiveVesselSnapshot.TryBackupSnapshot(activeVessel);
+                ConfigNode donor = Parsek.FlightRecorder.TryBackupSnapshot(activeVessel);
                 if (donor == null)
                 {
                     InGameAssert.Skip("TryBackupSnapshot of the active vessel returned null");
@@ -16070,7 +16070,7 @@ namespace Parsek.InGameTests
             InGameAssert.IsNotNull(vessel, "No active vessel in flight");
 
             // Take snapshot (same path as recording system)
-            var snapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
+            var snapshot = FlightRecorder.TryBackupSnapshot(vessel);
             InGameAssert.IsNotNull(snapshot, "Failed to snapshot active vessel");
 
             // Extract resource manifest
@@ -16250,7 +16250,7 @@ namespace Parsek.InGameTests
                 return false;
             }
 
-            ConfigNode sourceSnapshot = LiveVesselSnapshot.TryBackupSnapshot(activeVessel);
+            ConfigNode sourceSnapshot = FlightRecorder.TryBackupSnapshot(activeVessel);
             if (sourceSnapshot == null)
             {
                 skipReason = "failed to snapshot active vessel";

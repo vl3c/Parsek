@@ -6724,7 +6724,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     #
     # WHAT LOGISTICS ACTUALLY NEEDS is the capability that helper's own failure path
     # names. `EnsureUnloadedLiquidFuelVessel` snapshots the ACTIVE vessel with
-    # `LiveVesselSnapshot.TryBackupSnapshot`, rewrites the snapshot's FIRST LiquidFuel tank
+    # `FlightRecorder.TryBackupSnapshot`, rewrites the snapshot's FIRST LiquidFuel tank
     # to the required stored / free floors and re-spawns it as the unloaded depot - so
     # with no LiquidFuel RESOURCE node on the active vessel it returns
     # `reason = "no-liquidfuel-resource"` and every unloaded-depot cell skips. That is
@@ -7003,7 +7003,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                     "for the post-switch surface canary to move" % idx)
             return problems
         if requirement == "logistics":
-            # (a) A real craft to snapshot. `LiveVesselSnapshot.TryBackupSnapshot` has
+            # (a) A real craft to snapshot. `FlightRecorder.TryBackupSnapshot` has
             #     nothing to copy off a part-less VESSEL node - an asteroid /
             #     SpaceObject is the realistic way a fixture lands here, and
             #     `logi-cargo-pad` really does carry one as its OTHER vessel - and

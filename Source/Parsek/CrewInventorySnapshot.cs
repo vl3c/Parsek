@@ -43,7 +43,7 @@ namespace Parsek
     /// inventory, duplicating cargo stowed during the flight or losing cargo taken
     /// out of the pod.</para>
     ///
-    /// <para>Contract: <see cref="LiveVesselSnapshot.TryBackupSnapshot"/> (the single seam
+    /// <para>Contract: <see cref="FlightRecorder.TryBackupSnapshot"/> (the single seam
     /// every recorded snapshot passes through) writes one
     /// <c>PARSEK_CREW_INVENTORY</c> child under the VESSEL node:
     /// <c>PARSEK_CREW_INVENTORY { KERBAL { name = X  INVENTORY { ...stock shape... } } }</c>,
