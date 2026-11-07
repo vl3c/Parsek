@@ -574,10 +574,13 @@ namespace Parsek.Tests
             // the root's explicitEndUT. It is the committed-restore resuming the tree on its ROOT
             // id after the commit (todo COMMITTED-RESTORE-APPENDS-TO-ROOT), pinned here as the
             // fixture's measured reading; a fix that stops the stray tail flips this entry.
+            // `eve-gilly-recorded` (B37, same night) carries the same tail on its root, at Gilly.
             var expectedBodySplits = new[]
             {
                 "311d98e32547491e8dd37aec2526d25d.prec.txt :: 1->2 @ut 9181509.7 "
                 + ": Atmospheric(Absolute)/Kerbin -> ExoBallistic(Absolute)/Ike",
+                "75a6ab25a0f445219a82b7b841e44ba8.prec.txt :: 5->6 @ut 15879278.5 "
+                + ": Atmospheric(Absolute)/Kerbin -> ExoBallistic(Absolute)/Gilly",
                 "ffffab0a00b743a89ae829aa3c83cc92.prec.txt :: 4->5 @ut 52566541.2 "
                 + ": Atmospheric(Absolute)/Kerbin -> ExoBallistic(OrbitalCheckpoint)/Duna",
             };
