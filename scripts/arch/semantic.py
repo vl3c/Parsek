@@ -73,11 +73,10 @@ import ilgraph  # noqa: E402
 TEXT_CUT_ORDER = archview.RATCHET_CUT_ORDER
 
 # The cut order the semantic residue replays: the semantic greedy sequence on
-# the refactor branch at 088feb067 (2026-11-07). Re-pin it only together with
+# the refactor branch at 62d9b1b56 (2026-11-07). Re-pin it only together with
 # a tightened bound, never to loosen one.
 SEMANTIC_CUT_ORDER = [
     "Route",
-    "VesselLaunchIdentity",
     "RecordingTree",
     "FlightRecorder",
     "ParsekFlight",
@@ -88,6 +87,7 @@ SEMANTIC_CUT_ORDER = [
     "EffectiveState",
     "GhostPlaybackLogic",
     "GhostMapPresence",
+    "RecalculationEngine",
 ]
 
 TEXT_ONLY_EXPLAINED = frozenset(

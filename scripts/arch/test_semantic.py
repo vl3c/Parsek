@@ -442,11 +442,33 @@ class RealTreeSemanticTests(unittest.TestCase):
             with self.subTest(member=key):
                 self.assertEqual(resolved.get(key), service)
 
+    def test_the_known_false_names_are_explained(self):
+        # Two text false positives the wave-2 streams found carrying residue
+        # weight: `State` (StockUiReasonTooltip's private nested class, matched
+        # by every `Contract.State` / `RDTech.State` in GameActions) and `Hold`
+        # (RewindVesselHold's nested class, matched by enum members such as
+        # `ChainBridgeAction.Hold`). Every text-only edge into them must carry
+        # an explained reason, and no GameActions type may use `State` in IL.
+        for target in ("State", "Hold"):
+            edges = {
+                edge: value
+                for edge, value in self.result["classified"].items()
+                if edge[1] == target and value[0] == "text-only"
+            }
+            self.assertTrue(edges, target)
+            for edge, (_side, reasons, evidence) in edges.items():
+                with self.subTest(edge=edge):
+                    self.assertTrue(set(reasons) <= semantic.TEXT_ONLY_EXPLAINED, evidence)
+        modules = self.result["typeModules"]
+        users = [name for name, refs in self.result["semantic"].items()
+                 if "State" in refs and modules.get(name) == "GameActions"]
+        self.assertEqual(users, [])
+
     def test_the_semantic_residue_is_within_the_text_bound(self):
-        # The text ratchet's bound (test_archview) is 283; the semantic measure
+        # The text ratchet's bound (test_archview) is 272; the semantic measure
         # replaces it only on a tree that still passes it (plan W4a2).
-        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 283)
-        self.assertLessEqual(semantic.ratchet_residue(self.result["textMeasure"]), 283)
+        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 272)
+        self.assertLessEqual(semantic.ratchet_residue(self.result["textMeasure"]), 272)
 
 
 if __name__ == "__main__":

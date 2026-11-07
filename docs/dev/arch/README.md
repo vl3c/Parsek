@@ -117,9 +117,16 @@ in one residue and not the other, the disagreeing edges that touch it.
 
 CI runs `scripts/arch/test_semantic.py` after the build with `PARSEK_ARCH_IL`
 pointing at the built DLL (its real-tree cells skip only when that is unset).
-On the refactor branch at 088feb067 (2026-11-07): text residue 283, semantic
-residue 258 (greedy and replayed with `SEMANTIC_CUT_ORDER`), knot 477 against
-420; text-only edges 715, IL-only 637, every one classified.
+On the refactor branch at 62d9b1b56 (2026-11-07): text residue 272, semantic
+residue 250 (greedy and replayed with `SEMANTIC_CUT_ORDER`), knot 459 against
+405; text-only edges 715, IL-only 637, every one classified. Two text false
+positives that held weight: the UI node `State` (StockUiReasonTooltip's private
+nested class) is matched by every `Contract.State` / `RDTech.State` token in
+GameActions and Patches (foreign-qualifier), and `Hold` (RewindVesselHold's
+nested class) by enum members such as `ChainBridgeAction.Hold`
+(qualified-member); `Hold -> ReFlyInvokeHold` is only the qualifier of
+`ReFlyInvokeHold.Entry` (nested-qualifier). The one compiled edge into `Hold`
+is RewindLauncher's `var` list of holds.
 
 ## Regenerating
 
