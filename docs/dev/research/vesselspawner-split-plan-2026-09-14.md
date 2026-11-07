@@ -5,13 +5,17 @@ Item 7 of `architecture-opportunities-2026-09-14.md`. A member-level read of
 before anyone edits it. Analysis only; nothing here has been started. Line
 numbers are the 2026-09-14 reading of origin/main.
 
-Status 2026-11-07: step 1 shipped as #1686 (`VesselSnapshotOps`). Steps 2-5
-are replaced by the 2026-11-06 file-placement plan, PRs 6-10 (todo
+Status 2026-11-07: SUPERSEDED. Step 1 shipped as #1686 (`VesselSnapshotOps`).
+Steps 2-5 are replaced by the 2026-11-06 file-placement plan, PRs 6-10 (todo
 ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT, which records each one); its PRs 6 and 7
 moved the crew-in-snapshot, situation, position-stamp, rotation-node,
 validation and canonical-orbit families to `VesselSnapshotOps`, and PR 8 the
 live capture, body registry and max-distance family to a new
-`LiveVesselSnapshot` (placed in Recording).
+`LiveVesselSnapshot` (placed in Recording); PR 9 placed `VesselSpawner.cs`
+itself in Controllers, off the Core kernel list, and PR 10 split it into
+partial files by area (`scripts/refactor/split_vesselspawner.py`). Read this file as the
+2026-09-14 member inventory only; the placement and the split are recorded in
+that todo entry.
 
 ## 1. Member inventory
 

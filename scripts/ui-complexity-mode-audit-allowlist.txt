@@ -41,6 +41,9 @@ Source/Parsek/ParsekUI.cs
 # only, never whether the message fires, what is detected, or what spawning
 # does.
 Source/Parsek/ParsekFlight.cs
+# The proximity message moved verbatim with the spawning members into this
+# partial (a pure file split of ParsekFlight.cs); same consumption as above.
+Source/Parsek/ParsekFlight.Spawning.cs
 Source/Parsek/ParsekKSC.cs
 
 # --- Settings layer ---

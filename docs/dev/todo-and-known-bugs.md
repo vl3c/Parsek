@@ -19,6 +19,27 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED: two loop-seam trace dictionaries in ParsekFlight are keyed by committed index and never shift [FILED 2026-11-07 from the ParsekFlight seam inventory (`plan-parsekflight-seams-2026-11-07.md`, refactor branch `claude/project-thread-bkwmrr` at f3400b90a), by code reading. OPEN; diagnostics only, low]
+
+**What is true.**
+- `ParsekFlight.reaimLastGhostFrame` and `ParsekFlight.loopSeamLastGhostFrame` are
+  `Dictionary<int, ...>` keyed by the loop member's committed-list index (written by the
+  re-aim seam trace and `TrackLoopSeamTeleport`, read on the next frame to log a seam jump).
+- `OnCommittedRecordingRemoved` / `OnCommittedRecordingInserted` shift or clear every other
+  index-keyed slot (engine, held ghosts, map presence, watch mode, orbit caches, the two
+  `loggedOrbit*` sets) but neither of these, and nothing clears them at a scene change other
+  than the MonoBehaviour going away.
+- Effect: after a mid-list insert or removal, a member's first seam check compares against the
+  previous frame of the recording that used to hold its index, so a `ReaimSeam` /
+  loop-seam teleport line can report a jump that never happened (or miss one). Both are gated
+  diagnostics (`ghostRenderTracing` for the loop-seam instrument, Verbose for `ReaimSeam`);
+  nothing a player sees and no positioning reads them.
+
+**Fix.** Clear both dictionaries in `OnCommittedRecordingRemoved` and
+`OnCommittedRecordingInserted` (as the `loggedOrbit*` sets are), or key them by recording id.
+A clear costs at most one missed seam line per member after a list change. Not part of the
+pure-move refactor; land it on its own after the ParsekFlight playback split.
+
 ## ~~RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: an SOI change in physics leaves one track section spanning two bodies~~ [FILED 2026-11-04 from the replay-theory audit (finding R3, https://claude.ai/artifact/Ku6mxeWM3EMLmTtx9vk3p5), code read on main b2182df; FIXED 2026-11-04, branch `claude/project-thread-7bjyoy`; xUnit; LIVE-PROVEN by lane `SOI-1-mun-exit-physics-burn` (`2026-11-04_1851` PASS attempt 1); product, medium (no body split for a burn through a boundary, stale airless-body thresholds after a physics crossing)]
 
 **Symptom.** `FlightRecorder.OnVesselSOIChanged` returned at once unless the vessel was on rails,
@@ -2824,6 +2845,28 @@ hookup (`FlightRecorder` / `BackgroundRecorder`), playback hosting, spawning, th
 of the same shape. Do this AFTER ARCH-KNOT-CHEAP-CUTS and ARCH-RECORDINGSTORE-GOD-OBJECT, which
 make the types it touches easier to reason about.
 
+**Progress** (the PR-by-PR plan is `plan-parsekflight-seams-2026-11-07.md` in the project
+files, PF0-PF10; Phase A splits ParsekFlight.cs into partial files with identical IL, Phase B
+moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the refactor branch
+`claude/project-thread-bkwmrr`. Phase B waits until the RecordingStore series is done.)
+- PF0 landed: the tooling. `scripts/refactor/split_parsekflight.py` (the split_* pattern;
+  drops the 16 region pairs because they do not survive a split) with the PF1a mapping,
+  `scripts/refactor/il_compare.py` (types, fields, properties and method bodies, ordinal
+  normalization, a `--fold OLD=NEW` mode for Phase B), their unit tests
+  (`python3 -m unittest discover -s scripts/refactor -p "test_*.py"`), and
+  `ParsekFlightSourceFiles` (the whole-class reader, no split files declared yet). No
+  Source/Parsek change. Filed LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED from the inventory.
+- PF1a landed: the playback side of ParsekFlight.cs is in five new partial files, written by
+  `split_parsekflight.py`: `.GhostPositioning.cs` (5,069 lines), `.GhostPositioner.cs` (1,807),
+  `.TimelinePlayback.cs` (3,282), `.Spawning.cs` (1,388), `.Accessors.cs` (187); 283
+  declarations of 274 names, every byte verbatim, the 16 region pairs dropped. ParsekFlight.cs
+  30,388 -> 18,668 lines. IL identical (`il_compare.py`: 3,908 types, 23,947 fields, 25,847
+  methods, 0 differences). Knot 462 and the cut residue unchanged (a file split does not move
+  the type graph). Gates re-pointed: the source readers whose text moved, two whole-file
+  negative scans and the recovery-crew count (still 2) read `ParsekFlightSourceFiles`; the
+  non-loop live-PID audit names every split file; the ERS / ELS and UI-complexity allowlists
+  list the partials that read what ParsekFlight.cs read.
+
 ## ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type [FILED 2026-09-14 off the architecture program (item 4). OPEN; the first item with real design content, after the cheap cuts. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
@@ -3064,6 +3107,18 @@ compare).
   4 private members widened. The hooks have no initializer, so no static constructor moves.
   The new type sits on a cycle (crew-name reverse map through `KerbalsModule`): knots 461 -> 462,
   residue ratchet 287 -> 288, one node and no new reference; upward 813 -> 812 (Core -> Logistics).
+- PR 9: `modules.toml` only. `VesselSpawner.cs` leaves the Core kernel list (9 -> 8 files) for an
+  R0 rule -> Controllers (it references 12 Controllers types). Upward edges 83 / 812 -> 81 / 786:
+  Core -> Recording 25 -> 12, Core -> Controllers 13 -> 1, Core -> Crew and Core -> Ghost gone;
+  Ghost -> Controllers 50 -> 58, Recording -> Controllers 39 -> 43, Rewind and Crew -> Controllers
+  +1 each. Knots and residue unchanged. No Source file changes.
+- PR 10: S3 partial-file split of `VesselSpawner` inside Controllers by
+  `scripts/refactor/split_vesselspawner.py`: `VesselSpawner.cs` keeps every field, constant and
+  property plus the shared spawn core, and `.SourceIdentity` (the `MaterializedSourceVesselExists`
+  pid / guid pair stays together), `.Respawn`, `.EndOfRecording`, `.KscRetirement`, `.CrewRoster`,
+  `.TerminalOrbit`, `.SpawnRotation` and `.Validation` take the rest. The five source gates that
+  read `VesselSpawner.cs` read the split set through `VesselSpawnerSourceFiles`. IL identical;
+  arch unchanged. This closes the VesselSpawner placement (atlas opportunity 7).
 
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
