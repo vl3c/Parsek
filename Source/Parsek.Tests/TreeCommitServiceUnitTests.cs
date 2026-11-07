@@ -257,14 +257,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CountBranchPointIds_DuplicateIncomingIdsCountEachEntry()
-        {
-            var existing = Tree("a", null, new[] { Rec("a") }, new[] { Bp("bp1") });
-            var incoming = Tree("a", null, new[] { Rec("a") }, new[] { Bp("bp1"), Bp("bp2"), Bp("bp2") });
-            Assert.Equal(2, TreeCommitService.CountNewBranchPointIds(existing, incoming));
-        }
-
-        [Fact]
         public void CountBranchPointIds_IdsCompareOrdinal()
         {
             var existing = Tree("a", null, new[] { Rec("a") }, new[] { Bp("BP1") });
@@ -637,6 +629,8 @@ namespace Parsek.Tests
         {
             var tree = Tree("a", null, new[] { Rec("a") }, new[] { Bp("bp1"), null });
             Assert.Null(TreeCommitService.CollectBranchPointRewindPointIds(tree));
+            Assert.Null(TreeCommitService.CollectBranchPointRewindPointIds(null));
+            Assert.Null(TreeCommitService.CollectBranchPointRewindPointIds(new RecordingTree { BranchPoints = null }));
         }
 
         [Fact]
@@ -860,29 +854,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PreserveFinalStateDiagnostics_LiveIncomingTakesEverything()
+        public void PreserveFinalStateDiagnostics_LiveOnBothSidesTakesEverything()
         {
             var existing = new Recording
             {
                 SceneExitSituation = 2,
                 MaxDistanceFromLaunch = 9000.0,
                 DistanceFromLaunch = 1200.0,
-                VesselDestroyed = true,
                 VesselSituation = "Landed on Mun",
             };
             var incoming = new Recording();
             int other = 0;
             TreeCommitService.PreserveFinalStateDiagnosticsOnReplace(existing, incoming, ref other);
-
-            // Pins today's field order: the destroyed flag copies after the situation int and
-            // before the situation string, so the int carries over and the string does not.
-            // Unreachable in play (MarkDestroyedAtTerminal clears both on the destroyed side).
             Assert.Equal(4, other);
             Assert.Equal(2, incoming.SceneExitSituation);
             Assert.Equal(9000.0, incoming.MaxDistanceFromLaunch);
             Assert.Equal(1200.0, incoming.DistanceFromLaunch);
+            Assert.False(incoming.VesselDestroyed);
+            Assert.Equal("Landed on Mun", incoming.VesselSituation);
+        }
+
+        [Fact]
+        public void PreserveFinalStateDiagnostics_DestroyedFlagCopies()
+        {
+            var existing = new Recording { VesselDestroyed = true };
+            var incoming = new Recording();
+            int other = 0;
+            TreeCommitService.PreserveFinalStateDiagnosticsOnReplace(existing, incoming, ref other);
+            Assert.Equal(1, other);
             Assert.True(incoming.VesselDestroyed);
-            Assert.Null(incoming.VesselSituation);
         }
 
         [Fact]

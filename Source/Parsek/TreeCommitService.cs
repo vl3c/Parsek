@@ -327,8 +327,6 @@ namespace Parsek
             // they ARE demoted here.
             var committedSnapshot = alreadyCommittedRecordingIds
                 ?? new HashSet<string>(StringComparer.Ordinal);
-            Func<string, bool> isFirstCommit = id =>
-                IsFirstCommitForPromotion(id, committedSnapshot, supersedeForkIds);
 
             int promoted = 0;
             int tipsPromoted = 0;
@@ -379,7 +377,7 @@ namespace Parsek
                 // Demote the qualifying HEAD on first commit. The first-commit guard
                 // keeps a manually-sealed HEAD==tip (Immutable) from being re-opened on a
                 // later re-commit (plan §4.1).
-                if (isFirstCommit(rec.RecordingId))
+                if (IsFirstCommitForPromotion(rec.RecordingId, committedSnapshot, supersedeForkIds))
                 {
                     rec.MergeState = MergeState.CommittedProvisional;
                     rec.FilesDirty = true;
@@ -416,7 +414,7 @@ namespace Parsek
                     && tree.Recordings.TryGetValue(tipId, out var tipRec)
                     && tipRec != null
                     && tipRec.MergeState == MergeState.Immutable
-                    && isFirstCommit(tipId))
+                    && IsFirstCommitForPromotion(tipId, committedSnapshot, supersedeForkIds))
                 {
                     tipRec.MergeState = MergeState.CommittedProvisional;
                     tipRec.FilesDirty = true;
@@ -590,12 +588,13 @@ namespace Parsek
 
         /// <summary>
         /// The rewind point ids the tree's branch points name, or null when none names one
-        /// (null branch points and empty ids are skipped). The caller guarantees a non-null
-        /// branch point list. Pure.
+        /// (a null tree or branch point list, null branch points and empty ids name none).
+        /// Pure.
         /// </summary>
         internal static HashSet<string> CollectBranchPointRewindPointIds(RecordingTree tree)
         {
             HashSet<string> treeRpIds = null;
+            if (tree?.BranchPoints == null) return treeRpIds;
             for (int b = 0; b < tree.BranchPoints.Count; b++)
             {
                 var bp = tree.BranchPoints[b];
