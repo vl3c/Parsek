@@ -1957,6 +1957,34 @@ missing capture row is not something load code should synthesize.
 **2026-11-01:** the 7-type knot no longer exists on its own: once the 50 unplaced root files
 were placed, it merged into the kernel knot (584). The fix direction below is unchanged.
 
+**2026-11-07 (refactor wave 2, stream W3; measured on the refactor branch at 67d28c248):**
+- A modules.toml rule cannot put the reservation vocabulary in a module below both
+  GameActions and UI, because every candidate file also declares a type that reaches up.
+  `ReservationExplanation.cs`: `ReservationExplanation` reads `CommittedFutureIndex`,
+  `ClickReservation`, `StockPool` (GameActions), `KerbalsWindowUI.FormatRowDate` (UI) and
+  `TimelineEntry` (Timeline). `StockUiDecorationQuery.cs`: the query, the predicates and
+  `AstronautComplexContext` read the index and its cache, `ContractSlotReservation`,
+  `FacilityRepairCapture`, `KerbalsModule` (Crew) and `StandInSeatCount` (Patches).
+  `StockUiLiveSnapshot.cs`: the snapshot reads `StockUiOverlayController` and `KerbalHirePatch`,
+  and `StockUiText` reads `StockUiRnDDecoration.ReasonColorHex`. `CommittedFutureIndex.cs`
+  reads the ledger engine, and its cache reads `LedgerOrchestrator`, `EffectiveState` and
+  `MissionStore`. A scratch rule placing the first three files (and then all four) in a new
+  module cuts GameActions -> UI from 23 to 13, but the new module is in a cycle with both
+  (-> GameActions 18, -> UI 4, plus Crew, Patches, Rewind, Timeline), so no rule was landed.
+  Module rules move no types: knots [477, 4, 3] and replayed residue 283 either way.
+- The pure leaves (`ReservationText`, `KerbalHold`, `StockUiScreen`, `StockUiDecorationKind`,
+  `StockUiItem`, `StockUiDecoration`, `StockUiReserveButtons`; `CommittedFutureKind`,
+  `CommittedFutureEntry`, `CommittedKerbalAssignment`) share their files with those types, so
+  placing them needs a file split first, as its own MOVE PR.
+- Sinks: 18 stock-screen types (the overlay controller, the RnD / facility / astronaut
+  decorations, the query, the live snapshot, `StockUiText`, the hire / dismissal / tech /
+  facility-menu patches, the Mission Control annotation) are in the ratchet residue only
+  through `StockUiText -> StockUiRnDDecoration` (the `ReasonColorHex` const) and
+  `StockUiPartPurchase -> StockUiRnDDecoration` (`AppendReason`). Moving that const and
+  `AppendReason` onto `StockUiText` (simulated on a scratch copy) gives knots [459, 9, 4, 3],
+  replayed residue 283 -> 265 and greedy residue 290 -> 238. As an extra cut,
+  `StrategyReservationPredicates` is worth 283 -> 282 only.
+
 **Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
 explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
 `LedgerOrchestrator` references the index cache and the strategy state patcher back (cache
@@ -2914,6 +2942,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `RecordingStore` type initialiser that installs `Recording.GhostHiddenRule` keeps
   `LaunchSiteOnlyGhost` inside), first cuts `Route` (439) and `ParsekFlight` (424), cut-residue
   ratchet 306 -> 282.
+- Wave 2 W1a (2026-11-07, this branch): `VesselLaunchIdentity` is a sink. Its two store calls
+  (the vessel-name link-row test and the sidecar snapshot hydration) are rules
+  `VesselNameStore` and `RecordingSidecarStore` install from their own type initialisers and
+  from `RecordingStore`'s, next to `Recording.GhostHiddenRule`. Knot 477 -> 459 (plus a 2-type
+  knot `OrbitReseed` / `RecordedTailVelocityResolver`), replayed residue 283 -> 272.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
