@@ -1198,7 +1198,7 @@ namespace Parsek
         private void OpenHarvestWindow(Vessel v, double ut, bool atRecordingStart, string trigger)
         {
             Dictionary<string, ResourceAmount> startManifest =
-                VesselSpawner.ExtractLiveResourceManifest(v);
+                LiveVesselSnapshot.ExtractLiveResourceManifest(v);
             List<string> converterIds = BuildActiveConverterIds();
             Dictionary<string, double> plausibleRates = BuildPlausibleHarvestRates(v);
 
@@ -1230,7 +1230,7 @@ namespace Parsek
                 return;
 
             Dictionary<string, ResourceAmount> endManifest =
-                VesselSpawner.ExtractLiveResourceManifest(v);
+                LiveVesselSnapshot.ExtractLiveResourceManifest(v);
             RouteHarvestCapture.CloseWindow(window, ut, endManifest, atRecordingStop: false);
             // Second rate sample: a crew bonus that rose inside the window (an
             // engineer boarded) still counts. The close-at-stop path keeps the open

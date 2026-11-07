@@ -86,7 +86,7 @@ namespace Parsek
             string vesselName = vessel.vesselName ?? "(unnamed)";
 
             // Capture snapshot before despawn
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            ConfigNode snapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
             if (snapshot == null)
             {
                 ParsekLog.Error(Tag,
@@ -941,7 +941,7 @@ namespace Parsek
             if (hasSnapPos)
             {
                 if (hasEndpointCoords
-                    && VesselSpawner.TryGetSnapshotReferenceBodyName(vesselSnapshot, out string snapshotBodyName)
+                    && LiveVesselSnapshot.TryGetSnapshotReferenceBodyName(vesselSnapshot, out string snapshotBodyName)
                     && string.Equals(snapshotBodyName, endpointBodyName, StringComparison.Ordinal))
                 {
                     CelestialBody snapBody = FlightGlobals.GetBodyByName(endpointBodyName);
@@ -958,7 +958,7 @@ namespace Parsek
 
                 if (!hasEndpointCoords)
                 {
-                    if (VesselSpawner.TryGetSnapshotReferenceBodyName(vesselSnapshot, out string snapshotFallbackBodyName))
+                    if (LiveVesselSnapshot.TryGetSnapshotReferenceBodyName(vesselSnapshot, out string snapshotFallbackBodyName))
                     {
                         CelestialBody snapBody = FlightGlobals.GetBodyByName(snapshotFallbackBodyName);
                         if (snapBody != null)

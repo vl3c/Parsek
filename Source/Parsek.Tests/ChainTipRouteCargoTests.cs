@@ -32,16 +32,16 @@ namespace Parsek.Tests
         private const uint TransportPart = 5001u;
 
         private readonly List<string> logLines = new List<string>();
-        private readonly VesselSpawner.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
-        private readonly VesselSpawner.ResolveBodyByNameDelegate originalBodyResolver;
-        private readonly VesselSpawner.ResolveBodyIndexDelegate originalBodyIndexResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyByNameDelegate originalBodyResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyIndexDelegate originalBodyIndexResolver;
         private string tempDir;
 
         public ChainTipRouteCargoTests()
         {
-            originalBodyNameResolver = VesselSpawner.BodyNameResolverForTesting;
-            originalBodyResolver = VesselSpawner.BodyResolverForTesting;
-            originalBodyIndexResolver = VesselSpawner.BodyIndexResolverForTesting;
+            originalBodyNameResolver = LiveVesselSnapshot.BodyNameResolverForTesting;
+            originalBodyResolver = LiveVesselSnapshot.BodyResolverForTesting;
+            originalBodyIndexResolver = LiveVesselSnapshot.BodyIndexResolverForTesting;
 
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
@@ -59,9 +59,9 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            VesselSpawner.BodyNameResolverForTesting = originalBodyNameResolver;
-            VesselSpawner.BodyResolverForTesting = originalBodyResolver;
-            VesselSpawner.BodyIndexResolverForTesting = originalBodyIndexResolver;
+            LiveVesselSnapshot.BodyNameResolverForTesting = originalBodyNameResolver;
+            LiveVesselSnapshot.BodyResolverForTesting = originalBodyResolver;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = originalBodyIndexResolver;
             TestBodyRegistry.Reset();
             RetiredRouteCargoStore.ResetForTesting();
             Ledger.ResetForTesting();
@@ -832,9 +832,9 @@ namespace Parsek.Tests
         private void InstallKerbin()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12));
-            VesselSpawner.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
-            VesselSpawner.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
-            VesselSpawner.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
+            LiveVesselSnapshot.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
+            LiveVesselSnapshot.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
         }
 
         private static double LiquidFuelOf(ConfigNode vessel, uint partPid)

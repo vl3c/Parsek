@@ -207,7 +207,7 @@ namespace Parsek
                 Recording.ResolveLocalizedName(v.vesselName) ?? "Unknown",
                 kerbalRec.Generation);
 
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(v);
+            ConfigNode snapshot = LiveVesselSnapshot.TryBackupSnapshot(v);
             member.GhostVisualSnapshot = snapshot;
             member.VesselSnapshot = snapshot != null ? snapshot.CreateCopy() : null;
             member.StartResources = VesselSnapshotOps.ExtractResourceManifest(snapshot);
@@ -305,7 +305,7 @@ namespace Parsek
 
             ForeignInventoryTransfer.AppendTransferEvent(member, transfer);
             // The member's end snapshot is the chain tip's spawn form; keep it current.
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(v);
+            ConfigNode snapshot = LiveVesselSnapshot.TryBackupSnapshot(v);
             if (snapshot != null)
                 member.VesselSnapshot = snapshot;
             ParsekLog.Info("Flight", string.Format(CultureInfo.InvariantCulture,

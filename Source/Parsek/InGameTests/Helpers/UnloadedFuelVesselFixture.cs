@@ -20,7 +20,7 @@ namespace Parsek.InGameTests.Helpers
     /// <see cref="EnsureUnloadedLiquidFuelVessel"/> first reuses any pre-existing
     /// suitable unloaded vessel (fast path, byte-identical to the old finders);
     /// when the save has none it SNAPSHOTS the active pad rocket via
-    /// <see cref="VesselSpawner.TryBackupSnapshot"/>, rewrites its LiquidFuel
+    /// <see cref="LiveVesselSnapshot.TryBackupSnapshot"/>, rewrites its LiquidFuel
     /// RESOURCE amounts so the copy carries the requested stored + free capacity,
     /// and spawns it with a FRESH identity (preserveIdentity:false) into a high
     /// parking ORBIT far from the active vessel so KSP keeps it on-rails
@@ -171,7 +171,7 @@ namespace Parsek.InGameTests.Helpers
                 yield break;
             }
 
-            ConfigNode donor = VesselSpawner.TryBackupSnapshot(active);
+            ConfigNode donor = LiveVesselSnapshot.TryBackupSnapshot(active);
             if (donor == null)
             {
                 ParsekLog.Warn(Tag,

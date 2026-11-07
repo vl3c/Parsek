@@ -24,7 +24,7 @@ namespace Parsek.Tests
     /// incomplete" for the WHOLE recording, so the sidecar was written flat-authoritative
     /// AND without the safe body-fixed substitution: the Relative section's anchor-local
     /// Cartesian METRES landed in the flat <c>POINT</c> list as lat/lon/alt, and
-    /// <c>VesselSpawner.BackfillMaxDistance</c> resolved them through
+    /// <c>LiveVesselSnapshot.BackfillMaxDistance</c> resolved them through
     /// <c>GetWorldSurfacePosition</c> into <c>maxDist</c> ~735 km for a rover that sat
     /// ~1 m from the undock point. <c>MaxDistanceFromLaunch</c> feeds
     /// <c>IsIdleOnPad</c> / <c>IsPadFailure</c>, so the inflated value FAILS OPEN.
@@ -388,8 +388,8 @@ namespace Parsek.Tests
             Recording rec = UndockChildRecording();
 
             Assert.Equal(
-                VesselSpawner.MaxDistanceBackfillRoute.BodyFixedSections,
-                VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec));
+                LiveVesselSnapshot.MaxDistanceBackfillRoute.BodyFixedSections,
+                LiveVesselSnapshot.ClassifyMaxDistanceBackfillRoute(rec));
         }
 
         [Fact]
@@ -400,8 +400,8 @@ namespace Parsek.Tests
             rec.Points.Add(BodyFixedPoint(20.0));
 
             Assert.Equal(
-                VesselSpawner.MaxDistanceBackfillRoute.FlatPoints,
-                VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec));
+                LiveVesselSnapshot.MaxDistanceBackfillRoute.FlatPoints,
+                LiveVesselSnapshot.ClassifyMaxDistanceBackfillRoute(rec));
         }
 
         // (c) The flat fallback fires ONLY where the flat list cannot be carrying
@@ -415,8 +415,8 @@ namespace Parsek.Tests
             Assert.True(rec.Points.Count >= 2, "the poisoned flat list must be long enough to tempt the fallback");
 
             Assert.Equal(
-                VesselSpawner.MaxDistanceBackfillRoute.BodyFixedSections,
-                VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec));
+                LiveVesselSnapshot.MaxDistanceBackfillRoute.BodyFixedSections,
+                LiveVesselSnapshot.ClassifyMaxDistanceBackfillRoute(rec));
         }
 
         // A recording that has Relative sections but NO body-fixed sample anywhere stays
@@ -439,8 +439,8 @@ namespace Parsek.Tests
             rec.Points.AddRange(rec.TrackSections[0].frames);
 
             Assert.Equal(
-                VesselSpawner.MaxDistanceBackfillRoute.BodyFixedSections,
-                VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec));
+                LiveVesselSnapshot.MaxDistanceBackfillRoute.BodyFixedSections,
+                LiveVesselSnapshot.ClassifyMaxDistanceBackfillRoute(rec));
         }
 
         // The one sectioned shape that still takes the flat list: no body-fixed surface
@@ -461,8 +461,8 @@ namespace Parsek.Tests
             rec.Points.Add(BodyFixedPoint(800.0));
 
             Assert.Equal(
-                VesselSpawner.MaxDistanceBackfillRoute.FlatPoints,
-                VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec));
+                LiveVesselSnapshot.MaxDistanceBackfillRoute.FlatPoints,
+                LiveVesselSnapshot.ClassifyMaxDistanceBackfillRoute(rec));
         }
 
         [Fact]
@@ -471,18 +471,18 @@ namespace Parsek.Tests
             Recording computed = UndockChildRecording();
             computed.MaxDistanceFromLaunch = 781.0;
             Assert.Equal(
-                VesselSpawner.MaxDistanceBackfillRoute.None,
-                VesselSpawner.ClassifyMaxDistanceBackfillRoute(computed));
+                LiveVesselSnapshot.MaxDistanceBackfillRoute.None,
+                LiveVesselSnapshot.ClassifyMaxDistanceBackfillRoute(computed));
 
             var onePoint = new Recording { RecordingId = "one-point" };
             onePoint.Points.Add(BodyFixedPoint(10.0));
             Assert.Equal(
-                VesselSpawner.MaxDistanceBackfillRoute.None,
-                VesselSpawner.ClassifyMaxDistanceBackfillRoute(onePoint));
+                LiveVesselSnapshot.MaxDistanceBackfillRoute.None,
+                LiveVesselSnapshot.ClassifyMaxDistanceBackfillRoute(onePoint));
 
             Assert.Equal(
-                VesselSpawner.MaxDistanceBackfillRoute.None,
-                VesselSpawner.ClassifyMaxDistanceBackfillRoute(null));
+                LiveVesselSnapshot.MaxDistanceBackfillRoute.None,
+                LiveVesselSnapshot.ClassifyMaxDistanceBackfillRoute(null));
         }
 
         // ---------- Site 3: what the walk READS ----------
@@ -547,10 +547,10 @@ namespace Parsek.Tests
         {
             Recording rec = RelativeBodyFixedOnlyRecording();
 
-            Assert.True(VesselSpawner.TryComputeMaxDistanceFromBodyFixedSurfaces(
+            Assert.True(LiveVesselSnapshot.TryComputeMaxDistanceFromBodyFixedSurfaces(
                 rec, FlatSurfaceResolver,
                 out double maxDist,
-                out VesselSpawner.MaxDistanceReferenceSurface referenceSurface,
+                out LiveVesselSnapshot.MaxDistanceReferenceSurface referenceSurface,
                 out int sampleCount,
                 out int unresolved,
                 out int sectionsWithoutSurface));
@@ -559,7 +559,7 @@ namespace Parsek.Tests
             Assert.NotEqual(0.0, maxDist);              // not the old fail-closed 0
             Assert.NotEqual(3000.0, maxDist);           // not the anchor-local chord
             Assert.Equal(
-                VesselSpawner.MaxDistanceReferenceSurface.RelativeBodyFixedFrames, referenceSurface);
+                LiveVesselSnapshot.MaxDistanceReferenceSurface.RelativeBodyFixedFrames, referenceSurface);
             Assert.Equal(2, sampleCount);
             Assert.Equal(0, unresolved);
             Assert.Equal(0, sectionsWithoutSurface);
@@ -599,23 +599,23 @@ namespace Parsek.Tests
                 },
             });
 
-            List<VesselSpawner.BodyFixedSectionSample> samples =
-                VesselSpawner.CollectBodyFixedSectionSamples(rec, out int sectionsWithoutSurface);
+            List<LiveVesselSnapshot.BodyFixedSectionSample> samples =
+                LiveVesselSnapshot.CollectBodyFixedSectionSamples(rec, out int sectionsWithoutSurface);
             Assert.Equal(3, samples.Count);             // 2 bodyFixedFrames + 1 Absolute frame
             Assert.Equal(0, sectionsWithoutSurface);
-            Assert.Equal(0, VesselSpawner.ResolveLaunchReferenceIndex(samples));
+            Assert.Equal(0, LiveVesselSnapshot.ResolveLaunchReferenceIndex(samples));
 
-            Assert.True(VesselSpawner.TryComputeMaxDistanceFromBodyFixedSurfaces(
+            Assert.True(LiveVesselSnapshot.TryComputeMaxDistanceFromBodyFixedSurfaces(
                 rec, FlatSurfaceResolver,
                 out double maxDist,
-                out VesselSpawner.MaxDistanceReferenceSurface referenceSurface,
+                out LiveVesselSnapshot.MaxDistanceReferenceSurface referenceSurface,
                 out int sampleCount,
                 out int unresolved,
                 out sectionsWithoutSurface));
 
             Assert.Equal(500.0, maxDist, 6);
             Assert.Equal(
-                VesselSpawner.MaxDistanceReferenceSurface.RelativeBodyFixedFrames, referenceSurface);
+                LiveVesselSnapshot.MaxDistanceReferenceSurface.RelativeBodyFixedFrames, referenceSurface);
             Assert.Equal(3, sampleCount);
             Assert.Equal(0, unresolved);
         }
@@ -638,16 +638,16 @@ namespace Parsek.Tests
                 },
             });
 
-            Assert.False(VesselSpawner.TryComputeMaxDistanceFromBodyFixedSurfaces(
+            Assert.False(LiveVesselSnapshot.TryComputeMaxDistanceFromBodyFixedSurfaces(
                 rec, FlatSurfaceResolver,
                 out double maxDist,
-                out VesselSpawner.MaxDistanceReferenceSurface referenceSurface,
+                out LiveVesselSnapshot.MaxDistanceReferenceSurface referenceSurface,
                 out int sampleCount,
                 out int unresolved,
                 out int sectionsWithoutSurface));
 
             Assert.Equal(0.0, maxDist);
-            Assert.Equal(VesselSpawner.MaxDistanceReferenceSurface.None, referenceSurface);
+            Assert.Equal(LiveVesselSnapshot.MaxDistanceReferenceSurface.None, referenceSurface);
             Assert.Equal(0, sampleCount);
             Assert.Equal(1, sectionsWithoutSurface);
         }
@@ -780,11 +780,11 @@ namespace Parsek.Tests
 
                 // The finalization precondition: maxDist has not been computed yet.
                 rec.MaxDistanceFromLaunch = 0.0;
-                VesselSpawner.MaxDistanceBackfillRoute route =
-                    VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec);
-                if (route == VesselSpawner.MaxDistanceBackfillRoute.None)
+                LiveVesselSnapshot.MaxDistanceBackfillRoute route =
+                    LiveVesselSnapshot.ClassifyMaxDistanceBackfillRoute(rec);
+                if (route == LiveVesselSnapshot.MaxDistanceBackfillRoute.None)
                     routedNone.Add(label);
-                else if (route == VesselSpawner.MaxDistanceBackfillRoute.FlatPoints)
+                else if (route == LiveVesselSnapshot.MaxDistanceBackfillRoute.FlatPoints)
                     routedFlatPoints++;
                 else
                     routedBodyFixedSections++;
@@ -801,9 +801,9 @@ namespace Parsek.Tests
                 if (!hasRelativeBodyFixed) continue;
 
                 sectionedNoAbsoluteButRelativeBodyFixed++;
-                List<VesselSpawner.BodyFixedSectionSample> samples =
-                    VesselSpawner.CollectBodyFixedSectionSamples(rec, out int _);
-                if (VesselSpawner.ResolveLaunchReferenceIndex(samples) < 0)
+                List<LiveVesselSnapshot.BodyFixedSectionSample> samples =
+                    LiveVesselSnapshot.CollectBodyFixedSectionSamples(rec, out int _);
+                if (LiveVesselSnapshot.ResolveLaunchReferenceIndex(samples) < 0)
                     noLaunchReference.Add(label);
             }
 

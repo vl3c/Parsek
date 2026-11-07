@@ -231,14 +231,14 @@ namespace Parsek.Tests
         [Fact]
         public void HumanizeSituation_AllValues()
         {
-            Assert.Equal("Prelaunch", VesselSpawner.HumanizeSituation(Vessel.Situations.PRELAUNCH));
-            Assert.Equal("Landed", VesselSpawner.HumanizeSituation(Vessel.Situations.LANDED));
-            Assert.Equal("Splashed", VesselSpawner.HumanizeSituation(Vessel.Situations.SPLASHED));
-            Assert.Equal("Flying", VesselSpawner.HumanizeSituation(Vessel.Situations.FLYING));
-            Assert.Equal("Sub-orbital", VesselSpawner.HumanizeSituation(Vessel.Situations.SUB_ORBITAL));
-            Assert.Equal("Orbiting", VesselSpawner.HumanizeSituation(Vessel.Situations.ORBITING));
-            Assert.Equal("Escaping", VesselSpawner.HumanizeSituation(Vessel.Situations.ESCAPING));
-            Assert.Equal("Docked", VesselSpawner.HumanizeSituation(Vessel.Situations.DOCKED));
+            Assert.Equal("Prelaunch", LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.PRELAUNCH));
+            Assert.Equal("Landed", LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.LANDED));
+            Assert.Equal("Splashed", LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.SPLASHED));
+            Assert.Equal("Flying", LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.FLYING));
+            Assert.Equal("Sub-orbital", LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.SUB_ORBITAL));
+            Assert.Equal("Orbiting", LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.ORBITING));
+            Assert.Equal("Escaping", LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.ESCAPING));
+            Assert.Equal("Docked", LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.DOCKED));
         }
 
         // --- Launch site tests ---

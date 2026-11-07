@@ -25,7 +25,7 @@ namespace Parsek.Tests.SaveRoundTrip
         {
             ["Parsek.ParsekScenario"] =
                 "orchestrator: every node OnSave writes is produced by a covered type's own codec",
-            ["Parsek.VesselSpawner"] =
+            ["Parsek.LiveVesselSnapshot"] =
                 "SaveOrbitToNode writes a stock ORBIT node for a spawn, which stock KSP reads, not Parsek",
         };
 
