@@ -33,7 +33,7 @@ namespace Parsek
     ///
     /// <para><b>Scope — what is NOT captured.</b> <see cref="RecordingStore.ResetForTesting"/>
     /// also clears a number of unrelated subsystems that this snapshot does not touch:
-    /// <c>SceneEntryActiveVesselPid</c> / <c>SceneEntryActiveVesselGuid</c>, the rewind-replay-target scope, <c>RewindContext</c>
+    /// <c>SceneEntryVesselScope.SceneEntryActiveVesselPid</c> / <c>SceneEntryVesselScope.SceneEntryActiveVesselGuid</c>, the rewind-replay-target scope, <c>RewindContext</c>
     /// state, <c>RewindUTAdjustmentPending</c>, <c>GameStateRecorder.PendingScienceSubjects</c>,
     /// <c>PendingCleanupPids</c> / <c>PendingCleanupNames</c>, and <c>PendingStashedThisTransition</c>.
     /// This snapshot is intended for

@@ -137,7 +137,7 @@ WHAT IT DOES, in order:
          the census of those guards.
        * `rover C` is where an operator would be sitting to try this relay.
        * It is LANDED rather than PRELAUNCH, so it is not the fresh-rollout shape
-         `RecordingStore.SceneEntryFreshRolloutVesselPid` has a fast path for -
+         `SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid` has a fast path for -
          the same reason the sibling fixture re-points away from `rover fuel 0`.
      The index is RE-RESOLVED by name + persistentId; the constant is then
      asserted against it, so a re-harvest that reordered FLIGHTSTATE reds naming

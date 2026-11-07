@@ -117,7 +117,7 @@ WHAT IT DOES, in order:
      `IsLoadedGameFocusable` accepts index 0) and would boot the fixture into deep
      space with all three rovers unloaded; C is where an operator would be sitting;
      and C is LANDED rather than PRELAUNCH, so it is not the fresh-rollout shape
-     `RecordingStore.SceneEntryFreshRolloutVesselPid` has a fast path for. The
+     `SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid` has a fast path for. The
      index is RE-RESOLVED by name + persistentId and the constant is then asserted
      against it, so a re-harvest that reordered FLIGHTSTATE reds naming the new
      index instead of silently focusing whatever now sits at 5.

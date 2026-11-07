@@ -340,10 +340,10 @@ namespace Parsek.Tests
             // Drive the scene-entry path without touching FlightGlobals
             // (headless xUnit); the wrapper delegates to the replay helper
             // and only logs its own Verbose line when that returns true.
-            uint priorPid = RecordingStore.SceneEntryActiveVesselPid;
+            uint priorPid = SceneEntryVesselScope.SceneEntryActiveVesselPid;
             try
             {
-                RecordingStore.SceneEntryActiveVesselPid = 4242u;
+                SceneEntryVesselScope.SceneEntryActiveVesselPid = 4242u;
 
                 bool result = VesselSpawner.ShouldAllowExistingSourceDuplicateForCurrentFlight(4242u);
 
@@ -356,7 +356,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                RecordingStore.SceneEntryActiveVesselPid = priorPid;
+                SceneEntryVesselScope.SceneEntryActiveVesselPid = priorPid;
             }
         }
 

@@ -444,7 +444,7 @@ namespace Parsek
                 scenario, marker, tree, MergeDialogDiscardReason);
 
             RecordingStore.PopPendingTree();
-            RecordingStore.ClearRewindReplayTargetScope();
+            SceneEntryVesselScope.ClearRewindReplayTargetScope();
 
             EndDiscardedReFlySession(scenario, sessionId, "MergeDialog:discard-refly-attempt");
 

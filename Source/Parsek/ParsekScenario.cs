@@ -8363,8 +8363,8 @@ namespace Parsek
             if (recordings == null || recordings.Count == 0)
                 return 0;
 
-            uint rewindSourcePid = RecordingStore.RewindReplayTargetSourcePid;
-            string rewindRecId = RecordingStore.RewindReplayTargetRecordingId;
+            uint rewindSourcePid = SceneEntryVesselScope.RewindReplayTargetSourcePid;
+            string rewindRecId = SceneEntryVesselScope.RewindReplayTargetRecordingId;
             string rewoundTreeId = ResolveRewoundTreeId(recordings, rewindRecId);
             string rewindRecGuid = ResolveRewoundRecordingGuid(recordings, rewindRecId);
             double rewindUT = RewindContext.RewindUT;

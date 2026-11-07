@@ -623,8 +623,8 @@ namespace Parsek.Tests
             Assert.Equal(700.0, RewindContext.RewindReserved.reservedFunds);
             Assert.Equal(2.0, RewindContext.RewindReserved.reservedScience);
             Assert.Equal(0.25f, RewindContext.RewindReserved.reservedReputation);
-            Assert.Equal("rec_rewind_owner", RecordingStore.RewindReplayTargetRecordingId);
-            Assert.Equal(4711u, RecordingStore.RewindReplayTargetSourcePid);
+            Assert.Equal("rec_rewind_owner", SceneEntryVesselScope.RewindReplayTargetRecordingId);
+            Assert.Equal(4711u, SceneEntryVesselScope.RewindReplayTargetSourcePid);
         }
 
         [Fact]
