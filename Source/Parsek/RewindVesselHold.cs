@@ -45,7 +45,7 @@ namespace Parsek
         /// <summary>One held vessel: the hold decision plus the rewind save's copy of it.</summary>
         internal sealed class Hold
         {
-            public ReFlyInvokeHold.Entry Entry;
+            public ReFlyHoldEntry Entry;
             public string VesselName;
             public ConfigNode Snapshot;
         }
@@ -97,7 +97,7 @@ namespace Parsek
         /// (<c>ParsekFlight.SelectChainPidsToGhost</c>). <paramref name="liveGuidOf"/> answers a
         /// pid's launch guid in the rewind's world (null when unknown or absent).
         /// </summary>
-        internal static List<ReFlyInvokeHold.Entry> CollectChainHolds(
+        internal static List<ReFlyHoldEntry> CollectChainHolds(
             Dictionary<uint, GhostChain> chains, double rewindUT, Func<uint, string> liveGuidOf)
         {
             int tipNotReplayed;
@@ -110,12 +110,12 @@ namespace Parsek
         /// holds nothing (it will not play after the rewind, so no tip spawn would bring the
         /// vessel back) and is counted in <paramref name="tipNotReplayed"/>.
         /// </summary>
-        internal static List<ReFlyInvokeHold.Entry> CollectChainHolds(
+        internal static List<ReFlyHoldEntry> CollectChainHolds(
             Dictionary<uint, GhostChain> chains, double rewindUT, Func<uint, string> liveGuidOf,
             Func<string, bool> tipReplays, out int tipNotReplayed)
         {
             tipNotReplayed = 0;
-            var result = new List<ReFlyInvokeHold.Entry>();
+            var result = new List<ReFlyHoldEntry>();
             if (chains == null || double.IsNaN(rewindUT) || double.IsInfinity(rewindUT))
                 return result;
             var seen = new HashSet<uint>();
@@ -148,7 +148,7 @@ namespace Parsek
                         }
                     }
                     string claimGuid = found ? claim.LaunchGuid : null;
-                    result.Add(new ReFlyInvokeHold.Entry
+                    result.Add(new ReFlyHoldEntry
                     {
                         Pid = pid,
                         LaunchGuid = !string.IsNullOrEmpty(claimGuid)
@@ -168,33 +168,33 @@ namespace Parsek
         /// <paramref name="futureEntries"/> (<see cref="ReFlyInvokeHold.Classify(IReadOnlyList{ValueTuple{uint, string}}, ICollection{uint}, IReadOnlyList{Recording}, IReadOnlyList{GameAction}, IReadOnlyList{ReFlyInvokeHold.ChangeClaim}, double, out int)"/>),
         /// keeping the earliest first claim and every flying recording either side names.
         /// </summary>
-        internal static List<ReFlyInvokeHold.Entry> Merge(
-            IList<ReFlyInvokeHold.Entry> chainEntries, IList<ReFlyInvokeHold.Entry> futureEntries)
+        internal static List<ReFlyHoldEntry> Merge(
+            IList<ReFlyHoldEntry> chainEntries, IList<ReFlyHoldEntry> futureEntries)
         {
-            var byPid = new Dictionary<uint, ReFlyInvokeHold.Entry>();
+            var byPid = new Dictionary<uint, ReFlyHoldEntry>();
             var order = new List<uint>();
             AddAll(chainEntries, byPid, order);
             AddAll(futureEntries, byPid, order);
-            var result = new List<ReFlyInvokeHold.Entry>(order.Count);
+            var result = new List<ReFlyHoldEntry>(order.Count);
             for (int i = 0; i < order.Count; i++)
                 result.Add(byPid[order[i]]);
             return result;
         }
 
         private static void AddAll(
-            IList<ReFlyInvokeHold.Entry> entries, Dictionary<uint, ReFlyInvokeHold.Entry> byPid, List<uint> order)
+            IList<ReFlyHoldEntry> entries, Dictionary<uint, ReFlyHoldEntry> byPid, List<uint> order)
         {
             if (entries == null)
                 return;
             for (int i = 0; i < entries.Count; i++)
             {
-                ReFlyInvokeHold.Entry e = entries[i];
+                ReFlyHoldEntry e = entries[i];
                 if (e == null || e.Pid == 0u)
                     continue;
-                ReFlyInvokeHold.Entry existing;
+                ReFlyHoldEntry existing;
                 if (!byPid.TryGetValue(e.Pid, out existing))
                 {
-                    var copy = new ReFlyInvokeHold.Entry
+                    var copy = new ReFlyHoldEntry
                     {
                         Pid = e.Pid,
                         LaunchGuid = e.LaunchGuid,
@@ -272,7 +272,7 @@ namespace Parsek
             for (int i = 0; i < nodes.Length; i++)
             {
                 ConfigNode entryNode = nodes[i].GetNode(ReFlyInvokeHold.EntryNodeName);
-                ReFlyInvokeHold.Entry entry = ReFlyInvokeHold.LoadEntry(entryNode);
+                ReFlyHoldEntry entry = ReFlyInvokeHold.LoadEntry(entryNode);
                 if (entry == null)
                     continue;
                 ConfigNode snap = nodes[i].GetNode(SnapshotNodeName);
@@ -289,7 +289,7 @@ namespace Parsek
         /// <summary>Pure: the one-line description of a held vessel the rewind logs.</summary>
         internal static string FormatHeldLine(Hold hold)
         {
-            ReFlyInvokeHold.Entry e = hold?.Entry;
+            ReFlyHoldEntry e = hold?.Entry;
             if (e == null)
                 return "Rewind held vessel: <none>";
             return string.Format(ic,
