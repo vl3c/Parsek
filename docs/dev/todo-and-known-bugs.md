@@ -2936,6 +2936,17 @@ recover half (Controllers); move the Recording-aware half of the extrapolator in
 move the route structure list into Logistics or read it through an interface Missions owns.
 Update `modules.toml` in the same commits so the placement report stays true.
 
+**Progress, VesselSpawner placement PRs 6-10** of the 2026-11-06 file-placement plan (one
+sub-branch each, merged into the refactor branch in order; each move proven by a per-method IL
+compare).
+- PR 6: the crew-in-snapshot and situation family (18 declarations, 391 lines) moved from
+  `VesselSpawner` to `VesselSnapshotOps`; `ApplySituationToNode` and `IsLandedLikeSnapshot`
+  widened private -> internal. `ExtractCrewManifest` (its default trait lookup reads the
+  roster) and `RemoveDuplicateCrewFromSnapshotCore` (reads crew through
+  `CrewReservationManager`) stay in `VesselSpawner`: moved, they pulled `VesselSnapshotOps`
+  into the type knot (457 -> 459). The one module-level change is Core -> Trajectory +1
+  (`TerminalState`, Trajectory since PR 2); upward edges and knots do not move.
+
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
@@ -2964,6 +2975,15 @@ Update `modules.toml` in the same commits so the placement report stays true.
   GameActions 17 -> 1 (the real call, still VIOLATION), Recording -> GameActions 20 -> 15,
   Trajectory and Logistics -> GameActions 1 -> 0; upward edges 88 -> 85, weight 836 -> 826;
   knots unchanged (457, 4, 3).
+- 2026-11-07 (refactor branch): the cut-residue ratchet
+  (`test_cut_sequence_halves_the_largest_knot`) now bounds min(greedy residue, replayed
+  residue). `archview.replay_cut_residue` removes the outgoing references of a pinned cut order
+  (`RATCHET_CUT_ORDER`, the greedy order on the branch that day) and returns the largest
+  component left; for a fixed cut set, deleting a reference can only shrink components, so a
+  pure move that removes a reference can no longer red the ratchet through a greedy reorder
+  (file-placement PR 4 deletes `OrbitReseed -> GhostMapPresence`: on the tree it was measured
+  on, greedy 285 -> 290, replayed 285). The bound is unchanged by this (287 after RecordingStore
+  PR3) and the greedy sequence stays the documented one.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

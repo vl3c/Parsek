@@ -333,7 +333,7 @@ namespace Parsek.Tests
             // Bill was removed from the spawn copy (dead / EVA'd / on another vessel):
             // his recorded entry is reported unseated and never applied.
             ConfigNode spawnNode = CrewedSnapshotWithInventory();
-            VesselSpawner.RemoveSpecificCrewFromSnapshot(spawnNode, new HashSet<string> { "Bill Kerman" });
+            VesselSnapshotOps.RemoveSpecificCrewFromSnapshot(spawnNode, new HashSet<string> { "Bill Kerman" });
             var appliedNames = new List<string>();
 
             CrewInventoryRestoreResult result = CrewInventorySnapshot.RestoreForSpawn(

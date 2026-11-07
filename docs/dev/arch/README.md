@@ -265,6 +265,19 @@ than moved edges. The table is a research list, not a verdict - the tool never s
 reference is wrong, only that it holds a cycle together. Nothing in this phase
 changes any dependency; it reports them.
 
+The residue after the last cut is a ratchet in `scripts/arch/test_archview.py`
+(`test_cut_sequence_halves_the_largest_knot`, 287 of 459 on the current tree):
+refactor work must not loosen it. Because the greedy sequence is a heuristic,
+deleting a real reference can change which sink wins an early step and leave a
+larger residue after the same 12 steps, so the ratchet measures the smaller of
+the greedy residue and the **replayed residue** (`replay_cut_residue`): the
+largest component left after removing the outgoing references of a fixed,
+pinned cut order (`RATCHET_CUT_ORDER`, the greedy order as of 2026-11-07). For
+a fixed set of cut types, deleting a reference can only shrink the remaining
+components, so a pure move that removes a reference can never red the ratchet;
+adding a reference, or a new type that sits inside the residue, still can. The
+printed and documented sequence stays the greedy one.
+
 `ladder.html` shows the same information in place. The row of a knot level is
 split into sub-rows, top to bottom by descending sublevel (level 0 of the knot
 at the bottom, so the bottom-up reading still holds), grouped by a brown
@@ -337,12 +350,15 @@ meaning of Core from here on.
 `VesselSnapshotOps.cs` is the ninth and the newest: the 2026-09-14
 `VesselSpawner` split created it as the pure-over-ConfigNode subset the ledger,
 Logistics, the route proof and the UI all call, and named it in the `Core` rule
-in the same PR. Its R2 evidence reads `externalRefs=8 share=0.50
-top=Logistics(4) second=Recording(2)`, exactly on the R2 bar, so the placement
-report lists it under "Placement rules whose destination does not match the
-current map": the mechanical rule would send it to Logistics, the operator
-decision keeps it in the kernel. That line is the standing note about the
-disagreement, not a defect.
+in the same PR. The 2026-11-07 placement PR 6 moved the crew-in-snapshot and
+situation helpers into it as well (18 declarations; the two crew members that
+read the roster or `CrewReservationManager` stayed in `VesselSpawner`, which
+keeps it out of the type knot). Its R2 evidence then reads `externalRefs=10
+share=0.50 top=Logistics(5) second=Controllers(2)`, exactly on the R2 bar, so
+the placement report lists it under "Placement rules whose destination does not
+match the current map": the mechanical rule would send it to Logistics, the
+operator decision keeps it in the kernel. That line is the standing note about
+the disagreement, not a defect.
 
 ## The atlas
 
