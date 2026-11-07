@@ -66,7 +66,7 @@ namespace Parsek.Tests
                 LoopPlayback = true,
                 LoopIntervalSeconds = StandaloneLoopMapFixture.LoopPeriodSeconds,
             };
-            RecordingStore.DeserializeTrajectoryFrom(Build().BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(Build().BuildTrajectoryNode(), rec);
             Assert.Equal(2, rec.Points.Count);
             Assert.True(GhostPlaybackEngine.ShouldLoopPlayback(rec));
 

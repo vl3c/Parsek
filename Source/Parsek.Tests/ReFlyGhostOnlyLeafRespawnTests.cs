@@ -113,7 +113,7 @@ namespace Parsek.Tests
             var tree = MakeTreeWithSpawnedLeaf(out leaf);
             if (sidecarWrittenBeforeMerge)
             {
-                Assert.True(RecordingStore.SaveRecordingFiles(leaf, incrementEpoch: true));
+                Assert.True(RecordingSidecarStore.SaveRecordingFiles(leaf, incrementEpoch: true));
                 Assert.True(File.Exists(VesselSidecarPath(LeafId)));
             }
 
@@ -137,7 +137,7 @@ namespace Parsek.Tests
             Assert.False(leaf.VesselSnapshotHydrationFailed);
 
             // OnSave after the merge, with the in-memory snapshot null.
-            Assert.True(RecordingStore.SaveRecordingFiles(leaf, incrementEpoch: true));
+            Assert.True(RecordingSidecarStore.SaveRecordingFiles(leaf, incrementEpoch: true));
             return tree;
         }
 
@@ -199,7 +199,7 @@ namespace Parsek.Tests
             RecordingTree.SaveRecordingInto(sfs, leaf);
             var reloaded = new Recording();
             RecordingTree.LoadRecordingFrom(sfs, reloaded);
-            Assert.True(RecordingStore.LoadRecordingFiles(reloaded));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(reloaded));
 
             Assert.NotNull(reloaded.VesselSnapshot);
             Assert.Equal("Kerbal X", reloaded.VesselSnapshot.GetValue("name"));

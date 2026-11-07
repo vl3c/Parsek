@@ -7,7 +7,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// P2 follow-up on PR #838 (recording/rendering v0 reset): the save-time
-    /// gate <see cref="RecordingStore.AreRecordingFilesCurrentForSave"/> used
+    /// gate <see cref="RecordingSidecarStore.AreRecordingFilesCurrentForSave"/> used
     /// header-only probes for trajectory and snapshot sidecars. A .prec
     /// truncated past the header, or a .craft with a valid header but a bad
     /// payload checksum, still passed certification, so OnSave serialized
@@ -97,7 +97,7 @@ namespace Parsek.Tests
             string precPath = Path.Combine(tempDir, rec.RecordingId + ".prec");
             string vesselPath = Path.Combine(tempDir, rec.RecordingId + "_vessel.craft");
             string ghostPath = Path.Combine(tempDir, rec.RecordingId + "_ghost.craft");
-            bool wrote = RecordingStore.SaveRecordingFilesToPathsForTesting(
+            bool wrote = RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false);
             Assert.True(wrote, "fixture save must succeed");
             return (precPath, vesselPath, ghostPath);
@@ -109,7 +109,7 @@ namespace Parsek.Tests
             var rec = BuildRecording("intact");
             var (precPath, vesselPath, ghostPath) = WriteFreshSidecars(rec);
 
-            bool current = RecordingStore.AreRecordingFilesCurrentAtPathsForTesting(
+            bool current = RecordingSidecarStore.AreRecordingFilesCurrentAtPaths(
                 rec, precPath, vesselPath, ghostPath, out string reason);
 
             Assert.True(current,
@@ -167,7 +167,7 @@ namespace Parsek.Tests
                 "header probe must still pass on a header-only truncation; this is the bug surface");
 
             // Save gate must now reject the truncated payload.
-            bool current = RecordingStore.AreRecordingFilesCurrentAtPathsForTesting(
+            bool current = RecordingSidecarStore.AreRecordingFilesCurrentAtPaths(
                 rec, precPath, vesselPath, ghostPath, out string reason);
 
             Assert.False(current, "truncated trajectory payload must fail save-gate certification");
@@ -261,7 +261,7 @@ namespace Parsek.Tests
             Assert.NotNull(reason);
             // And the same exception type must NOT propagate through
             // the save gate either.
-            bool current = RecordingStore.AreRecordingFilesCurrentAtPathsForTesting(
+            bool current = RecordingSidecarStore.AreRecordingFilesCurrentAtPaths(
                 rec, precPath, /*vesselPath*/ precPath + ".nonexistent", /*ghostPath*/ precPath + ".nonexistent", out string gateReason);
             Assert.False(current);
             Assert.NotNull(gateReason);
@@ -396,7 +396,7 @@ namespace Parsek.Tests
                 "header probe must still pass on a payload-only bit flip; this is the bug surface");
 
             // Save gate must reject the bit-flipped snapshot payload.
-            bool current = RecordingStore.AreRecordingFilesCurrentAtPathsForTesting(
+            bool current = RecordingSidecarStore.AreRecordingFilesCurrentAtPaths(
                 rec, precPath, vesselPath, ghostPath, out string reason);
 
             Assert.False(current, "bit-flipped snapshot payload must fail save-gate certification");
@@ -415,7 +415,7 @@ namespace Parsek.Tests
             if (File.Exists(vesselPath)) File.Delete(vesselPath);
             if (File.Exists(ghostPath)) File.Delete(ghostPath);
 
-            bool current = RecordingStore.AreRecordingFilesCurrentAtPathsForTesting(
+            bool current = RecordingSidecarStore.AreRecordingFilesCurrentAtPaths(
                 rec, precPath, vesselPath, ghostPath, out string reason);
 
             Assert.True(current,
@@ -437,17 +437,17 @@ namespace Parsek.Tests
             }
 
             // Verify the gate now rejects.
-            Assert.False(RecordingStore.AreRecordingFilesCurrentAtPathsForTesting(
+            Assert.False(RecordingSidecarStore.AreRecordingFilesCurrentAtPaths(
                 rec, precPath, vesselPath, ghostPath, out string preReason));
             Assert.StartsWith("trajectory-payload-invalid", preReason);
 
             // Resave from in-memory rec (mirrors EnsureRecordingFilesCurrentForSave's
             // rewrite branch in ParsekScenario).
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, precPath, vesselPath, ghostPath, incrementEpoch: false));
 
             // Gate must now certify the rewritten sidecars.
-            Assert.True(RecordingStore.AreRecordingFilesCurrentAtPathsForTesting(
+            Assert.True(RecordingSidecarStore.AreRecordingFilesCurrentAtPaths(
                 rec, precPath, vesselPath, ghostPath, out string postReason),
                 "rewritten sidecars must re-certify; reason=" + (postReason ?? "<null>"));
             Assert.Null(postReason);

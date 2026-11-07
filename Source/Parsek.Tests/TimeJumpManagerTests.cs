@@ -828,10 +828,10 @@ namespace Parsek.Tests
                 var events = new List<SegmentEvent> { evt };
                 var node = new ConfigNode("ROOT");
 
-                RecordingStore.SerializeSegmentEvents(node, events);
+                TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, events);
 
                 var deserialized = new List<SegmentEvent>();
-                RecordingStore.DeserializeSegmentEvents(node, deserialized);
+                TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
                 Assert.Single(deserialized);
                 Assert.Equal(SegmentEventType.TimeJump, deserialized[0].type);

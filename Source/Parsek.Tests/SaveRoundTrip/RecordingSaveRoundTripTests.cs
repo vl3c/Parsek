@@ -246,18 +246,18 @@ namespace Parsek.Tests.SaveRoundTrip
                 var rt = new FieldRoundTrip(RecordingMetadataSpecs.All());
                 var written = rt.Build<Recording>();
                 var node = new ConfigNode("RECORDING");
-                RecordingStore.SerializeCrewEndStates(node, written);
-                RecordingStore.SerializeResourceManifest(node, written);
-                RecordingStore.SerializeInventoryManifest(node, written);
-                RecordingStore.SerializeCrewManifest(node, written);
-                RecordingStore.SerializeRouteProofMetadata(node, written);
+                RecordingManifestCodec.SerializeCrewEndStates(node, written);
+                RecordingManifestCodec.SerializeResourceManifest(node, written);
+                RecordingManifestCodec.SerializeInventoryManifest(node, written);
+                RecordingManifestCodec.SerializeCrewManifest(node, written);
+                RouteProofCodec.SerializeRouteProofMetadata(node, written);
 
                 var read = new Recording();
-                RecordingStore.DeserializeCrewEndStates(node, read);
-                RecordingStore.DeserializeResourceManifest(node, read);
-                RecordingStore.DeserializeInventoryManifest(node, read);
-                RecordingStore.DeserializeCrewManifest(node, read);
-                RecordingStore.DeserializeRouteProofMetadata(node, read);
+                RecordingManifestCodec.DeserializeCrewEndStates(node, read);
+                RecordingManifestCodec.DeserializeResourceManifest(node, read);
+                RecordingManifestCodec.DeserializeInventoryManifest(node, read);
+                RecordingManifestCodec.DeserializeCrewManifest(node, read);
+                RouteProofCodec.DeserializeRouteProofMetadata(node, read);
 
                 var problems = new List<string>();
                 foreach (var f in FieldRoundTrip.GetFields(typeof(Recording)))

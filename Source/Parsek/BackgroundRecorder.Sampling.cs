@@ -64,7 +64,7 @@ namespace Parsek
             string checkpointSkipReason = null;
             if (tree.Recordings.TryGetValue(state.recordingId, out treeRec))
             {
-                appendedCheckpoint = RecordingStore.TryAppendClosedOnRailsCheckpointSection(
+                appendedCheckpoint = OrbitSegmentCheckpointBridge.TryAppendClosedCheckpointSection(
                     treeRec,
                     state.currentOrbitSegment,
                     markDirty: true,

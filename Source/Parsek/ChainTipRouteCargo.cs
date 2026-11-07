@@ -767,7 +767,7 @@ namespace Parsek
                 return;
             try
             {
-                RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+                RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
             }
             catch (Exception ex)
             {

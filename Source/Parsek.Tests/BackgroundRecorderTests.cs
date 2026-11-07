@@ -2284,7 +2284,7 @@ namespace Parsek.Tests
                 epoch = 300.0,
                 bodyName = "Kerbin"
             };
-            var historicalEmptyCheckpoint = RecordingStore.BuildOpenOnRailsCheckpointSection(300.0);
+            var historicalEmptyCheckpoint = OrbitSegmentCheckpointBridge.BuildOpenCheckpointSection(300.0);
             historicalEmptyCheckpoint.endUT = 500.0;
             rec.TrackSections.Add(historicalEmptyCheckpoint);
             rec.TrackSections.Add(new TrackSection
@@ -2302,7 +2302,7 @@ namespace Parsek.Tests
                 checkpoints = new List<OrbitSegment>()
             });
 
-            bool appended = RecordingStore.TryAppendClosedOnRailsCheckpointSection(
+            bool appended = OrbitSegmentCheckpointBridge.TryAppendClosedCheckpointSection(
                 rec,
                 segment,
                 markDirty: false,

@@ -61,7 +61,7 @@ namespace Parsek.Tests
             string vesselPath = Path.Combine(tempDir, written.RecordingId + "_vessel.craft");
             string ghostPath = Path.Combine(tempDir, written.RecordingId + "_ghost.craft");
 
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 written, precPath, vesselPath, ghostPath, incrementEpoch: true));
 
             var restored = new Recording { RecordingId = written.RecordingId };

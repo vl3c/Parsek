@@ -256,7 +256,7 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(DeflateMagic, System.Text.Encoding.ASCII.GetString(head),
                 "snapshot sidecar does not start with the DeflateV1 magic: " + path);
 
-            InGameAssert.IsTrue(RecordingStore.TryLoadSnapshotSidecar(path, out decoded, out SnapshotSidecarProbe probe),
+            InGameAssert.IsTrue(SnapshotSidecarCodec.TryLoad(path, out decoded, out SnapshotSidecarProbe probe),
                 "snapshot sidecar failed to decode: " + path + " " + SnapshotSidecarCodec.DescribeProbe(probe));
             InGameAssert.IsTrue(probe.Supported, "snapshot sidecar is not supported: " + path);
             InGameAssert.AreEqual(SnapshotSidecarEncoding.DeflateV1, probe.Encoding,

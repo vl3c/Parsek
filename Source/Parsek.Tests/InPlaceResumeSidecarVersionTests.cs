@@ -125,7 +125,7 @@ namespace Parsek.Tests
 
             // In session, a dropped committed snapshot re-hydrates its own bytes, not the clone's.
             committedRec.VesselSnapshot = null;
-            Assert.True(RecordingStore.TryHydrateVesselSnapshotFromSidecar(committedRec));
+            Assert.True(RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(committedRec));
             Assert.Equal("Committed", committedRec.VesselSnapshot.GetValue("name"));
 
             // One save names both versions of the id.
@@ -145,7 +145,7 @@ namespace Parsek.Tests
                 RecordingTree loaded = RecordingTree.Load(treeNode);
                 foreach (Recording rec in loaded.Recordings.Values)
                 {
-                    Assert.True(RecordingStore.LoadRecordingFiles(rec));
+                    Assert.True(RecordingSidecarStore.LoadRecordingFiles(rec));
                     RecordingStore.AddCommittedInternal(rec);
                 }
                 RecordingStore.AddCommittedTreeForTesting(loaded);
@@ -184,7 +184,7 @@ namespace Parsek.Tests
             ResetAll();
             SidecarVersionResolution.BeginColdLoad(afterDiscardText);
             RecordingTree again = RecordingTree.Load(afterDiscardText.GetNode("RECORDING_TREE"));
-            Assert.True(RecordingStore.LoadRecordingFiles(again.Recordings[RootId]));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(again.Recordings[RootId]));
             SidecarVersionResolution.End("test-cold-load");
             Assert.Equal(3, again.Recordings[RootId].Points.Count);
             Assert.Equal(h1, SidecarContentHash.ComputeFile(HeadPath(RootId)));

@@ -466,7 +466,7 @@ namespace Parsek
             {
                 if (!recordings[i].FilesDirty) continue;
                 bool advanceEpoch = ShouldAdvanceSidecarEpochOnFlush(recordings[i]);
-                if (SaveRecordingFiles(recordings[i], incrementEpoch: advanceEpoch))
+                if (RecordingSidecarStore.SaveRecordingFiles(recordings[i], incrementEpoch: advanceEpoch))
                 {
                     saved++;
                     if (advanceEpoch)
