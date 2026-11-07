@@ -2869,6 +2869,14 @@ each PR lands on the refactor branch, IL-proven a pure move).
   seams and their two statics) and `ReconcileReadableSidecarMirrorsForKnownRecordings`, which
   reads the committed list and the pending slot. `RecordingStore` 9,663 -> 9,311 lines, 314 ->
   258 methods; cut residue 285 -> 287 (`RecordingSidecarStore`, `RouteProofCodec`).
+- PR4 (service D) landed: `IsChainMidSegment`, `GetChainPredecessorIndex`, `GetChainEndUT`,
+  `ValidateChains` (the OnLoad chain degrade) and `IsChainLooping` left the store as
+  `RecordingChainQueries`, bodies verbatim apart from reading the committed list through
+  `RecordingStore.CommittedRecordings` and logging through `RecordingStore.Log` (tag kept).
+  No statics, no forwarder; the production call sites (9 files) and 4 test files moved.
+  The new file is on the ERS / ELS allowlist (raw committed indices, as inside the store).
+  `RecordingStore` 9,311 -> 9,120 lines, 258 -> 253 methods; knot 458 -> 459 (the new type
+  sits on a cycle), cut residue unchanged at 287.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

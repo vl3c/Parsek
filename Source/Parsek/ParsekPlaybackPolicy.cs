@@ -1554,7 +1554,7 @@ namespace Parsek
         /// freshly spawned chain-seam successor? True iff the spawn was flagged as a chain
         /// seam, an active watch exists, the watch is not already on the new spawn, and the
         /// new spawn's chain predecessor IS the currently watched recording. The chain-topology
-        /// half stays single-sourced in <c>RecordingStore.GetChainPredecessorIndex</c>; this
+        /// half stays single-sourced in <c>RecordingChainQueries.GetChainPredecessorIndex</c>; this
         /// predicate composes that with the spawn-time signal and the watch state.
         /// <para>
         /// <b>Gates intentionally NOT added (Opus PR review 2026-05-19):</b>
@@ -1629,7 +1629,7 @@ namespace Parsek
             if (evt.Index < 0 || evt.Index >= committed.Count) return;
             Recording successor = committed[evt.Index];
             if (successor == null) return;
-            int predIdxForSuccessor = RecordingStore.GetChainPredecessorIndex(successor);
+            int predIdxForSuccessor = RecordingChainQueries.GetChainPredecessorIndex(successor);
 
             if (!ShouldAutoFollowChainSeamSpawn(
                 evt.State.spawnedAtChainSeam, watchedIndex, evt.Index, predIdxForSuccessor))
