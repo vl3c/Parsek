@@ -19,7 +19,7 @@ namespace Parsek.Tests
     public class Bug278FinalizeLimboTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
-        private readonly VesselSpawner.ResolveBodyIndexDelegate originalBodyIndexResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyIndexDelegate originalBodyIndexResolver;
 
         public Bug278FinalizeLimboTests()
         {
@@ -28,14 +28,14 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            originalBodyIndexResolver = VesselSpawner.BodyIndexResolverForTesting;
+            originalBodyIndexResolver = LiveVesselSnapshot.BodyIndexResolverForTesting;
         }
 
         public void Dispose()
         {
             IncompleteBallisticSceneExitFinalizer.ResetForTesting();
             TestBodyRegistry.Reset();
-            VesselSpawner.BodyIndexResolverForTesting = originalBodyIndexResolver;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = originalBodyIndexResolver;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -721,7 +721,7 @@ namespace Parsek.Tests
 
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
             Assert.True(TestBodyRegistry.ResolveBodyByName("Mun", out CelestialBody body));
-            VesselSpawner.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
 
             ConfigNode normalized = ParsekFlight.NormalizeStableTerminalSnapshotForPersistence(
                 snapshot,

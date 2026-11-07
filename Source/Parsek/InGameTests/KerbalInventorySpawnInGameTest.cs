@@ -52,7 +52,7 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            ConfigNode snapshot = LiveVesselSnapshot.TryBackupSnapshot(vessel);
             InGameAssert.IsNotNull(snapshot, "TryBackupSnapshot returned null for the active vessel");
             Dictionary<string, ConfigNode> captured = CrewInventorySnapshot.ReadFromSnapshot(snapshot);
             InGameAssert.IsNotNull(captured,

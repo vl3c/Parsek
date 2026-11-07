@@ -54,7 +54,7 @@ namespace Parsek.Tests
             SetHomeWorld(kerbin, true);
             var mun = TestBodyRegistry.CreateBody("Mun", 200000.0, 6.5138398e10);
             SetHomeWorld(mun, false);
-            VesselSpawner.BodyResolverForTesting = (string name, out CelestialBody body) =>
+            LiveVesselSnapshot.BodyResolverForTesting = (string name, out CelestialBody body) =>
             {
                 body = name == "Kerbin" ? kerbin : name == "Mun" ? mun : null;
                 return !ReferenceEquals(body, null);
@@ -64,7 +64,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            VesselSpawner.BodyResolverForTesting = null;
+            LiveVesselSnapshot.BodyResolverForTesting = null;
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             RecordingPaths.SaveRootOverrideForTesting = null;
             if (tempSaveRoot != null && System.IO.Directory.Exists(tempSaveRoot))
@@ -337,7 +337,7 @@ namespace Parsek.Tests
         [Fact]
         public void Evaluate_NoBodyRegistry_IsNotRetired()
         {
-            VesselSpawner.BodyResolverForTesting = (string name, out CelestialBody body) =>
+            LiveVesselSnapshot.BodyResolverForTesting = (string name, out CelestialBody body) =>
             {
                 body = null;
                 return false;

@@ -161,7 +161,7 @@ namespace Parsek
                 Recording.ResolveLocalizedName(v.vesselName) ?? partName,
                 parentRec.Generation);
 
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(v);
+            ConfigNode snapshot = LiveVesselSnapshot.TryBackupSnapshot(v);
             member.GhostVisualSnapshot = snapshot;
             member.VesselSnapshot = snapshot != null ? snapshot.CreateCopy() : null;
             member.StartResources = VesselSnapshotOps.ExtractResourceManifest(snapshot);

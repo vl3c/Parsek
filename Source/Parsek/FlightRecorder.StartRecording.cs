@@ -247,8 +247,8 @@ namespace Parsek
         private void CaptureStartLocation(Vessel v, bool isPromotion)
         {
             StartBodyName = v.mainBody?.name;
-            StartSituation = v.isEVA ? "EVA" : VesselSpawner.HumanizeSituation(v.situation);
-            StartBiome = VesselSpawner.TryResolveBiome(v.mainBody?.name, v.latitude, v.longitude);
+            StartSituation = v.isEVA ? "EVA" : LiveVesselSnapshot.HumanizeSituation(v.situation);
+            StartBiome = LiveVesselSnapshot.TryResolveBiome(v.mainBody?.name, v.latitude, v.longitude);
             uint freshRolloutPid = SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid;
             string landedAtSite = ResolveLandedAtLaunchSite(v.situation, v.landedAt);
             string launchSiteGate;
@@ -533,7 +533,7 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"StartRecording: captured launch guid={pendingRecordedVesselGuid ?? "(none)"}");
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
-                : VesselSpawner.TryBackupSnapshot(v);
+                : LiveVesselSnapshot.TryBackupSnapshot(v);
             ApplyStartRecordingTreeBackstop(
                 ActiveTree, pendingStartControllers, pendingStartCrew, pendingRecordedVesselGuid,
                 StartBodyName, StartBiome, StartSituation, LaunchSiteName,

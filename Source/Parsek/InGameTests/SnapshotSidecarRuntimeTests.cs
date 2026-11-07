@@ -91,11 +91,11 @@ namespace Parsek.InGameTests
             }
 
             // Half 2: a snapshot captured from the live active vessel NOW (the product's
-            // own capture, VesselSpawner.TryBackupSnapshot), written through the product
+            // own capture, LiveVesselSnapshot.TryBackupSnapshot), written through the product
             // sidecar writer and read back through the product reader.
             int liveRoundTrips = 0;
             Vessel active = FlightGlobals.ActiveVessel;
-            ConfigNode live = active != null ? VesselSpawner.TryBackupSnapshot(active) : null;
+            ConfigNode live = active != null ? LiveVesselSnapshot.TryBackupSnapshot(active) : null;
             if (live != null)
             {
                 string scratchDir = CreateScratchDir(saveDir);

@@ -30,7 +30,7 @@ namespace Parsek.Tests
             var kerbin = TestBodyRegistry.CreateBody("Kerbin", KerbinRadius, 3.5316e12);
             FieldInfo field = typeof(CelestialBody).GetField("isHomeWorld");
             field.SetValue(kerbin, true);
-            VesselSpawner.BodyResolverForTesting = (string name, out CelestialBody body) =>
+            LiveVesselSnapshot.BodyResolverForTesting = (string name, out CelestialBody body) =>
             {
                 body = name == "Kerbin" ? kerbin : null;
                 return !ReferenceEquals(body, null);
@@ -40,7 +40,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            VesselSpawner.BodyResolverForTesting = null;
+            LiveVesselSnapshot.BodyResolverForTesting = null;
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             LaunchSiteExclusionZones.ResetForTesting();
             RecordingStore.ResetForTesting();

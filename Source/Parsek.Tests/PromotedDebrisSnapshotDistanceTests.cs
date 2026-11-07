@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME (GS-11): a staging booster promoted to the
     /// foreground recorder entered RELATIVE mode near its sibling, so its flat
     /// <c>Points</c> list carried anchor-local Cartesian METRES in latitude/longitude/
-    /// altitude. <c>VesselSpawner.SnapshotVessel</c> resolved that flat list as body-fixed
+    /// altitude. <c>LiveVesselSnapshot.SnapshotVessel</c> resolved that flat list as body-fixed
     /// coordinates and stamped <c>Max distance: 1205340m</c> on a booster that fell 5 km
     /// from the pad; the frame-correct finalize backfill then skipped the recording
     /// because its maxDist was already non-zero. The stop-time distances now take the
@@ -100,8 +100,8 @@ namespace Parsek.Tests
         public void Route_RelativeSectionPresent_TakesBodyFixedSections()
         {
             Assert.Equal(
-                VesselSpawner.SnapshotDistanceRoute.BodyFixedSections,
-                VesselSpawner.ClassifySnapshotDistanceRoute(PromotedBoosterCapture()));
+                LiveVesselSnapshot.SnapshotDistanceRoute.BodyFixedSections,
+                LiveVesselSnapshot.ClassifySnapshotDistanceRoute(PromotedBoosterCapture()));
         }
 
         [Fact]
@@ -119,12 +119,12 @@ namespace Parsek.Tests
             sectionless.Points.Add(P(1.0, 0.0, 0.0, 0.0));
             sectionless.Points.Add(P(2.0, 1.0, 0.0, 0.0));
 
-            Assert.Equal(VesselSpawner.SnapshotDistanceRoute.FlatPoints,
-                VesselSpawner.ClassifySnapshotDistanceRoute(absoluteOnly));
-            Assert.Equal(VesselSpawner.SnapshotDistanceRoute.FlatPoints,
-                VesselSpawner.ClassifySnapshotDistanceRoute(sectionless));
-            Assert.Equal(VesselSpawner.SnapshotDistanceRoute.FlatPoints,
-                VesselSpawner.ClassifySnapshotDistanceRoute(null));
+            Assert.Equal(LiveVesselSnapshot.SnapshotDistanceRoute.FlatPoints,
+                LiveVesselSnapshot.ClassifySnapshotDistanceRoute(absoluteOnly));
+            Assert.Equal(LiveVesselSnapshot.SnapshotDistanceRoute.FlatPoints,
+                LiveVesselSnapshot.ClassifySnapshotDistanceRoute(sectionless));
+            Assert.Equal(LiveVesselSnapshot.SnapshotDistanceRoute.FlatPoints,
+                LiveVesselSnapshot.ClassifySnapshotDistanceRoute(null));
         }
 
         // The destroyed-vessel path: no live position, so the distance runs from the
@@ -138,18 +138,18 @@ namespace Parsek.Tests
             Assert.True(flatChord > 1000000.0,
                 "fixture must reproduce the defect: the flat list reads as >1000 km");
 
-            Assert.True(VesselSpawner.TryComputeSnapshotDistancesFromBodyFixedSurfaces(
+            Assert.True(LiveVesselSnapshot.TryComputeSnapshotDistancesFromBodyFixedSurfaces(
                 rec, FlatSurfaceResolver, null,
                 out double distanceFromLaunch,
                 out double maxDist,
-                out VesselSpawner.MaxDistanceReferenceSurface referenceSurface,
+                out LiveVesselSnapshot.MaxDistanceReferenceSurface referenceSurface,
                 out int sampleCount,
                 out bool endResolved));
 
             Assert.Equal(5000.0, maxDist, 6);
             Assert.Equal(5000.0, distanceFromLaunch, 6);
             Assert.True(endResolved);
-            Assert.Equal(VesselSpawner.MaxDistanceReferenceSurface.AbsoluteFrames, referenceSurface);
+            Assert.Equal(LiveVesselSnapshot.MaxDistanceReferenceSurface.AbsoluteFrames, referenceSurface);
             Assert.Equal(5, sampleCount);
             Assert.NotEqual(flatChord, maxDist);
         }
@@ -160,11 +160,11 @@ namespace Parsek.Tests
         {
             Recording rec = PromotedBoosterCapture();
 
-            Assert.True(VesselSpawner.TryComputeSnapshotDistancesFromBodyFixedSurfaces(
+            Assert.True(LiveVesselSnapshot.TryComputeSnapshotDistancesFromBodyFixedSurfaces(
                 rec, FlatSurfaceResolver, new Vector3d(4000.0, 0.0, 0.0),
                 out double distanceFromLaunch,
                 out double maxDist,
-                out VesselSpawner.MaxDistanceReferenceSurface _,
+                out LiveVesselSnapshot.MaxDistanceReferenceSurface _,
                 out int _,
                 out bool endResolved));
 
@@ -189,19 +189,19 @@ namespace Parsek.Tests
             });
             rec.Points.AddRange(rec.TrackSections[0].frames);
 
-            Assert.Equal(VesselSpawner.SnapshotDistanceRoute.BodyFixedSections,
-                VesselSpawner.ClassifySnapshotDistanceRoute(rec));
-            Assert.False(VesselSpawner.TryComputeSnapshotDistancesFromBodyFixedSurfaces(
+            Assert.Equal(LiveVesselSnapshot.SnapshotDistanceRoute.BodyFixedSections,
+                LiveVesselSnapshot.ClassifySnapshotDistanceRoute(rec));
+            Assert.False(LiveVesselSnapshot.TryComputeSnapshotDistancesFromBodyFixedSurfaces(
                 rec, FlatSurfaceResolver, null,
                 out double distanceFromLaunch,
                 out double maxDist,
-                out VesselSpawner.MaxDistanceReferenceSurface referenceSurface,
+                out LiveVesselSnapshot.MaxDistanceReferenceSurface referenceSurface,
                 out int sampleCount,
                 out bool endResolved));
 
             Assert.Equal(0.0, distanceFromLaunch);
             Assert.Equal(0.0, maxDist);
-            Assert.Equal(VesselSpawner.MaxDistanceReferenceSurface.None, referenceSurface);
+            Assert.Equal(LiveVesselSnapshot.MaxDistanceReferenceSurface.None, referenceSurface);
             Assert.Equal(0, sampleCount);
             Assert.False(endResolved);
         }
@@ -214,30 +214,30 @@ namespace Parsek.Tests
         {
             Recording rec = PromotedBoosterCapture();
 
-            Assert.True(VesselSpawner.TryGetEndBiomeSamplePoint(rec, true, out TrajectoryPoint bodyFixed));
+            Assert.True(LiveVesselSnapshot.TryGetEndBiomeSamplePoint(rec, true, out TrajectoryPoint bodyFixed));
             Assert.Equal(120.0, bodyFixed.ut);
             Assert.Equal(5.0, bodyFixed.latitude);
             Assert.Equal(0.0, bodyFixed.longitude);
 
-            Assert.True(VesselSpawner.TryGetEndBiomeSamplePoint(rec, false, out TrajectoryPoint flat));
+            Assert.True(LiveVesselSnapshot.TryGetEndBiomeSamplePoint(rec, false, out TrajectoryPoint flat));
             Assert.Equal(1100.0, flat.latitude);    // the flat route still reads the last point
 
-            Assert.False(VesselSpawner.TryGetEndBiomeSamplePoint(null, true, out TrajectoryPoint _));
+            Assert.False(LiveVesselSnapshot.TryGetEndBiomeSamplePoint(null, true, out TrajectoryPoint _));
         }
 
         [Fact]
         public void LatestSampleIndex_TieResolvesToTheLaterCollectedSample()
         {
-            var samples = new List<VesselSpawner.BodyFixedSectionSample>
+            var samples = new List<LiveVesselSnapshot.BodyFixedSectionSample>
             {
-                new VesselSpawner.BodyFixedSectionSample { point = P(80.0, 1.0, 0.0, 0.0), sectionIndex = 0 },
-                new VesselSpawner.BodyFixedSectionSample { point = P(80.0, 2.0, 0.0, 0.0), sectionIndex = 1 },
-                new VesselSpawner.BodyFixedSectionSample { point = P(70.0, 0.0, 0.0, 0.0), sectionIndex = 1 },
+                new LiveVesselSnapshot.BodyFixedSectionSample { point = P(80.0, 1.0, 0.0, 0.0), sectionIndex = 0 },
+                new LiveVesselSnapshot.BodyFixedSectionSample { point = P(80.0, 2.0, 0.0, 0.0), sectionIndex = 1 },
+                new LiveVesselSnapshot.BodyFixedSectionSample { point = P(70.0, 0.0, 0.0, 0.0), sectionIndex = 1 },
             };
 
-            Assert.Equal(1, VesselSpawner.ResolveLatestSampleIndex(samples));
-            Assert.Equal(-1, VesselSpawner.ResolveLatestSampleIndex(new List<VesselSpawner.BodyFixedSectionSample>()));
-            Assert.Equal(-1, VesselSpawner.ResolveLatestSampleIndex(null));
+            Assert.Equal(1, LiveVesselSnapshot.ResolveLatestSampleIndex(samples));
+            Assert.Equal(-1, LiveVesselSnapshot.ResolveLatestSampleIndex(new List<LiveVesselSnapshot.BodyFixedSectionSample>()));
+            Assert.Equal(-1, LiveVesselSnapshot.ResolveLatestSampleIndex(null));
         }
     }
 }

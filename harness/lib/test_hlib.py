@@ -6715,7 +6715,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # `Logistics` test files plus the helper they share returns exactly ONE hit, and
     # it is a COMMENT about a RECORDED start situation
     # (`LogisticsRouteProducerRuntimeTests.cs:165`, quoting
-    # `VesselSpawner.HumanizeSituation(Vessel.Situations.PRELAUNCH)` to explain what a
+    # `LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.PRELAUNCH)` to explain what a
     # committed recording's `startSituation` field holds). Not one Logistics cell
     # stages, and not one reads the LIVE situation. `UnloadedFuelVesselFixture`'s own
     # docstring says a "fueled PRELAUNCH pad rocket satisfies them after the unpack
@@ -6724,7 +6724,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     #
     # WHAT LOGISTICS ACTUALLY NEEDS is the capability that helper's own failure path
     # names. `EnsureUnloadedLiquidFuelVessel` snapshots the ACTIVE vessel with
-    # `VesselSpawner.TryBackupSnapshot`, rewrites the snapshot's FIRST LiquidFuel tank
+    # `LiveVesselSnapshot.TryBackupSnapshot`, rewrites the snapshot's FIRST LiquidFuel tank
     # to the required stored / free floors and re-spawns it as the unloaded depot - so
     # with no LiquidFuel RESOURCE node on the active vessel it returns
     # `reason = "no-liquidfuel-resource"` and every unloaded-depot cell skips. That is
@@ -7003,7 +7003,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                     "for the post-switch surface canary to move" % idx)
             return problems
         if requirement == "logistics":
-            # (a) A real craft to snapshot. `VesselSpawner.TryBackupSnapshot` has
+            # (a) A real craft to snapshot. `LiveVesselSnapshot.TryBackupSnapshot` has
             #     nothing to copy off a part-less VESSEL node - an asteroid /
             #     SpaceObject is the realistic way a fixture lands here, and
             #     `logi-cargo-pad` really does carry one as its OTHER vessel - and

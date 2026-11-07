@@ -116,7 +116,7 @@ namespace Parsek
                 return null;
             try
             {
-                if (!VesselSpawner.TryResolveBodyByName(bodyName, out CelestialBody body)
+                if (!LiveVesselSnapshot.TryResolveBodyByName(bodyName, out CelestialBody body)
                     || object.ReferenceEquals(body, null) || !body.isHomeWorld)
                     return null;
                 return body.Radius;

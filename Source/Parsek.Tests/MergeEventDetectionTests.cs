@@ -7,11 +7,11 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class MergeEventDetectionTests : System.IDisposable
     {
-        private readonly VesselSpawner.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
 
         public MergeEventDetectionTests()
         {
-            originalBodyNameResolver = VesselSpawner.BodyNameResolverForTesting;
+            originalBodyNameResolver = LiveVesselSnapshot.BodyNameResolverForTesting;
             RecordingStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
@@ -24,7 +24,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
-            VesselSpawner.BodyNameResolverForTesting = originalBodyNameResolver;
+            LiveVesselSnapshot.BodyNameResolverForTesting = originalBodyNameResolver;
         }
 
         #region BuildMergeBranchData — Dock (Two Parents)
@@ -231,7 +231,7 @@ namespace Parsek.Tests
         [Fact]
         public void TryBuildRouteEndpointFromSnapshot_UsesAbsorbedVesselSnapshot()
         {
-            VesselSpawner.BodyNameResolverForTesting = delegate(int index, out string name)
+            LiveVesselSnapshot.BodyNameResolverForTesting = delegate(int index, out string name)
             {
                 name = index == 1 ? "Mun" : null;
                 return index == 1;

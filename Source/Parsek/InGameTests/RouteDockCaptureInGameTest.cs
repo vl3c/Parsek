@@ -2243,7 +2243,7 @@ namespace Parsek.InGameTests
                 }
 
                 Vessel merged = rig.Root.vessel;
-                ConfigNode before = VesselSpawner.TryBackupSnapshot(merged);
+                ConfigNode before = LiveVesselSnapshot.TryBackupSnapshot(merged);
                 if (before == null)
                 {
                     skipReason = "could not snapshot the merged vessel before the cargo move";
