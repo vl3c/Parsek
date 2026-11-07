@@ -5,6 +5,11 @@ Item 7 of `architecture-opportunities-2026-09-14.md`. A member-level read of
 before anyone edits it. Analysis only; nothing here has been started. Line
 numbers are the 2026-09-14 reading of origin/main.
 
+Status 2026-11-07: step 1 shipped as #1686 (`VesselSnapshotOps`). Steps 2-5
+are replaced by the 2026-11-06 file-placement plan, PRs 6-10 (todo
+ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT, which records each one); its PR 6 moved
+the crew-in-snapshot and situation family to `VesselSnapshotOps`.
+
 ## 1. Member inventory
 
 Buckets derived mechanically: each member's body was scanned for live-KSP

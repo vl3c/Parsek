@@ -202,7 +202,7 @@ namespace Parsek.Tests
             var crew = new List<string>();
             var dead = new HashSet<string> { "Jeb" };
 
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(crew, dead);
+            bool result = VesselSnapshotOps.ShouldBlockSpawnForDeadCrew(crew, dead);
 
             Assert.False(result);
             Assert.Contains(logLines, l => l.Contains("no crew in snapshot"));
@@ -211,7 +211,7 @@ namespace Parsek.Tests
         [Fact]
         public void DeadCrewGuard_NullCrew_DoesNotBlock()
         {
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(null, new HashSet<string> { "Jeb" });
+            bool result = VesselSnapshotOps.ShouldBlockSpawnForDeadCrew(null, new HashSet<string> { "Jeb" });
 
             Assert.False(result);
         }
@@ -222,7 +222,7 @@ namespace Parsek.Tests
             var crew = new List<string> { "Jeb", "Bill" };
             var dead = new HashSet<string>();
 
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(crew, dead);
+            bool result = VesselSnapshotOps.ShouldBlockSpawnForDeadCrew(crew, dead);
 
             Assert.False(result);
             Assert.Contains(logLines, l => l.Contains("no dead crew"));
@@ -234,7 +234,7 @@ namespace Parsek.Tests
             var crew = new List<string> { "Minidou Kerman" };
             var dead = new HashSet<string> { "Minidou Kerman" };
 
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(crew, dead);
+            bool result = VesselSnapshotOps.ShouldBlockSpawnForDeadCrew(crew, dead);
 
             Assert.True(result);
             Assert.Contains(logLines, l => l.Contains("blocking spawn (all crew dead)"));
@@ -246,7 +246,7 @@ namespace Parsek.Tests
             var crew = new List<string> { "Jeb", "Bill", "Bob" };
             var dead = new HashSet<string> { "Jeb", "Bill", "Bob" };
 
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(crew, dead);
+            bool result = VesselSnapshotOps.ShouldBlockSpawnForDeadCrew(crew, dead);
 
             Assert.True(result);
             Assert.Contains(logLines, l => l.Contains("3/3 crew dead"));
@@ -258,7 +258,7 @@ namespace Parsek.Tests
             var crew = new List<string> { "Jeb", "Bill" };
             var dead = new HashSet<string> { "Jeb" };
 
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(crew, dead);
+            bool result = VesselSnapshotOps.ShouldBlockSpawnForDeadCrew(crew, dead);
 
             Assert.False(result);
             Assert.Contains(logLines, l => l.Contains("1/2 crew dead") && l.Contains("allowing spawn"));
@@ -269,7 +269,7 @@ namespace Parsek.Tests
         {
             var crew = new List<string> { "Jeb" };
 
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(crew, null);
+            bool result = VesselSnapshotOps.ShouldBlockSpawnForDeadCrew(crew, null);
 
             Assert.False(result);
         }
@@ -281,7 +281,7 @@ namespace Parsek.Tests
         [Fact]
         public void ExtractCrew_NullSnapshot_EmptyList()
         {
-            var result = VesselSpawner.ExtractCrewNamesFromSnapshot(null);
+            var result = VesselSnapshotOps.ExtractCrewNamesFromSnapshot(null);
 
             Assert.Empty(result);
         }
@@ -294,7 +294,7 @@ namespace Parsek.Tests
             part.AddValue("name", "mk1pod.v2");
             snapshot.AddNode(part);
 
-            var result = VesselSpawner.ExtractCrewNamesFromSnapshot(snapshot);
+            var result = VesselSnapshotOps.ExtractCrewNamesFromSnapshot(snapshot);
 
             Assert.Empty(result);
         }
@@ -308,7 +308,7 @@ namespace Parsek.Tests
             part.AddValue("crew", "Minidou Kerman");
             snapshot.AddNode(part);
 
-            var result = VesselSpawner.ExtractCrewNamesFromSnapshot(snapshot);
+            var result = VesselSnapshotOps.ExtractCrewNamesFromSnapshot(snapshot);
 
             Assert.Single(result);
             Assert.Equal("Minidou Kerman", result[0]);
@@ -328,7 +328,7 @@ namespace Parsek.Tests
             part2.AddValue("crew", "Bob");
             snapshot.AddNode(part2);
 
-            var result = VesselSpawner.ExtractCrewNamesFromSnapshot(snapshot);
+            var result = VesselSnapshotOps.ExtractCrewNamesFromSnapshot(snapshot);
 
             Assert.Equal(3, result.Count);
             Assert.Contains("Jeb", result);
@@ -345,7 +345,7 @@ namespace Parsek.Tests
             part.AddValue("crew", "");
             snapshot.AddNode(part);
 
-            var result = VesselSpawner.ExtractCrewNamesFromSnapshot(snapshot);
+            var result = VesselSnapshotOps.ExtractCrewNamesFromSnapshot(snapshot);
 
             Assert.Single(result);
             Assert.Equal("Jeb", result[0]);

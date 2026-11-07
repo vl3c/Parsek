@@ -55,7 +55,7 @@ namespace Parsek.Tests
             var crew = new List<string> { "Jebediah Kerman", "Bill Kerman", "Bob Kerman" };
             var deadSet = new HashSet<string> { "Bob Kerman" };
 
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(crew, deadSet);
+            bool result = VesselSnapshotOps.ShouldBlockSpawnForDeadCrew(crew, deadSet);
 
             Assert.False(result);
         }
@@ -69,7 +69,7 @@ namespace Parsek.Tests
             var crew = new List<string> { "Jebediah Kerman", "Bill Kerman", "Bob Kerman" };
             var deadSet = new HashSet<string>(crew);
 
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(crew, deadSet);
+            bool result = VesselSnapshotOps.ShouldBlockSpawnForDeadCrew(crew, deadSet);
 
             Assert.True(result);
         }

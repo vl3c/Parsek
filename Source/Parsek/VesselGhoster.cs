@@ -928,9 +928,9 @@ namespace Parsek
         private static Vector3d ResolveSpawnPosition(Recording tipRecording, ConfigNode vesselSnapshot)
         {
             double snapLat = 0, snapLon = 0, snapAlt = 0;
-            bool hasSnapPos = VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lat", out snapLat)
-                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lon", out snapLon)
-                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "alt", out snapAlt);
+            bool hasSnapPos = VesselSnapshotOps.TryGetSnapshotDouble(vesselSnapshot, "lat", out snapLat)
+                           && VesselSnapshotOps.TryGetSnapshotDouble(vesselSnapshot, "lon", out snapLon)
+                           && VesselSnapshotOps.TryGetSnapshotDouble(vesselSnapshot, "alt", out snapAlt);
             bool hasEndpointCoords = RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
                 tipRecording,
                 out string endpointBodyName,
