@@ -1037,7 +1037,7 @@ namespace Parsek
                 return new double[] { body.Radius, body.gravParameter };
             };
 
-            var stats = TrajectoryMath.ComputeStats(rec, bodyLookup);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, bodyLookup);
             rec.CachedStats = stats;
             rec.CachedStatsPointCount = rec.Points.Count;
             return stats;
