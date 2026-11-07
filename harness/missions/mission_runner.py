@@ -154,6 +154,19 @@ GATE_FLIP_WINDOW_DUMP_INTERVAL_SECONDS = RING_BUFFER_FRAMES * POLL_INTERVAL_SECO
 # atomic tmp+os.replace, best-effort (never blocks the fly loop).
 STATUS_WRITE_INTERVAL_SECONDS = 2.0
 
+# CS-7's classic-path loft: each setter's KRPC.MechJeb AscentAutopilot property, and the
+# relative tolerance a float read-back is held to (the server stores doubles; this only
+# absorbs a float32 round trip).
+_MJ_CLASSIC_PATH_ATTRS = {
+    mlib.ACTION_MJ_SET_AUTO_PATH: "auto_path",
+    mlib.ACTION_MJ_SET_TURN_START_ALTITUDE: "turn_start_altitude",
+    mlib.ACTION_MJ_SET_TURN_START_VELOCITY: "turn_start_velocity",
+    mlib.ACTION_MJ_SET_TURN_END_ALTITUDE: "turn_end_altitude",
+    mlib.ACTION_MJ_SET_TURN_SHAPE_EXPONENT: "turn_shape_exponent",
+    mlib.ACTION_MJ_SET_TURN_END_ANGLE: "turn_end_angle",
+}
+MJ_CLASSIC_READBACK_TOLERANCE = 1e-4
+
 
 class WarpStallTracker:
     """PURE stall detector for the native-warp watchdog: tracks the last time
@@ -635,8 +648,13 @@ class KrpcMissionControl(MissionControl):
         self._mj_ever_enabled = False
         # The first refused MechJeb ascent setting (a raise or a read-back that
         # disagrees), or "" while none was refused. ACTION_MJ_ENGAGE_ASCENT reads
-        # it and withholds the engage. Only the three career setters write it.
+        # it and withholds the engage. Only the career and classic-path setters write it.
         self._mj_config_refusal = ""
+        # The classic-path values the loft overwrote (property -> value read before the
+        # write), written back at ACTION_MJ_RESTORE_CLASSIC_PATH or at close(): MechJeb
+        # keeps its ascent settings per craft type and globally, so the loft must not
+        # outlive the Kerbin ascent (the Mun ascent, the next lane).
+        self._mj_classic_restore: Dict[str, object] = {}
         # Consecutive telemetry-read failures. A one-off error still re-raises (the
         # existing transient path); only a SUSTAINED streak (>= _READ_FAIL_LIMIT)
         # means the active vessel is gone -- KSP destroyed the craft and handed
@@ -1514,6 +1532,10 @@ class KrpcMissionControl(MissionControl):
                       mlib.ACTION_MJ_SET_SKIP_CIRCULARIZATION,
                       mlib.ACTION_MJ_SET_ASCENT_TYPE):
             self._perform_mj_ascent_setting(action)
+        elif kind in _MJ_CLASSIC_PATH_ATTRS:
+            self._perform_mj_classic_path_setting(action)
+        elif kind == mlib.ACTION_MJ_RESTORE_CLASSIC_PATH:
+            self._restore_mj_classic_path("ascent done")
         elif kind == mlib.ACTION_MJ_ENGAGE_ASCENT:
             # A refused MechJeb setting (see _perform_mj_ascent_setting) withholds
             # the engage: an autopilot that would stage the pod's own separation or
@@ -4416,6 +4438,83 @@ class KrpcMissionControl(MissionControl):
                     % (", ".join(excluded), raw, corrected)))
         return corrected
 
+    def _perform_mj_classic_path_setting(self, action: "mlib.Action") -> None:
+        """SET-then-READ-BACK one MechJeb classic-path setting (CS-7's loft): AutoPath
+        (bool) or a TurnStart / TurnEnd / TurnShapeExponent / TurnEndAngle value (a
+        float, read back within MJ_CLASSIC_READBACK_TOLERANCE relative). KRPC.MechJeb
+        surfaces AscentAutopilot.AutoPath, TurnStartAltitude, TurnStartVelocity,
+        TurnEndAltitude, TurnShapeExponent and TurnEndAngle (get/set) and
+        AutoTurnStartAltitude / AutoTurnEndAltitude (get only). Before AutoPath goes
+        off the auto path's own altitudes are read and logged (report only), so a
+        flight records the profile it replaced. A refusal withholds the engage, as
+        the career setters' does."""
+        kind = action.kind
+        attr = _MJ_CLASSIC_PATH_ATTRS[kind]
+        try:
+            if attr not in self._mj_classic_restore:
+                self._mj_classic_restore[attr] = getattr(self._ascent, attr)
+        except Exception:  # noqa: BLE001
+            pass  # an unreadable original is not restored; the write below decides
+        try:
+            if kind == mlib.ACTION_MJ_SET_AUTO_PATH:
+                try:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Info", "MjConfig",
+                        "auto path before the loft: auto_turn_start_altitude=%.1f "
+                        "auto_turn_end_altitude=%.1f turn_shape_exponent=%.3f"
+                        % (float(self._ascent.auto_turn_start_altitude),
+                           float(self._ascent.auto_turn_end_altitude),
+                           float(self._ascent.turn_shape_exponent))))
+                except Exception as exc:  # noqa: BLE001
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Info", "MjConfig", "auto path read skipped (%s: %s)"
+                        % (type(exc).__name__, str(exc)[:120])))
+                want = bool(action.value)
+                setattr(self._ascent, attr, want)
+                got = bool(getattr(self._ascent, attr))
+                ok = got == want
+            else:
+                want = float(action.value)
+                setattr(self._ascent, attr, want)
+                got = float(getattr(self._ascent, attr))
+                ok = abs(got - want) <= MJ_CLASSIC_READBACK_TOLERANCE * max(1.0, abs(want))
+        except Exception as exc:  # noqa: BLE001
+            reason = "%s set FAILED (%s: %s)" % (kind, type(exc).__name__, str(exc)[:160])
+            self._mj_config_refusal = self._mj_config_refusal or reason
+            _stdout_sink(mlib.format_mission_log_line("Warn", "MjConfig", reason))
+            return
+        if not ok:
+            reason = "%s READ BACK as %r, not %r" % (attr, got, want)
+            self._mj_config_refusal = self._mj_config_refusal or reason
+            _stdout_sink(mlib.format_mission_log_line("Warn", "MjConfig", reason))
+            return
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "MjConfig", "%s=%r (read back confirmed)" % (attr, got)))
+
+    def _restore_mj_classic_path(self, context: str) -> None:
+        """Write back every classic-path value the loft overwrote (read before each
+        write), AutoPath last, and log it. Report only: a failed write is logged as a
+        Warn and never raised (the flight goes on; the next loft lane writes its own)."""
+        pending = self._mj_classic_restore
+        if not pending:
+            return
+        self._mj_classic_restore = {}
+        done, failed = [], []
+        for attr in sorted(pending, key=lambda a: a == "auto_path"):
+            try:
+                setattr(self._ascent, attr, pending[attr])
+                done.append("%s=%r" % (attr, pending[attr]))
+            except Exception as exc:  # noqa: BLE001
+                failed.append("%s (%s: %s)" % (attr, type(exc).__name__, str(exc)[:80]))
+        if done:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "MjConfig", "classic path restored for %s: %s"
+                % (context, " ".join(done))))
+        if failed:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "MjConfig", "classic path restore failed for %s: %s"
+                % (context, "; ".join(failed))))
+
     def _perform_mj_ascent_setting(self, action: "mlib.Action") -> None:
         """SET-then-READ-BACK one MechJeb AscentAutopilot setting (the CS-4 career
         setters). KRPC.MechJeb surfaces, from GameData/kRPC/KRPC.MechJeb.json:
@@ -4619,6 +4718,11 @@ class KrpcMissionControl(MissionControl):
             self._warp_stall.reset()
 
     def close(self) -> None:
+        if self._mj_classic_restore and self._conn is not None:
+            try:
+                self._restore_mj_classic_path("mission end")
+            except Exception:  # noqa: BLE001
+                pass
         warp = self._warp
         self._warp = None
         if warp is not None:

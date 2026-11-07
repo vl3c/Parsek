@@ -841,6 +841,55 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertEqual(0, len(re.findall(r"(?m)^\tattN = top,Decoupler\.1_\d+_0\|3\.92\|0$",
                                            text)))
 
+    def test_the_ascent_heating_gate_passes_the_loft(self):
+        # THE ASCENT HEATING: under CS-7's loft every calibration reaches LKO, peaks
+        # under the ceiling (the survived 2.37e8 over 1.5) and keeps at least the
+        # flown path's LF at LKO.
+        heating = self.b.solar_ascent_heating()
+        self.assertEqual(len(self.b.SOLAR_ASCENT_CALIBRATIONS), len(heating))
+        self.assertEqual([], self.b.solar_heating_problems(heating))
+        for h in heating:
+            self.assertLess(h["loft"]["peak"], self.b.SOLAR_HEAT_CEILING)
+            self.assertGreaterEqual(h["loft"]["lf_at_lko"], h["flown"]["lf_at_lko"])
+        self.assertAlmostEqual(self.b.SOLAR_HEAT_SURVIVED / self.b.SOLAR_HEAT_MARGIN,
+                               self.b.SOLAR_HEAT_CEILING)
+
+    def test_the_ascent_heating_model_reproduces_the_lost_leg(self):
+        # Under the auto path each calibration fitted, the model reads the 850babd
+        # flight: the core drop at about 31.5 km, a peak at least the index at the
+        # leg's loss, and the lander at LKO near the flight's 413.5 LF.
+        for cal in self.b.SOLAR_ASCENT_CALIBRATIONS:
+            o = self.b.ascent_model(self.b.calibration_path(cal), cal)
+            self.assertGreaterEqual(o["peak"], self.b.SOLAR_HEAT_LOST, cal)
+            self.assertLess(abs(o["drops"][1][1] - 31765), 1000, o["drops"])
+            self.assertLess(abs(o["lf_at_lko"] - 413.5), 25.0, o["lf_at_lko"])
+            alt, hs, vs = self.b.calibration_residuals(cal)
+            self.assertLess(alt, 1000.0, cal)
+            self.assertLess(hs, 80.0, cal)
+            self.assertLess(vs, 40.0, cal)
+
+    def test_the_ascent_heating_gate_refuses_a_flat_path(self):
+        # The gate refuses the flown auto path and a flatter loft (shape 0.4 at 80 km).
+        flat = self.b.solar_ascent_heating(path=dict(self.b.SOLAR_LOFT, shape=0.4))
+        self.assertTrue(any("over the ceiling" in p
+                            for p in self.b.solar_heating_problems(flat)))
+        for cal in self.b.SOLAR_ASCENT_CALIBRATIONS:
+            o = self.b.ascent_model(self.b.calibration_path(cal), cal)
+            self.assertGreater(o["peak"], 3.0 * self.b.SOLAR_HEAT_CEILING)
+
+    def test_the_spec_flies_the_builders_loft(self):
+        with open(CS7_SPEC, "rb") as fh:
+            params = tomllib.load(fh)["driver"]["missionParams"]
+        loft = self.b.SOLAR_LOFT
+        self.assertEqual(0, params["ascentType"])
+        self.assertEqual(self.b.SOLAR_TARGET_APOAPSIS_M, params["targetApoapsisMeters"])
+        for key, field in (("mjClassicTurnStartAltitudeMeters", "turn_start"),
+                           ("mjClassicTurnStartVelocityMps", "turn_start_velocity"),
+                           ("mjClassicTurnEndAltitudeMeters", "turn_end"),
+                           ("mjClassicTurnShapeExponent", "shape"),
+                           ("mjClassicTurnEndAngleDeg", "end_angle")):
+            self.assertEqual(float(loft[field]), float(params[key]), key)
+
     def test_the_spec_flies_this_craft_from_cs6cs_save(self):
         with open(CS7_SPEC, "rb") as fh:
             spec = tomllib.load(fh)

@@ -2187,6 +2187,7 @@ def solar_problems():
     if stage_table(parts) != solar_stage_want():
         out.append("stage order %r != %r" % (stage_table(parts), solar_stage_want()))
     out.extend(solar_staging(parts, solar_build()))
+    out.extend(solar_heating_problems(solar_ascent_heating(parts=parts)))
     shield = [p for p in parts if p.name == "HeatShield1"][0]
     if shield.istg != -1:
         out.append("the heat shield must not be staged")
@@ -2437,6 +2438,266 @@ def solar_staging(parts=None, text=None):
     return out
 
 
+# ---------------------------------------------------------------------------
+# THE ASCENT HEATING (todo CS7-LANDER-TIPS-AT-BOARD, the 850babd flight). Both attempts
+# of `2026-11-07_0545` / `_0620_a2` lost the LT-05 opposite the hatch in the Kerbin
+# ascent: `miniLandingLeg Exploded!!` at 33.8 km and 2103 m/s, on three legs at the Mun
+# after. The LT-05's cfg reads maxTemp = 1200 with no skinMaxTemp (the skin follows it),
+# the lowest limit on the stack. No leg placement avoids it (three legs 120 deg apart,
+# each at least 60 deg off the hatch, put one exactly opposite it, the side MechJeb's
+# roll holds to windward), so the ascent itself has to stay out of the hot band.
+#
+# The yardstick is a heating index sqrt(rho) v^3 (rho = 1.225 exp(-h / 5.8 km), v the
+# airspeed), the shape of convective stagnation heating. Read off the MJ-ASCENT rows:
+# the two flights whose legs survived peaked at 2.37e8 (2026-11-07_0104_a2, 44.6 km) and
+# 2.11e8 (2026-10-31_0654_a2); 850babd peaked at 5.85e8 (5.58e8 at the loss). There the
+# core dropped as on 0104_a2 (31.8 km, 1269 m/s across, 157 up) but the lander, at a
+# thrust-to-weight of 0.57, could not hold MechJeb's auto path: it topped out at 35.8 km
+# and sank to 33.3 km while it built speed to orbit, 160 s in the hot band.
+#
+# The model is a point mass in Kerbin's equatorial plane under MechJeb's classic path
+# (pitch 90 below the turn start, then 90 - f^shape (90 - end angle) with f the altitude
+# fraction of the turn, the AoA limit fading in above its dynamic pressure), each stage's
+# engines from the craft (an SRB's flow is fixed, so its thrust follows Isp; pressure
+# exp(-h / 5.6 km), which reads the flight's own thrust lapse: 734 kN at 10.8 km, the
+# Swivel's 211 at 13.4 km), drag CdA x a supersonic drag-rise curve, MechJeb's coast
+# holding the apoapsis against drag, and the circularization at the apoapsis. Each
+# CALIBRATION is a least-squares fit of the auto path's unknowns (turn start, turn end,
+# shape, the AoA limit) and the three stages' CdA to the 0620_a2 rows (every third row
+# to the leg's loss: altitude, horizontal and vertical speed); the five that fit are
+# kept, as they place the lander's sag differently. Every one reproduces the loss (peak
+# 6.2e8 to 6.6e8 under the flown path, the model reading 6 to 14% high).
+#
+# THE LOFT (CS-7's mjClassic* missionParams): AutoPath off, the turn from 1000 m / 90 m/s
+# to 80 km at shape 0.55, end angle 0. Under every calibration the peak is 4.1e7 to
+# 5.1e7 (the lander near orbital speed at 62 to 64 km, or the launch stage at 12 km;
+# the gate's ceiling is the survived 2.37e8 over 1.5) and the lander reaches LKO with
+# about 30 LF MORE than under the flown path (it no longer burns sideways in thick air),
+# so the loft costs no fuel: the flown path reads 415 to 425 LF at LKO against the
+# flight's 413.5. Its neighbours (turn end 70 to 100 km, shape 0.5 to 0.6) and drag x0.7
+# / x1.3 all stay under 1.6e8; shape 0.4 at 80 km does not (2.6e8).
+SOLAR_HEAT_SCALE_HEIGHT_M = 5800.0
+SOLAR_PRESSURE_SCALE_HEIGHT_M = 5600.0
+SOLAR_SPEED_OF_SOUND = 300.0
+SOLAR_HEAT_SURVIVED = 2.37e8
+SOLAR_HEAT_LOST = 5.58e8
+SOLAR_HEAT_MARGIN = 1.5
+SOLAR_HEAT_CEILING = SOLAR_HEAT_SURVIVED / SOLAR_HEAT_MARGIN
+SOLAR_TARGET_APOAPSIS_M = 80000.0
+# (fit error, turn start m, turn end m, shape, CdA launch / core / lander m^2,
+#  max AoA deg, AoA fade-out Pa), fitted 2026-11-08 on 2026-11-07_0620_a2.
+SOLAR_ASCENT_CALIBRATIONS = (
+    (2.20, 1807.74, 71331.93, 0.3736, 9.0370, 1.4621, 1.1579, 25.997, 2600.20),
+    (2.36, 355.80, 68619.19, 0.4142, 7.1170, 2.4741, 0.7156, 24.393, 4944.80),
+    (2.40, 813.94, 74915.55, 0.3776, 6.7847, 2.8110, 0.6739, 58.918, 10648.95),
+    (4.13, 414.26, 61326.57, 0.4533, 8.9933, 1.2451, 1.0400, 59.982, 1806.55),
+    (5.15, 0.00, 69461.62, 0.4170, 6.3477, 2.7719, 0.6281, 12.604, 10016.89),
+)
+# CS-7's loft, kept equal to the spec's mjClassic* keys by test_cs_orbiter_craft.
+SOLAR_LOFT = {"turn_start": 1000.0, "turn_start_velocity": 90.0, "turn_end": 80000.0,
+              "shape": 0.55, "end_angle": 0.0}
+# 2026-11-07_0620_a2's rows the calibrations are checked against: (s after launch,
+# altitude m, horizontal and vertical surface speed m/s), the core drop at 175.9 s.
+SOLAR_FLOWN_ASCENT_ROWS = (
+    (30.3, 1712, 11, 126), (60.5, 7887, 230, 268), (89.6, 15858, 422, 244),
+    (119.7, 22362, 649, 192), (149.9, 27670, 952, 162), (169.7, 30789, 1189, 156),
+    (190.4, 33690, 1333, 109), (210.2, 35260, 1428, 51), (230.0, 35791, 1530, 4),
+    (249.7, 35530, 1637, -28), (270.4, 34743, 1752, -44), (290.2, 33893, 1860, -38),
+    (309.9, 33366, 1964, -12), (329.7, 33529, 2066, 31), (337.0, 33824, 2103, 51))
+KERBIN_MU = 3.5316e12
+KERBIN_RADIUS = 600000.0
+KERBIN_OMEGA = 2.0 * math.pi / 21549.425
+# LF units per tonne of the lander's LF + oxidizer (0.9 : 1.1 by volume, 5 kg a unit).
+LF_PER_TONNE = 0.9 / (2.0 * 0.005)
+
+
+def calibration_path(cal):
+    """The auto path a calibration fitted, as a classic-path dict."""
+    return {"turn_start": cal[1], "turn_start_velocity": 0.0, "turn_end": cal[2],
+            "shape": cal[3], "end_angle": 0.0}
+
+
+def classic_pitch(path, altitude, speed):
+    """MechJeb's classic path: vertical below the turn start (altitude or speed), the
+    end angle above the turn end, 90 - f^shape (90 - end angle) between."""
+    if altitude < path["turn_start"] or speed < path["turn_start_velocity"]:
+        return 90.0
+    if altitude >= path["turn_end"]:
+        return path["end_angle"]
+    f = (altitude - path["turn_start"]) / (path["turn_end"] - path["turn_start"])
+    return min(89.99, max(0.01, 90.0 - f ** path["shape"] * (90.0 - path["end_angle"])))
+
+
+def _drag_rise(mach):
+    if mach < 0.8:
+        return 1.0
+    if mach < 1.1:
+        return 1.0 + (mach - 0.8) / 0.3
+    if mach < 2.0:
+        return 2.0 - (mach - 1.1) / 0.9 * 0.6
+    if mach < 5.0:
+        return 1.4 - (mach - 2.0) / 3.0 * 0.3
+    return 1.1
+
+
+def heating_index(altitude, airspeed):
+    if altitude >= 70000.0:
+        return 0.0
+    return math.sqrt(1.225 * math.exp(-altitude / SOLAR_HEAT_SCALE_HEIGHT_M)) * airspeed ** 3
+
+
+def solar_ascent_stages(f=None, parts=None):
+    """The model's stages from the craft: (m0 t with Jeb, burn s, [(t/s, Isp vac, Isp
+    sea level)]) for the launch stage, the core and the lander."""
+    parts = parts or solar_layout()
+    f = f or lander_figures(parts=parts)
+    th, sw, te = (PART_CFG[k] for k in ("solidBooster1-1", "liquidEngine2",
+                                          "liquidEngine3.v2"))
+    n_b = len([p for p in parts if p.name == "solidBooster1-1"])
+    frac = f["booster_thrust_fraction"]
+    booster = (n_b * th["thrust"] * frac / (th["isp_vac"] * G0), th["isp_vac"], th["isp_asl"])
+    swivel = (sw["thrust"] / (sw["isp_vac"] * G0), sw["isp_vac"], sw["isp_asl"])
+    terrier = (te["thrust"] / (te["isp_vac"] * G0), te["isp_vac"], te["isp_asl"])
+    st = f["stages"]
+    return [(st[0]["m0"] + KERBAL_MASS_T, st[0]["burn_s"], [booster, swivel]),
+            (st[1]["m0"] + KERBAL_MASS_T, st[1]["burn_s"], [swivel]),
+            (st[2]["m0"] + KERBAL_MASS_T, st[2]["burn_s"], [terrier])], \
+        st[2]["m1"] + KERBAL_MASS_T
+
+
+def ascent_model(path, cal, stages=None, dt=0.2, rows=False):
+    """One ascent under ``path`` with calibration ``cal``: the peak heating index (and
+    where: s, m, m/s, stage), the drops, the lander's LF at LKO after the
+    circularization, and with ``rows`` the (s, m, horizontal, vertical) trace."""
+    if stages is None:
+        stages, dry = solar_ascent_stages()
+    else:
+        stages, dry = stages
+    cda = cal[4:7]
+    max_aoa, fade = cal[7], cal[8]
+    r = KERBIN_RADIUS + 7.0
+    vr, vt = 0.0, KERBIN_OMEGA * r
+    t, si, m, burned, cut = 0.0, 0, stages[0][0], 0.0, False
+    out = {"peak": 0.0, "peak_at": None, "drops": [], "trace": [], "lf_at_lko": None,
+           "fell": False}
+    while t < 1200.0:
+        h = r - KERBIN_RADIUS
+        if h < -1.0 and t > 5.0:
+            out["fell"] = True
+            break
+        vts = vt - KERBIN_OMEGA * r
+        vair = math.hypot(vts, vr)
+        energy = (vt * vt + vr * vr) / 2.0 - KERBIN_MU / r
+        apo = None
+        if energy < 0.0:
+            a = -KERBIN_MU / (2.0 * energy)
+            e = math.sqrt(max(0.0, 1.0 + 2.0 * energy * (r * vt) ** 2 / KERBIN_MU ** 2))
+            apo = a * (1.0 + e)
+        if cut and h >= 70000.0:
+            circ = math.sqrt(KERBIN_MU / apo) - r * vt / apo
+            if si < 2:
+                m = stages[2][0]
+            out["lf_at_lko"] = (m * math.exp(-circ / (stages[2][2][0][1] * G0)) - dry) \
+                * LF_PER_TONNE
+            break
+        if cut and h < 20000.0 and vr < 0.0:
+            out["fell"] = True
+            break
+        if not cut and apo is not None and apo - KERBIN_RADIUS >= SOLAR_TARGET_APOAPSIS_M:
+            cut = True
+            out["cutoff"] = (round(t), round(h), si)
+        hold = cut and (apo is None or apo - KERBIN_RADIUS < SOLAR_TARGET_APOAPSIS_M - 50.0)
+        p_atm = math.exp(-h / SOLAR_PRESSURE_SCALE_HEIGHT_M) if h < 70000.0 else 0.0
+        q = 0.5 * 1.225 * p_atm * vair * vair
+        thrust, mdot = 0.0, 0.0
+        if not cut or hold:
+            for flow, isp_vac, isp_asl in stages[si][2]:
+                thrust += flow * (isp_vac - (isp_vac - isp_asl) * min(1.0, p_atm)) * G0
+                mdot += flow
+        if cut:
+            vin = math.hypot(vt, vr)
+            ux, uy = (vt / vin, vr / vin) if hold else (0.0, 0.0)
+        else:
+            pitch = classic_pitch(path, h, vair)
+            if vair > 1.0 and h < 70000.0:
+                limit = min((fade / q if q < fade else 1.0) * max_aoa, 180.0)
+                vel_pitch = math.degrees(math.atan2(vr, vts))
+                if abs(pitch - vel_pitch) > limit:
+                    pitch = vel_pitch + math.copysign(limit, pitch - vel_pitch)
+            ux, uy = math.cos(math.radians(pitch)), math.sin(math.radians(pitch))
+        drag = cda[si] * q * _drag_rise(vair / SOLAR_SPEED_OF_SOUND) / 1000.0
+        dx, dy = (vts / vair, vr / vair) if vair > 1e-6 else (0.0, 1.0)
+        at = (thrust * ux - drag * dx) / m - vr * vt / r
+        ar = (thrust * uy - drag * dy) / m - KERBIN_MU / (r * r) + vt * vt / r
+        vt += at * dt
+        vr += ar * dt
+        r += vr * dt
+        t += dt
+        if thrust > 0.0:
+            m -= mdot * dt
+            burned += dt
+            if burned >= stages[si][1] and si < 2:
+                out["drops"].append((round(t, 1), round(r - KERBIN_RADIUS),
+                                     round(vt - KERBIN_OMEGA * r), round(vr)))
+                si += 1
+                m, burned = stages[si][0], 0.0
+        h = r - KERBIN_RADIUS
+        vair = math.hypot(vt - KERBIN_OMEGA * r, vr)
+        idx = heating_index(h, vair)
+        if idx > out["peak"]:
+            out["peak"], out["peak_at"] = idx, (round(t), round(h), round(vair), si)
+        if rows:
+            out["trace"].append((t, h, vt - KERBIN_OMEGA * r, vr))
+    return out
+
+
+def calibration_residuals(cal, stages=None):
+    """The worst (altitude m, horizontal m/s, vertical m/s) miss of ``cal`` under its own
+    fitted path against SOLAR_FLOWN_ASCENT_ROWS."""
+    o = ascent_model(calibration_path(cal), cal, stages=stages, rows=True)
+    worst = [0.0, 0.0, 0.0]
+    for t, alt, hs, vs in SOLAR_FLOWN_ASCENT_ROWS:
+        _, mh, mhs, mvs = min(o["trace"], key=lambda row: abs(row[0] - t))
+        for i, d in enumerate((mh - alt, mhs - hs, mvs - vs)):
+            worst[i] = max(worst[i], abs(d))
+    return tuple(worst)
+
+
+def solar_ascent_heating(path=None, parts=None):
+    """THE ASCENT HEATING: per calibration, the peak heating index and the lander's LF
+    at LKO under ``path`` (default SOLAR_LOFT) and under the calibration's own flown
+    path."""
+    parts = parts or solar_layout()
+    stages = solar_ascent_stages(parts=parts)
+    path = path or SOLAR_LOFT
+    out = []
+    for cal in SOLAR_ASCENT_CALIBRATIONS:
+        loft = ascent_model(path, cal, stages=stages)
+        flown = ascent_model(calibration_path(cal), cal, stages=stages)
+        out.append({"cal": cal, "loft": loft, "flown": flown})
+    return out
+
+
+def solar_heating_problems(heating=None):
+    """The heating gate: under the loft every calibration reaches LKO, peaks under
+    SOLAR_HEAT_CEILING and keeps at least the flown path's LF at LKO."""
+    out = []
+    for i, h in enumerate(heating or solar_ascent_heating()):
+        loft, flown = h["loft"], h["flown"]
+        if loft["fell"] or loft["lf_at_lko"] is None:
+            out.append("calibration %d: the loft does not reach LKO" % i)
+            continue
+        if loft["peak"] > SOLAR_HEAT_CEILING:
+            out.append("calibration %d: the loft's peak heating index %.3g (at %s) is over "
+                       "the ceiling %.3g (the survived %.3g over %.1f)"
+                       % (i, loft["peak"], loft["peak_at"], SOLAR_HEAT_CEILING,
+                          SOLAR_HEAT_SURVIVED, SOLAR_HEAT_MARGIN))
+        if flown["lf_at_lko"] is not None and loft["lf_at_lko"] < flown["lf_at_lko"]:
+            out.append("calibration %d: the loft reaches LKO with %.0f LF, less than the "
+                       "flown path's %.0f" % (i, loft["lf_at_lko"], flown["lf_at_lko"]))
+    return out
+
+
 def solar_check():
     """[] when the committed CS Mun Solar Lander is byte-identical to a fresh
     derivation and every post-condition holds, else the problems."""
@@ -2497,6 +2758,15 @@ def solar_report():
     print("    %-36s %5.1f EC; x%.2f = %.0f against %.1f above the floor, margin %.0f%%"
           % ("total", ec["worst"], 1.0 + SOLAR_EC_MARGIN, ec["need"],
              ec["pod_capacity"] - SOLAR_EC_FLOOR, 100 * ec["margin"]))
+    print("  ascent heating index sqrt(rho) v^3 (survived %.3g, lost %.3g, ceiling %.3g); "
+          "loft %s:" % (SOLAR_HEAT_SURVIVED, SOLAR_HEAT_LOST, SOLAR_HEAT_CEILING,
+                        ", ".join("%s %g" % kv for kv in sorted(SOLAR_LOFT.items()))))
+    for i, h in enumerate(solar_ascent_heating()):
+        print("    calibration %d (fit %.2f): flown path peak %.3g at %s, LKO with %.0f LF; "
+              "loft peak %.3g at %s, LKO with %.0f LF"
+              % (i, h["cal"][0], h["flown"]["peak"], h["flown"]["peak_at"],
+                 h["flown"]["lf_at_lko"], h["loft"]["peak"], h["loft"]["peak_at"],
+                 h["loft"]["lf_at_lko"]))
     print("  outrigger hatch clearances (deg): %s" % ", ".join(
         "%s %.0f" % kv for kv in sorted(solar_hatch_clearances().items())))
     for label, s in (("stance", f["stance"]),
