@@ -48,20 +48,17 @@ namespace Parsek.Logistics
         public string RouteProofHash;
 
         /// <summary>
-        /// The sidecar epoch a route captures and compares for <paramref name="rec"/>:
-        /// its <c>SidecarEpoch</c>, plus one while <c>SidecarEpochAdvancePending</c> is
-        /// set. An out-of-band flush (the commit, the optimizer) rewrites a recording
+        /// The sidecar epoch a route captures and compares for a recording: its
+        /// <c>SidecarEpoch</c> (<paramref name="sidecarEpoch"/>), plus one while its
+        /// <c>SidecarEpochAdvancePending</c> (<paramref name="advancePending"/>) is set. An out-of-band flush (the commit, the optimizer) rewrites a recording
         /// under its preserved epoch and leaves the advance to the next OnSave, which
         /// moves it to N+1 with no content change. A route created in between must
         /// capture the N+1 that save will write, or the save alone reads as a source
-        /// change and pauses the route as SourceChanged. Pure.
+        /// change and pauses the route as SourceChanged. Pure, and takes the two fields
+        /// rather than the recording so this type stays out of the dependency knot.
         /// </summary>
-        internal static int EffectiveSidecarEpoch(Recording rec)
-        {
-            if (rec == null)
-                return 0;
-            return rec.SidecarEpochAdvancePending ? rec.SidecarEpoch + 1 : rec.SidecarEpoch;
-        }
+        internal static int EffectiveSidecarEpoch(int sidecarEpoch, bool advancePending)
+            => advancePending ? sidecarEpoch + 1 : sidecarEpoch;
 
         public override bool Equals(object obj)
         {

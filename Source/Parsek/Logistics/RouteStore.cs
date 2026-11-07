@@ -2009,7 +2009,8 @@ namespace Parsek.Logistics
                 TreeOrder = rec.TreeOrder,
                 RecordingFormatVersion = rec.RecordingFormatVersion,
                 RecordingSchemaGeneration = rec.RecordingSchemaGeneration,
-                SidecarEpoch = RouteSourceRef.EffectiveSidecarEpoch(rec),
+                SidecarEpoch = RouteSourceRef.EffectiveSidecarEpoch(
+                    rec.SidecarEpoch, rec.SidecarEpochAdvancePending),
                 StartUT = rec.StartUT,
                 EndUT = rec.EndUT,
                 RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(rec)

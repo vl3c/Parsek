@@ -273,7 +273,8 @@ namespace Parsek.Tests.Logistics
             rec.SidecarEpochAdvancePending = true;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             var sourceRef = BuildMatchingSourceRef(rec);
-            sourceRef.SidecarEpoch = RouteSourceRef.EffectiveSidecarEpoch(rec);
+            sourceRef.SidecarEpoch = RouteSourceRef.EffectiveSidecarEpoch(
+                rec.SidecarEpoch, rec.SidecarEpochAdvancePending);
             Assert.Equal(3, sourceRef.SidecarEpoch);
 
             InstallScenario();
@@ -302,9 +303,7 @@ namespace Parsek.Tests.Logistics
         public void EffectiveSidecarEpoch_AddsOneWhileAnAdvanceIsPending(
             int epoch, bool pending, int expected)
         {
-            var rec = new Recording { SidecarEpoch = epoch, SidecarEpochAdvancePending = pending };
-            Assert.Equal(expected, RouteSourceRef.EffectiveSidecarEpoch(rec));
-            Assert.Equal(0, RouteSourceRef.EffectiveSidecarEpoch(null));
+            Assert.Equal(expected, RouteSourceRef.EffectiveSidecarEpoch(epoch, pending));
         }
 
         // catches: a coarse fingerprint missing route-relevant proof changes.
