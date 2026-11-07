@@ -949,7 +949,7 @@ namespace Parsek
         /// Returns null when no usable snapshot can be located; callers preserve any
         /// existing list rather than overwriting it with null.
         /// </summary>
-        private List<uint> TryDeriveEndpointPartPidsFromPartner(uint partnerPid)
+        internal List<uint> TryDeriveEndpointPartPidsFromPartner(uint partnerPid)
         {
             if (partnerPid == 0) return null;
 
@@ -1022,7 +1022,7 @@ namespace Parsek
         /// parameter -- background vessel PID is derived from the background parent
         /// recording. routeTargetVesselPid is only the route-proof endpoint PID.
         /// </summary>
-        void CreateMergeBranch(
+        internal void CreateMergeBranch(
             BranchPointType branchType,
             uint mergedVesselPid,
             string activeParentRecordingId,      // from the active recorder (always present)
@@ -1333,7 +1333,7 @@ namespace Parsek
         /// recorded vessel had when this leg started (the start-of-leg ghost snapshot), else
         /// "Unknown Vessel". Logs the source.
         /// </summary>
-        static string ResolveStandaloneFallbackLegName(FlightRecorder splitRec, Recording captured)
+        internal static string ResolveStandaloneFallbackLegName(FlightRecorder splitRec, Recording captured)
         {
             uint recordedPid = splitRec != null ? splitRec.RecordingVesselId : 0u;
             string startName = Recording.ResolveLocalizedName(
@@ -1661,7 +1661,7 @@ namespace Parsek
             ProcessBreakupEvent(breakupBp);
         }
 
-        private static string DescribeBreakupChildSeedPose(
+        internal static string DescribeBreakupChildSeedPose(
             TrajectoryPoint? seedPoint,
             Vessel liveVessel,
             double liveUT)
@@ -1711,7 +1711,7 @@ namespace Parsek
                 $"seedLiveRootDist={seedRootDelta.magnitude.ToString("F2", ic)}m";
         }
 
-        private static TrajectoryPoint? ResolveControlledChildInitialTrajectoryPoint(
+        internal static TrajectoryPoint? ResolveControlledChildInitialTrajectoryPoint(
             uint pid,
             TrajectoryPoint? capturedPoint,
             Vessel liveVessel,
@@ -1788,7 +1788,7 @@ namespace Parsek
             return livePoint;
         }
 
-        private static bool TryComputeBreakupSeedLiveRootDistance(
+        internal static bool TryComputeBreakupSeedLiveRootDistance(
             TrajectoryPoint seedPoint,
             Vessel liveVessel,
             double liveUT,
@@ -1834,7 +1834,7 @@ namespace Parsek
         /// creates child recordings for debris and controlled vessels.
         /// If no active tree exists, the breakup is not recorded.
         /// </summary>
-        void ProcessBreakupEvent(BranchPoint breakupBp)
+        internal void ProcessBreakupEvent(BranchPoint breakupBp)
         {
             if (host.activeTree == null)
             {
