@@ -3556,6 +3556,11 @@ compare).
   `test_atlas_prose_matches_the_tree` now flag literal numbers in undated atlas prose that
   disagree with the model (`PROSE_NUMBER_CLAIMS`). The ratchet still reads the text scan until
   W4a2 switches it.
+- 2026-11-07 (refactor branch, W4a2): the residue ratchet reads the semantic graph:
+  `test_semantic.test_the_semantic_residue_ratchet`, bound 258 (min of greedy and replayed over
+  `SEMANTIC_CUT_ORDER` on 088feb067, a tree that still passed the text bound 283). The text
+  residue cell keeps measuring, unbounded, so deleting the RecordingStore metric forwarders (W4c)
+  no longer fights the ratchet. The ratchet runs only with `PARSEK_ARCH_IL` (CI after the build).
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

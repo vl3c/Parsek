@@ -3161,9 +3161,9 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
 
 
-# The cut order the residue ratchet replays (test_cut_sequence_halves_the_largest_knot):
-# the greedy sequence on the refactor branch as of 2026-11-07. Re-pin it only
-# together with a tightened bound, never to loosen one.
+# The cut order the text residue replays (test_cut_sequence_halves_the_largest_knot):
+# the greedy sequence on the refactor branch as of 2026-11-07. The ratchet
+# itself reads the semantic graph since W4a2 (test_semantic.SEMANTIC_CUT_ORDER).
 RATCHET_CUT_ORDER = [
     "Route",
     "ParsekFlight",
@@ -3520,10 +3520,20 @@ class RealTreeSmokeTests(unittest.TestCase):
         # when a reference is removed. The greedy sequence stays the reported,
         # documented one (test_first_cut_matches_the_documented_tree); the
         # minimum is only the ratchet's measure.
+        #
+        # RETIRED as the ratchet 2026-11-07 (W4a2): the bound moved to the
+        # semantic graph read from the compiled IL, where a call through a
+        # forwarder counts as a call to the forwarded type, so code can no
+        # longer move this text residue by adding or deleting forwarders
+        # (test_semantic.RealTreeSemanticTests.test_the_semantic_residue_ratchet,
+        # bound 258 = the semantic residue on 088feb067, a tree that still
+        # passed the text bound 283 here). The text residue stays measured and
+        # reported (`archview.py --check`, `semantic.py`), not bounded:
+        # deleting the RecordingStore metric forwarders (W4c) raises it.
         largest = self.model["knots"][0]
         graph = {entry["name"]: entry["referencesTo"] for entry in self.model["types"]}
         replayed = archview.replay_cut_residue(graph, RATCHET_CUT_ORDER)
-        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 283)
+        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), largest["size"])
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

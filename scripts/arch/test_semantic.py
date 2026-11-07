@@ -1,7 +1,7 @@
 """Tests for the semantic (compiled IL) type graph: ilgraph.py and semantic.py.
 
 The pure cells drive the parser with inline ikdasm-shaped IL. The real-tree
-cells need a built Parsek.dll: set PARSEK_ARCH_IL to it (or to an ikdasm .il
+cells, the architecture residue ratchet among them, need a built Parsek.dll: set PARSEK_ARCH_IL to it (or to an ikdasm .il
 dump). CI sets it after the build (.github/workflows/tests.yml); without it
 those cells skip with that reason, and with it set they never skip (a missing
 file or a missing ikdasm fails them).
@@ -442,12 +442,19 @@ class RealTreeSemanticTests(unittest.TestCase):
             with self.subTest(member=key):
                 self.assertEqual(resolved.get(key), service)
 
-    def test_the_semantic_residue_is_within_the_text_bound(self):
-        # The text ratchet's bound (test_archview) is 283; the semantic measure
-        # replaces it only on a tree that still passes it (plan W4a2).
-        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 283)
-        self.assertLessEqual(semantic.ratchet_residue(self.result["textMeasure"]), 283)
-
+    def test_the_semantic_residue_ratchet(self):
+        # The architecture ratchet (W4a2, 2026-11-07). The bound is the
+        # semantic residue measured on 088feb067, the tree where the text
+        # residue (test_archview.test_cut_sequence_halves_the_largest_knot)
+        # still passed its bound 283: greedy 258, replayed 258 with
+        # SEMANTIC_CUT_ORDER. Like the text ratchet before it, the measure is
+        # min(greedy residue, replayed residue); the replay never rises when a
+        # reference is removed. A call through a forwarder is a call to the
+        # forwarded type here, so adding or deleting a forwarder does not move
+        # it. Tighten the bound to the measured value in the PR that lowers it;
+        # never loosen it, not even for a new type that only splits a residue
+        # member.
+        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 258)
 
 if __name__ == "__main__":
     unittest.main()
