@@ -6,8 +6,8 @@ using Xunit;
 namespace Parsek.Tests
 {
     // Phase C: the pure adapter that turns a looping Mission's selection into a span-clock
-    // LoopUnitSet, plus the shared MissionSelection include cascade it depends on. No engine
-    // wiring (Phase D); these drive the pure logic with directly constructed inputs.
+    // LoopUnitSet. No engine wiring (Phase D); these drive the pure logic with directly
+    // constructed inputs.
     [Collection("Sequential")]
     public class MissionLoopUnitBuilderTests : IDisposable
     {
@@ -92,7 +92,7 @@ namespace Parsek.Tests
         }
 
         private static Mission LoopMission(string treeId, LoopTimeUnit unit = LoopTimeUnit.Auto,
-            double interval = 0.0, string[] excluded = null)
+            double interval = 0.0)
         {
             var m = new Mission("m1", treeId, "Loopy")
             {
@@ -100,9 +100,6 @@ namespace Parsek.Tests
                 LoopTimeUnit = unit,
                 LoopIntervalSeconds = interval
             };
-            if (excluded != null)
-                foreach (var e in excluded)
-                    m.ExcludedThroughLineHeadIds.Add(e);
             return m;
         }
 
@@ -858,155 +855,6 @@ namespace Parsek.Tests
             Assert.Equal(1, set.Count);
             Assert.False(set.IsMember(0)); // t1 not looping
             Assert.True(set.IsMember(3));  // t2 member (committed index 3)
-        }
-
-        // --- MissionSelection.ComputeIncludedHeadIds ---
-
-        [Fact]
-        public void Selection_NullView_ReturnsEmpty()
-        {
-            Assert.Empty(MissionSelection.ComputeIncludedHeadIds(null, new HashSet<string>()));
-        }
-
-        [Fact]
-        public void Selection_NullExcluded_IncludesEverything()
-        {
-            var view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(ForkView()));
-            var included = MissionSelection.ComputeIncludedHeadIds(view, null);
-            Assert.Equal(view.ByHeadId.Keys.OrderBy(x => x),
-                included.OrderBy(x => x));
-        }
-
-        [Fact]
-        public void Selection_NoExclusions_IncludesAllRootsAndOffshoots()
-        {
-            var view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(ForkView()));
-            var included = MissionSelection.ComputeIncludedHeadIds(view, new HashSet<string>());
-
-            Assert.Contains("root", included);
-            Assert.Contains("fork", included);
-            Assert.Equal(view.ByHeadId.Count, included.Count);
-        }
-
-        [Fact]
-        public void Selection_ExcludingRoot_DropsItAndItsOffshoots()
-        {
-            var view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(ForkView()));
-            var excluded = new HashSet<string> { "root" };
-            var included = MissionSelection.ComputeIncludedHeadIds(view, excluded);
-
-            // root excluded -> root gone AND its offshoot "fork" cascades out.
-            Assert.DoesNotContain("root", included);
-            Assert.DoesNotContain("fork", included);
-            Assert.Empty(included);
-        }
-
-        [Fact]
-        public void Selection_ExcludingOffshoot_DropsOnlyThatBranch()
-        {
-            var view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(ForkView()));
-            var excluded = new HashSet<string> { "fork" };
-            var included = MissionSelection.ComputeIncludedHeadIds(view, excluded);
-
-            Assert.Contains("root", included);     // trunk stays
-            Assert.DoesNotContain("fork", included); // only the fork drops
-        }
-
-        [Fact]
-        public void Selection_DeepOffshootChain_CascadesFromTheExcludedAncestor()
-        {
-            // root -> a -> b -> c (each a separate craft branching off the previous).
-            var view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(DeepChain()));
-
-            // No exclusions: all four heads included.
-            var all = MissionSelection.ComputeIncludedHeadIds(view, new HashSet<string>());
-            Assert.Equal(new[] { "a", "b", "c", "root" }, all.OrderBy(x => x).ToArray());
-
-            // Exclude "a": a, b, c all cascade out; only root remains.
-            var fromA = MissionSelection.ComputeIncludedHeadIds(view, new HashSet<string> { "a" });
-            Assert.Equal(new[] { "root" }, fromA.ToArray());
-
-            // Exclude "b": b and c cascade out; root and a remain.
-            var fromB = MissionSelection.ComputeIncludedHeadIds(view, new HashSet<string> { "b" });
-            Assert.Equal(new[] { "a", "root" }, fromB.OrderBy(x => x).ToArray());
-        }
-
-        [Fact]
-        public void Selection_MergeReachedTwice_DoesNotInfiniteLoop_OrDoubleCount()
-        {
-            // Same-tree merge: two trunks p1 and p2 both fork-parent the same child "m".
-            // "m" is an offshoot of both; the visited set must stop it being traversed twice.
-            var tree = Tree("t1",
-                new[]
-                {
-                    Leg("p1", "C1", 0, 0, 100),
-                    Leg("p2", "C2", 0, 0, 100),
-                    Leg("m", "C3", 0, 100, 200, parentAnchor: "p1")
-                },
-                new[]
-                {
-                    BP("bp1", BranchPointType.Breakup, new[] { "p1", "p2" }, new[] { "m" })
-                });
-            var view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(tree));
-
-            // Should terminate and include each head exactly once.
-            var included = MissionSelection.ComputeIncludedHeadIds(view, new HashSet<string>());
-            Assert.Equal(included.Count, included.Distinct().Count());
-            Assert.Contains("m", included);
-        }
-
-        [Fact]
-        public void Selection_Cycle_DoesNotInfiniteLoop()
-        {
-            // Hand-build a deliberately cyclic view (A offshoots B, B offshoots A).
-            var view = new MissionThroughLineView { TreeId = "t1" };
-            var tlA = new MissionThroughLine { HeadLegId = "A", StartUT = 0 };
-            var tlB = new MissionThroughLine { HeadLegId = "B", StartUT = 1 };
-            tlA.OffshootHeadIds.Add("B");
-            tlB.OffshootHeadIds.Add("A");
-            view.ByHeadId["A"] = tlA;
-            view.ByHeadId["B"] = tlB;
-            view.RootHeadIds.Add("A");
-
-            // Must terminate (the visited guard breaks the cycle).
-            var included = MissionSelection.ComputeIncludedHeadIds(view, new HashSet<string>());
-            Assert.Contains("A", included);
-            Assert.Contains("B", included);
-            Assert.Equal(2, included.Count);
-        }
-
-        // A trunk that forks off one offshoot craft "fork".
-        private static RecordingTree ForkView()
-        {
-            return Tree("t1",
-                new[]
-                {
-                    Leg("root", "CR", 0, 0, 200),
-                    Leg("fork", "CF", 0, 100, 150, parentAnchor: "root")
-                },
-                new[]
-                {
-                    BP("bp1", BranchPointType.Breakup, new[] { "root" }, new[] { "fork" })
-                });
-        }
-
-        // root -> a -> b -> c, each offshoot anchored to the previous craft.
-        private static RecordingTree DeepChain()
-        {
-            return Tree("t1",
-                new[]
-                {
-                    Leg("root", "CR", 0, 0, 400),
-                    Leg("a", "CA", 0, 50, 350, parentAnchor: "root"),
-                    Leg("b", "CB", 0, 100, 300, parentAnchor: "a"),
-                    Leg("c", "CC", 0, 150, 250, parentAnchor: "b")
-                },
-                new[]
-                {
-                    BP("bpa", BranchPointType.Breakup, new[] { "root" }, new[] { "a" }),
-                    BP("bpb", BranchPointType.Breakup, new[] { "a" }, new[] { "b" }),
-                    BP("bpc", BranchPointType.Breakup, new[] { "b" }, new[] { "c" })
-                });
         }
 
         // --- SelectDeorbitTailLegStartUT (loiter-line regression pin, 2026-06-23) ---

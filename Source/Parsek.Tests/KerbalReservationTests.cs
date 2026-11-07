@@ -88,9 +88,9 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
-            Assert.False(kerbals.IsKerbalAvailable("Bill"));
-            Assert.True(kerbals.IsKerbalAvailable("Val")); // not in recording
+            Assert.False(kerbals.IsKerbalAvailableForTesting("Jeb"));
+            Assert.False(kerbals.IsKerbalAvailableForTesting("Bill"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Val")); // not in recording
         }
 
         [Fact]
@@ -196,7 +196,7 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.False(kerbals.IsKerbalAvailableForTesting("Jeb"));
             Assert.Equal(2000.0, kerbals.Reservations["Jeb"].ReservedUntilUT);
         }
 
@@ -215,7 +215,7 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.False(kerbals.IsKerbalAvailableForTesting("Jeb"));
         }
 
         [Fact]
@@ -1303,7 +1303,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            kerbals.IsKerbalAvailable("Jeb");
+            kerbals.IsKerbalAvailableForTesting("Jeb");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("'Jeb'") && l.Contains("RESERVED"));
@@ -1313,7 +1313,7 @@ namespace Parsek.Tests
         public void IsKerbalAvailable_LogsAvailableStatus()
         {
             var kerbals = new KerbalsModule();
-            kerbals.IsKerbalAvailable("Val");
+            kerbals.IsKerbalAvailableForTesting("Val");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("'Val'") && l.Contains("available"));
@@ -1377,13 +1377,13 @@ namespace Parsek.Tests
             // First recalculation
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
-            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.False(kerbals.IsKerbalAvailableForTesting("Jeb"));
 
             // Simulate passage of time / KSP MIA respawn by recalculating again.
             // The reservation should still be permanent and active.
             kerbals = KerbalsTestHelper.RecalculateModule(kerbals);
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
-            Assert.False(kerbals.IsKerbalAvailable("Jeb"));
+            Assert.False(kerbals.IsKerbalAvailableForTesting("Jeb"));
 
             Assert.Contains(logLines, l =>
                 l.Contains("[KerbalsModule]") && l.Contains("'Jeb'") && l.Contains("RESERVED"));
@@ -1402,7 +1402,7 @@ namespace Parsek.Tests
 
             Assert.False(kerbals.Reservations["Val"].IsPermanent);
             Assert.Equal(5000.0, kerbals.Reservations["Val"].ReservedUntilUT);
-            Assert.False(kerbals.IsKerbalAvailable("Val"));
+            Assert.False(kerbals.IsKerbalAvailableForTesting("Val"));
         }
 
         [Fact]
@@ -1418,15 +1418,15 @@ namespace Parsek.Tests
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
             // Jeb is reserved (dead), but Val/Bill/Bob are not in any recording
-            Assert.True(kerbals.IsKerbalAvailable("Val"));
-            Assert.True(kerbals.IsKerbalAvailable("Bill"));
-            Assert.True(kerbals.IsKerbalAvailable("Bob"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Val"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Bill"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Bob"));
 
             // Second recalculation should not introduce spurious reservations
             kerbals = KerbalsTestHelper.RecalculateModule(kerbals);
-            Assert.True(kerbals.IsKerbalAvailable("Val"));
-            Assert.True(kerbals.IsKerbalAvailable("Bill"));
-            Assert.True(kerbals.IsKerbalAvailable("Bob"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Val"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Bill"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Bob"));
         }
 
         [Fact]
@@ -1448,7 +1448,7 @@ namespace Parsek.Tests
                     $"Jeb should be reserved on recalculation {i}");
                 Assert.True(kerbals.Reservations["Jeb"].IsPermanent,
                     $"Jeb should be permanently reserved on recalculation {i}");
-                Assert.False(kerbals.IsKerbalAvailable("Jeb"),
+                Assert.False(kerbals.IsKerbalAvailableForTesting("Jeb"),
                     $"Jeb should not be available on recalculation {i}");
             }
         }
@@ -1497,7 +1497,7 @@ namespace Parsek.Tests
             Assert.Equal(double.PositiveInfinity, kerbals.Reservations["Val"].ReservedUntilUT);
 
             // Bill: not in any recording, completely free
-            Assert.True(kerbals.IsKerbalAvailable("Bill"));
+            Assert.True(kerbals.IsKerbalAvailableForTesting("Bill"));
             Assert.False(kerbals.Reservations.ContainsKey("Bill"));
         }
 

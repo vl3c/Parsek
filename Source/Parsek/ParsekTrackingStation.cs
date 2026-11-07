@@ -426,6 +426,8 @@ namespace Parsek
                         input.SessionSuppressed = reFlyActive
                             && SessionSuppressionState.IsSuppressedRecordingIndex(i);
                         input.ExternalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(rec, false);
+                        input.RealVesselRelays = !input.ExternalVesselSuppressed
+                            && GhostPlaybackLogic.RealVesselRelaysForRecording(rec);
                         input.HistoricalNeverReplayed = GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
                             loopingLike,
                             reFlyActive,

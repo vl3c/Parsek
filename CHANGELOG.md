@@ -4,6 +4,48 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **A recording's hover says what the flight used and carried.** Hovering a recording's Status
+  in the Recordings window now also lists the fuel and other resources it used or gained, the
+  cargo parts it unloaded or loaded, and crew changes. (GUI-I)
+- **A Re-Fly merge says what it undid.** When merging a Re-Fly takes the old flight's losses off
+  your career, a short message names them: a kerbal's death, contract failures, reputation
+  penalties. (GUI-EXPOSURE-4)
+
+### Fixed
+
+- **Recovering a re-flown vessel no longer rewrites the flight it replaced.** After a Re-Fly, a
+  recovery only ends the new flight; the replaced one keeps its own end and is never paid a second
+  time. (RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL)
+- **A vessel no longer relays signal twice in the Tracking Station.** When a real vessel is still
+  in the world, only it relays, not also the ghost of a future flight that carries it.
+  (GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP)
+- **The Missions tab's column headings sit exactly over their columns.** The headings right of
+  the name column were drawn 1 px to the right of the values under them.
+- **After a rewind, a supply route no longer delivers into its own transport.** When the
+  rewound flight's vessels came back, the route could pick the respawned transport, parked next
+  to the destination, and deliver the cargo there instead. (ROUTE-TRANSPORT-RESPAWN-NOT-EXCLUDED)
+- **A supply route made right after a flight is merged no longer pauses itself.** The next save
+  marked it "source changed", a state it never leaves, so the route had to be deleted and made
+  again. (ROUTE-SOURCE-EPOCH-PENDING-AT-CREATE)
+- **A supply route can now start at a depot the transport docked to.** A flight that docked to
+  a depot, loaded cargo, undocked and delivered it was refused when the route was created, because
+  the depot's recording started one physics frame after the undock.
+  (ROUTE-MIDTREE-ORIGIN-EDGE-ONE-FRAME-LATE)
+- **A contract you accept twice on the timeline keeps its offer after a rewind.** If two of
+  your flights accept the same goal (say a flag on the Mun that failed, then a second try), a
+  rewind to before the first no longer removes that first offer early from Mission Control.
+  (CONTRACT-TWIN-GUID-SEEDED-TYPES)
+- **A mining flight can now be turned into a supply route.** A rover that mined Ore and docked
+  to deliver it was refused as "cargo of unknown origin", because the drills' first moment of
+  production was not counted. The route now accepts it and still delivers only the Ore it saw
+  being mined. (HARVEST-WINDOW-EDGE-FRAME)
+
+---
+
 ## 1.0.0
 
 ### Changed

@@ -850,3 +850,37 @@ min = 0.0
 required = false
 type = "number"
 min = 0.0
+
+# The Kerbin launch's classic-path loft (mlib.mj_classic_path_from_dict, CS-7): AutoPath
+# OFF and MechJeb's classic path set to these before the engage, each read back (a
+# refusal withholds the engage). Optional; absent = MechJeb's own auto path, untouched.
+# RAISES unless all five are set together with ascentType = 0 and
+# mjEngageConfirmFrames > 0, 0 <= start < end altitude, 0 < exponent <= 1 and
+# 0 <= end angle < 90. The values are sized by the builder's ascent-heating gate
+# (build_cs_orbiter_craft.py, THE ASCENT HEATING).
+[params.mjClassicTurnStartAltitudeMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.mjClassicTurnStartVelocityMps]
+required = false
+type = "number"
+min = 0.0
+
+[params.mjClassicTurnEndAltitudeMeters]
+required = false
+type = "number"
+min = 1.0
+
+[params.mjClassicTurnShapeExponent]
+required = false
+type = "number"
+min = 0.01
+max = 1.0
+
+[params.mjClassicTurnEndAngleDeg]
+required = false
+type = "number"
+min = 0.0
+max = 89.0

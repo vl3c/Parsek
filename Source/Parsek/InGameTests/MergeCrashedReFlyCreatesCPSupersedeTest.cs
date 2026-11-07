@@ -67,7 +67,7 @@ namespace Parsek.InGameTests
 
             // Pre-rewind debris in the closure is intentionally excluded from
             // the supersede write-set so it stays visible in the recordings
-            // table after commit (see SupersedeCommit.IsPreRewindDebris).
+            // table after commit (see SupersedeCommit.IsPreRewindDebrisForTesting).
             // The expected added-row count is the closure size minus that
             // exclusion.
             int expectedAdded = subtreeBefore.Count;
@@ -75,7 +75,7 @@ namespace Parsek.InGameTests
             foreach (var id in subtreeBefore)
             {
                 var rec = FindRecording(id);
-                if (rec != null && SupersedeCommit.IsPreRewindDebris(rec, marker))
+                if (rec != null && SupersedeCommit.IsPreRewindDebrisForTesting(rec, marker))
                 {
                     preRewindDebrisInClosure++;
                     expectedAdded--;
@@ -88,7 +88,7 @@ namespace Parsek.InGameTests
                 $"preRewindDebrisInClosure={preRewindDebrisInClosure} " +
                 $"expectedAdded={expectedAdded} supersedesBefore={supersedeCountBefore}");
 
-            SupersedeCommit.CommitSupersede(marker, provisional);
+            SupersedeCommit.CommitSupersedeForTesting(marker, provisional);
 
             InGameAssert.AreEqual(MergeState.CommittedProvisional, provisional.MergeState,
                 $"Provisional MergeState should be CommittedProvisional after Crashed merge; got {provisional.MergeState}");

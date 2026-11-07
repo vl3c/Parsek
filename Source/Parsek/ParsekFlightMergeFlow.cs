@@ -203,8 +203,7 @@ namespace Parsek
         /// <c>HighLogic.LoadScene</c> proceeds and
         /// <see cref="OnSceneChangeRequested"/> sees
         /// <c>activeTree == null</c>, so no pending tree is stashed and
-        /// the destination scene's OnLoad does not show a deferred merge
-        /// dialog.</para>
+        /// the destination scene's OnLoad has nothing to commit.</para>
         /// </summary>
         internal void AutoDiscardIdleActiveTree(string reason)
         {
@@ -402,7 +401,7 @@ namespace Parsek
             // session pointing at it. Without this, the idle-on-pad scene-exit
             // fast path (SceneExitInterceptor) tears the tree down but the
             // session (already persisted by the pre-exit OnSave) survives
-            // into the save and resurfaces as a deferred merge dialog on the
+            // into the save and resurfaces as a pending tree on the
             // next load. ClearSwitchSegmentSession no-ops when none is armed
             // (e.g. the Case B no-session Switch-To discard).
             ParsekScenario.Instance?.ClearSwitchSegmentSession(

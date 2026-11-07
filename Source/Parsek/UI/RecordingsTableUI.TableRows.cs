@@ -410,7 +410,9 @@ namespace Parsek
             string statusStatsTooltip = BuildStatusStatsTooltip(
                 stats.maxAltitude, stats.maxSpeed, stats.pointCount);
             string statusTooltip = CombineTooltipText(
-                CombineTooltipText(statusPlaceTooltip, statusStatsTooltip),
+                CombineTooltipText(
+                    CombineTooltipText(statusPlaceTooltip, statusStatsTooltip),
+                    GetOrComputeManifestSummary(rec)),
                 CombineTooltipText(
                     CombineTooltipText(
                         GetRecordingVisualStatusTooltip(visualKind),
@@ -1025,6 +1027,86 @@ namespace Parsek
             return false;
         }
 
+        // Per-recording cache of the Status hover's used / carried clause. The six manifests
+        // are replaced (never mutated in place) when a recording finalizes or is edited, so a
+        // reference compare is enough to notice a change without rebuilding the string for
+        // every row on every frame.
+        private sealed class ManifestSummaryCacheEntry
+        {
+            internal object StartResources, EndResources, StartInventory, EndInventory, StartCrew, EndCrew;
+            internal string Text;
+        }
+
+        private readonly Dictionary<Recording, ManifestSummaryCacheEntry> manifestSummaryCache =
+            new Dictionary<Recording, ManifestSummaryCacheEntry>();
+
+        private string GetOrComputeManifestSummary(Recording rec)
+        {
+            if (rec == null) return null;
+            if (manifestSummaryCache.TryGetValue(rec, out var cached)
+                && ReferenceEquals(cached.StartResources, rec.StartResources)
+                && ReferenceEquals(cached.EndResources, rec.EndResources)
+                && ReferenceEquals(cached.StartInventory, rec.StartInventory)
+                && ReferenceEquals(cached.EndInventory, rec.EndInventory)
+                && ReferenceEquals(cached.StartCrew, rec.StartCrew)
+                && ReferenceEquals(cached.EndCrew, rec.EndCrew))
+                return cached.Text;
+
+            if (manifestSummaryCache.Count > 4096)
+                manifestSummaryCache.Clear();
+            string text = RecordingsTableFormatters.FormatManifestChangeSummary(
+                rec.StartResources, rec.EndResources,
+                rec.StartInventory, rec.EndInventory,
+                rec.StartCrew, rec.EndCrew,
+                ResolveResourceDisplayName, ResolvePartDisplayName);
+            manifestSummaryCache[rec] = new ManifestSummaryCacheEntry
+            {
+                StartResources = rec.StartResources,
+                EndResources = rec.EndResources,
+                StartInventory = rec.StartInventory,
+                EndInventory = rec.EndInventory,
+                StartCrew = rec.StartCrew,
+                EndCrew = rec.EndCrew,
+                Text = text,
+            };
+            ParsekLog.VerboseRateLimited("UI", "recordings-manifest-summary",
+                $"Recordings: Status hover used/carried clause built rec={rec.RecordingId ?? "<no-id>"} " +
+                $"empty={(text == null ? "1" : "0")}");
+            return text;
+        }
+
+        // Stock display name of a resource ("Liquid Fuel"), or null to keep the internal name.
+        private static string ResolveResourceDisplayName(string resourceName)
+        {
+            try
+            {
+                var def = PartResourceLibrary.Instance?.GetDefinition(resourceName);
+                string name = def?.displayName;
+                // An unresolved localization tag reads worse than the internal name.
+                return string.IsNullOrEmpty(name) || name.StartsWith("#", StringComparison.Ordinal)
+                    ? null : name;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        // Stock title of an inventory part ("OX-STAT Photovoltaic Panels"), or null to keep the
+        // internal name. Part names are dot-form at runtime.
+        private static string ResolvePartDisplayName(string partName)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(partName)) return null;
+                return PartLoader.getPartInfoByName(partName.Replace('_', '.'))?.title;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         private RecordingStats GetOrComputeStats(Recording rec)
         {
             if (rec.CachedStats.HasValue && rec.CachedStatsPointCount == rec.Points.Count)
@@ -1041,85 +1123,6 @@ namespace Parsek
             rec.CachedStats = stats;
             rec.CachedStatsPointCount = rec.Points.Count;
             return stats;
-        }
-
-        private void DrawRecordingTooltip(Recording rec)
-        {
-            var stats = GetOrComputeStats(rec);
-
-            string text = $"Max Altitude: {FormatAltitude(stats.maxAltitude)}\n" +
-                          $"Max Speed: {FormatSpeed(stats.maxSpeed)}\n" +
-                          $"Distance: {FormatDistance(stats.distanceTravelled)}\n" +
-                          $"Points: {stats.pointCount}";
-
-            // Phase 6d-3: Chain status in recording tooltip
-            var flight = parentUI.Flight;
-            if (parentUI.InFlightMode && flight != null)
-            {
-                string chainStatus = ParsekFlight.GetChainStatusForRecording(
-                    flight.ActiveGhostChains, rec);
-                if (chainStatus != null)
-                    text += $"\n{chainStatus}";
-            }
-
-            if (stats.orbitSegmentCount > 0)
-                text += $"\nOrbit Segments: {stats.orbitSegmentCount}";
-            if (stats.partEventCount > 0)
-                text += $"\nPart Events: {stats.partEventCount}";
-            if (!string.IsNullOrEmpty(stats.primaryBody))
-                text += $"\nBody: {stats.primaryBody}";
-            if (stats.maxRange > 0)
-                text += $"\nMax Range: {FormatDistance(stats.maxRange)}";
-
-            // Observability: append storage breakdown from cached file sizes
-            try
-            {
-                double currentUT = Planetarium.GetUniversalTime();
-                var storage = DiagnosticsComputation.GetCachedStorageBreakdown(rec, currentUT);
-                if (storage.totalBytes > 0)
-                {
-                    text += $"\nStorage: {DiagnosticsComputation.FormatBytes(storage.totalBytes)}" +
-                            $" (trajectory: {DiagnosticsComputation.FormatBytes(storage.trajectoryFileBytes)}" +
-                            $", vessel: {DiagnosticsComputation.FormatBytes(storage.vesselSnapshotBytes)}" +
-                            $", ghost: {DiagnosticsComputation.FormatBytes(storage.ghostSnapshotBytes)}" +
-                            $", readable mirrors: {DiagnosticsComputation.FormatBytes(storage.readableMirrorBytes)})";
-                    text += $"\nEfficiency: {DiagnosticsComputation.FormatBytes((long)storage.bytesPerSecond)}/s of flight time";
-                }
-            }
-            catch { /* Non-KSP context or Planetarium unavailable */ }
-
-            string resourceText = FormatResourceManifest(rec.StartResources, rec.EndResources);
-            if (resourceText != null)
-                text += "\n" + resourceText;
-
-            string inventoryText = FormatInventoryManifest(rec.StartInventory, rec.EndInventory);
-            if (inventoryText != null)
-                text += "\n" + inventoryText;
-
-            string crewText = FormatCrewManifest(rec.StartCrew, rec.EndCrew);
-            if (crewText != null)
-                text += "\n" + crewText;
-
-            EnsureTooltipStyle();
-
-            GUIContent content = new GUIContent(text);
-            Vector2 size = tooltipLabelStyle.CalcSize(content);
-            size.x += 12;
-            size.y += 8;
-
-            Vector2 mousePos = Event.current.mousePosition;
-            float tooltipX = mousePos.x + 15;
-            float tooltipY = mousePos.y - size.y - 5;
-
-            if (tooltipX + size.x > recordingsWindowRect.width)
-                tooltipX = mousePos.x - size.x - 5;
-            if (tooltipY < 0)
-                tooltipY = mousePos.y + 20;
-
-            Rect tooltipRect = new Rect(tooltipX, tooltipY, size.x, size.y);
-            GUI.Box(tooltipRect, "");
-            GUI.Label(new Rect(tooltipX + 6, tooltipY + 4, size.x - 12, size.y - 8),
-                content, tooltipLabelStyle);
         }
     }
 }

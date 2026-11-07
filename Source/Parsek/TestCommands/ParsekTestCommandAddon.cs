@@ -2965,9 +2965,10 @@ namespace Parsek.TestCommands
                 }
                 // Marker live, no dialog yet: drive the re-fly conclusion scene-exit. The
                 // SceneExitInterceptor prefix fires synchronously and (on the in-place path)
-                // spawns the pre-transition dialog now; on the placeholder-mode path it
-                // arrives via the deferred POST-transition coroutine and the completion
-                // re-scan invokes the button then.
+                // spawns the pre-transition dialog now. The deferred POST-transition dialog
+                // is retired (todo GUI-D5): a missed pre-transition catch now auto-commits
+                // the pending tree, so the completion re-scan finds no dialog and the verb
+                // times out instead of answering.
                 //
                 // S4.1-PREFIX-RACE: the in-place path needs the restored tree to be ACTIVE
                 // (ShouldShowDialogBeforeSceneChange requires hasActiveTree; the re-fly
@@ -2979,7 +2980,8 @@ namespace Parsek.TestCommands
                 // So when the tree is not yet active in FLIGHT, defer the drive to
                 // TryCompleteAnswerMergeDialog, bounded by ReFlyResumeSettleBudgetSeconds;
                 // a never-settling resume (restore give-up / placeholder mode) falls back
-                // to driving anyway and concluding via the deferred POST-transition dialog.
+                // to driving anyway; with the POST-transition dialog retired that exit
+                // auto-commits and the verb times out (no lane takes this path).
                 ParsekFlight settleFlight = ParsekFlight.Instance;
                 ConclusionDriveDecision driveDecision = TestCommandMergeAnswer.DecideConclusionDrive(
                     sceneIsFlight: HighLogic.LoadedScene == GameScenes.FLIGHT,

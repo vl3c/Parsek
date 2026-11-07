@@ -1,0 +1,157 @@
+# =============================================================================
+# MINE-5a: THE PLAUSIBILITY CAP MEASURED ON A LIVE DRILL. AUTHORED 2026-11-06, LIVE-PROVEN
+# 2026-11-07 (run `2026-11-07_0022`, PASS attempt 1, wall 98 s).
+#
+# FIRST FLIGHT. `BATCH_COMPLETE total=2 passed=2 failed=0 skipped=0`, now pinned whole.
+# Catch-up cell: `warped=True windows=1 gainedResources=0 ... plausibility caps=0`. Cap
+# cell: `rate=0.0017610771798682616 seconds=54.26 witnessed=0.0955560455349057 ratio=1.000`
+# (the drills ran at their full rated output, not the cold-start fraction the header
+# predicted) and `PASS windows=1 drills=4 railsWarp=1 oreWitnessed=0.0955560455349057
+# oreTank=0.095591264895251327`. The tanks gained 3.52e-5 Ore MORE than the window
+# witnessed: exactly rate x 0.0200 s, one physics frame produced before the harvest poll
+# read the window's start manifest. The 0.05 + 2% tank tolerance hid it; MINE-5b's first
+# flight hit it as a create-gate reject (todo HARVEST-WINDOW-EDGE-FRAME). The fix grants
+# each rated window a verdict-only edge slack (rate x 1.5 x 0.08 s x 2 edges, 4.2e-4 Ore
+# here), and the cap cell now asserts the gap inside [0, that slack] and a whole-tank
+# delivery credited at the witnessed amount with no cap; its PASS line appends
+# `oreEdgeGap= oreEdgeSlack= tankCredited=` (report-only here; the cell's assert gates
+# through the whole-pinned batch). RE-FLY WATCH: `oreEdgeGap` about 3.5e-5, PASS 2/0/0.
+#
+# WHAT IT CLOSES. HARVEST-ROUTE-PLAUSIBILITY-CAP left "lane MINE-5 (a live drill) to
+# measure a real window's rates against stock's own production" open, and
+# MINING-ISRU-UNTESTED-END-TO-END left `LogisticsHarvestRuntimeTests.HarvestCapture_
+# CatchUpOnLoad` skipping on every host (it needs a drill landed on ore). This lane runs
+# both on V's real rover (`miner-rover-landed`: four MiniDrill, a MiniISRU, Kerbin, 2 km
+# from the pad), its drills deployed by the seam first.
+#
+# WHY "5a" AND NOT MINE-5. The roadmap's MINE-5 is a live-drill HARVEST-ORIGIN ROUTE with
+# a delivery leg. A route's delivery is a connection window, and the only producer of one
+# is a dock couple (`RouteProofCapture`, `new RouteConnectionWindow` behind a docking-port
+# or claw couple). The miner rover carries no docking port and no claw, no fixture has a
+# landed depot it could dock to, and no seam verb or mission docks two landed vessels
+# (`DriveVessel` drives straight with no steering, the kRPC dock missions are orbital), so
+# the route half needs a new craft pair first (todo MINING-ISRU-UNTESTED-END-TO-END).
+# This lane measures everything about the route's CREDIT that does not need the dock: the
+# real window's witnessed harvest against its own rate x duration x 1.5, the plausible
+# totals a harvest-origin route would credit (`ComputeHarvestCaps` empty), and a delivery
+# of the whole harvest surviving `ClampDeliveriesToPlausibleHarvest` unchanged.
+#
+# THE TWO CELLS (category MiningHarvest, both isolated restore-after-run, in
+# Source/Parsek/InGameTests/LogisticsHarvestRuntimeTests.cs section 5):
+#   LiveDrill_CatchUpOnLoad_AttributesInsideWindowOrBridges: the Logistics D5 cell's own
+#     body (RunCatchUpOnLoad): one surface drill started before recording, a rails warp to
+#     lag its lastUpdateTime, recording started on the rails exit, the window opened AT
+#     start, every full-run gain covered by witnessed window deltas. Its PASS line also
+#     reports what the cap would credit of that run (report-only `plausibility caps=N`).
+#   LiveDrill_HarvestWindowWithinPlausibilityCap: every converter off, recording started,
+#     all four drills started (window opens trigger=toggle), 3 s at 1x, about 50 game s of
+#     10x rails warp (the window stays open across rails entry), stop. Per window and
+#     resource it logs rate / seconds / witnessed / limit / ratio and asserts witnessed <=
+#     limit; it asserts the window bounded (PlausibleRates not null), Ore mined, no cap,
+#     the whole-harvest delivery unclamped, and the window's Ore equal to what stock put in
+#     the tanks (part resources read in the stop frame) up to the window edge slack.
+#   The tanks are read inside the cell, not with ReadVesselResources: the isolated batch
+#   quickloads its baseline after each cell, so a seam read after the batch sees the
+#   fixture's empty tanks.
+#
+# WHAT THE FIRST FLIGHT MUST WATCH.
+#   * Both PASSED lines. A Skip of the cap cell means no harvester accepted activation
+#     (the deploy did not finish before the baseline was captured: raise the WarpToUT).
+#   * `railsWarp=1` on the cap PASS line (the settle + HIGH-mode helper packed the rover);
+#     a 0 is a lane finding, not a product defect.
+#   * The `ratio=` on the Ore row: stock's production as a fraction of rate x duration.
+#     The drills start cold (stock ThermalEfficiency is low at ambient core temperature),
+#     so a ratio well under 1 is expected; record it here and in the todo.
+#   * `gainedResources` and `warped` on the catch-up PASS line, and its `caps=` count: a
+#     catch-up burst that lands inside the at-start window is exactly what the cap bounds.
+#   Then pin the BATCH_COMPLETE split whole (`passed=2 failed=0 skipped=0`) and the
+#   measured counts. DONE 2026-11-07 off `2026-11-07_0022`.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1. Reuse a flight - CONSIDERED, NOT APPLIED. An isolated batch quickloads its baseline
+#      after every cell and a lane carries one RunTests; every MINE host commits, rewinds
+#      or spawns after mining, which a trailing batch would neither see nor keep.
+#   2. No idle waits: one explicit-UT WarpToUT at 1x for the drill deploy animation (the
+#      MINE-2 / MINE-11a value, live-proven); the cells hold real time only while mining.
+#   3. Dwell: 3 s at 1x and 5 s of 10x rails, the least that mines a measurable amount
+#      with cold drills; the catch-up cell keeps its own 2 s warp and 3 s of production.
+#   4-5. No burns, no coasts.
+#   6. Fail fast: each cell's preconditions Skip at once with the missing prerequisite.
+#   7-9. Pin the split and counts, tier and flight_efficiency after the first green flight.
+#
+# PRECONDITIONS: provision stock-minimal with this branch's DLL (the MiningHarvest
+# category is new); fixture `miner-rover-landed` is committed. Expected wall about 5 min.
+# =============================================================================
+schema = 1
+id = "MINE-5a-rover-live-drill-harvest-cap"
+tier = "nightly"
+description = "MINE-5a: on V's real mining rover with its four drills deployed, the MiningHarvest in-game cells run isolated: the D5 catch-up investigation (HarvestCapture_CatchUpOnLoad's body) finally executes on a drill landed on ore, and a live mining window across a rails warp stays under its own plausible rate x duration x 1.5, so a harvest-origin route built from it would credit and deliver the whole harvest; the window's Ore matches what stock put in the tanks up to the window edge slack."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "mining", "logistics", "harvest", "MINE-5a"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-landed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "110406740", resources = "Ore,LiquidFuel,Oxidizer,MonoPropellant", expect = "Ore:0;LiquidFuel:0;Oxidizer:0;MonoPropellant:0", tolerance = "0.01" }, label = "r0", expect = "OK" },
+  { cmd = "PartAction",          args = { button = "deploy", part = "MiniDrill", all = "true" },   expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "PartAction",          args = { button = "inspect", part = "MiniDrill", all = "true" },  expect = "OK" },
+  { cmd = "RunTests",            args = { category = "MiningHarvest", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+D10 = ["harvest-provenance"]
+D14 = ["kerbin", "sandbox", "scene-flight", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  "readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*match=true",
+  "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
+  "partaction applied button=inspect pid=110406740 part='MiniDrill' [^\\r\\n]*deployed=1",
+  "runtests start category=MiningHarvest isolated=true",
+  "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MiningHarvest scene=FLIGHT",
+  "PASSED: LogisticsHarvestRuntimeTests\\.LiveDrill_CatchUpOnLoad_AttributesInsideWindowOrBridges",
+  "PASSED: LogisticsHarvestRuntimeTests\\.LiveDrill_HarvestWindowWithinPlausibilityCap",
+  # The catch-up cell: a drill already running opens a BOUNDED window at the start.
+  "Harvest window opened: window=[^ \\r\\n]+ ut=[0-9.]+ converters=\\[[^\\]\\r\\n]+\\] res=[0-9]+ atStart=1 trigger=recording-start plausibleRates=\\[[^\\]\\r\\n]*Ore:[0-9]",
+  "\\[TestRunner\\] LiveDrill_CatchUp: PASS warped=(?:True|False) windows=[1-9][0-9]* gainedResources=[0-9]+ \\(all covered within 0\\.01\\) plausibility caps=[0-9]+",
+  # The cap cell: the drill toggle opens a bounded window, the Ore row is measured, and
+  # nothing a route would credit or deliver is capped.
+  "Harvest window opened: window=[^ \\r\\n]+ ut=[0-9.]+ converters=\\[[^\\]\\r\\n]+\\] res=[0-9]+ atStart=0 trigger=toggle plausibleRates=\\[[^\\]\\r\\n]*Ore:[0-9]",
+  "\\[TestRunner\\] LiveDrillHarvestCap: window=[^ \\r\\n]+ resource=Ore rate=[0-9][0-9.E+-]* seconds=[0-9.]+ witnessed=[0-9][0-9.E+-]* limit=[0-9][0-9.E+-]* ratio=[0-9]+\\.[0-9]{3}",
+  "\\[TestRunner\\] LiveDrillHarvestCap: PASS windows=[1-9][0-9]* drills=[1-9] railsWarp=1 oreWitnessed=[0-9][0-9.E+-]* oreTank=[0-9-][0-9.E+-]* oreDelivered=[0-9][0-9.E+-]* caps=0",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "Harvest plausibility rates unavailable",
+]
+
+[runtime]
+# The deferred worst case (LoadGame + WarpToUT + RunTests at the seam fallback) is 1980 s;
+# the expected wall is about 5 min.
+budgetSeconds = 2000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

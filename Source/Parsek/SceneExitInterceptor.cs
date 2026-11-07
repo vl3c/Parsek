@@ -160,8 +160,7 @@ namespace Parsek
         /// (e.g. the focused vessel was destroyed mid-segment so
         /// <see cref="ParsekFlight"/> tore down its active tree on
         /// <see cref="GameEvents.onVesselWillDestroy"/>). Without this the
-        /// `Deferred merge dialog fired - pre-transition intercept missed`
-        /// post-load fallback runs against the wrong pending tree.
+        /// post-load OnLoad commit fallback runs against the wrong pending tree.
         /// </summary>
         internal static DialogVariant ShouldShowDialogBeforeSceneChange(
             GameScenes destination,

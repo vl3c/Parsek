@@ -212,9 +212,8 @@ namespace Parsek
             // The tree is stashed; the stock KSP crash report shows first (with Revert /
             // Space Center). If the player reverts, ParsekScenario.OnLoad's isRevert branch
             // auto-discards the pending tree via TreeDiscardService.DiscardPendingTree (see #431
-            // for the purge semantics). Otherwise the scene-exit path surfaces the merge
-            // dialog (autoMerge off) or auto-commits (autoMerge on) in the destination scene
-            // via ParsekScenario.ShowDeferredMergeDialog / the OnLoad auto-commit branch.
+            // for the purge semantics). Otherwise the destination scene's OnLoad auto-commit
+            // branch commits it (no dialog: the deferred merge dialog was retired, todo GUI-D5).
             ParsekLog.Info("Flight",
                 "ShowPostDestructionTreeMergeDialog: pending tree stashed — deferring to post-report scene transition");
         }

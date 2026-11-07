@@ -34,10 +34,12 @@ namespace Parsek.Tests.Logistics
             ParsekLog.ResetTestOverrides();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.ScreenMessageSinkForTesting = (msg, _) => screenMessages.Add(msg);
+            VesselNameStore.ResetForTesting();
         }
 
         public void Dispose()
         {
+            VesselNameStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -223,6 +225,72 @@ namespace Parsek.Tests.Logistics
             // A different craft entirely.
             Assert.False(RouteEndpointTransfer.IsRouteTransport(
                 SubstitutePid, "11111111111111111111111111111111", transports, out _));
+        }
+
+        // catches: a Parsek spawn of the transport's chain tip passing as a stranger. After a
+        // rewind the tree's end spawns the transport again under a fresh pid and guid (MINE-4
+        // flight 2026-11-07_1139: the respawned miner sat 1.56 m from the destination silo,
+        // whose root part uid the spawn had regenerated, and took the route's delivery).
+        [Fact]
+        public void IsRouteTransport_SpawnLinkedGuid_IsTheTransport()
+        {
+            const string recordedGuid = "e585079827a441ee8026bf1afad27961";
+            const string spawnGuid = "c67f0ecfc8424855ae2167b1f075ba5d";
+            const uint respawnPid = 3834393315u;
+            var transports = new List<RouteEndpointTransfer.VesselIdentity>
+            {
+                new RouteEndpointTransfer.VesselIdentity { Pid = TransportPid, LaunchGuid = recordedGuid },
+            };
+
+            Assert.False(RouteEndpointTransfer.IsRouteTransport(
+                respawnPid, spawnGuid, transports, out string before));
+            Assert.Equal(string.Empty, before);
+
+            Assert.True(VesselNameStore.AddLink(
+                spawnGuid, recordedGuid, VesselIdentityLinkKind.Spawn, "test"));
+
+            Assert.True(RouteEndpointTransfer.IsRouteTransport(
+                respawnPid, spawnGuid, transports, out string hit));
+            Assert.Equal("route-own-transport", hit);
+
+            // The link is one-way: an unrelated guid stays a stranger.
+            Assert.False(RouteEndpointTransfer.IsRouteTransport(
+                SubstitutePid, "33333333333333333333333333333333", transports, out _));
+        }
+
+        // catches: the respawned transport winning the proximity fallback over the vessel
+        // behind it.
+        [Fact]
+        public void SurfaceFallback_ExcludesASpawnOfTheTransport()
+        {
+            const string recordedGuid = "e585079827a441ee8026bf1afad27961";
+            const string spawnGuid = "c67f0ecfc8424855ae2167b1f075ba5d";
+            VesselNameStore.AddLink(spawnGuid, recordedGuid, VesselIdentityLinkKind.Spawn, "test");
+            var transports = new List<RouteEndpointTransfer.VesselIdentity>
+            {
+                new RouteEndpointTransfer.VesselIdentity { Pid = TransportPid, LaunchGuid = recordedGuid },
+            };
+            var snapshots = new List<RouteEndpointResolver.SurfaceVesselSnapshot>
+            {
+                Snap(3834393315u, spawnGuid, new Vector3d(1.56, 0, 0)),
+                Snap(SubstitutePid, "33333333333333333333333333333333", new Vector3d(4.0, 0, 0)),
+            };
+
+            bool ok = RouteEndpointResolver.TrySurfaceFallbackPure(
+                new Vector3d(0, 0, 0), Body, snapshots,
+                excludePids: null,
+                excludeTransports: transports,
+                radiusMeters: RouteOrchestrator.SurfaceProximityRadiusMeters,
+                vessel: out Vessel _,
+                pickedPid: out uint pickedPid,
+                pickedDistanceMeters: out double distance,
+                transportCandidatesSkipped: out int skipped,
+                reason: out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal(SubstitutePid, pickedPid);
+            Assert.Equal(4.0, distance, 3);
+            Assert.Equal(1, skipped);
         }
 
         // catches: the transport surviving into the proximity candidate set. RVR-18 measured
