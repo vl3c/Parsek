@@ -2950,6 +2950,17 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Wave 2 W1b (2026-11-07, this branch): the hold decision record `ReFlyInvokeHold.Entry` is the
   top-level plain type `ReFlyHoldEntry` (same file, same fields), so `RewindVesselHold.Hold`
   no longer references the classifier. Knot 459 -> 450, replayed residue 272 -> 263.
+- Wave 2 W8c on this branch (S3, pure move, IL identical): `Logistics/RouteOrchestrator.cs`
+  (5,521 lines, a static class) is a partial class over 7 files
+  (`scripts/refactor/split_routeorchestrator.py`; every field and constant stays in the main
+  file): `RouteOrchestrator.cs` 1,144 lines (operator API, tick, per-route dispatch, shared
+  helpers), `.LoopCrossings` 1,126, `.Debits` 1,090, `.Delivery` 895, `.Holds` 579,
+  `.LoopClock` 389, `.Escrow` 358. `KerbalsModule.cs` (5,120 lines) is a partial class over 7
+  files (`scripts/refactor/split_kerbalsmodule.py`; every field, property, constant and the
+  constructor stay in the main file, with the nested data types): `KerbalsModule.cs` 754,
+  `.Roster` 1,244, `.Walk` 946, `.CrewEndStates` 900, `.Handoffs` 505, `.Queries` 427,
+  `.HoldClock` 404. The ERS / ELS allowlist adds the partial that now holds each raw read
+  (`RouteOrchestrator.LoopClock.cs`, `KerbalsModule.Walk.cs`).
 - Wave 2 W5a (2026-11-07, this branch, docs and tooling only): the `GhostMapPresence`
   static-state map, `docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md`
   (62 fields: writers, outside writers and readers, reset paths, scenes), read from IL by the
