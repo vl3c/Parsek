@@ -50,7 +50,11 @@ namespace Parsek.Tests
             string path = Path.Combine(ResolveRepoRoot(), "Source", "Parsek", relativePath);
             Assert.True(File.Exists(path),
                 "source file moved, this gate is vacuous: " + path);
-            return SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            // ParsekFlight is split into partial files; read the text that was ParsekFlight.cs.
+            string text = relativePath == "ParsekFlight.cs"
+                ? ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path))
+                : File.ReadAllText(path);
+            return SourceScanText.StripCommentsAndMaskLiterals(text);
         }
 
         private static string ResolveRepoRoot()

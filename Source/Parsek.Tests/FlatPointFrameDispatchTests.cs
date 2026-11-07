@@ -185,7 +185,7 @@ namespace Parsek.Tests
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string src = File.ReadAllText(Path.Combine(root, "Source", "Parsek", "ParsekFlight.cs"));
+            string src = ParsekFlightSourceFiles.ReadAll(Path.Combine(root, "Source", "Parsek"));
             var stripped = new StringBuilder();
             foreach (string line in src.Split('\n'))
             {

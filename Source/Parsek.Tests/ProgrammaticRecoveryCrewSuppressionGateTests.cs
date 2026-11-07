@@ -63,7 +63,12 @@ namespace Parsek.Tests
         // ================================================================
 
         [Theory]
-        [InlineData("ParsekFlight.cs", 2)]
+        [InlineData("ParsekFlight.cs", 0)]
+        [InlineData("ParsekFlight.Accessors.cs", 0)]
+        [InlineData("ParsekFlight.GhostPositioner.cs", 0)]
+        [InlineData("ParsekFlight.GhostPositioning.cs", 0)]
+        [InlineData("ParsekFlight.Spawning.cs", 2)]
+        [InlineData("ParsekFlight.TimelinePlayback.cs", 0)]
         [InlineData("VesselSpawner.cs", 1)]
         public void EveryProductionRecoverVesselFromFlightCallIsCrewSuppressed(
             string relPath, int expectedCallSites)
