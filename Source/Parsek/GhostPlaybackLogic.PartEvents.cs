@@ -371,8 +371,6 @@ namespace Parsek
             {
                 if (RefreshCompoundPartVisibility(state))
                     needsReentryMeshRebuild = true;
-                if (RefreshFairingStructureVisibility(state))
-                    needsReentryMeshRebuild = true;
                 if (RestoreCompoundPartsForPlacedTargets(state, placedTargetPartIds))
                     needsReentryMeshRebuild = true;
                 if (needsReentryMeshRebuild)

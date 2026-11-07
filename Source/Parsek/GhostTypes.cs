@@ -514,11 +514,12 @@ namespace Parsek
     /// One stock ModuleStructuralNode of a fairing part on a ghost. Mirrors the inputs of
     /// ModuleStructuralNode.CheckDisplay: the structure is shown when visibilityState is on
     /// and (spawnManually ? spawnState : a part is attached at one of attachNodeNames),
-    /// inverted by reverseVisibility. Attachment is read from the snapshot's attN rows and
-    /// re-evaluated against the ghost's logical part set, so a separated stage hides it.
-    /// (Stock itself leaves the truss shown when the stage leaves from the fairing's own
-    /// child side or is destroyed, because it re-runs CheckDisplay before clearing the node
-    /// or not at all; the ghost hides it, which is what the next recording's snapshot shows.)
+    /// inverted by reverseVisibility, with attachment read from the snapshot's attN rows.
+    /// Stock evaluates that rule only at load and from DecoupleAction, which a separating
+    /// stage fires before it clears the attach node, so a live truss stays shown after its
+    /// stage leaves until the craft reloads. The snapshot then records the live state
+    /// (recordedShown, from GhostFairingStructureStamp) and the ghost shows that instead;
+    /// the ghost never re-evaluates during playback, as stock does not in flight.
     /// </summary>
     internal class FairingStructureNodeGhostInfo
     {
@@ -529,7 +530,7 @@ namespace Parsek
         public bool spawnState;
         public bool reverseVisibility;
         public int[] attachedPartIndices;
-        public uint[] attachedPartPids;
+        public bool? recordedShown;
     }
 
     internal struct FireShellMesh

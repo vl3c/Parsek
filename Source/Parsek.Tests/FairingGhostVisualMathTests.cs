@@ -90,14 +90,14 @@ namespace Parsek.Tests
             string[] expected =
             {
                 "fgv-1-intact", "fgv-1-jettisoned", "fgv-2-intact", "fgv-2-jettisoned",
-                "fgv-2-separated", "fgv-2-separated-rule", "fgv-3-intact", "fgv-3-jettisoned",
+                "fgv-2-separated", "fgv-2-separated-branch", "fgv-3-intact", "fgv-3-jettisoned",
                 "fgv-4-intact", "fgv-4-jettisoned",
             };
             string[] built =
             {
                 FairingGhostVisualMath.LabelFor(1, "intact"), FairingGhostVisualMath.LabelFor(1, "jettisoned"),
                 FairingGhostVisualMath.LabelFor(2, "intact"), FairingGhostVisualMath.LabelFor(2, "jettisoned"),
-                FairingGhostVisualMath.LabelFor(2, "separated"), FairingGhostVisualMath.LabelFor(2, "separated-rule"),
+                FairingGhostVisualMath.LabelFor(2, "separated"), FairingGhostVisualMath.LabelFor(2, "separated-branch"),
                 FairingGhostVisualMath.LabelFor(3, "intact"), FairingGhostVisualMath.LabelFor(3, "jettisoned"),
                 FairingGhostVisualMath.LabelFor(4, "intact"), FairingGhostVisualMath.LabelFor(4, "jettisoned"),
             };

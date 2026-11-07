@@ -95,10 +95,10 @@ namespace Parsek.Tests
             Assert.Equal(4, nodes.Count);
             Assert.Equal(new[] { "Cap1", "Cap2", "Truss1", "Truss2" },
                 new[] { nodes[0].rootObject, nodes[1].rootObject, nodes[2].rootObject, nodes[3].rootObject });
-            Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[0], null)); // Cap1
-            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[1], null));  // Cap2
-            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[2], null));  // Truss1
-            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[3], null));  // Truss2
+            Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[0])); // Cap1
+            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[1]));  // Cap2
+            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[2]));  // Truss1
+            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[3]));  // Truss2
         }
 
         [Fact]
@@ -109,7 +109,7 @@ namespace Parsek.Tests
 
             Assert.Equal(4, nodes.Count);
             foreach (var node in nodes)
-                Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(node, null));
+                Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(node));
         }
 
         [Fact]
@@ -121,7 +121,7 @@ namespace Parsek.Tests
             foreach (var node in nodes)
             {
                 Assert.False(node.visibilityState);
-                Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(node, null));
+                Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(node));
             }
         }
 
@@ -145,46 +145,56 @@ namespace Parsek.Tests
             Assert.True(nodes[1].reverseVisibility);
             Assert.False(nodes[1].spawnState);
             // spawnManually + spawnState false -> flag false -> reversed -> shown.
-            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[1], null));
+            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[1]));
             Assert.Empty(GhostVisualBuilder.ParseFairingStructureNodes(null, null));
         }
 
         [Fact]
-        public void ResolveAttachedPartPids_MapsIndicesThroughThePartList()
+        public void RecordedShownState_OverridesTheRule_AfterTheStageSeparated()
         {
-            var a = new ConfigNode("PART"); a.AddValue("persistentId", "100");
-            var b = new ConfigNode("PART"); b.AddValue("persistentId", "200");
-            var c = new ConfigNode("PART");
-            uint[] pids = GhostVisualBuilder.ResolveAttachedPartPids(
-                new[] { 1, 0, 2, 9 }, new[] { a, b, c });
-            Assert.Equal(new uint[] { 200, 100, 0, 0 }, pids);
-            Assert.Empty(GhostVisualBuilder.ResolveAttachedPartPids(null, new[] { a }));
+            // The snapshot taken right after separation: the interstage row is empty, but the
+            // live truss was still shown (stock keeps it), so the recorder stamped it.
+            ConfigNode snap = Snapshot(true, "bottom, 0", "interstage02b, -1");
+            Assert.False(GhostFairingStructureStamp.ApplyStamp(new ConfigNode("VESSEL"), 500, 0, true));
+            var vessel = new ConfigNode("VESSEL");
+            vessel.AddNode(snap);
+            Assert.True(GhostFairingStructureStamp.ApplyStamp(vessel, 500, 2, true)); // Truss1
+            Assert.True(GhostFairingStructureStamp.ApplyStamp(vessel, 500, 1, true)); // Cap2
+
+            List<FairingStructureNodeGhostInfo> nodes =
+                GhostVisualBuilder.ParseFairingStructureNodes(StockLikeConfig(), vessel.GetNode("PART"));
+            Assert.Null(nodes[0].recordedShown);
+            Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[0])); // Cap1: rule
+            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[1]));  // Cap2: stamped
+            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[2]));  // Truss1: stamped
+            Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[3])); // Truss2: rule
+
+            // The mirror case: a stamped False hides a structure the rule would show.
+            ConfigNode attached = Snapshot(true, "interstage02b, 2");
+            var vessel2 = new ConfigNode("VESSEL");
+            vessel2.AddNode(attached);
+            Assert.True(GhostFairingStructureStamp.ApplyStamp(vessel2, 500, 2, false));
+            nodes = GhostVisualBuilder.ParseFairingStructureNodes(StockLikeConfig(), vessel2.GetNode("PART"));
+            Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[2]));
+            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[3]));
         }
 
         [Fact]
-        public void StructureNodeHasAttachedPart_FollowsTheLogicalPartSet()
+        public void ApplyStamp_MatchesPartByPidAndModuleByOrdinal()
         {
-            var node = new FairingStructureNodeGhostInfo
-            {
-                visibilityState = true,
-                attachedPartIndices = new[] { 2 },
-                attachedPartPids = new uint[] { 300 },
-            };
-            var logical = new HashSet<uint> { 100, 300 };
-            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(node, logical));
-
-            // The attached stage decouples: the ghost prunes its pids, the truss hides.
-            logical.Remove(300);
-            Assert.False(GhostVisualBuilder.StructureNodeHasAttachedPart(node, logical));
-            Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(node, logical));
-
-            // A null or empty set means nothing was pruned (the compound-part convention).
-            Assert.True(GhostVisualBuilder.StructureNodeHasAttachedPart(node, null));
-            Assert.True(GhostVisualBuilder.StructureNodeHasAttachedPart(node, new HashSet<uint>()));
-
-            // A pid that failed to resolve never counts.
-            node.attachedPartPids = new uint[] { 0 };
-            Assert.False(GhostVisualBuilder.StructureNodeHasAttachedPart(node, null));
+            var vessel = new ConfigNode("VESSEL");
+            vessel.AddNode(Snapshot(true));
+            Assert.False(GhostFairingStructureStamp.ApplyStamp(vessel, 501, 0, true)); // wrong pid
+            Assert.False(GhostFairingStructureStamp.ApplyStamp(vessel, 500, 4, true)); // only 4 nodes
+            Assert.False(GhostFairingStructureStamp.ApplyStamp(vessel, 500, -1, true));
+            Assert.False(GhostFairingStructureStamp.ApplyStamp(null, 500, 0, true));
+            Assert.True(GhostFairingStructureStamp.ApplyStamp(vessel, 500, 3, false));
+            ConfigNode[] modules = vessel.GetNode("PART").GetNodes("MODULE");
+            int stampedCount = 0;
+            for (int i = 0; i < modules.Length; i++)
+                if (modules[i].HasValue(GhostFairingStructureStamp.ShownKey)) stampedCount++;
+            Assert.Equal(1, stampedCount);
+            Assert.Equal("False", modules[4].GetValue(GhostFairingStructureStamp.ShownKey)); // 4th structural node
         }
 
         [Fact]

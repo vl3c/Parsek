@@ -246,10 +246,7 @@ namespace Parsek
                         if (lightInfo != null)
                             build.lightInfos.Add(lightInfo);
                         if (fairingInfo != null)
-                        {
-                            ResolveFairingStructureAttachPids(fairingInfo, build.partNodes);
                             build.fairingInfos.Add(fairingInfo);
-                        }
                         if (partRcsInfos != null)
                             build.rcsInfos.AddRange(partRcsInfos);
                         if (partRoboticInfos != null)

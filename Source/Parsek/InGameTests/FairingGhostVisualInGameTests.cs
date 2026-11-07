@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Reflection;
 using Parsek.TestCommands;
 using UnityEngine;
 
@@ -164,10 +163,10 @@ namespace Parsek.InGameTests
     /// <para>Jettison is stock <c>DeployFairing()</c> on the real part and
     /// <see cref="GhostPlaybackLogic.ApplyFairingJettisonedState"/> on the ghost.
     /// Separation (configuration 2 only) is stock <c>Part.decouple()</c> on the upper part
-    /// (the new vessel is then removed) and, on the ghost, the decoupled-subtree hide plus
-    /// logical-presence removal followed by <c>GhostPlaybackLogic.RefreshFairingStructureVisibility</c>,
-    /// bound BY NAME so this file builds before that method exists; when it is missing the
-    /// test still takes every image and then fails naming it.</para>
+    /// (the new vessel is then removed). The ghost is checked twice against the real truss:
+    /// the same ghost after the decoupled-subtree hide (fgv-2-separated), then a ghost
+    /// rebuilt from a snapshot taken after the split, the way the recording that starts there
+    /// sees the craft (fgv-2-separated-branch). Stock keeps the truss shown in both.</para>
     ///
     /// <para>Ghosts never touch game state; the spawned real vessels are removed at the end of
     /// each configuration. Every step logs under the <c>FairingGhostVisual</c> tag.</para>
@@ -178,7 +177,6 @@ namespace Parsek.InGameTests
         public FairingGhostVisualInGameTests(InGameTestRunner runner) { this.runner = runner; }
 
         internal const string Tag = "FairingGhostVisual";
-        internal const string RefreshStructureMethodName = "RefreshFairingStructureVisibility";
 
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
@@ -293,13 +291,8 @@ namespace Parsek.InGameTests
                     InGameAssert.Skip($"PartLoader does not know '{required}' (stock procedural fairing)");
             }
 
-            MethodInfo refreshStructure = typeof(GhostPlaybackLogic).GetMethod(
-                RefreshStructureMethodName,
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
-                null, new[] { typeof(GhostPlaybackState) }, null);
             ParsekLog.Info(Tag, $"start: active='{active.vesselName}' body={active.mainBody.name} " +
-                $"alt={active.altitude.ToString("F0", IC)}m ut={Planetarium.GetUniversalTime().ToString("F1", IC)} " +
-                $"refreshStructureMethod={(refreshStructure != null ? "present" : "MISSING")}");
+                $"alt={active.altitude.ToString("F0", IC)}m ut={Planetarium.GetUniversalTime().ToString("F1", IC)}");
 
             var failures = new List<string>();
             var captured = new List<string>();
@@ -372,6 +365,7 @@ namespace Parsek.InGameTests
                         continue;
                     }
                     LogGhostStructureState(run, "built");
+                    CompareStructure(run, "built", failures);
                     CompareBaseRingTexture(run, "built", failures);
 
                     // ---- frame and capture: intact ---------------------------------------------
@@ -409,13 +403,14 @@ namespace Parsek.InGameTests
                     yield return HoldCamera(run, JettisonSettleSeconds);
                     LogRealVesselState(run, "jettisoned");
                     LogGhostStructureState(run, "jettisoned");
+                    CompareStructure(run, "jettisoned", failures);
                     CompareBaseRingTexture(run, "jettisoned", failures);
                     yield return CaptureShot(run, "jettisoned", captured, failures);
 
                     // ---- separation (interstage configuration only) ----------------------------
                     if (cfg.Interstage)
                     {
-                        IEnumerator sep = SeparateUpperStage(run, refreshStructure, captured, failures);
+                        IEnumerator sep = SeparateUpperStage(run, captured, failures);
                         while (sep.MoveNext())
                             yield return sep.Current;
                     }
@@ -801,7 +796,7 @@ namespace Parsek.InGameTests
         // =====================================================================================
 
         private IEnumerator SeparateUpperStage(
-            ConfigRun run, MethodInfo refreshStructure, List<string> captured, List<string> failures)
+            ConfigRun run, List<string> captured, List<string> failures)
         {
             FairingConfig cfg = run.Config;
             if (run.UpperPart == null || run.UpperPid == 0)
@@ -822,10 +817,9 @@ namespace Parsek.InGameTests
                 failures.Add($"config {cfg.Number} {cfg.Name}: stock decouple threw {ex.GetType().Name}: {ex.Message}");
             }
             yield return null;
-            int realTrussAfterStock = CountActiveStructure(run.FairingPart);
             ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: real upper part pid={run.UpperPid.ToString(IC)} decoupled " +
                 $"newVessel='{(upperVessel != null ? upperVessel.vesselName : "<none>")}' " +
-                $"realStructureActiveAfterStockDecouple={realTrussAfterStock.ToString(IC)}");
+                $"realStructureActiveAfterStockDecouple={CountActiveStructure(run.FairingPart).ToString(IC)}");
             if (upperVessel != null && upperVessel != run.Real)
             {
                 try { upperVessel.Die(); }
@@ -834,55 +828,74 @@ namespace Parsek.InGameTests
                     ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: separated upper vessel Die threw {ex.GetType().Name}: {ex.Message}");
                 }
             }
+            yield return null;
 
-            // Ghost: the decoupled-subtree path (hide + logical removal), then the stock
-            // structural-node rule re-evaluated over the remaining logical parts.
+            // Ghost, same recording: the decoupled-subtree path (hide + logical removal).
+            // Stock leaves the truss shown, and so does the ghost.
             GhostPlaybackLogic.HidePartSubtree(run.State.ghost, run.UpperPid, run.State.partTree);
             GhostPlaybackLogic.RemovePartSubtreeFromLogicalPresence(
                 run.State.logicalPartIds, run.UpperPid, run.State.partTree);
-            if (refreshStructure != null)
-            {
-                object result = null;
-                try
-                {
-                    result = refreshStructure.Invoke(null, new object[] { run.State });
-                    ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: truss refresh invoked " +
-                        $"{RefreshStructureMethodName} logicalParts={run.State.logicalPartIds.Count.ToString(IC)} " +
-                        $"result={(result != null ? result.ToString() : "<void>")}");
-                }
-                catch (Exception ex)
-                {
-                    Exception inner = ex.InnerException ?? ex;
-                    failures.Add($"config {cfg.Number} {cfg.Name}: {RefreshStructureMethodName} threw {inner.GetType().Name}: {inner.Message}");
-                }
-            }
-            else
-            {
-                failures.Add($"config {cfg.Number} {cfg.Name}: GhostPlaybackLogic.{RefreshStructureMethodName}(GhostPlaybackState) is not in this build");
-                ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: truss refresh MISSING ({RefreshStructureMethodName} not found)");
-            }
-
             yield return HoldCamera(run, SeparationSettleSeconds);
             LogGhostStructureState(run, "separated");
+            CompareStructure(run, "separated", failures);
             yield return CaptureShot(run, "separated", captured, failures);
 
-            // Stock fires the parent's IActivateOnDecouple BEFORE it clears the attach node's
-            // attachedPart, so the real truss can stay shown after a separation. When it did,
-            // re-run stock's own rule (ModuleStructuralNode.DecoupleAction -> CheckDisplay) and
-            // take one more image so both readings sit side by side.
-            int realTruss = CountActiveStructure(run.FairingPart);
-            if (realTruss > 0 && run.FairingPart != null)
+            // Ghost, the recording that starts at the separation: rebuilt from a snapshot of
+            // the real craft taken now, as the recorder takes it for the new branch.
+            if (run.Build != null && run.Build.root != null)
+            {
+                run.Build.root.transform.SetParent(null, false);
+                UnityEngine.Object.Destroy(run.Build.root);
+                run.Build.root = null;
+            }
+            run.Build = null;
+            run.State = null;
+            if (!BuildGhostBesideReal(run, out string rebuildFail))
+            {
+                failures.Add($"config {cfg.Number} {cfg.Name}: post-separation ghost not built ({rebuildFail})");
+                yield break;
+            }
+            yield return HoldCamera(run, SeparationSettleSeconds);
+            LogGhostStructureState(run, "separated-branch");
+            CompareStructure(run, "separated-branch", failures);
+            yield return CaptureShot(run, "separated-branch", captured, failures);
+        }
+
+        /// <summary>
+        /// The truss and cap pieces the real fairing shows against the ones the ghost shows,
+        /// by stock rootObject name.
+        /// </summary>
+        private static void CompareStructure(ConfigRun run, string phase, List<string> failures)
+        {
+            var real = new List<string>();
+            if (run.FairingPart != null)
             {
                 List<ModuleStructuralNode> nodes = run.FairingPart.FindModulesImplementing<ModuleStructuralNode>();
                 for (int i = 0; i < nodes.Count; i++)
-                    nodes[i].DecoupleAction(string.Empty, false);
-                yield return null;
-                int realAfterRule = CountActiveStructure(run.FairingPart);
-                ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: real structure still shown after stock decouple " +
-                    $"({realTruss.ToString(IC)} active); re-ran ModuleStructuralNode rule -> {realAfterRule.ToString(IC)} active");
-                yield return HoldCamera(run, 0.3f);
-                yield return CaptureShot(run, "separated-rule", captured, null);
+                    if (nodes[i].structTransform != null && nodes[i].structTransform.gameObject.activeSelf)
+                        real.Add(nodes[i].rootObject);
             }
+            var ghost = new List<string>();
+            if (run.State != null && run.State.fairingInfos != null
+                && run.State.fairingInfos.TryGetValue(run.FairingPid, out FairingGhostInfo info)
+                && info != null && info.structureNodes != null)
+            {
+                for (int i = 0; i < info.structureNodes.Count; i++)
+                {
+                    FairingStructureNodeGhostInfo n = info.structureNodes[i];
+                    if (n != null && n.structureObject != null && n.structureObject.activeSelf)
+                        ghost.Add(n.rootObject);
+                }
+            }
+            real.Sort(StringComparer.Ordinal);
+            ghost.Sort(StringComparer.Ordinal);
+            string r = string.Join(",", real.ToArray());
+            string g = string.Join(",", ghost.ToArray());
+            bool match = r == g;
+            ParsekLog.Info(Tag, $"config {run.Config.Number} {run.Config.Name}: structure {phase} " +
+                $"real=[{r}] ghost=[{g}] match={match}");
+            if (!match)
+                failures.Add($"config {run.Config.Number} {run.Config.Name}: {phase} structure real=[{r}] ghost=[{g}]");
         }
 
         // =====================================================================================

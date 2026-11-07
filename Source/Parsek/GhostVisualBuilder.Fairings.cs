@@ -69,6 +69,10 @@ namespace Parsek
                 };
                 if (hasToggle)
                     info.visibilityState = toggleShowMesh;
+                bool recorded;
+                string recordedRaw = snap != null ? snap.GetValue(GhostFairingStructureStamp.ShownKey) : null;
+                if (recordedRaw != null && bool.TryParse(recordedRaw.Trim(), out recorded))
+                    info.recordedShown = recorded;
 
                 string attachNames = cfg.GetValue("attachNodeNames") ?? "bottom";
                 var indices = new List<int>();
@@ -127,74 +131,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: whether the structure node currently sees an attached part. Before pid
-        /// resolution (attachedPartPids null) the snapshot attachment counts; afterwards a
-        /// pid counts while it is still in the ghost's logical part set (an empty or null set
-        /// means "no pruning has happened", the convention the compound-part refresh uses).
+        /// Pure: what the ghost shows for one structure node. A display state the recorder
+        /// stamped (the live truss differed from the rule, as after a separation) wins;
+        /// otherwise stock's rule over the snapshot's attachments.
         /// </summary>
-        internal static bool StructureNodeHasAttachedPart(
-            FairingStructureNodeGhostInfo node, HashSet<uint> logicalPartIds)
+        internal static bool ComputeStructureNodeVisible(FairingStructureNodeGhostInfo node)
         {
             if (node == null) return false;
-            if (node.attachedPartPids == null)
-                return node.attachedPartIndices != null && node.attachedPartIndices.Length > 0;
-            for (int i = 0; i < node.attachedPartPids.Length; i++)
-            {
-                uint pid = node.attachedPartPids[i];
-                if (pid == 0) continue;
-                if (logicalPartIds == null || logicalPartIds.Count == 0 || logicalPartIds.Contains(pid))
-                    return true;
-            }
-            return false;
-        }
-
-        internal static bool ComputeStructureNodeVisible(
-            FairingStructureNodeGhostInfo node, HashSet<uint> logicalPartIds)
-        {
-            if (node == null) return false;
+            if (node.recordedShown.HasValue) return node.recordedShown.Value;
             return ComputeStructureNodeVisible(
                 node.visibilityState, node.spawnManually, node.spawnState,
-                node.reverseVisibility, StructureNodeHasAttachedPart(node, logicalPartIds));
-        }
-
-        /// <summary>
-        /// Pure: maps the snapshot part indices a structure node is attached to onto the
-        /// persistentIds the ghost names its parts by. An index outside the PART list or a
-        /// part without a persistentId resolves to 0, which never counts as attached.
-        /// </summary>
-        internal static uint[] ResolveAttachedPartPids(int[] indices, ConfigNode[] partNodes)
-        {
-            if (indices == null) return new uint[0];
-            var pids = new uint[indices.Length];
-            for (int i = 0; i < indices.Length; i++)
-            {
-                int idx = indices[i];
-                uint pid = 0;
-                if (partNodes != null && idx >= 0 && idx < partNodes.Length)
-                {
-                    string raw = partNodes[idx].GetValue("persistentId");
-                    if (raw != null)
-                        uint.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out pid);
-                }
-                pids[i] = pid;
-            }
-            return pids;
-        }
-
-        /// <summary>
-        /// Resolves every structure node's attached part indices to persistentIds once the
-        /// whole snapshot PART list is known (the per-part builder sees one PART node only).
-        /// </summary>
-        internal static void ResolveFairingStructureAttachPids(
-            FairingGhostInfo fairingInfo, ConfigNode[] partNodes)
-        {
-            if (fairingInfo == null || fairingInfo.structureNodes == null) return;
-            for (int i = 0; i < fairingInfo.structureNodes.Count; i++)
-            {
-                FairingStructureNodeGhostInfo node = fairingInfo.structureNodes[i];
-                if (node == null) continue;
-                node.attachedPartPids = ResolveAttachedPartPids(node.attachedPartIndices, partNodes);
-            }
+                node.reverseVisibility,
+                node.attachedPartIndices != null && node.attachedPartIndices.Length > 0);
         }
 
         private static bool ParseBoolOr(string raw, bool fallback)
@@ -219,7 +167,7 @@ namespace Parsek
             List<FairingStructureNodeGhostInfo> nodes = ParseFairingStructureNodes(partConfig, partNode);
             if (nodes.Count == 0) return null;
 
-            int bound = 0, shown = 0, attached = 0;
+            int bound = 0, shown = 0, attached = 0, recorded = 0;
             for (int i = 0; i < nodes.Count; i++)
             {
                 FairingStructureNodeGhostInfo node = nodes[i];
@@ -228,14 +176,15 @@ namespace Parsek
                 node.structureObject = t.gameObject;
                 bound++;
                 if (node.attachedPartIndices.Length > 0) attached++;
-                bool visible = ComputeStructureNodeVisible(node, null);
+                if (node.recordedShown.HasValue) recorded++;
+                bool visible = ComputeStructureNodeVisible(node);
                 node.structureObject.SetActive(visible);
                 if (visible) shown++;
             }
 
             ParsekLog.VerboseRateLimited("GhostVisual", $"fairing_struct_{partName}_{persistentId}",
                 $"  Fairing structure nodes: part='{partName}' pid={persistentId} nodes={nodes.Count} " +
-                $"bound={bound} withAttachment={attached} shown={shown} " +
+                $"bound={bound} withAttachment={attached} recordedState={recorded} shown={shown} " +
                 $"visibilityState={(nodes[0].visibilityState ? "on" : "off")}", 60.0);
             return nodes;
         }

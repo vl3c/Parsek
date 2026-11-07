@@ -584,41 +584,6 @@ namespace Parsek
             return changed;
         }
 
-        /// <summary>
-        /// Re-applies stock ModuleStructuralNode visibility (the fairing interstage truss and
-        /// cap plates) against the ghost's current logical part set: a structure whose only
-        /// attached stage was decoupled or destroyed hides (stock re-runs CheckDisplay from
-        /// DecoupleAction; see FairingStructureNodeGhostInfo for the parent-side case where
-        /// stock keeps it). Idempotent; returns true when anything changed.
-        /// </summary>
-        internal static bool RefreshFairingStructureVisibility(GhostPlaybackState state)
-        {
-            if (state == null || state.fairingInfos == null || state.fairingInfos.Count == 0)
-                return false;
-
-            int changed = 0;
-            foreach (var kvp in state.fairingInfos)
-            {
-                FairingGhostInfo info = kvp.Value;
-                if (info == null || info.structureNodes == null) continue;
-                for (int i = 0; i < info.structureNodes.Count; i++)
-                {
-                    FairingStructureNodeGhostInfo node = info.structureNodes[i];
-                    if (node == null || node.structureObject == null) continue;
-                    bool visible = GhostVisualBuilder.ComputeStructureNodeVisible(node, state.logicalPartIds);
-                    if (node.structureObject.activeSelf == visible) continue;
-                    node.structureObject.SetActive(visible);
-                    changed++;
-                    ParsekLog.VerboseRateLimited("GhostVisual",
-                        $"fairing-struct-{info.partPersistentId}-{node.rootObject}",
-                        $"Fairing structure '{node.rootObject}' on pid={info.partPersistentId} " +
-                        $"now {(visible ? "shown" : "hidden")} (attached stage " +
-                        $"{(GhostVisualBuilder.StructureNodeHasAttachedPart(node, state.logicalPartIds) ? "present" : "gone")})");
-                }
-            }
-            return changed > 0;
-        }
-
         internal static bool ShouldHideCompoundPart(
             uint targetPersistentId,
             HashSet<uint> logicalPartIds,
