@@ -1,0 +1,751 @@
+A:keepBackupHold
+C:ShouldKeepBackupHold
+C:ParsekGameModeGate.CheckInert
+S:"ParsekScenario.OnLoad"
+C:StashInertGameModeNode
+S:"inert game mode"
+C:PreParsekBackup.DropUnusedAutomationFault
+S:"an inert load makes no backup attempt"
+C:InSessionStagedStateHandoff.Drop
+C:SaveFileLoadIntent.Clear
+S:"inert-game-mode"
+A:inertGameModePassthroughNode
+C:InFlightRecoveryRequest.Clear
+S:"OnLoad"
+C:ConverterJumpPolicy.ClearJumpedSpans
+S:"OnLoad"
+C:CommittedMilestoneReach.ClearSubjectScienceMirror
+S:"OnLoad"
+C:DropHeldSaveAttemptEvents
+S:"next-load"
+C:DiagnosticsState.ResetSessionCounters
+C:IncompleteBallisticSceneExitFinalizer.ResetLifecycleDiagnostics
+A:sw
+C:Stopwatch.StartNew
+A:loadedRecordingCount
+A:loadPhase
+S:"entry"
+A:loadStatus
+S:"running"
+A:onLoadInProgress
+C:ClearFlightSceneReadyForVesselSwitchFlag
+A:loadPhase
+S:"reset-dialog"
+A:mergeDialogPending
+C:InputLockManager.RemoveControlLock
+S:"ParsekMergeDialog"
+C:ParsekLog.Warn
+S:"Scenario"
+S:"GuiMock session found LIVE at OnLoad: state="
+S:"-"
+S:" window="
+S:"-"
+S:" - dropping it (nothing injected reaches a save, so no data is "
+S:"at risk; an exit path did not clear)"
+C:Parsek.UI.Gallery.GuiMockSession.ResetForTesting
+A:loadPhase
+S:"settings"
+A:scenarioNodePopulated
+C:ParsekSettingsPersistence.ApplyTo
+C:ParsekSettings.ClampHiddenSettingsToShippingValues
+C:ParsekLog.Info
+S:"Settings"
+S:"Hidden settings clamped to shipping values (stale save-stored values overridden)"
+C:RecorderStateLog.RecState
+S:"OnLoad:settings-applied"
+C:CaptureScenarioRecorderState
+A:loadPhase
+S:"save-format"
+C:SaveFormat.ClassifyLoadedScenarioNode
+A:recordings
+A:loadedRecordingCount
+A:loadPhase
+S:"hooks"
+C:RegisterMainMenuHook
+A:saveFolderBeforeDetect
+A:backupHoldRetryDetected
+A:backupHoldRetrySaveFolderBefore
+C:DetectSaveFolderChange
+A:loadPhase
+S:"load-classify"
+A:classifyInitialLoadDone
+A:classifyRewinding
+A:classifyReFlyInvoke
+A:classifyDiscardReFly
+C:DiscardReFlyLoadIntent.TryConsume
+S:"ParsekScenario.OnLoad"
+A:classifyDiscardReFlyTarget
+C:discardReFlyIntentTarget.ToString
+A:classifyRevertPending
+A:classifySaveFileLoad
+C:SaveFileLoadIntent.TryConsume
+S:"ParsekScenario.OnLoad"
+A:classifyHandoff
+C:InSessionStagedStateHandoff.DescribeForClassification
+A:earlyLoadKind
+C:LoadReconcilePolicy.ClassifyEarly
+A:coldReason
+C:LoadReconcilePolicy.ResolveColdReason
+A:classification
+C:LoadClassificationFacts
+C:LogLoadClassification
+C:LoadReconcilePolicy.ToLoadKind
+A:initialLoadDone
+C:InSessionStagedStateHandoff.Drop
+C:ParsekLog.Verbose
+S:"Save-file load intent dropped reason=consumed-by-"
+S:" (a revert is pending)"
+S:""
+A:loadPhase
+S:"save-scoped-reset"
+C:ResetSaveScopedSessionState
+C:KerbalLoadRepairDiagnostics.Begin
+A:loadPhase
+S:"crew-groups"
+C:LoadCrewAndGroupState
+A:loadPhase
+S:"refly-state-load"
+C:LoadRewindStagingState
+A:loadPhase
+S:"stock-pool-reference-load"
+C:LoadStockPoolReference
+A:loadPhase
+S:"ledger-held-window-load"
+C:LoadLedgerHeldWindow
+A:loadPhase
+S:"rewind-vessel-holds-load"
+C:LoadRewindVesselHolds
+A:loadPhase
+S:"playback-replay-scope-load"
+C:LoadPlaybackReplayScope
+A:loadPhase
+S:"removed-replay-flags-load"
+C:LoadRemovedReplayFlags
+A:loadPhase
+S:"rewind-point-carry-over"
+C:RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad
+A:loadPhase
+S:"rewind-staged-lists-carry-over"
+C:RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad
+A:loadPhase
+S:"in-session-staged-handoff"
+C:ApplyInSessionStagedStateHandoffStepA
+A:loadPhase
+S:"pre-parsek-backup"
+C:PreParsekBackup.SweepOrphanStagingDirs
+C:PreParsekBackup.MaybeBackupOnFirstColdContact
+C:EnterBackupHold
+A:loadStatus
+S:"backup-hold"
+C:PreParsekBackup.DropUnusedAutomationFault
+S:"an in-session load makes no backup attempt"
+A:loadPhase
+S:"game-state-recorder"
+C:stateRecorder?.Unsubscribe
+C:LoadExternalFiles
+A:stateRecorder
+C:GameStateRecorder
+C:stateRecorder.SeedFacilityCacheFromCurrentState
+C:stateRecorder.Subscribe
+C:StartCoroutine
+C:SeedRecorderResourceBaselinesWhenReady
+A:loadPhase
+S:"initial-baseline"
+C:SubscribeVesselLifecycleEvents
+C:CaptureInitialBaseline
+A:loadPhase
+S:"timeline-break"
+A:rewindWorldUT
+C:ResolvePlainRewindWorldUT
+C:KerbalsModule.ReadLoadedSaveUT
+C:StockShadowTakeBack.NoteLoad
+C:CaptureSequence.CurrentHighWater
+C:LiveOnlyIncome.DropAfterTimeTravelLoad
+C:ReconcileRemovedReplayFlagsAtLoad
+A:loadPhase
+S:"rewind"
+C:HandleRewindOnLoad
+C:ReconcileReadableSidecarMirrorsOnLoadIfDisabled
+A:loadPhase
+S:"vessel-names-apply"
+C:VesselNameStore.RunSpawnLinkBackfill
+S:"onload-tail:rewind"
+C:VesselNameStore.ApplyAll
+S:"onload-tail:rewind"
+C:DiagnosticsComputation.EmitSceneLoadSnapshot
+C:HighLogic.LoadedScene.ToString
+A:loadedRecordingCount
+A:loadStatus
+S:"returned"
+A:loadPhase
+S:"active-tree-restore"
+A:activeTreeRestoredFromSave
+C:TryRestoreActiveTreeNode
+A:pendingTreeRestoredFromSave
+C:TryRestorePendingTreeNode
+C:RecorderStateLog.RecState
+S:"OnLoad:active-tree-restored"
+C:CaptureScenarioRecorderState
+A:loadPhase
+S:"in-session-handoff-step-b"
+C:ApplyInSessionStagedStateHandoffStepB
+A:loadPhase
+S:"revert-classification"
+A:savedTreeRecCount
+C:CountSavedCommittedRecordingNodes
+A:isFlightToFlight
+A:currentFrame
+A:vesselSwitchFlagFresh
+C:IsVesselSwitchFlagFresh
+A:isVesselSwitch
+A:age
+C:ParsekLog.Info
+S:"Scenario"
+S:$"vesselSwitchPending flag stale ({age} frames old, "
+S:$"max {VesselSwitchPendingMaxAgeFrames}) — "
+S:"treating FLIGHT→FLIGHT as quickload, not vessel switch"
+A:vesselSwitchPending
+A:vesselSwitchFlagAgeOnConsume
+A:vesselSwitchPendingFrame
+A:planetariumReady
+A:loadedUT
+C:Planetarium.GetUniversalTime
+A:preChangeUT
+A:lastSceneChangeRequestedUT
+A:utWentBackwards
+C:IsQuickloadOnLoad
+C:ParsekLog.Info
+S:"Scenario"
+S:"OnLoad: UT went backwards "
+S:$"({preChangeUT.ToString("F2", CultureInfo.InvariantCulture)} → "
+S:$"{loadedUT.ToString("F2", CultureInfo.InvariantCulture)}) — "
+S:"forcing isVesselSwitch=false for quickload classification "
+S:$"(flag was fresh at age={vesselSwitchFlagAgeOnConsume} frames; "
+S:$"cap={VesselSwitchPendingMaxAgeFrames})"
+A:isVesselSwitch
+A:hasOrphanedLimboTree
+C:ComputeHasOrphanedLimboTree
+A:revertKind
+C:RevertDetector.Consume
+S:"ParsekScenario.OnLoad"
+A:revertTargetPids
+C:RevertDetector.ConsumeRevertTargetVesselPids
+A:isRevert
+C:ComputeIsRevertOnLoad
+C:ParsekLog.Verbose
+S:"Scenario"
+S:$"OnLoad: revert detection — revertKind={revertKind}, "
+S:$"savedTreeRecs={savedTreeRecCount}, "
+S:$"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, "
+S:$"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, "
+S:$"pendingTreeState={PendingTreeSlot.PendingTreeStateValue}, "
+S:$"activeTreeRestoredFromSave={activeTreeRestoredFromSave}, "
+S:$"pendingTreeRestoredFromSave={pendingTreeRestoredFromSave}, "
+S:$"hasOrphanedLimboTree={hasOrphanedLimboTree}"
+A:refinedLoadKind
+C:LoadReconcilePolicy.ClassifyRefined
+C:LogLoadClassification
+C:CheckLoadedSaveStamp
+A:loadedWorldUT
+C:LedgerHeldWindow.ResolveLedgerNowUT
+C:KerbalsModule.ReadLoadedSaveUT
+C:StockShadowTakeBack.NoteLoad
+C:CaptureSequence.CurrentHighWater
+C:LiveOnlyIncome.DropAfterTimeTravelLoad
+C:ReconcileRemovedReplayFlagsAtLoad
+C:LoadReconcilePolicy.Decide
+A:loadPhase
+S:"vessel-names-revert-undo"
+C:VesselNameStore.UndoCurrentFlightEpoch
+S:"onload:"
+C:DecideFreshLaunchUtAction
+C:ParsekFlight.IsFreshLaunchStartupBehaviour
+A:currentFlightLaunchUT
+A:freshLaunchEntryPending
+C:ParsekLog.Info
+S:"Scenario"
+S:$"Captured fresh-launch UT {loadedUT.ToString("R", CultureInfo.InvariantCulture)} "
+S:"for the Revert-to-editor orphan-prune boundary"
+A:freshLaunchEntryPending
+C:double.IsNaN
+A:currentFlightLaunchUT
+C:ParsekLog.Verbose
+S:"Scenario"
+S:"Cleared captured fresh-launch UT on non-fresh flight load (quickload-resume)"
+C:ShouldRunQuickloadDiscard
+C:DiscardStashedOnQuickload
+C:LoadReconcilePolicy.Decide
+C:RecorderStateLog.RecState
+S:"OnLoad:revert-decided=Y"
+S:"OnLoad:revert-decided=N"
+C:CaptureScenarioRecorderState
+C:ParsekLog.Info
+S:"Scenario"
+S:"OnLoad: FLIGHT→FLIGHT without revert indicators — treating as quickload / scene reload, not revert"
+A:loadPhase
+S:"revert-cleanup"
+C:ArmRevertCleanupData
+A:revertDisposition
+C:ClassifyRevertPendingTreeDisposition
+C:ParsekLog.Info
+S:"Scenario"
+S:"Revert: keeping freshly-stashed pending (stashed this transition) — "
+S:$"tree={PendingTreeSlot.HasPendingTree}"
+A:PendingTreeSlot.PendingStashedThisTransition
+C:ParsekLog.Info
+S:"Scenario"
+S:$"Revert: keeping pending Limbo tree "
+S:$"'{PendingTreeSlot.PendingTree?.TreeName}' "
+S:$"(state={PendingTreeSlot.PendingTreeStateValue}) — stashed for dispatch"
+C:ParsekLog.Info
+S:"Scenario"
+S:"Clearing orphaned pending tree on revert (stale from previous flight)"
+C:DiscardPendingTreeAndAbandonDeferredFlightResults
+S:"orphaned pending tree discarded on revert"
+A:loadPhase
+S:"tree-mutable-state"
+C:ResetTreeRecordingMutableStateForLoad
+A:loadPhase
+S:"revert-strip"
+A:RewindLauncher.PendingRevertPreExistingPids
+A:flightState
+A:allCommitted
+C:RecordingStore.CollectAllCommittedRecordings
+C:StripOrphanedSpawnedVessels
+C:ReleaseRevertCleanupOutsideFlight
+C:CrewReservationManager.RescueOrphanedCrew
+A:loadPhase
+S:"tree-state-restore"
+A:savedTreeNodes
+C:node.GetNodes
+S:"RECORDING_TREE"
+C:IsActiveTreeNode
+C:IsPendingTreeNode
+A:savedTreeRecNodes
+C:savedTreeNode.GetNodes
+S:"RECORDING"
+A:savedRecId
+C:savedTreeRecNode.GetValue
+S:"recordingId"
+C:string.IsNullOrEmpty
+A:i
+A:i
+A:pidStr
+C:savedTreeRecNode.GetValue
+S:"spawnedPid"
+A:savedPid
+C:uint.TryParse
+A:SpawnedVesselPersistentId
+A:VesselSpawned
+A:resIdxStr
+C:savedTreeRecNode.GetValue
+S:"lastResIdx"
+A:resIdx
+C:int.TryParse
+A:LastAppliedResourceIndex
+C:RestorePersistedTerminalAbandon
+A:flightStateForReconcile
+C:ReconcileSpawnStateAfterStrip
+C:CollectSurvivingVesselIdentities
+A:loadPhase
+S:"discard-refly-vessel-holds"
+C:ApplyDiscardReFlyVesselHolds
+C:KerbalsModule.ReadLoadedSaveUT
+A:revertPruneCutoffUTForRoutes
+A:loadPhase
+S:"revert-milestones"
+C:MilestoneStore.RestoreMutableState
+A:hadPendingTree
+C:PendingTreeSlot.UnstashPendingTreeOnRevert
+A:editorBoundaryUT
+C:ResolveEditorRevertBoundaryUT
+C:Ledger.GetLatestUntaggedVesselBuildUT
+A:pruneCutoffUT
+C:ResolveRevertPruneCutoff
+A:prunedOrphans
+C:PruneRevertedFlightLedgerRows
+A:revertPruneCutoffUTForRoutes
+C:ParsekLog.Info
+S:"Scenario"
+S:$"Revert ({revertKind}): pruned {prunedOrphans} untagged ledger action(s) "
+S:$"{(pruneInclusive ? "at/after" : "after")} launchUT="
+S:$"{pruneCutoffUT.ToString("R", CultureInfo.InvariantCulture)} "
+S:"(launch-pad/PRELAUNCH currency earned before auto-record)"
+C:LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows
+C:ParsekLog.ScreenMessage
+S:"Recording unstashed (revert)"
+C:ParsekLog.Verbose
+S:"Scenario"
+S:"Scheduling budget deduction coroutine (singletons may not be ready yet)"
+A:budgetDeductionApplied
+C:StartCoroutine
+C:ApplyBudgetDeductionWhenReady
+A:loadPhase
+S:"scene-milestones"
+C:MilestoneStore.RestoreMutableState
+C:ParsekLog.Verbose
+S:"Scenario"
+S:"Scene change — milestone state restored (resetUnmatched=false)"
+A:loadPhase
+S:"limbo-dispatch"
+C:ClearPendingQuickloadResumeContext
+C:RecorderStateLog.RecState
+S:"OnLoad:limbo-dispatched"
+C:CaptureScenarioRecorderState
+A:pendState
+A:limboOutcome
+C:ClassifyLimboDispatch
+C:ClearPendingQuickloadResumeContext
+A:ScheduleActiveTreeRestoreOnFlightReady
+C:ParsekLog.Info
+S:"Scenario"
+S:$"OnLoad: pending-LimboVesselSwitch tree '{PendingTreeSlot.PendingTree?.TreeName}' "
+S:"deferred to OnFlightReady for vessel-switch restore (#266)"
+C:FinalizePendingLimboTreeForRevert
+C:ClearPendingQuickloadResumeContext
+C:ParsekLog.Info
+S:"Scenario"
+S:"OnLoad: Limbo tree finalized on vessel switch (safety-net path; "
+S:"stash didn't pre-transition — usually means a guard at stash "
+S:"time bailed out, see #266)"
+C:ConfigurePendingQuickloadResumeContext
+A:ScheduleActiveTreeRestoreOnFlightReady
+C:ParsekLog.Info
+S:"Scenario"
+S:$"OnLoad: pending-Limbo tree '{PendingTreeSlot.PendingTree?.TreeName}' "
+S:"deferred to OnFlightReady for quickload-resume"
+A:loadPhase
+S:"pending-outside-flight"
+C:ParsekFlight.IsTreeIdleOnPad
+C:ParsekLog.Info
+S:"Scenario"
+S:"Idle on pad at scene exit — auto-discarding tree"
+C:DiscardPendingTreeAndRecalculate
+S:"scene-exit idle-on-pad auto-discard"
+C:AutoCommitPendingTreeOutsideFlight
+S:"scene-exit"
+A:loadPhase
+S:"route-load-reconcile"
+A:loadedSaveUTForRoutes
+C:KerbalsModule.ReadLoadedSaveUT
+C:Logistics.RouteLoadReconcile.ReconcileAtInSessionLoad
+C:Logistics.RouteLoadReconcile.ResolveCutoffUT
+C:ParsekLog.Error
+S:$"Route reconcile at in-session load threw {ex.GetType().Name}: {ex.Message}; "
+S:$"routes left as they were (kind={refinedLoadKind})"
+C:Logistics.RouteEventLog.LogWalkSummary
+A:loadPhase
+S:"ledger-recalculate"
+A:ledgerClockUT
+C:ResolveInSessionLoadLedgerClockUT
+A:inSessionLedgerCutoffUT
+C:double.IsNaN
+A:inSessionLedgerUsedCutoff
+C:RecalculateLedgerForInSessionLoad
+C:double.IsNaN
+A:expectedCurrency
+C:CurrencyScenarioReadiness.ExpectedForCurrentGame
+A:presentCurrency
+C:CurrencyScenarioReadiness.PresentNow
+A:loadedCurrency
+C:CurrencyScenarioReadiness.LoadedNow
+C:ShouldRepatchAfterInSessionLoad
+C:ParsekLog.Info
+S:"Scenario"
+S:$"OnLoad: in-session ledger patch ran before the currency modules loaded "
+S:$"(expected={CurrencyScenarioReadiness.Format(expectedCurrency)} "
+S:$"present={CurrencyScenarioReadiness.Format(presentCurrency)} "
+S:$"loaded={CurrencyScenarioReadiness.Format(loadedCurrency)}); "
+S:"scheduling a re-patch once they have"
+C:StartCoroutine
+C:RepatchAfterInSessionLoadWhenCurrenciesLoaded
+C:KerbalLoadRepairDiagnostics.EmitAndReset
+C:ParsekLog.Info
+S:"Scenario"
+S:$"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings"
+A:loadPhase
+S:"sidecar-reconcile"
+C:ReconcileReadableSidecarMirrorsOnLoadIfDisabled
+C:DiagnosticsComputation.EmitSceneLoadSnapshot
+C:HighLogic.LoadedScene.ToString
+A:loadPhase
+S:"rewind-post-load"
+C:DispatchRewindPostLoadIfPending
+A:loadPhase
+S:"merge-journal"
+C:MergeJournalOrchestrator.RunFinisher
+A:loadPhase
+S:"load-time-sweep"
+C:LoadTimeSweep.Run
+C:RefreshPendingQuickloadTrimScope
+C:LoadTimeSweep.SweepDiscardedAnAttempt
+A:loadPhase
+S:"load-time-sweep-recalculate"
+C:ParsekLog.Info
+S:"Scenario"
+S:$"OnLoad: load-time sweep discarded {LoadTimeSweep.ZombiesDiscardedByLastRun} zombie attempt recording(s) "
+S:$"and removed {LoadTimeSweep.LedgerRowsRemovedByLastRun} zombie ledger row(s) "
+S:"after the in-session recalculation; recalculating again"
+C:RecalculateLedgerForInSessionLoad
+C:double.IsNaN
+A:loadPhase
+S:"test-batch-reconcile"
+C:RunTestBatchCrashReconcile
+A:loadPhase
+S:"rewind-point-reap"
+C:RewindPointReaper.ReapOrphanedRPs
+A:loadPhase
+S:"file-collection"
+C:ParsekFileCollector.RunAtLoad
+A:loadPhase
+S:"vessel-names-apply"
+C:VesselNameStore.RunSpawnLinkBackfill
+S:"onload-tail:revert"
+S:"onload-tail:scene-change"
+C:VesselNameStore.ApplyAll
+S:"onload-tail:revert"
+S:"onload-tail:scene-change"
+C:RememberFlightEntryLedgerRows
+S:"in-session:"
+A:loadedRecordingCount
+A:loadStatus
+S:"returned-revert"
+S:"returned-scene-change"
+A:loadPhase
+S:"cold-start"
+A:initialLoadDone
+C:SidecarVersionResolution.BeginColdLoad
+A:loadPhase
+S:"quarantine-restore"
+C:ParsekFileCollector.RestoreQuarantinedNamedBy
+C:InGameTests.InGameTestRunner.NotifyStateMutatedAfterBatchBaselineRestore
+S:"game load (cold OnLoad)"
+A:loadPhase
+S:"durable-committed-id-hint"
+C:RecordingStore.SetDurableCommittedRecordingIdHint
+C:CollectCommittedRecordingIdsFromScenarioNode
+A:loadPhase
+S:"stale-pending-discard"
+C:DiscardStalePendingState
+C:RecordingStore.ClearDurableCommittedRecordingIdHint
+A:loadPhase
+S:"clear-committed"
+C:RecordingStore.ClearCommittedInternal
+A:loadPhase
+S:"chain-validation"
+C:RecordingChainQueries.ValidateChains
+A:loadPhase
+S:"vessel-names"
+C:VesselNameStore.Load
+A:loadPhase
+S:"recording-trees"
+C:LoadRecordingTrees
+A:loadedRecordingCount
+A:inertTreeNotice
+C:InertRecordingTrees.TakeLoadNotice
+C:ParsekHarmony.QueueNoticeForSettledScene
+A:loadPhase
+S:"sanitize-nonloopable-loop"
+C:RecordingStore.SanitizeNonLoopableLoopPlayback
+A:loadPhase
+S:"missions"
+C:MissionStore.Load
+A:committedTreeStateLoaded
+A:parkedTreeIds
+C:CollectParkedTreeIdsForMissionPrune
+C:MissionStore.PruneOrphans
+C:MissionStore.EnsureDefaultsForTrees
+C:MissionStore.ReconcileSelections
+C:MissionStore.NormalizeOneLoopPerTree
+A:loadPhase
+S:"cold-active-tree-restore"
+C:ClearPendingQuickloadResumeContext
+C:TryRestoreActiveTreeNode
+A:ScheduleActiveTreeRestoreOnFlightReady
+C:ConfigurePendingQuickloadResumeContext
+C:ClearPendingQuickloadResumeContext
+C:ParsekLog.Info
+S:"Scenario"
+S:$"OnLoad: cold-start active tree detected (state={PendingTreeSlot.PendingTreeStateValue}) — "
+S:$"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}"
+A:loadPhase
+S:"cold-attempt-events"
+C:ApplySaveAttemptEventsAfterActiveTreeRestore
+A:coldActiveTreeRestoredFromSave
+A:coldPendingTreeRestoredFromSave
+C:TryRestorePendingTreeNode
+A:pendingRestoreDisposition
+S:"preserved alongside active-tree restore"
+S:"restored as finalized pending"
+C:ParsekLog.Info
+S:"Scenario"
+S:$"OnLoad: cold-start pending tree detected (state={PendingTreeSlot.PendingTreeStateValue}) — "
+A:loadPhase
+S:"milestones"
+C:MilestoneStore.RestoreMutableState
+A:loadPhase
+S:"ledger-load"
+A:validIds
+C:BuildValidRecordingIdsForKspLoad
+A:coldPlanetariumUT
+C:Planetarium.GetUniversalTime
+A:coldLoadedSaveUT
+C:ReadLoadedFlightStateUTRaw
+A:coldClockUT
+C:ResolveColdLoadClockUT
+C:ParsekLog.Info
+S:"Scenario"
+S:"OnLoad: cold clock="
+C:coldClockUT.ToString
+S:"R"
+S:" (saveUT="
+C:coldLoadedSaveUT.ToString
+S:"R"
+S:" planetariumUT="
+C:coldPlanetariumUT.ToString
+S:"R"
+S:" coldReason="
+S:"none"
+S:")"
+A:reconcileUT
+C:LedgerOrchestrator.OnKspLoad
+C:IsCurrentUtCutoffSupportedScene
+C:TakeLoadDroppedRecordingIds
+A:loadPhase
+S:"routes"
+C:RouteStore.LoadRoutesFrom
+C:RouteStore.RevalidateSources
+S:"OnLoad"
+A:loadPhase
+S:"route-loop-reconcile"
+A:reconcileUtForLoops
+A:boundTreeIds
+C:RouteTreeGuard.BoundTreeIds
+A:reconciledTreeCount
+A:bi
+A:bi
+C:RouteTreeGuard.ForceClearManualLoopForRouteTree
+A:reconciledTreeCount
+C:ParsekLog.Info
+S:"RouteGuard"
+S:$"OnLoad route-loop reconcile: cleared manual loops on {reconciledTreeCount} route-bound tree(s)"
+A:loadPhase
+S:"deferred-seed"
+C:StartCoroutine
+C:DeferredSeedAndRecalculate
+A:loadPhase
+S:"load-summary"
+A:loadUT
+C:ParsekLog.Info
+S:"Scenario"
+C:string.Format
+S:"Scenario load summary — UT: {0:F0}, {1} recording(s)"
+A:futureCount
+A:inProgressCount
+A:pastCount
+A:inProgressDetail
+A:i
+A:i
+A:loadedRec
+A:duration
+A:futureCount
+A:inProgressCount
+A:inProgressDetail
+C:List
+A:pct
+C:string.Format
+S:"({0:F0}%)"
+S:""
+C:inProgressDetail.Add
+S:$"  #{i}: \"{loadedRec.VesselName}\" — IN PROGRESS {pct}"
+C:TrimEnd
+A:pastCount
+C:ParsekLog.Verbose
+S:"Scenario"
+S:$"Load summary buckets: future={futureCount} in-progress={inProgressCount} past={pastCount}"
+C:ParsekLog.Verbose
+S:"Scenario"
+C:ParsekLog.Info
+S:"Scenario"
+S:$"Crew reservations active ({CrewReservationManager.CrewReplacements.Count}):"
+C:ParsekLog.Info
+S:"Scenario"
+S:$"  {kvp.Key} -> replacement: {kvp.Value}"
+A:loadPhase
+S:"optimization"
+C:CommittedListOptimizer.RunOptimizationPass
+A:loadPhase
+S:"crew-auto-unreserve"
+A:currentUT
+A:i
+A:i
+A:rec
+C:CrewReservationManager.UnreserveCrewInSnapshot
+A:rec.VesselSnapshot
+A:rec.VesselSpawned
+C:ScenarioLog
+S:$"[Parsek Scenario] Auto-unreserved crew for recording #{i} "
+S:$"({rec.VesselName}) — EndUT passed without spawn"
+A:loadPhase
+S:"pending-outside-flight"
+C:ParsekFlight.IsTreeIdleOnPad
+C:ScenarioLog
+S:"[Parsek Scenario] Idle on pad — auto-discarding pending tree"
+C:DiscardPendingTreeAndRecalculate
+S:"outside-flight idle-on-pad auto-discard"
+C:ParsekLog.Verbose
+S:"Scenario"
+S:$"Idle-on-pad auto-discard skipped: pending tree state is "
+S:$"{PendingTreeSlot.PendingTreeStateValue} (not Finalized), "
+S:"resume/restore flow will run instead"
+C:AutoCommitPendingTreeOutsideFlight
+S:"cold-load outside-flight"
+A:loadPhase
+S:"sidecar-reconcile"
+C:ReconcileReadableSidecarMirrorsOnLoadIfDisabled
+C:DiagnosticsComputation.EmitSceneLoadSnapshot
+C:HighLogic.LoadedScene.ToString
+A:loadPhase
+S:"rewind-post-load"
+C:DispatchRewindPostLoadIfPending
+A:loadPhase
+S:"merge-journal"
+C:MergeJournalOrchestrator.RunFinisher
+A:loadPhase
+S:"load-time-sweep"
+C:LoadTimeSweep.Run
+C:RefreshPendingQuickloadTrimScope
+A:loadPhase
+S:"test-batch-reconcile"
+C:RunTestBatchCrashReconcile
+A:loadPhase
+S:"rewind-point-reap"
+C:RewindPointReaper.ReapOrphanedRPs
+A:loadPhase
+S:"quit-without-saving-reap"
+C:NoSaveSceneExit.ReapDroppedFlightSidecars
+A:loadPhase
+S:"file-collection"
+C:ParsekFileCollector.RunAtLoad
+A:loadPhase
+S:"vessel-names-apply"
+C:VesselNameStore.RunSpawnLinkBackfill
+S:"onload-tail:cold"
+C:VesselNameStore.ApplyAll
+S:"onload-tail:cold"
+C:RememberFlightEntryLedgerRows
+S:"cold"
+A:loadedRecordingCount
+A:loadStatus
+S:"completed"
+A:loadStatus
+S:"exception"
+C:LogScenarioLifecycleException
+S:"OnLoad"
+A:onLoadInProgress
+C:SidecarVersionResolution.End
+S:"cold-onload"
+C:KerbalLoadRepairDiagnostics.Reset
+A:loadedRecordingCount
+C:SafeCommittedRecordingCount
+C:WriteLoadTiming
