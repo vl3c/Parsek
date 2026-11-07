@@ -53,6 +53,23 @@ test stand between an unrelated later tree and a terminal spawn supersede mark.
 **Fix.** Skip recordings without trajectory bounds or an explicit start in `GetTreeStartUT`
 (NaN when none is left), with a unit test beside the existing `GetTreeStartUT_*` cells.
 
+## TRACE-SEP-DEBRIS-ROW-MISREPORTS: the PositionDebris trace row can blame playback math or the recorder for a diagnostic artifact [FILED 2026-11-07 from the review of the ghost positioner unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2457), by code reading. OPEN; trace-only (`ghostRenderTracing`), low]
+
+**What is true.** `ParsekFlightGhostPositioner.TraceDebrisBodyFixedPrimaryPlayback` (the Trace-Sep
+`PositionDebris` row, moved verbatim out of `TryPositionFromBodyFixedPrimary`):
+- `predictedWorld` stays `Vector3d.zero` when the bracket is one-sided (playback past the last
+  body-fixed frame) or the body does not resolve, so `predictedVsActual` / `|predDelta|` log the
+  ghost's whole world position, which the row's own triage rule reads as a playback-math defect.
+- `recordedBodyFixedDist` subtracts the parent's last body-fixed sample at or before the playback
+  UT from the debris bracket's before-frame without matching their UTs (a 0.9 s skew at orbital
+  speed is about 1.8 km), resolves the parent sample on the debris sample's body, and
+  `FindLastBodyFixedFrameAtOrBefore` takes the qualifying sample of the LAST section in list order
+  rather than the latest by UT.
+
+**Fix.** Log `predictedWorld` / `predDelta` as unresolved when no two-sided bracket resolved, and
+compute the parent sample at the debris before-frame's UT on the parent's own body (or log the
+two UTs side by side). Flight behaviour is unaffected; only the trace row is misleading.
+
 ## SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE: the scoped switch-segment Discard leaves three things the committed-tree prune repairs [FILED 2026-11-07 from the review of the discard-service unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2454), by code reading. OPEN; not reproduced in play, low]
 
 **What is true.** `SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt` (pending-tree-prune
@@ -1940,6 +1957,34 @@ missing capture row is not something load code should synthesize.
 **2026-11-01:** the 7-type knot no longer exists on its own: once the 50 unplaced root files
 were placed, it merged into the kernel knot (584). The fix direction below is unchanged.
 
+**2026-11-07 (refactor wave 2, stream W3; measured on the refactor branch at 67d28c248):**
+- A modules.toml rule cannot put the reservation vocabulary in a module below both
+  GameActions and UI, because every candidate file also declares a type that reaches up.
+  `ReservationExplanation.cs`: `ReservationExplanation` reads `CommittedFutureIndex`,
+  `ClickReservation`, `StockPool` (GameActions), `KerbalsWindowUI.FormatRowDate` (UI) and
+  `TimelineEntry` (Timeline). `StockUiDecorationQuery.cs`: the query, the predicates and
+  `AstronautComplexContext` read the index and its cache, `ContractSlotReservation`,
+  `FacilityRepairCapture`, `KerbalsModule` (Crew) and `StandInSeatCount` (Patches).
+  `StockUiLiveSnapshot.cs`: the snapshot reads `StockUiOverlayController` and `KerbalHirePatch`,
+  and `StockUiText` reads `StockUiRnDDecoration.ReasonColorHex`. `CommittedFutureIndex.cs`
+  reads the ledger engine, and its cache reads `LedgerOrchestrator`, `EffectiveState` and
+  `MissionStore`. A scratch rule placing the first three files (and then all four) in a new
+  module cuts GameActions -> UI from 23 to 13, but the new module is in a cycle with both
+  (-> GameActions 18, -> UI 4, plus Crew, Patches, Rewind, Timeline), so no rule was landed.
+  Module rules move no types: knots [477, 4, 3] and replayed residue 283 either way.
+- The pure leaves (`ReservationText`, `KerbalHold`, `StockUiScreen`, `StockUiDecorationKind`,
+  `StockUiItem`, `StockUiDecoration`, `StockUiReserveButtons`; `CommittedFutureKind`,
+  `CommittedFutureEntry`, `CommittedKerbalAssignment`) share their files with those types, so
+  placing them needs a file split first, as its own MOVE PR.
+- Sinks: 18 stock-screen types (the overlay controller, the RnD / facility / astronaut
+  decorations, the query, the live snapshot, `StockUiText`, the hire / dismissal / tech /
+  facility-menu patches, the Mission Control annotation) are in the ratchet residue only
+  through `StockUiText -> StockUiRnDDecoration` (the `ReasonColorHex` const) and
+  `StockUiPartPurchase -> StockUiRnDDecoration` (`AppendReason`). Moving that const and
+  `AppendReason` onto `StockUiText` (simulated on a scratch copy) gives knots [459, 9, 4, 3],
+  replayed residue 283 -> 265 and greedy residue 290 -> 238. As an extra cut,
+  `StrategyReservationPredicates` is worth 283 -> 282 only.
+
 **Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
 explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
 `LedgerOrchestrator` references the index cache and the strategy state patcher back (cache
@@ -2897,6 +2942,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `RecordingStore` type initialiser that installs `Recording.GhostHiddenRule` keeps
   `LaunchSiteOnlyGhost` inside), first cuts `Route` (439) and `ParsekFlight` (424), cut-residue
   ratchet 306 -> 282.
+- Wave 2 W1a (2026-11-07, this branch): `VesselLaunchIdentity` is a sink. Its two store calls
+  (the vessel-name link-row test and the sidecar snapshot hydration) are rules
+  `VesselNameStore` and `RecordingSidecarStore` install from their own type initialisers and
+  from `RecordingStore`'s, next to `Recording.GhostHiddenRule`. Knot 477 -> 459 (plus a 2-type
+  knot `OrbitReseed` / `RecordedTailVelocityResolver`), replayed residue 283 -> 272.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

@@ -3292,13 +3292,17 @@ class RealTreeSmokeTests(unittest.TestCase):
         # ParsekFlightPostSwitchAutoRecord (PF3), 472 after ParsekFlightPlaybackHost (PF4),
         # 473 after ParsekFlightSpawnHost (PF5), 474 after ParsekFlightSurfaceCapture (PF6),
         # 475 after ParsekFlightSplitBrancher (PF7), 476 after ParsekFlightMergeFlow (PF8),
-        # 477 after ParsekFlightSwitchContinuation (PF9).
+        # 477 after ParsekFlightSwitchContinuation (PF9). Wave 2 W1a (2026-11-07) makes
+        # VesselLaunchIdentity a sink: its link-row test and sidecar hydration are rules
+        # VesselNameStore and RecordingSidecarStore install, so the knot drops to 459 and
+        # OrbitReseed / RecordedTailVelocityResolver, which only reached it through
+        # launch identity, are left as their own 2-type knot.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [477, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [459, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3432,18 +3436,19 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (474 before, still 454 after), and PF7's ParsekFlightSplitBrancher (475 before,
         # still 454 after), and PF8's ParsekFlightMergeFlow (476 before, still 454 after),
         # and PF9's ParsekFlightSwitchContinuation (477 before, still 454 after).
+        # Wave 2 W1a takes VesselLaunchIdentity out of the knot (459 before, 437 after).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 477)
-        self.assertEqual(first["sizeAfter"], 454)
+        self.assertEqual(first["sizeBefore"], 459)
+        self.assertEqual(first["sizeAfter"], 437)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
                         "ParsekFlightSpawnHost", "ParsekFlightSplitBrancher",
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "Route")
-        self.assertEqual(second["sizeBefore"], 454)
-        self.assertEqual(second["sizeAfter"], 436)
+        self.assertEqual(second["sizeBefore"], 437)
+        self.assertEqual(second["sizeAfter"], 419)
         self.assertEqual(
             second["droppedReferences"],
             ["GhostPlaybackLogic", "LoopUnit", "RouteCodec", "RouteDispatchEvaluator", "RouteIds"],
@@ -3461,9 +3466,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # TreeCommitService (430 before), PR13 N's RewindCarry (431 before), PR13 O's
         # RewindLauncher (432 before), ParsekFlight plan PF2's
         # ParsekFlightGhostPositioner (433 before) and PF3's
-        # ParsekFlightPostSwitchAutoRecord (434 before); PF4 moved it to third.
-        self.assertEqual(third["sink"], "VesselLaunchIdentity")
-        self.assertEqual(third["sizeAfter"], 419)
+        # ParsekFlightPostSwitchAutoRecord (434 before); PF4 moved it to third
+        # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
+        # no longer a cut; the third cut is the scenario module.
+        self.assertEqual(third["sink"], "ParsekScenario")
+        self.assertEqual(third["sizeBefore"], 419)
+        self.assertEqual(third["sizeAfter"], 404)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
@@ -3507,6 +3515,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # ParsekFlightSplitBrancher, of 476 after PF8's ParsekFlightMergeFlow and of 477
         # after PF9's ParsekFlightSwitchContinuation (the same shape).
         # The bound ratchets: it is tightened to the measured replayed residue, 283.
+        # Wave 2 W1a (VesselLaunchIdentity's two store calls become installed rules) takes
+        # it to 272 of 459 (greedy 272 too), the bound pinned here.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which
