@@ -4385,7 +4385,7 @@ The same investigation found the ghost shell itself was an approximation: a gene
 
 Engine skirts (owner request 2026-11-07): the Making History engine plates carry every mount pattern (`ModuleDynamicNodes` NODE_SET `MeshTransform` N1..N9) and every variant shroud (`ModuleJettison.jettisonName` lists `Shroud2x0..4`) active on the prefab, because stock `ToggleNodeSet` and the jettison's active-name pick run only in OnStart. `GhostVisualBuilder.EnginePlates.cs` shows only the snapshot's `NodeSetIdx` mesh and resolves only the snapshot's `activejettisonName` shroud (all listed names when the snapshot has none). FGV-1's second cell (`EngineSkirtGhostsBesideRealVessels_SnapshotSeries`) photographs an engine plate and an LV-T45 shroud beside their ghosts, intact and after separation.
 
-**Status:** Fixed. FGV-1 flown green twice 2026-11-07; the owner spotted the post-separation truss difference in `fgv-2-separated`, now fixed by the stamp; the stamp and the engine skirt cell await a re-fly and owner visual confirmation.
+**Status:** Fixed. FGV-1 flown green twice 2026-11-07; the owner spotted the post-separation truss difference in `fgv-2-separated`, now fixed by the stamp. The two-cell FGV-1 (truss kept after separation, engine plate and engine shroud) flew green on `2026-11-07_2342`.
 
 **Priority:** Low - cosmetic
 
