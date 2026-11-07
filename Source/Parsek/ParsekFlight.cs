@@ -301,7 +301,7 @@ namespace Parsek
 
         // Ghost state is owned by the engine (T25). This property forwards to the engine field
         // so existing ParsekFlight code accesses engine-owned collections transparently.
-        private Dictionary<int, GhostPlaybackState> ghostStates => engine.ghostStates;
+        internal Dictionary<int, GhostPlaybackState> ghostStates => engine.ghostStates;
 
         // Cached TimelineGhosts dictionary — rebuilt once per frame on first access (T20)
         private Dictionary<int, GameObject> cachedTimelineGhosts = new Dictionary<int, GameObject>();
@@ -309,16 +309,6 @@ namespace Parsek
 
         // Real Spawn Control: proximity-based nearby craft detection
         internal readonly List<NearbySpawnCandidate> nearbySpawnCandidates = new List<NearbySpawnCandidate>();
-        private float nextProximityCheckTime;
-        // Real Spawn Control: the last Warp-to-spawn whose outcome is still owed a word when
-        // the vessel does not appear (SpawnWarpOutcomeWatch). Null id = nothing owed.
-        private string spawnWarpWatchRecordingId;
-        private string spawnWarpWatchVesselName;
-        private double spawnWarpWatchTargetUT;
-        private float spawnWarpWatchArmedRealtime;
-        private bool spawnWarpWatchWalkbackAtArm;
-        private int spawnWarpWatchCollisionCountAtArm;
-        private const float ProximityCheckIntervalSec = 1.5f;
         internal const double NearbySpawnRadius = 250.0;
         // Real Spawn Control: maximum relative speed (m/s) between the active vessel and a
         // ghost for the ghost to qualify as a spawn candidate. Tight enough to require a
@@ -398,16 +388,8 @@ namespace Parsek
 
         internal readonly Dictionary<string, ProximityVelocitySample> proximityVelocitySamples =
             new Dictionary<string, ProximityVelocitySample>();
-        // Sample is trustworthy when 0.5s <= dt <= 5s. Below: jitter dominates.
-        // Above: sample is stale (time warp, scene change, paused) — discard.
-        private const float ProximityVelocitySampleMinDt = 0.5f;
-        private const float ProximityVelocitySampleMaxDt = 5.0f;
-        // Tracks the active vessel pid the proximity samples were captured against; on
-        // vessel switch the cached activePos belongs to a different craft and must be
-        // discarded (otherwise the next scan would see a teleport-sized delta).
-        private uint lastProximityActiveVesselPid;
         internal readonly HashSet<string> notifiedSpawnRecordingIds = new HashSet<string>();
-        private int proximityCheckGeneration;
+        internal int proximityCheckGeneration;
         internal int ProximityCheckGeneration => proximityCheckGeneration;
         internal List<NearbySpawnCandidate> NearbySpawnCandidates => nearbySpawnCandidates;
 
@@ -983,6 +965,18 @@ namespace Parsek
         private ParsekFlightPlaybackHost playbackHost;
         internal ParsekFlightPlaybackHost PlaybackHost =>
             playbackHost ?? (playbackHost = new ParsekFlightPlaybackHost(this));
+        private ParsekFlightSpawnHost spawnHost;
+        internal ParsekFlightSpawnHost SpawnHost =>
+            spawnHost ?? (spawnHost = new ParsekFlightSpawnHost(this));
+
+        // UI and test-command entry points; the bodies live on SpawnHost.
+        internal void WarpToRecordingEnd(int recordingIndex) => SpawnHost.WarpToRecordingEnd(recordingIndex);
+        internal void WarpToDeparture(int recordingIndex, double departureUT) =>
+            SpawnHost.WarpToDeparture(recordingIndex, departureUT);
+        internal void FastForwardToRecording(Recording rec) => SpawnHost.FastForwardToRecording(rec);
+        internal void FastForwardToEventUT(double eventUT, string label) => SpawnHost.FastForwardToEventUT(eventUT, label);
+        internal void WarpToNextCraftSpawn() => SpawnHost.WarpToNextCraftSpawn();
+        internal bool TimeJumpTo(double targetUT) => SpawnHost.TimeJumpTo(targetUT);
 
         // Entry points other types call on the flight instance; the bodies live on PlaybackHost.
         public void DestroyAllTimelineGhosts() => PlaybackHost.DestroyAllTimelineGhosts();
@@ -1260,7 +1254,7 @@ namespace Parsek
                 if (isPlaying) PlaybackHost.UpdatePlayback();
                 PlaybackHost.UpdateTimelinePlaybackViaEngine();
                 TimeJumpManager.TickPlacementWatch();
-                TickSpawnWarpWatch();
+                SpawnHost.TickSpawnWarpWatch();
                 return;
             }
 
@@ -1275,8 +1269,8 @@ namespace Parsek
 
             PlaybackHost.UpdateTimelinePlaybackViaEngine();
             TimeJumpManager.TickPlacementWatch();
-            TickSpawnWarpWatch();
-            UpdateProximityCheck();
+            SpawnHost.TickSpawnWarpWatch();
+            SpawnHost.UpdateProximityCheck();
         }
 
         /// <summary>
@@ -1378,7 +1372,7 @@ namespace Parsek
             }
 
             // Phase 6d: Ghost labels on chain ghost GOs (no-op when ghost GOs are null)
-            DrawGhostLabels();
+            SpawnHost.DrawGhostLabels();
 
             if (showUI)
             {
@@ -1971,7 +1965,7 @@ namespace Parsek
                 // The PendingCleanupPids/Names sets are only the "cleanup armed" trigger now — the
                 // actual recover decision derives from the committed recordings + the pre-existing
                 // whitelist so a real, separately-launched craft is never recovered by name.
-                CleanupOrphanedSpawnedVessels(
+                SpawnHost.CleanupOrphanedSpawnedVessels(
                     RecordingStore.CollectAllCommittedRecordings(),
                     RewindLauncher.PendingRevertPreExistingPids);
                 RewindLauncher.PendingCleanupPids = null;
@@ -1995,7 +1989,7 @@ namespace Parsek
             }
 
             // Phase 6b: Evaluate ghost chains and ghost claimed vessels
-            EvaluateAndApplyGhostChains();
+            SpawnHost.EvaluateAndApplyGhostChains();
             PlaybackHost.RestoreReFlyInvokeHoldsFromMarker(Planetarium.GetUniversalTime());
             PlaybackHost.RestoreRewindVesselHolds(Planetarium.GetUniversalTime());
 
@@ -2475,19 +2469,13 @@ namespace Parsek
                 && !double.IsNaN(value.z) && !double.IsInfinity(value.z);
         }
 
-        // ────────────────────────────────────────────────────────────
-        //  Phase 6d: Ghost labels, spawn warnings, chain status
-        // ────────────────────────────────────────────────────────────
-
-        private GUIStyle ghostLabelStyle;
-
         /// <summary>
         /// Accessor for active ghost chains — used by ParsekUI for chain status display.
         /// Returns null when no chains are active.
         /// </summary>
         internal Dictionary<uint, GhostChain> ActiveGhostChains => activeGhostChains;
 
-        private int ghostChainEvaluationCount;
+        internal int ghostChainEvaluationCount;
 
         /// <summary>
         /// How many times THIS flight-scene instance has run

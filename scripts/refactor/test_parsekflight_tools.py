@@ -286,6 +286,92 @@ class IlCompareTests(unittest.TestCase):
         lost = host("Host", dc.format(1)) + host("HostService", "")
         self.assertNotEqual([], self.diffs(before, lost, self.FOLD))
 
+    def test_fold_reads_a_compound_assignment_through_the_host_as_this(self):
+        before = """\
+.class public auto ansi beforefieldinit Parsek.Host
+  extends [mscorlib]System.Object
+{
+  .field assembly int32 count
+  .method assembly hidebysig instance void Bump() cil managed
+  {
+    // Code size       15 (0xf)
+    IL_0000:  ldarg.0
+    IL_0001:  ldarg.0
+    IL_0002:  ldfld      int32 Parsek.Host::count
+    IL_0007:  ldc.i4.1
+    IL_0008:  add
+    IL_0009:  stfld      int32 Parsek.Host::count
+    IL_000e:  ret
+  } // end of method Host::Bump
+
+} // end of class Parsek.Host
+"""
+        after = """\
+.class public auto ansi beforefieldinit Parsek.Host
+  extends [mscorlib]System.Object
+{
+  .field assembly int32 count
+} // end of class Parsek.Host
+.class private auto ansi sealed beforefieldinit Parsek.HostService
+  extends [mscorlib]System.Object
+{
+  .field private initonly class Parsek.Host host
+  .method assembly hidebysig instance void Bump() cil managed
+  {
+    // Code size       20 (0x14)
+    IL_0000:  ldarg.0
+    IL_0001:  ldfld      class Parsek.Host Parsek.HostService::host
+    IL_0006:  dup
+    IL_0007:  ldfld      int32 Parsek.Host::count
+    IL_000c:  ldc.i4.1
+    IL_000d:  add
+    IL_000e:  stfld      int32 Parsek.Host::count
+    IL_0013:  ret
+  } // end of method HostService::Bump
+
+} // end of class Parsek.HostService
+"""
+        diffs = self.diffs(before, after, self.FOLD)
+        self.assertEqual([], [d for d in diffs if d[0].startswith("method")])
+
+    def test_fold_merges_the_static_lambda_cache_singleton(self):
+        def cache(owner, lambdas):
+            return """\
+  .class auto ansi sealed nested private beforefieldinit '<>c'
+    extends [mscorlib]System.Object
+  {{
+    .field public static initonly class {o}/'<>c' '<>9'
+{f}
+    .method private hidebysig specialname rtspecialname static void .cctor() cil managed
+    {{
+      // Code size       11 (0xb)
+      IL_0000:  newobj     instance void {o}/'<>c'::.ctor()
+      IL_0005:  stsfld     class {o}/'<>c' {o}/'<>c'::'<>9'
+      IL_000a:  ret
+    }} // end of method '<>c'::.cctor
+
+    .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+    {{
+      // Code size       8 (0x8)
+      IL_0000:  ldarg.0
+      IL_0001:  call       instance void [mscorlib]System.Object::.ctor()
+      IL_0006:  nop
+      IL_0007:  ret
+    }} // end of method '<>c'::.ctor
+
+  }} // end of class '<>c'
+
+""".format(o=owner, f="\n".join("    .field public static class [mscorlib]System.Func`1<int32> '<>9__%s'" % x
+                                    for x in lambdas))
+
+        def cls(name, body):
+            return (".class public auto ansi beforefieldinit %s\n  extends [mscorlib]System.Object\n{\n%s"
+                    "} // end of class %s\n" % (name, body, name))
+        before = cls("Parsek.Host", cache("Parsek.Host", ["1_0", "2_0"]))
+        after = (cls("Parsek.Host", cache("Parsek.Host", ["1_0"]))
+                 + cls("Parsek.HostService", cache("Parsek.HostService", ["2_0"])))
+        self.assertEqual([], self.diffs(before, after, self.FOLD))
+
     def test_fold_drops_the_accessor_reached_through_a_local(self):
         before = """\
 .class public auto ansi beforefieldinit Parsek.Host

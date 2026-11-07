@@ -163,7 +163,13 @@ def apply_folds(text, folds, host_field):
         # Under the fold the service IS the host, so the two hops between them are the
         # identity wherever they occur (a moved body, a lambda's display class, a host
         # static reaching the service of a local `instance`):
-        # the host field load `ldfld class OLD NEW::host` ...
+        # the host field load `ldfld class OLD NEW::host` ... A compound assignment
+        # through it (`host.count++`) loads the host once and `dup`s it where the
+        # original (`this.count++`) loaded `this` twice, so `ldarg.0; ldfld host; dup`
+        # reads `ldarg.0; ldarg.0` ...
+        il = r"\n(\s*(?:IL_[0-9a-f]{4}:\s*)?)"
+        text = re.sub(il + r"ldarg\.0[ \t]*" + il + r"ldfld\s+class\s+%s\s+%s::%s[ \t]*" % (o, n, re.escape(host_field))
+                      + il + r"dup(?=[ \t]*\n)", r"\n\1ldarg.0\n\3ldarg.0", text)
         text = re.sub(r"\n\s*(?:IL_[0-9a-f]{4}:\s*)?ldfld\s+class\s+%s\s+%s::%s[ \t]*(?=\n)"
                       % (o, n, re.escape(host_field)), "", text)
         # ... and the lazy accessor `call(virt) instance class NEW OLD::get_X()`.
@@ -292,10 +298,19 @@ def fold_types(types, folds):
                 dst.header[h] = max(dst.header[h], n) if singleton else dst.header[h] + n
         elif target == path:
             dst.header.update(info.header)
-        dst.fields.update(info.fields)
+            singleton = False
+        else:
+            singleton = False
+        for f, n in info.fields.items():
+            # '<>c' keeps its one instance in '<>9'; both sides' copies are the same field.
+            dst.fields[f] = max(dst.fields[f], n) if singleton and "'<>9'" in f else dst.fields[f] + n
         dst.props.update(info.props)
         for sig, bodies in info.methods.items():
-            dst.methods[sig].extend(bodies)
+            if singleton and (" .ctor(" in sig or " .cctor(" in sig):
+                # The cache's own constructors: identical on both sides once folded.
+                dst.methods[sig].extend(b for b in bodies if b not in dst.methods[sig])
+            else:
+                dst.methods[sig].extend(bodies)
     return out
 
 

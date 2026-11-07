@@ -53,11 +53,9 @@ namespace Parsek.Tests
             "ParsekFlight.Finalization.cs",
             "ParsekFlight.ForeignInventoryTransfer.cs",
             "ParsekFlight.GroundPartPlacement.cs",
-            "ParsekFlight.PlacementJump.cs",
             "ParsekFlight.TailLift.cs",
             "ParsekFlight.TerminalEvents.cs",
             "ParsekFlight.TerminalOrbit.cs",
-            "ParsekFlight.TimeJump.cs",
         };
 
         /// <summary>
@@ -69,6 +67,7 @@ namespace Parsek.Tests
             "ParsekFlightGhostPositioner.cs",
             "ParsekFlightPostSwitchAutoRecord.cs",
             "ParsekFlightPlaybackHost.cs",
+            "ParsekFlightSpawnHost.cs",
         };
 
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)

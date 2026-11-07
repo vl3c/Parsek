@@ -2922,6 +2922,21 @@ moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the 
   `il_compare.py` merges the per-type delegate caches (`<>O`, `<>c`) host and service each
   carry. Knot 471 -> 472, replayed residue 283 unchanged; the flight controller's cut now ties
   the route cut and goes first (canaries re-pinned).
+- PF5 landed: `ParsekFlightSpawnHost` (1,384 lines, lazy `SpawnHost`) is the spawn host: leaf,
+  chain-tip and tree-leaf spawn, orphan cleanup, timeline-spawn recovery, ghost-chain evaluation and
+  the KSC chain retire, the nearby-spawn proximity scan, the warp / fast-forward / time-jump entry
+  points with the spawn-warp watch and placement jumps, and the ghost labels: 29 methods (25
+  instance, the 4 statics no other file names), 9 fields only it reads and 3 constants
+  (`.Spawning.cs` 1,388 -> 197 lines; `.PlacementJump.cs` and `.TimeJump.cs` deleted;
+  ParsekFlight.cs 2,492). ParsekFlight keeps the chain and proximity state other code reads, the
+  `DeferredActivateVessel` coroutine, the `...FromPolicy` callbacks, `IsAnyWarpActive` /
+  `ExitAllWarpForPlaybackStart` (the other services call them), the statics other files name and
+  forwarders for the six UI / test-command entry points. 11 declarations widened private ->
+  internal. IL (`--fold`): 0 moved-body differences; the 11 left are the accessor (field,
+  property, getter), the service's host field and constructor and the six forwarders.
+  `il_compare.py` reads `ldarg.0; ldfld host; dup` (a compound assignment through the host) as
+  `ldarg.0; ldarg.0` and merges the `<>c` cache's own instance field and constructors. Knot 472 ->
+  473, replayed residue 283 unchanged (canaries re-pinned).
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 
