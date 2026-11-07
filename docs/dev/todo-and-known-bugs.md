@@ -2950,6 +2950,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Wave 2 W1b (2026-11-07, this branch): the hold decision record `ReFlyInvokeHold.Entry` is the
   top-level plain type `ReFlyHoldEntry` (same file, same fields), so `RewindVesselHold.Hold`
   no longer references the classifier. Knot 459 -> 450, replayed residue 272 -> 263.
+- Wave 2 W5a (2026-11-07, this branch, docs and tooling only): the `GhostMapPresence`
+  static-state map, `docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md`
+  (62 fields: writers, outside writers and readers, reset paths, scenes), read from IL by the
+  new `scripts/refactor/static_state_map.py` so a same-named field of another type is never
+  counted. It also records why a separate source-resolver type would raise the replayed
+  residue 263 -> 264 unless its five knot calls are passed in.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
