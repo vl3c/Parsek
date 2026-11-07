@@ -103,7 +103,7 @@ background split line `at SOI boundary ... pid=<wingman>` and one section per bo
 wingman's recording (a wingman that close likely records Relative to the active vessel, so expect
 `closingSample=0` and two Relative sections, not two Absolute ones); not built.
 
-## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; craft re-cut 2026-11-06 with an outrigger stance (branch `cs7lander`), re-flight owed; test harness, low; no Parsek defect]
+## CS7-LANDER-TIPS-AT-BOARD: CS-7's lander falls over on its legs on the Mun, and the ascent drags it along the ground [FILED 2026-11-04 from the full lane run (CS-7 `2026-11-04_0447` and `_a2`, INVALID vessel-lost in MUN-ASCENT, same shape on both); mission guard added 2026-11-04, branch `claude/project-thread-rp1ciy`; cause found 2026-11-04 by the surface-frame re-flight (`2026-11-04_1803` / `_1823_a2`): the craft tips over after an upright touchdown; craft re-cut 2026-11-06 with an outrigger stance (branch `cs7lander`), which stood on the Mun in flight `2026-11-07_0104` and ran out of fuel in the Mun ascent; re-cut 2026-11-07 for the fuel (branch `cs7fuel`), re-flight owed; test harness, low; no Parsek defect]
 
 From the run's KSP.log and mission rows: no Parsek line spawns, packs or moves the lander in
 the window (the only spawn lines are the periodic `Spawn suppressed`, as in the green run). Both
@@ -134,6 +134,36 @@ run dry near the capture. CS-7 keeps `munAscentMaxTiltDeg = 30`; its rollout pin
 13302). No mission change: the touchdown already reads 0.06 m/s, and B5's SAS hold is shared with B13. The
 re-flight should watch the core drop's lander delta-v, the ascent's drag, the settled `pitch=` rows (expect a
 lean up to the site's slope, not a fall) and the surface stay's EC draw (SAS holds the touchdown attitude).
+
+Flight 2026-11-07 (`2026-11-07_0104`, read on `_a2`, the outrigger cut): the stance worked (upright touchdown,
+EVA, flag and board, no tip) and the outriggers crossfed (all 450 LF drained), but the fuel did not: the lower
+stages left the lander suborbital (Thumpers off at 11.0 km, apoapsis 14.4 km; core off at 31.6 km, apoapsis
+35.6 km) and it spent 1227 m/s (204 LF) finishing a 78.7 x 81 km orbit. From LKO it flew the injection 842, two
+corrections 126, the capture 266 and the descent 710, then a Mun ascent needing 753 (217 to a 20.1 km apoapsis,
+a ~536 circularization) and ran dry 168 m/s short. On the builder's basis the ascent to LKO cost 4418 m/s against
+CS-6's 3130: nine blunt faces off the stack axis (three open Thumper tops and three outrigger tops on the launch
+stage, the outrigger tops again on the core's).
+
+Fix (2026-11-07, craft re-cut for the fuel, re-flight owed): close every face and move propellant to the lander,
+within the 30 parts. Each Thumper hangs under its outrigger on a TD-12 (stack nodes close the outrigger's bottom
+and the Thumper's top; the TD-12s replace the TT-38Ks and leave with the Thumpers), each outrigger carries a nose
+cone, the outriggers move out to 1.428 m (Science Jr.'s Thumper axis, so a dropped Thumper falls back 0.18 m
+clear of the core) and grow to FL-T400, the core loses one FL-T400, and the two OX-STATs and the Z-100 become one
+Z-200 between the pod and the Mk16 (250 EC, all on the pod; no panel). The lander now carries 8 t of propellant,
+4464 m/s with Jeb, and reaches LKO with the flight's from-orbit burns plus 25% over the landing, the Mun ascent,
+the departure and the trim (3463 m/s) for any ascent costing up to 3516 m/s (CS-6's clean 3130 leaves it a 47%
+margin; the flown 4418 would not). The stance widens (feet 2.05 m out, tips at about 27 deg). `--report` prints
+the open-face count, the budget and the flown figures; gates: no open face, break-even at least 3400, core TWR at
+least 1. CS-7's rollout pin moves to a 131xx window (predicted 13127). The re-flight should watch the core drop's
+altitude and apoapsis and the lander's LF at LKO (the budget's claim), the Thumpers' drop past the core (axial,
+0.18 m clear), the lander's finishing burn at TWR 0.57, and the lowest EC reading (no panel now).
+The EC budget is measured, not assumed: the telemetry rows of the two panelled flights (`2026-10-31_0654_a2`,
+`2026-11-07_0104_a2`; lowest 138.7 and 147.2 of 150), core drop to departure burn, per phase the worse flight's
+drop plus the panels' share this cut loses (each 1x second credited at the phase's steepest 10 s rise plus CS-6c's
+0.045 EC/s hold). Worst case 156 EC (descent 42.6, Mun ascent 43.1, the lander's Kerbin ascent finish 27.0, the
+landed SAS settle 9.3, burns and holds the rest); x1.25 = 195 against 249.5 above the 0.5 floor, a 60% margin.
+The builder now gates the pod's charge on 1.25 x that table. Not covered: a panel square to the sun on every
+burning second, all of it eaten by the wheel (283 EC).
 
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 

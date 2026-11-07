@@ -1082,10 +1082,12 @@ TAILS.update(LANDER_TAILS)
 
 def lander_layout(upper400=LANDER_UPPER_T400, upper200=LANDER_UPPER_T200,
                   core=LANDER_CORE_TANKS, dec_from_bottom=LANDER_DECOUPLER_TANK_FROM_BOTTOM,
-                  uid_base=4280000001, cones=True, leg_azimuths=LANDER_LEG_AZIMUTHS):
+                  uid_base=4280000001, cones=True, leg_azimuths=LANDER_LEG_AZIMUTHS,
+                  boosters=True):
     """Every part of CS Mun Lander, root first, with positions, links and attN.
-    ``uid_base``, ``cones`` (False: the Thumpers fly without nose cones) and
-    ``leg_azimuths`` are the solar variant's; their defaults derive CS Mun Lander."""
+    ``uid_base``, ``cones`` (False: the Thumpers fly without nose cones),
+    ``leg_azimuths`` and ``boosters`` (False: no TT-38K or Thumper; the solar variant
+    hangs its own) are the solar variant's; their defaults derive CS Mun Lander."""
     uid = iter(range(uid_base, uid_base + 99))
     off = NODE_OFFSET
 
@@ -1155,8 +1157,8 @@ def lander_layout(upper400=LANDER_UPPER_T400, upper200=LANDER_UPPER_T200,
                      istg=LANDER_STAGE_LAUNCH, dstg=6, sidx=1, group="core")
     swivel_c.tail = "liquidEngine2@core"
     anchor = core_tanks[len(core_tanks) - 1 - dec_from_bottom]
-    decs, boosters, cone_parts = [], [], []
-    for i, az in enumerate(LANDER_BOOSTER_AZIMUTHS):
+    decs, booster_parts, cone_parts = [], [], []
+    for i, az in enumerate(LANDER_BOOSTER_AZIMUTHS if boosters else ()):
         a = math.radians(az)
         psi_d = 180.0 - az
         d = Part("rdec%d" % i, "radialDecoupler", next(uid), anchor.y,
@@ -1179,7 +1181,7 @@ def lander_layout(upper400=LANDER_UPPER_T400, upper200=LANDER_UPPER_T200,
         b.att_rot0 = _quat_y(MUN_BOOSTER_LOCAL_PSI)
         d.links.append(b.uid)
         decs.append(d)
-        boosters.append(b)
+        booster_parts.append(b)
         if not cones:
             continue
         c = Part("cone%d" % i, "noseCone", next(uid),
@@ -1193,17 +1195,20 @@ def lander_layout(upper400=LANDER_UPPER_T400, upper200=LANDER_UPPER_T200,
         b.attn.append(("top", c.uid, off["solidBooster1-1"]["top"]))
         c.attn.append(("bottom01", b.uid, off["noseCone"]["bottom01"]))
         cone_parts.append(c)
-    for group in (decs, boosters, cone_parts):
+    for group in (decs, booster_parts, cone_parts):
         for p in group:
             p.syms = [o.uid for o in group if o is not p]
     return ([pod, chute, shield, dec1] + upper_tanks + legs + [terrier, dec2] + core_tanks
-            + [swivel_c] + decs + boosters + cone_parts)
+            + [swivel_c] + decs + booster_parts + cone_parts)
 
 
 def lander_stack_height(parts):
     pod = parts[0]
     swivel_c = [p for p in parts if p.key == "swivelCore"][0]
     top = pod.y + NODE_OFFSET["mk1pod.v2"]["top"] + CHUTE_ALLOWANCE
+    # The solar variant's Z-200 sits between the pod and the Mk16.
+    top += sum(NODE_OFFSET[p.name]["top"] - NODE_OFFSET[p.name]["bottom"]
+               for p in parts if p.name == "batteryBankMini")
     bottoms = [swivel_c.y + NODE_OFFSET["liquidEngine2"]["bottom"]]
     bottoms += [p.y + NODE_OFFSET["solidBooster1-1"]["bottom"]
                 for p in parts if p.name == "solidBooster1-1"]
@@ -1647,75 +1652,91 @@ def munsci_report():
 
 
 # ---------------------------------------------------------------------------
-# THE SOLAR LANDER VARIANT (`--variant solar`): `CS Mun Solar Lander`, CS-7's re-cut.
+# THE SOLAR LANDER VARIANT (`--variant solar`): `CS Mun Solar Lander`, CS-7's craft.
 #
 # CS-7's first flight (`2026-10-27_2326`, both attempts) ended MISSION-FLAKE
 # `electric-charge-exhausted` in MJ-ASCENT: after the core Swivel cut off at the
 # target apoapsis (~53 km), MechJeb's coast hold on the long stack (the full lander
 # on the empty core, 20 parts, ~22 m) saturated the Mk1 pod's reaction wheel
 # (mk1Pod_v2.cfg rate 0.24 EC per axis) and drained the pod's 50 EC at a measured
-# 0.42-0.47 EC/s; nothing on the lander stage makes power. CS-6c then researched
-# basicScience (the Z-100) and electrics (the OX-STAT); this variant flies from its
-# produced save, `cs-career-mun4`.
+# 0.42-0.47 EC/s; nothing on the lander stage made power. CS-6c then researched
+# basicScience (the Z-100) and electrics (the OX-STAT, the Z-200); this variant flies
+# from its produced save, `cs-career-mun4`. The name is kept (the spec, the fixture
+# and the editor step key on it) though the third cut carries no panel.
 #
-# THE EDITS to CS Mun Lander, within the VAB level-0 limit of 30 parts:
-#   - the three Thumper nose cones come off (3 parts free; the cones are drag only;
-#     the open Thumper tops cost an estimated 30-60 m/s of drag over the 70 s boost,
-#     which the Terrier pays out of a 750 m/s margin);
-#   - the lander's tanks: ONE FL-T400 on the Terrier in the stack, and three FL-T200
-#     outriggers on its wall at azimuths 90 / 210 / 330, one LT-05 on each outrigger's
-#     outer wall (THE STANCE below; the 2026-11-06 re-cut; the first solar cut kept CS
-#     Mun Lander's 2 x FL-T400 + FL-T200 stack with four legs on the FL-T200);
-#   - two OX-STAT panels on that FL-T400 at azimuths 0 / 180 deg (90 deg off the
-#     pod's hatch at 270), lander-stage parts, so they stay with the pod through every
-#     Mun phase and leave with the lander at the pod's separation;
-#   - one Z-100 on the same FL-T400 at azimuth 90 (opposite the hatch), above the
-#     outrigger there.
-# Everything else is CS Mun Lander's derivation unchanged: the same Terrier, the same
-# 5.0 t of lander propellant on the same tank mass, the legs at the same height above
-# the Terrier's top node (so the same 0.88 m bell clearance), the same core and
-# Thumpers, the same staging. 30 parts.
+# THREE CUTS, each answering the last one's flight:
+#   1. the first solar cut (flown green 2026-10-31): CS Mun Lander without the Thumper
+#      cones, two OX-STATs and a Z-100 on the lander, four LT-05s on its 1.25 m stack.
+#      It fell over on its legs on the Mun (2026-11-04, todo CS7-LANDER-TIPS-AT-BOARD).
+#   2. the outrigger cut (2026-11-06, flown 2026-11-07): the same lander propellant on
+#      one stack FL-T400 and three FL-T200 outriggers, an LT-05 on each (THE STANCE).
+#      It stood (upright touchdown, EVA, flag and board), the outriggers crossfed, and
+#      it ran dry in the Mun ascent: THE FUEL below.
+#   3. this cut (2026-11-07): the outriggers become FL-T400s with nose cones, the
+#      Thumpers hang under them on TD-12s, the core loses one FL-T400 and the power is
+#      one Z-200 on the pod. 30 parts.
 #
-# DONORS, by stored state: both tails from Kerbal 1 (1.12.0), the stock craft that
-# carries exactly these two parts on an FL-T400 (four OX-STATs and four Z-100s round
-# its upper tank). Their attach is Kerbal 1's: the OX-STAT 0.6218 m out and 0.5751 m
-# above the tank centre, the Z-100 0.6340 m out and 0.6109 m up. The rotation is the
-# donor family's yaw: psi = 90 - azimuth for the OX-STAT (attach normal +Z) and
-# 270 - azimuth for the Z-100 (attach normal -Z), each checked against all four of
-# Kerbal 1's own placements (test_cs_orbiter_craft). The OX-STAT is static and
-# non-deploying (its cfg sets isBreakable = false; the tail stores deployState
-# EXTENDED): drag cannot break it, and its edge meets the airflow on the ascent, as
-# on Kerbal 1 and Kerbal X.
+# THE FUEL (flight `2026-11-07_0104_..._a2`, vessel-total LiquidFuel read off the
+# mission rows; delta-v by the rocket equation on the lander's own mass, Jeb aboard).
+# The lower stages left the lander far short of orbit: the Thumpers dropped at 11.0 km
+# (apoapsis 14.4 km), the core at 31.6 km with a 35.6 km apoapsis, suborbital, and the
+# lander spent 1227 m/s (204 of its 450 LF) finishing a 78.7 x 81 km orbit. From there:
+# the injection 842, two corrections 126, the capture 266 (a 158 km Mun orbit), the
+# descent 710, the Mun ascent 217 to a 20.1 km apoapsis with a ~536 m/s circularization
+# owed; it ran dry with 168 m/s of that node left. On the builder's basis (the launch
+# stage at sea-level Isp) the ascent to LKO cost 1251 + 1940 + 1227 = 4418 m/s against
+# CS-6's 3130 (CS Mun Flyby, whose Thumpers wore cones). The difference is drag: the
+# outrigger cut flew nine blunt faces into the airflow off the stack axis (the three
+# open Thumper tops and three outrigger tops on the launch stage, the outrigger tops
+# again on the core's), and the core could not lift its share through them.
+# THE FIX removes every one of them within the 30 parts:
+#   - each outrigger's top carries a nose cone (3 parts);
+#   - each Thumper hangs UNDER its outrigger on a TD-12 (stack nodes, so the outrigger's
+#     bottom, the decoupler and the Thumper's top are all closed), replacing the three
+#     TT-38Ks part for part; the TD-12 stays with the Thumper (explosive node top);
+#   - the outriggers move out to the Thumper axis Science Jr. hangs off a 1.25 m core
+#     (1.428 m), so a dropped Thumper clears the core by the same 0.18 m stock's radial
+#     boosters do while it falls back along it; the outrigger's attach point stands off
+#     the stack tank's wall by that gap (the craft stores every position);
+#   - the two OX-STATs and the Z-100 become one Z-200 between the pod and the Mk16
+#     (250 EC with the pod's, all of it on the pod, so the return keeps it too; 2 parts);
+#   - one core FL-T400 goes (1 part) and the outriggers grow from FL-T200 to FL-T400:
+#     3 t of propellant moves from the core to the lander, where it covers whatever
+#     share of the ascent the lower stages leave (THE BUDGET below).
+# THE BUDGET (`--report`; solar_ascent_budget): the lander must reach LKO with the
+# flight's own from-orbit burns plus 25% over the landing, the Mun ascent, the
+# departure (CS-6 measured 216.9; 220) and the return trim (100): 842 + 126 + 266 +
+# 1.25 x (710 + 753 + 220 + 100) = 3463 m/s. The report prints how much of the Kerbin
+# ascent the lander may pay before that margin is gone, and the ascent cost at which it
+# is, against the flown 4418 and CS-6's clean 3130.
 #
-# THE ELECTRIC-CHARGE BUDGET (`--report` prints the figures):
-#   capacity 150 EC (the pod's 50 + the Z-100's 100), all of it aboard until the
-#   pod's separation; the return after it flies on the pod's 50 and the chute.
-#   generation, sun broadside to the stack axis at Kerbin's distance (the Mun's too):
-#   0.303 to 0.350 EC/s, 0.334 on average over the roll angle (0.35 x the sum of the
-#   lit panels' cosines); times the cosine of the sun's angle off broadside, and zero
-#   in shadow or with the sun on the axis.
-#   draw, by phase: the Kerbin ascent coast on the long stack 0.42-0.47 EC/s while
-#   MechJeb holds (measured), about 150 game s out of rails, ~65 EC; the mission
-#   releases the wheels below the atmosphere's top on that coast (mlib.mlr_decide),
-#   leaving ~25 EC, and the core Swivel's alternator (6 EC/s at full throttle) refills
-#   during the circularization's first seconds. The lander-only holds after the core
-#   drop: CS-6c's flown upper stage (the same pod, 7.2 t against 7.35 t) drew 0.002
-#   to 0.045 EC/s on its 1x and physics-warp coasts and nothing on rails. The powered
-#   Mun phases (the descent ~350 s, the ascent ~300 s) are unmeasured on this stack:
-#   bounded by the saturated 0.42 EC/s, ~20-60 EC at a few times the hold rate. The
-#   surface stay holds SAS (B5's tip guard) at ~0.05-0.1 EC/s for ~5 min.
-#   expected: ~60-120 EC used between two sunlit coasts, against 150 stored.
-#   worst case: no sun from the descent to orbit and the wheel saturated end to end:
-#   ~270 EC for the descent and ascent plus ~30 on the surface against 150 stored,
-#   ~150 EC short late in the Mun ascent; the electric-charge watchdog names it.
+# ASSUMPTIONS A FLIGHT CAN FALSIFY: the ascent cost of this clean stack (expected near
+# CS-6's 3130, plus the core's lower thrust-to-weight; the gate holds the break-even at
+# 3400 or more), the Thumpers' fall past the core at their drop (axial, 0.18 m clear),
+# the outriggers' surface joints carrying the Thumpers' thrust (each the load a TT-38K
+# carried before), and the electric charge (250 EC, no generation: THE ELECTRIC-CHARGE
+# BUDGET below).
 #
-# ASSUMPTIONS A FLIGHT CAN FALSIFY: the drag cost of the open Thumper tops and of the
-# three outriggers' flat ends mid-stack (estimated 50-100 m/s more on the Kerbin ascent,
-# out of the lander's ~730 m/s margin), the outriggers' crossfeed (THE STANCE below),
-# the powered-phase draw on the Mun, the sun's angle at the landing site, and CS Mun
-# Lander's own (the leg reach, MechJeb's Mun ascent). The outriggers' srfAttach point is
-# assumed on the tank wall (wall on wall, the TT-38K / LT-05 +X family's yaw); the craft
-# file stores every position, so a different node only moves the joint's anchor.
+# THE ELECTRIC-CHARGE BUDGET: 250 EC (the pod's 50 + the Z-200's 200), all on the pod,
+# against a worst case MEASURED on the two flights of the panelled cuts (the telemetry
+# rows of `2026-10-31_0654_a2` and `2026-11-07_0104_a2`, from the core drop to the end of
+# the departure burn; both cuts carried 150 EC and two OX-STATs at azimuths 0 / 180,
+# so at most one panel faced the sun, 0.35 EC/s). This cut has no panel, so each line
+# is the GROSS draw: the phase's EC drop (its deepest drawdown when larger) plus the
+# panels' share, credited over every 1x second of the phase at the steepest rise any
+# 10 s of the phase showed plus CS-6c's top lander hold (0.045 EC/s, the same pod, no
+# panel); rails seconds draw nothing. Per phase the worse of the two flights
+# (SOLAR_EC_WORST_CASE). The surface stay gets no panel credit: the lander's charge
+# stayed flat while the kerbal was out on both flights (the lander is not the active
+# vessel then, so nothing draws), so its panels made nothing there and the settle's
+# drop (9.3 EC in 29 s on 2026-10-31, the SAS hold against the ground) is all draw.
+# The home trim was flown on neither row set and is taken as a correction burn. The
+# total, 156 EC, times 1.25 is 195 against 250 (60% over). The reentry is outside the
+# watchdog (mlib's MLR_EC_BLOCKS end at HOME-TRIM; B4 releases the autopilot at its
+# deorbit cutoff) and keeps the remaining ~94, more than the Mk1's own 50 that CS-5,
+# CS-6 and CS-6c reentered on. Not covered: a panel square to the sun through every
+# burn with the wheel eating all of it (a 0.35 EC/s credit on each burning second,
+# 283 EC); the rows show no sustained rise near that outside the Mun ascent's turn.
 # ---------------------------------------------------------------------------
 
 SOLAR_SHIP_NAME = "CS Mun Solar Lander"
@@ -1731,76 +1752,93 @@ SOLAR_UID_BASE = 4291000001
 # 6.9 m tall (pod, two FL-T400, an FL-T200, the Terrier): e 0.31 m (three) or 0.44 m
 # (four) under h about 4.4 m (lander_stance's conservative read; the flown upright lander
 # read alt 4.1), so 4 to 6 deg against the 7 to 14 deg the Mun's equatorial band read at
-# the flown site (kRPC surface_height over 10 m, run 2026-10-31). Every cut
-# fell over on its legs: the three-legged one on touchdown (2026-10-28_0432 attempt 2,
-# _0649 attempt 2), the four-legged one upright at pitch 89.9 and then over at zero
-# throttle, in the settle or mid-EVA (2026-11-04_1803, _1823_a2).
-# THE RE-CUT moves the same propellant out of the stack and onto three outriggers: the
-# stack keeps ONE FL-T400 on the Terrier, and three FL-T200s ride its wall (surface
-# attached, wall on wall, their axes 1.25 m out, bottoms level with the FL-T400's), each
-# with an LT-05 on its outer wall at the old leg height above the bottom. The lander
-# carries the same 5.0 t of propellant on the same 0.625 t of tanks (2 x 0.25 + 0.125
-# before, 0.25 + 3 x 0.125 now), so the delta-v is unchanged; one leg and two stack tanks
-# go, three outriggers and three legs come, so the part count stays 30; the stack is
-# 3.0 m shorter. The feet move from 0.625 m to 1.875 m out (e 0.94 m on the triangle)
-# and the centre of mass drops from about 4.4 m to about 2.0 m over the bell, so the
-# lander tips at about 25 deg instead of 6: `--report` prints both stances.
-# THE ONE NEW ASSUMPTION: the outriggers' propellant reaches the Terrier through the
-# surface attachment (stock crossfeed, KSP 1.2 and later: both parts' fuelCrossFeed on, no
-# decoupler between them). Were it not, the lander would burn only the FL-T400's 2 t,
-# about 1.1 km/s instead of 3.8, and run dry around the Mun capture, never reaching the
-# surface. KSP drains the farther tanks first, so the outriggers likely empty before the
-# stack FL-T400; lander_stance reads the landing with the propellant left in the stack
-# (the higher, worse case) either way.
+# the flown site (kRPC surface_height over 10 m, run 2026-10-31). Every such cut fell
+# over on its legs: the three-legged one on touchdown (2026-10-28_0432 attempt 2, _0649
+# attempt 2), the four-legged one upright at pitch 89.9 and then over at zero throttle,
+# in the settle or mid-EVA (2026-11-04_1803, _1823_a2).
+# The outrigger cut moved the propellant out of the stack: ONE FL-T400 on the Terrier and
+# three outriggers off its wall (bottoms level with its bottom), an LT-05 on each
+# outrigger's outer wall at the old leg height above the bottom, so the bell clearance is
+# unchanged. Flown 2026-11-07 it touched down upright and stood through the EVA, the flag
+# and the boarding, and the outriggers crossfed to the Terrier (all 450 LF drained). This
+# cut keeps that geometry with taller (FL-T400) outriggers 1.428 m out: `--report` prints
+# the stance against the first solar cut's.
 SOLAR_UPPER_T400 = 1
 SOLAR_UPPER_T200 = 0
-SOLAR_ARM_NAME = "fuelTankSmall"
+SOLAR_CORE_TANKS = 6
+SOLAR_ARM_NAME = "fuelTank"
 # 90 / 210 / 330: the two nearest the pod's hatch (270) sit 60 deg off it, clear of Jeb's
 # fall from the hatch to the ground.
 SOLAR_ARM_AZIMUTHS = (90.0, 210.0, 330.0)
-# Wall on wall: the outrigger's axis sits two 1.25 m tank radii from the stack axis.
-SOLAR_ARM_RADIUS = 2.0 * LANDER_TANK_RADIUS
+# Science Jr.'s Thumper axis off a 1.25 m core (its TT-38K's attPos0 plus the Thumper's):
+# a Thumper hung under the outrigger clears the core below by the same 0.18 m.
+SOLAR_ARM_RADIUS = MUN_DEC_RADIUS + abs(MUN_BOOSTER_LOCAL[0])
 SOLAR_LEG_AZIMUTHS = SOLAR_ARM_AZIMUTHS
 # The first solar cut's legs (four on the stack's FL-T200), kept for the comparison.
 SOLAR_PREVIOUS_LEG_AZIMUTHS = (45.0, 135.0, 225.0, 315.0)
 # The stance model's inputs: Jeb aboard (KSP's kerbal mass), and the lander's delta-v
-# spent from the core drop to the touchdown on the CS-7 budget (the injection 860,
-# corrections up to 300, the capture 280, the descent 700).
+# from LKO to the touchdown as flown 2026-11-07 (the injection, the corrections, the
+# capture and the descent): the least the lander spends before landing, so the most
+# propellant it can stand on (the conservative read).
 KERBAL_MASS_T = 0.09375
-SOLAR_DV_TO_TOUCHDOWN = 860.0 + 300.0 + 280.0 + 700.0
+SOLAR_DV_TO_TOUCHDOWN = 842.0 + 126.0 + 266.0 + 710.0
 # The re-cut's floor: the tip angle with the landing's propellant as high in the lander
 # as it can sit (the conservative read), over the bell's plane.
 SOLAR_MIN_TIP_DEG = 20.0
-SOLAR_PANEL_AZIMUTHS = (0.0, 180.0)
-SOLAR_BATTERY_AZIMUTH = 90.0
-# Kerbal 1 solarPanels5_4293048744 (its +Z panel): attPos0 (1.3e-15 noise dropped) on
-# its FL-T400, i.e. the radius and the height above the tank centre.
-SOLAR_PANEL_RADIUS = 0.621777415
-SOLAR_PANEL_DY = 0.575105727
-# Kerbal 1 batteryPack_4293048212: attPos0 (-0.448293895, 0.610907614, -0.448293895).
-SOLAR_BATTERY_RADIUS = math.hypot(0.448293895, 0.448293895)
-SOLAR_BATTERY_DY = 0.610907614
-# solarPanels5.cfg ModuleDeployableSolarPanel chargeRate (EC/s, full sun at 1 AU).
-SOLAR_PANEL_CHARGE_RATE = 0.35
-# CS-7 flight 2026-10-27_2326: the pod wheel's draw on the long-stack ascent coast.
-SOLAR_MEASURED_HOLD_DRAW = 0.42
-SOLAR_MIN_CAPACITY = 150.0
-SOLAR_PARTS = {"solarPanels5": 2, "batteryPack": 1}
+
+# THE BUDGET's inputs (flight 2026-11-07_0104_..._a2; THE FUEL above).
+SOLAR_FROM_LKO = (("injection", 842.0), ("corrections", 126.0), ("capture", 266.0))
+SOLAR_MARGINED = (("descent", 710.0), ("Mun ascent", 753.0), ("departure", 220.0),
+                  ("return trim", 100.0))
+SOLAR_MARGIN = 0.25
+# The ascent to LKO on the builder's basis (launch stage at sea-level Isp, core and
+# lander in vacuum): the outrigger cut's flown 1251 + 1940 + the lander's 1227, and
+# CS-6's (the lower-stage floor LANDER_MIN_LOWER_DELTA_V was cut from it).
+SOLAR_FLOWN_LOWER_DV = 1251.0 + 1940.0
+SOLAR_FLOWN_LANDER_TO_LKO = 1227.0
+SOLAR_FLOWN_LKO_COST = SOLAR_FLOWN_LOWER_DV + SOLAR_FLOWN_LANDER_TO_LKO
+SOLAR_CLEAN_LKO_COST = LANDER_MIN_LOWER_DELTA_V
+# The gate: the lander keeps the 25% margin up to an ascent this costly. CS-6's clean
+# 3130 plus 270 for this stack's nose cones and its lower core thrust-to-weight.
+SOLAR_MIN_BREAKEVEN_LKO_COST = 3400.0
+# Blunt faces off the stack axis meeting the airflow, per ascent stage (THE FUEL).
+SOLAR_FLOWN_OPEN_FACES = {"launch": 6, "core": 3}
+
+SOLAR_BATTERY_NAME = "batteryBankMini"
+# THE ELECTRIC-CHARGE BUDGET's lines: (phase, gross EC, the flight it was read on).
+SOLAR_EC_WORST_CASE = (
+    ("the lander's Kerbin ascent finish", 27.0, "2026-11-07, 390 s at 1x"),
+    ("transfer burn", 11.4, "2026-10-31, 123 s"),
+    ("two corrections", 4.7, "2026-10-31, 77 s"),
+    ("coasts to the Mun at 1x", 0.3, "2026-11-07, 7 s"),
+    ("capture burn", 6.0, "2026-10-31, 51 s"),
+    ("park", 2.7, "2026-11-07, 60 s"),
+    ("descent", 42.6, "2026-10-31, 366 s"),
+    ("landed settle (SAS on the ground)", 9.3, "2026-10-31, 29 s, no panel credit"),
+    ("EVA (the lander not active)", 0.0, "both, flat"),
+    ("Mun ascent", 43.1, "2026-10-31, 187 s"),
+    ("departure burn", 4.2, "2026-10-31, 49 s"),
+    ("home trim", 4.7, "not flown; a correction burn"),
+)
+SOLAR_EC_MARGIN = 0.25
+SOLAR_EC_FLOOR = 0.5
+SOLAR_PARTS = {"batteryBankMini": 1}
+
+NODE_OFFSET.update({
+    # ComSat Lx: attN = top,...|0.1|0 and attN = bottom,...|-0.1|0
+    "batteryBankMini": {"top": 0.1, "bottom": -0.1},
+})
 
 PART_CFG.update({
-    "solarPanels5": {"mass": 0.005, "cost": 75},     # Electrical/radialFlatSolarPanel
-    "batteryPack": {"mass": 0.005, "cost": 80},      # Electrical/z-100Battery
+    "batteryBankMini": {"mass": 0.01, "cost": 360},  # Electrical/z-200Battery
 })
 
 SOLAR_DONORS = {
-    "solarPanels5": ("VAB/Kerbal 1.craft", 0),
-    "batteryPack": ("VAB/Kerbal 1.craft", 0),
+    "batteryBankMini": ("VAB/ComSat Lx.craft", 0),
 }
 SOLAR_TAILS = {
-    # <- Ships/VAB/Kerbal 1.craft, occurrence 0  [stock 1.12.0, KSP-written]
-    "solarPanels5": '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleDeployableSolarPanel\n\t\tisEnabled = True\n\t\tefficiencyMult = 1\n\t\tlaunchUT = -1\n\t\tcurrentRotation = (0, -6.057208E-07, 0, 1)\n\t\tstoredAnimationTime = 0\n\t\tstoredAnimationSpeed = 0\n\t\tdeployState = EXTENDED\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tExtendPanelsAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\tactive = False\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tExtendAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\tactive = False\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tRetractAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\tactive = False\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}',
-    # <- Ships/VAB/Kerbal 1.craft, occurrence 0  [stock 1.12.0, KSP-written]
-    "batteryPack": '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tRESOURCE\n\t{\n\t\tname = ElectricCharge\n\t\tamount = 100\n\t\tmaxAmount = 100\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}',
+    # <- Ships/VAB/ComSat Lx.craft, occurrence 0  [stock 1.12.0, KSP-written]
+    "batteryBankMini": '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tRESOURCE\n\t{\n\t\tname = ElectricCharge\n\t\tamount = 200\n\t\tmaxAmount = 200\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}',
 }
 
 DONORS.update(SOLAR_DONORS)
@@ -1821,6 +1859,21 @@ def _radial_part(key, name, uid_n, parent, azimuth, radius, dy, psi):
     p.srfn = parent.uid
     p.parent = parent
     parent.links.append(p.uid)
+    return p
+
+
+def _stack_child(parent, pnode, key, name, cnode, uid_n, **kw):
+    """``name`` stack-attached by its ``cnode`` to ``parent``'s ``pnode``, on the
+    parent's axis and with its rotation (attRot0 identity: no relative turn)."""
+    y = parent.y + NODE_OFFSET[parent.name][pnode] - NODE_OFFSET[name][cnode]
+    p = Part(key, name, uid_n, y, **kw)
+    p.pos = (parent.pos[0], y, parent.pos[2])
+    p.rot = parent.rot
+    p.att_rot0 = "0,0,0,1"
+    p.parent = parent
+    parent.links.append(p.uid)
+    parent.attn.append((pnode, p.uid, NODE_OFFSET[parent.name][pnode]))
+    p.attn.append((cnode, parent.uid, NODE_OFFSET[name][cnode]))
     return p
 
 
@@ -1851,36 +1904,59 @@ def _wall_leg(key, uid_n, tank, azimuth):
     return leg
 
 
+def _pod_battery(uid_n, pod, chute):
+    """A Z-200 on the pod's top node with the Mk16 moved onto its top: a pod part,
+    unstaged, so its charge flies the return too."""
+    off = NODE_OFFSET
+    bat = Part("battery", SOLAR_BATTERY_NAME, uid_n,
+               pod.y + off["mk1pod.v2"]["top"] - off[SOLAR_BATTERY_NAME]["bottom"], dstg=0)
+    bat.parent = pod
+    chute.y = bat.y + off[SOLAR_BATTERY_NAME]["top"] - off["parachuteSingle"]["bottom"]
+    chute.pos = (0.0, chute.y, 0.0)
+    chute.parent = bat
+    pod.links = [bat.uid if u == chute.uid else u for u in pod.links]
+    pod.attn = [(n, bat.uid if o == chute.uid else o, dy) for n, o, dy in pod.attn]
+    bat.links = [chute.uid]
+    bat.attn = [("bottom", pod.uid, off[SOLAR_BATTERY_NAME]["bottom"]),
+                ("top", chute.uid, off[SOLAR_BATTERY_NAME]["top"])]
+    chute.attn = [("bottom", bat.uid, off["parachuteSingle"]["bottom"])]
+    return bat
+
+
 def solar_layout():
-    """Every part of CS Mun Solar Lander, root first: CS Mun Lander's layout without
-    the Thumper cones and with ONE FL-T400 on the Terrier and no legs on it, then the
-    three FL-T200 outriggers on that FL-T400 with an LT-05 each, the two OX-STATs and
-    the Z-100 (all on the FL-T400)."""
+    """Every part of CS Mun Solar Lander, root first: CS Mun Lander's layout with ONE
+    FL-T400 on the Terrier, no leg on it, SOLAR_CORE_TANKS in the core and no booster,
+    then the Z-200 under the Mk16, the three FL-T400 outriggers off the stack FL-T400
+    with an LT-05 and a nose cone each, and a Thumper under each on a TD-12."""
     parts = lander_layout(upper400=SOLAR_UPPER_T400, upper200=SOLAR_UPPER_T200,
-                          uid_base=SOLAR_UID_BASE, cones=False, leg_azimuths=())
-    upper = [p for p in parts if p.group == "upper" and p.key.startswith("utank")]
-    tank = upper[0]
+                          core=SOLAR_CORE_TANKS, uid_base=SOLAR_UID_BASE, cones=False,
+                          leg_azimuths=(), boosters=False)
+    pod, chute = parts[0], parts[1]
+    tank = [p for p in parts if p.key.startswith("utank")][0]
     uid = iter(range(SOLAR_UID_BASE + 900, SOLAR_UID_BASE + 999))
-    # Bottom level with the FL-T400's, so the legs sit where CS Mun Lander's did above
-    # the Terrier's top node (the same bell clearance).
+    battery = _pod_battery(next(uid), pod, chute)
+    # Bottoms level with the stack FL-T400's, so the legs sit where CS Mun Lander's did
+    # above the Terrier's top node (the same bell clearance).
     arm_dy = NODE_OFFSET["fuelTank"]["bottom"] - NODE_OFFSET[SOLAR_ARM_NAME]["bottom"]
     arms = [_radial_part("arm%d" % i, SOLAR_ARM_NAME, next(uid), tank, az,
                          SOLAR_ARM_RADIUS, arm_dy, 180.0 - az)
             for i, az in enumerate(SOLAR_ARM_AZIMUTHS)]
     legs = [_wall_leg("leg%d" % i, next(uid), arm, az)
             for i, (arm, az) in enumerate(zip(arms, SOLAR_LEG_AZIMUTHS))]
-    for group in (arms, legs):
+    cones = [_stack_child(arm, "top", "cone%d" % i, "noseCone", "bottom01", next(uid),
+                          istg=LANDER_STAGE_POD_SEPARATION, dstg=4, group="upper")
+             for i, arm in enumerate(arms)]
+    decs = [_stack_child(arm, "bottom", "adec%d" % i, "Decoupler.1", "top", next(uid),
+                         istg=LANDER_STAGE_BOOSTER_DROP, dstg=7, sidx=0, group="boosters")
+            for i, arm in enumerate(arms)]
+    thumpers = [_stack_child(d, "bottom", "thumper%d" % i, "solidBooster1-1", "top",
+                             next(uid), istg=LANDER_STAGE_LAUNCH, dstg=8, sidx=0,
+                             group="boosters")
+                for i, d in enumerate(decs)]
+    for group in (arms, legs, cones, decs, thumpers):
         for p in group:
             p.syms = [o.uid for o in group if o is not p]
-    panels = [_radial_part("panel%d" % i, "solarPanels5", next(uid), tank, az,
-                           SOLAR_PANEL_RADIUS, SOLAR_PANEL_DY, 90.0 - az)
-              for i, az in enumerate(SOLAR_PANEL_AZIMUTHS)]
-    for p in panels:
-        p.syms = [o.uid for o in panels if o is not p]
-    battery = _radial_part("battery", "batteryPack", next(uid), tank,
-                           SOLAR_BATTERY_AZIMUTH, SOLAR_BATTERY_RADIUS, SOLAR_BATTERY_DY,
-                           270.0 - SOLAR_BATTERY_AZIMUTH)
-    return parts + arms + legs + panels + [battery]
+    return [pod, battery] + parts[1:] + arms + legs + cones + decs + thumpers
 
 
 def solar_previous_layout():
@@ -1888,6 +1964,13 @@ def solar_previous_layout():
     FL-T400 above it), for the stance comparison only: never written."""
     return lander_layout(uid_base=SOLAR_UID_BASE, cones=False,
                          leg_azimuths=SOLAR_PREVIOUS_LEG_AZIMUTHS)
+
+
+def solar_stage_want():
+    """CS Mun Lander's staging with the Thumpers' drop on the three TD-12s."""
+    want = dict(lander_stage_want())
+    want[LANDER_STAGE_BOOSTER_DROP] = ["Decoupler.1"] * 3
+    return want
 
 
 def lander_stance(parts, dv_spent=SOLAR_DV_TO_TOUCHDOWN):
@@ -1936,36 +2019,76 @@ def lander_stance(parts, dv_spent=SOLAR_DV_TO_TOUCHDOWN):
 
 
 def solar_hatch_clearances(parts=None):
-    """Each panel's and the battery's azimuth distance (deg) from the pod's airlock."""
+    """Each outrigger's azimuth distance (deg) from the pod's airlock."""
     parts = parts or solar_layout()
     hatch = _azimuth_deg(MUNSCI_HATCH_POS)
+    return {p.key: abs((_azimuth_deg(p.pos) - hatch + 180.0) % 360.0 - 180.0)
+            for p in parts if p.key.startswith("arm")}
+
+
+def solar_open_faces(parts=None):
+    """The blunt faces off the stack axis that meet the airflow, per ascent stage: an
+    off-axis part's top node with nothing on it, counted while that part flies (the
+    launch stage carries every group, the core's stage all but the boosters). The
+    nose cones' own faces and every bottom face are not counted."""
+    parts = parts or solar_layout()
+    flies = {"launch": ("pod", "upper", "core", "boosters"),
+             "core": ("pod", "upper", "core")}
     out = {}
-    for p in parts:
-        if p.name in SOLAR_PARTS:
-            local = tuple(a - b for a, b in zip(p.pos, p.parent.pos))
-            out[p.key] = abs((_azimuth_deg(local) - hatch + 180.0) % 360.0 - 180.0)
+    for stage, groups in flies.items():
+        n = 0
+        for p in parts:
+            if p.group not in groups or p.name == "noseCone" or "top" not in NODE_OFFSET.get(
+                    p.name, {}):
+                continue
+            if math.hypot(p.pos[0], p.pos[2]) < 1e-6:
+                continue
+            covered = any(node == "top" and any(o.uid == other and o.group in groups
+                                                for o in parts)
+                          for node, other, _ in p.attn)
+            if not covered:
+                n += 1
+        out[stage] = n
     return out
 
 
+def solar_ascent_budget(f=None):
+    """THE BUDGET: the lander's delta-v (Jeb aboard) full and the most it may spend on
+    the Kerbin ascent and still reach LKO with the flight's from-orbit burns plus
+    SOLAR_MARGIN over the landing, the Mun ascent, the departure and the trim; the
+    ascent cost (lower stages plus that spend) at which the margin is gone; and the
+    lander at LKO for the flown and the clean ascent costs."""
+    f = f or solar_figures()
+    up = f["stages"][2]
+    lander_dv = PART_CFG["liquidEngine3.v2"]["isp_vac"] * G0 * math.log(
+        (up["m0"] + KERBAL_MASS_T) / (up["m1"] + KERBAL_MASS_T))
+    to_orbit = sum(v for _, v in SOLAR_FROM_LKO)
+    margined = sum(v for _, v in SOLAR_MARGINED)
+    need = to_orbit + (1.0 + SOLAR_MARGIN) * margined
+    allowance = lander_dv - need
+    at = {}
+    for label, cost in (("flown", SOLAR_FLOWN_LKO_COST), ("clean", SOLAR_CLEAN_LKO_COST)):
+        left = lander_dv - max(0.0, cost - f["dv_lower"])
+        at[label] = {"cost": cost, "at_lko": left,
+                     "margin": (left - to_orbit) / margined - 1.0}
+    return {"lander_dv": lander_dv, "need": need, "bare": to_orbit + margined,
+            "allowance": allowance, "breakeven": f["dv_lower"] + allowance, "at": at}
+
+
 def solar_ec_budget(parts=None):
-    """The electric-charge figures: capacity (EC, from the tails), the panels' peak,
-    and their output with the sun broadside to the stack over the roll angle (min,
-    average, max, EC/s), plus the seconds of a saturated hold the capacity covers."""
+    """The electric-charge figures: capacity (EC, from the tails), the measured worst
+    case (THE ELECTRIC-CHARGE BUDGET), what it needs with the margin, and the margin the
+    capacity above the watchdog's floor keeps."""
     parts = parts or solar_layout()
     capacity = sum(a for p in parts for r, a, _ in tail_resources(p.tail)
                    if r == "ElectricCharge")
-    azs = [_azimuth_deg(tuple(a - b for a, b in zip(p.pos, p.parent.pos)))
-           for p in parts if p.name == "solarPanels5"]
-    samples = []
-    for step in range(3600):
-        phi = step / 10.0
-        lit = sum(max(0.0, math.cos(math.radians(az - phi))) for az in azs)
-        samples.append(SOLAR_PANEL_CHARGE_RATE * lit)
-    return {"capacity": capacity, "panels": len(azs),
-            "peak": SOLAR_PANEL_CHARGE_RATE * len(azs),
-            "broadside_min": min(samples), "broadside_max": max(samples),
-            "broadside_avg": sum(samples) / len(samples),
-            "saturated_hold_s": capacity / SOLAR_MEASURED_HOLD_DRAW}
+    pod_capacity = sum(a for p in parts if p.group == "pod"
+                       for r, a, _ in tail_resources(p.tail) if r == "ElectricCharge")
+    worst = sum(ec for _, ec, _ in SOLAR_EC_WORST_CASE)
+    return {"capacity": capacity, "pod_capacity": pod_capacity,
+            "panels": len([p for p in parts if p.name == "solarPanels5"]),
+            "worst": worst, "need": (1.0 + SOLAR_EC_MARGIN) * worst,
+            "margin": (pod_capacity - SOLAR_EC_FLOOR) / worst - 1.0}
 
 
 def solar_build():
@@ -1975,11 +2098,11 @@ def solar_build():
     header = [
         "ship = %s" % SOLAR_SHIP_NAME,
         "version = 1.12.5",
-        "description = CS-7 craft (scripted campaign, Career): Mk1 pod, heat shield, "
-        "an FL-T400 on a Terrier with three FL-T200 outriggers, an LT-05 leg on each, "
-        "two OX-STAT panels and a Z-100, over %d FL-T400 on a Swivel core, three "
-        "Thumpers. Built by construction by harness/tools/build_cs_orbiter_craft.py "
-        "--variant solar." % LANDER_CORE_TANKS,
+        "description = CS-7 craft (scripted campaign, Career): Mk1 pod with a Z-200 under "
+        "its Mk16, heat shield, an FL-T400 on a Terrier with three FL-T400 outriggers, an "
+        "LT-05 leg and a nose cone on each, over %d FL-T400 on a Swivel core, a Thumper "
+        "under each outrigger on a TD-12. Built by construction by "
+        "harness/tools/build_cs_orbiter_craft.py --variant solar." % SOLAR_CORE_TANKS,
         "type = VAB",
         "size = %s" % _vec(max(xs) - min(xs) + 1.25, lander_stack_height(parts),
                            max(zs) - min(zs) + 1.25),
@@ -1994,13 +2117,16 @@ def solar_build():
 
 
 def solar_figures():
-    """lander_figures over CS Mun Solar Lander's layout (the panels and the battery
-    ride the lander stage), plus the electric-charge figures."""
+    """lander_figures over CS Mun Solar Lander's layout (the TD-12s drop with the
+    Thumpers, the cones ride the lander, the Z-200 the pod), plus the electric-charge,
+    stance, open-face and ascent-budget figures."""
     parts = solar_layout()
     f = lander_figures(parts=parts)
     f["ec"] = solar_ec_budget(parts)
     f["stance"] = lander_stance(parts)
     f["stance_previous"] = lander_stance(solar_previous_layout())
+    f["open_faces"] = solar_open_faces(parts)
+    f["budget"] = solar_ascent_budget(f)
     return f
 
 
@@ -2016,40 +2142,48 @@ def solar_problems():
     if f["height"] > MUN_LIMIT_HEIGHT_M:
         out.append("%.2f m > the level-1 pad height %.0f m"
                    % (f["height"], MUN_LIMIT_HEIGHT_M))
+    # The lower stages are no longer held to CS-6's 3130 on their own: the lander carries
+    # the rest of the ascent, and THE BUDGET gates the sum.
     for key, floor, label in (("dv_total", LANDER_MIN_DELTA_V, "delta-v"),
-                              ("dv_lower", LANDER_MIN_LOWER_DELTA_V, "lower delta-v"),
                               ("dv_upper", LANDER_MIN_UPPER_DELTA_V, "lander delta-v"),
                               ("liftoff_twr", LANDER_MIN_LIFTOFF_TWR, "liftoff TWR"),
                               ("mun_twr", LANDER_MIN_MUN_TWR, "Mun TWR")):
         if f[key] < floor:
             out.append("%s %.2f < %.2f" % (label, f[key], floor))
-    if stage_table(parts) != lander_stage_want():
-        out.append("stage order %r != %r" % (stage_table(parts), lander_stage_want()))
+    if f["stages"][1]["twr_vac"] < 1.0:
+        out.append("core TWR %.2f < 1 at its ignition" % f["stages"][1]["twr_vac"])
+    budget = f["budget"]
+    if budget["breakeven"] < SOLAR_MIN_BREAKEVEN_LKO_COST:
+        out.append("the lander keeps its %.0f%% margin only to an ascent of %.0f m/s "
+                   "(< %.0f)" % (100 * SOLAR_MARGIN, budget["breakeven"],
+                                 SOLAR_MIN_BREAKEVEN_LKO_COST))
+    if any(f["open_faces"].values()):
+        out.append("blunt faces off the stack axis meet the airflow: %r" % f["open_faces"])
+    if stage_table(parts) != solar_stage_want():
+        out.append("stage order %r != %r" % (stage_table(parts), solar_stage_want()))
     shield = [p for p in parts if p.name == "HeatShield1"][0]
     if shield.istg != -1:
         out.append("the heat shield must not be staged")
-    if any(p.name == "noseCone" for p in parts):
-        out.append("the Thumper cones must be off (their slots carry the power)")
     counts = {}
     for p in parts:
         if p.name in SOLAR_PARTS:
             counts[p.name] = counts.get(p.name, 0) + 1
-            if (p.group != "upper" or p.sidx != -1
-                    or not p.parent.name.startswith("fuelTank")):
-                out.append("%s must ride a lander tank, unstaged" % p.key)
+            if p.group != "pod" or p.sidx != -1 or p.parent is not parts[0]:
+                out.append("%s must ride the pod's top node, unstaged" % p.key)
     if counts != SOLAR_PARTS:
         out.append("power parts %r != %r" % (counts, SOLAR_PARTS))
-    for key, d in sorted(solar_hatch_clearances(parts).items()):
-        if d < MUNSCI_HATCH_CLEARANCE_DEG:
-            out.append("%s sits %.0f deg off the hatch (< %.0f)"
-                       % (key, d, MUNSCI_HATCH_CLEARANCE_DEG))
-    # The stance: one leg per outrigger, on its outer wall, the outriggers on the one
-    # stack FL-T400 with their bottoms level with its bottom (so the legs keep CS Mun
-    # Lander's height above the Terrier), the same propellant as CS Mun Lander's lander.
+    chute = [p for p in parts if p.name == "parachuteSingle"][0]
+    if chute.parent is None or chute.parent.name != SOLAR_BATTERY_NAME:
+        out.append("the Mk16 must ride the Z-200")
+    # The stance and the boosters: one outrigger per leg, cone and Thumper, the
+    # outriggers on the one stack FL-T400 with their bottoms level with its bottom (so
+    # the legs keep CS Mun Lander's height above the Terrier), each Thumper on a TD-12
+    # under its outrigger, nothing between.
     legs = [p for p in parts if p.name == "miniLandingLeg"]
     arms = [p for p in parts if p.key.startswith("arm")]
     stack = [p for p in parts if p.key.startswith("utank")]
-    if len(legs) != len(SOLAR_LEG_AZIMUTHS) or len(arms) != len(SOLAR_ARM_AZIMUTHS):
+    if (len(arms) != len(SOLAR_ARM_AZIMUTHS) or len(legs) != len(arms)
+            or [p.parent for p in legs] != arms):
         out.append("the lander needs %d outriggers with a leg each"
                    % len(SOLAR_ARM_AZIMUTHS))
     if [p.name for p in stack] != ["fuelTank"]:
@@ -2058,35 +2192,43 @@ def solar_problems():
     for arm in arms:
         if (arm.name != SOLAR_ARM_NAME or arm.parent is not stack[0] or arm.attm != 1
                 or arm.sidx != -1 or arm.group != "upper"):
-            out.append("%s must be an unstaged FL-T200 on the stack FL-T400" % arm.key)
+            out.append("%s must be an unstaged %s on the stack FL-T400"
+                       % (arm.key, SOLAR_ARM_NAME))
         bottom = arm.y + NODE_OFFSET[arm.name]["bottom"]
         if abs(bottom - (stack[0].y + NODE_OFFSET["fuelTank"]["bottom"])) > 1e-9:
             out.append("%s's bottom is not level with the FL-T400's" % arm.key)
-    for leg in legs:
-        if leg.parent not in arms:
-            out.append("%s must ride an outrigger" % leg.key)
+        kids = sorted((p.name, p.group) for p in parts if p.parent is arm
+                      and p.name != "miniLandingLeg")
+        if kids != [("Decoupler.1", "boosters"), ("noseCone", "upper")]:
+            out.append("%s must carry a nose cone on top and a TD-12 below: %r"
+                       % (arm.key, kids))
+    for d in [p for p in parts if p.key.startswith("adec")]:
+        below = [p for p in parts if p.parent is d]
+        if [p.name for p in below] != ["solidBooster1-1"]:
+            out.append("%s must carry one Thumper" % d.key)
+    core = [p for p in parts if p.key.startswith("ctank")]
+    for t in [p for p in parts if p.name == "solidBooster1-1"]:
+        gap = math.hypot(t.pos[0], t.pos[2]) - 2.0 * LANDER_TANK_RADIUS
+        if gap < 0.15:
+            out.append("%s clears the core by %.3f m (< 0.15)" % (t.key, gap))
+        if t.y + NODE_OFFSET["solidBooster1-1"]["bottom"] < (
+                core[-1].y + NODE_OFFSET["fuelTank"]["bottom"]):
+            out.append("%s hangs below the core" % t.key)
     if abs(f["leg_clearance"] - lander_leg_clearance()) > 1e-9:
         out.append("leg clearance %.3f != CS Mun Lander's %.3f"
                    % (f["leg_clearance"], lander_leg_clearance()))
-    base = lander_layout()
-    for group in ("upper",):
-        have_prop = sum(_pprop(p) for p in parts if p.group == group)
-        want_prop = sum(_pprop(p) for p in base if p.group == group)
-        if abs(have_prop - want_prop) > 1e-9:
-            out.append("lander propellant %.3f t != CS Mun Lander's %.3f t"
-                       % (have_prop, want_prop))
-    hatch = _azimuth_deg(MUNSCI_HATCH_POS)
-    for az in SOLAR_ARM_AZIMUTHS:
-        if abs((az - hatch + 180.0) % 360.0 - 180.0) < MUNSCI_HATCH_CLEARANCE_DEG:
-            out.append("an outrigger sits under the hatch (azimuth %.0f)" % az)
+    for key, d in sorted(solar_hatch_clearances(parts).items()):
+        if d < MUNSCI_HATCH_CLEARANCE_DEG:
+            out.append("%s sits %.0f deg off the hatch (< %.0f)"
+                       % (key, d, MUNSCI_HATCH_CLEARANCE_DEG))
     if f["stance"]["tip_deg"] < SOLAR_MIN_TIP_DEG:
         out.append("tip angle %.1f deg < %.1f" % (f["stance"]["tip_deg"],
                                                   SOLAR_MIN_TIP_DEG))
-    if f["ec"]["capacity"] < SOLAR_MIN_CAPACITY:
-        out.append("ElectricCharge capacity %.0f < %.0f"
-                   % (f["ec"]["capacity"], SOLAR_MIN_CAPACITY))
-    if "deployState = EXTENDED" not in TAILS["solarPanels5"]:
-        out.append("the OX-STAT tail must be the static, extended panel")
+    if f["ec"]["pod_capacity"] - SOLAR_EC_FLOOR < f["ec"]["need"]:
+        out.append("ElectricCharge on the pod %.0f (floor %.1f) < %.0f (the measured "
+                   "worst case %.1f + %.0f%%)"
+                   % (f["ec"]["pod_capacity"], SOLAR_EC_FLOOR, f["ec"]["need"],
+                      f["ec"]["worst"], 100 * SOLAR_EC_MARGIN))
     uids = [p.uid for p in parts]
     if len(set(uids)) != len(uids):
         out.append("duplicate part uid")
@@ -2112,9 +2254,9 @@ def solar_check():
 
 def solar_report():
     f = solar_figures()
-    print("%s: %d parts, %.3f t, %.2f m, cost %.0f (Thumpers at %.0f%%, no cones)"
-          % (SOLAR_SHIP_NAME, f["parts"], f["mass"], f["height"], f["cost"],
-             100.0 * f["booster_thrust_fraction"]))
+    print("%s: %d parts, %.3f t, %.2f m, cost %.0f (Thumpers at %.0f%%, under the "
+          "outriggers)" % (SOLAR_SHIP_NAME, f["parts"], f["mass"], f["height"], f["cost"],
+                           100.0 * f["booster_thrust_fraction"]))
     for s in f["stages"]:
         twr = s.get("twr_asl", s.get("twr_vac"))
         print("  %-18s m0 %.3f t -> m1 %.3f t  dv vac %.0f m/s (ASL %.0f)  TWR %.2f  "
@@ -2125,13 +2267,36 @@ def solar_report():
     print("  liftoff TWR %.3f (sea level); Mun TWR %.2f (lander full); leg clearance "
           "%.2f m; reentry mass %.3f t"
           % (f["liftoff_twr"], f["mun_twr"], f["leg_clearance"], f["reentry_mass"]))
+    print("  open blunt faces off the axis: launch stage %d, core %d (the flown outrigger "
+          "cut: %d, %d)" % (f["open_faces"]["launch"], f["open_faces"]["core"],
+                            SOLAR_FLOWN_OPEN_FACES["launch"],
+                            SOLAR_FLOWN_OPEN_FACES["core"]))
+    b = f["budget"]
+    print("  ascent to LKO, builder basis: flown 2026-11-07 %.0f m/s (lower %.0f + the "
+          "lander's %.0f), CS-6 clean %.0f; the outrigger cut's open faces cost ~%.0f"
+          % (SOLAR_FLOWN_LKO_COST, SOLAR_FLOWN_LOWER_DV, SOLAR_FLOWN_LANDER_TO_LKO,
+             SOLAR_CLEAN_LKO_COST, SOLAR_FLOWN_LKO_COST - SOLAR_CLEAN_LKO_COST))
+    print("  from LKO: %s, then %s; bare %.0f m/s, with %.0f%% on the last four %.0f"
+          % (" + ".join("%s %.0f" % kv for kv in SOLAR_FROM_LKO),
+             " + ".join("%s %.0f" % kv for kv in SOLAR_MARGINED), b["bare"],
+             100 * SOLAR_MARGIN, b["need"]))
+    print("  lander %.0f m/s full (Jeb aboard): it may spend %.0f on the Kerbin ascent, "
+          "so the margin holds to an ascent of %.0f m/s (gate %.0f)"
+          % (b["lander_dv"], b["allowance"], b["breakeven"], SOLAR_MIN_BREAKEVEN_LKO_COST))
+    for label in ("clean", "flown"):
+        a = b["at"][label]
+        print("    at the %s ascent's %.0f: lander at LKO %.0f m/s, margin %.0f%%"
+              % (label, a["cost"], a["at_lko"], 100 * a["margin"]))
     ec = f["ec"]
-    print("  ElectricCharge: capacity %.0f EC; %d OX-STAT peak %.3f EC/s; sun broadside "
-          "%.3f-%.3f EC/s (avg %.3f); a saturated %.2f EC/s hold empties it in %.0f s"
-          % (ec["capacity"], ec["panels"], ec["peak"], ec["broadside_min"],
-             ec["broadside_max"], ec["broadside_avg"], SOLAR_MEASURED_HOLD_DRAW,
-             ec["saturated_hold_s"]))
-    print("  hatch clearances (deg): %s" % ", ".join(
+    print("  ElectricCharge: capacity %.0f EC (%.0f on the pod), %d panels; measured "
+          "worst case, gross of the old cuts' panels:"
+          % (ec["capacity"], ec["pod_capacity"], ec["panels"]))
+    for phase, used, basis in SOLAR_EC_WORST_CASE:
+        print("    %-36s %5.1f EC  (%s)" % (phase, used, basis))
+    print("    %-36s %5.1f EC; x%.2f = %.0f against %.1f above the floor, margin %.0f%%"
+          % ("total", ec["worst"], 1.0 + SOLAR_EC_MARGIN, ec["need"],
+             ec["pod_capacity"] - SOLAR_EC_FLOOR, 100 * ec["margin"]))
+    print("  outrigger hatch clearances (deg): %s" % ", ".join(
         "%s %.0f" % kv for kv in sorted(solar_hatch_clearances().items())))
     for label, s in (("stance", f["stance"]),
                      ("first solar cut's stance", f["stance_previous"])):
