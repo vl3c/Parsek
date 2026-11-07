@@ -4,7 +4,7 @@ tier = "operator"
 # =====================================================================================
 # CTW-1: A REGENERATED COPY OF A COMMITTED EXPLORATION CONTRACT IS WITHDRAWN AFTER A
 # REWIND, BY ITS GOAL. Todo CONTRACT-TWIN-GUID-SEEDED-TYPES (owner ruling 2026-10-27,
-# "check both IDs and the other identifiers"). AUTHORED 2026-11-06; FIRST FLIGHT 2026-11-06_2339 red on one spec anchor, re-anchored.
+# "check both IDs and the other identifiers"). AUTHORED 2026-11-06; FIRST FLIGHT 2026-11-06_2339 red on one spec anchor, re-anchored; LIVE-PROVEN 2026-11-07_0132.
 #
 # THE PLAYER'S STORY. A career accepts "reach space" (an exploration contract) at the
 # Space Center, then rewinds to a launch made before that accept. The committed timeline
@@ -58,7 +58,7 @@ tier = "operator"
 #     future click block (KB-3's C1), not by this rule; not pinned.
 #   * The rewind lands at L - 15 s with L between 600 and 610.
 # =====================================================================================
-description = "CTW-1, FLOWN ONCE (spec re-anchored): on career-new-goal-twin (a new Career with the stock 'reach space' exploration offer and a second Offered copy of it under another guid and seed), launch and commit the Jumping Flea at ~600, accept the original at the Space Center at ~700, Rewind-to-Launch. The contract patch must withdraw the copy as a twin of the committed future accept by its goal key (matched=goal(ExplorationContract:REACHSPACE@1)), and Mission Control's Accept on the copy must be refused. Live proof of the CONTRACT-TWIN-GUID-SEEDED-TYPES fix (a duplicate contract payment across a rewind)."
+description = "CTW-1, LIVE-PROVEN 2026-11-07: on career-new-goal-twin (a new Career with the stock 'reach space' exploration offer and a second Offered copy of it under another guid and seed), launch and commit the Jumping Flea at ~600, accept the original at the Space Center at ~700, Rewind-to-Launch. The contract patch must withdraw the copy as a twin of the committed future accept by its goal key (matched=goal(ExplorationContract:REACHSPACE@1)), and Mission Control's Accept on the copy must be refused. Live proof of the CONTRACT-TWIN-GUID-SEEDED-TYPES fix (a duplicate contract payment across a rewind)."
 instanceProfile = "stock-tree"
 tags = ["CTW-1", "career", "contracts", "contract-twin", "rewind-to-launch", "ledger",
         "editor", "derived-fixture"]

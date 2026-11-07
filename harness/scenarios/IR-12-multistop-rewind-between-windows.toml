@@ -4,7 +4,7 @@ tier = "nightly"
 # =====================================================================================
 # IR-12: A TWO-STOP ROUTE AND A REWIND TO A LAUNCH MADE BETWEEN ITS TWO WINDOWS. Todo
 # ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH (fixed 2026-10-25, xUnit only until this lane).
-# AUTHORED 2026-11-06; FIRST FLIGHT 2026-11-06_2341 red on one spec pin, re-pinned.
+# AUTHORED 2026-11-06; FIRST FLIGHT 2026-11-06_2341 red on one spec pin, re-pinned; LIVE-PROVEN 2026-11-07_0133.
 #
 # THE PLAYER'S STORY. A relay route picks fuel up at base B and delivers it to base A, one
 # cycle in two windows. Between the pickup and the delivery the player launches (the launch
@@ -57,7 +57,7 @@ tier = "nightly"
 #     rewind save and spawned at the ghost's end, ~1091), B and A carry no claim.
 #   * At the Space Center both deliveries after the rewind run `path=unloaded`; not pinned.
 # =====================================================================================
-description = "IR-12, FLOWN ONCE (spec re-pinned): on rover-relay-c-recorded create and activate the two-stop relay route (pickup at B, delivery to A), cross the pickup window (cycle-0 dispatched), record and commit a launch of the transport rover between the windows (a rewind point), cross the delivery window, then Rewind-to-Launch to that launch. The go-back must restore the saved cycle counters (completed=0) with the cursors, and the next delivery window must deliver cycle-0 to A with no second dispatch. Live proof of the ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH fix."
+description = "IR-12, LIVE-PROVEN 2026-11-07: on rover-relay-c-recorded create and activate the two-stop relay route (pickup at B, delivery to A), cross the pickup window (cycle-0 dispatched), record and commit a launch of the transport rover between the windows (a rewind point), cross the delivery window, then Rewind-to-Launch to that launch. The go-back must restore the saved cycle counters (completed=0) with the cursors, and the next delivery window must deliver cycle-0 to A with no second dispatch. Live proof of the ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH fix."
 instanceProfile = "stock-minimal"
 tags = ["IR-12", "logistics", "route", "multi-stop", "rewind-to-launch", "timeline-ops",
         "recorded-fixture"]
