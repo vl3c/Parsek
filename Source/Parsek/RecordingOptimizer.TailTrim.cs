@@ -960,7 +960,7 @@ namespace Parsek
                 }
             }
 
-            RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec, allowRelativeSections: true);
+            TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(rec, allowRelativeSections: true);
 
             // Persist exact payload bounds as a metadata fallback. Without this,
             // a sidecar hydration failure leaves the .sfs with the stale

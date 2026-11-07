@@ -116,7 +116,7 @@ namespace Parsek.Tests
 
             RecordingTree loadedTree = RecordingTree.Load(treeNode);
             Recording loadedParent = loadedTree.Recordings[ParentId];
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loadedParent,
                 PrecPath(ParentId),
                 VesselPath(ParentId),
@@ -227,7 +227,7 @@ namespace Parsek.Tests
 
         private void SaveSidecars(Recording rec)
         {
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec,
                 PrecPath(rec.RecordingId),
                 VesselPath(rec.RecordingId),

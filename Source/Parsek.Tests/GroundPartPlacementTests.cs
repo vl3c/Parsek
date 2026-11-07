@@ -597,7 +597,7 @@ namespace Parsek.Tests
                 RecordingId = "memberRec",
                 VesselSnapshot = part.GetVesselSnapshot()
             };
-            RecordingStore.DeserializePartEvents(part.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializePartEvents(part.BuildTrajectoryNode(), rec);
 
             Assert.Equal(
                 new[] { PartEventType.InventoryPartPlaced, PartEventType.InventoryPartRemoved },

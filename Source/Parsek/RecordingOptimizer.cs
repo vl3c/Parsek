@@ -1482,14 +1482,14 @@ namespace Parsek
                     : null
             };
 
-            bool syncedOriginalFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+            bool syncedOriginalFlatTrajectory = TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(
                 original, allowRelativeSections: true);
             string originalFlatSyncMode = syncedOriginalFlatTrajectory
                 ? "track-sections"
                 : "unchanged";
 
             bool preservedSecondFlatTail =
-                RecordingStore.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
+                TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
                     second,
                     secondFlatTailSource,
                     second.TrackSections,
@@ -1502,7 +1502,7 @@ namespace Parsek
             }
             else
             {
-                bool syncedSecondFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                bool syncedSecondFlatTrajectory = TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(
                     second, allowRelativeSections: true);
                 secondFlatSyncMode = syncedSecondFlatTrajectory
                     ? "track-sections"
@@ -2561,7 +2561,7 @@ namespace Parsek
                 TrimOverlappingSectionFrames(target.TrackSections);
             }
 
-            bool rebuilt = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+            bool rebuilt = TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(
                 target, allowRelativeSections: true);
 
             if (!rebuilt && target.Points != null && target.Points.Count > 1)

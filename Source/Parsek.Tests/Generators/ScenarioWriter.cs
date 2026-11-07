@@ -820,11 +820,11 @@ namespace Parsek.Tests.Generators
                     FilesDirty = true,
                 };
                 recording.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
-                RecordingStore.DeserializeTrajectoryFrom(sourceTrajNode, recording);
+                TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(sourceTrajNode, recording);
                 string precPath = Path.Combine(recordingsDir, $"{id}.prec");
                 string vesselPath = Path.Combine(recordingsDir, $"{id}_vessel.craft");
                 string ghostPath = Path.Combine(recordingsDir, $"{id}_ghost.craft");
-                if (!RecordingStore.SaveRecordingFilesToPathsForTesting(
+                if (!RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                         recording, precPath, vesselPath, ghostPath, incrementEpoch: false))
                     throw new InvalidOperationException($"Failed to write sidecar files for {id}");
             }

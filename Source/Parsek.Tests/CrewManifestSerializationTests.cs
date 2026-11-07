@@ -42,11 +42,11 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeCrewManifest(node, rec);
+            RecordingManifestCodec.SerializeCrewManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-crew-both";
-            RecordingStore.DeserializeCrewManifest(node, loaded);
+            RecordingManifestCodec.DeserializeCrewManifest(node, loaded);
 
             Assert.NotNull(loaded.StartCrew);
             Assert.NotNull(loaded.EndCrew);
@@ -75,11 +75,11 @@ namespace Parsek.Tests
             rec.EndCrew = null;
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeCrewManifest(node, rec);
+            RecordingManifestCodec.SerializeCrewManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-crew-start";
-            RecordingStore.DeserializeCrewManifest(node, loaded);
+            RecordingManifestCodec.DeserializeCrewManifest(node, loaded);
 
             Assert.NotNull(loaded.StartCrew);
             Assert.Null(loaded.EndCrew);
@@ -96,7 +96,7 @@ namespace Parsek.Tests
             rec.EndCrew = null;
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeCrewManifest(node, rec);
+            RecordingManifestCodec.SerializeCrewManifest(node, rec);
 
             Assert.Null(node.GetNode("CREW_MANIFEST"));
         }
@@ -136,7 +136,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-crew-legacy";
-            RecordingStore.DeserializeCrewManifest(node, loaded);
+            RecordingManifestCodec.DeserializeCrewManifest(node, loaded);
 
             Assert.Null(loaded.StartCrew);
             Assert.Null(loaded.EndCrew);
@@ -154,11 +154,11 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeCrewManifest(node, rec);
+            RecordingManifestCodec.SerializeCrewManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-crew-end";
-            RecordingStore.DeserializeCrewManifest(node, loaded);
+            RecordingManifestCodec.DeserializeCrewManifest(node, loaded);
 
             Assert.Null(loaded.StartCrew);
             Assert.NotNull(loaded.EndCrew);
@@ -174,7 +174,7 @@ namespace Parsek.Tests
             rec.EndCrew = new Dictionary<string, int>();
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeCrewManifest(node, rec);
+            RecordingManifestCodec.SerializeCrewManifest(node, rec);
 
             Assert.Null(node.GetNode("CREW_MANIFEST"));
         }
@@ -196,11 +196,11 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("RECORDING");
-            RecordingStore.SerializeCrewManifest(node, rec);
+            RecordingManifestCodec.SerializeCrewManifest(node, rec);
 
             var loaded = new Recording();
             loaded.RecordingId = "test-crew-asym";
-            RecordingStore.DeserializeCrewManifest(node, loaded);
+            RecordingManifestCodec.DeserializeCrewManifest(node, loaded);
 
             Assert.Equal(2, loaded.StartCrew.Count);
             Assert.Equal(2, loaded.EndCrew.Count);
@@ -226,7 +226,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-crew-malformed";
-            RecordingStore.DeserializeCrewManifest(node, loaded);
+            RecordingManifestCodec.DeserializeCrewManifest(node, loaded);
 
             Assert.NotNull(loaded.StartCrew);
             Assert.Single(loaded.StartCrew);

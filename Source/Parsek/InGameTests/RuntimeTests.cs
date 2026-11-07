@@ -203,7 +203,7 @@ namespace Parsek.InGameTests
                     return 0;
 
                 var rebuiltPoints = new List<TrajectoryPoint>();
-                RecordingStore.RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
+                TrajectoryTextSidecarCodec.RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
                 int max = System.Math.Min(rebuiltPoints.Count, rec.Points.Count);
                 int prefixMatchCount = 0;
                 while (prefixMatchCount < max &&
@@ -7941,7 +7941,7 @@ namespace Parsek.InGameTests
                 // Simulate the in-session drop of the transient in-memory copy.
                 var rec = new Recording { RecordingId = recId, VesselSnapshot = null };
 
-                bool hydrated = RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+                bool hydrated = RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
 
                 InGameAssert.IsTrue(hydrated,
                     "TryHydrateVesselSnapshotFromSidecar should succeed when the sidecar exists");
@@ -8459,7 +8459,7 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(TrajectorySidecarEncoding.BinaryV0, probe.Encoding,
                     $"Current-format recording '{rec.RecordingId}' should use BinaryV0 sidecar encoding");
                 InGameAssert.IsTrue(
-                    RecordingStore.IsAcceptableSidecarVersionLag(probe.FormatVersion, rec.RecordingFormatVersion),
+                    RecordingSidecarStore.IsAcceptableSidecarVersionLag(probe.FormatVersion, rec.RecordingFormatVersion),
                     $"Current-format recording '{rec.RecordingId}' fails the probe/recording " +
                     $"version contract: on-disk binary version {probe.FormatVersion} vs " +
                     $"in-memory recording format version {rec.RecordingFormatVersion}. Current v0 files must match exactly.");

@@ -160,7 +160,7 @@ namespace Parsek.Tests
                     TerminalOrbitEpoch = 150.0
                 };
 
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     loaded, precPath, vesselPath, ghostPath));
 
                 Assert.Equal(RecordingEndpointPhase.TrajectoryPoint, loaded.EndpointPhase);
