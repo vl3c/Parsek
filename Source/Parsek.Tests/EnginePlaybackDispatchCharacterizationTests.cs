@@ -323,5 +323,121 @@ namespace Parsek.Tests
 
             AssertGolden("96076C87BD0E3A5F", 13);
         }
+        // ------------------------------------------------------------------
+        // The extracted pieces, called directly.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void SkippedEntry_PlaybackDisabledPastEnd_QueuesTheHiddenCompletion()
+        {
+            var engine = NewEngine();
+            var traj = Traj("d0", 100, 200);
+            traj.PlaybackEnabled = false;
+            var f = Flags("d0", 200);
+            f.skipGhost = true;
+            f.skipReason = GhostPlaybackSkipReason.PlaybackDisabled;
+
+            engine.HandleSkippedPlaybackEntry(0, traj, f, new FrameContext { currentUT = 500, warpRate = 1f });
+
+            Assert.Single(engine.PendingCompletedEventsForTesting);
+            Assert.Contains(transcript, l => l.Contains("reason=playback-disabled"));
+            Assert.Contains(transcript, l => l.Contains(
+                "[Engine] Disabled past-end completion: #0 \"V-d0\" UT=500.00 endUT=200.00 ghostActive=false"));
+        }
+
+        [Fact]
+        public void SkippedEntry_StructuralCause_IsSilentSkip()
+        {
+            var engine = NewEngine();
+            var f = Flags("d1", 200);
+            f.skipGhost = true;
+            f.skipReason = GhostPlaybackSkipReason.ExternalVesselSuppressed;
+
+            engine.HandleSkippedPlaybackEntry(0, Traj("d1", 100, 200), f, new FrameContext { currentUT = 500, warpRate = 1f });
+
+            Assert.Empty(engine.PendingCompletedEventsForTesting);
+            Assert.Contains(transcript, l => l.Contains("reason=external-vessel-suppressed"));
+            Assert.DoesNotContain(transcript, l => l.Contains("Disabled past-end completion"));
+        }
+
+        [Fact]
+        public void ShadowChainHead_WithoutAHeadGhost_LogsAndTracesTheShadow()
+        {
+            var engine = NewEngine();
+            engine.ShadowChainHead(3, Traj("h3", 100, 1000), new FrameContext { currentUT = 250.5, warpRate = 1f },
+                state: null, ghostActive: false, chainNextIndex: 4);
+
+            Assert.Contains(transcript, l => l.Contains(
+                "[Engine] Ghost #3 \"V-h3\" chain-shadowed by continuation slot #4 at UT=250.50"));
+            Assert.Contains(transcript, l => l.Contains("reason=chain-shadowed"));
+        }
+
+        [Fact]
+        public void PlaybackEntry_BeforeActivation_TracesAndCountsNoGhost()
+        {
+            var engine = NewEngine();
+            var trajs = new List<IPlaybackTrajectory> { Traj("e0", 1000, 2000) };
+            int processed = 0;
+
+            engine.UpdatePlaybackEntry(0, trajs[0], Flags("e0", 2000), trajs,
+                new FrameContext { currentUT = 500, warpRate = 1f, protectedIndex = -1 },
+                suppressGhosts: false, suppressVisualFx: false, ref processed);
+
+            Assert.Equal(0, processed);
+            Assert.Contains(transcript, l => l.Contains("reason=before-activation-start-ut"));
+        }
+
+        [Fact]
+        public void PlaybackEntry_PastEnd_QueuesTheCompletion()
+        {
+            var engine = NewEngine();
+            var trajs = new List<IPlaybackTrajectory> { Traj("e1", 100, 200) };
+            int processed = 0;
+
+            engine.UpdatePlaybackEntry(0, trajs[0], Flags("e1", 200), trajs,
+                new FrameContext { currentUT = 500, warpRate = 1f, protectedIndex = -1 },
+                suppressGhosts: false, suppressVisualFx: false, ref processed);
+
+            Assert.Single(engine.PendingCompletedEventsForTesting);
+            Assert.True(engine.PendingCompletedEventsForTesting[0].PastEffectiveEnd);
+        }
+
+        [Fact]
+        public void CompletePlaybackFrame_DeliversDeferredEventsBeforeTheUnityClockRead()
+        {
+            var engine = NewEngine();
+            var trajs = new List<IPlaybackTrajectory> { Traj("t0", 100, 200) };
+            var flags = new[] { Flags("t0", 200) };
+            var ctx = new FrameContext { currentUT = 500, warpRate = 1f, protectedIndex = -1 };
+            int processed = 0;
+            engine.UpdatePlaybackEntry(0, trajs[0], flags[0], trajs, ctx, false, false, ref processed);
+
+            bool refused = false;
+            try
+            {
+                engine.CompletePlaybackFrame(trajs, flags, ctx, false, processed, 1);
+            }
+            catch (Exception ex) when (IsHeadlessUnityRefusal(ex))
+            {
+                refused = true; // the frame-history Unity clock read, last in the tail
+            }
+
+            Assert.True(refused);
+            Assert.Contains(transcript, l => l.StartsWith("EVT Completed #0 "));
+        }
+
+        [Fact]
+        public void OverlapLoopDispatch_AtWarp_HidesAndCountsWarpHidden()
+        {
+            var engine = NewEngine();
+            var traj = Traj("o0", 100, 300).WithLoop(20);
+            engine.UpdateOverlapLoopDispatch(0, traj, Flags("o0", 300),
+                new FrameContext { currentUT = 450, warpRate = 1000f, protectedIndex = -1 },
+                state: null, ghostActive: false, suppressGhosts: true, suppressVisualFx: true,
+                intervalSeconds: 20, duration: 200, playbackStartUT: 100, scheduleStartUT: 100);
+
+            Assert.Contains(transcript, l => l.Contains("reason=overlap-loop-warp-hidden"));
+            Assert.Empty(engine.ghostStates);
+        }
     }
 }
