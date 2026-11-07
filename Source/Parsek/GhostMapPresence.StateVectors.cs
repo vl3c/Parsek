@@ -1629,7 +1629,7 @@ namespace Parsek
                 {
                     inertialDeclineReason = "historical-rotation-unavailable";
                 }
-                else if (!TrySelectGapGlidePair(
+                else if (!OrbitReseed.TrySelectGapGlidePair(
                         traj?.Points,
                         traj?.TrackSections,
                         point,
@@ -1965,105 +1965,6 @@ namespace Parsek
         {
             return string.Equals(stateVectorUpdateReason, "orbit-raise-gap-points", System.StringComparison.Ordinal)
                 && string.Equals(resolutionBranch, "absolute", System.StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Pure: the two consecutive recorded samples the gap glide resolves its velocity frame
-        /// from (<see cref="OrbitReseed.TryComputeHistoricalTailPairInputs"/>), for the glide
-        /// sample <paramref name="point"/> (an element of <paramref name="points"/>, as
-        /// <see cref="TrajectoryMath.BracketPointAtUT"/> returns it). Prefers the sample before
-        /// it, so the seeded state is <paramref name="point"/>'s own; when that one is in another
-        /// track section or on another body (a section start), pairs <paramref name="point"/>
-        /// with the sample after it and the seeded state is that later sample's. Both samples
-        /// must share <paramref name="point"/>'s section (by UT) and body: a section boundary can
-        /// be a frame or session seam the pair must not straddle. Points are sorted by UT.
-        /// </summary>
-        internal static bool TrySelectGapGlidePair(
-            List<TrajectoryPoint> points,
-            List<TrackSection> sections,
-            TrajectoryPoint point,
-            out TrajectoryPoint previous,
-            out TrajectoryPoint tail,
-            out string declineReason)
-        {
-            previous = default(TrajectoryPoint);
-            tail = default(TrajectoryPoint);
-            declineReason = null;
-            if (points == null || points.Count == 0)
-            {
-                declineReason = GapGlidePairPointNotFound;
-                return false;
-            }
-
-            // Last index with ut <= point.ut.
-            int lo = 0;
-            int hi = points.Count - 1;
-            int index = -1;
-            while (lo <= hi)
-            {
-                int mid = lo + (hi - lo) / 2;
-                if (points[mid].ut <= point.ut)
-                {
-                    index = mid;
-                    lo = mid + 1;
-                }
-                else
-                {
-                    hi = mid - 1;
-                }
-            }
-            if (index < 0 || points[index].ut != point.ut)
-            {
-                declineReason = GapGlidePairPointNotFound;
-                return false;
-            }
-
-            int section = FindGapGlideSection(sections, point.ut);
-            for (int j = index - 1; j >= 0; j--)
-            {
-                if (points[j].ut >= point.ut)
-                    continue;
-                if (IsGapGlidePartner(points[j], point, sections, section))
-                {
-                    previous = points[j];
-                    tail = point;
-                    return true;
-                }
-                break;
-            }
-
-            for (int k = index + 1; k < points.Count; k++)
-            {
-                if (points[k].ut <= point.ut)
-                    continue;
-                if (IsGapGlidePartner(points[k], point, sections, section))
-                {
-                    previous = point;
-                    tail = points[k];
-                    return true;
-                }
-                break;
-            }
-
-            declineReason = GapGlidePairSingleSample;
-            return false;
-        }
-
-        private static int FindGapGlideSection(List<TrackSection> sections, double ut)
-        {
-            return sections == null || sections.Count == 0
-                ? -1
-                : TrajectoryMath.FindTrackSectionForUT(sections, ut);
-        }
-
-        private static bool IsGapGlidePartner(
-            TrajectoryPoint candidate,
-            TrajectoryPoint point,
-            List<TrackSection> sections,
-            int pointSection)
-        {
-            return string.Equals(candidate.bodyName, point.bodyName, System.StringComparison.Ordinal)
-                && FindGapGlideSection(sections, candidate.ut) == pointSection;
         }
 
         /// <summary>

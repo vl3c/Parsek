@@ -365,7 +365,7 @@ namespace Parsek.Tests
         {
             List<TrajectoryPoint> points = Track(10, 11, 12, 13);
             List<TrackSection> sections = Sections((10, 13.5));
-            Assert.True(GhostMapPresence.TrySelectGapGlidePair(
+            Assert.True(OrbitReseed.TrySelectGapGlidePair(
                 points, sections, points[2], out TrajectoryPoint previous, out TrajectoryPoint tail, out string reason), reason);
             Assert.Equal(11.0, previous.ut);
             Assert.Equal(12.0, tail.ut);
@@ -376,7 +376,7 @@ namespace Parsek.Tests
         {
             List<TrajectoryPoint> points = Track(10, 11, 12, 13);
             List<TrackSection> sections = Sections((10, 12), (12, 13.5));
-            Assert.True(GhostMapPresence.TrySelectGapGlidePair(
+            Assert.True(OrbitReseed.TrySelectGapGlidePair(
                 points, sections, points[2], out TrajectoryPoint previous, out TrajectoryPoint tail, out string reason), reason);
             Assert.Equal(12.0, previous.ut);
             Assert.Equal(13.0, tail.ut);
@@ -387,9 +387,9 @@ namespace Parsek.Tests
         {
             List<TrajectoryPoint> points = Track(10, 11, 12, 13);
             List<TrackSection> sections = Sections((10, 11.5), (11.5, 12.5), (12.5, 13.5));
-            Assert.False(GhostMapPresence.TrySelectGapGlidePair(
+            Assert.False(OrbitReseed.TrySelectGapGlidePair(
                 points, sections, points[2], out _, out _, out string lone));
-            Assert.Equal(GhostMapPresence.GapGlidePairSingleSample, lone);
+            Assert.Equal(OrbitReseed.GapGlidePairSingleSample, lone);
 
             List<TrajectoryPoint> mixed = Track(10, 11, 12);
             TrajectoryPoint mun = mixed[0];
@@ -398,9 +398,9 @@ namespace Parsek.Tests
             mun = mixed[2];
             mun.bodyName = "Mun";
             mixed[2] = mun;
-            Assert.False(GhostMapPresence.TrySelectGapGlidePair(
+            Assert.False(OrbitReseed.TrySelectGapGlidePair(
                 mixed, Sections((10, 12.5)), mixed[1], out _, out _, out string otherBody));
-            Assert.Equal(GhostMapPresence.GapGlidePairSingleSample, otherBody);
+            Assert.Equal(OrbitReseed.GapGlidePairSingleSample, otherBody);
         }
 
         [Fact]
@@ -409,12 +409,12 @@ namespace Parsek.Tests
             List<TrajectoryPoint> points = Track(10, 11, 12);
             TrajectoryPoint stray = points[1];
             stray.ut = 11.5;
-            Assert.False(GhostMapPresence.TrySelectGapGlidePair(
+            Assert.False(OrbitReseed.TrySelectGapGlidePair(
                 points, Sections((10, 12.5)), stray, out _, out _, out string reason));
-            Assert.Equal(GhostMapPresence.GapGlidePairPointNotFound, reason);
-            Assert.False(GhostMapPresence.TrySelectGapGlidePair(
+            Assert.Equal(OrbitReseed.GapGlidePairPointNotFound, reason);
+            Assert.False(OrbitReseed.TrySelectGapGlidePair(
                 null, null, stray, out _, out _, out string empty));
-            Assert.Equal(GhostMapPresence.GapGlidePairPointNotFound, empty);
+            Assert.Equal(OrbitReseed.GapGlidePairPointNotFound, empty);
         }
 
         // ---------- helpers ----------
