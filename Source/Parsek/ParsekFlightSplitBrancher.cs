@@ -1089,17 +1089,10 @@ namespace Parsek
                     stoppedRecorder?.CaptureAtStop?.VesselSnapshot ?? activeParentRec?.VesselSnapshot;
                 List<uint> transportPartPids = VesselSnapshotOps.CollectPartPersistentIds(transportSnapshot);
 
-                // Prefer the pre-couple partner snapshot captured in OnPartCouple
-                // (before KSP reparented data.to.vessel to include transport parts).
-                // It carries the partner's pre-dock part PID set and pre-dock
-                // resources/inventory, so DOCK_ENDPOINT_RESOURCES isn't inflated by
-                // the transport's tank.
-                ConfigNode endpointPreCoupleSnapshot = null;
-                if (host.pendingDockPartnerSnapshot != null
-                    && host.pendingDockPartnerSnapshotPid == routeTargetVesselPid)
-                {
-                    endpointPreCoupleSnapshot = host.pendingDockPartnerSnapshot;
-                }
+                ConfigNode endpointPreCoupleSnapshot = SelectDockEndpointPreCoupleSnapshot(
+                    host.pendingDockPartnerSnapshot,
+                    host.pendingDockPartnerSnapshotPid,
+                    routeTargetVesselPid);
 
                 // Pre-couple transport baseline captured in OnPartCouple (before the
                 // same-frame stock crossfeed equalisation that the deferred merged
@@ -1109,16 +1102,8 @@ namespace Parsek
                 // merged snapshot when absent / mismatched, so this is unconditional.
                 ConfigNode transportPreCoupleSnapshot = host.pendingDockSelfSnapshot;
 
-                List<uint> endpointPartPids = null;
-                if (endpointPreCoupleSnapshot != null)
-                {
-                    endpointPartPids = VesselSnapshotOps.CollectPartPersistentIds(endpointPreCoupleSnapshot);
-                }
-                if ((endpointPartPids == null || endpointPartPids.Count == 0)
-                    && bgParentRec?.VesselSnapshot != null)
-                {
-                    endpointPartPids = VesselSnapshotOps.CollectPartPersistentIds(bgParentRec.VesselSnapshot);
-                }
+                List<uint> endpointPartPids =
+                    ResolveDockEndpointPartPidsFromSnapshots(endpointPreCoupleSnapshot, bgParentRec);
 
                 // Cross-tree partner fallback: when the partner has a committed
                 // recording from a prior tree (or is otherwise not in
@@ -1135,21 +1120,8 @@ namespace Parsek
                 RouteEndpoint? endpointAtDock = host.pendingDockRouteEndpointAtDock;
                 int endpointSituation = host.pendingDockRouteEndpointSituation;
 
-                if ((!endpointAtDock.HasValue || endpointSituation < 0) &&
-                    bgParentRec?.VesselSnapshot != null &&
-                    bgParentRec.VesselPersistentId == routeTargetVesselPid &&
-                    ParsekFlight.TryBuildRouteEndpointFromSnapshot(
-                        bgParentRec.VesselSnapshot,
-                        routeTargetVesselPid,
-                        out RouteEndpoint snapshotEndpoint,
-                        out int snapshotSituation))
-                {
-                    endpointAtDock = snapshotEndpoint;
-                    endpointSituation = snapshotSituation;
-                    ParsekLog.Verbose("Flight",
-                        $"Route proof endpoint restored from background snapshot targetPid={routeTargetVesselPid} " +
-                        $"situation={endpointSituation}");
-                }
+                TryRestoreDockEndpointFromBackgroundSnapshot(
+                    bgParentRec, routeTargetVesselPid, ref endpointAtDock, ref endpointSituation);
 
                 if (!endpointAtDock.HasValue || endpointSituation < 0)
                 {
@@ -1167,52 +1139,10 @@ namespace Parsek
                         "route analysis will reject this candidate");
                 }
 
-                // THE ENDPOINT'S LAUNCH-UNIQUE IDENTITY, read while it is still readable.
-                // Preferred source is the PRE-COUPLE partner snapshot: after Part.Couple the
-                // endpoint's own Vessel is destroyed and every id left on the merged craft is
-                // craft-baked, so a root flightID taken later would be the TRANSPORT's. The
-                // background parent's snapshot is the same shape and serves as the fallback;
-                // an unreadable root leaves 0, which degrades the predecessor-window partner
-                // match to the part-pid overlap rather than refusing it.
-                uint endpointRootPartUId = 0u;
-                if (endpointPreCoupleSnapshot == null
-                    || !VesselSnapshotOps.TryReadRootPartFlightId(endpointPreCoupleSnapshot, out endpointRootPartUId))
-                {
-                    if (bgParentRec?.VesselSnapshot == null
-                        || bgParentRec.VesselPersistentId != routeTargetVesselPid
-                        || !VesselSnapshotOps.TryReadRootPartFlightId(bgParentRec.VesselSnapshot, out endpointRootPartUId))
-                    {
-                        endpointRootPartUId = 0u;
-                    }
-                }
-
-                // BACKFILL THE ENDPOINT DESCRIPTOR from the same reading, when the descriptor
-                // itself could not supply one. The window's endpoint IS what a delivery stop
-                // persists verbatim (RouteBuilder), and its root id is what keeps the stop
-                // resolving by identity while a visitor is docked to the destination
-                // (ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER). The two readings have the
-                // same source and the same pre-couple timing, so this cannot disagree with the
-                // descriptor - it only fills a gap the descriptor's own path left (a live
-                // vessel with no instantiated rootPart, or a snapshot with no readable root).
-                //
-                // THE POST-COUPLE FALLBACK ABOVE IS SAFE AND NOT THE REASON THIS EXISTS,
-                // re-derived rather than assumed: it calls FindVesselByPid on the ENDPOINT's
-                // pid AFTER the couple, so it resolves at all only when the endpoint half was
-                // DOMINANT and survived as the merged vessel - in which case the merged
-                // vessel's root part IS the endpoint's own. An absorbed endpoint's pid is gone
-                // from FlightGlobals and that path yields no endpoint at all.
-                if (endpointAtDock.HasValue
-                    && endpointAtDock.Value.RootPartUId == 0u
-                    && endpointRootPartUId != 0u)
-                {
-                    RouteEndpoint backfilled = endpointAtDock.Value;
-                    backfilled.RootPartUId = endpointRootPartUId;
-                    endpointAtDock = backfilled;
-                    ParsekLog.Verbose("Flight",
-                        "Route proof endpoint root backfilled from the pre-couple snapshot: "
-                        + "targetPid=" + routeTargetVesselPid.ToString(CultureInfo.InvariantCulture)
-                        + " rootPartUId=" + endpointRootPartUId.ToString(CultureInfo.InvariantCulture));
-                }
+                uint endpointRootPartUId = ResolveDockEndpointRootPartUId(
+                    endpointPreCoupleSnapshot, bgParentRec, routeTargetVesselPid);
+                endpointAtDock = BackfillDockEndpointRootPartUId(
+                    endpointAtDock, endpointRootPartUId, routeTargetVesselPid);
 
                 RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
                     mergeUT,
@@ -1325,6 +1255,141 @@ namespace Parsek
             ParsekLog.Info("Flight", $"Tree merge created: type={branchType}, " +
                 $"bp={bp.Id}, parents=[{string.Join(",", parentIds)}], " +
                 $"child={mergedChild.RecordingId} (pid={mergedVesselPid})");
+        }
+
+        /// <summary>
+        /// The pre-couple partner snapshot captured in OnPartCouple (before KSP reparented
+        /// data.to.vessel to include transport parts), when it belongs to the route target.
+        /// It carries the partner's pre-dock part PID set and pre-dock resources/inventory,
+        /// so DOCK_ENDPOINT_RESOURCES isn't inflated by the transport's tank.
+        /// </summary>
+        internal static ConfigNode SelectDockEndpointPreCoupleSnapshot(
+            ConfigNode pendingDockPartnerSnapshot,
+            uint pendingDockPartnerSnapshotPid,
+            uint routeTargetVesselPid)
+        {
+            ConfigNode endpointPreCoupleSnapshot = null;
+            if (pendingDockPartnerSnapshot != null
+                && pendingDockPartnerSnapshotPid == routeTargetVesselPid)
+            {
+                endpointPreCoupleSnapshot = pendingDockPartnerSnapshot;
+            }
+            return endpointPreCoupleSnapshot;
+        }
+
+        /// <summary>
+        /// The endpoint's part PIDs from the pre-couple partner snapshot, else from the
+        /// background parent's snapshot (whatever vessel it records). Null or empty when
+        /// neither yields any; the caller then tries the cross-tree partner fallback.
+        /// </summary>
+        internal static List<uint> ResolveDockEndpointPartPidsFromSnapshots(
+            ConfigNode endpointPreCoupleSnapshot,
+            Recording bgParentRec)
+        {
+            List<uint> endpointPartPids = null;
+            if (endpointPreCoupleSnapshot != null)
+            {
+                endpointPartPids = VesselSnapshotOps.CollectPartPersistentIds(endpointPreCoupleSnapshot);
+            }
+            if ((endpointPartPids == null || endpointPartPids.Count == 0)
+                && bgParentRec?.VesselSnapshot != null)
+            {
+                endpointPartPids = VesselSnapshotOps.CollectPartPersistentIds(bgParentRec.VesselSnapshot);
+            }
+            return endpointPartPids;
+        }
+
+        /// <summary>
+        /// Fills a missing dock endpoint (no descriptor, or no situation) from the background
+        /// parent's snapshot when that parent records the route target. Leaves both refs
+        /// untouched otherwise.
+        /// </summary>
+        internal static void TryRestoreDockEndpointFromBackgroundSnapshot(
+            Recording bgParentRec,
+            uint routeTargetVesselPid,
+            ref RouteEndpoint? endpointAtDock,
+            ref int endpointSituation)
+        {
+            if ((!endpointAtDock.HasValue || endpointSituation < 0) &&
+                bgParentRec?.VesselSnapshot != null &&
+                bgParentRec.VesselPersistentId == routeTargetVesselPid &&
+                ParsekFlight.TryBuildRouteEndpointFromSnapshot(
+                    bgParentRec.VesselSnapshot,
+                    routeTargetVesselPid,
+                    out RouteEndpoint snapshotEndpoint,
+                    out int snapshotSituation))
+            {
+                endpointAtDock = snapshotEndpoint;
+                endpointSituation = snapshotSituation;
+                ParsekLog.Verbose("Flight",
+                    $"Route proof endpoint restored from background snapshot targetPid={routeTargetVesselPid} " +
+                    $"situation={endpointSituation}");
+            }
+        }
+
+        /// <summary>
+        /// THE ENDPOINT'S LAUNCH-UNIQUE IDENTITY, read while it is still readable.
+        /// Preferred source is the PRE-COUPLE partner snapshot: after Part.Couple the
+        /// endpoint's own Vessel is destroyed and every id left on the merged craft is
+        /// craft-baked, so a root flightID taken later would be the TRANSPORT's. The
+        /// background parent's snapshot is the same shape and serves as the fallback when it
+        /// records the route target; an unreadable root yields 0, which degrades the
+        /// predecessor-window partner match to the part-pid overlap rather than refusing it.
+        /// </summary>
+        internal static uint ResolveDockEndpointRootPartUId(
+            ConfigNode endpointPreCoupleSnapshot,
+            Recording bgParentRec,
+            uint routeTargetVesselPid)
+        {
+            uint endpointRootPartUId = 0u;
+            if (endpointPreCoupleSnapshot == null
+                || !VesselSnapshotOps.TryReadRootPartFlightId(endpointPreCoupleSnapshot, out endpointRootPartUId))
+            {
+                if (bgParentRec?.VesselSnapshot == null
+                    || bgParentRec.VesselPersistentId != routeTargetVesselPid
+                    || !VesselSnapshotOps.TryReadRootPartFlightId(bgParentRec.VesselSnapshot, out endpointRootPartUId))
+                {
+                    endpointRootPartUId = 0u;
+                }
+            }
+            return endpointRootPartUId;
+        }
+
+        /// <summary>
+        /// BACKFILLS THE ENDPOINT DESCRIPTOR's root id from the pre-couple reading, when the
+        /// descriptor itself could not supply one. The window's endpoint IS what a delivery
+        /// stop persists verbatim (RouteBuilder), and its root id is what keeps the stop
+        /// resolving by identity while a visitor is docked to the destination
+        /// (ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER). The two readings have the same
+        /// source and the same pre-couple timing, so this cannot disagree with the descriptor:
+        /// it only fills a gap the descriptor's own path left (a live vessel with no
+        /// instantiated rootPart, or a snapshot with no readable root).
+        ///
+        /// The post-couple live-vessel fallback in CreateMergeBranch is safe and not the
+        /// reason this exists: it calls FindVesselByPid on the ENDPOINT's pid AFTER the
+        /// couple, so it resolves at all only when the endpoint half was DOMINANT and
+        /// survived as the merged vessel, in which case the merged vessel's root part IS the
+        /// endpoint's own. An absorbed endpoint's pid is gone from FlightGlobals and that
+        /// path yields no endpoint at all.
+        /// </summary>
+        internal static RouteEndpoint? BackfillDockEndpointRootPartUId(
+            RouteEndpoint? endpointAtDock,
+            uint endpointRootPartUId,
+            uint routeTargetVesselPid)
+        {
+            if (endpointAtDock.HasValue
+                && endpointAtDock.Value.RootPartUId == 0u
+                && endpointRootPartUId != 0u)
+            {
+                RouteEndpoint backfilled = endpointAtDock.Value;
+                backfilled.RootPartUId = endpointRootPartUId;
+                endpointAtDock = backfilled;
+                ParsekLog.Verbose("Flight",
+                    "Route proof endpoint root backfilled from the pre-couple snapshot: "
+                    + "targetPid=" + routeTargetVesselPid.ToString(CultureInfo.InvariantCulture)
+                    + " rootPartUId=" + endpointRootPartUId.ToString(CultureInfo.InvariantCulture));
+            }
+            return endpointAtDock;
         }
 
         /// <summary>
@@ -1829,6 +1894,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The active tree's active recording a breakup attaches to. False (logged) when
+        /// there is no active tree, it has no active recording id, or the id is not in it.
+        /// </summary>
+        internal static bool TryResolveBreakupActiveRecording(
+            RecordingTree tree,
+            BranchPoint breakupBp,
+            out string activeRecId,
+            out Recording activeRec)
+        {
+            activeRecId = null;
+            activeRec = null;
+            if (tree == null)
+            {
+                ParsekLog.Info("Coalescer",
+                    "ProcessBreakupEvent: no active tree — breakup not recorded. " +
+                    $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}");
+                return false;
+            }
+
+            activeRecId = tree.ActiveRecordingId;
+            if (string.IsNullOrEmpty(activeRecId))
+            {
+                ParsekLog.Warn("Coalescer",
+                    "ProcessBreakupEvent: active tree has no active recording — cannot attach breakup event");
+                return false;
+            }
+
+            if (!tree.Recordings.TryGetValue(activeRecId, out activeRec))
+            {
+                ParsekLog.Warn("Coalescer",
+                    $"ProcessBreakupEvent: active recording id={activeRecId} not found in tree");
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Processes a BREAKUP branch point emitted by the crash coalescer.
         /// Adds the BREAKUP event as a branch point on the active tree recording and
         /// creates child recordings for debris and controlled vessels.
@@ -1836,29 +1939,9 @@ namespace Parsek
         /// </summary>
         internal void ProcessBreakupEvent(BranchPoint breakupBp)
         {
-            if (host.activeTree == null)
-            {
-                ParsekLog.Info("Coalescer",
-                    "ProcessBreakupEvent: no active tree — breakup not recorded. " +
-                    $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}");
+            if (!TryResolveBreakupActiveRecording(
+                    host.activeTree, breakupBp, out string activeRecId, out Recording activeRec))
                 return;
-            }
-
-            string activeRecId = host.activeTree.ActiveRecordingId;
-            if (string.IsNullOrEmpty(activeRecId))
-            {
-                ParsekLog.Warn("Coalescer",
-                    "ProcessBreakupEvent: active tree has no active recording — cannot attach breakup event");
-                return;
-            }
-
-            Recording activeRec;
-            if (!host.activeTree.Recordings.TryGetValue(activeRecId, out activeRec))
-            {
-                ParsekLog.Warn("Coalescer",
-                    $"ProcessBreakupEvent: active recording id={activeRecId} not found in tree");
-                return;
-            }
 
             ParsekFlight.WireBreakupIntoTree(host.activeTree, activeRecId, activeRec, breakupBp);
 

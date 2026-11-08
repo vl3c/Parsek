@@ -571,5 +571,159 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(d));
             Assert.True(double.IsNaN(r));
         }
+
+        // ================= extracted: dock route-proof endpoint helpers =================
+
+        [Fact]
+        public void DockPreCoupleSnapshot_OnlyTheRouteTargetsOwn()
+        {
+            var snap = VesselNode(77, "LANDED", 0, (901, 1));
+            Assert.Same(snap, ParsekFlightSplitBrancher.SelectDockEndpointPreCoupleSnapshot(snap, 77, 77));
+            Assert.Null(ParsekFlightSplitBrancher.SelectDockEndpointPreCoupleSnapshot(snap, 88, 77));
+            Assert.Null(ParsekFlightSplitBrancher.SelectDockEndpointPreCoupleSnapshot(null, 77, 77));
+        }
+
+        [Fact]
+        public void DockEndpointPartPids_PreCoupleThenBackgroundOfAnyPid()
+        {
+            var preCouple = VesselNode(77, "LANDED", 0, (901, 1), (902, 2));
+            var bg = new Recording { RecordingId = "bg", VesselPersistentId = 66,
+                VesselSnapshot = VesselNode(66, "LANDED", 0, (801, 3)) };
+
+            Assert.Equal(new List<uint> { 901, 902 },
+                ParsekFlightSplitBrancher.ResolveDockEndpointPartPidsFromSnapshots(preCouple, bg));
+            // The background parent serves whatever vessel it records (no pid check here).
+            Assert.Equal(new List<uint> { 801 },
+                ParsekFlightSplitBrancher.ResolveDockEndpointPartPidsFromSnapshots(null, bg));
+            // A pre-couple snapshot with no parts falls through to the background parent.
+            Assert.Equal(new List<uint> { 801 },
+                ParsekFlightSplitBrancher.ResolveDockEndpointPartPidsFromSnapshots(
+                    VesselNode(77, "LANDED", 0), bg));
+            var none = ParsekFlightSplitBrancher.ResolveDockEndpointPartPidsFromSnapshots(null, null);
+            Assert.True(none == null || none.Count == 0);
+            var noSnapshot = ParsekFlightSplitBrancher.ResolveDockEndpointPartPidsFromSnapshots(
+                null, new Recording { RecordingId = "x" });
+            Assert.True(noSnapshot == null || noSnapshot.Count == 0);
+        }
+
+        [Fact]
+        public void DockEndpointRestore_FromTheTargetsBackgroundSnapshotOnlyWhenMissing()
+        {
+            var bg = new Recording { RecordingId = "bg", VesselPersistentId = 77,
+                VesselSnapshot = VesselNode(77, "LANDED", 0, (901, 555)) };
+
+            RouteEndpoint? endpoint = null;
+            int situation = -1;
+            ParsekFlightSplitBrancher.TryRestoreDockEndpointFromBackgroundSnapshot(bg, 77, ref endpoint, ref situation);
+            Assert.True(endpoint.HasValue);
+            Assert.Equal((int)Vessel.Situations.LANDED, situation);
+            Assert.Contains(logLines, l => l.Contains(
+                "Route proof endpoint restored from background snapshot targetPid=77 situation=" + situation));
+
+            // A descriptor with a situation is kept as is.
+            logLines.Clear();
+            RouteEndpoint? kept = new RouteEndpoint { VesselPersistentId = 77, RootPartUId = 9 };
+            int keptSituation = (int)Vessel.Situations.ORBITING;
+            ParsekFlightSplitBrancher.TryRestoreDockEndpointFromBackgroundSnapshot(bg, 77, ref kept, ref keptSituation);
+            Assert.Equal(9u, kept.Value.RootPartUId);
+            Assert.Equal((int)Vessel.Situations.ORBITING, keptSituation);
+
+            // A descriptor without a situation is replaced.
+            RouteEndpoint? noSit = new RouteEndpoint { VesselPersistentId = 77, RootPartUId = 9 };
+            int noSitSituation = -1;
+            ParsekFlightSplitBrancher.TryRestoreDockEndpointFromBackgroundSnapshot(bg, 77, ref noSit, ref noSitSituation);
+            Assert.Equal((int)Vessel.Situations.LANDED, noSitSituation);
+
+            // Another pid's background parent, no snapshot, or an unparseable one: untouched.
+            logLines.Clear();
+            RouteEndpoint? other = null;
+            int otherSituation = -1;
+            ParsekFlightSplitBrancher.TryRestoreDockEndpointFromBackgroundSnapshot(bg, 88, ref other, ref otherSituation);
+            ParsekFlightSplitBrancher.TryRestoreDockEndpointFromBackgroundSnapshot(null, 77, ref other, ref otherSituation);
+            // The recording's own pid decides, even when its snapshot names the target.
+            ParsekFlightSplitBrancher.TryRestoreDockEndpointFromBackgroundSnapshot(
+                new Recording { RecordingId = "m", VesselPersistentId = 66, VesselSnapshot = VesselNode(77, "LANDED", 0, (901, 1)) },
+                77, ref other, ref otherSituation);
+            ParsekFlightSplitBrancher.TryRestoreDockEndpointFromBackgroundSnapshot(
+                new Recording { RecordingId = "s", VesselPersistentId = 77, VesselSnapshot = VesselNode(77, null, 0, (901, 1)) },
+                77, ref other, ref otherSituation);
+            Assert.False(other.HasValue);
+            Assert.Equal(-1, otherSituation);
+            Assert.DoesNotContain(logLines, l => l.Contains("restored from background snapshot"));
+        }
+
+        [Fact]
+        public void DockEndpointRootPartUId_PreCoupleThenTheTargetsBackgroundSnapshot()
+        {
+            var preCouple = VesselNode(77, "LANDED", 1, (901, 111), (902, 444));
+            var bgTarget = new Recording { RecordingId = "bg", VesselPersistentId = 77,
+                VesselSnapshot = VesselNode(77, "LANDED", 0, (801, 555)) };
+            var bgOther = new Recording { RecordingId = "bg2", VesselPersistentId = 66,
+                VesselSnapshot = VesselNode(66, "LANDED", 0, (801, 555)) };
+
+            Assert.Equal(444u, ParsekFlightSplitBrancher.ResolveDockEndpointRootPartUId(preCouple, bgTarget, 77));
+            Assert.Equal(555u, ParsekFlightSplitBrancher.ResolveDockEndpointRootPartUId(null, bgTarget, 77));
+            // An unreadable pre-couple root (the root part has no uid) falls back too.
+            Assert.Equal(555u, ParsekFlightSplitBrancher.ResolveDockEndpointRootPartUId(
+                VesselNode(77, "LANDED", 0, (901, 0)), bgTarget, 77));
+            Assert.Equal(0u, ParsekFlightSplitBrancher.ResolveDockEndpointRootPartUId(null, bgOther, 77));
+            Assert.Equal(0u, ParsekFlightSplitBrancher.ResolveDockEndpointRootPartUId(null, null, 77));
+        }
+
+        [Fact]
+        public void DockEndpointRootBackfill_OnlyARootlessDescriptorFromAKnownRoot()
+        {
+            RouteEndpoint? rootless = new RouteEndpoint { VesselPersistentId = 77, RootPartUId = 0 };
+            RouteEndpoint? filled = ParsekFlightSplitBrancher.BackfillDockEndpointRootPartUId(rootless, 444, 77);
+            Assert.Equal(444u, filled.Value.RootPartUId);
+            Assert.Equal(77u, filled.Value.VesselPersistentId);
+            Assert.Contains(logLines, l => l.Contains(
+                "Route proof endpoint root backfilled from the pre-couple snapshot: targetPid=77 rootPartUId=444"));
+
+            logLines.Clear();
+            RouteEndpoint? rooted = new RouteEndpoint { VesselPersistentId = 77, RootPartUId = 9 };
+            Assert.Equal(9u, ParsekFlightSplitBrancher.BackfillDockEndpointRootPartUId(rooted, 444, 77).Value.RootPartUId);
+            Assert.Equal(0u, ParsekFlightSplitBrancher.BackfillDockEndpointRootPartUId(rootless, 0, 77).Value.RootPartUId);
+            Assert.False(ParsekFlightSplitBrancher.BackfillDockEndpointRootPartUId(null, 444, 77).HasValue);
+            Assert.DoesNotContain(logLines, l => l.Contains("root backfilled"));
+        }
+
+        // ================= extracted: breakup active recording =================
+
+        [Fact]
+        public void BreakupActiveRecording_ResolvesTheActiveRecording()
+        {
+            var act = new Recording { RecordingId = "act", VesselPersistentId = 10 };
+            var tree = Tree(act);
+            Assert.True(ParsekFlightSplitBrancher.TryResolveBreakupActiveRecording(
+                tree, new BranchPoint(), out string id, out Recording rec));
+            Assert.Equal("act", id);
+            Assert.Same(act, rec);
+            Assert.DoesNotContain(logLines, l => l.Contains("[Coalescer]"));
+        }
+
+        [Fact]
+        public void BreakupActiveRecording_EachRefusalLogsItsReason()
+        {
+            var bp = new BranchPoint { BreakupCause = "CRASH", DebrisCount = 3 };
+            Assert.False(ParsekFlightSplitBrancher.TryResolveBreakupActiveRecording(null, bp, out string id, out Recording rec));
+            Assert.Null(id);
+            Assert.Null(rec);
+            Assert.Contains(logLines, l => l.Contains("[INFO][Coalescer]")
+                && l.Contains("ProcessBreakupEvent: no active tree") && l.Contains("cause=CRASH, debris=3"));
+
+            var tree = Tree(new Recording { RecordingId = "act" });
+            tree.ActiveRecordingId = null;
+            Assert.False(ParsekFlightSplitBrancher.TryResolveBreakupActiveRecording(tree, bp, out id, out rec));
+            Assert.Contains(logLines, l => l.Contains("[WARN][Coalescer]")
+                && l.Contains("active tree has no active recording"));
+
+            tree.ActiveRecordingId = "ghost";
+            Assert.False(ParsekFlightSplitBrancher.TryResolveBreakupActiveRecording(tree, bp, out id, out rec));
+            Assert.Equal("ghost", id);
+            Assert.Null(rec);
+            Assert.Contains(logLines, l => l.Contains("[WARN][Coalescer]")
+                && l.Contains("active recording id=ghost not found in tree"));
+        }
     }
 }
