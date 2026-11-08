@@ -2950,6 +2950,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Wave 2 W1b (2026-11-07, this branch): the hold decision record `ReFlyInvokeHold.Entry` is the
   top-level plain type `ReFlyHoldEntry` (same file, same fields), so `RewindVesselHold.Hold`
   no longer references the classifier. Knot 459 -> 450, replayed residue 272 -> 263.
+- Wave 2 W1c (2026-11-07, this branch): `MissionPeriodicity.ExtractConstraints` takes the
+  trimmed member windows as an input; `MissionLoopUnitBuilder.ExtractPeriodicityConstraints`
+  computes them and is what the builder, the Missions window and the in-game real-save finder
+  call. The periodicity solver no longer reaches up into the builder. Knot 450 (unchanged),
+  replayed residue 263 -> 246; the greedy cuts reorder (GhostPlaybackLogic first) and the
+  greedy residue drops to 201.
 - Wave 2 W8c on this branch (S3, pure move, IL identical): `Logistics/RouteOrchestrator.cs`
   (5,521 lines, a static class) is a partial class over 7 files
   (`scripts/refactor/split_routeorchestrator.py`; every field and constant stays in the main
@@ -2961,6 +2967,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `.Roster` 1,244, `.Walk` 946, `.CrewEndStates` 900, `.Handoffs` 505, `.Queries` 427,
   `.HoldClock` 404. The ERS / ELS allowlist adds the partial that now holds each raw read
   (`RouteOrchestrator.LoopClock.cs`, `KerbalsModule.Walk.cs`).
+- Wave 2 W5a (2026-11-07, this branch, docs and tooling only): the `GhostMapPresence`
+  static-state map, `docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md`
+  (62 fields: writers, outside writers and readers, reset paths, scenes), read from IL by the
+  new `scripts/refactor/static_state_map.py` so a same-named field of another type is never
+  counted. It also records why a separate source-resolver type would raise the replayed
+  residue 263 -> 264 unless its five knot calls are passed in.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

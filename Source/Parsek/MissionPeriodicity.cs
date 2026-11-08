@@ -361,11 +361,14 @@ namespace Parsek
 
         /// <summary>
         /// Extracts the ordered phase-constraint list for one looping Mission's TRIMMED config.
-        /// Pure. <paramref name="view"/> / <paramref name="compRoots"/> are the through-line +
-        /// composition read models (built once by the caller); <paramref name="committed"/> is
-        /// the committed recording list (member indices index into it);
-        /// <paramref name="excludedIntervalKeys"/> is the Mission's interval-level trim;
-        /// <paramref name="bodyInfo"/> is the live-body seam.
+        /// Pure. <paramref name="view"/> is the through-line read model (built once by the
+        /// caller); <paramref name="memberWindows"/> is the trimmed member set (committed index
+        /// -> [StartUT, EndUT]) the span and cadence use, computed by the caller
+        /// (<c>MissionLoopUnitBuilder.ExtractPeriodicityConstraints</c>, from the composition
+        /// read model and the Mission's interval-level trim) so this solver does not reach up
+        /// into the builder; <paramref name="committed"/> is the committed recording list
+        /// (member indices index into it); <paramref name="bodyInfo"/> is the live-body seam.
+        /// A null <paramref name="memberWindows"/> reads as the empty set.
         ///
         /// Rules (design doc "What determines P" + Edge cases):
         /// 1. launch body = body of the earliest INCLUDED surface/atmospheric segment, else the
@@ -392,9 +395,8 @@ namespace Parsek
         /// </summary>
         internal static ConstraintExtraction ExtractConstraints(
             MissionThroughLineView view,
-            List<MissionCompositionNode> compRoots,
+            Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> memberWindows,
             IReadOnlyList<Recording> committed,
-            ICollection<string> excludedIntervalKeys,
             IBodyInfo bodyInfo)
         {
             var result = new ConstraintExtraction
@@ -413,12 +415,9 @@ namespace Parsek
             }
 
             // 1. The trimmed member set (committed index -> [StartUT, EndUT]) - the SAME source
-            //    of truth the span + cadence use. UT0 = the trimmed span start.
-            Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> memberWindows =
-                MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
-                    view, compRoots, committed, excludedIntervalKeys, null,
-                    out _, out _);
-            if (memberWindows.Count == 0)
+            //    of truth the span + cadence use, passed in by the caller. UT0 = the trimmed
+            //    span start.
+            if (memberWindows == null || memberWindows.Count == 0)
             {
                 LogSummary("m=?", result, 0, "no included members");
                 return result;
