@@ -250,7 +250,7 @@ allowedAnomalies = []
 # RE-PINNED 2026-10-01 from 2 to 3 off `2026-10-01_0835` (PARSEK-FAIL(expectation) on
 # `recordings.count 3 > max 2` and the structure `recordings` window alone). Intended
 # behaviour, not contamination: #1931 (2026-09-30, IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-
-# PASS) made the seam `CommitTree` run `RecordingStore.RunOptimizationPass`, which now
+# PASS) made the seam `CommitTree` run `CommittedListOptimizer.RunOptimizationPass`, which now
 # splits the DD1 main recording at its atmosphere exit (`Split candidate
 # (PersistedPhaseChange) ... prev=Atmospheric next=ExoBallistic`, 147 + 365 points, one
 # chain, the terminal on the second half), the same split V3C `2026-10-01_0732` shows on

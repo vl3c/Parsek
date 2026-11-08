@@ -3653,6 +3653,11 @@ compare).
   no longer fights the ratchet. The ratchet runs only with `PARSEK_ARCH_IL` (CI after the build).
   `WorkflowRunsTheRatchetTests` reds if the CI step that sets it stops running; measure the Debug
   DLL (a Release build drops typed locals and can read lower).
+- 2026-11-08 (refactor branch, W4c, MOVE): the 11 RecordingStore metric-only forwarders are
+  deleted (the six RewindLauncher eligibility / launch calls, TreeCommitService x2,
+  TreeDiscardService, CommittedListOptimizer, SwitchSegmentAttempts) and their 20 call sites call
+  the service. il_compare: only those call targets change, plus the 11 removed methods. Semantic
+  residue 150 (unchanged), text residue 179 -> 193 (reported, unbounded).
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
