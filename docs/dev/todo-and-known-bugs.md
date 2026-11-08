@@ -1522,7 +1522,7 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   recording), `WalkAfterFailedTreeCommit`, `LogTreeCommitPendingScienceOutcome` and
   `WalkAndCompleteTreeCommit`, behind a ten-scenario golden with faults before and after the
   science persists (`NotifyLedgerTreeCommittedCharacterizationTests`) written first.
-- Wave 2 W7b4 (2026-11-08, this branch): `LedgerOrchestrator.RecalculateAndPatchCore`
+- Wave 2 W7b4 (2026-11-08, #2499): `LedgerOrchestrator.RecalculateAndPatchCore`
   (180 lines) is a sequence of named steps in the same partial file: `PrepareRecalculationWalk`,
   `WalkLedgerAndReconcile`, `ResolveRecalcPatchDeferralReason`, the two patch branches
   `ApplyDeferredPatchMilestoneReach` / `PatchKspFromRecalculatedWalk`, and
