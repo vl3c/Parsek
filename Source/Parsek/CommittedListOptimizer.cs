@@ -308,7 +308,7 @@ namespace Parsek
         /// deep-copies RecordingGroups, and carries over chain / tree / vessel / pre-launch
         /// / session / supersede / switch-segment fields). Straight-line field copy.
         /// </summary>
-        private static void CopySplitIdentityFields(Recording original, Recording second)
+        internal static void CopySplitIdentityFields(Recording original, Recording second)
         {
             // Assign identity
             second.RecordingId = Guid.NewGuid().ToString("N");
@@ -339,7 +339,7 @@ namespace Parsek
             second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
         }
 
-        private static void TrimBoringTailsForOptimization(IReadOnlyList<Recording> recordings)
+        internal static void TrimBoringTailsForOptimization(IReadOnlyList<Recording> recordings)
         {
             // Boring tail trim pass: remove trailing idle tails from leaf recordings
             // so the real vessel spawns promptly instead of waiting through minutes of
@@ -453,7 +453,7 @@ namespace Parsek
         /// into rows: they are the rows-to-be, and the converter reads their tag as
         /// ownership (RETAG-ON-SPLIT-MISSES-LATER-ROWS).
         /// </summary>
-        private static void RetagLedgerActionsAfterOptimizationSplit(Recording original, Recording second)
+        internal static void RetagLedgerActionsAfterOptimizationSplit(Recording original, Recording second)
         {
             if (original == null || second == null) return;
             double splitUT = second.TrackSections != null && second.TrackSections.Count > 0
@@ -481,7 +481,7 @@ namespace Parsek
                     $"(splitUT={splitUT.ToString("R", CultureInfo.InvariantCulture)})");
         }
 
-        private static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)
+        internal static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)
         {
             string treeId = target != null && !string.IsNullOrEmpty(target.TreeId)
                 ? target.TreeId
