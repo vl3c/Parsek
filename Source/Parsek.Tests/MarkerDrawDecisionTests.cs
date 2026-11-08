@@ -5,7 +5,7 @@ namespace Parsek.Tests
     /// <summary>
     /// Phase 8c / 8e S4: unit coverage for the pure marker-draw / proto-icon-suppression decision
     /// (<see cref="GhostMapPresence.ResolveMarkerDrawDecision"/>). This is the decision both
-    /// marker call sites (flight-map <c>ParsekUI.DrawMapMarkers</c> + TS
+    /// marker call sites (flight-map <c>ParsekFlightMapMarkers.DrawMapMarkers</c> + TS
     /// <c>ParsekTrackingStation.ClassifyAtmosphericMarkerSkip</c>) route through. The
     /// Unity-coupled wrapper <c>ShouldDrawNonProtoMarkerForGhost</c> (frame count + static
     /// reads) is covered by the in-game test (project rule: Unity-coupled -> in-game).
