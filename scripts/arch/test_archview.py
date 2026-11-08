@@ -3161,9 +3161,10 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
 
 
-# The cut order the residue ratchet replays (test_cut_sequence_halves_the_largest_knot):
-# the greedy sequence on the refactor branch after wave 2 W3b (2026-11-07). Re-pin it only
-# together with a tightened bound, never to loosen one.
+# The cut order the text residue replays (test_cut_sequence_halves_the_largest_knot):
+# the greedy sequence on the refactor branch after wave 2 W3b (2026-11-07). The ratchet
+# itself reads the semantic graph since W4a2 (semantic.SEMANTIC_CUT_ORDER); keep this
+# list equal to archview.RATCHET_CUT_ORDER (test_semantic.CutOrderTests).
 RATCHET_CUT_ORDER = [
     "GhostPlaybackLogic",
     "ParsekFlight",
@@ -3400,6 +3401,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(findings["missingGlossary"], [])
         self.assertEqual(findings["staleReadings"], [])
         self.assertEqual(findings["missingReadingOrder"], [])
+        # A literal number in an undated prose string must match the model
+        # (archview.PROSE_NUMBER_CLAIMS); a dated one is history.
+        self.assertEqual(findings["staleNumbers"], [])
 
     def test_rendered_atlas_contains_the_live_facts(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -3536,7 +3540,7 @@ class RealTreeSmokeTests(unittest.TestCase):
         # the greedy residue at 201. Wave 2 W3b (ReasonColorHex and AppendReason move onto
         # StockUiText) takes 18 stock-screen types out of the knot: the greedy sequence ends at
         # 179 of 432, while the W1c-era order replays to 228. The order above is re-pinned to
-        # the new greedy one, which replays to 179, the bound pinned here.
+        # the new greedy one, which replays to 179, the last text bound pinned here.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which
@@ -3550,10 +3554,20 @@ class RealTreeSmokeTests(unittest.TestCase):
         # when a reference is removed. The greedy sequence stays the reported,
         # documented one (test_first_cut_matches_the_documented_tree); the
         # minimum is only the ratchet's measure.
+        #
+        # RETIRED as the ratchet 2026-11-07 (W4a2): the bound moved to the
+        # semantic graph read from the compiled IL, where a call through a
+        # forwarder counts as a call to the forwarded type, so code can no
+        # longer move this text residue by adding or deleting forwarders
+        # (test_semantic.RealTreeSemanticTests.test_the_semantic_residue_ratchet,
+        # bound 150 = the semantic residue on 668a03255, a tree that still
+        # passed the text bound 179 here). The text residue stays measured and
+        # reported (`archview.py --check`, `semantic.py`), not bounded:
+        # deleting the RecordingStore metric forwarders (W4c) raises it.
         largest = self.model["knots"][0]
         graph = {entry["name"]: entry["referencesTo"] for entry in self.model["types"]}
         replayed = archview.replay_cut_residue(graph, RATCHET_CUT_ORDER)
-        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 179)
+        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), largest["size"])
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

@@ -63,11 +63,74 @@ declared in two different modules is dropped here too, because text alone
 cannot say which one a use means. Roles, levels and the entry-point attribute
 window are heuristics, not compiler facts (see "Reading the ladder").
 
-The checker is **report-only**: it always exits 0, and nothing in the build or
-the test suite gates on it. A gating version must derive edges from a real
-semantic model (Roslyn), because a text scan cannot see conditional
-compilation, partial classes across files, or references built through
-reflection.
+The checker is **report-only**: it always exits 0. What gates is the
+`scripts/arch` test suite CI runs (placement contract, knot canaries, the
+residue ratchet below). A text scan cannot see conditional compilation or
+references built through reflection, and it cannot tell a call through a
+forwarder from a dependency on the forwarder's type; the semantic graph below
+reads the compiler's output instead.
+
+## The semantic graph (compiled IL)
+
+`scripts/arch/ilgraph.py` reads the IL of the built `Parsek.dll` (an `ikdasm`
+dump, the disassembler `scripts/refactor/il_compare.py` already uses, from
+mono-devel) and returns, per source type, the in-assembly types its compiled
+code uses: the declaring type of every member an instruction names, types an
+instruction names as its operand, and the types in the type's own
+declarations (base list, fields, own signatures, locals, attributes). A
+called member's parameter and return types are not counted, and
+compiler-generated closures and state machines are credited to the source
+type that wrote them. Nodes are the text model's own (same names, same
+modules), so the two graphs differ only in edges.
+
+A **forwarder** is a method whose body is argument loads, at most a read of its
+own type's service field or getter, and exactly one call (or construction, or
+static field access) on another in-assembly type. A call to it is credited to
+the type the forward chain ends in, when every overload of that name and
+arity forwards to the same type. Deleting a forwarder and calling the service
+directly therefore leaves the graph unchanged, and adding one cannot hide an
+edge: the store's metric forwarders stop moving the residue.
+
+Why IL and not Roslyn: the DLL is already built by every CI run and every
+local test run, `ikdasm` is already a tooling dependency, the parser is
+stdlib Python that the tests drive with inline IL text, and the compiler has
+already resolved overloads, extension methods, `var` and inferred generics.
+Roslyn would need the Microsoft.CodeAnalysis packages and a second
+compilation of every file against the KSP references.
+
+Run it:
+
+```bash
+python3 scripts/arch/semantic.py --il Source/Parsek/bin/Debug/Parsek.dll [--edges]
+python3 scripts/arch/archview.py --check --il Source/Parsek/bin/Debug/Parsek.dll
+```
+
+The report prints the knot, greedy and replayed residue for the text graph,
+the raw IL graph and the semantic (forwarder-resolved) graph, then classifies
+every edge the text and IL graphs disagree on (`semantic.py`'s docstring lists
+the reasons: constants, enum members and `nameof` the compiler inlines, nested
+type qualifiers, text false positives such as object-initializer members or a
+stock type's nested name, and on the IL side members reached through a value
+the source never names, `var` locals, inferred generic arguments and base
+lists the text scan never reads). `--edges` lists every edge and, for each type
+in one residue and not the other, the disagreeing edges that touch it.
+
+CI runs `scripts/arch/test_semantic.py` after the build with `PARSEK_ARCH_IL`
+pointing at the built DLL (its real-tree cells, the residue ratchet among
+them, skip only when that is unset).
+On the refactor branch at 668a03255 (2026-11-08, after wave 2 W1c and W3b):
+text residue 179, semantic residue 150 (greedy and replayed with
+`SEMANTIC_CUT_ORDER`), knot 432 against 390; text-only edges 712, IL-only 637,
+every one classified. Two text false
+positives that held weight: the UI node `State` (StockUiReasonTooltip's private
+nested class) is matched by every `Contract.State` / `RDTech.State` token in
+GameActions and Patches (foreign-qualifier), and `Hold` (RewindVesselHold's
+nested class) by enum members such as `ChainBridgeAction.Hold`
+(qualified-member). The one compiled edge into `Hold` is RewindLauncher's
+`var` list of holds. W1b (#2464) moved the hold record out of ReFlyInvokeHold,
+deleting the text edge `ReFlyInvokeHold -> Hold` (only the qualifier of
+`ReFlyInvokeHold.Entry`): the text residue fell 272 -> 263 (knot 459 -> 450)
+and the semantic residue stayed 250, which never counted that edge.
 
 ## Regenerating
 
@@ -278,20 +341,44 @@ than moved edges. The table is a research list, not a verdict - the tool never s
 reference is wrong, only that it holds a cycle together. Nothing in this phase
 changes any dependency; it reports them.
 
-The residue after the last cut is a ratchet in `scripts/arch/test_archview.py`
-(`test_cut_sequence_halves_the_largest_knot`, bound 283, tightened to the
-replayed residue, 283 of 469 on the current tree): refactor work must not loosen it, not even
-for a new type that only splits an existing residue member - keep such a type
-off the cycle or make it a partial of a type already in the knot. Because the greedy sequence is a heuristic,
-deleting a real reference can change which sink wins an early step and leave a
-larger residue after the same 12 steps, so the ratchet measures the smaller of
-the greedy residue and the **replayed residue** (`replay_cut_residue`): the
-largest component left after removing the outgoing references of a fixed,
-pinned cut order (`RATCHET_CUT_ORDER`, the greedy order as of 2026-11-07). For
-a fixed set of cut types, deleting a reference can only shrink the remaining
-components, so a pure move that removes a reference can never red the ratchet;
-adding a reference, or a new type that sits inside the residue, still can. The
-printed and documented sequence stays the greedy one.
+The residue after the last cut is a ratchet. Since 2026-11-07 (W4a2) it reads
+the **semantic graph** (next section's "The semantic graph", read from the
+compiled IL), in `scripts/arch/test_semantic.py`
+(`test_the_semantic_residue_ratchet`, bound 150, the semantic residue on
+668a03255, a tree that still passed the text bound 179): refactor work must
+not loosen it, not even for a new type that only splits an existing residue
+member - keep such a type off the cycle or make it a partial of a type already
+in the knot. A call through a forwarder counts there as a call to the
+forwarded type, so adding or deleting a forwarder no longer moves it. The
+ratchet runs where `PARSEK_ARCH_IL` names a built DLL: in CI after the build,
+and locally with
+`PARSEK_ARCH_IL=Source/Parsek/bin/Debug/Parsek.dll python3 -m unittest discover -s scripts/arch -q`
+after a Debug build of the tree under test (a stale DLL measures old code).
+Measure the Debug DLL, the one CI builds: a Release DLL can read lower,
+because the optimizer drops typed locals the source names (on 5dc4ebd78 the
+Release build has 19 fewer semantic edges than Debug and 11 text edges no IL
+explains; the residue happened to be 250 in both), so a bound pinned from a
+Release build can red CI. Without `PARSEK_ARCH_IL` the ratchet cell skips, so
+`WorkflowRunsTheRatchetTests` reads `.github/workflows/tests.yml` and reds when
+no step after the build runs the semantic cells with `PARSEK_ARCH_IL` set to
+the built Debug DLL (step deleted, commented out, conditional,
+`continue-on-error`, re-pointed, or a discover pattern that skips the file).
+
+Because the greedy sequence is a heuristic, deleting a real reference can
+change which sink wins an early step and leave a larger residue after the same
+12 steps, so the ratchet measures the smaller of the greedy residue and the
+**replayed residue** (`replay_cut_residue`): the largest component left after
+removing the outgoing references of a fixed, pinned cut order
+(`SEMANTIC_CUT_ORDER` in `semantic.py`, the semantic greedy order on
+668a03255). For a fixed set of cut types, deleting a reference can only shrink
+the remaining components, so a pure move that removes a reference can never red
+the ratchet; adding a reference, or a new type that sits inside the residue,
+still can. The printed and documented sequence stays the greedy one.
+
+The text scan's own residue (`test_archview.py`'s
+`test_cut_sequence_halves_the_largest_knot`, replayed over
+`archview.RATCHET_CUT_ORDER`, 179 on 668a03255) is still measured and
+reported, no longer bounded: it moves when a forwarder is added or deleted.
 
 `ladder.html` shows the same information in place. The row of a knot level is
 split into sub-rows, top to bottom by descending sublevel (level 0 of the knot
@@ -444,16 +531,25 @@ prose by name:
   types"), or date the figure ("391 on 2026-09-14"). Re-read both against a
   fresh page and bump `reviewed` whenever they are touched.
 
-Numbers written inside a prose sentence (a count in a module summary, for
-example) are not checked; the generated numbers around them are. `--check`
+Numbers written inside prose are checked only where a pattern in
+`PROSE_NUMBER_CLAIMS` (archview.py) knows what they count: production
+modules, upward module edges, tooling files, the largest knot, the residue
+after the pinned cut order, production types, methods of 90 lines or more and
+production files of 1,000 lines or more. A prose string that carries a
+`YYYY-MM-DD` date is a dated snapshot, so a mismatch there is history and is
+only listed ("dated prose numbers the model has moved past"); a string with no
+date claims to describe the tree, so a mismatch there is listed as an
+undated prose number and fails `test_atlas_prose_matches_the_tree`. Other
+numbers are not checked; the generated numbers around them are. `--check`
 does not silently show stale prose: its ATLAS section (after KNOTS) lists
 production modules without a summary, glossary entries naming a type that is
 not in the model, glossary entries outside the live top 18 (informational),
 upward readings whose edge no longer exists, reading-order types not in
-the model, and opportunity `types` entries not in the model; it then prints
+the model, opportunity `types` entries not in the model, and the two prose
+number lists; it then prints
 the findings review date with its age in days, plus a line when that is older
 than 30 days (`FINDINGS_STALE_DAYS`). All of it is informational: none of it
-fails the check.
+fails the check (the real-tree tests gate on some of it).
 
 ## Change history
 

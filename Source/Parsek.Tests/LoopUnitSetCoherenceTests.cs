@@ -125,7 +125,14 @@ namespace Parsek.Tests
             // pin the ordering by source position inside UpdateUnitMemberPlayback.
             string engine = ReadEngineSource();
 
+            // The descent-member override lives in ApplyDescentMemberRenderOverride, whose body sits
+            // after UpdateUnitMemberPlayback, so the ordering anchors on its call site (the first
+            // occurrence of the name) and the body is checked to hold the descent resolve.
             int descentOverride = engine.IndexOf(
+                "ApplyDescentMemberRenderOverride(", StringComparison.Ordinal);
+            int overrideBody = engine.IndexOf(
+                "static void ApplyDescentMemberRenderOverride(", StringComparison.Ordinal);
+            int descentResolve = engine.IndexOf(
                 "GhostPlaybackLogic.ResolveDescentMemberEngineRender(", StringComparison.Ordinal);
             int handoffDecision = engine.IndexOf(
                 "GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(", StringComparison.Ordinal);
@@ -135,6 +142,8 @@ namespace Parsek.Tests
                 "GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(", StringComparison.Ordinal);
 
             Assert.True(descentOverride >= 0, "descent-member override missing");
+            Assert.True(overrideBody > descentOverride && descentResolve > overrideBody,
+                "the descent-member override must resolve the descent head in its own body");
             Assert.True(handoffDecision >= 0, "engine handoff decision call missing");
             Assert.True(forcedHide >= 0, "forced handoff hide assignment missing");
             Assert.True(loiterClamp >= 0, "loiter-gap clamp call missing");
