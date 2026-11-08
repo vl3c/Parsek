@@ -3075,6 +3075,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `ConsumePostLoad` route gate now reads a brace-matched block instead of a slice to the next
   declaration); `ledgeraudit.SRC_REWIND_INVOKER` names `.StripActivate`; the ERS / ELS
   allowlist adds the five partials that hold raw reads; the delete pin stays on the main file.
+- Wave 2 W7b2 (2026-11-08, #2489): `LedgerOrchestrator.BuildStrategyConversionAction`
+  (201 lines) returns one named builder per currency arm (`BuildStrategyScienceConversionAction`,
+  `BuildStrategyFundsConversionAction`, `BuildStrategyReputationConversionAction`), behind a
+  characterization golden over every currency, delta sign, reason and tag
+  (`BuildStrategyConversionActionCharacterizationTests`) written first.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
