@@ -1634,3 +1634,52 @@ single status authority - see its "Operator items outstanding" item 1. `career-p
 is LIVE-PROVEN as of 2026-07-28: its consumer `CL-1-pod-impact` flew green on its
 second flight and is re-tiered `nightly`. Flight 1 red and found a real defect in this
 fixture - the missing `ParsekScenario` node, edit 3 above.
+
+## duna-ike-recorded (GAME Mode = SANDBOX, 1 VESSEL, 4 recordings in 1 committed tree)
+
+PROVENANCE: `B36-duna-ike-continuation`, run `2026-11-07_2214`, PASS attempt 1 (branch
+`claude/project-thread-ni23y9` head d25869f, automation DLL sha256 prefix deeb466b),
+harvested `--keep-parsek --expect-situation ORBITING` from the run's own `_save` snapshot.
+The DD1 probe of `duna-direct-recorded` (B17) flew B23's Duna->Ike hop with no kill pair,
+so the hop is recorded into B17's committed tree `ccb5e4afd7974dbe9118090468ac00ae`: one
+tree that crosses Duna's SOI and then Ike's, the subject of the lone-moon arrival hold
+loop lanes V31M / V31T. Recordings: `311d98e3` pad head, `cb6acf4e` Kerbin->Duna (Orbiting
+Duna), `9e2f5bfa` the Duna->Ike hop (Orbiting Ike), `3397c2e5` booster debris (Destroyed).
+The tree is also written a second time as the `isActive = True` in-flight copy (the
+committed-spawned restore resumed it after the commit). Craft come from the shared
+library (`../shared-ships.toml`). It also carries ONE retained `Parsek/Recordings/_versions` body: the older
+root `.prec` the committed copy names (the in-flight copy names the head); the
+harvest keeps exactly the versions the save names. Payload pinned in
+`harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.
+
+## eve-gilly-recorded (GAME Mode = SANDBOX, 1 VESSEL, 10 recordings in 1 committed tree)
+
+PROVENANCE: `B37-eve-gilly-continuation`, run `2026-11-07_2220`, PASS attempt 1 (branch
+`claude/project-thread-ni23y9` head 9bd50bf, automation DLL sha256 prefix deeb466b),
+harvested `--keep-parsek --expect-situation ORBITING` from the run's own `_save` snapshot.
+The crewed Kerbal X upper stage of `eve-orbit-recorded` (B16) flew B24's Eve->Gilly hop with
+no kill pair, so the hop is recorded into B16's committed tree
+`16af6b5e546a4bef86fcd8cde1ddc924`: one tree that crosses Eve's SOI and then Gilly's, the
+subject of the lone-moon arrival hold loop lanes V32M / V32T. New recordings over
+`eve-orbit-recorded`: `e3b89e4d` Kerbin->Eve (Orbiting Eve) and `fcb6f503` the Eve->Gilly hop
+(Orbiting Gilly); `75a6ab25` is now the pad head only. The tree is also written a second
+time as the `isActive = True` in-flight copy. It also carries ONE retained `Parsek/Recordings/_versions` body: the older
+root `.prec` the committed copy names (the in-flight copy names the head); the
+harvest keeps exactly the versions the save names. Payload pinned in
+`harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.
+
+## jool-laythe-recorded (GAME Mode = SANDBOX, 1 VESSEL, 7 recordings in 1 committed tree)
+
+PROVENANCE: `B38-jool-laythe-continuation`, run `2026-11-07_2230`, PASS attempt 1 (branch
+`claude/project-thread-ni23y9` head a45c46f, automation DLL sha256 prefix deeb466b),
+harvested `--keep-parsek --expect-situation ORBITING` from the run's own `_save` snapshot.
+The Duna Rocket of `jool-orbit-recorded` (B22) flew B25's Jool->Laythe hop with no kill
+pair, so the hop is recorded into B22's committed tree `6ec68e87b782476f970a71df8c8b4685`:
+one tree that crosses Jool's SOI and then Laythe's, the subject of the lone-moon arrival
+hold loop lane V33M. New recordings over `jool-orbit-recorded`: `6ec75480` Kerbin->Jool
+(Orbiting Jool) and `96d1d5b9` the Jool->Laythe hop (Orbiting Laythe); `ddcc6d00` is now
+the pad head only. The tree is also written a second time as the `isActive = True`
+in-flight copy. Craft come from the shared library (`../shared-ships.toml`). It also carries ONE retained `Parsek/Recordings/_versions` body: the older
+root `.prec` the committed copy names (the in-flight copy names the head); the
+harvest keeps exactly the versions the save names. Payload
+pinned in `harness/lib/test_saveparse.py` `RECORDED_FIXTURES`.

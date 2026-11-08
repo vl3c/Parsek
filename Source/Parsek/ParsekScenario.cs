@@ -905,6 +905,54 @@ namespace Parsek
             MissionStore.NormalizeOneLoopPerTree(RecordingStore.CommittedTrees);
         }
 
+        /// <summary>
+        /// In-session step of <see cref="OnLoad"/>, after the revert classification: captures the
+        /// fresh-launch UT (the Revert-to-editor orphan-prune boundary) on a fresh launch, clears it
+        /// on a non-fresh flight load, and leaves it on a revert or a non-flight load.
+        /// </summary>
+        internal static void OnLoadPhaseApplyFreshLaunchUtDecision(bool isRevert, bool isVesselSwitch, double loadedUT)
+        {
+            switch (DecideFreshLaunchUtAction(
+                HighLogic.LoadedScene, isRevert, isVesselSwitch,
+                ParsekFlight.IsFreshLaunchStartupBehaviour(FlightDriver.StartupBehaviour)))
+            {
+                case FreshLaunchUtAction.Capture:
+                    currentFlightLaunchUT = loadedUT;
+                    freshLaunchEntryPending = true;
+                    ParsekLog.Info("Scenario",
+                        $"Captured fresh-launch UT {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        "for the Revert-to-editor orphan-prune boundary");
+                    break;
+                case FreshLaunchUtAction.Clear:
+                    freshLaunchEntryPending = false;
+                    if (!double.IsNaN(currentFlightLaunchUT))
+                    {
+                        currentFlightLaunchUT = double.NaN;
+                        ParsekLog.Verbose("Scenario",
+                            "Cleared captured fresh-launch UT on non-fresh flight load (quickload-resume)");
+                    }
+                    break;
+                // FreshLaunchUtAction.Leave: revert / non-flight load keeps the captured UT.
+            }
+        }
+
+        /// <summary>
+        /// Cold-load step of <see cref="OnLoad"/> "cold-attempt-events": logs how a pending tree
+        /// the save carried was restored (alongside an active-tree restore, or as finalized pending).
+        /// </summary>
+        internal static void OnLoadPhaseLogColdPendingTreeRestore(bool coldPendingTreeRestoredFromSave)
+        {
+            if (coldPendingTreeRestoredFromSave)
+            {
+                string pendingRestoreDisposition = PendingTreeSlot.HasSavedPendingTreeDuringActiveRestore
+                    ? "preserved alongside active-tree restore"
+                    : "restored as finalized pending";
+                ParsekLog.Info("Scenario",
+                    $"OnLoad: cold-start pending tree detected (state={PendingTreeSlot.PendingTreeStateValue}) — " +
+                    pendingRestoreDisposition);
+            }
+        }
+
         public override void OnLoad(ConfigNode node)
         {
             // Pre-Parsek backup hold (PreParsekBackup): a save whose first-time backup failed
@@ -1415,28 +1463,7 @@ namespace Parsek
                     // over-prune a later editor revert. Revert loads (isRevert) and non-flight
                     // loads leave the static untouched so the captured launch UT survives until
                     // the matching Revert-to-editor reads it.
-                    switch (DecideFreshLaunchUtAction(
-                        HighLogic.LoadedScene, isRevert, isVesselSwitch,
-                        ParsekFlight.IsFreshLaunchStartupBehaviour(FlightDriver.StartupBehaviour)))
-                    {
-                        case FreshLaunchUtAction.Capture:
-                            currentFlightLaunchUT = loadedUT;
-                            freshLaunchEntryPending = true;
-                            ParsekLog.Info("Scenario",
-                                $"Captured fresh-launch UT {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                                "for the Revert-to-editor orphan-prune boundary");
-                            break;
-                        case FreshLaunchUtAction.Clear:
-                            freshLaunchEntryPending = false;
-                            if (!double.IsNaN(currentFlightLaunchUT))
-                            {
-                                currentFlightLaunchUT = double.NaN;
-                                ParsekLog.Verbose("Scenario",
-                                    "Cleared captured fresh-launch UT on non-fresh flight load (quickload-resume)");
-                            }
-                            break;
-                        // FreshLaunchUtAction.Leave: revert / non-flight load keeps the captured UT.
-                    }
+                    OnLoadPhaseApplyFreshLaunchUtDecision(isRevert, isVesselSwitch, loadedUT);
 
                     // Discard stashed-this-transition recordings on quickload (Bug A).
                     // Must run BEFORE the isRevert branch at line ~580, because the
@@ -2096,15 +2123,7 @@ namespace Parsek
                     || PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
                 bool coldPendingTreeRestoredFromSave = TryRestorePendingTreeNode(
                     node, coldActiveTreeRestoredFromSave);
-                if (coldPendingTreeRestoredFromSave)
-                {
-                    string pendingRestoreDisposition = PendingTreeSlot.HasSavedPendingTreeDuringActiveRestore
-                        ? "preserved alongside active-tree restore"
-                        : "restored as finalized pending";
-                    ParsekLog.Info("Scenario",
-                        $"OnLoad: cold-start pending tree detected (state={PendingTreeSlot.PendingTreeStateValue}) — " +
-                        pendingRestoreDisposition);
-                }
+                OnLoadPhaseLogColdPendingTreeRestore(coldPendingTreeRestoredFromSave);
 
                 // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
                 loadPhase = "milestones";

@@ -888,12 +888,14 @@ destination (Eve, Moho, Dres) imposes a single `DestRotation` constraint and no
   not-supported. **RESOLVED by M-MIS-6** — the resonant-configuration cut is designed in
   `docs/dev/design-mission-multimoon-alignment.md` (T_config joint-configuration hold,
   finite aligned horizon; incommensurate packs still fail closed with amber).
-- **Multi-hop / gravity assist and deep chains** (Ike via Duna). Already excluded upstream
-  by `ReaimClassifier` (single-hop direct-child guard), so such a mission never reaches
-  `DestinationArrivalAlign`. A recorded landing ON Ike (Ike as the destination) is
-  currently classifier-Unsupported (deep chain) and is deferred with the multi-hop case.
-  Ike appears in this phase only as a `MoonConfig` of a Duna-destination mission, never as
-  the destination.
+- **Multi-hop / gravity assist and deep chains.** Already excluded upstream by
+  `ReaimClassifier` (single-hop direct-child guard). CORRECTED 2026-11-07: a Kerbin -> Duna
+  -> Ike recording (an Ike orbit or an Ike landing) is NOT a deep chain to the classifier.
+  Its target is the first body after the heliocentric coast, which is always Duna, so Ike
+  is a `MoonConfig` of a Duna-destination mission (`Classify_IkeAfterDunaArrival_TargetsDuna_Supported`).
+  The guard fires only when no Duna-bodied segment precedes the moon. With no Duna landing
+  in force, that lone `MoonConfig` is aligned by the moon configuration hold
+  (`design-mission-multimoon-alignment.md` section 9).
 - **Direct atmospheric entry with no captured destination orbit segment** (the atmo-direct
   decision above). Scoped OUT this phase; admitting it is a separate, larger classifier
   change.

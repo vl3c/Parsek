@@ -358,7 +358,8 @@ states them so a reviewer/playtester judges them deliberately, not as bugs.
     one cycle. Faithful no-op is reference-checked (effective == recorded => unchanged), so every
     non-re-aim member's flight map path is byte-identical. The SOI-handoff teleports (recorded ejection
     hyperbola at the Kerbin SOI boundary vs the re-aimed transfer from Kerbin center) are a SEPARATE
-    issue (option 3: re-plan the whole patched-conic chain) tracked below.
+    issue (option 3: re-plan the whole patched-conic chain), closed by the owner 2026-11-07 as an
+    accepted stitching seam (the todo entry is archived in `done/todo-and-known-bugs-v11.md`).
 - **Per-window trajectory.** The `LoopUnit` carries a re-aim descriptor (launch body, target,
   recorded parking/arrival segments). Per loop instance, the engine asks for the trajectory at the
   active window; the adapter computes (and caches) the synthesized segments for that window. Recompute

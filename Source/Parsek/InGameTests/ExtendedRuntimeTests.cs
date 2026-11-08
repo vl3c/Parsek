@@ -976,13 +976,13 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "PartEventFX", Scene = GameScenes.FLIGHT,
-            Description = "Fairing ghost infos have non-null cone mesh GameObjects")]
+            Description = "Fairing ghost infos that expect a shell have a non-null shell GameObject")]
         public void FairingInfosValid()
         {
             var flight = ParsekFlight.Instance;
             if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
 
-            int total = 0, valid = 0;
+            int total = 0, valid = 0, stockBuilt = 0;
             foreach (var kvp in flight.Engine.GetGhostGameObjects())
             {
                 if (!flight.Engine.TryGetGhostState(kvp.Key, out var state)) continue;
@@ -990,16 +990,23 @@ namespace Parsek.InGameTests
 
                 foreach (var fKvp in state.fairingInfos)
                 {
+                    // A structure-only info (truss / cap nodes, no shell) is a fairing the
+                    // snapshot already shows deployed, or a bare base: no shell is expected.
+                    if (fKvp.Value.fairingMeshObject == null && fKvp.Value.structureNodes != null)
+                        continue;
                     total++;
                     if (fKvp.Value.fairingMeshObject != null)
                         valid++;
+                    if (fKvp.Value.shellBuiltByStockPanels)
+                        stockBuilt++;
                 }
             }
 
             if (total == 0)
                 InGameAssert.Skip("No fairing infos on active ghosts");
 
-            ParsekLog.Info("TestRunner", $"Fairing infos: {valid}/{total} have cone meshes");
+            ParsekLog.Info("TestRunner",
+                $"Fairing infos: {valid}/{total} have shell meshes, {stockBuilt} built by the stock panel builder");
             InGameAssert.AreEqual(total, valid,
                 $"{total - valid} fairing info(s) have null mesh object (build failure)");
         }

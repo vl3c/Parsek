@@ -516,8 +516,13 @@ namespace Parsek.Tests
         [UnityEntryFact]
         public void TheCaptureReachesEveryDecisionExit()
         {
-            // Each detail fragment below is written by exactly one exit of the resolver; the
-            // corpus must keep reaching all of them or the golden stops covering that exit.
+            // Each detail fragment below is written by exactly one exit of the resolver (several
+            // cases may reach the same exit); the corpus must keep reaching all of them or the
+            // golden stops covering that exit. "hasOrbitSegments=" and "source=EndpointTail" are
+            // written by two exits each, so each of their fragments carries the neighbouring
+            // field that only its own exit writes (the no-orbit-data exit has no
+            // "terminalFallback=" prefix; the terminal EndpointTail exit writes
+            // "endpointTailSeed=", the covering override "endpointTailOverride=").
             var sb = new StringBuilder();
             foreach (Case c in Cases())
                 sb.Append(RunCase(c));
@@ -529,9 +534,10 @@ namespace Parsek.Tests
                 "terminal=Landed", "descent-trigger transfer member handed off",
                 "source=Segment", "stateVectorSource=OrbitalCheckpoint",
                 "endpointTailOverride=stale-visible-segment", "source=StateVectorSoiGap",
-                "source=StateVector ", "terminalFallback=False", "hasOrbitSegments=False",
+                "source=StateVector ", "terminalFallback=False",
+                "reason=no-state-vector-point hasOrbitSegments=False",
                 "terminalOrbitFallback=True", "activationStartUT=", "orbitSegmentGap=True",
-                "source=EndpointTail", "seedFailure=", "source=TerminalOrbit",
+                "source=EndpointTail reason=(none) endpointTailSeed=accept", "seedFailure=", "source=TerminalOrbit",
                 "map-presence chain-tip segments:", "before-terminal-orbit",
             };
             foreach (string fragment in exits)

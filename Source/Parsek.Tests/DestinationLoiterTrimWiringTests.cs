@@ -39,9 +39,12 @@ namespace Parsek.Tests
         public void Builder_PreservesByteIdenticalFallback()
         {
             string src = ReadBuilderSource();
-            // The trim-declined branch must still take the shipped ComputeArrivalHold path verbatim
-            // (the byte-identical-off invariant: None => today's behavior).
-            Assert.Contains("arrivalHold = ArrivalHoldPlanner.ComputeArrivalHold(", src);
+            // The trim-declined branch must still take the shipped ComputeArrivalHold path (the
+            // byte-identical-off invariant: None => today's behavior). It goes through the moon-hold
+            // wrapper, which hands every non-moon-configuration shape to ComputeArrivalHold with
+            // the cuts unchanged (LoneMoonArrivalHoldTests.Builder_* pin the cut identity).
+            Assert.Contains("arrivalHold = ComputeArrivalHoldKeepingMoonLoiterWhole(", src);
+            Assert.Contains("return ArrivalHoldPlanner.ComputeArrivalHold(", src);
             // And the full keepRevs=1 cut set is still computed as the fallback loiterCuts.
             Assert.Contains("ReaimLoiterCompressor.ComputeCuts(transferSegments", src);
         }

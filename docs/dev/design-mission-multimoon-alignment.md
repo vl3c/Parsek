@@ -186,3 +186,36 @@ this milestone's in-game looped Jool tour playtest. It is the honest fix for wha
 deliberately does not attempt: indefinite alignment past the finite horizon (§2), non-resonant
 moon packs, Bop/Pol legs (D4), and station-bearing multi-moon shapes (D5). Do not build it
 speculatively; the playtest decides whether it is needed at all.
+
+## 9. The lone moon (2026-11-07)
+
+The single-period pick in `ArrivalHoldPlanner.ComputeArrivalHold` aligned a station or the
+target's landing rotation and returned None for an arrival whose only destination-side
+constraint was ONE moon (Kerbin -> Duna -> Ike orbit or Ike landing, no Duna landing). The
+Phase 4 design (`design-mission-periodicity.md`, the L0-L9 chain) names each inner moon's
+orbital phase as an arrival constraint, so that None was a gap, not a decision: the moon-
+relative leg anchored to the live moon while the approach flew to the recorded one.
+
+- **Routing.** `ArrivalHoldPlanner.UsesMoonConfigurationHold`: a Supported, station-free set
+  with 2+ constrained moons (this design), or exactly one constrained moon and no target
+  landing rotation in force (none recorded, or alignment Off). Both take the configuration
+  hold above. With one moon, T_config = P_moon (a tidally locked moon landing collapses
+  into it; a non-locked moon landing is a second period the scan accepts or declines with
+  amber, D4). A target landing with alignment on keeps the shipped rotation hold: the
+  on-camera landing wins, and for Duna the rotation equals Ike's period anyway.
+- **Rigid destination timeline.** The entry-referenced hold is valid only while the
+  recorded in-SOI timeline is rigid, which a destination parking-loiter cut breaks (the L8
+  guard in D6). `MissionLoopUnitBuilder.ComputeArrivalHoldKeepingMoonLoiterWhole` tries
+  EVERY configuration-hold shape (lone or multi-moon) with the launch-side cuts only, so
+  the destination parking replays whole and the cut no longer ambers the hold. When the
+  hold still declines (loop slack below one anchor period, no recurrence, no window) the
+  original cuts come back with that amber, so a declined hold keeps the compressed
+  loiter. The phase anchor shift counts only cuts before the departure, so it is
+  unchanged.
+- **Known limit.** On the heliocentric-parking departure path (F2) the resolver shifts the
+  target-bodied capture conics by `captureShift` while moon-bodied segments keep their
+  recorded times; a moon leg on that path can still tear. Filed with the render backlog
+  item 1 in `todo-and-known-bugs.md`.
+- **Tests.** `LoneMoonArrivalHoldTests` (planner routing, per-loop alignment, declines,
+  builder cut handling); in-game `LoneMoonHoldInGameTest` (category `MoonArrivalHold`):
+  every moon of every planet reachable from Kerbin against the live bodies.
