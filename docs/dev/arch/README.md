@@ -117,9 +117,10 @@ in one residue and not the other, the disagreeing edges that touch it.
 
 CI runs `scripts/arch/test_semantic.py` after the build with `PARSEK_ARCH_IL`
 pointing at the built DLL (its real-tree cells skip only when that is unset).
-On the refactor branch at be2512a0d (2026-11-07): text residue 263, semantic
-residue 250 (greedy and replayed with `SEMANTIC_CUT_ORDER`), knot 450 against
-405; text-only edges 713, IL-only 637, every one classified. Two text false
+On the refactor branch at 668a03255 (2026-11-08, after wave 2 W1c and W3b):
+text residue 179, semantic residue 150 (greedy and replayed with
+`SEMANTIC_CUT_ORDER`), knot 432 against 390; text-only edges 712, IL-only 637,
+every one classified. Two text false
 positives that held weight: the UI node `State` (StockUiReasonTooltip's private
 nested class) is matched by every `Contract.State` / `RDTech.State` token in
 GameActions and Patches (foreign-qualifier), and `Hold` (RewindVesselHold's

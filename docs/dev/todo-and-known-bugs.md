@@ -3633,7 +3633,7 @@ compare).
   extractor: `scripts/arch/ilgraph.py` parses the `ikdasm` dump of the built Parsek.dll (stdlib
   Python, no new package; the DLL is built by every test run) and `semantic.py` measures the
   same knot and residue over the text model's nodes, with a call to a forwarder credited to the
-  forwarded type. On be2512a0d: text residue 263, semantic 250 (knot 450 vs 405); 713 text-only
+  forwarded type. On 668a03255: text residue 179, semantic 150 (knot 432 vs 390); 712 text-only
   and 637 IL-only edges, all classified (inlined constants, enum members and `nameof`, nested
   qualifiers, text false positives on the text side; members reached through values, `var`,
   inferred generics and base lists, which the text scan never reads, on the IL side). CI runs
