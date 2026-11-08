@@ -3,9 +3,9 @@
 
 archview.py finds references by matching identifiers in source text. That scan
 counts a name, so it cannot tell a call that only passes through a forwarder
-(`RecordingStore.CanRewind(...)`, whose body is one call to
-`RewindLauncher.CanRewind(...)`) from a real dependency on the type that holds
-the forwarder. Code can therefore lower the text residue by adding a forwarder,
+(a method whose body is one call to another type, as `RecordingStore.CanRewind`
+was to `RewindLauncher.CanRewind` until W4c deleted it) from a real dependency
+on the type that holds the forwarder. Code can therefore lower the text residue by adding a forwarder,
 and raise it by deleting one, without changing what calls what.
 
 This module reads the IL the compiler emitted (an `ikdasm` dump of Parsek.dll,

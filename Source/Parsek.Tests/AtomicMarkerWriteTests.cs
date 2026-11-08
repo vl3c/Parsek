@@ -200,7 +200,7 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
             string invokerSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "RewindInvoker.cs"));
+                System.IO.Path.Combine(srcRoot, RewindInvokerSourceFiles.MainFileName));
 
             int startInvokeStart = invokerSrc.IndexOf(
                 "internal static void StartInvoke(", StringComparison.Ordinal);
@@ -239,7 +239,7 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
             string invokerSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "RewindInvoker.cs"));
+                System.IO.Path.Combine(srcRoot, RewindInvokerSourceFiles.PostLoad));
 
             // Match the DECLARATION, not one formatting of it: the signature gained the
             // selected-slot pid sets (#16 item 6) and wrapped onto a second line, and the

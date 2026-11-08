@@ -53,7 +53,7 @@ id = "EVA-9-ground-science-cluster-spawn-flight"
 # PARSEK-FAIL on the four trim tokens and the three exemption tokens). The members lived
 # 41-65 s, yet no `TrimBoringTail: trimmed` line printed and all four spawned within 5 ms.
 # The seam's `CommitTree` is ParsekFlight.CommitTreeFlight, which never calls
-# RecordingStore.RunOptimizationPass (the only caller of the boring-tail trim), and the
+# CommittedListOptimizer.RunOptimizationPass (the only caller of the boring-tail trim), and the
 # in-session scene loads that followed return before OnLoad's optimization phase (it runs on
 # a cold load only). The operator's trim ran inside the SCENE-EXIT auto-commit at the Space
 # Center (MergeDialog.MergeCommit runs the pass). So this lane now commits the way a player
@@ -193,7 +193,7 @@ steps = [
   { cmd = "RecordingState",                                                  expect = "OK" },
   # THE COMMIT, the way a player makes it: leave for the Space Center with the recording
   # running, and the scene-exit auto-commit (MergeDialog.MergeCommit) commits the tree and
-  # runs RecordingStore.RunOptimizationPass, which trims the members' boring tails. The seam
+  # runs CommittedListOptimizer.RunOptimizationPass, which trims the members' boring tails. The seam
   # CommitTree (ParsekFlight.CommitTreeFlight) runs no optimization pass (todo
   # IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS), which is why flight `2026-09-29_1528` never trimmed.
   { cmd = "ExitToSpaceCenter",                                               expect = "OK", budget = 120 },
