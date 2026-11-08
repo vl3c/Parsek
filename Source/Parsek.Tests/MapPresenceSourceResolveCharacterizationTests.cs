@@ -15,6 +15,11 @@ namespace Parsek.Tests
     /// method before it was split into phase helpers. A refactor that changes a decision, a
     /// reason, a detail string, a log line or the order of the lines fails here.
     ///
+    /// The corpus drives KSP orbit and body methods whose bodies call Unity natives (measured on
+    /// mono: Quaternion and Transform internal calls), so both facts are
+    /// <see cref="UnityEntryFactAttribute"/>: a host that refuses such a body on entry would not
+    /// reproduce the mono capture.
+    ///
     /// Regenerate (only when a behavior change is intended, never in a refactor):
     /// PARSEK_CHARACTERIZATION_REGEN=1 with the filter on this class.
     /// </summary>
@@ -474,7 +479,7 @@ namespace Parsek.Tests
             return Path.Combine(root, "Source", "Parsek.Tests", "Fixtures", "Characterization", GoldenName);
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void EveryDecisionExit_MatchesTheGoldenCapture()
         {
             var sb = new StringBuilder();
@@ -508,7 +513,7 @@ namespace Parsek.Tests
                 "line counts differ: expected {0}, actual {1}", e.Length, a.Length));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void TheCaptureReachesEveryDecisionExit()
         {
             // Each detail fragment below is written by exactly one exit of the resolver; the
