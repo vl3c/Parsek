@@ -940,6 +940,7 @@ namespace Parsek
         }
         private static ToolbarControl toolbarControl;
         private ParsekUI ui;
+        private ParsekFlightMapMarkers mapMarkers;
 
         // Ghost playback engine + policy (T25 extraction)
         internal GhostPlaybackEngine engine;
@@ -1208,6 +1209,7 @@ namespace Parsek
             CaptureFreshRolloutVesselPidIfApplicable();
 
             ui = new ParsekUI(this);
+            mapMarkers = new ParsekFlightMapMarkers(this);
 
             // Camera follow (watch mode)
             watchMode = new WatchModeController(this);
@@ -1438,7 +1440,7 @@ namespace Parsek
             // Map markers and ghost labels are projected from world positions in
             // physical pixels and stay unscaled (UI-scale ruling 2026-11-04).
             if (MapView.MapIsEnabled)
-                ui.DrawMapMarkers();
+                mapMarkers.DrawMapMarkers();
 
             if (watchMode.IsWatchingGhost)
             {
@@ -2361,7 +2363,7 @@ namespace Parsek
             // waypoint cache and the diagnostic guards are index-keyed too.
             Positioner.ClearOrbitPlaybackCaches();
             Positioner.ShiftLoopSeamTracesAfterDelete(index);
-            ui?.ClearMapMarkerCache();
+            mapMarkers?.ClearMapMarkerCache();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             if (removed != null)
@@ -2388,7 +2390,7 @@ namespace Parsek
             watchMode.OnRecordingInserted(index);
             Positioner.ClearOrbitPlaybackCaches();
             Positioner.ShiftLoopSeamTracesAfterInsert(index);
-            ui?.ClearMapMarkerCache();
+            mapMarkers?.ClearMapMarkerCache();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             ParsekLog.Verbose("Flight",

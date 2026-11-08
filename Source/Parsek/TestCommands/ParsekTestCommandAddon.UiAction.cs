@@ -485,7 +485,7 @@ namespace Parsek.TestCommands
                 // `close` terminates here. The mirror direction was checked before this
                 // asymmetry was accepted: a drawing window can LOWER its own flag
                 // UNPROMPTED (SpawnControlUI.DrawIfOpen), while nothing raises one WITHOUT
-                // A PLAYER CLICK. Draw paths do raise open flags - ParsekUI.cs:809's
+                // A PLAYER CLICK. Draw paths do raise open flags - ParsekUI.cs:781's
                 // RouteRunPrompt "Open Logistics" banner button,
                 // RecordingsTableUI.cs:467/:521 (the Missions and Timeline GoTo buttons),
                 // StructureListWindowUI.cs:89/:100 (the Missions / Logistics "Log"

@@ -392,7 +392,7 @@ grep slices by surface:
 - `ProtoOrbitLine` - the scaled-space Vectrosity orbit line
 - `ProtoIcon` - the native KSP map icon driven by the OrbitDriver
 - `Polyline` - the non-orbital `GhostTrajectoryPolylineRenderer` leg
-- `ImguiLabeledMarker` - the flight-scene `ParsekUI.DrawMapMarkers` labeled marker
+- `ImguiLabeledMarker` - the flight-scene `ParsekFlightMapMarkers.DrawMapMarkers` labeled marker
 - `AtmosphericMarker` - the TS `ParsekTrackingStation.DrawAtmosphericMarkers` marker
 
 ### Two-layer capture (second cut)
@@ -535,7 +535,7 @@ Anchors are current-as-of this branch; treat as "around":
 | `GhostMapPresence.UpdateGhostOrbit` (chain) | `GhostMapPresence.cs:2248` | ProtoOrbitLine | chain-pid `SegmentApplied` + `FirstPosition` | via reverse map (post-fix); no `traj` in scope at :2248 |
 | `GhostMapPresence.Update*GhostLifecycle` | `GhostMapPresence.cs:5801` | (lifecycle) | `GhostCreated` / `GhostDestroyed` | yes |
 | `GhostTrajectoryPolylineRenderer.Driver.LateUpdate` | `Display/GhostTrajectoryPolylineRenderer.cs:921` | Polyline | which legs drew, head-UT gate, `IsRenderingNonOrbitalLeg` transition | yes (rec.RecordingId) |
-| `ParsekUI.DrawMapMarkers` | `ParsekUI.cs:1069` | ImguiLabeledMarker | marker pos source (mesh vs traj), `meshVsTraj` gap, skip reason (decision-only) | yes |
+| `ParsekFlightMapMarkers.DrawMapMarkers` | `ParsekFlightMapMarkers.cs` | ImguiLabeledMarker | marker pos source (mesh vs traj), `meshVsTraj` gap, skip reason (decision-only) | yes |
 | `ParsekTrackingStation.DrawAtmosphericMarkers` | `ParsekTrackingStation.cs:304` | AtmosphericMarker | per-marker draw + `AtmosphericMarkerSkipReason` transition (decision-only) | yes |
 
 Hook `SegmentApplied` / `FirstPosition` at the two CALLERS

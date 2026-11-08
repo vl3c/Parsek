@@ -3080,6 +3080,14 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `BuildStrategyFundsConversionAction`, `BuildStrategyReputationConversionAction`), behind a
   characterization golden over every currency, delta sign, reason and tag
   (`BuildStrategyConversionActionCharacterizationTests`) written first.
+- Wave 2 W6, first PR (2026-11-08, this branch, pure move, IL identical once folded): the
+  flight map-marker pass (`DrawMapMarkers`, its per-instance overlap and trajectory position
+  helpers, the summary struct and log, the frame-source dispatch, the waypoint and body
+  caches) moved out of `ParsekUI.cs` into `ParsekFlightMapMarkers.cs`, one instance owned by
+  `ParsekFlight` next to its `ParsekUI`, still drawn outside the UI-scale host scope. First
+  of four W6 steps that make `ParsekUI` reach no residue type; measured on the semantic
+  graph, all four take the residue 150 -> 140, this one alone moves nothing (knot 390 -> 391,
+  residue 150).
 - Wave 2 W8a (S3, pure move, IL identical): the five `ParsekFlight.*.cs` partials under 200 lines
   that the ParsekFlight split wrote out of `ParsekFlight.cs` (`.Accessors`, `.Flags`,
   `.PostSwitchAutoRecord`, `.Spawning`, `.SplitEvents`) are folded back into it

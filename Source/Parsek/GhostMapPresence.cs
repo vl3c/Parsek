@@ -955,7 +955,7 @@ namespace Parsek
         /// Unity-coupled wrapper over <see cref="ResolveMarkerDrawDecision"/> (Phase 8c): resolves the
         /// three per-pid signals and returns whether the Parsek non-proto marker must draw for
         /// <paramref name="ghostPid"/> this frame (proto icon hidden). Both marker call sites
-        /// (<c>ParsekUI.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
+        /// (<c>ParsekFlightMapMarkers.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
         /// .ClassifyAtmosphericMarkerSkip</c> TS) route through this single source so they cannot diverge.
         /// </summary>
         internal static bool ShouldDrawNonProtoMarkerForGhost(uint ghostPid)

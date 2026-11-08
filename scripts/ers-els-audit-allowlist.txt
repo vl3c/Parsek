@@ -196,7 +196,10 @@ Source/Parsek/Diagnostics/DiagnosticsComputation.cs
 Source/Parsek/FlightRecorder.StopAndFinalize.cs
 Source/Parsek/ParsekKSC.cs
 Source/Parsek/ParsekKSC.Playback.cs
-Source/Parsek/ParsekUI.cs
+# ParsekFlightMapMarkers holds the flight map-marker pass moved out of ParsekUI.cs verbatim:
+# the ghostStates dict it walks is keyed by CommittedRecordings index ([ERS-exempt] at the
+# read), so markers must be looked up in that same index space.
+Source/Parsek/ParsekFlightMapMarkers.cs
 Source/Parsek/UI/RecordingsTableUI.cs
 # RecordingsTableUI's partial-class split (scripts/refactor/split_recordingstableui.py):
 # the raw reads RecordingsTableUI.cs held now also sit in these three partials, same
