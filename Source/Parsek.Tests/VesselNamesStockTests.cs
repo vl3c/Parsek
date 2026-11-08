@@ -991,7 +991,7 @@ namespace Parsek.Tests
             Assert.True(future < undo && undo < invoke,
                 "Retry undoes after its last refusal and before it re-invokes the Re-Fly");
 
-            string strip = MethodBody("RewindInvoker.cs", "private static void RunStripActivateMarker(");
+            string strip = MethodBody(RewindInvokerSourceFiles.StripActivate, "private static void RunStripActivateMarker(");
             int marker = IndexOrFail(strip, "AtomicMarkerWrite(");
             int pass = IndexOrFail(strip, "VesselNameLiveSync.OnReFlyStripComplete(");
             Assert.True(marker < pass, "the post-strip pass follows the strip and the marker write");

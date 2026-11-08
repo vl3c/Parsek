@@ -88,6 +88,8 @@ namespace Parsek.Tests
                 MissionsWindowUISourceFiles.Paths(Path.Combine(parsek, "UI")).Count);
             Assert.Equal(1 + LogisticsWindowUISourceFiles.SplitFileNames.Length,
                 LogisticsWindowUISourceFiles.Paths(Path.Combine(parsek, "UI")).Count);
+            Assert.Equal(1 + RewindInvokerSourceFiles.SplitFileNames.Length,
+                RewindInvokerSourceFiles.Paths(parsek).Count);
         }
     }
 }

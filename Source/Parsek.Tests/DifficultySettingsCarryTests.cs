@@ -61,7 +61,7 @@ namespace Parsek.Tests
             string repo = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string text = SourceScanText.StripCSharpComments(
-                File.ReadAllText(Path.Combine(repo, "Source", "Parsek", file)));
+                RewindInvokerSourceFiles.ReadText(Path.Combine(repo, "Source", "Parsek", file)));
 
             int capture = text.IndexOf("DifficultySettingsCarry.CaptureLive(", StringComparison.Ordinal);
             int load = text.IndexOf("GamePersistence.LoadGame(", capture < 0 ? 0 : capture, StringComparison.Ordinal);
