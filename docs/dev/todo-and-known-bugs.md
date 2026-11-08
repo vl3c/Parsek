@@ -1530,13 +1530,6 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   the no-segment arm (future-segment scan, retention line) and the result apply. Pinned first by
   `FlightMapPassCharacterizationTests`. Left in place, not reachable headless: the created-ghost
   bookkeeping, the loiter-gap clamp and `UpdateGhostOrbitFromStateVectors` (needs a live vessel).
-- Wave 2 W6, second PR (2026-11-08, this branch, decouple): the main window's Supply Route
-  candidate banner and Logistics launcher are drawn by `LogisticsWindowUI.DrawMainWindowSection`
-  (`UI/LogisticsWindowUI.MainWindowSection.cs`, budgeted by `TooltipEchoBudgetTests` at the main
-  window's width) at the same place in `ParsekUI.DrawWindow`, and the Timeline and Kerbals
-  windows hook their own caches to `LedgerOrchestrator.OnTimelineDataChanged` from the same
-  `ParsekUI` constructors and `Cleanup`. `ParsekUI` now reaches only the window types inside the
-  residue; residue still 150 (the last two W6 steps carry the drop).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
