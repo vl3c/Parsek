@@ -4389,6 +4389,14 @@ Engine skirts (owner request 2026-11-07): the Making History engine plates carry
 
 **Priority:** Low - cosmetic
 
+### T25B. Engine plate decouple: the engines leave with the lower stage, a same-ghost hide keeps them
+
+Found by FGV-1 run `2026-11-07_2342` (`fgv-5-separated`). When a stock engine plate (Making History `EnginePlate*`, `ModuleDecouple.isEnginePlate`) decouples its bottom node, the engines on its mount nodes (`N2_1` / `N2_2`) go with the lower stage: the real vessel kept two parts (plate + probe; the post-split ghost was built from a 2-part snapshot) and the screenshot shows the plate with no engines. The lane's same-ghost "separated" phase hides only the bottom part's subtree, so that ghost still draws both engines (its skirt check passes because it compares shroud and mount meshes only). A ghost rebuilt from the post-split snapshot matches. Open question: does any playback path keep one ghost across an engine-plate split and hide by the recorded `Decoupled` pid alone? If so, the engines would stay on the upper ghost. Check the recorded part events of a real engine-plate staging before fixing anything.
+
+**Status:** Open, not reproduced on a recording.
+
+**Priority:** Low - cosmetic
+
 ---
 
 ## TODO — Compatibility
