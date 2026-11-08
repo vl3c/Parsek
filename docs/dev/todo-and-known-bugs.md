@@ -3030,6 +3030,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `BuildStrategyFundsConversionAction`, `BuildStrategyReputationConversionAction`), behind a
   characterization golden over every currency, delta sign, reason and tag
   (`BuildStrategyConversionActionCharacterizationTests`) written first.
+- Wave 2 W7b3 (2026-11-08, this branch): `LedgerOrchestrator.NotifyLedgerTreeCommitted`
+  (195 lines) keeps its try / catch / finally and calls `FileTreeRecordingCommit` (one
+  recording), `WalkAfterFailedTreeCommit`, `LogTreeCommitPendingScienceOutcome` and
+  `WalkAndCompleteTreeCommit`, behind a ten-scenario golden with faults before and after the
+  science persists (`NotifyLedgerTreeCommittedCharacterizationTests`) written first.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
