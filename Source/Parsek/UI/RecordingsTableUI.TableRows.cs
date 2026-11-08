@@ -960,7 +960,7 @@ namespace Parsek
             {
                 var forwardRec = committed[forwardIdx];
                 string ffReason;
-                bool canFF = RecordingStore.CanFastForward(forwardRec, out ffReason, isRecording: isRecording);
+                bool canFF = RewindLauncher.CanFastForward(forwardRec, out ffReason, isRecording: isRecording);
                 GUI.enabled = canFF;
                 string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
                 if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
@@ -975,7 +975,7 @@ namespace Parsek
                 int rewindIdx = blockRewindIdx;
                 var rewindRec = committed[rewindIdx];
                 string rewindReason;
-                bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
+                bool canRewind = RewindLauncher.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
                 GUI.enabled = canRewind;
                 string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
                     ? "this launch"

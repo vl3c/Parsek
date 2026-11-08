@@ -163,7 +163,7 @@ tags = ["RF-4", "rewind", "rewind-to-launch", "refly", "supersede", "rollback", 
 # `IsMultiControllableSplit` returns two and a RewindPoint is authored by physics. What
 # this lane additionally needs from it is the thing no recorded fixture has: the LAUNCH
 # itself, whose non-promotion recording start writes the `parsek_rw_*` quicksave that
-# `RecordingStore.CanRewind` demands.
+# `RewindLauncher.CanRewind` demands.
 saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
 injectedRecordings = "none"
 craft              = []

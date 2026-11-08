@@ -1192,7 +1192,7 @@ namespace Parsek.Tests
             string body = source.Substring(methodStart, methodEnd - methodStart);
 
             int hookCall = body.IndexOf(
-                "RecordingStore.TryDiscardActiveSwitchSegmentAttempt");
+                "SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt");
             int wholeTreeCall = body.IndexOf(
                 "ParsekScenario.DiscardPendingTreeAndRecalculate");
             Assert.True(hookCall > 0, "Scoped switch-segment hook not found in MergeDiscardRanToCompletion");
