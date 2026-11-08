@@ -526,14 +526,14 @@ namespace Parsek.Tests
 
         // catches: PeriodTooltipLocked losing its OWN consumer. It survived the `locked`
         // parameter's removal because a route-owned mission renders its period as the label
-        // "locked" carrying this text directly (UI/MissionsWindowUI.cs), which is a different
+        // "locked" carrying this text directly (MissionsWindowUI), which is a different
         // control from the unit button BuildPeriodStateTooltip feeds.
         [Fact]
         public void PeriodTooltipLocked_IsStillDrawnByTheRouteOwnedPeriodLabel()
         {
-            string src = System.IO.File.ReadAllText(System.IO.Path.GetFullPath(
+            string src = MissionsWindowUISourceFiles.ReadAll(System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", "Parsek", "UI", "MissionsWindowUI.cs")));
+                    "..", "..", "..", "..", "Parsek", "UI")));
 
             Assert.True(DrawsThePeriodTooltipLockedConstant(src),
                 "MissionsWindowUI must still DRAW MissionPresentation.PeriodTooltipLocked; "
