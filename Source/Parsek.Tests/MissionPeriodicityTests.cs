@@ -255,7 +255,7 @@ namespace Parsek.Tests
             if (extraCommitted != null)
                 committed.AddRange(extraCommitted); // e.g. a station's own recording (another tree)
             var (view, compRoots) = Models(tree);
-            return MissionPeriodicity.ExtractConstraints(
+            return MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, excluded ?? new HashSet<string>(), bodyInfo);
         }
 
@@ -554,7 +554,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(); // nothing committed
             var (view, compRoots) = Models(tree);
 
-            var ex = MissionPeriodicity.ExtractConstraints(
+            var ex = MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), StockFake());
 
             Assert.Empty(ex.Constraints);
@@ -1179,7 +1179,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(tree.Recordings.Values) { station };
             var (view, compRoots) = Models(tree);
 
-            var ex = MissionPeriodicity.ExtractConstraints(
+            var ex = MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), StationFake());
 
             Assert.Equal(Support.Supported, ex.Support);
@@ -1200,7 +1200,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(tree.Recordings.Values) { station };
             var (view, compRoots) = Models(tree);
 
-            var ex = MissionPeriodicity.ExtractConstraints(
+            var ex = MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), StationFake());
 
             Assert.Equal(Support.Supported, ex.Support);
@@ -1232,9 +1232,9 @@ namespace Parsek.Tests
             var (view, compRoots) = Models(tree);
 
             var drifted = StationFake();
-            MissionPeriodicity.ExtractConstraints(
+            MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), drifted);
-            MissionPeriodicity.ExtractConstraints(
+            MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), drifted);
             Assert.Equal(1, logLines.Count(l =>
                 l.Contains("[INFO]") && l.Contains("[MissionPeriodicity]")
@@ -1242,9 +1242,9 @@ namespace Parsek.Tests
 
             // The station boosts back to the recorded period -> the amber clears, logged once.
             var aligned = StationFake(period: recordedPeriod);
-            MissionPeriodicity.ExtractConstraints(
+            MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), aligned);
-            MissionPeriodicity.ExtractConstraints(
+            MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                 view, compRoots, committed, new HashSet<string>(), aligned);
             Assert.Equal(1, logLines.Count(l =>
                 l.Contains("[INFO]") && l.Contains("Drift amber CLEARED") && l.Contains("tree=t")));
@@ -3095,6 +3095,115 @@ namespace Parsek.Tests
                 launchBodyName: ex.LaunchBodyName);
             Assert.False(ok);
             Assert.Null(schedule);
+        }
+
+        // ===================== Extraction answer pins (wave 2 W1c) =====================
+        // The extractor's answer for a spread of fixtures, captured from the extractor as it
+        // was before it took the trimmed member windows as an input (it used to compute them
+        // itself through MissionLoopUnitBuilder). The re-pointed callers (the loop-unit
+        // builder, the Missions window, the in-game real-save finder) all go through
+        // MissionLoopUnitBuilder.ExtractPeriodicityConstraints, which these drive.
+
+        private static string DescribeExtraction(ConstraintExtraction ex)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            return "support=" + ex.Support
+                + " launch=" + (ex.LaunchBodyName ?? "null")
+                + " ut0=" + ex.UT0.ToString("R", ic)
+                + " unsupported=" + (ex.UnsupportedReason ?? "null")
+                + " drift=" + (ex.DriftAmberReason ?? "null")
+                + " constraints=[" + (ex.Constraints == null
+                    ? "null"
+                    : string.Join("; ", ex.Constraints.Select(c => c.ToString()))) + "]";
+        }
+
+        private static IEnumerable<(string name, ConstraintExtraction ex)> PinnedExtractions()
+        {
+            yield return ("bare-orbit", Extract(TreeOf("t", OrbitLeg("o", 1000, 2000, "Kerbin")), StockFake()));
+
+            var surface = SurfaceLeg("s", 100, 200, "Kerbin");
+            var orbit = OrbitLeg("o", 200, 800, "Kerbin");
+            surface.ChainId = "C"; surface.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            yield return ("launch-orbit", Extract(TreeOf("t", surface, orbit), StockFake()));
+
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithSoiEntry(transfer, 1600, 2000, "Mun");
+            var munLanding = SurfaceLeg("m", 2000, 2500, "Mun");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            munLanding.ChainId = "C"; munLanding.ChainIndex = 2;
+            var munTree = TreeOf("t", ascent, transfer, munLanding);
+            yield return ("mun-landing", Extract(munTree, StockFake()));
+            yield return ("mun-landing-excluded", Extract(munTree, StockFake(), new HashSet<string> { "s" }));
+
+            yield return ("resupply", Extract(ResupplyTree(), StationFake()));
+            yield return ("cross-parent-resupply", Extract(CrossParentResupplyTree(), StationFake(body: "Duna")));
+            yield return ("cross-parent-no-anchor", Extract(CrossParentResupplyTree(), StockFake()));
+            yield return ("jool-tour", Extract(ReaimJoolTourTree(), JoolSystemFake()));
+
+            var (view, compRoots) = Models(TreeOf("t", OrbitLeg("o", 100, 200, "Kerbin")));
+            yield return ("nothing-committed", MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
+                view, compRoots, new List<Recording>(), new HashSet<string>(), StockFake()));
+            yield return ("null-committed", MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
+                view, compRoots, null, new HashSet<string>(), StockFake()));
+            yield return ("null-body-info", MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
+                view, compRoots, new List<Recording>(), new HashSet<string>(), null));
+        }
+
+        [Fact]
+        public void ExtractPeriodicityConstraints_AnswersArePinnedToThePreDecoupleExtractor()
+        {
+            var expected = new Dictionary<string, string>
+            {
+                { "bare-orbit", "support=Supported launch=Kerbin ut0=1000 unsupported=null drift=null constraints=[]" },
+                { "launch-orbit", "support=Supported launch=Kerbin ut0=100 unsupported=null drift=null constraints=[Rotation(Kerbin) P=21549.425 off=0]" },
+                { "mun-landing", "support=Supported launch=Kerbin ut0=1000 unsupported=null drift=null constraints=[Rotation(Kerbin) P=21549.425 off=0; Rotation(Mun) P=138984.38 off=1000; Orbital(Mun) same-parent P=138984.38 off=600]" },
+                { "mun-landing-excluded", "support=Supported launch=null ut0=NaN unsupported=null drift=null constraints=[]" },
+                { "resupply", "support=Supported launch=Kerbin ut0=1000 unsupported=null drift=null constraints=[Rotation(Kerbin) P=21549.425 off=0; VesselOrbital(4242@Kerbin) P=1800 off=200]" },
+                { "cross-parent-resupply", "support=UnsupportedCrossParent launch=Kerbin ut0=1000 unsupported=orbital target 'Duna' is not a direct child of launch body 'Kerbin' (synodic, Phase 4) drift=null constraints=[Rotation(Kerbin) P=21549.425 off=0; Orbital(Duna) cross-parent P=17315400 off=600; VesselOrbital(4242@Duna) P=1800 off=800]" },
+                { "cross-parent-no-anchor", "support=UnsupportedRendezvous launch=Kerbin ut0=1000 unsupported=rendezvous anchor vessel pid=4242 not in save / no closed orbit (or a different launch of the same craft) drift=null constraints=[Rotation(Kerbin) P=21549.425 off=0; Orbital(Duna) cross-parent P=17315400 off=600]" },
+                { "jool-tour", "support=UnsupportedCrossParent launch=Kerbin ut0=1000 unsupported=orbital target 'Jool' is not a direct child of launch body 'Kerbin' (synodic, Phase 4) drift=null constraints=[Rotation(Kerbin) P=21549.425 off=0; Orbital(Jool) cross-parent P=104661432 off=999000; Orbital(Laythe) cross-parent P=52980.9 off=1004000; Orbital(Vall) cross-parent P=105962.1 off=1009000; Orbital(Tylo) cross-parent P=211926.4 off=1014000]" },
+                { "nothing-committed", "support=Supported launch=null ut0=NaN unsupported=null drift=null constraints=[]" },
+                { "null-committed", "support=Supported launch=null ut0=NaN unsupported=null drift=null constraints=[]" },
+                { "null-body-info", "support=Supported launch=null ut0=NaN unsupported=null drift=null constraints=[]" },
+            };
+            var actual = PinnedExtractions().ToList();
+            foreach (var (name, ex) in actual)
+                Assert.Equal(name + " " + expected[name], name + " " + DescribeExtraction(ex));
+            Assert.Equal(expected.Count, actual.Count);
+        }
+
+        [Fact]
+        public void ExtractPeriodicityConstraints_EqualsTheExtractorOverTheBuildersMemberWindows()
+        {
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithSoiEntry(transfer, 1600, 2000, "Mun");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var excluded = new HashSet<string>();
+            var (view, compRoots) = Models(tree);
+
+            ConstraintExtraction viaBuilder = MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
+                view, compRoots, committed, excluded, StockFake());
+            var windows = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
+                view, compRoots, committed, excluded, null, out _, out _);
+            ConstraintExtraction direct = MissionPeriodicity.ExtractConstraints(
+                view, windows, committed, StockFake());
+
+            Assert.Equal(DescribeExtraction(direct), DescribeExtraction(viaBuilder));
+            Assert.Equal(2, viaBuilder.Constraints.Count);
+
+            // An empty window set reads as "no included members", as the extractor's own
+            // empty-set branch did.
+            ConstraintExtraction empty = MissionPeriodicity.ExtractConstraints(
+                view, new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>(), committed, StockFake());
+            Assert.Empty(empty.Constraints);
+            Assert.True(double.IsNaN(empty.UT0));
         }
     }
 }

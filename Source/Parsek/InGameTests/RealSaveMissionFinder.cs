@@ -167,7 +167,7 @@ namespace Parsek.InGameTests
                     MissionStructure structure = MissionStructureBuilder.Build(tree);
                     MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
                     List<MissionCompositionNode> compRoots = MissionCompositionBuilder.Build(structure);
-                    ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
+                    ConstraintExtraction extraction = MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                         view, compRoots, committed, mission.ExcludedIntervalKeys, bodyInfo);
                     if (extraction.Constraints == null)
                         continue;
@@ -405,7 +405,7 @@ namespace Parsek.InGameTests
                     MissionStructure structure = MissionStructureBuilder.Build(tree);
                     MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
                     List<MissionCompositionNode> compRoots = MissionCompositionBuilder.Build(structure);
-                    ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
+                    ConstraintExtraction extraction = MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                         view, compRoots, committed, mission.ExcludedIntervalKeys, bodyInfo);
                     if (extraction.Constraints == null)
                         continue;
