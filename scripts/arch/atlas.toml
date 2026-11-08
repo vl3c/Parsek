@@ -342,7 +342,7 @@ rank = 4
 item = "Give the ratchet a measure the code cannot bend to; retire the metric forwarders"
 evidence = "11 of the store's 13 forwarders exist to keep callers on the cut side; prose literals are unchecked (<em>Main findings</em>)."
 size = "medium"
-status = "Open, todo ARCH-TOOLING-ROSLYN-AND-CI. No product change."
+status = "Done 2026-11-08: the ratchet reads the semantic graph from the compiled IL (W4a / W4a2), atlas prose numbers are checked, and W4c deleted the 11 metric forwarders. Todo ARCH-TOOLING-ROSLYN-AND-CI."
 
 [[opportunities]]
 rank = 5

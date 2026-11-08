@@ -69,7 +69,7 @@ id = "GS-7-kerbalx-crash-watch-hold"
 #     the stock crash report shows first so a player can still revert). The seam
 #     `CommitTree` verb refuses `no-active-tree` once the tree is stashed, and
 #     `InvokeRewindToLaunch` is `RequiresFlight` and refuses a pending tree through
-#     `RecordingStore.CanRewind`. So the machine hops: `ExitToSpaceCenter` (proceeds
+#     `RewindLauncher.CanRewind`. So the machine hops: `ExitToSpaceCenter` (proceeds
 #     under autoMerge=true with `pendingTreeVariant=None`, exactly CL-2's measured gate
 #     line) lets the pending tree auto-commit on arrival (`Silent full-fidelity
 #     auto-commit (scene-exit)` then `Committed tree ...`), `ListHandles kind=committed`
