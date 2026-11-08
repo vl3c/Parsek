@@ -96,6 +96,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Tiers_EndedAndGlobalLatestTies_KeepFirst()
+        {
+            var a = Rec("a", "V", 100, 300);
+            var b = Rec("b", "V", 150, 400);
+            var c = Rec("c", "V", 160, 400);
+            Recording br, bsp, mre, gl;
+            LedgerOrchestrator.WalkRecoveryPickTiers(
+                new List<Recording> { a, b, c }, 1000.0, null, out br, out bsp, out mre, out gl);
+            Assert.Null(br);
+            Assert.Same(b, mre);
+            Assert.Same(b, gl);
+        }
+
+        [Fact]
         public void Tiers_EndUtEqualToUt_CountsAsBothBracketingAndEnded()
         {
             var a = Rec("a", "V", 100, 500);
