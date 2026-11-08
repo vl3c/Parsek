@@ -1548,6 +1548,16 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   `GhostPlaybackLogic.ApplyPartEvents`. AddPartVisuals is Unity work from top to bottom, so no
   headless test can characterize it. ApplyPartEvents is already a flat dispatcher, and its one
   worthwhile cut (the switch body) is where main adds the wheel break / repair cases.
+- Wave 2 W9b (2026-11-08, this branch, S1 extract-method): the 200-line
+  `FlightRecorder.RestoreTrackSectionAfterFalseAlarm` calls four extracted units: the
+  resume-anchor validation, the Relative-to-Absolute boundary repair, the start-UT alignment
+  and the seam overhang clamp. 19 golden digests captured against the original method pin
+  it. The other W9b recorder targets (`OnPhysicsFrame`, `OnPartJointBreak`,
+  `OnBackgroundPhysicsFrame`, `InitializeLoadedState`, `HandleBackgroundVesselSplit`) stay
+  as they are, for one of two reasons: every block worth extracting sits behind a live
+  Vessel / FlightGlobals / Planetarium read, so no headless test reaches it through the
+  original method; or it reads private recorder state, so a verbatim test-side oracle
+  cannot compile. The pure blocks left are small log pairs.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
