@@ -185,6 +185,17 @@ namespace Parsek.Tests
             Assert.False(RecordingSidecarStore.ShouldWriteReadableSidecarMirrors());
         }
 
+        [Fact]
+        public void ReadableMirror_NoOverrideAndNoSettings_Writes()
+        {
+            // No test override and no settings object (no game loaded headless): mirrors are
+            // written, the `settings == null` arm.
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            ParsekSettings.CurrentOverrideForTesting = null;
+            Assert.Null(ParsekSettings.Current);
+            Assert.True(RecordingSidecarStore.ShouldWriteReadableSidecarMirrors());
+        }
+
         // ---- currency checks ----
 
         [Fact]
