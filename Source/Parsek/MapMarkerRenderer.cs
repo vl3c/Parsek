@@ -9,7 +9,7 @@ namespace Parsek
 {
     /// <summary>
     /// Static helper for drawing ghost vessel map markers via OnGUI.
-    /// Shared between flight-scene map view (ParsekUI.DrawMapMarkers via
+    /// Shared between flight-scene map view (ParsekFlightMapMarkers.DrawMapMarkers via
     /// <see cref="DrawMarkerAtScreen"/>) and the tracking station
     /// (ParsekTrackingStation.OnGUI via <see cref="DrawMarker"/>).
     ///

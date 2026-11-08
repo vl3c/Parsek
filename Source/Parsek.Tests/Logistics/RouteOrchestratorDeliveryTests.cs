@@ -398,6 +398,27 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0, route.CompletedCycles);
         }
 
+        // catches: someone "completing the Send Once family" by consuming the arm on the
+        // delivery-time endpoint loss (SENDONCE-RESIDUAL-PATHS item 3, closed by design). An
+        // endpoint loss is retryable, like the postponement holds the blocked path exempts:
+        // the player's one run has not happened, so both one-shot flags stay armed and the
+        // run that follows the recovery honours them.
+        [Fact]
+        public void EndpointLostAtDelivery_KeepsTheArmedOneShots()
+        {
+            var route = BuildInTransitKscRoute();
+            route.SendOnceArmed = true;
+            route.PauseAfterCurrentCycle = true;
+            RouteStore.AddRoute(route);
+
+            RouteOrchestrator.Tick(200.0, new EndpointLostFakeEnv());
+
+            Assert.Equal(RouteStatus.EndpointLost, route.Status);
+            Assert.True(route.SendOnceArmed);
+            Assert.True(route.PauseAfterCurrentCycle);
+            Assert.DoesNotContain(RouteEventLog.Events, a => a.Type == RouteEventType.RoutePaused);
+        }
+
         // catches: crash/recovery double-emit; would corrupt CompletedCycles.
         [Fact]
         public void IdempotentReplay_SkipsWhenActionAlreadyInELS()

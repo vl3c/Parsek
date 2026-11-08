@@ -174,7 +174,6 @@ namespace Parsek
         internal const string TrackingStationSpawnSkipBeforeEnd = "before-recording-end";
         internal const string TrackingStationSpawnSkipIntermediateChainSegment = "intermediate-chain-segment";
         internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
-        internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
         internal const string TrackingStationSpawnSkipSupersededByRelation = "superseded-by-relation";
         internal const string TrackingStationSpawnSkipRewindRetired = "rewind-retired";
         internal const string SoiGapStateVectorFallbackReason = "soi-gap-state-vector-fallback";
@@ -955,7 +954,7 @@ namespace Parsek
         /// Unity-coupled wrapper over <see cref="ResolveMarkerDrawDecision"/> (Phase 8c): resolves the
         /// three per-pid signals and returns whether the Parsek non-proto marker must draw for
         /// <paramref name="ghostPid"/> this frame (proto icon hidden). Both marker call sites
-        /// (<c>ParsekUI.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
+        /// (<c>ParsekFlightMapMarkers.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
         /// .ClassifyAtmosphericMarkerSkip</c> TS) route through this single source so they cannot diverge.
         /// </summary>
         internal static bool ShouldDrawNonProtoMarkerForGhost(uint ghostPid)

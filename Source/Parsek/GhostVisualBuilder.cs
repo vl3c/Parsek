@@ -209,6 +209,7 @@ namespace Parsek
                         JettisonGhostInfo jettisonInfo;
                         List<EngineGhostInfo> partEngineInfos;
                         DeployableGhostInfo deployableInfo;
+                        WheelDamageGhostInfo wheelDamageInfo;
                         HeatGhostInfo heatInfo;
                         LightGhostInfo lightInfo;
                         FairingGhostInfo fairingInfo;
@@ -219,7 +220,8 @@ namespace Parsek
                         CompoundPartGhostInfo compoundPartInfo;
                         bool partVisualAdded = AddPartVisuals(build.visualsRoot, partNode, ap.partPrefab,
                             persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
-                            out partEngineInfos, out deployableInfo, out heatInfo, out lightInfo, out fairingInfo,
+                            out partEngineInfos, out deployableInfo, out wheelDamageInfo,
+                            out heatInfo, out lightInfo, out fairingInfo,
                             out partRcsInfos, out partRoboticInfos, out partSynthesizedMotionInfos,
                             out partColorChangerInfos, out compoundPartInfo,
                             build.raiseLightVisualOnly, build.raiseRcsVisualOnly);
@@ -237,6 +239,8 @@ namespace Parsek
                             build.engineInfos.AddRange(partEngineInfos);
                         if (deployableInfo != null)
                             build.deployableInfos.Add(deployableInfo);
+                        if (wheelDamageInfo != null)
+                            build.wheelDamageInfos.Add(wheelDamageInfo);
                         if (heatInfo != null)
                             build.heatInfos.Add(heatInfo);
                         if (lightInfo != null)
@@ -354,6 +358,7 @@ namespace Parsek
                 jettisonInfos = build.jettisonInfos.Count > 0 ? build.jettisonInfos : null,
                 engineInfos = build.engineInfos.Count > 0 ? build.engineInfos : null,
                 deployableInfos = build.deployableInfos.Count > 0 ? build.deployableInfos : null,
+                wheelDamageInfos = build.wheelDamageInfos.Count > 0 ? build.wheelDamageInfos : null,
                 heatInfos = build.heatInfos.Count > 0 ? build.heatInfos : null,
                 lightInfos = build.lightInfos.Count > 0 ? build.lightInfos : null,
                 fairingInfos = build.fairingInfos.Count > 0 ? build.fairingInfos : null,
@@ -964,6 +969,7 @@ namespace Parsek
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
             out List<EngineGhostInfo> engineInfos, out DeployableGhostInfo deployableInfo,
+            out WheelDamageGhostInfo wheelDamageInfo,
             out HeatGhostInfo heatInfo,
             out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo,
             out List<RcsGhostInfo> rcsInfos, out List<RoboticGhostInfo> roboticInfos,
@@ -977,6 +983,7 @@ namespace Parsek
             jettisonInfo = null;
             engineInfos = null;
             deployableInfo = null;
+            wheelDamageInfo = null;
             heatInfo = null;
             lightInfo = null;
             fairingInfo = null;
@@ -1108,12 +1115,22 @@ namespace Parsek
             if (raiseLightVisualOnly && prefab.FindModuleImplementing<ModuleLight>() != null)
                 modelNode.transform.localPosition += new Vector3(0f, LightsShowcaseVisualYOffset, 0f);
 
-            // Collect damaged wheel transform names from part config (ModuleWheelDamage).
-            // Damaged meshes are initially inactive in the prefab but GetComponentsInChildren(true)
-            // collects them. Filter them out to prevent the ghost rendering both intact and damaged
-            // wheel meshes simultaneously.
+            // Collect the ModuleWheelDamage transform names from part config. The busted wheel
+            // mesh (damagedTransformName) is CLONED onto the ghost and hidden at build time, so a
+            // recorded WheelBroken can swap it in for the intact one (undamagedTransformName),
+            // exactly as stock SetDamaged does. It must never render alongside the intact mesh:
+            // TryBuildWheelDamageInfo hides every cloned busted transform before the ghost is
+            // shown. The one shape that cannot be swapped safely (a busted name matching the
+            // model root or one of its ancestors, where hiding it would hide the whole part)
+            // keeps the old behaviour and strips the busted renderers instead.
             ConfigNode partConfig = prefab.partInfo?.partConfig;
             HashSet<string> damagedWheelNames = GetDamagedWheelTransformNames(partConfig);
+            HashSet<string> undamagedWheelNames = GetUndamagedWheelTransformNames(partConfig);
+            bool wheelDamageSwappable = damagedWheelNames.Count > 0
+                && !IsRendererOnDamagedTransform(modelRoot, damagedWheelNames);
+            HashSet<string> damagedFilterNames = damagedWheelNames.Count > 0 && !wheelDamageSwappable
+                ? damagedWheelNames
+                : null;
 
             // Collect depth-mask transform names (ReStock's ModuleRestockDepthMask and
             // the community ModuleDepthMask pattern). A depth-mask mesh writes DEPTH
@@ -1161,7 +1178,7 @@ namespace Parsek
                     variantRuleSkipped++;
                     continue;
                 }
-                if (IsRendererOnDamagedTransform(mr.transform, damagedWheelNames))
+                if (IsRendererOnDamagedTransform(mr.transform, damagedFilterNames))
                 {
                     damagedSkipped++;
                     continue;
@@ -1191,7 +1208,7 @@ namespace Parsek
                 skinnedRenderers, modelRoot, modelNode.transform, partRoot.transform,
                 prefab, cloneMap,
                 filterInactiveVariantRenderers, hasVariantGameObjectRules, selectedVariantGameObjects,
-                damagedWheelNames, depthMaskNames, persistentId, partName,
+                damagedFilterNames, depthMaskNames, persistentId, partName,
                 ref meshCount, ref damagedSkipped, ref nullMeshSkipped, ref depthMaskSkipped);
             if (skinnedCloned > 0)
                 added = true;
@@ -1227,7 +1244,11 @@ namespace Parsek
 
             // Detect jettison parts (shrouds/fairings) via cloneMap.
             jettisonInfo = ResolveJettisonTransforms(
-                prefab, cloneMap, persistentId, partName);
+                prefab, cloneMap, persistentId, partName, partNode);
+
+            // Engine plates show only the selected mount pattern.
+            ApplyDynamicNodeMeshVisibility(
+                prefab.partInfo?.partConfig, partNode, modelNode.transform, persistentId, partName);
 
             // If the snapshot MODULE data shows the shroud is already jettisoned,
             // hide the transforms immediately. Continuation recordings (tree
@@ -1366,24 +1387,126 @@ namespace Parsek
             colorChangerInfos = BuildColorChangerInfos(
                 partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName);
 
-            // Detect procedural fairings and generate simplified cone mesh
+            // Procedural fairings: stock-built panel shell + stock truss / cap visibility rule
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);
             if (fairingInfo != null)
-            {
                 added = true;
-                // Hide internal truss/cap structure that would poke through the fairing cone
-                HideFairingInternalStructure(fairingInfo, prefab.partInfo?.partConfig,
-                    modelNode.transform, persistentId, partName);
+
+            // Wheel damage swap: resolved LAST, against the fully populated cloneMap, so every
+            // cloned busted transform is found and hidden before the ghost is ever shown.
+            if (damagedWheelNames.Count > 0 || undamagedWheelNames.Count > 0)
+            {
+                wheelDamageInfo = TryBuildWheelDamageInfo(
+                    persistentId, partName, wheelDamageSwappable,
+                    damagedWheelNames, undamagedWheelNames, cloneMap, modelNode.transform);
             }
 
             if (!added)
             {
                 compoundPartInfo = null;
+                wheelDamageInfo = null;
                 Object.Destroy(partRoot);
                 return false;
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Why a part with a ModuleWheelDamage did or did not get a <see cref="WheelDamageGhostInfo"/>.
+        /// </summary>
+        internal enum WheelDamageBuildDecision
+        {
+            /// Build the info: the swap has something to show in place of the intact wheel.
+            Build,
+            /// The busted name matches the model root or an ancestor; its renderers were stripped.
+            NotSwappable,
+            /// A busted mesh is configured but no renderer of it cloned onto the ghost (a variant,
+            /// depth-mask or null-mesh filter skipped it, leaving at most an empty transform, or
+            /// the name resolves to nothing). Building would let a break hide the
+            /// intact wheel with nothing in its place, so the break has no visual instead.
+            BustedMeshNotCloned,
+            /// Neither name resolved to a cloned transform.
+            NothingCloned,
+        }
+
+        /// <summary>
+        /// Pure gate for <see cref="TryBuildWheelDamageInfo"/>. When the part names no busted mesh
+        /// at all, stock's own break just hides the intact transform, and the ghost mirrors that.
+        /// </summary>
+        internal static WheelDamageBuildDecision ClassifyWheelDamageBuild(
+            bool swappable, int damagedNameCount, int damagedRenderedClones, int undamagedClones)
+        {
+            if (damagedNameCount > 0 && !swappable) return WheelDamageBuildDecision.NotSwappable;
+            if (damagedRenderedClones == 0 && undamagedClones == 0) return WheelDamageBuildDecision.NothingCloned;
+            if (damagedNameCount > 0 && damagedRenderedClones == 0) return WheelDamageBuildDecision.BustedMeshNotCloned;
+            return WheelDamageBuildDecision.Build;
+        }
+
+        /// <summary>
+        /// Collects the cloned transforms named by the part's ModuleWheelDamage
+        /// <c>damagedTransformName</c> / <c>undamagedTransformName</c> (stock resolves them with
+        /// <c>Part.FindModelTransform</c>, i.e. by name under the model) and HIDES every busted
+        /// one, so a freshly built ghost shows the intact wheel. The model node itself is never
+        /// collected: hiding it would hide the whole part.
+        /// </summary>
+        private static WheelDamageGhostInfo TryBuildWheelDamageInfo(
+            uint persistentId, string partName, bool swappable,
+            HashSet<string> damagedNames, HashSet<string> undamagedNames,
+            Dictionary<Transform, Transform> cloneMap, Transform modelNode)
+        {
+            var damaged = new List<Transform>();
+            var undamaged = new List<Transform>();
+            if (cloneMap != null)
+            {
+                foreach (Transform clone in cloneMap.Values)
+                {
+                    if (clone == null || clone == modelNode) continue;
+                    if (damagedNames != null && damagedNames.Contains(clone.name))
+                        damaged.Add(clone);
+                    else if (undamagedNames != null && undamagedNames.Contains(clone.name))
+                        undamaged.Add(clone);
+                }
+            }
+
+            // A busted transform counts only when a renderer cloned under it: the full-hierarchy
+            // mirror clones every transform, so an empty busted transform is common when its
+            // renderers were skipped (variant, depth-mask or null-mesh filters), and swapping to it
+            // would make the wheel vanish.
+            int damagedRendered = 0;
+            for (int i = 0; i < damaged.Count; i++)
+                if (damaged[i].GetComponentsInChildren<Renderer>(true).Length > 0)
+                    damagedRendered++;
+
+            WheelDamageBuildDecision decision = ClassifyWheelDamageBuild(
+                swappable, damagedNames?.Count ?? 0, damagedRendered, undamaged.Count);
+            if (decision != WheelDamageBuildDecision.Build)
+            {
+                // A busted mesh that cloned but will not be swapped must still never show.
+                for (int i = 0; i < damaged.Count; i++)
+                    damaged[i].gameObject.SetActive(false);
+                ParsekLog.VerboseRateLimited("GhostVisual", $"wheel_damage_skip_{partName}",
+                    $"  Part '{partName}' pid={persistentId}: no wheel damage swap ({decision}): " +
+                    $"busted clones={damaged.Count} (with renderers={damagedRendered}) " +
+                    $"intact clones={undamaged.Count} " +
+                    "- a recorded WheelBroken will have no visual", 60.0);
+                return null;
+            }
+
+            for (int i = 0; i < damaged.Count; i++)
+                damaged[i].gameObject.SetActive(false);
+
+            ParsekLog.VerboseRateLimited("GhostVisual", $"wheel_damage_info_{partName}",
+                $"  Part '{partName}' pid={persistentId}: wheel damage swap resolved " +
+                $"(busted={damaged.Count} hidden at build, with renderers={damagedRendered}, " +
+                $"intact={undamaged.Count})", 60.0);
+            return new WheelDamageGhostInfo
+            {
+                partPersistentId = persistentId,
+                damagedTransforms = damaged,
+                undamagedTransforms = undamaged,
+                damaged = false,
+            };
         }
 
         /// <summary>
@@ -1413,13 +1536,13 @@ namespace Parsek
         /// ModuleColorChanger: none of it is a persistent KSPField, so a PART node KSP itself wrote
         /// into a save, a .craft or a Parsek ghost sidecar carries only
         /// <c>isEnabled</c> / <c>animState</c> / <c>stagingEnabled</c>. Reading the snapshot node
-        /// alone therefore resolved NOTHING on any ghost built from a recording, while a synthetic
-        /// showcase node (which authors the fields by hand) resolved fine - the exact asymmetry
-        /// GS6-GHOST-HAS-NO-COLORCHANGER-STATE measured.
+        /// alone therefore resolved NOTHING on any ghost built from a recording, and nothing on a
+        /// synthetic part showcase row either (its node declares no ModuleColorChanger); only a
+        /// test node that authors the fields by hand resolved (GS6-GHOST-HAS-NO-COLORCHANGER-STATE).
         ///
         /// The rule, one per ModuleColorChanger instance and matched by DECLARATION ORDER:
-        /// prefer the snapshot node when it actually carries a shaderProperty (so every synthetic
-        /// and showcase path keeps its exact historical behaviour, overrides included), else fall
+        /// prefer the snapshot node when it actually carries a shaderProperty (so a node that
+        /// authors the fields keeps its exact behaviour, overrides included), else fall
         /// back to the prefab's own part config at the same index. When the snapshot part node
         /// declares no ModuleColorChanger at all, the prefab's list is used whole.
         /// </summary>

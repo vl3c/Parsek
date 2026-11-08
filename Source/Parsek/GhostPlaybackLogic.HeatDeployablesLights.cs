@@ -400,6 +400,78 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Swaps a ghost wheel between its intact and busted meshes: the ghost-side equivalent of
+        /// stock <c>ModuleWheelDamage.SetDamaged</c> (busted transform active, intact transform
+        /// inactive while broken; the reverse after a repair).
+        ///
+        /// Absolute-state and idempotent, so a snapshot baseline, a start-UT seed and a recorded
+        /// event can all target the same pid without fighting, and a loop cycle can reset every
+        /// wheel to intact before the baseline re-applies.
+        /// </summary>
+        internal static bool ApplyWheelDamageState(
+            GhostPlaybackState state, uint partPersistentId, bool damaged)
+            => ApplyWheelDamageStateWithOutcome(state, partPersistentId, damaged)
+                == GhostPartEventOutcome.Applied;
+
+        /// <summary>
+        /// Pure precondition classifier, the same shape as every other family's: Applied means
+        /// only "the ghost carries a wheel damage swap for this part".
+        /// </summary>
+        internal static GhostPartEventOutcome ClassifyWheelDamageApply(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.wheelDamageInfos == null) return GhostPartEventOutcome.NoFamilyState;
+            WheelDamageGhostInfo info;
+            if (!state.wheelDamageInfos.TryGetValue(partPersistentId, out info) || info == null)
+                return GhostPartEventOutcome.NoInfoForPart;
+            return GhostPartEventOutcome.Applied;
+        }
+
+        internal static GhostPartEventOutcome ApplyWheelDamageStateWithOutcome(
+            GhostPlaybackState state, uint partPersistentId, bool damaged)
+        {
+            GhostPartEventOutcome precondition = ClassifyWheelDamageApply(state, partPersistentId);
+            if (precondition != GhostPartEventOutcome.Applied) return precondition;
+
+            WheelDamageGhostInfo info = state.wheelDamageInfos[partPersistentId];
+            info.damaged = damaged;
+
+            // The Count reads are managed: an info with no transforms (a headless test fixture)
+            // never reaches the Unity calls.
+            if ((info.damagedTransforms != null && info.damagedTransforms.Count > 0)
+                || (info.undamagedTransforms != null && info.undamagedTransforms.Count > 0))
+            {
+                SetWheelDamageTransformsActive(info, damaged);
+            }
+
+            return GhostPartEventOutcome.Applied;
+        }
+
+        // Unity null checks and SetActive are ECalls; NoInlining keeps them out of the methods
+        // xUnit calls (see SetBreakSubtreeActive).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void SetWheelDamageTransformsActive(WheelDamageGhostInfo info, bool damaged)
+        {
+            if (info.damagedTransforms != null)
+            {
+                for (int i = 0; i < info.damagedTransforms.Count; i++)
+                {
+                    Transform t = info.damagedTransforms[i];
+                    if (t != null) t.gameObject.SetActive(damaged);
+                }
+            }
+            if (info.undamagedTransforms != null)
+            {
+                for (int i = 0; i < info.undamagedTransforms.Count; i++)
+                {
+                    Transform t = info.undamagedTransforms[i];
+                    if (t != null) t.gameObject.SetActive(!damaged);
+                }
+            }
+        }
+
+        /// <summary>
         /// Applies a deployable target pose, either immediately or as an interpolated transition
         /// keyed on <c>evt.ut</c> (the RECORDED event UT, never wall time — see
         /// <see cref="ComputeDeployableTransitionFraction"/>).

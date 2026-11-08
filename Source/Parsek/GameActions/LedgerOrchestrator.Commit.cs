@@ -65,7 +65,7 @@ namespace Parsek
         /// What <see cref="FileRecordingCommitRows"/> filed for one recording, carried to
         /// the post-walk reconciliation (<see cref="CompleteRecordingCommitAfterWalk"/>).
         /// </summary>
-        private struct FiledRecordingCommit
+        internal struct FiledRecordingCommit
         {
             public string RecordingId;
             public double StartUT;
@@ -510,42 +510,9 @@ namespace Parsek
             {
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    double startUT = rec.StartUT;
-                    double endUT = rec.EndUT;
-
-                    // Close chain segment gap: extend startUT backward to predecessor's EndUT
-                    double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
-                    if (adjusted < startUT) gapsClosed++;
-                    startUT = adjusted;
-
-                    // A Re-Fly attempt owns the awards tagged to it before its recorder bound.
-                    double reFlyAdjusted = AdjustStartUtForReFlyProvisional(
-                        rec, startUT, ResolveRewindPointUt);
-                    if (reFlyAdjusted < startUT) reFlyWindowsExtended++;
-                    startUT = reFlyAdjusted;
-
-                    IReadOnlyList<PendingScienceSubject> perRecordingPending;
-                    if (!pendingByRecording.TryGetValue(rec.RecordingId, out perRecordingPending))
-                        perRecordingPending = EmptyPendingScience;
-
-                    bool scienceAddedToLedger = false;
-                    try
-                    {
-                        filedCommits.Add(FileRecordingCommitRows(
-                            rec.RecordingId,
-                            startUT,
-                            endUT,
-                            perRecordingPending,
-                            ref scienceAddedToLedger,
-                            repSeedOrigin));
-                        removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
-                    }
-                    catch
-                    {
-                        if (scienceAddedToLedger)
-                            removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
-                        throw;
-                    }
+                    FileTreeRecordingCommit(
+                        rec, chainEndUTs, pendingByRecording, repSeedOrigin, filedCommits,
+                        ref removedPending, ref gapsClosed, ref reFlyWindowsExtended);
                 }
 
                 Recording retiredProvisional = ResolveRetiredReFlyProvisionalForCommit(tree);
@@ -560,20 +527,7 @@ namespace Parsek
                 // Rows already filed for earlier recordings stay in the ledger; walk them
                 // so live state matches what was filed, as the per-recording walks did
                 // before the batch walk. The original exception still propagates.
-                if (filedCommits.Count > 0 || retiredProvisionalRows > 0)
-                {
-                    try
-                    {
-                        RecalculateAndPatchAfterCommit(TreeCommitFailedRecalcReason);
-                    }
-                    catch (Exception walkEx)
-                    {
-                        ParsekLog.Warn(Tag,
-                            $"NotifyLedgerTreeCommitted: walk after a failed commit threw " +
-                            $"(filed={filedCommits.Count.ToString(CultureInfo.InvariantCulture)}): " +
-                            walkEx.Message);
-                    }
-                }
+                WalkAfterFailedTreeCommit(filedCommits, retiredProvisionalRows);
                 throw;
             }
             finally
@@ -585,51 +539,166 @@ namespace Parsek
                 // to recover; current production callers surface the exception instead of
                 // retrying the whole commit batch.
                 int remainingPending = GameStateRecorder.PendingScienceSubjects.Count;
-                if (commitSucceeded)
-                {
-                    if (remainingPending == 0 && (pendingBefore > 0 || removedPending > 0))
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"NotifyLedgerTreeCommitted: cleared PendingScienceSubjects " +
-                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending})");
-                    }
-                    else if (removedPending > 0 || remainingPending > 0)
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"NotifyLedgerTreeCommitted: preserved unrelated PendingScienceSubjects after success " +
-                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
-                            $"remaining={remainingPending})");
-                    }
-                }
-                else
-                {
-                    if (removedPending == 0)
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"NotifyLedgerTreeCommitted: retained PendingScienceSubjects after failure " +
-                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
-                            $"remaining={remainingPending})");
-                    }
-                    else if (remainingPending == 0)
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"NotifyLedgerTreeCommitted: already removed PendingScienceSubjects before failure " +
-                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
-                            $"remaining={remainingPending})");
-                    }
-                    else
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"NotifyLedgerTreeCommitted: partially retained PendingScienceSubjects after failure " +
-                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
-                            $"remaining={remainingPending})");
-                    }
-                }
+                LogTreeCommitPendingScienceOutcome(
+                    commitSucceeded, pendingBefore, routedPending, removedPending, remainingPending);
             }
 
             // 6. One walk for the whole tree, then each recording's post-walk
             // reconciliation (it reads the walk's derived fields). An empty tree files
             // nothing and walks nothing.
+            WalkAndCompleteTreeCommit(tree, chainEndUTs, filedCommits, retiredProvisionalRows);
+
+            // #390: prune events consumed by milestone creation + ledger conversion
+            GameStateStore.PruneProcessedEvents();
+
+            ParsekLog.Verbose(Tag,
+                $"NotifyLedgerTreeCommitted: tree='{tree.TreeName}' " +
+                $"recordings={tree.Recordings.Count}, chainSegments={chainEndUTs.Count}, " +
+                $"gapsClosed={gapsClosed}, reFlyWindowsExtended={reFlyWindowsExtended}, " +
+                $"retiredProvisionalRows={retiredProvisionalRows}");
+        }
+
+        /// <summary>
+        /// One recording of <see cref="NotifyLedgerTreeCommitted"/>: widen its window for a
+        /// chain gap and a Re-Fly provisional, file its rows (no walk) into
+        /// <paramref name="filedCommits"/>, and remove its routed pending science from the
+        /// static list once that science is safe to discard. An exception propagates after
+        /// the science already in the ledger has been removed.
+        /// </summary>
+        internal static void FileTreeRecordingCommit(
+            Recording rec,
+            Dictionary<string, double> chainEndUTs,
+            Dictionary<string, IReadOnlyList<PendingScienceSubject>> pendingByRecording,
+            ReputationSeedOrigin repSeedOrigin,
+            List<FiledRecordingCommit> filedCommits,
+            ref int removedPending,
+            ref int gapsClosed,
+            ref int reFlyWindowsExtended)
+        {
+            double startUT = rec.StartUT;
+            double endUT = rec.EndUT;
+
+            // Close chain segment gap: extend startUT backward to predecessor's EndUT
+            double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
+            if (adjusted < startUT) gapsClosed++;
+            startUT = adjusted;
+
+            // A Re-Fly attempt owns the awards tagged to it before its recorder bound.
+            double reFlyAdjusted = AdjustStartUtForReFlyProvisional(
+                rec, startUT, ResolveRewindPointUt);
+            if (reFlyAdjusted < startUT) reFlyWindowsExtended++;
+            startUT = reFlyAdjusted;
+
+            IReadOnlyList<PendingScienceSubject> perRecordingPending;
+            if (!pendingByRecording.TryGetValue(rec.RecordingId, out perRecordingPending))
+                perRecordingPending = EmptyPendingScience;
+
+            bool scienceAddedToLedger = false;
+            try
+            {
+                filedCommits.Add(FileRecordingCommitRows(
+                    rec.RecordingId,
+                    startUT,
+                    endUT,
+                    perRecordingPending,
+                    ref scienceAddedToLedger,
+                    repSeedOrigin));
+                removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
+            }
+            catch
+            {
+                if (scienceAddedToLedger)
+                    removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// The catch side of <see cref="NotifyLedgerTreeCommitted"/>: when any rows were
+        /// filed before the failure, walk them once; a walk that throws is logged and
+        /// swallowed, so the caller rethrows the original exception.
+        /// </summary>
+        internal static void WalkAfterFailedTreeCommit(
+            List<FiledRecordingCommit> filedCommits, int retiredProvisionalRows)
+        {
+            if (filedCommits.Count > 0 || retiredProvisionalRows > 0)
+            {
+                try
+                {
+                    RecalculateAndPatchAfterCommit(TreeCommitFailedRecalcReason);
+                }
+                catch (Exception walkEx)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"NotifyLedgerTreeCommitted: walk after a failed commit threw " +
+                        $"(filed={filedCommits.Count.ToString(CultureInfo.InvariantCulture)}): " +
+                        walkEx.Message);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The finally side of <see cref="NotifyLedgerTreeCommitted"/>: one Verbose line
+        /// naming what happened to the pending science (cleared, preserved, retained,
+        /// already removed, partially retained), or none when a success touched none.
+        /// </summary>
+        internal static void LogTreeCommitPendingScienceOutcome(
+            bool commitSucceeded, int pendingBefore, int routedPending, int removedPending,
+            int remainingPending)
+        {
+            if (commitSucceeded)
+            {
+                if (remainingPending == 0 && (pendingBefore > 0 || removedPending > 0))
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: cleared PendingScienceSubjects " +
+                        $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending})");
+                }
+                else if (removedPending > 0 || remainingPending > 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: preserved unrelated PendingScienceSubjects after success " +
+                        $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                        $"remaining={remainingPending})");
+                }
+            }
+            else
+            {
+                if (removedPending == 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: retained PendingScienceSubjects after failure " +
+                        $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                        $"remaining={remainingPending})");
+                }
+                else if (remainingPending == 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: already removed PendingScienceSubjects before failure " +
+                        $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                        $"remaining={remainingPending})");
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: partially retained PendingScienceSubjects after failure " +
+                        $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                        $"remaining={remainingPending})");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Step 6 of <see cref="NotifyLedgerTreeCommitted"/>: when the tree filed any rows,
+        /// ONE walk for the whole tree, then each recording's post-walk reconciliation (it
+        /// reads the walk's derived fields). An empty tree files nothing and walks nothing.
+        /// </summary>
+        internal static void WalkAndCompleteTreeCommit(
+            RecordingTree tree,
+            Dictionary<string, double> chainEndUTs,
+            List<FiledRecordingCommit> filedCommits,
+            int retiredProvisionalRows)
+        {
             if (filedCommits.Count > 0 || retiredProvisionalRows > 0)
             {
                 ParsekLog.Info(Tag,
@@ -641,15 +710,6 @@ namespace Parsek
                 for (int i = 0; i < filedCommits.Count; i++)
                     CompleteRecordingCommitAfterWalk(filedCommits[i]);
             }
-
-            // #390: prune events consumed by milestone creation + ledger conversion
-            GameStateStore.PruneProcessedEvents();
-
-            ParsekLog.Verbose(Tag,
-                $"NotifyLedgerTreeCommitted: tree='{tree.TreeName}' " +
-                $"recordings={tree.Recordings.Count}, chainSegments={chainEndUTs.Count}, " +
-                $"gapsClosed={gapsClosed}, reFlyWindowsExtended={reFlyWindowsExtended}, " +
-                $"retiredProvisionalRows={retiredProvisionalRows}");
         }
 
         private static Dictionary<string, IReadOnlyList<PendingScienceSubject>> BuildTreePendingScienceRouting(

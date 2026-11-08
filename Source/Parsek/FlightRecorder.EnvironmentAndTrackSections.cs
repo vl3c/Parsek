@@ -389,11 +389,42 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The environment an OrbitalCheckpoint section is stamped with. Such a section
+        /// opens only while the vessel is packed (go-on-rails, a recording started on
+        /// rails, an on-rails SOI handoff, an on-rails cheat / time-jump recapture, and
+        /// the save-seam reopen of any of those) and plays back as a Kepler orbit, and a
+        /// packed vessel cannot thrust. The environment hysteresis is not updated while
+        /// packed, so it can still read ExoPropulsive from a burn that ended inside its
+        /// debounce window; that label would make every "did the vessel do anything"
+        /// reader (boring-tail trim, auto loop range, the switch-segment no-op
+        /// classifier) treat a coast as a burn. ExoPropulsive maps to ExoBallistic, the
+        /// label the background recorder and OrbitSegmentCheckpointBridge already write
+        /// for checkpoint sections; every other environment and frame passes through.
+        /// </summary>
+        internal static SegmentEnvironment ResolveTrackSectionEnvironment(
+            SegmentEnvironment env, ReferenceFrame refFrame)
+        {
+            if (refFrame == ReferenceFrame.OrbitalCheckpoint
+                && env == SegmentEnvironment.ExoPropulsive)
+                return SegmentEnvironment.ExoBallistic;
+            return env;
+        }
+
+        /// <summary>
         /// Opens a new TrackSection with the given environment and reference frame.
+        /// The environment goes through <see cref="ResolveTrackSectionEnvironment"/>.
         /// </summary>
         internal void StartNewTrackSection(SegmentEnvironment env, ReferenceFrame refFrame, double ut,
             TrackSectionSource source = TrackSectionSource.Active)
         {
+            SegmentEnvironment resolvedEnv = ResolveTrackSectionEnvironment(env, refFrame);
+            if (resolvedEnv != env)
+            {
+                ParsekLog.Verbose("Recorder",
+                    $"TrackSection env normalized: {env} -> {resolvedEnv} ref={refFrame} " +
+                    $"(a packed vessel cannot thrust) at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                env = resolvedEnv;
+            }
             currentTrackSection = new TrackSection
             {
                 environment = env,

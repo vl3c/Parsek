@@ -153,10 +153,13 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Terminated chain: the tip recording should have its spawn suppressed.
+        /// A terminated chain's tip is not refused by the chain check: the tip's own
+        /// terminal refuses it in ShouldSpawnAtRecordingEnd (see the disjointness cell
+        /// below), so the chain check has no terminated arm
+        /// (TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE).
         /// </summary>
         [Fact]
-        public void TerminatedChain_TipSuppressed()
+        public void TerminatedChain_TipNotRefusedByChainCheck_TerminalRefusesIt()
         {
             var (chains, _) = MakeTwoLinkChain(terminated: true);
             var tipRec = MakeRecording("tip-rec", 100, 1500, 2000, "TerminatedTipVessel");
@@ -164,11 +167,40 @@ namespace Parsek.Tests
             var (suppressed, reason) = GhostPlaybackLogic.ShouldSuppressSpawnForChain(
                 chains, tipRec);
 
-            Assert.True(suppressed);
-            Assert.Equal("terminated ghost chain", reason);
-            Assert.Contains(logLines, l =>
-                l.Contains("[ChainWalker]") && l.Contains("Terminated chain spawn suppressed")
-                && l.Contains("rec=tip-rec"));
+            Assert.False(suppressed);
+            Assert.Equal("", reason);
+            Assert.DoesNotContain(logLines, l => l.Contains("Terminated chain spawn suppressed"));
+
+            tipRec.TerminalStateValue = TerminalState.Destroyed;
+            tipRec.VesselSnapshot = new ConfigNode("VESSEL");
+            var (needsSpawn, spawnReason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                tipRec, isActiveChainMember: false);
+            Assert.False(needsSpawn);
+            Assert.Equal("terminal state Destroyed", spawnReason);
+        }
+
+        /// <summary>
+        /// The invariant the chain check relies on: every terminal that marks a chain
+        /// terminated is non-spawnable, so a terminated chain's tip can never pass
+        /// ShouldSpawnAtRecordingEnd. Walks every TerminalState member, so a new member
+        /// added to the terminating set and the spawnable set at once reds here.
+        /// </summary>
+        [Fact]
+        public void ChainTerminatingTerminals_AreNeverSpawnable()
+        {
+            int terminating = 0;
+            foreach (TerminalState ts in Enum.GetValues(typeof(TerminalState)))
+            {
+                if (!GhostChainWalker.IsChainTerminatingTerminal(ts))
+                    continue;
+                terminating++;
+                Assert.False(GhostPlaybackLogic.IsSpawnableTerminal(ts),
+                    "chain-terminating terminal " + ts + " must not be spawnable");
+            }
+            Assert.Equal(3, terminating);
+            Assert.True(GhostChainWalker.IsChainTerminatingTerminal(TerminalState.Destroyed));
+            Assert.True(GhostChainWalker.IsChainTerminatingTerminal(TerminalState.Recovered));
+            Assert.True(GhostChainWalker.IsChainTerminatingTerminal(TerminalState.Disassembled));
         }
 
         /// <summary>
