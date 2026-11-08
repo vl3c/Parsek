@@ -152,7 +152,7 @@ namespace Parsek.InGameTests
     /// (fairing base + optional payload), spawns it co-orbital with the active vessel
     /// (a few tens of metres along-track, so nothing touches the ground and nothing drifts
     /// apart during the shots), takes the REAL vessel's own backup snapshot (the same
-    /// <see cref="VesselSpawner.TryBackupSnapshot"/> a recording takes), builds the ghost
+    /// <see cref="FlightRecorder.TryBackupSnapshot"/> a recording takes), builds the ghost
     /// from it with <see cref="GhostVisualBuilder.BuildTimelineGhostFromSnapshot"/>, and
     /// parents the ghost root to the real root part with a sideways offset, so the floating
     /// origin and Krakensbane carry both together. The flight camera's own update is
@@ -1114,7 +1114,7 @@ namespace Parsek.InGameTests
         private static bool BuildGhostBesideReal(ConfigRun run, out string failReason)
         {
             failReason = null;
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(run.Real);
+            ConfigNode snapshot = FlightRecorder.TryBackupSnapshot(run.Real);
             if (snapshot == null)
             {
                 failReason = "TryBackupSnapshot returned null";
