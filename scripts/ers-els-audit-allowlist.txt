@@ -230,6 +230,13 @@ Source/Parsek/UI/TimelineWindowUI.cs
 # TimelineWindowUI.cs above. Documented at the call site with an inline
 # [ERS-exempt] comment.
 Source/Parsek/UI/MissionsWindowUI.cs
+# MissionsWindowUI's partial-class split (scripts/refactor/split_missionswindowui.py):
+# the raw reads MissionsWindowUI.cs held now sit in these four partials, same
+# rationale.
+Source/Parsek/UI/MissionsWindowUI.Interact.cs
+Source/Parsek/UI/MissionsWindowUI.Loop.cs
+Source/Parsek/UI/MissionsWindowUI.Periodicity.cs
+Source/Parsek/UI/MissionsWindowUI.ViewData.cs
 
 # RecordedRelativeAnchorPoseResolver is the shared KSC/map recorded-anchor
 # resolver introduced by Phase D. It resolves exact recording ids from the

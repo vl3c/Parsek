@@ -610,8 +610,9 @@ namespace Parsek.Tests
                 {
                     string path = Path.Combine(dir, "Source", "Parsek", File);
                     Assert.True(System.IO.File.Exists(path), "source file moved: " + path);
+                    // MissionsWindowUI is a partial class: the gates read every file of it.
                     return SourceScanText.StripCommentsAndMaskLiterals(
-                        System.IO.File.ReadAllText(path));
+                        MissionsWindowUISourceFiles.ReadAll(Path.GetDirectoryName(path)));
                 }
                 dir = Path.GetDirectoryName(dir);
             }
