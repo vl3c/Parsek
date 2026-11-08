@@ -188,7 +188,7 @@ namespace Parsek.Tests
         public void ConsumePostLoad_DiscardsTheAttempt_AfterTheBundleRestore_BeforeTheStrip()
         {
             string body = ExtractMethodBody(
-                ReadStrippedParsekSource("RewindInvoker.cs"),
+                ReadStrippedParsekSource(RewindInvokerSourceFiles.PostLoad),
                 "internal static void ConsumePostLoad(");
             int restore = body.IndexOf("ReconciliationBundle.Restore(", StringComparison.Ordinal);
             int discard = body.IndexOf("DiscardRestoreAttemptOfAbandonedFlight(", StringComparison.Ordinal);

@@ -84,6 +84,8 @@ namespace Parsek.Tests
                 VesselSpawnerSourceFiles.Paths(parsek).Count);
             Assert.Equal(1 + ParsekScenarioSourceFiles.SplitFileNames.Length,
                 ParsekScenarioSourceFiles.Paths(parsek).Count);
+            Assert.Equal(1 + RewindInvokerSourceFiles.SplitFileNames.Length,
+                RewindInvokerSourceFiles.Paths(parsek).Count);
         }
     }
 }
