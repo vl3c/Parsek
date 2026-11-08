@@ -235,13 +235,10 @@ namespace Parsek.Tests
                 Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs"))
                 .Replace("\r\n", "\n");
 
-            int start = source.IndexOf("internal bool IsActiveTreeIdleOnPad()\n", StringComparison.Ordinal);
-            Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
-            int walk = source.IndexOf("AllRecordingsIdleOnPadAfterBackfill(host.activeTree, out bool anyHasPoints)", start, StringComparison.Ordinal);
-            int bodyEnd = source.IndexOf("\n        }\n", start, StringComparison.Ordinal);
-            Assert.True(walk > start && walk < bodyEnd, "distance walk must be called inside IsActiveTreeIdleOnPad");
-            Assert.True(walk > start, "IsActiveTreeIdleOnPad distance walk not found");
-            string head = source.Substring(start, walk - start);
+            string body = IsActiveTreeIdleOnPadBody(source);
+            int walk = body.IndexOf("AllRecordingsIdleOnPadAfterBackfill(host.activeTree, out bool anyHasPoints)", StringComparison.Ordinal);
+            Assert.True(walk >= 0, "distance walk must be called inside IsActiveTreeIdleOnPad");
+            string head = body.Substring(0, walk);
             Assert.Contains("TreeHasPlacedGroundPartsForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", head);
         }
 
@@ -257,16 +254,29 @@ namespace Parsek.Tests
                 Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs"))
                 .Replace("\r\n", "\n");
 
-            int start = source.IndexOf("internal bool IsActiveTreeIdleOnPad()\n", StringComparison.Ordinal);
-            Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
-            int flush = source.IndexOf("FlushRecorderIntoActiveTreeForSerialization();", start, StringComparison.Ordinal);
-            int veto = source.IndexOf("TreeHasPlantedFlagsForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", start, StringComparison.Ordinal);
-            int walk = source.IndexOf("AllRecordingsIdleOnPadAfterBackfill(host.activeTree, out bool anyHasPoints)", start, StringComparison.Ordinal);
-            int bodyEnd = source.IndexOf("\n        }\n", start, StringComparison.Ordinal);
-            Assert.True(walk > start && walk < bodyEnd, "distance walk must be called inside IsActiveTreeIdleOnPad");
-            Assert.True(flush > start, "flush not found in IsActiveTreeIdleOnPad");
+            string body = IsActiveTreeIdleOnPadBody(source);
+            int flush = body.IndexOf("FlushRecorderIntoActiveTreeForSerialization();", StringComparison.Ordinal);
+            int veto = body.IndexOf("TreeHasPlantedFlagsForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", StringComparison.Ordinal);
+            int walk = body.IndexOf("AllRecordingsIdleOnPadAfterBackfill(host.activeTree, out bool anyHasPoints)", StringComparison.Ordinal);
+            Assert.True(walk >= 0, "distance walk must be called inside IsActiveTreeIdleOnPad");
+            Assert.True(flush >= 0, "flush not found in IsActiveTreeIdleOnPad");
             Assert.True(veto > flush, "flag veto must run after the recorder flush");
             Assert.True(walk > veto, "flag veto must run before the distance walk");
+        }
+
+        // The IsActiveTreeIdleOnPad body, brace-matched (comments blanked, literals intact),
+        // so a needle can only match inside that method.
+        private static string IsActiveTreeIdleOnPadBody(string source)
+        {
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(source);
+            string code = SourceScanText.StripCSharpComments(source);
+            const string decl = "internal bool IsActiveTreeIdleOnPad()\n";
+            int start = prepared.IndexOf(decl, StringComparison.Ordinal);
+            Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
+            Assert.True(prepared.IndexOf(decl, start + 1, StringComparison.Ordinal) < 0,
+                "IsActiveTreeIdleOnPad declaration ambiguous");
+            int open = prepared.IndexOf('{', start);
+            return code.Substring(open, SourceScanText.BraceMatchedBlock(prepared, open).Length);
         }
     }
 }

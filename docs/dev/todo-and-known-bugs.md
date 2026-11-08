@@ -20,6 +20,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. OPEN; performance, low]
+
+**What is true.** The descent-handoff log in `GhostPlaybackEngine.UpdateUnitMemberPlayback`
+passes a `() => ...` message lambda to `ParsekLog.VerboseRateLimited`, and that lambda captures
+the parameter `i` and the local `unitCycle`. The compiler hoists both into a display class that
+it allocates at method entry (`IL_0000: newobj <>c__DisplayClass_0::.ctor`), so every call
+allocates one object, for every unit member on every frame, even though the lambda runs only
+for a rendering non-descent member of a unit that has a descent trigger. The extraction kept
+the block inline so the allocation is unchanged.
+
+**Fix.** Move the descent-handoff block (from `bool hiddenForDescentHandoff = false;` through
+its closing brace) into its own method, called only under the existing gate, so the display
+class is allocated only when the lambda can run. The `UnitMember_DescentTrigger_HandoffAndLoiter`
+golden in `UnitMemberPlaybackCharacterizationTests` pins the block's output.
+
 ## REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT: a replace commit can mark a surviving replacement destroyed and keep a stale situation [FILED 2026-11-07 from the review of the TreeCommitService unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2452), by code reading. OPEN; not reproduced in play, low]
 
 **What is true.**
@@ -2987,6 +3002,25 @@ columns whose blanks are visible, where the old outline simply said nothing.
   terminal gates; covering segment; OrbitalCheckpoint SOI gap; state vector; terminal-orbit
   fallback; the decision emission), the longest 89 lines. Pinned before the split by a golden
   capture of every decision exit (`MapPresenceSourceResolveCharacterizationTests`).
+- Wave 2 W8c, second PR (S3, pure move, IL identical): `UI/MissionsWindowUI.cs` (5,039 lines)
+  and `UI/LogisticsWindowUI.cs` (4,782) are partial classes over 8 files each
+  (`scripts/refactor/split_missionswindowui.py`, `split_logisticswindowui.py`; every field,
+  property, constant and the constructor stay in the main file). Missions: main 1,538 (the
+  tab draw, reveal navigation, styles, sorting, column header, testing seams), `.ViewData`
+  626, `.VesselRows` 594, `.Periodicity` 594, `.Loop` 540, `.Interact` 463, `.MissionRows`
+  424, `.ForeignDocks` 330. Logistics: main 1,185 (window lifecycle and draw, styles, testing
+  seams), `.Legibility` 896, `.Detail` 778, `.Rows` 714, `.Actions` 496, `.Sections` 467,
+  `.LinkPicker` 169, `.Formatting` 168. The source gates that read either file now read the
+  whole class through `MissionsWindowUISourceFiles` / `LogisticsWindowUISourceFiles` (or the
+  one area file a single-method gate names); the ERS / ELS allowlist adds the four Missions
+  partials that hold its raw reads.
+- Wave 2 W2c (2026-11-08, this branch, docs only): the `ParsekScenario` static-state map,
+  `docs/dev/research/parsekscenario-static-state-map-2026-11-08.md`. It covers 31
+  reassignable fields and no readonly collections: writers, readers, outside entry points,
+  reset paths, and direct and reflection test writers. It uses the same IL tool. Outside
+  production code reads only `CrashReconcileInProgress` directly; all other access goes
+  through named methods. `OnLoad` writes 11 of the fields itself, and the extracted
+  `OnLoadPhase*` methods write none.
 - Wave 2 W5b (2026-11-08): dropped. Moving the source resolver into its own type raises the
   replayed residue by one (the W5a note above), so it needs a DECOUPLE of its knot calls first.
 - Wave 2 W5c2 (2026-11-08, this branch, extract-method): the flight map deferred-create pass

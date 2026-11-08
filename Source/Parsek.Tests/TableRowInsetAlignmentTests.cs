@@ -1267,6 +1267,16 @@ namespace Parsek.Tests
             string path = Path.Combine(ResolveRepoRoot(), "Source", "Parsek", relativePath);
             Assert.True(File.Exists(path),
                 "source file moved, this gate is vacuous: " + path);
+            // MissionsWindowUI and LogisticsWindowUI are partial classes: a read of the main
+            // file reads every file of the class (MissionsWindowUISourceFiles /
+            // LogisticsWindowUISourceFiles), so a method that moved to an area file is found.
+            string name = Path.GetFileName(path);
+            if (name == MissionsWindowUISourceFiles.MainFileName)
+                return SourceScanText.StripCommentsAndMaskLiterals(
+                    MissionsWindowUISourceFiles.ReadAll(Path.GetDirectoryName(path)));
+            if (name == LogisticsWindowUISourceFiles.MainFileName)
+                return SourceScanText.StripCommentsAndMaskLiterals(
+                    LogisticsWindowUISourceFiles.ReadAll(Path.GetDirectoryName(path)));
             return SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
         }
 
