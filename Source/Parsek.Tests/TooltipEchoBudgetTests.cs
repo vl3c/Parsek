@@ -82,7 +82,14 @@ namespace Parsek.Tests
             // DELETED the row itself, so from then until now the mod's entry-point window -
             // and the Timeline row below, deleted the same way - had no budget gate at all.
             // Neither deletion was intended; both rows are back with their stated floors.
-            yield return new object[] { "ParsekUI.cs", 250f, 7, TooltipEchoBox.DoubleLine };
+            // Floor 7 -> 5 (2026-11-08, W6): the Logistics launcher and the candidate
+            // banner's Dismiss moved, unchanged, into the Logistics window's main-window
+            // section; the next row budgets them at this same width and height.
+            yield return new object[] { "ParsekUI.cs", 250f, 5, TooltipEchoBox.DoubleLine };
+            // The Logistics window's section of the MAIN window (LogisticsWindowUI.
+            // MainWindowSection.cs): its tooltips echo in the main window's strip, so it is
+            // budgeted as the main window. Floor 2: the Logistics launcher and Dismiss.
+            yield return new object[] { "UI/LogisticsWindowUI.MainWindowSection.cs", 250f, 2, TooltipEchoBox.DoubleLine };
             // Settings: DrawIfOpen seeds new Rect(..., 280, 600) on first open. The floor
             // dropped 15 -> 10 with the 2026-08-27 settings simplification (the Recording,
             // Stock UI, auto-backup, landing-body-alignment and force-faithful controls
@@ -609,6 +616,21 @@ namespace Parsek.Tests
                 Assert.True(constructed.Count == 0,
                     relPath + " now constructs its own TooltipEchoBox - update its "
                     + "StripWindows row to that strip's height instead of the host's.");
+                return;
+            }
+
+            if (relPath == "UI/LogisticsWindowUI.MainWindowSection.cs")
+            {
+                // Hosted content too: the Logistics window's section of the MAIN window
+                // owns no strip, and its tooltips echo in the main window's. Cross-check the
+                // row against the strip the host (ParsekUI.cs) constructs.
+                Assert.True(constructed.Count == 0,
+                    relPath + " now constructs its own TooltipEchoBox - update its "
+                    + "StripWindows row to that strip's height instead of the host's.");
+                List<int> host = ExtractTooltipEchoBoxLineArgs(ReadStripWindowSource("ParsekUI.cs"));
+                Assert.True(host.Count == 1 && host[0] == stripLines,
+                    relPath + ": the row budgets " + stripLines + " line(s) but its host, the "
+                    + "main window, constructs " + string.Join(",", host) + ".");
                 return;
             }
 

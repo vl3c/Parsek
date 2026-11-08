@@ -2091,8 +2091,10 @@ namespace Parsek.Tests
             // Both constructors subscribe (one per scene host), and Cleanup drops them.
             Assert.Equal(2, CountOccurrences(src, "kerbalsUI.SubscribeLiveCrewEvents();"));
             Assert.Equal(1, CountOccurrences(src, "kerbalsUI.UnsubscribeLiveCrewEvents();"));
+            // The ledger hook: each window hooks its own cache, Timeline first, from the
+            // same two constructors.
             Assert.Equal(2, CountOccurrences(
-                src, "LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;"));
+                src, "timelineUI.SubscribeTimelineDataChanged();\n            kerbalsUI.SubscribeTimelineDataChanged();"));
         }
 
         // R11 - catches: a negative expanded= term on the wire. foldedKerbals can hold a

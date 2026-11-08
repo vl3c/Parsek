@@ -68,10 +68,20 @@ namespace Parsek.Tests
             }
         }
 
-        // The comment-stripped text of the main window's draw body.
+        // The comment-stripped text of the main window's draw body, with the Logistics
+        // window's section (the candidate banner and the Logistics launcher, which the
+        // Logistics window draws into the main window) read in at its call.
         internal static string MainWindowDrawText()
         {
-            return MethodBodyText("ParsekUI.cs", "public void DrawWindow(int windowID)");
+            const string sectionCall = "logisticsUI.DrawMainWindowSection(complexity);";
+            string main = MethodBodyText("ParsekUI.cs", "public void DrawWindow(int windowID)");
+            int call = main.IndexOf(sectionCall, StringComparison.Ordinal);
+            Assert.True(call >= 0, "ParsekUI.DrawWindow no longer draws the Logistics section");
+            Assert.True(main.IndexOf(sectionCall, call + 1, StringComparison.Ordinal) < 0,
+                "ParsekUI.DrawWindow draws the Logistics section twice");
+            string section = MethodBodyText("UI/LogisticsWindowUI.MainWindowSection.cs",
+                "internal void DrawMainWindowSection(UiComplexityMode complexity)");
+            return main.Substring(0, call) + section + main.Substring(call + sectionCall.Length);
         }
 
         // Finds the body in the comment-blanked, literal-masked text (so braces inside

@@ -3088,6 +3088,13 @@ columns whose blanks are visible, where the old outline simply said nothing.
   of four W6 steps that make `ParsekUI` reach no residue type; measured on the semantic
   graph, all four take the residue 150 -> 140, this one alone moves nothing (knot 390 -> 391,
   residue 150).
+- Wave 2 W6, second PR (2026-11-08, this branch, decouple): the main window's Supply Route
+  candidate banner and Logistics launcher are drawn by `LogisticsWindowUI.DrawMainWindowSection`
+  (`UI/LogisticsWindowUI.MainWindowSection.cs`, budgeted by `TooltipEchoBudgetTests` at the main
+  window's width) at the same place in `ParsekUI.DrawWindow`, and the Timeline and Kerbals
+  windows hook their own caches to `LedgerOrchestrator.OnTimelineDataChanged` from the same
+  `ParsekUI` constructors and `Cleanup`. `ParsekUI` now reaches only the window types inside the
+  residue; residue still 150 (the last two W6 steps carry the drop).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
