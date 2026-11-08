@@ -1984,6 +1984,10 @@ were placed, it merged into the kernel knot (584). The fix direction below is un
   `AppendReason` onto `StockUiText` (simulated on a scratch copy) gives knots [459, 9, 4, 3],
   replayed residue 283 -> 265 and greedy residue 290 -> 238. As an extra cut,
   `StrategyReservationPredicates` is worth 283 -> 282 only.
+- Done (W3b, MOVE, 2026-11-07): `ReasonColorHex` and `AppendReason` now live on `StockUiText`.
+  Measured after W1a / W1b / W1c (base bound 246, greedy 201, knot 450): knots
+  [432, 9, 4, 3, 2], greedy residue 179 (the greedy sequence now cuts `ParsekUI` at step 10).
+  The ratchet order is re-pinned to that sequence and the bound tightened to 179.
 
 **Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
 explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
@@ -2950,6 +2954,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Wave 2 W1b (2026-11-07, this branch): the hold decision record `ReFlyInvokeHold.Entry` is the
   top-level plain type `ReFlyHoldEntry` (same file, same fields), so `RewindVesselHold.Hold`
   no longer references the classifier. Knot 459 -> 450, replayed residue 272 -> 263.
+- Wave 2 W1c (2026-11-07, this branch): `MissionPeriodicity.ExtractConstraints` takes the
+  trimmed member windows as an input; `MissionLoopUnitBuilder.ExtractPeriodicityConstraints`
+  computes them and is what the builder, the Missions window and the in-game real-save finder
+  call. The periodicity solver no longer reaches up into the builder. Knot 450 (unchanged),
+  replayed residue 263 -> 246; the greedy cuts reorder (GhostPlaybackLogic first) and the
+  greedy residue drops to 201.
 - Wave 2 W8c on this branch (S3, pure move, IL identical): `Logistics/RouteOrchestrator.cs`
   (5,521 lines, a static class) is a partial class over 7 files
   (`scripts/refactor/split_routeorchestrator.py`; every field and constant stays in the main
@@ -2967,6 +2977,28 @@ columns whose blanks are visible, where the old outline simply said nothing.
   new `scripts/refactor/static_state_map.py` so a same-named field of another type is never
   counted. It also records why a separate source-resolver type would raise the replayed
   residue 263 -> 264 unless its five knot calls are passed in.
+- Wave 2 W7a (2026-11-08, this branch, docs only): the `LedgerOrchestrator` static-state map,
+  `docs/dev/research/ledgerorchestrator-static-state-map-2026-11-08.md` (35 fields, 30
+  reassignable of which 12 are test seams; writers, outside readers, reset paths, hosts), from
+  the same IL tool. Nothing outside the type writes a field except the `OnTimelineDataChanged`
+  event, and nine of the 17 methods of 90 lines or more touch no `LedgerOrchestrator` static.
+- Wave 2 W5c (2026-11-08, this branch, extract-method): `GhostMapPresence.ResolveMapPresenceGhostSource`
+  (603 lines) is a sequence of phase helpers in the same partial file (input, materialized and
+  terminal gates; covering segment; OrbitalCheckpoint SOI gap; state vector; terminal-orbit
+  fallback; the decision emission), the longest 89 lines. Pinned before the split by a golden
+  capture of every decision exit (`MapPresenceSourceResolveCharacterizationTests`).
+- Wave 2 W8c, second PR (S3, pure move, IL identical): `UI/MissionsWindowUI.cs` (5,039 lines)
+  and `UI/LogisticsWindowUI.cs` (4,782) are partial classes over 8 files each
+  (`scripts/refactor/split_missionswindowui.py`, `split_logisticswindowui.py`; every field,
+  property, constant and the constructor stay in the main file). Missions: main 1,538 (the
+  tab draw, reveal navigation, styles, sorting, column header, testing seams), `.ViewData`
+  626, `.VesselRows` 594, `.Periodicity` 594, `.Loop` 540, `.Interact` 463, `.MissionRows`
+  424, `.ForeignDocks` 330. Logistics: main 1,185 (window lifecycle and draw, styles, testing
+  seams), `.Legibility` 896, `.Detail` 778, `.Rows` 714, `.Actions` 496, `.Sections` 467,
+  `.LinkPicker` 169, `.Formatting` 168. The source gates that read either file now read the
+  whole class through `MissionsWindowUISourceFiles` / `LogisticsWindowUISourceFiles` (or the
+  one area file a single-method gate names); the ERS / ELS allowlist adds the four Missions
+  partials that hold its raw reads.
 - Wave 2 W8c, RewindInvoker (S3, pure move, IL identical): `RewindInvoker.cs` (4,644 lines,
   a static class) is a partial class over 10 files (`scripts/refactor/split_rewindinvoker.py`;
   every field and constant stays in the main file): `RewindInvoker.cs` 399 (`StartInvoke`, the
@@ -3624,6 +3656,25 @@ compare).
   (file-placement PR 4 deletes `OrbitReseed -> GhostMapPresence`: on the tree it was measured
   on, greedy 285 -> 290, replayed 285). The bound is unchanged by this (287 after RecordingStore
   PR3) and the greedy sequence stays the documented one.
+- 2026-11-07 (refactor branch, W4a): a semantic edge source, behind a flag. Not a Roslyn
+  extractor: `scripts/arch/ilgraph.py` parses the `ikdasm` dump of the built Parsek.dll (stdlib
+  Python, no new package; the DLL is built by every test run) and `semantic.py` measures the
+  same knot and residue over the text model's nodes, with a call to a forwarder credited to the
+  forwarded type. On 668a03255: text residue 179, semantic 150 (knot 432 vs 390); 712 text-only
+  and 637 IL-only edges, all classified (inlined constants, enum members and `nameof`, nested
+  qualifiers, text false positives on the text side; members reached through values, `var`,
+  inferred generics and base lists, which the text scan never reads, on the IL side). CI runs
+  its real-tree cells after the build (`PARSEK_ARCH_IL`). Also: `--check` and
+  `test_atlas_prose_matches_the_tree` now flag literal numbers in undated atlas prose that
+  disagree with the model (`PROSE_NUMBER_CLAIMS`). The ratchet still reads the text scan until
+  W4a2 switches it.
+- 2026-11-07 (refactor branch, W4a2): the residue ratchet reads the semantic graph:
+  `test_semantic.test_the_semantic_residue_ratchet`, bound 150 (min of greedy and replayed over
+  `SEMANTIC_CUT_ORDER` on 668a03255, a tree that still passed the text bound 179). The text
+  residue cell keeps measuring, unbounded, so deleting the RecordingStore metric forwarders (W4c)
+  no longer fights the ratchet. The ratchet runs only with `PARSEK_ARCH_IL` (CI after the build).
+  `WorkflowRunsTheRatchetTests` reds if the CI step that sets it stops running; measure the Debug
+  DLL (a Release build drops typed locals and can read lower).
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

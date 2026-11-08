@@ -280,7 +280,9 @@ namespace Parsek.Tests
 
             // The Missions sub-rows still open that way, so the two cannot drift apart
             // without this cell noticing.
-            string missions = Prepared("UI", "MissionsWindowUI.cs");
+            // MissionsWindowUI is a partial class: the count reads every file of it.
+            string missions = SourceScanText.StripCommentsAndMaskLiterals(MissionsWindowUISourceFiles.ReadAll(
+                Path.Combine(RepoRoot(), "Source", "Parsek", "UI")));
             Assert.True(
                 Regex.Matches(missions,
                     Regex.Escape("GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight))")).Count >= 3,
@@ -289,7 +291,7 @@ namespace Parsek.Tests
 
         [Theory]
         [InlineData("GroupPickerUI.cs", "DrawGroupPopupContents")]
-        [InlineData("LogisticsWindowUI.cs", "DrawLinkPickerContents")]
+        [InlineData("LogisticsWindowUI.LinkPicker.cs", "DrawLinkPickerContents")]
         public void BothPickersDrawTheHouseTableLook(string file, string method)
         {
             string body = MethodBody(Prepared("UI", file), method);
@@ -354,7 +356,7 @@ namespace Parsek.Tests
 
         [Theory]
         [InlineData("GroupPickerUI.cs", "Draw", "groupPopupRect")]
-        [InlineData("LogisticsWindowUI.cs", "DrawLinkPicker", "linkPickerRect")]
+        [InlineData("LogisticsWindowUI.LinkPicker.cs", "DrawLinkPicker", "linkPickerRect")]
         public void BothPickersPlaceTheirFirstOpenRectBeforeTheScreenFit(
             string file, string method, string rectField)
         {
@@ -388,8 +390,10 @@ namespace Parsek.Tests
             // The production Link round-trip click converts its GUI-space click to the
             // host's scaled-root space, as the Recordings G buttons do, so the picker opens
             // next to the button at any UI scale (ParsekUiScale).
+            // LogisticsWindowUI is a partial class: the whole-file needle reads every file of it.
             Assert.Contains("OpenLinkPicker(route, ParsekUiScale.GuiPointToScaledRoot(Event.current.mousePosition))",
-                logistics);
+                SourceScanText.StripCommentsAndMaskLiterals(LogisticsWindowUISourceFiles.ReadAll(
+                    Path.Combine(RepoRoot(), "Source", "Parsek", "UI"))));
         }
 
         // ----- helpers -----

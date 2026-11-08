@@ -130,15 +130,36 @@ namespace Parsek
         private static readonly Dictionary<Type, PropertyInfo> textProperties = new Dictionary<Type, PropertyInfo>();
         private static readonly Dictionary<string, FieldInfo> labelFields = new Dictionary<string, FieldInfo>(StringComparer.Ordinal);
 
+        /// <summary>Rich-text colour of the appended explanation (stock prints its own
+        /// research refusals in orange).</summary>
+        internal const string ReasonColorHex = "#f97306";
+
         /// <summary>
-        /// A block reason in stock's own reason colour (<see cref="StockUiRnDDecoration.ReasonColorHex"/>,
+        /// A block reason in stock's own reason colour (<see cref="ReasonColorHex"/>,
         /// the orange stock prints its own refusals in), the one colour every stock-screen
         /// block reason uses. Null or empty comes back unchanged.
         /// </summary>
         internal static string ReasonColored(string why)
         {
             if (string.IsNullOrEmpty(why)) return why;
-            return "<color=" + StockUiRnDDecoration.ReasonColorHex + ">" + why + "</color>";
+            return "<color=" + ReasonColorHex + ">" + why + "</color>";
+        }
+
+        /// <summary>
+        /// Appends the explanation to a stock caption on its own line, in the stock reason
+        /// colour. Idempotent: a caption that already carries it is returned unchanged. A
+        /// stock text that is a localization key is localized first
+        /// (<see cref="ResolveStockKey"/>); <paramref name="site"/> names the
+        /// stock surface for that log line.
+        /// </summary>
+        internal static string AppendReason(string stockText, string why, string site = null)
+        {
+            if (string.IsNullOrEmpty(why)) return stockText;
+            string line = "<color=" + ReasonColorHex + ">" + why + "</color>";
+            if (string.IsNullOrEmpty(stockText)) return line;
+            stockText = ResolveStockKey(stockText, site);
+            if (stockText.Contains(line)) return stockText;
+            return stockText + "\n" + line;
         }
 
         /// <summary>
