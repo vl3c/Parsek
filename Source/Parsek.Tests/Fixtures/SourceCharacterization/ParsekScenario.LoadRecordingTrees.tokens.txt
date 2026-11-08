@@ -1,0 +1,84 @@
+A:treeNodes
+C:node.GetNodes
+S:"RECORDING_TREE"
+A:committedTrees
+C:committedTrees.Clear
+C:InertRecordingTrees.BeginLoad
+A:namedCommittedRecordingIds
+C:HashSet
+C:ParsekLog.Info
+S:"Scenario"
+S:$"OnLoad initial: cleared CommittedTrees, loading {treeNodes.Length} tree(s)"
+A:treeRecCount
+A:treeTotalPoints
+A:treeTotalOrbitSegments
+A:treeTotalPartEvents
+A:treeWithTrackSections
+A:treeWithSnapshots
+A:activeTreeCount
+A:pendingTreeCount
+A:t
+A:t
+A:treeNode
+C:IsActiveTreeNode
+A:activeTreeCount
+C:InertRecordingTrees.NoteDroppedParkedNode
+S:"active"
+C:IsPendingTreeNode
+A:pendingTreeCount
+C:InertRecordingTrees.NoteDroppedParkedNode
+S:"pending"
+C:CollectNamedCommittedRecordingIds
+A:tree
+C:RecordingTree.Load
+A:inertReason
+C:InertRecordingTrees.ClassifyCommittedTreeSchemaRejection
+C:InertRecordingTrees.SetAside
+C:ParsekLog.Warn
+S:"Scenario"
+S:$"LoadRecordingTrees: tree '{tree.TreeName}' id={tree.Id} was rejected by "
+S:$"the schema gate (reason={inertReason}); kept inert, not loaded "
+S:$"(loadedRecordings={(tree.Recordings != null ? tree.Recordings.Count : 0).ToString(CultureInfo.InvariantCulture)})"
+C:ParsekLog.Warn
+S:"Scenario"
+S:$"LoadRecordingTrees: skipped tree '{tree.TreeName}' id={tree.Id} "
+S:"because it holds no recording"
+A:sidecarHydrationFailures
+A:syntheticFixtureFailures
+C:RecordingSidecarStore.LoadRecordingFiles
+A:sidecarHydrationFailures
+C:IsSyntheticFixtureSidecarMarker
+A:syntheticFixtureFailures
+A:droppedHydrationFailures
+C:DropFailedSidecarHydrationRecordings
+S:"LoadRecordingTrees"
+C:ParsekLog.Warn
+S:"Scenario"
+S:$"LoadRecordingTrees: skipped tree '{tree.TreeName}' id={tree.Id} "
+S:$"after dropping {droppedHydrationFailures} recording(s) with incompatible sidecars"
+C:RepairMissingContiguousChainPredecessors
+S:"LoadRecordingTrees"
+C:tree.RebuildBackgroundMap
+C:SplitParentLinks.RepairStaleParents
+S:"LoadRecordingTrees"
+C:committedTrees.Add
+C:RecordingStore.AddCommittedInternal
+A:treeRecCount
+A:treeTotalPoints
+A:treeTotalOrbitSegments
+A:treeTotalPartEvents
+A:treeWithTrackSections
+A:treeWithSnapshots
+C:ScenarioLog
+S:$"[Parsek Scenario] Loaded tree '{tree.TreeName}': "
+S:$"{tree.Recordings.Count} recordings, {tree.BranchPoints.Count} branch points"
+C:EmitSidecarHydrationRollup
+C:ParsekLog.Verbose
+S:"Scenario"
+S:$"Loaded {treeNodes.Length} tree nodes ({treeRecCount} committed recordings + "
+S:$"{activeTreeCount} active-tree marker(s) + {pendingTreeCount} pending-tree marker(s)): "
+S:$"{treeTotalPoints} points, "
+S:$"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, "
+S:$"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots"
+C:InertRecordingTrees.LogLoadSummary
+C:NoteLoadDroppedRecordings
