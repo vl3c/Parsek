@@ -9,7 +9,7 @@ namespace Parsek.Tests
     // resolver's has it" suspicion). The investigation found the suspected stale/divergent cache is
     // structurally impossible in FLIGHT: ParsekFlight.DriveMissionLoopUnits is the ONLY build site,
     // it pushes the SAME cachedLoopUnits reference into the engine every frame, and every flight map
-    // surface (polyline Driver, orbit-line patch, ParsekUI markers) reads that same object back
+    // surface (polyline Driver, orbit-line patch, flight map markers) reads that same object back
     // (CurrentCachedLoopUnits / Engine.CurrentLoopUnits). What the log actually showed was a
     // CONSUMPTION gap: the engine had no descent-trigger code at all until ea8935a1d landed later
     // that day. These gates keep the invariant from silently regressing: no second builder in the
