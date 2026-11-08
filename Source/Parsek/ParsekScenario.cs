@@ -756,6 +756,101 @@ namespace Parsek
         private string backupHoldRetrySaveFolderBefore;
         private bool backupHoldRetryDetected;
 
+        /// <summary>
+        /// Cold-load phase "route-loop-reconcile" of <see cref="OnLoad"/>: clears the manual
+        /// loop of every route-bound tree at the cold clock.
+        /// </summary>
+        internal static void OnLoadPhaseReconcileRouteBoundManualLoops(double reconcileUtForLoops)
+        {
+            var boundTreeIds = RouteTreeGuard.BoundTreeIds();
+            int reconciledTreeCount = 0;
+            for (int bi = 0; bi < boundTreeIds.Count; bi++)
+            {
+                RouteTreeGuard.ForceClearManualLoopForRouteTree(
+                    boundTreeIds[bi], reconcileUtForLoops);
+                reconciledTreeCount++;
+            }
+            ParsekLog.Info("RouteGuard",
+                $"OnLoad route-loop reconcile: cleared manual loops on {reconciledTreeCount} route-bound tree(s)");
+        }
+
+        /// <summary>
+        /// Cold-load phase "load-summary" of <see cref="OnLoad"/>: logs the loaded recordings
+        /// bucketed against the cold clock, then the active crew reservations.
+        /// </summary>
+        internal static void OnLoadPhaseLogColdLoadSummary(IReadOnlyList<Recording> recordings, double loadUT)
+        {
+            ParsekLog.Info("Scenario",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Scenario load summary — UT: {0:F0}, {1} recording(s)",
+                    loadUT, recordings.Count));
+            int futureCount = 0, inProgressCount = 0, pastCount = 0;
+            List<string> inProgressDetail = null;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var loadedRec = recordings[i];
+                double duration = loadedRec.EndUT - loadedRec.StartUT;
+                if (loadUT < loadedRec.StartUT)
+                {
+                    futureCount++;
+                }
+                else if (loadUT <= loadedRec.EndUT)
+                {
+                    inProgressCount++;
+                    if (inProgressDetail == null)
+                        inProgressDetail = new List<string>();
+                    string pct = duration > 0
+                        ? string.Format(CultureInfo.InvariantCulture, "({0:F0}%)",
+                            (loadUT - loadedRec.StartUT) / duration * 100)
+                        : "";
+                    inProgressDetail.Add($"  #{i}: \"{loadedRec.VesselName}\" — IN PROGRESS {pct}".TrimEnd());
+                }
+                else
+                {
+                    pastCount++;
+                }
+            }
+            ParsekLog.Verbose("Scenario",
+                $"Load summary buckets: future={futureCount} in-progress={inProgressCount} past={pastCount}");
+            if (inProgressDetail != null)
+            {
+                foreach (var line in inProgressDetail)
+                    ParsekLog.Verbose("Scenario", line);
+            }
+
+            if (CrewReservationManager.CrewReplacements.Count > 0)
+            {
+                ParsekLog.Info("Scenario", $"Crew reservations active ({CrewReservationManager.CrewReplacements.Count}):");
+                foreach (var kvp in CrewReservationManager.CrewReplacements)
+                    ParsekLog.Info("Scenario", $"  {kvp.Key} -> replacement: {kvp.Value}");
+            }
+        }
+
+        /// <summary>
+        /// Cold-load phase "crew-auto-unreserve" of <see cref="OnLoad"/>: outside the Space
+        /// Center, unreserves the crew of every non-loop recording whose EndUT passed without a
+        /// spawn and marks it spawned.
+        /// </summary>
+        internal static void OnLoadPhaseAutoUnreserveCrewPastEndUT(IReadOnlyList<Recording> recordings, double currentUT)
+        {
+            if (HighLogic.LoadedScene != GameScenes.SPACECENTER)
+            {
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    var rec = recordings[i];
+                    if (rec.LoopPlayback) continue;
+                    if (rec.VesselSnapshot != null && !rec.VesselSpawned && currentUT > rec.EndUT)
+                    {
+                        CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                        rec.VesselSnapshot = null;
+                        rec.VesselSpawned = true;
+                        ScenarioLog($"[Parsek Scenario] Auto-unreserved crew for recording #{i} " +
+                            $"({rec.VesselName}) — EndUT passed without spawn");
+                    }
+                }
+            }
+        }
+
         public override void OnLoad(ConfigNode node)
         {
             // Pre-Parsek backup hold (PreParsekBackup): a save whose first-time backup failed
@@ -2034,16 +2129,7 @@ namespace Parsek
                 loadPhase = "route-loop-reconcile";
                 {
                     double reconcileUtForLoops = coldClockUT;
-                    var boundTreeIds = RouteTreeGuard.BoundTreeIds();
-                    int reconciledTreeCount = 0;
-                    for (int bi = 0; bi < boundTreeIds.Count; bi++)
-                    {
-                        RouteTreeGuard.ForceClearManualLoopForRouteTree(
-                            boundTreeIds[bi], reconcileUtForLoops);
-                        reconciledTreeCount++;
-                    }
-                    ParsekLog.Info("RouteGuard",
-                        $"OnLoad route-loop reconcile: cleared manual loops on {reconciledTreeCount} route-bound tree(s)");
+                    OnLoadPhaseReconcileRouteBoundManualLoops(reconcileUtForLoops);
                 }
 
                 // Schedule deferred seeding: during OnLoad, Funding/R&D/Reputation singletons
@@ -2061,50 +2147,7 @@ namespace Parsek
                 // most useful when debugging spawn timing) at Verbose.
                 loadPhase = "load-summary";
                 double loadUT = coldClockUT;
-                ParsekLog.Info("Scenario",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Scenario load summary — UT: {0:F0}, {1} recording(s)",
-                        loadUT, recordings.Count));
-                int futureCount = 0, inProgressCount = 0, pastCount = 0;
-                List<string> inProgressDetail = null;
-                for (int i = 0; i < recordings.Count; i++)
-                {
-                    var loadedRec = recordings[i];
-                    double duration = loadedRec.EndUT - loadedRec.StartUT;
-                    if (loadUT < loadedRec.StartUT)
-                    {
-                        futureCount++;
-                    }
-                    else if (loadUT <= loadedRec.EndUT)
-                    {
-                        inProgressCount++;
-                        if (inProgressDetail == null)
-                            inProgressDetail = new List<string>();
-                        string pct = duration > 0
-                            ? string.Format(CultureInfo.InvariantCulture, "({0:F0}%)",
-                                (loadUT - loadedRec.StartUT) / duration * 100)
-                            : "";
-                        inProgressDetail.Add($"  #{i}: \"{loadedRec.VesselName}\" — IN PROGRESS {pct}".TrimEnd());
-                    }
-                    else
-                    {
-                        pastCount++;
-                    }
-                }
-                ParsekLog.Verbose("Scenario",
-                    $"Load summary buckets: future={futureCount} in-progress={inProgressCount} past={pastCount}");
-                if (inProgressDetail != null)
-                {
-                    foreach (var line in inProgressDetail)
-                        ParsekLog.Verbose("Scenario", line);
-                }
-
-                if (CrewReservationManager.CrewReplacements.Count > 0)
-                {
-                    ParsekLog.Info("Scenario", $"Crew reservations active ({CrewReservationManager.CrewReplacements.Count}):");
-                    foreach (var kvp in CrewReservationManager.CrewReplacements)
-                        ParsekLog.Info("Scenario", $"  {kvp.Key} -> replacement: {kvp.Value}");
-                }
+                OnLoadPhaseLogColdLoadSummary(recordings, loadUT);
 
                 // Run recording optimization pass (merge redundant segments, split monolithic ones)
                 loadPhase = "optimization";
@@ -2116,22 +2159,7 @@ namespace Parsek
                 // pre-empt the KSC spawn.
                 loadPhase = "crew-auto-unreserve";
                 double currentUT = coldClockUT;
-                if (HighLogic.LoadedScene != GameScenes.SPACECENTER)
-                {
-                    for (int i = 0; i < recordings.Count; i++)
-                    {
-                        var rec = recordings[i];
-                        if (rec.LoopPlayback) continue;
-                        if (rec.VesselSnapshot != null && !rec.VesselSpawned && currentUT > rec.EndUT)
-                        {
-                            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                            rec.VesselSnapshot = null;
-                            rec.VesselSpawned = true;
-                            ScenarioLog($"[Parsek Scenario] Auto-unreserved crew for recording #{i} " +
-                                $"({rec.VesselName}) — EndUT passed without spawn");
-                        }
-                    }
-                }
+                OnLoadPhaseAutoUnreserveCrewPastEndUT(recordings, currentUT);
 
                 // Handle pending recordings outside Flight (Esc > Abort Mission → Space Center path).
                 // Always auto-commit on main menu (game is being unloaded).
