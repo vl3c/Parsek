@@ -1,0 +1,129 @@
+schema = 1
+id = "V33M-jool-laythe-continuation-player-loop"
+# =====================================================================================
+# AUTHORED 2026-11-07, NEVER FLOWN. Committed once `jool-laythe-recorded` was harvested from
+# B38's first green flight (2026-11-07_2230). Order and commands:
+# docs/dev/plans/moon-lane-drafts/README.md.
+#
+# THE PLAYER-LOOP HALF (modelled on V16M's preamble and V13's build-log reading):
+# MissionConfig loop=true + StartLoopPlayback on the Kerbin -> Jool -> Laythe tree,
+# reading the loop unit's build lines, then the MoonArrivalHold batch at the
+# Space Center. No jump table yet: its UTs come from this lane's own reading
+# (`phaseAnchor=` / `cadence=` on the ENGAGED line, `hold=` / `recordedArrivalUT=`
+# on the ARRIVAL HOLD line). The second revision adds the -180/-60/+140 brackets
+# around the replayed Laythe SOI entry and pins V17's lens there:
+# `shadow .*coverage=InSegment segIdx=\d+ treatment=TracedPath visible=True .*body=Laythe`
+# (the Director TracedPath drive; NOT the flight-scene proto line, which
+# fail-closes to the root frame for a nested-SOI recording).
+#
+# THE SUBJECT. `jool-laythe-recorded`, harvested from `B38-jool-laythe-continuation`: the Jool -> Laythe hop
+# appended to `jool-orbit-recorded`'s committed Kerbin -> Jool tree `6ec68e87b782476f970a71df8c8b4685` (the forge
+# resumes that tree, so the id is unchanged). One tree that crosses Jool's SOI and
+# Laythe's is exactly the shape PR #2468's lone-moon arrival hold engages on.
+#
+# WHAT THE LOG MUST SHOW (literals from Source/Parsek/MissionLoopUnitBuilder.cs):
+#   `MissionLoopUnit: ... ENGAGED re-aim Kerbin->Jool via Sun` - the re-aim
+#       engages on the Kerbin -> Jool member, as on the source fixture's own lanes.
+#   `ARRIVAL HOLD dest=Jool kind=config Talign=<P_Laythe>s moons=1 ...
+#       (aligns the moon orbital phases, mode=` - the lone-moon configuration hold on
+#       Laythe's period (52,980.88 s; one participant, so T_config = P_Laythe).
+#   `BATCH_COMPLETE ... category=MoonArrivalHold scene=SPACECENTER` - the live
+#       LoneMoonHoldInGameTest cell (1 test, SPACECENTER), pinned whole.
+# `MOON HOLD keeps the destination loiter whole` is a CANDIDATE only (commented below):
+# it logs only when the loiter compressor cut time AFTER the Jool SOI entry, i.e.
+# when the forge's Jool park ran 2+ whole orbits before the hop. Read the reading's
+# `ENGAGED re-aim ... loiterCuts=` and the MOON HOLD line (or its absence) first.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-07, NEVER FLOWN. The player loop on the Kerbin->Jool->Laythe tree harvested by B38-jool-laythe-continuation: re-aim Kerbin->Jool engages and the lone-moon arrival hold (PR #2468) aligns Laythe's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
+instanceProfile = "stock-minimal"
+tags = ["V33", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "laythe", "moon", "ingame-batch", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/jool-laythe-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# The V-lane preamble (the restore-stub kill pair, tracers, verbose), the loop
+# reading, then the Space Center batch. The kill pair before the second LoadGame is
+# the TS-lane rule (LoadGame refuses while a recorder is live).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "6ec68e87b782476f970a71df8c8b4685", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "6ec68e87b782476f970a71df8c8b4685" }, expect = "OK", budget = 300 },
+  # SECOND REVISION: the bracket jump table around the replayed Laythe SOI entry goes here.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "RunTests",   args = { category = "MoonArrivalHold" },             expect = "OK", budget = 300 },
+  # The export sits right before teardown (RenderComposeVerifierWiringTests placement
+  # rule): the recorder accumulates from Awake, so an earlier export drops later steps.
+  { cmd = "ExportRenderManifest",                                            expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# Every claim is gated below: D11 arrival-hold by the ARRIVAL HOLD line, D14 the
+# bodies by the dest= / Talign tokens, scene-ksc by the batch's scene=SPACECENTER.
+[dimensionsCovered]
+D11 = ["arrival-hold"]
+D14 = ["jool", "laythe", "scene-flight", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Pinned at harvest: `jool-laythe-recorded` ships N = 7 `.prec` sidecars (B22's five with
+# the root now the pad head, plus Kerbin->Jool and the Jool->Laythe hop), so {N, N + 1} (a
+# load-time optimizer split adds at most one here).
+count = { min = 7, max = 8 }
+
+[expectations.logContracts]
+# CANDIDATE, not required (see the header): "MOON HOLD keeps the destination loiter whole: dest=Jool moons=1 ",
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "ENGAGED re-aim Kerbin->Jool via Sun",
+  "ARRIVAL HOLD dest=Jool kind=config Talign=5298[01]\\.[0-9]+s moons=1 ",
+  "ARRIVAL HOLD dest=Jool kind=config .*\\(aligns the moon orbital phases, mode=",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=MoonArrivalHold scene=SPACECENTER",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "FORCED FAITHFUL",
+  "no member yields a re-aim transfer",
+  "MOON HOLD declined",
+  "Arrival amber SET: tree=6ec68e87b782476f970a71df8c8b4685",
+  "timejump refused reason=backward-jump",
+]
+
+[expectations.rewind]
+# REPORT-ONLY until a reading; the source fixture's lanes read 0 / 0 / 0.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY: the forge's one committed tree.
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[expectations.renderComposition]
+
+[runtime]
+# 2 x 300 LoadGame + 300 StartLoopPlayback + 300 RunTests + 120 manifest + margin.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -159,6 +159,7 @@ namespace Parsek
             var parachuteStates = new Dictionary<ulong, TransientPartState>();
             var roboticStates = new Dictionary<ulong, TransientPartState>();
             var converterStates = new Dictionary<ulong, TransientPartState>();
+            var wheelDamageStates = new Dictionary<ulong, TransientPartState>();
             var evaJetpackStates = new Dictionary<ulong, TransientPartState>();
             var evaRagdollStates = new Dictionary<ulong, TransientPartState>();
 
@@ -301,6 +302,14 @@ namespace Parsek
                         converterStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: PartEventType.ConverterDeactivated);
                         break;
+                    case PartEventType.WheelBroken:
+                        wheelDamageStates[key] = BuildTransientState(
+                            evt, active: true, value: 0f, seedEventType: PartEventType.WheelBroken);
+                        break;
+                    case PartEventType.WheelRepaired:
+                        wheelDamageStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: PartEventType.WheelRepaired);
+                        break;
                     case PartEventType.RoboticMotionStarted:
                     case PartEventType.RoboticPositionSample:
                     case PartEventType.RoboticMotionStopped:
@@ -402,6 +411,8 @@ namespace Parsek
                 parachuteStates, seeds, splitUT, ref visualStateOffSeeds);
             visualStateSeeds += AppendReversibleStateSeeds(
                 converterStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                wheelDamageStates, seeds, splitUT, ref visualStateOffSeeds);
             visualStateSeeds += AppendReversibleStateSeeds(
                 evaJetpackStates, seeds, splitUT, ref visualStateOffSeeds);
             visualStateSeeds += AppendReversibleStateSeeds(
@@ -568,6 +579,12 @@ namespace Parsek
                 // tail's ghost would spin a drill the recording says is idle.
                 case PartEventType.ConverterActivated:
                 case PartEventType.ConverterDeactivated:
+                // Wheel damage: reversible (an EVA repair undoes the break), and BOTH directions
+                // seed. The repaired direction is not redundant: a split TIP's snapshot is a copy of
+                // the parent's launch-time one, so a rover that launched with a broken wheel and was
+                // repaired in the head span would otherwise spawn its tail ghost broken.
+                case PartEventType.WheelBroken:
+                case PartEventType.WheelRepaired:
                 // S4: the jetpack POSE and the ragdoll FLAG are both reversible two-state signals,
                 // so both directions seed. The THRUST pair is deliberately absent - it follows the
                 // RCS rule (active-direction only, and even that is momentary), so it is not a
@@ -654,6 +671,9 @@ namespace Parsek
                 case PartEventType.EvaRagdollStarted:
                 case PartEventType.EvaRagdollEnded:
                     return 13;
+                case PartEventType.WheelBroken:
+                case PartEventType.WheelRepaired:
+                    return 14;
                 default:
                     return 0;
             }

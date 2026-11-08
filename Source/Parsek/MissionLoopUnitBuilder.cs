@@ -1012,16 +1012,18 @@ namespace Parsek
                     }
                     else
                     {
-                        // Loop slack budget for the JOINT hold (D8 landing+station): the idle gap the
-                        // per-loop hold can spend without the clock's defensive clamp truncating it.
-                        double jointSlackSeconds = effectiveCadence
-                            - (span - GhostPlaybackLogic.TotalCutLength(loiterCuts));
-                        arrivalHold = ArrivalHoldPlanner.ComputeArrivalHold(
-                            extraction.Constraints, plan.TargetBody, plan.RecordedArrivalUT,
-                            transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo,
-                            windowSpacingSeconds: sched.SynodicPeriodSeconds,
-                            launchBodyName: plan.LaunchBody,
-                            loopSlackSeconds: jointSlackSeconds);
+                        // Moon configuration hold (a lone moon after the planet arrival, or the
+                        // M-MIS-6 multi-moon tour): every moon encounter is aligned by ONE hold at
+                        // the SOI entry, which holds only while the recorded in-SOI timeline is
+                        // rigid, so the hold is tried with the destination loiter whole (launch-side
+                        // cuts only; the phase anchor shift above counts cuts before the departure
+                        // only). When that hold still declines, the original cuts come back so the
+                        // loop at least keeps its compressed loiter. Every other shape runs the
+                        // shipped ComputeArrivalHold on the cuts unchanged.
+                        arrivalHold = ComputeArrivalHoldKeepingMoonLoiterWhole(
+                            mission.Name, extraction, plan, loiterCuts, launchSideCuts,
+                            transitedBodyRotationMode, phaseAnchorUT, spanStartUT, bodyInfo,
+                            sched.SynodicPeriodSeconds, effectiveCadence, span, out loiterCuts);
                         if (arrivalHold.Applied && !SuppressLogging)
                         {
                             var aic = CultureInfo.InvariantCulture;
@@ -1050,7 +1052,7 @@ namespace Parsek
                                     : "") +
                                 $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
                                 $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
-                                $"(aligns the {(arrivalHold.IsConfigHold ? "multi-moon configuration" : arrivalHold.IsJointHold ? "station orbital + landing rotation" : arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
+                                $"(aligns the {(arrivalHold.IsConfigHold ? (arrivalHold.ConfigMoonCount == 1 ? "moon orbital" : "multi-moon configuration") : arrivalHold.IsJointHold ? "station orbital + landing rotation" : arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
                                 $"phase{(arrivalHold.IsJointHold || arrivalHold.IsConfigHold ? "s" : "")}, mode={transitedBodyRotationMode})");
                         }
                     }
@@ -2044,6 +2046,104 @@ namespace Parsek
                 }
             }
             return cuts;
+        }
+
+        // The arrival hold for the non-trim branch, with the moon-configuration loiter rule: when the
+        // destination shape takes that hold (ArrivalHoldPlanner.UsesMoonConfigurationHold) and the
+        // cuts excise time AFTER the SOI entry, the hold is computed against the launch-side cuts
+        // only (the destination loiter replays whole, so the recorded in-SOI timeline stays rigid and
+        // one entry hold aligns every moon encounter). If that hold engages those cuts are kept; if
+        // it declines (loop slack below one anchor period, no recurrence, no window) the ORIGINAL
+        // cuts come back with the decline's own amber, so a declined moon hold never costs the loop
+        // its compressed loiter. Every other shape is the shipped ComputeArrivalHold, cuts unchanged.
+        internal static ArrivalHoldPlanner.ArrivalHoldResult ComputeArrivalHoldKeepingMoonLoiterWhole(
+            string missionName, ConstraintExtraction extraction, ReaimMissionPlan plan,
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts,
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> launchSideCuts,
+            TransitedBodyRotationMode mode, double phaseAnchorUT, double spanStartUT,
+            IBodyInfo bodyInfo, double synodicPeriodSeconds, double effectiveCadence, double span,
+            out IReadOnlyList<GhostPlaybackLogic.LoopCut> cutsUsed)
+        {
+            int moons;
+            int postEntryCuts;
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> moonCuts = KeepLaunchSideCutsForMoonConfigurationHold(
+                extraction, plan, loiterCuts, launchSideCuts, mode, bodyInfo, out moons, out postEntryCuts);
+            bool tryingWholeLoiter = postEntryCuts > 0;
+
+            ArrivalHoldPlanner.ArrivalHoldResult hold = ComputeHold(moonCuts);
+            if (!tryingWholeLoiter)
+            {
+                cutsUsed = loiterCuts;
+                return hold;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            if (hold.Applied)
+            {
+                cutsUsed = moonCuts;
+                if (!SuppressLogging)
+                    ParsekLog.Info("Reaim",
+                        $"MissionLoopUnit: mission='{missionName}' MOON HOLD keeps the destination loiter " +
+                        $"whole: dest={plan.TargetBody} moons={moons.ToString(ic)} " +
+                        $"droppedPostEntryCuts={postEntryCuts.ToString(ic)} " +
+                        $"keptLaunchSideCuts={(moonCuts?.Count ?? 0).ToString(ic)} " +
+                        $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", ic)} mode={mode}");
+                return hold;
+            }
+
+            cutsUsed = loiterCuts;
+            if (!SuppressLogging)
+                ParsekLog.Info("Reaim",
+                    $"MissionLoopUnit: mission='{missionName}' MOON HOLD declined, destination loiter " +
+                    $"stays compressed: dest={plan.TargetBody} moons={moons.ToString(ic)} " +
+                    $"restoredCuts={(loiterCuts?.Count ?? 0).ToString(ic)} " +
+                    $"amber='{hold.AmberReason ?? "none"}' mode={mode}");
+            return hold;
+
+            ArrivalHoldPlanner.ArrivalHoldResult ComputeHold(IReadOnlyList<GhostPlaybackLogic.LoopCut> cuts)
+            {
+                // Loop slack budget for the hold: the idle gap the per-loop hold can spend without
+                // the clock's defensive clamp truncating it.
+                double slack = effectiveCadence - (span - GhostPlaybackLogic.TotalCutLength(cuts));
+                return ArrivalHoldPlanner.ComputeArrivalHold(
+                    extraction.Constraints, plan.TargetBody, plan.RecordedArrivalUT,
+                    mode, phaseAnchorUT, spanStartUT, cuts, bodyInfo,
+                    windowSpacingSeconds: synodicPeriodSeconds,
+                    launchBodyName: plan.LaunchBody,
+                    loopSlackSeconds: slack);
+            }
+        }
+
+        // The loiter cuts a moon-configuration arrival hold runs against: when the destination shape
+        // takes that hold and the current cuts excise time AFTER the SOI entry, return the launch-side
+        // cuts only (null when there are none) with postEntryCuts > 0. Every other shape returns the
+        // cuts unchanged with postEntryCuts = 0.
+        internal static IReadOnlyList<GhostPlaybackLogic.LoopCut> KeepLaunchSideCutsForMoonConfigurationHold(
+            ConstraintExtraction extraction, ReaimMissionPlan plan,
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts,
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> launchSideCuts,
+            TransitedBodyRotationMode mode, IBodyInfo bodyInfo,
+            out int constrainedMoons, out int postEntryCuts)
+        {
+            constrainedMoons = 0;
+            postEntryCuts = 0;
+            if (loiterCuts == null || loiterCuts.Count == 0 || bodyInfo == null
+                || string.IsNullOrEmpty(plan.TargetBody))
+                return loiterCuts;
+            int count = 0;
+            for (int i = 0; i < loiterCuts.Count; i++)
+                if (loiterCuts[i].EndUT > plan.RecordedArrivalUT)
+                    count++;
+            if (count == 0)
+                return loiterCuts;
+            DestinationConstraintExtractor.DestinationConstraintSet destSet =
+                DestinationConstraintExtractor.ExtractDestinationConstraints(
+                    extraction.Constraints, plan.TargetBody, bodyInfo);
+            if (!ArrivalHoldPlanner.UsesMoonConfigurationHold(destSet, mode))
+                return loiterCuts;
+            constrainedMoons = destSet.ConstrainedMoonCount;
+            postEntryCuts = count;
+            return launchSideCuts != null && launchSideCuts.Count > 0 ? launchSideCuts : null;
         }
 
         // Try the M-MIS-2 P4 joint destination-loiter trim + arrival hold for a re-aim landing.

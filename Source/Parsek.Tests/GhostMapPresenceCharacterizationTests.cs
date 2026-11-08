@@ -149,12 +149,10 @@ namespace Parsek.Tests
         // ---------- NormalizeTrackingStationSpawnSuppressionReason --------------
 
         [Fact]
-        public void NormalizeTrackingStationSpawnSuppressionReason_MapsTwoLegacyPhrases()
+        public void NormalizeTrackingStationSpawnSuppressionReason_MapsTheLegacyPhrase()
         {
             Assert.Equal(GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink,
                 GhostMapPresence.NormalizeTrackingStationSpawnSuppressionReason("intermediate ghost chain link"));
-            Assert.Equal(GhostMapPresence.TrackingStationSpawnSkipTerminatedGhostChain,
-                GhostMapPresence.NormalizeTrackingStationSpawnSuppressionReason("terminated ghost chain"));
             Assert.Equal("something else",
                 GhostMapPresence.NormalizeTrackingStationSpawnSuppressionReason("something else"));
             Assert.Null(GhostMapPresence.NormalizeTrackingStationSpawnSuppressionReason(null));

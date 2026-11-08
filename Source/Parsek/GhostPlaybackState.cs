@@ -61,6 +61,7 @@ namespace Parsek
         public string cachedAudioBodyName;                   // body name the cache was built for
         public Dictionary<ulong, RoboticGhostInfo> roboticInfos; // key = EncodeEngineKey(pid, moduleIndex)
         public Dictionary<uint, DeployableGhostInfo> deployableInfos;
+        public Dictionary<uint, WheelDamageGhostInfo> wheelDamageInfos;
         // S2: the deployable families with an interpolated stow<->deploy transition in flight this
         // frame. Entries are appended by ApplyDeployableState's animated path and dropped by
         // UpdateActiveDeployables at progress >= 1, so a ghost with nothing moving pays one
@@ -201,6 +202,7 @@ namespace Parsek
             wheelGroundContact = default;
             roboticInfos = null;
             deployableInfos = null;
+            wheelDamageInfos = null;
             activeDeployableTransitions = null;
             synthesizedMotionInfos = null;
             prevSynthRotation = Quaternion.identity;

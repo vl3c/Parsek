@@ -29,6 +29,9 @@ namespace Parsek
                 ConfigNode node = new ConfigNode("VESSEL");
                 pv.Save(node);
                 NormalizeBackedUpSnapshotFromLiveVessel(node, vessel);
+                // A fairing truss kept on after its stage separated is not derivable from
+                // the attach rows; record what the craft actually shows.
+                GhostFairingStructureStamp.StampFromLiveVessel(vessel, node);
                 // Crew inventories live on the roster, not in PART nodes: capture them with
                 // the snapshot so a spawn from it restores what the crew carried at this
                 // moment (CrewInventorySnapshot). Keyed by live names; the reverse map below
