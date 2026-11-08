@@ -72,9 +72,11 @@ import ilgraph  # noqa: E402
 # The text ratchet's pinned cut order, replayed here so the report shows both.
 TEXT_CUT_ORDER = archview.RATCHET_CUT_ORDER
 
-# The cut order the semantic residue replays: the semantic greedy sequence on
-# the refactor branch at 668a03255 (after wave 2 W1c and W3b, 2026-11-08).
-# Re-pin it only together with a tightened bound, never to loosen one.
+# The cut order the semantic residue ratchet replays
+# (test_semantic.test_the_semantic_residue_ratchet): the semantic greedy
+# sequence on the refactor branch at 668a03255 (after wave 2 W1c and W3b,
+# 2026-11-08). Re-pin it only together with a tightened bound, never to
+# loosen one.
 SEMANTIC_CUT_ORDER = [
     "GhostPlaybackLogic",
     "RecordingTree",

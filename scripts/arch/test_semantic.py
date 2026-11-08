@@ -1,15 +1,17 @@
 """Tests for the semantic (compiled IL) type graph: ilgraph.py and semantic.py.
 
 The pure cells drive the parser with inline ikdasm-shaped IL. The real-tree
-cells need a built Parsek.dll: set PARSEK_ARCH_IL to it (or to an ikdasm .il
+cells, the architecture residue ratchet among them, need a built Parsek.dll: set PARSEK_ARCH_IL to it (or to an ikdasm .il
 dump). CI sets it after the build (.github/workflows/tests.yml); without it
 those cells skip with that reason, and with it set they never skip (a missing
 file or a missing ikdasm fails them).
 """
 
 import contextlib
+import fnmatch
 import io
 import os
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -395,6 +397,139 @@ class CutOrderTests(unittest.TestCase):
         self.assertEqual(archview.replay_cut_residue(graph, []), 3)
 
 
+# The semantic ratchet lives in RealTreeSemanticTests, which skips when
+# PARSEK_ARCH_IL is unset, so the only thing that makes it run in CI is the
+# workflow step below. Deleting, disabling or re-pointing that step would turn
+# the ratchet into a silent skip; this cell reds instead. The workflow is read
+# with a small line parser (stdlib only, no YAML package in the arch suite).
+WORKFLOW = archview.REPO_ROOT / ".github" / "workflows" / "tests.yml"
+BUILT_DEBUG_DLL = "${{ github.workspace }}/Source/Parsek/bin/Debug/Parsek.dll"
+STEP_RE = re.compile(r"^(\s*)- name:\s*(.+?)\s*$")
+
+
+def workflow_steps(text):
+    """The steps of the workflow as (name, {key: value}, env, run) in file
+    order. A step is a `- name:` item; its keys are the lines indented under
+    it. Comment lines are dropped first, so a commented-out step is no step."""
+    lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    steps = []
+    index = 0
+    while index < len(lines):
+        match = STEP_RE.match(lines[index])
+        if not match:
+            index += 1
+            continue
+        indent = len(match.group(1))
+        name = match.group(2)
+        body = []
+        index += 1
+        while index < len(lines):
+            line = lines[index]
+            if line.strip() and (len(line) - len(line.lstrip())) <= indent:
+                break
+            body.append(line)
+            index += 1
+        keys, env, run = {}, {}, []
+        key_indent = indent + 2
+        section = None
+        for line in body:
+            if not line.strip():
+                continue
+            depth = len(line) - len(line.lstrip())
+            key, _sep, value = line.strip().partition(":")
+            if depth == key_indent:
+                section = key
+                keys[key] = value.strip()
+                if key == "run" and value.strip() not in ("|", ">", ""):
+                    run.append(value.strip())
+            elif section == "env" and _sep:
+                env[key] = value.strip()
+            elif section == "run":
+                run.append(line.strip())
+        steps.append((name, keys, env, " ".join(run)))
+    return steps
+
+
+def semantic_step_problems(text):
+    """Why the workflow would not run the semantic real-tree cells against the
+    built Debug DLL; empty when it does."""
+    steps = workflow_steps(text)
+    build = [i for i, (_n, _k, _e, run) in enumerate(steps) if "scripts/cloud-test.sh" in run]
+    if not build:
+        return ["no step runs scripts/cloud-test.sh (the build of Parsek.dll)"]
+    candidates = [
+        (i, step) for i, step in enumerate(steps)
+        if "unittest" in step[3] and "scripts/arch" in step[3] and IL_ENV in step[2]
+    ]
+    if not candidates:
+        return ["no step runs the scripts/arch unittest suite with %s set" % IL_ENV]
+    problems = []
+    for i, (name, keys, env, run) in candidates:
+        found = []
+        if env[IL_ENV] != BUILT_DEBUG_DLL:
+            found.append("%s: %s is %r, not the built Debug DLL" % (name, IL_ENV, env[IL_ENV]))
+        if i < build[0]:
+            found.append("%s: runs before the build step" % name)
+        if "if" in keys:
+            found.append("%s: has a condition (if: %s)" % (name, keys["if"]))
+        if keys.get("continue-on-error", "false").lower() != "false":
+            found.append("%s: continue-on-error" % name)
+        pattern = re.search(r"-p\s+['\"]?([^'\"\s]+)", run)
+        if pattern and not fnmatch.fnmatch("test_semantic.py", pattern.group(1)):
+            found.append("%s: discover pattern %r skips test_semantic.py" % (name, pattern.group(1)))
+        if not found:
+            return []
+        problems.extend(found)
+    return problems
+
+
+class WorkflowRunsTheRatchetTests(unittest.TestCase):
+    def test_ci_runs_the_semantic_cells_against_the_built_dll(self):
+        self.assertEqual(semantic_step_problems(WORKFLOW.read_text(encoding="utf-8")), [])
+
+    GOOD = """\
+jobs:
+  tests:
+    steps:
+      - name: Build + run xUnit suite
+        env:
+          KSPDIR: x
+        run: scripts/cloud-test.sh
+
+      # comment
+      - name: Architecture semantic graph (compiled IL)
+        env:
+          PARSEK_ARCH_IL: ${{ github.workspace }}/Source/Parsek/bin/Debug/Parsek.dll
+        run: python3 -m unittest discover -s scripts/arch -p 'test_semantic.py' -q
+"""
+
+    def test_the_parser_reds_every_way_to_lose_the_step(self):
+        self.assertEqual(semantic_step_problems(self.GOOD), [])
+        semantic_step = self.GOOD[self.GOOD.index("      - name: Architecture"):]
+        build_step = self.GOOD[self.GOOD.index("      - name: Build"):self.GOOD.index("      # comment")]
+        header = self.GOOD[:self.GOOD.index("      - name: Build")]
+        mutants = {
+            "deleted": self.GOOD.replace(semantic_step, ""),
+            "commented out": self.GOOD.replace(
+                semantic_step, "".join("# " + line + "\n" for line in semantic_step.splitlines())),
+            "env dropped": self.GOOD.replace(
+                "        env:\n          PARSEK_ARCH_IL: ${{ github.workspace }}/Source/Parsek/bin/Debug/Parsek.dll\n", ""),
+            "release dll": self.GOOD.replace("bin/Debug/Parsek.dll", "bin/Release/Parsek.dll"),
+            "before the build": header + semantic_step + "\n" + build_step,
+            "conditional": self.GOOD.replace(
+                "      - name: Architecture semantic graph (compiled IL)\n",
+                "      - name: Architecture semantic graph (compiled IL)\n        if: false\n"),
+            "continue-on-error": self.GOOD.replace(
+                "      - name: Architecture semantic graph (compiled IL)\n",
+                "      - name: Architecture semantic graph (compiled IL)\n        continue-on-error: true\n"),
+            "wrong pattern": self.GOOD.replace("'test_semantic.py'", "'test_archview.py'"),
+            "no build": self.GOOD.replace("scripts/cloud-test.sh", "echo skipped"),
+        }
+        for label, text in mutants.items():
+            with self.subTest(mutant=label):
+                self.assertNotEqual(semantic_step_problems(text), [])
+
+
 # The RecordingStore forwarders the arch refresh (2026-11-07) lists as kept for
 # the text metric, with the service each one forwards to.
 STORE_FORWARDERS = {
@@ -464,12 +599,23 @@ class RealTreeSemanticTests(unittest.TestCase):
                  if "State" in refs and modules.get(name) == "GameActions"]
         self.assertEqual(users, [])
 
-    def test_the_semantic_residue_is_within_the_text_bound(self):
-        # The text ratchet's bound (test_archview) is 179; the semantic measure
-        # replaces it only on a tree that still passes it (plan W4a2).
-        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 179)
-        self.assertLessEqual(semantic.ratchet_residue(self.result["textMeasure"]), 179)
-
+    def test_the_semantic_residue_ratchet(self):
+        # The architecture ratchet (W4a2). The bound is the semantic residue
+        # measured on 668a03255 (2026-11-08, after wave 2 W1c and W3b), the
+        # tree where the text residue
+        # (test_archview.test_cut_sequence_halves_the_largest_knot) still
+        # passed its bound 179: greedy 150, replayed 150 with
+        # SEMANTIC_CUT_ORDER. History of the same pair: 250 under the text
+        # bound 272 (62d9b1b56) and 263 (be2512a0d; W1b deleted the false
+        # text edge ReFlyInvokeHold -> Hold, which moved the text residue 9
+        # and this one 0). Like the text ratchet before it, the measure is
+        # min(greedy residue, replayed residue); the replay never rises when
+        # a reference is removed. A call through a forwarder is a call to the
+        # forwarded type here, so adding or deleting a forwarder does not move
+        # it. Tighten the bound to the measured value in the PR that lowers
+        # it; never loosen it, not even for a new type that only splits a
+        # residue member.
+        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 150)
 
 if __name__ == "__main__":
     unittest.main()
