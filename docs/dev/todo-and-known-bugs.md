@@ -2950,6 +2950,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Wave 2 W1b (2026-11-07, this branch): the hold decision record `ReFlyInvokeHold.Entry` is the
   top-level plain type `ReFlyHoldEntry` (same file, same fields), so `RewindVesselHold.Hold`
   no longer references the classifier. Knot 459 -> 450, replayed residue 272 -> 263.
+- Wave 2 W1c (2026-11-07, this branch): `MissionPeriodicity.ExtractConstraints` takes the
+  trimmed member windows as an input; `MissionLoopUnitBuilder.ExtractPeriodicityConstraints`
+  computes them and is what the builder, the Missions window and the in-game real-save finder
+  call. The periodicity solver no longer reaches up into the builder. Knot 450 (unchanged),
+  replayed residue 263 -> 246; the greedy cuts reorder (GhostPlaybackLogic first) and the
+  greedy residue drops to 201.
 - Wave 2 W8c on this branch (S3, pure move, IL identical): `Logistics/RouteOrchestrator.cs`
   (5,521 lines, a static class) is a partial class over 7 files
   (`scripts/refactor/split_routeorchestrator.py`; every field and constant stays in the main
