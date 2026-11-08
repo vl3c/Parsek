@@ -993,6 +993,40 @@ namespace Parsek.Tests
             Assert.Equal("Mun Hopper - Recovered", lars.LastFlightText);
         }
 
+        // catches: the owner's Last flight cell naming a flight a stand-in flew as the
+        // owner's own (KERBALS-WINDOW-RESIDUE-2026-09-15 item 5). The reverse-map files the
+        // stand-in's flight under the owner, so the cell must carry the Mission cell's
+        // "(flown by ...)" note.
+        [Fact]
+        public void Roster_TheOwnersLastFlightSaysWhenAStandInFlewIt()
+        {
+            var roster = new List<KerbalsPresentation.RosterKerbal>
+            {
+                Kerbal("Jebediah Kerman", "Pilot"),
+                Kerbal("Lars Kerman", "Pilot"),
+                Kerbal("Bill Kerman", "Engineer"),
+            };
+            var entries = new List<KerbalsWindowUI.CrewEndStateEntry>
+            {
+                Entry("Jebediah Kerman", "r1", "Mun Hopper", 1200.0, KerbalEndState.Recovered),
+                Entry("Bill Kerman", "r2", "Minmus Hop", 900.0, KerbalEndState.Recovered),
+            };
+            var rawCrew = new Dictionary<string, IReadOnlyCollection<string>>(
+                StringComparer.Ordinal)
+            {
+                { "r1", new List<string> { "Lars Kerman" } },
+                { "r2", new List<string> { "Bill Kerman" } },
+            };
+
+            KerbalsPresentation.RosterRowSet set = Roster(roster, JebCoveredByLars(),
+                flights: Flights(entries, rawCrew: rawCrew, slots: JebCoveredByLars()));
+
+            Assert.Equal("Mun Hopper (flown by Lars Kerman) - Recovered",
+                Find(set, "Jebediah Kerman").LastFlightText);
+            // A kerbal who flew his own seat reads the bare mission name.
+            Assert.Equal("Minmus Hop - Recovered", Find(set, "Bill Kerman").LastFlightText);
+        }
+
         [Fact]
         public void Roster_RowsAreOrderedOrdinallyByName()
         {

@@ -438,8 +438,9 @@ namespace Parsek.Rendering
             }
         }
 
-        // §7.9 SurfaceContinuous markers — Phase 6 emits the candidate; the
-        // per-frame raycast that resolves ε is Phase 7 work.
+        // Section 7.9 SurfaceContinuous markers. The candidate carries a zero epsilon
+        // at the lowest rank: surface terrain correction is applied per sample
+        // from recordedGroundClearance at positioning time, not through an anchor.
         private static void EmitSurfaceContinuousMarkers(
             Recording rec, Dictionary<int, List<AnchorCandidate>> output)
         {

@@ -28,7 +28,7 @@ id = "V22T-kerbin-splashdown-ts-arrival"
 # The Tracking-Station half of the Kerbin surface-arrival pair. V22M reads the
 # below-atmosphere arrival from the FLIGHT map; whether the TS host - a DIFFERENT
 # render host with its own init walk and its own dynamic overlap path
-# (`ParsekTrackingStation`, not `ParsekUI.DrawMapMarkers`) - assembles the same
+# (`ParsekTrackingStation`, not `ParsekFlightMapMarkers.DrawMapMarkers`) - assembles the same
 # descent polyline and the same suppressed-icon marker for a subject with NO CONIC AT
 # THE ARRIVAL is this lane's own measurement.
 #

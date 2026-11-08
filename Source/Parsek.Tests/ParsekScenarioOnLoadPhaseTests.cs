@@ -18,6 +18,7 @@ namespace Parsek.Tests
     {
         private readonly List<string> logLines = new List<string>();
         private readonly GameScenes priorScene;
+        private readonly FlightDriver.StartupBehaviours priorStartup;
 
         public ParsekScenarioOnLoadPhaseTests()
         {
@@ -32,11 +33,21 @@ namespace Parsek.Tests
             RecordingStore.ClearCommittedTreesInternal();
             CrewReservationManager.ResetReplacementsForTesting();
             priorScene = HighLogic.LoadedScene;
+            priorStartup = FlightDriver.StartupBehaviour;
+            ParsekScenario.SetCurrentFlightLaunchUTForTesting(double.NaN);
+            ParsekScenario.SetFreshLaunchEntryPendingForTesting(false);
+            ParsekScenario.SetFlightEntryLedgerActionIdsForTesting(null);
+            ParsekScenario.SetPrelaunchEntryLedgerActionIdsForTesting(null);
         }
 
         public void Dispose()
         {
             HighLogic.LoadedScene = priorScene;
+            FlightDriver.StartupBehaviour = priorStartup;
+            ParsekScenario.SetCurrentFlightLaunchUTForTesting(double.NaN);
+            ParsekScenario.SetFreshLaunchEntryPendingForTesting(false);
+            ParsekScenario.SetFlightEntryLedgerActionIdsForTesting(null);
+            ParsekScenario.SetPrelaunchEntryLedgerActionIdsForTesting(null);
             CrewReservationManager.ResetReplacementsForTesting();
             RouteStore.ResetForTesting();
             MissionStore.ResetForTesting();
@@ -301,6 +312,101 @@ namespace Parsek.Tests
 
             Assert.Equal(0, MissionStore.CountForTree("t_parked"));
             Assert.Equal(1, MissionStore.CountForTree("t_live"));
+        }
+
+        // ---- fresh-launch UT (in-session, after the revert classification) ----
+
+        [Fact]
+        public void FreshLaunchUt_FreshFlightLaunch_CapturesTheUtAndArmsThePrelaunchSnapshot()
+        {
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            FlightDriver.StartupBehaviour = FlightDriver.StartupBehaviours.NEW_FROM_CRAFT_NODE;
+
+            ParsekScenario.OnLoadPhaseApplyFreshLaunchUtDecision(false, false, 123.5);
+
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("Captured fresh-launch UT 123.5 for the Revert-to-editor orphan-prune boundary"));
+            ParsekScenario.RememberFlightEntryLedgerRows("phase-test");
+            Assert.Contains(logLines, l => l.Contains("Flight entry: remembered") && l.Contains("freshLaunch=True"));
+            Assert.NotNull(ParsekScenario.PrelaunchEntryLedgerActionIdsForTesting);
+        }
+
+        [Fact]
+        public void FreshLaunchUt_NonFreshFlightLoad_ClearsACapturedUtOnce()
+        {
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            FlightDriver.StartupBehaviour = FlightDriver.StartupBehaviours.RESUME_SAVED_FILE;
+            ParsekScenario.SetCurrentFlightLaunchUTForTesting(50.0);
+            ParsekScenario.SetFreshLaunchEntryPendingForTesting(true);
+
+            ParsekScenario.OnLoadPhaseApplyFreshLaunchUtDecision(false, false, 200.0);
+            ParsekScenario.OnLoadPhaseApplyFreshLaunchUtDecision(false, false, 210.0);
+
+            Assert.Single(logLines.FindAll(l => l.Contains("[Scenario]")
+                && l.Contains("Cleared captured fresh-launch UT on non-fresh flight load (quickload-resume)")));
+            Assert.DoesNotContain(logLines, l => l.Contains("Captured fresh-launch UT"));
+            ParsekScenario.RememberFlightEntryLedgerRows("phase-test");
+            Assert.Contains(logLines, l => l.Contains("Flight entry: remembered") && l.Contains("freshLaunch=False"));
+            Assert.Null(ParsekScenario.PrelaunchEntryLedgerActionIdsForTesting);
+        }
+
+        [Theory]
+        [InlineData(GameScenes.FLIGHT, true, false)]
+        [InlineData(GameScenes.FLIGHT, false, true)]
+        [InlineData(GameScenes.SPACECENTER, false, false)]
+        public void FreshLaunchUt_RevertVesselSwitchOrNonFlight_LeavesTheCaptureArmed(
+            GameScenes scene, bool isRevert, bool isVesselSwitch)
+        {
+            HighLogic.LoadedScene = scene;
+            FlightDriver.StartupBehaviour = FlightDriver.StartupBehaviours.NEW_FROM_FILE;
+            ParsekScenario.SetCurrentFlightLaunchUTForTesting(50.0);
+            ParsekScenario.SetFreshLaunchEntryPendingForTesting(true);
+
+            ParsekScenario.OnLoadPhaseApplyFreshLaunchUtDecision(isRevert, isVesselSwitch, 200.0);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("fresh-launch UT"));
+            ParsekScenario.RememberFlightEntryLedgerRows("phase-test");
+            Assert.Contains(logLines, l => l.Contains("Flight entry: remembered") && l.Contains("freshLaunch=True"));
+        }
+
+        // ---- cold-attempt-events (pending tree restored from the save) ----
+
+        [Fact]
+        public void ColdPendingTreeRestoreLog_NotRestored_LogsNothing()
+        {
+            PendingTreeSlot.RestorePendingTreeFromSave(Tree("t_pend", "Pending"));
+            logLines.Clear();
+
+            ParsekScenario.OnLoadPhaseLogColdPendingTreeRestore(false);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("cold-start pending tree detected"));
+        }
+
+        [Fact]
+        public void ColdPendingTreeRestoreLog_RestoredAsFinalizedPending()
+        {
+            PendingTreeSlot.RestorePendingTreeFromSave(Tree("t_pend", "Pending"));
+            logLines.Clear();
+
+            ParsekScenario.OnLoadPhaseLogColdPendingTreeRestore(true);
+
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("OnLoad: cold-start pending tree detected (state=Finalized)")
+                && l.Contains("restored as finalized pending"));
+        }
+
+        [Fact]
+        public void ColdPendingTreeRestoreLog_PreservedAlongsideAnActiveTreeRestore()
+        {
+            PendingTreeSlot.StashPendingTree(Tree("t_active", "Active"), PendingTreeState.Limbo);
+            PendingTreeSlot.PreservePendingTreeFromSaveDuringActiveRestore(Tree("t_pend", "Pending"));
+            logLines.Clear();
+
+            ParsekScenario.OnLoadPhaseLogColdPendingTreeRestore(true);
+
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("OnLoad: cold-start pending tree detected (state=Limbo)")
+                && l.Contains("preserved alongside active-tree restore"));
         }
     }
 }
