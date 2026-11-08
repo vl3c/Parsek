@@ -14,7 +14,7 @@ namespace Parsek
     /// in the tracking station vessel list with orbit lines and targeting.
     /// Per-frame lifecycle: removes/creates ghosts when UT crosses segment bounds.
     /// OnGUI draws icons for atmospheric phases (no ProtoVessel — direct rendering
-    /// from trajectory data, same approach as ParsekUI.DrawMapMarkers in flight).
+    /// from trajectory data, same approach as ParsekFlightMapMarkers.DrawMapMarkers in flight).
     /// </summary>
     // [ERS-exempt — Phase 3] ParsekTrackingStation pairs with GhostMapPresence
     // which keys ghost vessels by committed recording index. The count-change
@@ -79,7 +79,7 @@ namespace Parsek
         private readonly Dictionary<int, int> atmosCachedIndices = new Dictionary<int, int>();
 
         // Slice (iii) TS port: reusable per-recording head-UT buffer for the per-instance overlap marker
-        // branch (mirror of ParsekUI.cs:67). Cleared (not reallocated) per overlap recording inside
+        // branch (mirror of ParsekFlightMapMarkers.overlapHeadUtBuffer). Cleared (not reallocated) per overlap recording inside
         // GhostMapPresence.TryGetLiveOverlapHeadUTs, so drawing N markers on the one shared polyline in the
         // tracking station allocates nothing per frame.
         private static readonly List<(long cycle, double headUT)> tsOverlapHeadUtBuffer =
@@ -672,7 +672,7 @@ namespace Parsek
         {
             // Draw icons for recordings in atmospheric phases (no ProtoVessel).
             // Position comes directly from trajectory point interpolation —
-            // same approach as ParsekUI.DrawMapMarkers in the flight scene.
+            // same approach as ParsekFlightMapMarkers.DrawMapMarkers in the flight scene.
             // NOTE: we must let MouseDown events through so the hover/click
             // sticky-label handling in MapMarkerRenderer (#386) can consume
             // clicks. Previously this gate short-circuited on anything but
@@ -771,7 +771,7 @@ namespace Parsek
                 }
 
                 // ---- Slice (iii) TS port: per-instance overlap markers riding the ONE shared polyline ----
-                // Port of the flight-map DrawMapMarkers per-instance branch (ParsekUI.cs:1191-1252) to the
+                // Port of the flight-map DrawMapMarkers per-instance branch (ParsekFlightMapMarkers.DrawMapMarkers) to the
                 // tracking-station marker path. For an OVERLAPPING looped mission rendered via the trajectory
                 // polyline, draw N markers - one per live overlap instance - each at its own
                 // ComputeOverlapCyclePlaybackUT head along the SINGLE shared polyline (the polyline Driver
@@ -906,7 +906,7 @@ namespace Parsek
                 // already rides + continues), so this is the non-overlap gap.
                 //
                 // GENERALIZED to every polyline-OWNED phase (2026-07-03 Duna One escape-burn icon offset,
-                // aligning TS with the flight map's ordering - ParsekUI.DrawMapMarkers rides FIRST whenever
+                // aligning TS with the flight map's ordering - ParsekFlightMapMarkers.DrawMapMarkers rides FIRST whenever
                 // the polyline owns the phase): a CONIC-ANCHORED leg (TryAnchorLegToConicSeam) is drawn
                 // ROTATED off the raw body-fixed track (the live burn leg drew at rotAngle=1.7deg, ~27km),
                 // so the body-fixed-first resolve painted the marker OFF the visible line while the proto
@@ -1340,7 +1340,7 @@ namespace Parsek
         /// riding the SINGLE shared polyline keyed by RecordingId in the tracking station. Returns true when
         /// a marker drew, false when the instance was skipped (head out-of-window / between legs / off-line,
         /// or the cycle is currently represented by a live non-suppressed proto icon). TS-local analogue of
-        /// the flight <c>ParsekUI.DrawOneOverlapInstanceMarker</c> using TS primitives (the TS resolver +
+        /// the flight <c>ParsekFlightMapMarkers.DrawOneOverlapInstanceMarker</c> using TS primitives (the TS resolver +
         /// the world-pos <see cref="MapMarkerRenderer.DrawMarker"/> overload + the TS click handler).
         ///
         /// Orbital no-double-marker rule: for an ORBITAL overlap recording slice (i) creates N ProtoVessels

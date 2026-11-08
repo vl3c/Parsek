@@ -215,7 +215,7 @@ namespace Parsek.Tests
         [Fact]
         public void MapMarkerSummary_IncludesPrioritySkipCounters()
         {
-            var summary = new ParsekUI.MapMarkerSummary
+            var summary = new ParsekFlightMapMarkers.MapMarkerSummary
             {
                 IsMapView = true,
                 Candidates = 5,
@@ -227,7 +227,7 @@ namespace Parsek.Tests
                 LoopHidden = 1
             };
 
-            string line = ParsekUI.FormatMapMarkerSummary(summary);
+            string line = ParsekFlightMapMarkers.FormatMapMarkerSummary(summary);
 
             Assert.Contains("view=map", line);
             Assert.Contains("candidates=5", line);
@@ -244,9 +244,9 @@ namespace Parsek.Tests
             // A looped member skipped because the shared span-clock had it outside its window must
             // still surface a summary line (HasSignal), so the diagnostic distinguishes a loop-clock
             // skip from a silent no-op frame.
-            var summary = new ParsekUI.MapMarkerSummary { IsMapView = true, LoopHidden = 1 };
+            var summary = new ParsekFlightMapMarkers.MapMarkerSummary { IsMapView = true, LoopHidden = 1 };
             Assert.True(summary.HasSignal);
-            Assert.Contains("loopHidden=1", ParsekUI.FormatMapMarkerSummary(summary));
+            Assert.Contains("loopHidden=1", ParsekFlightMapMarkers.FormatMapMarkerSummary(summary));
         }
 
         [Fact]
