@@ -1025,19 +1025,37 @@ namespace Parsek.Tests
             return path;
         }
 
-        // RecordingsTableUI is one partial class split over RecordingsTableUI.cs and its
-        // RecordingsTableUI.<Area>.cs files. Its row reads the whole class as one text
-        // (RecordingsTableUISourceFiles.ReadAll), so the scans count exactly what the
-        // single file held and a const declared in the main file still resolves for a
-        // GUIContent in an area file. Every other row reads its one file.
+        // RecordingsTableUI, MissionsWindowUI and LogisticsWindowUI are each one partial
+        // class split over <Class>.cs and its <Class>.<Area>.cs files. Their rows read the
+        // whole class as one text (<Class>SourceFiles.ReadAll), so the scans count exactly
+        // what the single file held and a const declared in the main file still resolves for
+        // a GUIContent in an area file. Every other row reads its one file.
         private const string RecordingsTableRelPath = "UI/RecordingsTableUI.cs";
+        private const string MissionsWindowRelPath = "UI/MissionsWindowUI.cs";
+        private const string LogisticsWindowRelPath = "UI/LogisticsWindowUI.cs";
+
+        /// <summary>The files of a split class's row, in read order; null for a one-file row.</summary>
+        private static IReadOnlyList<string> SplitClassPaths(string relPath)
+        {
+            string dir = Path.GetDirectoryName(ParsekSourcePath(relPath));
+            if (relPath == RecordingsTableRelPath)
+                return RecordingsTableUISourceFiles.Paths(dir);
+            if (relPath == MissionsWindowRelPath)
+                return MissionsWindowUISourceFiles.Paths(dir);
+            if (relPath == LogisticsWindowRelPath)
+                return LogisticsWindowUISourceFiles.Paths(dir);
+            return null;
+        }
 
         private static string ReadStripWindowSource(string relPath)
         {
-            if (relPath != RecordingsTableRelPath)
+            IReadOnlyList<string> paths = SplitClassPaths(relPath);
+            if (paths == null)
                 return ReadParsekSource(relPath);
-            return RecordingsTableUISourceFiles.ReadAll(
-                Path.GetDirectoryName(ParsekSourcePath(relPath)));
+            var texts = new List<string>();
+            foreach (string path in paths)
+                texts.Add(File.ReadAllText(path));
+            return string.Join("\n", texts);
         }
 
         /// <summary>Maps a 1-based line of <see cref="ReadStripWindowSource"/>'s text back
@@ -1046,11 +1064,11 @@ namespace Parsek.Tests
         {
             file = relPath;
             fileLine = line;
-            if (relPath != RecordingsTableRelPath)
+            IReadOnlyList<string> paths = SplitClassPaths(relPath);
+            if (paths == null)
                 return;
             int start = 1;
-            foreach (string path in RecordingsTableUISourceFiles.Paths(
-                         Path.GetDirectoryName(ParsekSourcePath(relPath))))
+            foreach (string path in paths)
             {
                 int lines = File.ReadAllText(path).Split('\n').Length;
                 if (line < start + lines)
