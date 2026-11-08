@@ -443,6 +443,58 @@ namespace Parsek
             techPatchCutoff = ApplyHeldThroughFloorToCutoff(techPatchCutoff, "tech");
             deadlineClockUT = ApplyHeldThroughFloorToCutoff(deadlineClockUT, "deadline");
 
+            PrepareRecalculationWalk();
+
+            var actions = BuildRecalculationActions();
+            LogRecalculationInputSummary(actions, utCutoff);
+
+            WalkLedgerAndReconcile(actions, utCutoff, deadlineClockUT);
+
+            // #466: a live or pending tree means KSP's mutable state may already include
+            // uncommitted in-flight effects that the committed-only ledger cannot see yet.
+            // Walking the committed ledger is still useful, but writing that partial state
+            // back into KSP is destructive. Rewind-style cutoff walks remain authoritative.
+            // A ledger held from a newer Parsek version walks empty: patching KSP from that walk
+            // would reset the career's pools to seed values, so no walk patches this session
+            // (cutoff walks included).
+            string patchDeferralReason = ResolveRecalcPatchDeferralReason(bypassPatchDeferral);
+            if (!string.IsNullOrEmpty(patchDeferralReason))
+                ApplyDeferredPatchMilestoneReach(actions, utCutoff, patchDeferralReason);
+            else
+                PatchKspFromRecalculatedWalk(
+                    actions,
+                    utCutoff,
+                    authoritativeRepeatableRecordState,
+                    techPatchCutoff,
+                    excludeTombstonedTechFromBaseline,
+                    suppressSuspiciousDrawdownWarnings,
+                    tombstonePath,
+                    deadlineClockUT,
+                    reFlyDiscard);
+
+            // #391 / cutoff-cache follow-up: rebuild committedScienceSubjects from
+            // the full surviving ledger, not from the current-UT ScienceModule. Cutoff
+            // walks intentionally leave the live module at the rewind/jump target, but
+            // the persisted cache is a load-recovery source and must retain future
+            // committed science rows that still survive in the ledger.
+            // The cache is a load-recovery source persisted beside the events; an empty walk of a
+            // held ledger must not overwrite it.
+            if (!Ledger.IsHeldFromNewerVersion)
+                RebuildCommittedScienceFromSurvivingLedger(actions);
+
+            LogRecalculateAndPatchComplete(
+                actions, utCutoff, patchDeferralReason, authoritativeRepeatableRecordState);
+
+            OnTimelineDataChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// The steps of <see cref="RecalculateAndPatchCore"/> before the walk's action list
+        /// is built: drop an older walk's pending strategy patch, seed the initial
+        /// balances and the pre-ledger progress seed, and fill unpopulated crew end states.
+        /// </summary>
+        internal static void PrepareRecalculationWalk()
+        {
             // A strategy patch still waiting for stock's strategy list belongs to an older
             // walk; this walk re-requests one if (and only if) it patches KSP state.
             StrategyStatePatcher.CancelPendingPatch("new-recalc");
@@ -460,10 +512,16 @@ namespace Parsek
 
             // End-state population safety net: catch recordings with unpopulated end states
             PopulateUnpopulatedCrewEndStates();
+        }
 
-            var actions = BuildRecalculationActions();
-            LogRecalculationInputSummary(actions, utCutoff);
-
+        /// <summary>
+        /// The engine walk of <see cref="RecalculateAndPatchCore"/> and what must follow it
+        /// before any KSP patch decision: the slot limits, the post-walk reconciliation
+        /// and, for a cutoff walk, the crew reservations rebuilt from the full ledger.
+        /// </summary>
+        internal static void WalkLedgerAndReconcile(
+            List<GameAction> actions, double? utCutoff, double? deadlineClockUT)
+        {
             // A cutoff engine walk sees only the rows up to the cutoff; the kerbals module's
             // authoritative walk is RecomputeAfterCutoffWalk below, so this one records no
             // release / re-reserve transitions.
@@ -491,14 +549,15 @@ namespace Parsek
             // Roster mutation still happens below through the existing patch gate.
             if (utCutoff.HasValue)
                 CrewReservationManager.RecomputeAfterCutoffWalk(utCutoff.Value);
+        }
 
-            // #466: a live or pending tree means KSP's mutable state may already include
-            // uncommitted in-flight effects that the committed-only ledger cannot see yet.
-            // Walking the committed ledger is still useful, but writing that partial state
-            // back into KSP is destructive. Rewind-style cutoff walks remain authoritative.
-            // A ledger held from a newer Parsek version walks empty: patching KSP from that walk
-            // would reset the career's pools to seed values, so no walk patches this session
-            // (cutoff walks included).
+        /// <summary>
+        /// Why <see cref="RecalculateAndPatchCore"/> must not patch KSP state from this walk,
+        /// or null when it may: a ledger held from a newer version (logged, rate limited),
+        /// else, unless the caller bypasses deferral, a live or pending tree.
+        /// </summary>
+        internal static string ResolveRecalcPatchDeferralReason(bool bypassPatchDeferral)
+        {
             string patchDeferralReason = Ledger.IsHeldFromNewerVersion
                 ? HeldLedgerPatchDeferralReason
                 : bypassPatchDeferral
@@ -508,85 +567,108 @@ namespace Parsek
                 ParsekLog.InfoRateLimited(Tag, "held-ledger-patch-skipped",
                     "RecalculateAndPatch: KSP state patch skipped (" + HeldLedgerPatchDeferralReason +
                     "); funds, science, reputation, tech, contracts, facilities and strategies keep the save's values");
-            if (!string.IsNullOrEmpty(patchDeferralReason))
+            return patchDeferralReason;
+        }
+
+        /// <summary>
+        /// The deferred side of <see cref="RecalculateAndPatchCore"/>: log the reason and
+        /// mark, add-only, the world-firsts the committed timeline credits at or before the
+        /// clock, so stock does not pay them again while the patch waits.
+        /// </summary>
+        internal static void ApplyDeferredPatchMilestoneReach(
+            List<GameAction> actions, double? utCutoff, string patchDeferralReason)
+        {
+            ParsekLog.Verbose(Tag,
+                $"RecalculateAndPatch: deferred KSP state patch ({patchDeferralReason})");
+            // The milestone patch is held back with the rest, but a world-first the
+            // committed timeline credits at or before the clock must not stay payable in
+            // stock meanwhile (WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN). Add-only:
+            // it never clears progress the live flight earned.
+            CommittedMilestoneReach.Apply(actions,
+                CommittedMilestoneReach.ResolveClockUT(utCutoff,
+                    ParsekScenario.IsOnLoadInProgress,
+                    RecordingStore.RewindUTAdjustmentPending,
+                    ParsekScenario.GetCurrentTimelineUTForLedgerRecalc),
+                "deferred-patch");
+        }
+
+        /// <summary>
+        /// The patching side of <see cref="RecalculateAndPatchCore"/>: clear the subject
+        /// science mirror, decide the drawdown guard's authoritative reduction, apply the
+        /// walk to KSP under this walk's clock crossing, and capture the committed-future
+        /// snapshot.
+        /// </summary>
+        internal static void PatchKspFromRecalculatedWalk(
+            List<GameAction> actions,
+            double? utCutoff,
+            bool authoritativeRepeatableRecordState,
+            double? techPatchCutoff,
+            bool excludeTombstonedTechFromBaseline,
+            bool suppressSuspiciousDrawdownWarnings,
+            bool tombstonePath,
+            double? deadlineClockUT,
+            bool reFlyDiscard)
+        {
+            // The walk's module is authoritative at this patch's clock; the subject
+            // science mirror bridges only a deferred stretch (design 3.15 step 5).
+            CommittedMilestoneReach.ClearSubjectScienceMirror("patch-not-deferred");
+
+            // Drawdown-guard plan §3.2: compute the authoritative-reduction signal once
+            // here (Core has access to RewindContext + ParsekScenario.Instance) and pass
+            // it down to the patch methods, which read the per-resource running balance
+            // from the module they already hold. Kept separate from
+            // suppressSuspiciousDrawdownWarnings (that flag only silences the legacy 10%
+            // WARN; this flag authorizes the clamp bypass).
+            bool authoritativeReduction = IsAuthoritativeReduction(
+                RewindContext.IsRewinding,
+                ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
+                ParsekScenario.Instance?.ActiveMergeJournal != null,
+                tombstonePath,
+                RewindContext.RewindResourceAdjustmentInProgress,
+                reFlyDiscard);
+            ParsekLog.Verbose(Tag,
+                "RecalculateAndPatch: drawdown-guard authoritativeReduction=" +
+                authoritativeReduction +
+                $" (rewinding={RewindContext.IsRewinding}, " +
+                $"reFlyMarker={ParsekScenario.Instance?.ActiveReFlySessionMarker != null}, " +
+                $"mergeJournal={ParsekScenario.Instance?.ActiveMergeJournal != null}, " +
+                $"tombstone={tombstonePath}, " +
+                $"rewindResAdjust={RewindContext.RewindResourceAdjustmentInProgress}, " +
+                $"reFlyDiscard={reFlyDiscard})");
+
+            KspStatePatcher.ClockCrossing clockCrossing =
+                clockAdvanceRecalcInProgress
+                    ? ComputeClockCrossing(actions, utCutoff)
+                    : null;
+            var previousCrossing = KspStatePatcher.ActiveClockCrossing;
+            KspStatePatcher.ActiveClockCrossing = clockCrossing;
+            try
             {
-                ParsekLog.Verbose(Tag,
-                    $"RecalculateAndPatch: deferred KSP state patch ({patchDeferralReason})");
-                // The milestone patch is held back with the rest, but a world-first the
-                // committed timeline credits at or before the clock must not stay payable in
-                // stock meanwhile (WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN). Add-only:
-                // it never clears progress the live flight earned.
-                CommittedMilestoneReach.Apply(actions,
-                    CommittedMilestoneReach.ResolveClockUT(utCutoff,
-                        ParsekScenario.IsOnLoadInProgress,
-                        RecordingStore.RewindUTAdjustmentPending,
-                        ParsekScenario.GetCurrentTimelineUTForLedgerRecalc),
-                    "deferred-patch");
+                ApplyRecalculatedStateToKsp(
+                    actions,
+                    utCutoff,
+                    authoritativeRepeatableRecordState,
+                    techPatchCutoff,
+                    excludeTombstonedTechFromBaseline,
+                    suppressSuspiciousDrawdownWarnings,
+                    authoritativeReduction,
+                    deadlineClockUT);
             }
-            else
+            finally
             {
-                // The walk's module is authoritative at this patch's clock; the subject
-                // science mirror bridges only a deferred stretch (design 3.15 step 5).
-                CommittedMilestoneReach.ClearSubjectScienceMirror("patch-not-deferred");
-
-                // Drawdown-guard plan §3.2: compute the authoritative-reduction signal once
-                // here (Core has access to RewindContext + ParsekScenario.Instance) and pass
-                // it down to the patch methods, which read the per-resource running balance
-                // from the module they already hold. Kept separate from
-                // suppressSuspiciousDrawdownWarnings (that flag only silences the legacy 10%
-                // WARN; this flag authorizes the clamp bypass).
-                bool authoritativeReduction = IsAuthoritativeReduction(
-                    RewindContext.IsRewinding,
-                    ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
-                    ParsekScenario.Instance?.ActiveMergeJournal != null,
-                    tombstonePath,
-                    RewindContext.RewindResourceAdjustmentInProgress,
-                    reFlyDiscard);
-                ParsekLog.Verbose(Tag,
-                    "RecalculateAndPatch: drawdown-guard authoritativeReduction=" +
-                    authoritativeReduction +
-                    $" (rewinding={RewindContext.IsRewinding}, " +
-                    $"reFlyMarker={ParsekScenario.Instance?.ActiveReFlySessionMarker != null}, " +
-                    $"mergeJournal={ParsekScenario.Instance?.ActiveMergeJournal != null}, " +
-                    $"tombstone={tombstonePath}, " +
-                    $"rewindResAdjust={RewindContext.RewindResourceAdjustmentInProgress}, " +
-                    $"reFlyDiscard={reFlyDiscard})");
-
-                KspStatePatcher.ClockCrossing clockCrossing =
-                    clockAdvanceRecalcInProgress
-                        ? ComputeClockCrossing(actions, utCutoff)
-                        : null;
-                var previousCrossing = KspStatePatcher.ActiveClockCrossing;
-                KspStatePatcher.ActiveClockCrossing = clockCrossing;
-                try
-                {
-                    ApplyRecalculatedStateToKsp(
-                        actions,
-                        utCutoff,
-                        authoritativeRepeatableRecordState,
-                        techPatchCutoff,
-                        excludeTombstonedTechFromBaseline,
-                        suppressSuspiciousDrawdownWarnings,
-                        authoritativeReduction,
-                        deadlineClockUT);
-                }
-                finally
-                {
-                    KspStatePatcher.ActiveClockCrossing = previousCrossing;
-                }
-                CaptureCommittedFutureSnapshot(actions, utCutoff);
+                KspStatePatcher.ActiveClockCrossing = previousCrossing;
             }
+            CaptureCommittedFutureSnapshot(actions, utCutoff);
+        }
 
-            // #391 / cutoff-cache follow-up: rebuild committedScienceSubjects from
-            // the full surviving ledger, not from the current-UT ScienceModule. Cutoff
-            // walks intentionally leave the live module at the rewind/jump target, but
-            // the persisted cache is a load-recovery source and must retain future
-            // committed science rows that still survive in the ledger.
-            // The cache is a load-recovery source persisted beside the events; an empty walk of a
-            // held ledger must not overwrite it.
-            if (!Ledger.IsHeldFromNewerVersion)
-                RebuildCommittedScienceFromSurvivingLedger(actions);
-
+        /// <summary>
+        /// The closing line of <see cref="RecalculateAndPatchCore"/>, printed only when the
+        /// walk's shape (row count, cutoff, deferral, repeatable-record mode) changed.
+        /// </summary>
+        internal static void LogRecalculateAndPatchComplete(
+            List<GameAction> actions, double? utCutoff, string patchDeferralReason,
+            bool authoritativeRepeatableRecordState)
+        {
             string completeStateKey = string.Format(
                 CultureInfo.InvariantCulture,
                 "actions={0}|cutoff={1}|deferred={2}|repeatable={3}",
@@ -598,8 +680,6 @@ namespace Parsek
                 "recalculate-and-patch-complete",
                 completeStateKey,
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
-
-            OnTimelineDataChanged?.Invoke();
         }
 
         /// <summary>
