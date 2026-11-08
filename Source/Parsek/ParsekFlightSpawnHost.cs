@@ -104,7 +104,7 @@ namespace Parsek
                     chains.Count, ghostedCount));
         }
 
-        private static string LiveVesselGuidOrNull(uint pid)
+        internal static string LiveVesselGuidOrNull(uint pid)
         {
             Vessel vessel = FlightRecorder.FindVesselByPid(pid);
             return vessel != null && vessel.id != Guid.Empty ? vessel.id.ToString("N") : null;
@@ -1328,7 +1328,7 @@ namespace Parsek
                 rec, currentUT, FlightGlobals.ActiveVessel));
         }
 
-        private static MoveGateVerdict LogMoveGateOnChange(Recording rec, MoveGateVerdict verdict)
+        internal static MoveGateVerdict LogMoveGateOnChange(Recording rec, MoveGateVerdict verdict)
         {
             if (ParsekLog.IsVerboseEnabled)
             {

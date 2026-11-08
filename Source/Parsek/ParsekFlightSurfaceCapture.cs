@@ -169,7 +169,7 @@ namespace Parsek
 
         // Placed-part vessel pids whose pick-up has been signalled (first
         // onGroundSciencePartRemoved); read at the destroy seam to stamp Disassembled.
-        private readonly HashSet<uint> groundPartRetrievalPending = new HashSet<uint>();
+        internal readonly HashSet<uint> groundPartRetrievalPending = new HashSet<uint>();
 
         internal void OnNewVesselCreatedForGroundPart(Vessel v)
         {
@@ -331,7 +331,7 @@ namespace Parsek
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static bool? TryReadDeployedOnGroundCore(Vessel v)
+        internal static bool? TryReadDeployedOnGroundCore(Vessel v)
         {
             try
             {
@@ -357,10 +357,10 @@ namespace Parsek
         // Last observed (part name, quantity) per container part pid and slot, read after
         // every recorded transfer, so the next change on that slot knows its direction.
         // Design: docs/parsek-flight-recorder-design.md section 4.12.
-        private readonly Dictionary<long, KeyValuePair<string, int>> foreignInventorySlotReadings =
+        internal readonly Dictionary<long, KeyValuePair<string, int>> foreignInventorySlotReadings =
             new Dictionary<long, KeyValuePair<string, int>>();
 
-        private static long ForeignInventorySlotKey(uint containerPartPid, int slot)
+        internal static long ForeignInventorySlotKey(uint containerPartPid, int slot)
         {
             return ((long)containerPartPid << 20) ^ (uint)slot;
         }
@@ -634,7 +634,7 @@ namespace Parsek
             return true;
         }
 
-        void AppendForeignTransfer(Vessel v, SegmentEvent transfer,
+        internal void AppendForeignTransfer(Vessel v, SegmentEvent transfer,
             uint constructionPartPid = 0u, bool constructionAttached = false,
             string constructionPartName = null)
         {
@@ -676,7 +676,7 @@ namespace Parsek
                 ParsekLog.Warn("Flight", line);
         }
 
-        private static void ReadLiveSlot(
+        internal static void ReadLiveSlot(
             ModuleInventoryPart module, int slot, out string partName, out int quantity)
         {
             partName = null;
@@ -709,7 +709,7 @@ namespace Parsek
         /// read.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static bool TryReadSavedSlotCore(
+        internal static bool TryReadSavedSlotCore(
             ModuleInventoryPart module, int slot, out string partName, out int quantity)
         {
             partName = null;
