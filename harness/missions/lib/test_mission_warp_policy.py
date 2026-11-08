@@ -578,7 +578,7 @@ class TransferNodeWaitTests(unittest.TestCase):
         self.assertTrue(mlib.b5_params_from_dict(
             {"transferNodeWaitWarp": True}).transfer_node_wait_warp)
 
-    def test_only_b24_b29_b30_opt_in(self):
+    def test_only_b24_b29_b30_and_b24s_continuation_opt_in(self):
         here = os.path.dirname(os.path.abspath(__file__))
         scen = os.path.join(os.path.dirname(os.path.dirname(here)), "scenarios")
         armed = []
@@ -592,7 +592,9 @@ class TransferNodeWaitTests(unittest.TestCase):
                 armed.append((name, mp["transferNodeWaitWarp"]))
         self.assertEqual([("B24-gilly-orbit.toml", True),
                           ("B29-jool-kerbin-return.toml", True),
-                          ("B30-mun-minmus-transfer.toml", True)], armed)
+                          ("B30-mun-minmus-transfer.toml", True),
+                          # B24's machine verbatim, flown from the unstripped harvest.
+                          ("B37-eve-gilly-continuation.toml", True)], armed)
 
     def test_a_rails_illegal_orbit_declines_to_the_executor(self):
         """Rails only: below the Mun's factor-1 limit WarpTo would physics-warp.

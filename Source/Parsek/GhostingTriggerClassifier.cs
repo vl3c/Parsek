@@ -71,6 +71,10 @@ namespace Parsek
                 case PartEventType.ParachuteSemiDeployed:
                 case PartEventType.ParachuteRepacked:
                 case PartEventType.DeployableBroken:
+                // Wheel damage swaps the intact wheel mesh for the busted one: a geometry change,
+                // the same side of the line as DeployableBroken.
+                case PartEventType.WheelBroken:
+                case PartEventType.WheelRepaired:
                     return true;
 
                 default:

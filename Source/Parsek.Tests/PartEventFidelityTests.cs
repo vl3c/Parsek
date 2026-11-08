@@ -49,14 +49,15 @@ namespace Parsek.Tests
             Assert.Equal(34, (int)PartEventType.ThermalAnimationMedium);
             Assert.Equal(35, (int)PartEventType.ParachuteRepacked);
 
-            // 44 is the new highest member: nothing sits above it, so the next wave appends at 45.
+            // The wheel damage pair appended at 45-46 (WheelDamageRecordingTests pins them), so
+            // 46 is now the highest member and the next wave appends at 47.
             int[] all = Enum.GetValues(typeof(PartEventType)).Cast<int>().ToArray();
-            Assert.Equal(44, all.Max());
+            Assert.Equal(46, all.Max());
 
-            // Contiguous 0..44 with no gaps and no duplicates — the property that makes
+            // Contiguous 0..46 with no gaps and no duplicates — the property that makes
             // "append at max+1" a safe rule for the next wave.
-            Assert.Equal(45, all.Distinct().Count());
-            for (int i = 0; i <= 44; i++)
+            Assert.Equal(47, all.Distinct().Count());
+            for (int i = 0; i <= 46; i++)
                 Assert.True(Enum.IsDefined(typeof(PartEventType), i), $"PartEventType {i} must be defined");
         }
 

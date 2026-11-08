@@ -22,6 +22,7 @@ namespace Parsek
             clone.extendedDeployables = new HashSet<uint>(source.extendedDeployables ?? new HashSet<uint>());
             clone.brokenDeployables = new HashSet<uint>(source.brokenDeployables ?? new HashSet<uint>());
             clone.activeConverterParts = new HashSet<uint>(source.activeConverterParts ?? new HashSet<uint>());
+            clone.damagedWheelParts = new HashSet<uint>(source.damagedWheelParts ?? new HashSet<uint>());
             clone.jetpackDeployedParts = new HashSet<uint>(source.jetpackDeployedParts ?? new HashSet<uint>());
             clone.ragdollParts = new HashSet<uint>(source.ragdollParts ?? new HashSet<uint>());
             clone.lightsOn = new HashSet<uint>(source.lightsOn ?? new HashSet<uint>());
@@ -159,6 +160,9 @@ namespace Parsek
             // nothing else reads or writes this family, so it needs no precedence dance.
             DiffUintSet(before.activeConverterParts, after.activeConverterParts,
                 PartEventType.ConverterActivated, PartEventType.ConverterDeactivated);
+            // A wheel broken or repaired across a rails span. Independent of every other family.
+            DiffUintSet(before.damagedWheelParts, after.damagedWheelParts,
+                PartEventType.WheelBroken, PartEventType.WheelRepaired);
 
             // S4: a kerbal who deployed his jetpack, or got knocked over, across a rails span. The
             // THRUST pair has no diff by design - a burst is a momentary input, so there is no

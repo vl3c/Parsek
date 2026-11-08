@@ -382,6 +382,16 @@ namespace Parsek
                 }
             }
 
+            // 2b. Wheels: back to intact. A wheel that broke during the prior cycle must be whole at
+            //     the top of the next one; the snapshot baseline (step 3f) re-breaks any wheel that
+            //     was already broken when the recording started, and the cycle's own WheelBroken
+            //     events break the rest on their original UT.
+            if (state.wheelDamageInfos != null)
+            {
+                foreach (var kvp in state.wheelDamageInfos)
+                    ApplyWheelDamageState(state, kvp.Key, damaged: false);
+            }
+
             // 3. Jettison panels: re-attach every panel. Jettison events
             //    during the new cycle hide them again on their original UT.
             if (state.jettisonInfos != null)

@@ -216,6 +216,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// A packed (on-rails) vessel cannot thrust, but the hysteresis is not fed while
+        /// packed, so a warp taken inside a burn's thrust debounce leaves it confirming
+        /// ExoPropulsive. Called at the rails transitions: ExoPropulsive settles to
+        /// ExoBallistic with no debounce and any pending transition is dropped, so the
+        /// sections opened at the transition read as the coast they are. Every other
+        /// environment is left alone. Returns true when the confirmed environment changed.
+        /// </summary>
+        internal bool SettleForPackedVessel(double ut, string reason)
+        {
+            if (lastConfirmedEnvironment != SegmentEnvironment.ExoPropulsive)
+                return false;
+            lastConfirmedEnvironment = SegmentEnvironment.ExoBallistic;
+            hasPending = false;
+            ParsekLog.Info("Environment",
+                $"Environment settled for packed vessel: ExoPropulsive -> ExoBallistic " +
+                $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)} ({reason}; a packed vessel cannot thrust)");
+            return true;
+        }
+
+        /// <summary>
         /// Returns the debounce duration in seconds for a given transition.
         /// Pure function, no logging (called frequently).
         /// </summary>

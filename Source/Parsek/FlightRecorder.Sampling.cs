@@ -782,7 +782,7 @@ namespace Parsek
         /// <summary>
         /// Polls all part-module states (parachutes, jettisons, engines, RCS, deployables,
         /// ladders, animation groups, aero/control surfaces, lights, gear, cargo bays,
-        /// fairings, robotics, converters, EVA). Runs every physics frame before adaptive sampling.
+        /// fairings, robotics, converters, wheel damage, EVA). Runs every physics frame before adaptive sampling.
         /// </summary>
         private void PollPartStates(Vessel v)
         {
@@ -804,6 +804,7 @@ namespace Parsek
             CheckFairingState(v);
             CheckRoboticState(v);
             CheckConverterState(v);
+            CheckWheelDamageState(v);
             CheckEvaState(v);
         }
     }
