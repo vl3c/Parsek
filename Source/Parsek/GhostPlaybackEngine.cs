@@ -1493,6 +1493,23 @@ namespace Parsek
             FrameContext ctx, bool suppressGhosts, bool suppressVisualFx)
             => UpdateLoopingPlayback(index, traj, flags, ctx, suppressGhosts, suppressVisualFx);
 
+        // Drives one loop-unit member exactly as UpdatePlayback's unit interception does; false
+        // when the index is not a member of the published unit set.
+        internal bool UpdateUnitMemberPlaybackForTesting(
+            int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
+            IReadOnlyList<IPlaybackTrajectory> trajectories, bool suppressGhosts, bool suppressVisualFx,
+            bool hasPointData, bool hasInterpolatedPoints, bool hasSurfaceData, bool hasOrbitData,
+            ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            if (!currentLoopUnits.TryGetUnitForMember(i, out GhostPlaybackLogic.LoopUnit unit))
+                return false;
+            UpdateUnitMemberPlayback(
+                i, traj, f, ctx, trajectories, unit, suppressGhosts, suppressVisualFx,
+                hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
+                ref state, ref ghostActive);
+            return true;
+        }
+
         internal void UpdateOverlapPlaybackForTesting(
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
             FrameContext ctx, GhostPlaybackState primaryState, bool suppressVisualFx,
