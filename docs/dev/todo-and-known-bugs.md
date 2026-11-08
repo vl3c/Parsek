@@ -2973,6 +2973,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   new `scripts/refactor/static_state_map.py` so a same-named field of another type is never
   counted. It also records why a separate source-resolver type would raise the replayed
   residue 263 -> 264 unless its five knot calls are passed in.
+- Wave 2 W5c (2026-11-08, this branch, extract-method): `GhostMapPresence.ResolveMapPresenceGhostSource`
+  (603 lines) is a sequence of phase helpers in the same partial file (input, materialized and
+  terminal gates; covering segment; OrbitalCheckpoint SOI gap; state vector; terminal-orbit
+  fallback; the decision emission), the longest 89 lines. Pinned before the split by a golden
+  capture of every decision exit (`MapPresenceSourceResolveCharacterizationTests`).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
