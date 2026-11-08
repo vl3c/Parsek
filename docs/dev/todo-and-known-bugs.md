@@ -20,6 +20,46 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## B13-LANDER-NEVER-STATIONARY: the B13 Mun lander records Approach -> SurfaceMobile and never reaches SurfaceStationary [FILED 2026-11-08 from the wave-2 overnight flights (refactor branch `claude/project-thread-bkwmrr` at f28324df0, DLL sha256 bde5f2b3...), runs `2026-11-08_0139_B13-mun-landing` and re-fly `2026-11-08_0422`, both PARSEK-FAIL(expectations). OPEN; not yet placed (refactor or pre-existing), medium]
+
+**What is true.** Both flights were MISSION-OK and every verifier but expectations was PASS or
+REPORT. The one failing row is the required log contract
+`Environment transition: \w+ -> SurfaceStationary at UT=`. In both flights the lander logs
+`Approach -> SurfaceMobile` at about UT=23020-23024 and never a later `-> SurfaceStationary`.
+`EnvironmentDetector.Classify` reads a landed vessel as SurfaceMobile while `srfSpeed > 0.1`,
+so the recorder saw the lander above 0.1 m/s from touchdown to the commit. The mission's own
+LANDED-SETTLE gate uses its own speed thresholds, so it can pass while the recorder still reads
+Mobile. B13 last passed with `SurfaceStationary` on the 2026-11-06 full run on main.
+
+**Not the refactor, by code reading.** No wave-2 PR between the pre-wave tip 088feb067 and
+f28324df0 changed `EnvironmentDetector.cs`, the environment hysteresis or the recorder's
+classification call (`git diff --stat 088feb067 f28324df0`); every wave-2 change there is a MOVE or
+an EXTRACT with an il_compare proof. The wave-1 refactor and the main commits between 04acf05
+and 22d28a470 are not yet ruled out.
+
+**Next.** Read the two red KSP.logs (automation/results-archive/ on the PC) for the lander's
+srfSpeed after touchdown and its landing site, against the 2026-11-06 PASS run. Then re-fly B13
+once on main and once on 088feb067 in the next PC turn: red on both means a pre-existing
+landing-site or settle-gate problem (harness); green on main and red on the refactor bisects to
+the refactor.
+
+## FLG-1-SAME-FRAME-PLANT-AND-PICKUP: FLG-1 reds when the replayed plant and pick-up land in one frame [FILED 2026-11-08 from the wave-2 overnight flights (refactor branch at f28324df0), run `2026-11-08_0248_FLG-1-pickup-rewind` PARSEK-FAIL(expectations); the re-fly `2026-11-08_0442` PASSED. OPEN; harness (spec), low; the product end state is right]
+
+**What is true.** The recorded plant is at ut=33.84 and the pick-up at ut=33.90, 0.06 s apart.
+`GhostPlaybackLogic.ApplyFlagEvents` applies recorded pick-ups BEFORE plants by design (its
+comment: a walk past both must not plant a flag only to take it down again). In the red flight
+one replay frame passed both UTs: the pick-up tombstoned the spot and took down 0 flags, then
+the plant was skipped with `Flag replay skipped ... removed by the player at ut=33.90`. No flag
+stood afterwards, which is the ruled end state (owner ruling 2026-11-04). In the green flight the
+frames split the two UTs, so the plant spawned and the pick-up took down 1 flag.
+
+**Fix (spec).** FLG-1 requires the plant-then-take-down chain and forbids every
+`Flag replay skipped` line, so it depends on frame timing. Accept either chain: the existing one,
+or a pick-up line naming the same flag followed by a skip whose `removed ... at ut=` equals the
+recorded pick-up UT, and keep forbidding a skip with an earlier removal UT and any second
+`Spawned flag vessel` after the take-down. A cheaper alternative is to space the plant and the
+pick-up further apart in the lane's act (a dwell of a few seconds before `PickUpFlag`).
+
 ## UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. OPEN; performance, low]
 
 **What is true.** The descent-handoff log in `GhostPlaybackEngine.UpdateUnitMemberPlayback`
@@ -1464,6 +1504,11 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   `ConsumePostLoad` route gate now reads a brace-matched block instead of a slice to the next
   declaration); `ledgeraudit.SRC_REWIND_INVOKER` names `.StripActivate`; the ERS / ELS
   allowlist adds the five partials that hold raw reads; the delete pin stays on the main file.
+- Wave 2 W7b2 (2026-11-08, #2489): `LedgerOrchestrator.BuildStrategyConversionAction`
+  (201 lines) returns one named builder per currency arm (`BuildStrategyScienceConversionAction`,
+  `BuildStrategyFundsConversionAction`, `BuildStrategyReputationConversionAction`), behind a
+  characterization golden over every currency, delta sign, reason and tag
+  (`BuildStrategyConversionActionCharacterizationTests`) written first.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
