@@ -175,6 +175,129 @@ namespace Parsek.InGameTests
         }
 
         // ──────────────────────────────────────────────────────────────────────
+        //  Wheel damage — the busted / intact mesh swap
+        // ──────────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// The wheel damage round trip on a real stock wheel: the ghost is built showing the INTACT
+        /// wheel with the busted mesh cloned but hidden, a break swaps them, a repair swaps them
+        /// back, a loop cycle restores the intact wheel, and a snapshot that says the wheel was
+        /// already broken spawns the ghost broken.
+        ///
+        /// If this reds while the headless WheelDamageRecordingTests stay green, the failure is in
+        /// RESOLUTION: check <c>GhostVisualBuilder.TryBuildWheelDamageInfo</c> and that the busted
+        /// renderers still clone (the builder used to strip them outright).
+        /// </summary>
+        [InGameTest(Category = "PartEventFidelity", Scene = GameScenes.FLIGHT,
+            Description = "A broken wheel swaps to its busted mesh, a repair swaps back, a loop cycle restores it, and a broken snapshot spawns broken")]
+        public void BrokenWheelSwapsToTheBustedMeshAndRepairRestoresIt()
+        {
+            GhostBuildResult build = null;
+            GhostBuildResult brokenBuild = null;
+            try
+            {
+                WheelDamageGhostInfo info = null;
+                GhostPlaybackState state = null;
+                Recording rec = null;
+                string usedPart = null;
+
+                foreach (string partName in CandidateBustedWheelParts())
+                {
+                    build = BuildGhost(partName, "parsektest-broken-wheel", out state, out rec);
+                    if (build != null
+                        && state?.wheelDamageInfos != null
+                        && state.wheelDamageInfos.TryGetValue(FixturePartPid, out info)
+                        && info != null
+                        && info.damagedTransforms.Count > 0)
+                    {
+                        usedPart = partName;
+                        break;
+                    }
+                    info = null;
+                    DestroyBuild(ref build);
+                }
+
+                if (info == null)
+                {
+                    InGameAssert.Skip(
+                        "no loaded ModuleWheelDamage part produced a ghost with a resolvable busted " +
+                        "mesh; needs a stock rover wheel or landing gear whose damagedTransformName " +
+                        "names a transform that clones into the ghost");
+                    return;
+                }
+
+                int bustedRenderers = 0;
+                for (int i = 0; i < info.damagedTransforms.Count; i++)
+                    bustedRenderers += info.damagedTransforms[i].GetComponentsInChildren<Renderer>(true).Length;
+                InGameAssert.IsTrue(bustedRenderers > 0,
+                    "'" + usedPart + "' resolved its busted transform but cloned no renderer under it - " +
+                    "a break would show nothing");
+
+                // 0. BUILT INTACT: the busted mesh must never render alongside the intact one.
+                AssertWheelShows(info, usedPart, damaged: false, "at build");
+
+                // 1. THE BREAK.
+                InGameAssert.IsTrue(
+                    GhostPlaybackLogic.ApplyWheelDamageState(state, FixturePartPid, damaged: true),
+                    "ApplyWheelDamageState found no swap for pid " + FixturePartPid + " on '" + usedPart + "'");
+                AssertWheelShows(info, usedPart, damaged: true, "after WheelBroken");
+                InGameAssert.IsTrue(GhostPlaybackLogic.IsGhostWheelDamaged(state, FixturePartPid),
+                    "the damaged flag did not follow the break, so the wheel would keep spinning");
+
+                // 2. THE REPAIR.
+                GhostPlaybackLogic.ApplyWheelDamageState(state, FixturePartPid, damaged: false);
+                AssertWheelShows(info, usedPart, damaged: false, "after WheelRepaired");
+
+                // 3. THE LOOP CYCLE: break again, then the real loop-restart pair.
+                GhostPlaybackLogic.ApplyWheelDamageState(state, FixturePartPid, damaged: true);
+                GhostPlaybackLogic.ResetForLoopCycle(state, newCycleIndex: 1);
+                GhostPlaybackLogic.ReapplySpawnTimeModuleBaselinesForLoopCycle(state, rec);
+                AssertWheelShows(info, usedPart, damaged: false, "after a loop cycle");
+
+                // 4. A SNAPSHOT THAT SAYS BROKEN spawns the ghost broken, through the real parse.
+                Recording brokenRec = BuildSinglePartFixture(
+                    usedPart, "parsektest-broken-wheel-snap", Planetarium.GetUniversalTime());
+                ConfigNode damageModule = brokenRec.GhostVisualSnapshot.GetNode("PART").AddNode("MODULE");
+                damageModule.AddValue("name", "ModuleWheelDamage");
+                damageModule.AddValue("isDamaged", "True");
+                brokenBuild = BuildGhostFor(brokenRec, "parsektest-broken-wheel-snap",
+                    out GhostPlaybackState brokenState);
+                InGameAssert.IsNotNull(brokenBuild, "the broken-snapshot ghost of '" + usedPart + "' did not build");
+                WheelDamageGhostInfo brokenInfo = null;
+                InGameAssert.IsTrue(brokenState?.wheelDamageInfos != null
+                    && brokenState.wheelDamageInfos.TryGetValue(FixturePartPid, out brokenInfo)
+                    && brokenInfo != null,
+                    "the broken-snapshot ghost of '" + usedPart + "' has no wheel swap");
+                AssertWheelShows(brokenInfo, usedPart, damaged: true, "spawned from a broken snapshot");
+
+                ParsekLog.Info("InGameTest",
+                    "Wheel damage swap round trip on '" + usedPart + "': busted=" +
+                    info.damagedTransforms.Count + " (renderers=" + bustedRenderers + ") intact=" +
+                    info.undamagedTransforms.Count);
+            }
+            finally
+            {
+                DestroyBuild(ref build);
+                DestroyBuild(ref brokenBuild);
+            }
+        }
+
+        private static void AssertWheelShows(
+            WheelDamageGhostInfo info, string partName, bool damaged, string when)
+        {
+            InGameAssert.AreEqual(damaged, info.damaged,
+                "'" + partName + "' damaged flag " + when);
+            for (int i = 0; i < info.damagedTransforms.Count; i++)
+                InGameAssert.AreEqual(damaged, info.damagedTransforms[i].gameObject.activeSelf,
+                    "'" + partName + "' busted transform '" + info.damagedTransforms[i].name +
+                    "' active state " + when);
+            for (int i = 0; i < info.undamagedTransforms.Count; i++)
+                InGameAssert.AreEqual(!damaged, info.undamagedTransforms[i].gameObject.activeSelf,
+                    "'" + partName + "' intact transform '" + info.undamagedTransforms[i].name +
+                    "' active state " + when);
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
         //  S7 — the converter running loop
         // ──────────────────────────────────────────────────────────────────────
 
@@ -618,9 +741,16 @@ namespace Parsek.InGameTests
         private static GhostBuildResult BuildGhost(
             string partName, string idPrefix, out GhostPlaybackState state, out Recording rec)
         {
-            state = null;
             rec = BuildSinglePartFixture(partName, idPrefix, Planetarium.GetUniversalTime());
+            return BuildGhostFor(rec, idPrefix, out state);
+        }
 
+        /// <summary>As <see cref="BuildGhost(string,string,out GhostPlaybackState,out Recording)"/>,
+        /// over a fixture the caller already built (and may have given snapshot MODULE state).</summary>
+        private static GhostBuildResult BuildGhostFor(
+            Recording rec, string idPrefix, out GhostPlaybackState state)
+        {
+            state = null;
             GhostBuildResult build = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 rec, "ParsekTest_" + idPrefix);
             if (build == null || build.root == null)
@@ -784,6 +914,14 @@ namespace Parsek.InGameTests
         }
 
         // ---- prefab discovery (never hardcoded part names) -------------------
+
+        /// <summary>Parts whose ModuleWheelDamage names a busted mesh (rover wheels, landing gear).</summary>
+        private static List<string> CandidateBustedWheelParts()
+        {
+            return DiscoverParts(prefab =>
+                prefab.FindModuleImplementing<ModuleWheels.ModuleWheelDamage>() != null
+                && GhostVisualBuilder.GetDamagedWheelTransformNames(prefab.partInfo?.partConfig).Count > 0);
+        }
 
         private static List<string> CandidateDeployableParts()
         {

@@ -192,9 +192,13 @@ namespace Parsek.Tests
             Assert.Contains("ContractGoalKey", e.EnforcedBy);
             Assert.Contains("CONTRACT-TWIN-GUID-SEEDED-TYPES", e.EnforcedBy);
 
-            string todo = File.ReadAllText(Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "docs", "dev", "todo-and-known-bugs.md")));
+            // Closed means struck, in the live file or in the archive volume a finished entry moves to.
+            string docs = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..", "docs", "dev"));
+            string todo = File.ReadAllText(Path.Combine(docs, "todo-and-known-bugs.md"))
+                + "\n" + File.ReadAllText(Path.Combine(docs, "done", "todo-and-known-bugs-v11.md"));
             Assert.Contains("\n## ~~CONTRACT-TWIN-GUID-SEEDED-TYPES:", todo.Replace("\r\n", "\n"));
+            Assert.DoesNotContain("\n## CONTRACT-TWIN-GUID-SEEDED-TYPES:", todo.Replace("\r\n", "\n"));
         }
 
         // ------------------------------------------------------------------

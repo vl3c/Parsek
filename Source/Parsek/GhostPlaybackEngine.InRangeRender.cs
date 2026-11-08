@@ -150,6 +150,10 @@ namespace Parsek
                 // plume / ragdoll flags are re-established by the prefix replay when the ghost
                 // is actually built. Prewarming a ghost build for those would buy nothing.
                 case PartEventType.DeployableBroken:
+                // Wheel damage swaps two meshes, so a hidden ghost that skipped the event would
+                // show the wrong wheel the moment it became visible. Same argument as the break.
+                case PartEventType.WheelBroken:
+                case PartEventType.WheelRepaired:
                     return true;
                 default:
                     return false;

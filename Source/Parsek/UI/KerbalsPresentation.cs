@@ -149,13 +149,13 @@ namespace Parsek
             /// tab's Lost hover text alike - which is how the Missions window's first date
             /// column and the Timeline place a mission too.</summary>
             public string DateText;
-            /// <summary>The mission name alone (the Roster tab's "Last flight" cell reads
-            /// it).</summary>
+            /// <summary>The mission name alone.</summary>
             public string MissionText;
             /// <summary>The Mission cell as drawn: <see cref="MissionText"/>, plus
             /// <c>" (flown by &lt;stand-in&gt;)"</c> when someone else actually flew this
             /// kerbal's seat. The rare stand-in note lives here since the 2026-09-22 review
-            /// removed the mostly-empty Crew column.</summary>
+            /// removed the mostly-empty Crew column; the Roster tab's "Last flight" cell
+            /// reads this cell too.</summary>
             public string MissionCellText;
             /// <summary>The FINAL outcome word across the mission's segments.</summary>
             public string OutcomeText;
@@ -495,8 +495,9 @@ namespace Parsek
         /// as a stand-in.</para>
         ///
         /// <para>FALLBACK: the persisted replacement map, used ONLY when the recording has
-        /// no raw-crew entry at all (the load-time sweep can null a recording's
-        /// <c>VesselSnapshot</c>, which is where the raw crew comes from). It answers the
+        /// no raw-crew entry at all (raw crew reads the ghost snapshot, then the vessel
+        /// snapshot, then the EVA name, so this is a recording that lost both snapshot
+        /// sidecars). It answers the
         /// CURRENT stand-in, so on an old flight it can name the wrong one; that is a
         /// strictly better answer than silence, and the Mission cell reads
         /// "(flown by &lt;name&gt;)" either way.</para>
@@ -1279,15 +1280,21 @@ namespace Parsek
             }
         }
 
-        /// <summary>The "Last flight" cell: the latest flight's mission name and outcome
-        /// word, or <see cref="EmptyCell"/>.</summary>
+        /// <summary>The "Last flight" cell: the latest flight's Mission cell and outcome
+        /// word, or <see cref="EmptyCell"/>. The Mission cell carries the
+        /// <c>" (flown by &lt;stand-in&gt;)"</c> note: a stand-in's flight is filed under the
+        /// kerbal he covered (<c>KerbalsModule.ReverseMapCrewNames</c>), so without the note
+        /// this cell would name a flight the kerbal never took as his own.</summary>
         internal static string FormatLastFlight(
             string name, IReadOnlyDictionary<string, FlightRow> lastFlightOf)
         {
             FlightRow row;
             if (lastFlightOf == null || !lastFlightOf.TryGetValue(name, out row))
                 return EmptyCell;
-            return row.MissionText + " - " + row.OutcomeText;
+            string mission = string.IsNullOrEmpty(row.MissionCellText)
+                ? row.MissionText
+                : row.MissionCellText;
+            return mission + " - " + row.OutcomeText;
         }
 
         private static List<KerbalsWindowUI.ChainMember> BuildChainMembers(

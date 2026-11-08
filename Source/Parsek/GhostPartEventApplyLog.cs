@@ -82,6 +82,7 @@ namespace Parsek
         Eva,
         Robotic,
         Inventory,
+        WheelDamage,
     }
 
     internal static class GhostPartEventApplyLog
@@ -171,6 +172,7 @@ namespace Parsek
                 case GhostPartEventSurface.Eva: return "eva";
                 case GhostPartEventSurface.Robotic: return "robotic";
                 case GhostPartEventSurface.Inventory: return "inventory";
+                case GhostPartEventSurface.WheelDamage: return "wheel-damage";
                 default: return "unknown";
             }
         }

@@ -666,6 +666,7 @@ namespace Parsek
                 extendedDeployables = state.extendedDeployables,
                 brokenDeployables = state.brokenDeployables,
                 activeConverterParts = state.activeConverterParts,
+                damagedWheelParts = state.damagedWheelParts,
                 jetpackDeployedParts = state.jetpackDeployedParts,
                 ragdollParts = state.ragdollParts,
                 lightsOn = state.lightsOn,

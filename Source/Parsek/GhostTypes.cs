@@ -167,6 +167,25 @@ namespace Parsek
     }
 
     /// <summary>
+    /// The ghost side of a stock <c>ModuleWheelDamage</c> wheel: the cloned transforms stock
+    /// toggles on a break (<c>damagedTransformName</c> shown, <c>undamagedTransformName</c>
+    /// hidden) and on a repair (the reverse). Built only when the part's busted mesh actually
+    /// cloned onto the ghost (or the part names no busted mesh at all, which is stock's own
+    /// "hide the wheel" shape), so a WheelBroken event can never hide the intact wheel without
+    /// something to show in its place. The busted transforms start HIDDEN at build time.
+    /// </summary>
+    internal class WheelDamageGhostInfo
+    {
+        public uint partPersistentId;
+        /// <summary>Cloned transforms named by <c>damagedTransformName</c>: shown while broken.</summary>
+        public List<Transform> damagedTransforms = new List<Transform>();
+        /// <summary>Cloned transforms named by <c>undamagedTransformName</c>: shown while intact.</summary>
+        public List<Transform> undamagedTransforms = new List<Transform>();
+        /// <summary>True while the ghost shows the busted wheel. Tracked rather than read back off a GameObject.</summary>
+        public bool damaged;
+    }
+
+    /// <summary>
     /// S3 gimbal synthesis: one engine gimbal ring driven from the ghost's own applied world-rotation
     /// derivative. Neutral is the ghost transform's build-time localRotation, so a part whose prefab
     /// ships a pre-canted gimbal deflects around ITS pose, not around identity.
@@ -478,7 +497,40 @@ namespace Parsek
     internal class FairingGhostInfo
     {
         public uint partPersistentId;
+        // The fairing shell. In FLIGHT it is a container holding the panels stock's own
+        // ProceduralFairings.FairingPanel builder made from the snapshot's XSECTIONs; in
+        // other scenes (or when that builder declines) it is the legacy generated cone.
+        // Null when the snapshot already shows the fairing deployed.
         public GameObject fairingMeshObject;
+        public bool shellBuiltByStockPanels;
+        // Meshes the shell created (stock panels or the generated cone); destroyed with the ghost.
+        public List<Mesh> shellMeshes;
+        // Stock ModuleStructuralNode objects of this part (the interstage truss and cap
+        // plates), driven by the stock visibility rule. Null when the part has none.
+        public List<FairingStructureNodeGhostInfo> structureNodes;
+    }
+
+    /// <summary>
+    /// One stock ModuleStructuralNode of a fairing part on a ghost. Mirrors the inputs of
+    /// ModuleStructuralNode.CheckDisplay: the structure is shown when visibilityState is on
+    /// and (spawnManually ? spawnState : a part is attached at one of attachNodeNames),
+    /// inverted by reverseVisibility, with attachment read from the snapshot's attN rows.
+    /// Stock evaluates that rule only at load and from DecoupleAction, which a separating
+    /// stage fires before it clears the attach node, so a live truss stays shown after its
+    /// stage leaves until the craft reloads. The snapshot then records the live state
+    /// (recordedShown, from GhostFairingStructureStamp) and the ghost shows that instead;
+    /// the ghost never re-evaluates during playback, as stock does not in flight.
+    /// </summary>
+    internal class FairingStructureNodeGhostInfo
+    {
+        public string rootObject;
+        public GameObject structureObject;
+        public bool visibilityState;
+        public bool spawnManually;
+        public bool spawnState;
+        public bool reverseVisibility;
+        public int[] attachedPartIndices;
+        public bool? recordedShown;
     }
 
     internal struct FireShellMesh
@@ -561,6 +613,7 @@ namespace Parsek
         public List<JettisonGhostInfo> jettisonInfos = new List<JettisonGhostInfo>();
         public List<EngineGhostInfo> engineInfos = new List<EngineGhostInfo>();
         public List<DeployableGhostInfo> deployableInfos = new List<DeployableGhostInfo>();
+        public List<WheelDamageGhostInfo> wheelDamageInfos = new List<WheelDamageGhostInfo>();
         public List<HeatGhostInfo> heatInfos = new List<HeatGhostInfo>();
         public List<LightGhostInfo> lightInfos = new List<LightGhostInfo>();
         public List<FairingGhostInfo> fairingInfos = new List<FairingGhostInfo>();
@@ -593,6 +646,7 @@ namespace Parsek
         public List<JettisonGhostInfo> jettisonInfos;
         public List<EngineGhostInfo> engineInfos;
         public List<DeployableGhostInfo> deployableInfos;
+        public List<WheelDamageGhostInfo> wheelDamageInfos;
         public List<HeatGhostInfo> heatInfos;
         public List<LightGhostInfo> lightInfos;
         public List<FairingGhostInfo> fairingInfos;
