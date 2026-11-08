@@ -3025,6 +3025,16 @@ columns whose blanks are visible, where the old outline simply said nothing.
   lines) split into `ScanRecoveryCandidates`, `SelectRecoveryCandidatePath`,
   `LogRecoveryGuidFilterOutcome` and `WalkRecoveryPickTiers`, behind a 15-scenario
   characterization golden (`PickRecoveryRecordingCharacterizationTests`) written first.
+- Wave 2 W8c, RewindInvoker (S3, pure move, IL identical): `RewindInvoker.cs` (4,644 lines,
+  a static class) is a partial class over 10 files (`scripts/refactor/split_rewindinvoker.py`;
+  every field and constant stays in the main file): `RewindInvoker.cs` 399 (`StartInvoke`, the
+  temp quicksave delete, the error handlers), `.MarkerWrite` 694, `.InPlaceDebris` 673,
+  `.QuicksaveScrub` 605, `.StripActivate` 567, `.SlotStrip` 457, `.Gate` 446, `.PostLoad` 353,
+  `.Advisory` 335, `.ForkIdentity` 223. Source gates read the class through
+  `RewindInvokerSourceFiles` or the one area file a single-method gate names (the
+  `ConsumePostLoad` route gate now reads a brace-matched block instead of a slice to the next
+  declaration); `ledgeraudit.SRC_REWIND_INVOKER` names `.StripActivate`; the ERS / ELS
+  allowlist adds the five partials that hold raw reads; the delete pin stays on the main file.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
