@@ -336,37 +336,8 @@ namespace Parsek
                 && decision == GhostPlaybackLogic.UnitMemberRenderDecision.Render
                 && unit.HasDescentTrigger)
             {
-                bool hideForDescentHandoff = GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
-                    unit, i, ctx.currentUT, unitCycle,
-                    out Parsek.Reaim.DescentTrigger.DescentHeadPhase unitDescentPhase);
-                var hdic = CultureInfo.InvariantCulture;
-                double handoffLiveUT = ctx.currentUT;
-                double handoffLoopUT = spanLoopUT;
-                ParsekLog.VerboseRateLimited(
-                    "ReaimDescent",
-                    // Bounded by mission x member x phase x action (NOT frame count), matching the resolver's
-                    // transfer-handoff key shape; "engine-" prefix keeps it distinct from the resolver line
-                    // (which the polyline Driver also reaches in FLIGHT) so the two surfaces correlate. The
-                    // MESSAGE goes through the deferring Func overload so the expensive ToString("R") body is
-                    // built only on the frames that actually emit (this line fires per rendering non-descent
-                    // member per frame; the key concat is unavoidable - it addresses the rate-limit state).
-                    "engine-transfer-handoff." + unit.PhaseAnchorUT.ToString("R", hdic) + "."
-                        + unit.SpanStartUT.ToString("R", hdic) + "." + i.ToString(hdic) + "."
-                        + unitDescentPhase + "." + hideForDescentHandoff,
-                    () => "engine transfer/loiter member=" + i.ToString(hdic)
-                        + " cycle=" + unitCycle.ToString(hdic)
-                        + " unitDescentPhase=" + unitDescentPhase
-                        + " baseDecision=Render liveUT=" + handoffLiveUT.ToString("R", hdic)
-                        + " loopUT=" + handoffLoopUT.ToString("R", hdic)
-                        + " -> " + (hideForDescentHandoff
-                            ? "HIDDEN (descent playing; hand off to descent member, no double ghost)"
-                            : "kept (loiter/normal ghost)"),
-                    5.0);
-                if (hideForDescentHandoff)
-                {
-                    hiddenForDescentHandoff = true;
-                    decision = GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow;
-                }
+                ApplyDescentHandoffHide(
+                    i, unit, ctx, unitCycle, spanLoopUT, ref decision, ref hiddenForDescentHandoff);
             }
 
             // Transfer-member loiter-gap clamp (the rogue-descent fix; the engine side of the
@@ -739,6 +710,49 @@ namespace Parsek
                 // so the existing (3) teardown runs (which also keeps the watched-owner-alive invariant) -
                 // the descent member never drives its ghost on the raw loop clock (the transfer member's
                 // shifted conic carries the icon during the wait).
+                decision = GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow;
+            }
+        }
+
+        /// <summary>
+        /// The descent handoff hide of <see cref="UpdateUnitMemberPlayback"/>: a rendering non-descent member of
+        /// a unit with a descent trigger is hidden (decision forced to HiddenOutsideWindow) once the unit-wide
+        /// descent phase is Descent. Called only under that gate, so the closure its deferred log message
+        /// captures is allocated only there, never on the per-member hot path.
+        /// </summary>
+        internal static void ApplyDescentHandoffHide(
+            int i, in GhostPlaybackLogic.LoopUnit unit, FrameContext ctx, long unitCycle, double spanLoopUT,
+            ref GhostPlaybackLogic.UnitMemberRenderDecision decision, ref bool hiddenForDescentHandoff)
+        {
+            bool hideForDescentHandoff = GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                unit, i, ctx.currentUT, unitCycle,
+                out Parsek.Reaim.DescentTrigger.DescentHeadPhase unitDescentPhase);
+            var hdic = CultureInfo.InvariantCulture;
+            double handoffLiveUT = ctx.currentUT;
+            double handoffLoopUT = spanLoopUT;
+            ParsekLog.VerboseRateLimited(
+                "ReaimDescent",
+                // Bounded by mission x member x phase x action (NOT frame count), matching the resolver's
+                // transfer-handoff key shape; "engine-" prefix keeps it distinct from the resolver line
+                // (which the polyline Driver also reaches in FLIGHT) so the two surfaces correlate. The
+                // MESSAGE goes through the deferring Func overload so the expensive ToString("R") body is
+                // built only on the frames that actually emit (this line fires per rendering non-descent
+                // member per frame; the key concat is unavoidable - it addresses the rate-limit state).
+                "engine-transfer-handoff." + unit.PhaseAnchorUT.ToString("R", hdic) + "."
+                    + unit.SpanStartUT.ToString("R", hdic) + "." + i.ToString(hdic) + "."
+                    + unitDescentPhase + "." + hideForDescentHandoff,
+                () => "engine transfer/loiter member=" + i.ToString(hdic)
+                    + " cycle=" + unitCycle.ToString(hdic)
+                    + " unitDescentPhase=" + unitDescentPhase
+                    + " baseDecision=Render liveUT=" + handoffLiveUT.ToString("R", hdic)
+                    + " loopUT=" + handoffLoopUT.ToString("R", hdic)
+                    + " -> " + (hideForDescentHandoff
+                        ? "HIDDEN (descent playing; hand off to descent member, no double ghost)"
+                        : "kept (loiter/normal ghost)"),
+                5.0);
+            if (hideForDescentHandoff)
+            {
+                hiddenForDescentHandoff = true;
                 decision = GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow;
             }
         }

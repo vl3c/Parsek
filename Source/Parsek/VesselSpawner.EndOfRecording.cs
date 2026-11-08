@@ -135,7 +135,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool CountExemption(
+        internal static bool CountExemption(
             OverlapExemptionScope scope, ref int sameTreeCount, ref int otherTreeCount)
         {
             if (scope == OverlapExemptionScope.SameTree) sameTreeCount++;
@@ -1263,7 +1263,7 @@ namespace Parsek
         /// Log spawn failure and increment attempt counter. Logs error on final
         /// attempt, warning on retryable failures.
         /// </summary>
-        private static void LogSpawnFailure(Recording rec, int index, int maxAttempts)
+        internal static void LogSpawnFailure(Recording rec, int index, int maxAttempts)
         {
             rec.SpawnAttempts++;
             if (rec.SpawnAttempts >= maxAttempts)
@@ -1391,7 +1391,7 @@ namespace Parsek
                 $"{logContext ?? "(unknown)"} durable snapshot (spawn resolved)");
         }
 
-        private static double ResolveRelocatedAltitude(
+        internal static double ResolveRelocatedAltitude(
             Recording rec, CelestialBody body, double latitude, double longitude)
         {
             bool landedLike = VesselSnapshotOps.IsLandedLikeSnapshot(rec?.VesselSnapshot);
@@ -1415,7 +1415,7 @@ namespace Parsek
             return selectedAltitude;
         }
 
-        private static bool TryResolveEndpointStateVector(
+        internal static bool TryResolveEndpointStateVector(
             Recording rec,
             string endpointBodyName,
             out TrajectoryPoint point)
