@@ -333,7 +333,7 @@ namespace Parsek.Tests
                 expectedSoiGapBody: expectedSoiGapBody);
         }
 
-        private static Recording MakeSoiGapRecording(
+        internal static Recording MakeSoiGapRecording(
             string recordingId,
             string checkpointBody,
             string futureSegmentBody)
@@ -351,7 +351,7 @@ namespace Parsek.Tests
             return rec;
         }
 
-        private static Recording MakeSegmentAvailableRecording(
+        internal static Recording MakeSegmentAvailableRecording(
             string recordingId,
             string checkpointBody)
         {

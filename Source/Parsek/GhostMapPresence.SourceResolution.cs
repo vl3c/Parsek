@@ -1100,88 +1100,169 @@ namespace Parsek
             skipReason = null;
             string recId = traj?.RecordingId ?? "(null)";
 
-            // These mirrors of the out parameters exist solely so the ReturnDecision
-            // local function can read the resolved segment / state point at the
-            // moment a decision is finalised. C# 7 forbids capturing `out` /
-            // `ref` parameters in nested closures, so we keep these locals in sync
-            // immediately before each ReturnDecision call. Both the unstructured
-            // diagnostic summary (CombineSourceDetails / BuildGhostSourceStructuredDetail)
-            // and the structured GhostMap decision-line emission
-            // (EmitSourceResolveLine) read these mirrors.
+            // Mirrors of the out parameters for ReturnDecision: a local function cannot
+            // capture `out` / `ref` parameters, so each decision copies the resolved
+            // segment / state point here just before ReturnDecision, which hands them to
+            // the summary detail and the structured source-resolve line.
             OrbitSegment resolvedSegment = default(OrbitSegment);
             TrajectoryPoint resolvedStatePoint = default(TrajectoryPoint);
 
             TrackingStationGhostSource ReturnDecision(
-                TrackingStationGhostSource source,
-                string reason,
-                string detail = null)
-            {
-                string combinedDetail = CombineSourceDetails(
-                    detail,
-                    BuildGhostSourceStructuredDetail(
-                        traj,
-                        currentUT,
-                        source,
-                        resolvedSegment,
-                        resolvedStatePoint));
-                if (!string.IsNullOrEmpty(logOperationName))
-                {
-                    // Per-frame caller — emit only when the (source, reason) decision
-                    // flips for this (operation, recording) pair. A stable
-                    // (None, state-vector-threshold) loop in the pending-create queue
-                    // would otherwise pour ~one line per recording per second; here
-                    // we emit once on entry into the state and again only when the
-                    // state actually changes. Suppressed-count is preserved on the
-                    // next emission so post-hoc audits can reconstruct the volume.
-                    ParsekLog.VerboseOnChange(
-                        Tag,
-                        string.Format(ic,
-                            "map-ghost-source-{0}-{1}",
-                            logOperationName,
-                            recId),
-                        string.Format(ic,
-                            "{0}|{1}",
-                            source,
-                            reason ?? "none"),
-                        string.Format(ic,
-                            "{0}: rec={1} currentUT={2:F1} source={3} reason={4}{5}",
-                            logOperationName,
-                            recId,
-                            currentUT,
-                            source,
-                            reason ?? "(none)",
-                            string.IsNullOrEmpty(combinedDetail) ? string.Empty : " " + combinedDetail));
+                TrackingStationGhostSource source, string reason, string detail = null)
+                => EmitMapPresenceSourceDecision(
+                    traj, recId, recordingIndex, currentUT, logOperationName,
+                    source, reason, detail, resolvedSegment, resolvedStatePoint);
 
-                    // Structured-line emission so the post-hoc reader can grep one
-                    // canonical shape across every decision in this file. Local
-                    // copies of segment / stateVectorPoint are captured into
-                    // resolvedSegment / resolvedStatePoint at each ReturnDecision
-                    // call site since the C# spec forbids closing over `out`/`ref`
-                    // parameters.
-                    EmitSourceResolveLine(
-                        traj,
-                        recId,
-                        recordingIndex,
-                        source,
-                        reason,
-                        currentUT,
-                        logOperationName,
-                        resolvedSegment,
-                        resolvedStatePoint);
-                }
-                return source;
+            if (TryDecideMapPresenceInputGate(traj, isSuppressed, out skipReason, out string gateDetail)
+                || TryDecideMapPresenceMaterializedGate(
+                    traj, recId, alreadyMaterialized, loopMemberInWindow,
+                    liveLaunchMatchedAnchorOfActiveMember, out skipReason, out gateDetail)
+                || TryDecideMapPresenceTerminalGate(
+                    traj, currentUT, transferMemberDescentContinuation,
+                    out TerminalState? terminal, out double activationStartUT,
+                    out bool terminalMapPresenceRegion, out skipReason, out gateDetail))
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, gateDetail);
+
+            List<OrbitSegment> mapSegments = ResolveMapPresenceChainSegmentsLogged(traj, recId);
+            if (TryResolveCoveringSegmentSource(
+                    traj, currentUT, mapSegments, terminalMapPresenceRegion,
+                    allowSoiGapStateVectorFallback, expectedSoiGapBody, loopMemberInWindow,
+                    ref stateVectorCachedIndex, out segment,
+                    out TrackingStationGhostSource coveringSource, out string coveringDetail))
+            {
+                resolvedSegment = segment;
+                return ReturnDecision(coveringSource, skipReason, coveringDetail);
             }
 
+            if (TryAcceptCheckpointSoiGapStateVector(
+                traj, currentUT, allowSoiGapStateVectorFallback, expectedSoiGapBody,
+                ref stateVectorCachedIndex, out stateVectorPoint, ref skipReason,
+                out string checkpointFallbackRejectReason, out string checkpointFallbackDetail,
+                out string checkpointDetail))
+            {
+                resolvedStatePoint = stateVectorPoint;
+                return ReturnDecision(
+                    TrackingStationGhostSource.StateVectorSoiGap, skipReason, checkpointDetail);
+            }
+
+            if (TryResolveMapPresenceStateVectorSource(
+                traj, currentUT, ref stateVectorCachedIndex, ref stateVectorPoint,
+                out bool considerStateVector, out bool deferRelativeStateVectorForSegmentGap,
+                out string stateVectorSkipReason, out string relativeSegmentGapDetail,
+                out string stateVectorDetail))
+            {
+                resolvedStatePoint = stateVectorPoint;
+                return ReturnDecision(TrackingStationGhostSource.StateVector, skipReason, stateVectorDetail);
+            }
+
+            TrackingStationGhostSource terminalSource = ResolveTerminalFallbackMapPresenceSource(
+                traj, currentUT, terminal, activationStartUT, terminalMapPresenceRegion,
+                allowTerminalOrbitFallback, acceptTerminalOrbitForLoopSynthesis,
+                considerStateVector, deferRelativeStateVectorForSegmentGap, stateVectorSkipReason,
+                relativeSegmentGapDetail, checkpointFallbackRejectReason, checkpointFallbackDetail,
+                ref skipReason, out segment, out string terminalSourceDetail);
+            resolvedSegment = segment;
+            return ReturnDecision(terminalSource, skipReason, terminalSourceDetail);
+        }
+
+        /// <summary>
+        /// The decision emission of <see cref="ResolveMapPresenceGhostSource"/>: builds the
+        /// combined detail and, for a named operation, writes the on-change decision line and
+        /// the structured source-resolve line. Returns <paramref name="source"/>.
+        /// </summary>
+        internal static TrackingStationGhostSource EmitMapPresenceSourceDecision(
+            IPlaybackTrajectory traj,
+            string recId,
+            int recordingIndex,
+            double currentUT,
+            string logOperationName,
+            TrackingStationGhostSource source,
+            string reason,
+            string detail,
+            OrbitSegment resolvedSegment,
+            TrajectoryPoint resolvedStatePoint)
+        {
+            string combinedDetail = CombineSourceDetails(
+                detail,
+                BuildGhostSourceStructuredDetail(
+                    traj,
+                    currentUT,
+                    source,
+                    resolvedSegment,
+                    resolvedStatePoint));
+            if (!string.IsNullOrEmpty(logOperationName))
+            {
+                // Per-frame caller — emit only when the (source, reason) decision
+                // flips for this (operation, recording) pair. A stable
+                // (None, state-vector-threshold) loop in the pending-create queue
+                // would otherwise pour ~one line per recording per second; here
+                // we emit once on entry into the state and again only when the
+                // state actually changes. Suppressed-count is preserved on the
+                // next emission so post-hoc audits can reconstruct the volume.
+                ParsekLog.VerboseOnChange(
+                    Tag,
+                    string.Format(ic,
+                        "map-ghost-source-{0}-{1}",
+                        logOperationName,
+                        recId),
+                    string.Format(ic,
+                        "{0}|{1}",
+                        source,
+                        reason ?? "none"),
+                    string.Format(ic,
+                        "{0}: rec={1} currentUT={2:F1} source={3} reason={4}{5}",
+                        logOperationName,
+                        recId,
+                        currentUT,
+                        source,
+                        reason ?? "(none)",
+                        string.IsNullOrEmpty(combinedDetail) ? string.Empty : " " + combinedDetail));
+
+                // Structured-line emission so the post-hoc reader can grep one
+                // canonical shape across every decision in this file. Local
+                // copies of segment / stateVectorPoint are captured into
+                // resolvedSegment / resolvedStatePoint at each ReturnDecision
+                // call site since the C# spec forbids closing over `out`/`ref`
+                // parameters.
+                EmitSourceResolveLine(
+                    traj,
+                    recId,
+                    recordingIndex,
+                    source,
+                    reason,
+                    currentUT,
+                    logOperationName,
+                    resolvedSegment,
+                    resolvedStatePoint);
+            }
+            return source;
+        }
+
+        /// <summary>
+        /// The input gates of <see cref="ResolveMapPresenceGhostSource"/>: a null trajectory,
+        /// debris, the player's playback toggle, and a suppressed recording. True when one of
+        /// them decides (source None), with the skip reason and detail.
+        /// </summary>
+        internal static bool TryDecideMapPresenceInputGate(
+            IPlaybackTrajectory traj,
+            bool isSuppressed,
+            out string skipReason,
+            out string detail)
+        {
+            skipReason = null;
+            detail = null;
             if (traj == null)
             {
                 skipReason = "null";
-                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "null trajectory");
+                detail = "null trajectory";
+                return true;
             }
 
             if (traj.IsDebris)
             {
                 skipReason = "debris";
-                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isDebris=True");
+                detail = "isDebris=True";
+                return true;
             }
 
             // GUI-P1: the player's per-recording playback tick box is OFF. Decline the whole
@@ -1198,16 +1279,35 @@ namespace Parsek
                 skipReason = TrackingStationGhostSkipPlaybackDisabled;
                 LogMapPresencePlaybackSuppressedOnChange(
                     "map-presence", traj.RecordingId, (traj as Recording)?.VesselName);
-                return ReturnDecision(
-                    TrackingStationGhostSource.None, skipReason, "playbackEnabled=False");
+                detail = "playbackEnabled=False";
+                return true;
             }
 
             if (isSuppressed)
             {
                 skipReason = TrackingStationGhostSkipSuppressed;
-                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isSuppressed=True");
+                detail = "isSuppressed=True";
+                return true;
             }
+            return false;
+        }
 
+        /// <summary>
+        /// The persisted-real-vessel gate of <see cref="ResolveMapPresenceGhostSource"/>. True
+        /// when an already-materialized vessel suppresses the map ghost (source None), with the
+        /// skip reason and detail; a loop member inside its window draws alongside instead.
+        /// </summary>
+        internal static bool TryDecideMapPresenceMaterializedGate(
+            IPlaybackTrajectory traj,
+            string recId,
+            bool alreadyMaterialized,
+            bool loopMemberInWindow,
+            bool liveLaunchMatchedAnchorOfActiveMember,
+            out string skipReason,
+            out string detail)
+        {
+            skipReason = null;
+            detail = null;
             // A persisted real vessel (a completed mission's craft materialized at its
             // terminal, e.g. parked in orbit) normally suppresses a duplicate map ghost.
             // But when this recording is a Mission-loop member replaying inside its loop
@@ -1242,12 +1342,11 @@ namespace Parsek
                             recId,
                             (traj as Recording)?.VesselPersistentId ?? 0u),
                         5.0);
-                    return ReturnDecision(
-                        TrackingStationGhostSource.None,
-                        skipReason,
-                        "live-anchor double suppressed");
+                    detail = "live-anchor double suppressed";
+                    return true;
                 }
-                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "already spawned");
+                detail = "already spawned";
+                return true;
             }
             if (alreadyMaterialized)
             {
@@ -1259,21 +1358,42 @@ namespace Parsek
                         recId),
                     5.0);
             }
+            return false;
+        }
 
-            var terminal = ResolveMapPresenceEligibilityTerminal(traj, out string terminalTipId);
+        /// <summary>
+        /// The terminal gates of <see cref="ResolveMapPresenceGhostSource"/>: an ineligible
+        /// (effective) terminal state and a handed-off descent-trigger transfer member. True
+        /// when one decides (source None). Also returns the eligibility terminal, the
+        /// activation start UT and the terminal-region flag the later phases read; the last two
+        /// are left at their defaults when the terminal gate decides.
+        /// </summary>
+        internal static bool TryDecideMapPresenceTerminalGate(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            bool transferMemberDescentContinuation,
+            out TerminalState? terminal,
+            out double activationStartUT,
+            out bool terminalMapPresenceRegion,
+            out string skipReason,
+            out string detail)
+        {
+            activationStartUT = 0.0;
+            terminalMapPresenceRegion = false;
+            skipReason = null;
+            detail = null;
+            terminal = ResolveMapPresenceEligibilityTerminal(traj, out string terminalTipId);
             if (!IsTerminalStateEligibleForMapPresence(terminal))
             {
                 skipReason = "terminal-" + terminal.Value;
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    string.IsNullOrEmpty(terminalTipId)
-                        ? string.Format(ic, "terminal={0}", terminal.Value)
-                        : string.Format(ic, "terminal={0} chainTip={1}", terminal.Value, terminalTipId));
+                detail = string.IsNullOrEmpty(terminalTipId)
+                    ? string.Format(ic, "terminal={0}", terminal.Value)
+                    : string.Format(ic, "terminal={0} chainTip={1}", terminal.Value, terminalTipId);
+                return true;
             }
 
-            double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
-            bool terminalMapPresenceRegion = IsTerminalMapPresenceRegion(traj, currentUT);
+            activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
+            terminalMapPresenceRegion = IsTerminalMapPresenceRegion(traj, currentUT);
 
             // COSMETIC fix (re-aim descent "post-landing suborbital looping ghost"): the descent-trigger
             // TRANSFER member, once the shared descent has handed off / landed (descent phase Descent or Done,
@@ -1290,16 +1410,21 @@ namespace Parsek
             if (transferMemberDescentContinuation)
             {
                 skipReason = "transfer-member-descent-continuation";
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    "descent-trigger transfer member handed off / landed: retire cleanly; "
-                        + "the descent set owns the visual (no sub-surface endpoint-tail, no wrong-segment fallback)");
+                detail = "descent-trigger transfer member handed off / landed: retire cleanly; "
+                    + "the descent set owns the visual (no sub-surface endpoint-tail, no wrong-segment fallback)";
+                return true;
             }
+            return false;
+        }
 
-            string checkpointFallbackDetail = null;
-            string checkpointFallbackRejectReason = null;
-
+        /// <summary>
+        /// The segment list <see cref="ResolveMapPresenceGhostSource"/> searches for a covering
+        /// segment, with the on-change chain-tip line when the chain's tip supplied it.
+        /// </summary>
+        internal static List<OrbitSegment> ResolveMapPresenceChainSegmentsLogged(
+            IPlaybackTrajectory traj,
+            string recId)
+        {
             // PREDICTED-TAIL defect B: the SEGMENT LOOKUP (only) resolves through the chain's
             // effective tip, so a HEAD whose optimizer split moved every conic onto the TIP can
             // still reach the segment-seeded ghost sources instead of falling to
@@ -1309,7 +1434,6 @@ namespace Parsek
                 ResolveLiveChainTipSegments,
                 out string chainTipRecordingId,
                 out int chainTipSegmentCount);
-            bool hasMapSegments = mapSegments != null && mapSegments.Count > 0;
             if (!string.IsNullOrEmpty(chainTipRecordingId))
             {
                 ParsekLog.VerboseOnChange(
@@ -1324,145 +1448,206 @@ namespace Parsek
                         chainTipSegmentCount,
                         traj.OrbitSegments?.Count ?? 0));
             }
+            return mapSegments;
+        }
 
-            if (hasMapSegments)
+        /// <summary>
+        /// The covering-segment phase of <see cref="ResolveMapPresenceGhostSource"/>. True when a
+        /// map segment covers <paramref name="currentUT"/>: the source is EndpointTail when the
+        /// endpoint tail overrides the visible segment, else Segment, with the resolved segment
+        /// and detail. False (segment left default) when no segment covers the UT.
+        /// </summary>
+        internal static bool TryResolveCoveringSegmentSource(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            List<OrbitSegment> mapSegments,
+            bool terminalMapPresenceRegion,
+            bool allowSoiGapStateVectorFallback,
+            string expectedSoiGapBody,
+            bool loopMemberInWindow,
+            ref int stateVectorCachedIndex,
+            out OrbitSegment segment,
+            out TrackingStationGhostSource source,
+            out string detail)
+        {
+            segment = default(OrbitSegment);
+            source = TrackingStationGhostSource.None;
+            detail = null;
+            bool hasMapSegments = mapSegments != null && mapSegments.Count > 0;
+            if (!hasMapSegments)
+                return false;
+            OrbitSegment? currentSegment =
+                TrajectoryMath.FindOrbitSegmentForMapDisplay(mapSegments, currentUT);
+            if (!currentSegment.HasValue)
+                return false;
+
+            segment = currentSegment.Value;
+
+            string checkpointFallbackDetail = FormatCoveringSegmentCheckpointDetail(
+                traj, currentUT, allowSoiGapStateVectorFallback, expectedSoiGapBody,
+                ref stateVectorCachedIndex);
+
+            OrbitSegment visibleSegment = segment;
+            string endpointTailDetail = null;
+            // FIRST endpoint-tail branch (covering-segment override). This is the
+            // actual 181 Mm cross-body bug class and must stay suppressed for loop
+            // members - which the loopMemberInWindow argument now ENFORCES (the prior
+            // comment claimed unconditional suppression, but no gate existed on this
+            // create-resolver path; only the TS update pass had one. 2026-06-12
+            // playtest: a docked-ending loop member's garbage endpoint-tail orbit
+            // overrode its correct covering segment at every proto re-create). The
+            // loop-aware ACCEPTANCE hint is still not threaded here -- the relaxation
+            // only applies to the no-covering-segment fallback (the SECOND branch and
+            // the create-path's terminal-orbit fallback below). See plan section 1.5.
+            if (TryResolveEndpointTailForMapPresence(
+                    traj,
+                    currentUT,
+                    visibleSegment,
+                    terminalMapPresenceRegion,
+                    out OrbitSegment endpointTailSegment,
+                    out _,
+                    out endpointTailDetail,
+                    loopMemberInWindow: loopMemberInWindow))
             {
-                OrbitSegment? currentSegment =
-                    TrajectoryMath.FindOrbitSegmentForMapDisplay(mapSegments, currentUT);
-                if (currentSegment.HasValue)
-                {
-                    segment = currentSegment.Value;
-                    resolvedSegment = segment;
-
-                    if (TryResolveCheckpointStateVectorMapPoint(
-                        traj,
-                        currentUT,
-                        ref stateVectorCachedIndex,
-                        out TrajectoryPoint checkpointPoint,
-                        out _,
-                        out TrackSection checkpointSection))
-                    {
-                        OrbitalCheckpointStateVectorFallbackDecision checkpointDecision =
-                            EvaluateOrbitalCheckpointStateVectorFallback(
-                                traj,
-                                currentUT,
-                                checkpointPoint,
-                                segmentSourceAvailable: true,
-                                allowSoiGapRecovery: allowSoiGapStateVectorFallback,
-                                expectedSoiGapBody: expectedSoiGapBody);
-                        checkpointFallbackDetail = string.Format(ic,
-                            "stateVectorSource=OrbitalCheckpoint sectionUT={0:F1}-{1:F1} pointUT={2:F1} stateVectorBody={3} alt={4:F0} speed={5:F1} {6}",
-                            checkpointSection.startUT,
-                            checkpointSection.endUT,
-                            checkpointPoint.ut,
-                            checkpointPoint.bodyName ?? "(null)",
-                            checkpointPoint.altitude,
-                            checkpointPoint.velocity.magnitude,
-                            FormatOrbitalCheckpointStateVectorFallbackDecision(checkpointDecision));
-                    }
-
-                    OrbitSegment visibleSegment = segment;
-                    string endpointTailDetail = null;
-                    // FIRST endpoint-tail branch (covering-segment override). This is the
-                    // actual 181 Mm cross-body bug class and must stay suppressed for loop
-                    // members - which the loopMemberInWindow argument now ENFORCES (the prior
-                    // comment claimed unconditional suppression, but no gate existed on this
-                    // create-resolver path; only the TS update pass had one. 2026-06-12
-                    // playtest: a docked-ending loop member's garbage endpoint-tail orbit
-                    // overrode its correct covering segment at every proto re-create). The
-                    // loop-aware ACCEPTANCE hint is still not threaded here -- the relaxation
-                    // only applies to the no-covering-segment fallback (the SECOND branch and
-                    // the create-path's terminal-orbit fallback below). See plan section 1.5.
-                    if (TryResolveEndpointTailForMapPresence(
-                            traj,
-                            currentUT,
-                            visibleSegment,
-                            terminalMapPresenceRegion,
-                            out OrbitSegment endpointTailSegment,
-                            out _,
-                            out endpointTailDetail,
-                            loopMemberInWindow: loopMemberInWindow))
-                    {
-                        segment = endpointTailSegment;
-                        resolvedSegment = segment;
-                        return ReturnDecision(
-                            TrackingStationGhostSource.EndpointTail,
-                            skipReason,
-                            CombineSourceDetails(string.Format(ic,
-                                "endpointTailOverride=stale-visible-segment visibleSegmentBody={0} visibleSegmentUT={1:F1}-{2:F1}",
-                                visibleSegment.bodyName ?? "(null)",
-                                visibleSegment.startUT,
-                                visibleSegment.endUT),
-                                CombineSourceDetails(endpointTailDetail, checkpointFallbackDetail)));
-                    }
-
-                    return ReturnDecision(
-                        TrackingStationGhostSource.Segment,
-                        skipReason,
-                        CombineSourceDetails(string.Format(ic,
-                            "segmentBody={0} segmentUT={1:F1}-{2:F1}",
-                            segment.bodyName ?? "(null)",
-                            segment.startUT,
-                            segment.endUT),
-                            CombineSourceDetails(endpointTailDetail, checkpointFallbackDetail)));
-                }
+                segment = endpointTailSegment;
+                source = TrackingStationGhostSource.EndpointTail;
+                detail = CombineSourceDetails(string.Format(ic,
+                    "endpointTailOverride=stale-visible-segment visibleSegmentBody={0} visibleSegmentUT={1:F1}-{2:F1}",
+                    visibleSegment.bodyName ?? "(null)",
+                    visibleSegment.startUT,
+                    visibleSegment.endUT),
+                    CombineSourceDetails(endpointTailDetail, checkpointFallbackDetail));
+                return true;
             }
 
+            source = TrackingStationGhostSource.Segment;
+            detail = CombineSourceDetails(string.Format(ic,
+                "segmentBody={0} segmentUT={1:F1}-{2:F1}",
+                segment.bodyName ?? "(null)",
+                segment.startUT,
+                segment.endUT),
+                CombineSourceDetails(endpointTailDetail, checkpointFallbackDetail));
+            return true;
+        }
+
+        /// <summary>
+        /// The OrbitalCheckpoint detail the covering-segment phase of
+        /// <see cref="ResolveMapPresenceGhostSource"/> appends (the checkpoint point and the
+        /// SOI-gap fallback decision it would get with a segment source available), or null
+        /// when no checkpoint point resolves.
+        /// </summary>
+        internal static string FormatCoveringSegmentCheckpointDetail(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            bool allowSoiGapStateVectorFallback,
+            string expectedSoiGapBody,
+            ref int stateVectorCachedIndex)
+        {
+            string checkpointFallbackDetail = null;
+            if (TryResolveCheckpointStateVectorMapPoint(
+                traj,
+                currentUT,
+                ref stateVectorCachedIndex,
+                out TrajectoryPoint checkpointPoint,
+                out _,
+                out TrackSection checkpointSection))
+            {
+                OrbitalCheckpointStateVectorFallbackDecision checkpointDecision =
+                    EvaluateOrbitalCheckpointStateVectorFallback(
+                        traj,
+                        currentUT,
+                        checkpointPoint,
+                        segmentSourceAvailable: true,
+                        allowSoiGapRecovery: allowSoiGapStateVectorFallback,
+                        expectedSoiGapBody: expectedSoiGapBody);
+                checkpointFallbackDetail = string.Format(ic,
+                    "stateVectorSource=OrbitalCheckpoint sectionUT={0:F1}-{1:F1} pointUT={2:F1} stateVectorBody={3} alt={4:F0} speed={5:F1} {6}",
+                    checkpointSection.startUT,
+                    checkpointSection.endUT,
+                    checkpointPoint.ut,
+                    checkpointPoint.bodyName ?? "(null)",
+                    checkpointPoint.altitude,
+                    checkpointPoint.velocity.magnitude,
+                    FormatOrbitalCheckpointStateVectorFallbackDecision(checkpointDecision));
+            }
+            return checkpointFallbackDetail;
+        }
+
+        /// <summary>
+        /// The OrbitalCheckpoint state-vector phase of <see cref="ResolveMapPresenceGhostSource"/>
+        /// (no covering segment). True when a checkpoint point resolves and the SOI-gap fallback
+        /// accepts it (source StateVectorSoiGap): <paramref name="skipReason"/> is set to the
+        /// decision reason. A rejected point returns false with the reject reason and detail the
+        /// fallback gates read; both are null when no checkpoint point resolves.
+        /// </summary>
+        internal static bool TryAcceptCheckpointSoiGapStateVector(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            bool allowSoiGapStateVectorFallback,
+            string expectedSoiGapBody,
+            ref int stateVectorCachedIndex,
+            out TrajectoryPoint stateVectorPoint,
+            ref string skipReason,
+            out string checkpointFallbackRejectReason,
+            out string checkpointFallbackDetail,
+            out string detail)
+        {
+            checkpointFallbackRejectReason = null;
+            checkpointFallbackDetail = null;
+            detail = null;
             // Dense OrbitalCheckpoint frames are only safe as a map-presence
             // state-vector source when a caller explicitly marks the create/update
             // as recovery from an orbit-segment gap. Normal checkpoint windows keep
             // using segment or terminal-orbit sources so stale/wrong-frame checkpoint
             // data cannot reintroduce the #571 / #584 wrong-position class.
-            if (TryResolveCheckpointStateVectorMapPoint(
+            if (!TryResolveCheckpointStateVectorMapPoint(
                 traj,
                 currentUT,
                 ref stateVectorCachedIndex,
                 out stateVectorPoint,
                 out _,
                 out TrackSection fallbackCheckpointSection))
+                return false;
+
+            OrbitalCheckpointStateVectorFallbackDecision checkpointDecision =
+                EvaluateOrbitalCheckpointStateVectorFallback(
+                    traj,
+                    currentUT,
+                    stateVectorPoint,
+                    segmentSourceAvailable: false,
+                    allowSoiGapRecovery: allowSoiGapStateVectorFallback,
+                    expectedSoiGapBody: expectedSoiGapBody);
+            detail = string.Format(ic,
+                "stateVectorSource=OrbitalCheckpoint sectionUT={0:F1}-{1:F1} pointUT={2:F1} stateVectorBody={3} alt={4:F0} speed={5:F1} {6}",
+                fallbackCheckpointSection.startUT,
+                fallbackCheckpointSection.endUT,
+                stateVectorPoint.ut,
+                stateVectorPoint.bodyName ?? "(null)",
+                stateVectorPoint.altitude,
+                stateVectorPoint.velocity.magnitude,
+                FormatOrbitalCheckpointStateVectorFallbackDecision(checkpointDecision));
+
+            if (checkpointDecision.Accepted)
             {
-                OrbitalCheckpointStateVectorFallbackDecision checkpointDecision =
-                    EvaluateOrbitalCheckpointStateVectorFallback(
-                        traj,
-                        currentUT,
-                        stateVectorPoint,
-                        segmentSourceAvailable: false,
-                        allowSoiGapRecovery: allowSoiGapStateVectorFallback,
-                        expectedSoiGapBody: expectedSoiGapBody);
-                string detail = string.Format(ic,
-                    "stateVectorSource=OrbitalCheckpoint sectionUT={0:F1}-{1:F1} pointUT={2:F1} stateVectorBody={3} alt={4:F0} speed={5:F1} {6}",
-                    fallbackCheckpointSection.startUT,
-                    fallbackCheckpointSection.endUT,
-                    stateVectorPoint.ut,
-                    stateVectorPoint.bodyName ?? "(null)",
-                    stateVectorPoint.altitude,
-                    stateVectorPoint.velocity.magnitude,
-                    FormatOrbitalCheckpointStateVectorFallbackDecision(checkpointDecision));
-
-                if (checkpointDecision.Accepted)
-                {
-                    resolvedStatePoint = stateVectorPoint;
-                    skipReason = checkpointDecision.Reason;
-                    return ReturnDecision(
-                        TrackingStationGhostSource.StateVectorSoiGap,
-                        checkpointDecision.Reason,
-                        detail);
-                }
-
-                checkpointFallbackRejectReason = checkpointDecision.Reason;
-                checkpointFallbackDetail = detail;
+                skipReason = checkpointDecision.Reason;
+                return true;
             }
 
-            string stateVectorSkipReason = null;
-            // #583: try state-vector resolution when there are no orbit segments
-            // (the original physics-only-suborbital case) OR when the current UT
-            // sits inside a Relative-frame section. The latter widens the gate
-            // so a recording with OrbitalCheckpoint segments elsewhere can still
-            // get a map ghost while the playback head is in the docking /
-            // rendezvous section; CreateGhostVesselFromStateVectors handles
-            // Relative world-position resolution against the recorded anchor
-            // pose for the target UT.
-            bool inRelativeFrame = IsInRelativeFrame(traj, currentUT);
+            checkpointFallbackRejectReason = checkpointDecision.Reason;
+            checkpointFallbackDetail = detail;
+            return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="currentUT"/> sits in a Relative-frame section bracketed by a
+        /// recorded orbit segment that ended before it and one that starts after it: the
+        /// map-presence state-vector source waits for the next bounded segment there.
+        /// </summary>
+        internal static bool IsRelativeStateVectorDeferredForSegmentGap(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            bool inRelativeFrame)
+        {
             bool hasPastOrbitSegment = false;
             bool hasFutureOrbitSegment = false;
             if (traj.HasOrbitSegments && inRelativeFrame && traj.OrbitSegments != null)
@@ -1479,11 +1664,44 @@ namespace Parsek
                 }
             }
 
-            bool deferRelativeStateVectorForSegmentGap =
-                traj.HasOrbitSegments
+            return traj.HasOrbitSegments
                 && inRelativeFrame
                 && hasPastOrbitSegment
                 && hasFutureOrbitSegment;
+        }
+
+        /// <summary>
+        /// The state-vector phase of <see cref="ResolveMapPresenceGhostSource"/>. True when a
+        /// state-vector point resolves (source StateVector), with its detail. Always returns
+        /// whether the state vector was considered, whether a Relative segment gap deferred it,
+        /// the state-vector skip reason and the segment-gap detail the fallback gates read.
+        /// <paramref name="stateVectorPoint"/> is written only when the state vector is
+        /// considered, so a rejected checkpoint point stays in it otherwise.
+        /// </summary>
+        internal static bool TryResolveMapPresenceStateVectorSource(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            ref int stateVectorCachedIndex,
+            ref TrajectoryPoint stateVectorPoint,
+            out bool considerStateVector,
+            out bool deferRelativeStateVectorForSegmentGap,
+            out string stateVectorSkipReason,
+            out string relativeSegmentGapDetail,
+            out string detail)
+        {
+            detail = null;
+            stateVectorSkipReason = null;
+            // #583: try state-vector resolution when there are no orbit segments
+            // (the original physics-only-suborbital case) OR when the current UT
+            // sits inside a Relative-frame section. The latter widens the gate
+            // so a recording with OrbitalCheckpoint segments elsewhere can still
+            // get a map ghost while the playback head is in the docking /
+            // rendezvous section; CreateGhostVesselFromStateVectors handles
+            // Relative world-position resolution against the recorded anchor
+            // pose for the target UT.
+            bool inRelativeFrame = IsInRelativeFrame(traj, currentUT);
+            deferRelativeStateVectorForSegmentGap =
+                IsRelativeStateVectorDeferredForSegmentGap(traj, currentUT, inRelativeFrame);
             if (deferRelativeStateVectorForSegmentGap)
             {
                 // A Relative section with pending bounded orbit coverage should not
@@ -1494,11 +1712,11 @@ namespace Parsek
                 // the #583 state-vector path until a recorded segment gap exists.
                 stateVectorSkipReason = TrackingStationGhostSkipRelativeStateVectorSegmentGap;
             }
-            string relativeSegmentGapDetail = deferRelativeStateVectorForSegmentGap
+            relativeSegmentGapDetail = deferRelativeStateVectorForSegmentGap
                 ? "relativeFrame=True orbitSegmentGap=True"
                 : null;
 
-            bool considerStateVector =
+            considerStateVector =
                 !traj.HasOrbitSegments
                 || (inRelativeFrame && !deferRelativeStateVectorForSegmentGap);
             if (considerStateVector)
@@ -1510,18 +1728,80 @@ namespace Parsek
                     out stateVectorPoint,
                     out stateVectorSkipReason))
                 {
-                    resolvedStatePoint = stateVectorPoint;
-                    return ReturnDecision(
-                        TrackingStationGhostSource.StateVector,
-                        skipReason,
-                        string.Format(ic,
-                            "stateVectorBody={0} alt={1:F0} speed={2:F1}",
-                            stateVectorPoint.bodyName ?? "(null)",
-                            stateVectorPoint.altitude,
-                            stateVectorPoint.velocity.magnitude));
+                    detail = string.Format(ic,
+                        "stateVectorBody={0} alt={1:F0} speed={2:F1}",
+                        stateVectorPoint.bodyName ?? "(null)",
+                        stateVectorPoint.altitude,
+                        stateVectorPoint.velocity.magnitude);
+                    return true;
                 }
             }
+            return false;
+        }
 
+        /// <summary>
+        /// The terminal-orbit fallback of <see cref="ResolveMapPresenceGhostSource"/>, after the
+        /// segment and state-vector sources declined: the fallback gates
+        /// (<see cref="TryDecideTerminalFallbackGate"/>, source None with their skip reason),
+        /// then <see cref="ResolveTerminalOrbitMapPresenceSource"/>.
+        /// </summary>
+        internal static TrackingStationGhostSource ResolveTerminalFallbackMapPresenceSource(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            TerminalState? terminal,
+            double activationStartUT,
+            bool terminalMapPresenceRegion,
+            bool allowTerminalOrbitFallback,
+            bool acceptTerminalOrbitForLoopSynthesis,
+            bool considerStateVector,
+            bool deferRelativeStateVectorForSegmentGap,
+            string stateVectorSkipReason,
+            string relativeSegmentGapDetail,
+            string checkpointFallbackRejectReason,
+            string checkpointFallbackDetail,
+            ref string skipReason,
+            out OrbitSegment segment,
+            out string detail)
+        {
+            if (TryDecideTerminalFallbackGate(
+                traj, currentUT, terminal, activationStartUT, allowTerminalOrbitFallback,
+                considerStateVector, deferRelativeStateVectorForSegmentGap, stateVectorSkipReason,
+                relativeSegmentGapDetail, checkpointFallbackRejectReason, checkpointFallbackDetail,
+                out skipReason, out detail))
+            {
+                segment = default(OrbitSegment);
+                return TrackingStationGhostSource.None;
+            }
+
+            return ResolveTerminalOrbitMapPresenceSource(
+                traj, currentUT, activationStartUT, terminalMapPresenceRegion,
+                acceptTerminalOrbitForLoopSynthesis, checkpointFallbackDetail,
+                ref skipReason, out segment, out detail);
+        }
+
+        /// <summary>
+        /// The terminal-fallback gates of <see cref="ResolveMapPresenceGhostSource"/>: no
+        /// terminal fallback allowed, no orbit data, a terminal state the terminal orbit may
+        /// not show, before activation, and before the terminal orbit. True when one decides
+        /// (source None), with the skip reason and detail.
+        /// </summary>
+        internal static bool TryDecideTerminalFallbackGate(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            TerminalState? terminal,
+            double activationStartUT,
+            bool allowTerminalOrbitFallback,
+            bool considerStateVector,
+            bool deferRelativeStateVectorForSegmentGap,
+            string stateVectorSkipReason,
+            string relativeSegmentGapDetail,
+            string checkpointFallbackRejectReason,
+            string checkpointFallbackDetail,
+            out string skipReason,
+            out string detail)
+        {
+            skipReason = null;
+            detail = null;
             if (!allowTerminalOrbitFallback)
             {
                 skipReason = checkpointFallbackRejectReason
@@ -1529,14 +1809,12 @@ namespace Parsek
                         traj,
                         considerStateVector || deferRelativeStateVectorForSegmentGap,
                         stateVectorSkipReason);
-                string detail = string.Format(ic,
+                detail = string.Format(ic,
                     "terminalFallback=False hasOrbitSegments={0}",
                     traj.HasOrbitSegments);
                 detail = CombineSourceDetails(detail, relativeSegmentGapDetail);
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    CombineSourceDetails(detail, checkpointFallbackDetail));
+                detail = CombineSourceDetails(detail, checkpointFallbackDetail);
+                return true;
             }
 
             if (!HasOrbitData(traj))
@@ -1546,34 +1824,28 @@ namespace Parsek
                         traj,
                         considerStateVector || deferRelativeStateVectorForSegmentGap,
                         stateVectorSkipReason);
-                string detail = string.Format(ic, "hasOrbitSegments={0}", traj.HasOrbitSegments);
+                detail = string.Format(ic, "hasOrbitSegments={0}", traj.HasOrbitSegments);
                 detail = CombineSourceDetails(detail, relativeSegmentGapDetail);
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    CombineSourceDetails(detail, checkpointFallbackDetail));
+                detail = CombineSourceDetails(detail, checkpointFallbackDetail);
+                return true;
             }
 
             if (!IsTerminalStateEligibleForTerminalOrbitMapPresence(terminal))
             {
                 skipReason = "terminal-" + terminal.Value;
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    CombineSourceDetails(
-                        string.Format(ic, "terminal={0} terminalOrbitFallback=True", terminal.Value),
-                        checkpointFallbackDetail));
+                detail = CombineSourceDetails(
+                    string.Format(ic, "terminal={0} terminalOrbitFallback=True", terminal.Value),
+                    checkpointFallbackDetail);
+                return true;
             }
 
             if (currentUT < activationStartUT)
             {
                 skipReason = checkpointFallbackRejectReason ?? "before-activation";
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    CombineSourceDetails(
-                        string.Format(ic, "activationStartUT={0:F1}", activationStartUT),
-                        checkpointFallbackDetail));
+                detail = CombineSourceDetails(
+                    string.Format(ic, "activationStartUT={0:F1}", activationStartUT),
+                    checkpointFallbackDetail);
+                return true;
             }
 
             bool allowSparseOrbitGapFallback =
@@ -1586,14 +1858,31 @@ namespace Parsek
                     ?? (deferRelativeStateVectorForSegmentGap
                         ? stateVectorSkipReason
                         : "before-terminal-orbit");
-                string detail = string.Format(ic, "endUT={0:F1}", traj.EndUT);
+                detail = string.Format(ic, "endUT={0:F1}", traj.EndUT);
                 detail = CombineSourceDetails(detail, relativeSegmentGapDetail);
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    CombineSourceDetails(detail, checkpointFallbackDetail));
+                detail = CombineSourceDetails(detail, checkpointFallbackDetail);
+                return true;
             }
+            return false;
+        }
 
+        /// <summary>
+        /// The terminal-orbit phase of <see cref="ResolveMapPresenceGhostSource"/>, after every
+        /// gate passed: an endpoint-tail coast (EndpointTail), else the proto orbit seed
+        /// (TerminalOrbit), else None with the seed failure as <paramref name="skipReason"/>.
+        /// </summary>
+        internal static TrackingStationGhostSource ResolveTerminalOrbitMapPresenceSource(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            double activationStartUT,
+            bool terminalMapPresenceRegion,
+            bool acceptTerminalOrbitForLoopSynthesis,
+            string checkpointFallbackDetail,
+            ref string skipReason,
+            out OrbitSegment segment,
+            out string detail)
+        {
+            segment = default(OrbitSegment);
             // Create-path no-covering-segment terminal-orbit fallback. The
             // acceptTerminalOrbitForLoopSynthesis hint propagates here so a loop-aware
             // caller (non-zero loop epoch shift on a same-body terminal recording) can
@@ -1613,11 +1902,8 @@ namespace Parsek
                     acceptTerminalOrbitSource: acceptTerminalOrbitForLoopSynthesis))
             {
                 segment = terminalEndpointTailSegment;
-                resolvedSegment = segment;
-                return ReturnDecision(
-                    TrackingStationGhostSource.EndpointTail,
-                    skipReason,
-                    CombineSourceDetails(terminalEndpointTailDetail, checkpointFallbackDetail));
+                detail = CombineSourceDetails(terminalEndpointTailDetail, checkpointFallbackDetail);
+                return TrackingStationGhostSource.EndpointTail;
             }
 
             if (!TryResolveGhostProtoOrbitSeed(
@@ -1636,17 +1922,15 @@ namespace Parsek
                 skipReason = seedDiagnostics.FailureReason == TrackingStationGhostSkipEndpointConflict
                     ? TrackingStationGhostSkipEndpointConflict
                     : TrackingStationGhostSkipUnseedableTerminalOrbit;
-                return ReturnDecision(
-                    TrackingStationGhostSource.None,
-                    skipReason,
-                    CombineSourceDetails(string.Format(ic,
-                        "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3} {4}",
-                        traj.TerminalOrbitBody ?? "(null)",
-                        traj.EndUT,
-                        seedDiagnostics.FailureReason ?? "(none)",
-                        seedDiagnostics.EndpointBodyName ?? "(none)",
-                        FormatGhostProtoOrbitSeedDiagnostics(seedDiagnostics)),
-                        checkpointFallbackDetail));
+                detail = CombineSourceDetails(string.Format(ic,
+                    "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3} {4}",
+                    traj.TerminalOrbitBody ?? "(null)",
+                    traj.EndUT,
+                    seedDiagnostics.FailureReason ?? "(none)",
+                    seedDiagnostics.EndpointBodyName ?? "(none)",
+                    FormatGhostProtoOrbitSeedDiagnostics(seedDiagnostics)),
+                    checkpointFallbackDetail);
+                return TrackingStationGhostSource.None;
             }
             PopulateTailSeedDiagnostics(traj, currentUT, ref seedDiagnostics);
 
@@ -1663,21 +1947,18 @@ namespace Parsek
                 epoch = epoch,
                 bodyName = seedBodyName
             };
-            resolvedSegment = segment;
 
-            return ReturnDecision(
-                TrackingStationGhostSource.TerminalOrbit,
-                skipReason,
-                CombineSourceDetails(string.Format(ic,
-                    "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5} {6}",
-                    traj.TerminalOrbitBody ?? "(null)",
-                    traj.EndUT,
-                    seedBodyName ?? "(null)",
-                    seedDiagnostics.Source ?? "(none)",
-                    seedDiagnostics.EndpointBodyName ?? "(none)",
-                    seedDiagnostics.FallbackReason ?? "(none)",
-                    FormatGhostProtoOrbitSeedDiagnostics(seedDiagnostics)),
-                    checkpointFallbackDetail));
+            detail = CombineSourceDetails(string.Format(ic,
+                "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5} {6}",
+                traj.TerminalOrbitBody ?? "(null)",
+                traj.EndUT,
+                seedBodyName ?? "(null)",
+                seedDiagnostics.Source ?? "(none)",
+                seedDiagnostics.EndpointBodyName ?? "(none)",
+                seedDiagnostics.FallbackReason ?? "(none)",
+                FormatGhostProtoOrbitSeedDiagnostics(seedDiagnostics)),
+                checkpointFallbackDetail);
+            return TrackingStationGhostSource.TerminalOrbit;
         }
 
         private static string BuildTrackingStationGhostSourceDetail(

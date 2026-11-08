@@ -362,7 +362,7 @@ namespace Parsek.Tests
         /// [191.04, 1078.45] carrying every conic including the two predicted tail ones.
         /// Registered under one tree so the chain-tip walker's tree scan resolves.
         /// </summary>
-        private static void RegisterSplitChain(out Recording head, out Recording tip)
+        internal static void RegisterSplitChain(out Recording head, out Recording tip)
         {
             head = ChainMember("rec_head", "chain_split", 0);
             head.Points.Add(Point(32.94, 96.0));

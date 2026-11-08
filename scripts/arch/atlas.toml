@@ -6,8 +6,11 @@
 # captions, the generated-views list) stay in the renderer template. `--check`
 # reports prose that no longer matches the model (missing module summaries,
 # glossary names that are gone, readings for vanished edges, reading-order
-# types that do not exist, opportunity types that do not exist) and the age of
-# the `[findings]` review date.
+# types that do not exist, opportunity types that do not exist, literal numbers
+# that disagree with the model) and the age of the `[findings]` review date.
+# A number the check knows how to measure (archview.PROSE_NUMBER_CLAIMS) must
+# match the model in any string that carries no YYYY-MM-DD date; in a dated
+# string it is history and is only listed.
 #
 # `[findings]` and `[[opportunities]]` (at the end of this file) are the only
 # conclusions on the page. They must not restate a number the page already
@@ -339,7 +342,7 @@ rank = 4
 item = "Give the ratchet a measure the code cannot bend to; retire the metric forwarders"
 evidence = "11 of the store's 13 forwarders exist to keep callers on the cut side; prose literals are unchecked (<em>Main findings</em>)."
 size = "medium"
-status = "Open, todo ARCH-TOOLING-ROSLYN-AND-CI. No product change."
+status = "Done 2026-11-08: the ratchet reads the semantic graph from the compiled IL (W4a / W4a2), atlas prose numbers are checked, and W4c deleted the 11 metric forwarders. Todo ARCH-TOOLING-ROSLYN-AND-CI."
 
 [[opportunities]]
 rank = 5

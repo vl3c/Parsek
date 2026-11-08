@@ -38,7 +38,7 @@ id = "RF-14-rtl-refly-load-sweep"
 #     the unscoped flight-authored one (`Keeping session-prov rp=... with no session
 #     scope` when no session is live).
 #   - (2) via "Rewind-to-Launch mid-re-fly": while the re-fly recorder is live,
-#     `RecordingStore.CanRewind` refuses "Stop recording before rewinding", and no
+#     `RewindLauncher.CanRewind` refuses "Stop recording before rewinding", and no
 #     player-facing control stops a recorder (the only `ParsekFlight.StopRecording()`
 #     callers are the seam verbs). One code path reads as an exception and is filed, not
 #     flown: todo REFLY-DESTROYED-THEN-RTL-MID-SESSION (the re-flown vessel is destroyed

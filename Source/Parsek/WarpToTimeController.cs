@@ -315,7 +315,7 @@ namespace Parsek
                 WarpToTimeRequest.Set(targetUT);
                 ParsekLog.Info(Tag, string.Format(IC,
                     "Initiating career-start reset (pending forward warp targetUT={0:F1})", targetUT));
-                if (!RecordingStore.InitiateRewindToCareerStart(CareerStartSnapshot.SaveFileName))
+                if (!RewindLauncher.InitiateRewindToCareerStart(CareerStartSnapshot.SaveFileName))
                 {
                     ParsekLog.Warn(Tag, "Career-start reset refused — clearing pending warp");
                     WarpToTimeRequest.Clear();
@@ -332,7 +332,7 @@ namespace Parsek
                 return;
             }
 
-            if (!RecordingStore.CanRewind(ownerNow, out string reason, isRecording: false))
+            if (!RewindLauncher.CanRewind(ownerNow, out string reason, isRecording: false))
             {
                 ParsekLog.Warn(Tag, string.Format(IC,
                     "Rewind aborted for \"{0}\" id={1}: {2}",
@@ -346,7 +346,7 @@ namespace Parsek
             ParsekLog.Info(Tag, string.Format(IC,
                 "Initiating rewind to \"{0}\" id={1} StartUT={2:F1} (pending forward warp targetUT={3:F1})",
                 ownerNow.VesselName, ownerNow.RecordingId, ownerNow.StartUT, targetUT));
-            RecordingStore.InitiateRewind(ownerNow);
+            RewindLauncher.InitiateRewind(ownerNow);
         }
 
         private static double SafeCurrentUT()

@@ -142,7 +142,7 @@ namespace Parsek.Tests.Logistics
         {
             AssertSharesThroughScopedCache("Logistics/LiveRouteRuntimeEnvironment.cs",
                 "public bool DestinationHasCapacity(");
-            AssertSharesThroughScopedCache("UI/LogisticsWindowUI.cs",
+            AssertSharesThroughScopedCache("UI/LogisticsWindowUI.Legibility.cs",
                 "private static int FindFullStopIndex(");
 
             // The pickup gate groups sources by pid plus the resolution's scope key.

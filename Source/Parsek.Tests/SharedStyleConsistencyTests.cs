@@ -64,7 +64,7 @@ namespace Parsek.Tests
             // The label is a control: its text must come from the frame-latched mode so the
             // Layout and Repaint passes of one frame agree, at the Basic site and the
             // Advanced loop row alike. And the label method itself must not hard-code a word.
-            string code = Dense(ReadSource("UI", "MissionsWindowUI.cs"));
+            string code = Dense(ReadMissionsWindowClass());
             Assert.Contains("DrawLoopedByRouteLabel(bindingRoute,ParsekUI.AppliedUiComplexityMode);", code);
             Assert.Contains("DrawLoopedByRouteLabel(bindingRoute,ParsekUI.AppliedUiComplexityMode,LoopCellWidth);", code);
             string body = MethodBody(code, "privatevoidDrawLoopedByRouteLabel(");
@@ -81,14 +81,15 @@ namespace Parsek.Tests
             // Fails if a window builds a countdown of its own ("T-" glued to a number, or the
             // removed SelectiveSpawnUI / MissionsWindowUI copies) instead of
             // ParsekTimeFormat.FormatCountdown.
-            // RecordingsTableUI is a partial class: its RecordingsTableUI.<Area>.cs files are
-            // scanned alongside the main file.
+            // RecordingsTableUI and MissionsWindowUI are partial classes: their <Class>.<Area>.cs
+            // files are scanned alongside the main file.
             string[] files =
             {
                 "MissionsWindowUI.cs", "LogisticsRoutePresentation.cs", "RecordingsTableUI.cs",
                 "SpawnControlUI.cs", "SpawnControlPresentation.cs", "TimelineWindowUI.cs",
             };
-            foreach (string f in files.Concat(RecordingsTableUISourceFiles.SplitFileNames))
+            foreach (string f in files.Concat(RecordingsTableUISourceFiles.SplitFileNames)
+                         .Concat(MissionsWindowUISourceFiles.SplitFileNames))
             {
                 string code = StripComments(ReadSource("UI", f));
                 Assert.DoesNotContain("SelectiveSpawnUI.FormatCountdown", code);
@@ -127,7 +128,7 @@ namespace Parsek.Tests
             string timeline = Dense(StripComments(ReadSource("UI", "TimelineWindowUI.cs")));
             Assert.Contains("timelineCountdownStyle.normal.textColor=ParsekUI.CountdownTextColor;", timeline);
             Assert.Contains("GUILayout.Label(time,showCountdownTime?timelineCountdownStyle:style,", timeline);
-            string logistics = Dense(StripComments(ReadSource("UI", "LogisticsWindowUI.cs")));
+            string logistics = Dense(StripComments(ReadLogisticsWindowClass()));
             Assert.Contains("nextAmberStyle.normal.textColor=ParsekUI.CountdownTextColor;", logistics);
             string recordings = Dense(StripComments(ReadRecordingsTableClass()));
             Assert.Contains("statusStyleFuture.normal.textColor=ParsekUI.CountdownTextColor;", recordings);
@@ -141,7 +142,7 @@ namespace Parsek.Tests
             Assert.Equal(new UnityEngine.Color(0.78f, 0.78f, 0.78f), ParsekUI.MutedTextColor);
             Assert.Equal(ParsekUI.MutedTextColor, MissionsWindowUI.MissionSummaryTextColor);
             Assert.Contains("detailStyle.normal.textColor=ParsekUI.MutedTextColor;",
-                Dense(StripComments(ReadSource("UI", "LogisticsWindowUI.cs"))));
+                Dense(StripComments(ReadLogisticsWindowClass())));
             Assert.Contains("textColor=ParsekUI.MutedTextColor",
                 Dense(StripComments(ReadSource("UI", "KerbalsWindowUI.cs"))));
         }
@@ -174,7 +175,7 @@ namespace Parsek.Tests
         public void EmptyListSentencesUseTheSharedGreyStyle()
         {
             Assert.Contains("GUILayout.Label(\"Nomissionsrecordedyet.\",parentUI.GetEmptyStateStyle());",
-                Dense(ReadSource("UI", "MissionsWindowUI.cs")));
+                Dense(ReadMissionsWindowClass()));
             Assert.Contains("GUILayout.Label(\"Norecordingsyet.\",parentUI.GetEmptyStateStyle());",
                 Dense(ReadRecordingsTableClass()));
             Assert.Contains("GUILayout.Label(\"Nonearbycrafttospawn.\",parentUI.GetEmptyStateStyle());",
@@ -182,7 +183,7 @@ namespace Parsek.Tests
             Assert.Contains("GUILayout.Label(\"Notimelineentries.\",parentUI.GetEmptyStateStyle());",
                 Dense(ReadSource("UI", "TimelineWindowUI.cs")));
             Assert.Contains("GUILayout.Label(\"\"+emptyText,parentUI.GetEmptyStateStyle());",
-                Dense(ReadSource("UI", "LogisticsWindowUI.cs")));
+                Dense(ReadLogisticsWindowClass()));
         }
 
         [Fact]
@@ -277,7 +278,14 @@ namespace Parsek.Tests
         private static string ReadRecordingsTableClass() =>
             RecordingsTableUISourceFiles.ReadAll(SourceDir("UI")).Replace("\r\n", "\n");
 
-        private static string Dense(string s) => Regex.Replace(s, @"\s+", string.Empty);
+        // MissionsWindowUI and LogisticsWindowUI are partial classes too.
+        private static string ReadMissionsWindowClass() =>
+            MissionsWindowUISourceFiles.ReadAll(SourceDir("UI")).Replace("\r\n", "\n");
+
+        private static string ReadLogisticsWindowClass() =>
+            LogisticsWindowUISourceFiles.ReadAll(SourceDir("UI")).Replace("\r\n", "\n");
+
+                private static string Dense(string s) => Regex.Replace(s, @"\s+", string.Empty);
 
         // Line comments only (the gates read code, never a comment quoting it).
         private static string StripComments(string s) =>

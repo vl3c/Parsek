@@ -505,7 +505,7 @@ namespace Parsek.Tests
             };
         }
 
-        private static Recording BuildEndpointRecording(OrbitSegment selectedSegment)
+        internal static Recording BuildEndpointRecording(OrbitSegment selectedSegment)
         {
             return new Recording
             {
@@ -540,7 +540,7 @@ namespace Parsek.Tests
             };
         }
 
-        private static OrbitSegment Segment(double startUT, double endUT)
+        internal static OrbitSegment Segment(double startUT, double endUT)
         {
             return new OrbitSegment
             {
@@ -557,7 +557,7 @@ namespace Parsek.Tests
             };
         }
 
-        private static TailDerivedOrbitSeed AcceptedTailSeed(
+        internal static TailDerivedOrbitSeed AcceptedTailSeed(
             double tailUT,
             double latestStoredSegmentEndUT,
             double rotationDriftSeconds = -317.96)

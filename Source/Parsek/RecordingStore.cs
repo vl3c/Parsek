@@ -567,16 +567,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Forwarder to <see cref="CommittedListOptimizer.RunOptimizationPass"/> (RecordingStore
-        /// services plan, PR8) for <c>MergeDialog</c>'s commit: a direct call from it closes a cycle
-        /// through the optimizer around the RecordingStore cut. Every other caller calls the service.
-        /// </summary>
-        internal static void RunOptimizationPass()
-        {
-            CommittedListOptimizer.RunOptimizationPass();
-        }
-
-        /// <summary>
         /// Replaces the first committed recording whose
         /// <see cref="Recording.RecordingId"/> equals
         /// <paramref name="replacement"/>.<see cref="Recording.RecordingId"/>
@@ -716,53 +706,6 @@ namespace Parsek
             BumpStateVersion();
         }
 
-
-        /// <summary>
-        /// Forwarder to <see cref="TreeCommitService.CommitPendingTree"/> (RecordingStore services
-        /// plan, PR12 L). The commit reaches GameStateStore, MilestoneStore, SupersedeCommit and
-        /// LedgerOrchestrator; MergeDialog and MergeJournalOrchestrator, which the RecordingStore
-        /// cut does not remove, would close cycles through the service around that cut, so they
-        /// stay on this and on <see cref="UnionActiveReFlyTreeIntoCommittedForMerge"/>.
-        /// </summary>
-        public static void CommitPendingTree()
-        {
-            TreeCommitService.CommitPendingTree();
-        }
-
-        /// <summary>Forwarder to <see cref="TreeCommitService.UnionActiveReFlyTreeIntoCommittedForMerge"/>
-        /// for MergeJournalOrchestrator (see <see cref="CommitPendingTree"/>).</summary>
-        internal static bool UnionActiveReFlyTreeIntoCommittedForMerge(
-            RecordingTree existing, RecordingTree incoming, ReFlySessionMarker marker,
-            out int addedRecs, out int addedBps)
-        {
-            return TreeCommitService.UnionActiveReFlyTreeIntoCommittedForMerge(
-                existing, incoming, marker, out addedRecs, out addedBps);
-        }
-
-        /// <summary>
-        /// Forwarder to <see cref="TreeDiscardService.RefreshSaveAndQuicksaveAfterDiscard"/>
-        /// (RecordingStore services plan, PR12 K) for MergeDialog. The discard service purges
-        /// game-state and route events and re-homes the irreversible ledger tail, so it reaches
-        /// GameStateStore, RouteEventLog and LedgerOrchestrator; MergeDialog, which the
-        /// RecordingStore cut does not remove, would close a cycle through it around that cut.
-        /// </summary>
-        internal static void RefreshSaveAndQuicksaveAfterDiscard(
-            string reason,
-            int discardedRecordingCount)
-        {
-            TreeDiscardService.RefreshSaveAndQuicksaveAfterDiscard(reason, discardedRecordingCount);
-        }
-
-        // Forwarder to SwitchSegmentAttempts (RecordingStore services plan, PR11). The service
-        // purges game-state events and route events and preserves the irreversible ledger tail,
-        // so it reaches GameStateStore, RouteEventLog and LedgerOrchestrator; MergeDialog, which
-        // the RecordingStore cut does not remove, would close a cycle through it around that cut,
-        // so its Re-Fly discard stays on this. Every other caller calls the service.
-        internal static SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt(
-            out string reason)
-        {
-            return SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
-        }
 
         /// <summary>
         /// Disposition path returned by <see cref="SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt"/>.
@@ -1315,48 +1258,6 @@ namespace Parsek
         {
             var owner = GetRewindRecording(rec);
             return owner?.RewindSaveFileName;
-        }
-
-        // Forwarders to RewindLauncher for the recordings table, the timeline window and the
-        // warp-to-time controller: those callers sit on cycles the launcher closes (it reaches
-        // MergeDialog, the vessel holds and the ghost map presence), so a direct call would add
-        // them to the cut residue the architecture ratchet bounds.
-
-        /// <summary>Forwarder: <see cref="RewindLauncher.CanRewind"/>.</summary>
-        internal static bool CanRewind(Recording rec, out string reason, bool isRecording)
-        {
-            return RewindLauncher.CanRewind(rec, out reason, isRecording);
-        }
-
-        /// <summary>Forwarder: <see cref="RewindLauncher.CanRewindWithResolvedSaveState"/>.</summary>
-        internal static bool CanRewindWithResolvedSaveState(
-            string resolvedSave, bool saveExists, out string reason, bool isRecording)
-        {
-            return RewindLauncher.CanRewindWithResolvedSaveState(resolvedSave, saveExists, out reason, isRecording);
-        }
-
-        /// <summary>Forwarder: <see cref="RewindLauncher.CanFastForward"/>.</summary>
-        internal static bool CanFastForward(Recording rec, out string reason, bool isRecording)
-        {
-            return RewindLauncher.CanFastForward(rec, out reason, isRecording);
-        }
-
-        /// <summary>Forwarder: <see cref="RewindLauncher.CanFastForwardAtUT"/>.</summary>
-        internal static bool CanFastForwardAtUT(Recording rec, double now, out string reason, bool isRecording)
-        {
-            return RewindLauncher.CanFastForwardAtUT(rec, now, out reason, isRecording);
-        }
-
-        /// <summary>Forwarder: <see cref="RewindLauncher.InitiateRewind"/>.</summary>
-        internal static void InitiateRewind(Recording rec)
-        {
-            RewindLauncher.InitiateRewind(rec);
-        }
-
-        /// <summary>Forwarder: <see cref="RewindLauncher.InitiateRewindToCareerStart"/>.</summary>
-        internal static bool InitiateRewindToCareerStart(string saveFileName)
-        {
-            return RewindLauncher.InitiateRewindToCareerStart(saveFileName);
         }
 
         /// <summary>
