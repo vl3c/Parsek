@@ -2999,6 +2999,13 @@ columns whose blanks are visible, where the old outline simply said nothing.
   whole class through `MissionsWindowUISourceFiles` / `LogisticsWindowUISourceFiles` (or the
   one area file a single-method gate names); the ERS / ELS allowlist adds the four Missions
   partials that hold its raw reads.
+- Wave 2 W2c (2026-11-08, this branch, docs only): the `ParsekScenario` static-state map,
+  `docs/dev/research/parsekscenario-static-state-map-2026-11-08.md`. It covers 31
+  reassignable fields and no readonly collections: writers, readers, outside entry points,
+  reset paths, and direct and reflection test writers. It uses the same IL tool. Outside
+  production code reads only `CrashReconcileInProgress` directly; all other access goes
+  through named methods. `OnLoad` writes 11 of the fields itself, and the extracted
+  `OnLoadPhase*` methods write none.
 - Wave 2 W8c, RewindInvoker (S3, pure move, IL identical): `RewindInvoker.cs` (4,644 lines,
   a static class) is a partial class over 10 files (`scripts/refactor/split_rewindinvoker.py`;
   every field and constant stays in the main file): `RewindInvoker.cs` 399 (`StartInvoke`, the
