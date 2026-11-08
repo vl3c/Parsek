@@ -130,14 +130,14 @@ namespace Parsek
         internal static string PortraitTooltip(bool stockAllowed, string stockText, string why)
         {
             if (stockAllowed || string.IsNullOrEmpty(stockText)) return why ?? "";
-            return StockUiRnDDecoration.AppendReason(stockText, why, "portrait EVA tooltip");
+            return StockUiText.AppendReason(stockText, why, "portrait EVA tooltip");
         }
 
         /// <summary>The hatch dialog row label: stock's name plus the status, in the reason colour.</summary>
         internal static string HatchRowLabel(string kerbalName, string title)
         {
             if (string.IsNullOrEmpty(title)) return kerbalName ?? "";
-            return (kerbalName ?? "") + " <color=" + StockUiRnDDecoration.ReasonColorHex + ">(" + title + ")</color>";
+            return (kerbalName ?? "") + " <color=" + StockUiText.ReasonColorHex + ">(" + title + ")</color>";
         }
 
         // ---------------- the live predicate (controls and backstops) ----------------
