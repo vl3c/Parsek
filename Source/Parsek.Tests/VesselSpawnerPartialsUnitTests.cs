@@ -24,6 +24,7 @@ namespace Parsek.Tests
         public VesselSpawnerPartialsUnitTests()
         {
             ParsekLog.ResetTestOverrides();
+            ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
@@ -253,21 +254,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NoOverrideSpawnVelocity_KeepsTheRecordedVectorWhenAnyInputIsMissing()
+        public void NoOverrideSpawnVelocity_NullBody_KeepsTheRecordedVector()
         {
+            // Pins the null-body early return only: every call passes a null body (the null
+            // literal, so no Unity object is compared), and the other inputs vary to show
+            // none of them reaches past that return. The predicate's own arms (sample,
+            // recording, orbit override, terminal) are covered by
+            // RemainingVelocitySeedFrameTests through ShouldResolveNoOverrideSpawnVelocity.
             var recorded = new Vector3d(1, 2, 3);
             var sample = new TrajectoryPoint { bodyName = "Kerbin" };
             var orbiting = new Recording { TerminalStateValue = TerminalState.Orbiting };
 
-            // No body (the null literal: no Unity object is compared).
             AssertSameVector(recorded, VesselSpawner.ResolveNoOverrideSpawnVelocity(
                 orbiting, sample, recorded, null, 0, 0, 0, null, "test", "ctx"));
-            // No sample, no recording.
             AssertSameVector(recorded, VesselSpawner.ResolveNoOverrideSpawnVelocity(
                 orbiting, null, recorded, null, 0, 0, 0, null, "test", "ctx"));
             AssertSameVector(recorded, VesselSpawner.ResolveNoOverrideSpawnVelocity(
                 null, sample, recorded, null, 0, 0, 0, null, "test", "ctx"));
-            // An orbit override.
             AssertSameVector(recorded, VesselSpawner.ResolveNoOverrideSpawnVelocity(
                 orbiting, sample, recorded, null, 0, 0, 0, new Orbit(), "test", "ctx"));
             Assert.DoesNotContain(logLines, l => l.Contains("Recorded spawn velocity"));
