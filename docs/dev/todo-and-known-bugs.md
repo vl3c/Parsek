@@ -3021,6 +3021,10 @@ columns whose blanks are visible, where the old outline simply said nothing.
   production code reads only `CrashReconcileInProgress` directly; all other access goes
   through named methods. `OnLoad` writes 11 of the fields itself, and the extracted
   `OnLoadPhase*` methods write none.
+- Wave 2 W7b1 (2026-11-08, #2480): `LedgerOrchestrator.PickRecoveryRecording` (304
+  lines) split into `ScanRecoveryCandidates`, `SelectRecoveryCandidatePath`,
+  `LogRecoveryGuidFilterOutcome` and `WalkRecoveryPickTiers`, behind a 15-scenario
+  characterization golden (`PickRecoveryRecordingCharacterizationTests`) written first.
 - Wave 2 W8c, RewindInvoker (S3, pure move, IL identical): `RewindInvoker.cs` (4,644 lines,
   a static class) is a partial class over 10 files (`scripts/refactor/split_rewindinvoker.py`;
   every field and constant stays in the main file): `RewindInvoker.cs` 399 (`StartInvoke`, the
@@ -3697,6 +3701,11 @@ compare).
   no longer fights the ratchet. The ratchet runs only with `PARSEK_ARCH_IL` (CI after the build).
   `WorkflowRunsTheRatchetTests` reds if the CI step that sets it stops running; measure the Debug
   DLL (a Release build drops typed locals and can read lower).
+- 2026-11-08 (refactor branch, W4c, MOVE): the 11 RecordingStore metric-only forwarders are
+  deleted (the six RewindLauncher eligibility / launch calls, TreeCommitService x2,
+  TreeDiscardService, CommittedListOptimizer, SwitchSegmentAttempts) and their 20 call sites call
+  the service. il_compare: only those call targets change, plus the 11 removed methods. Semantic
+  residue 150 (unchanged), text residue 179 -> 193 (reported, unbounded).
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

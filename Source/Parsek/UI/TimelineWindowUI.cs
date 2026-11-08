@@ -2575,7 +2575,7 @@ namespace Parsek
         private bool CanFastForwardAtCurrentUT(Recording rec, double currentUT, out string reason)
         {
             bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
-            return RecordingStore.CanFastForwardAtUT(rec, currentUT, out reason, isRecording: isRecording);
+            return RewindLauncher.CanFastForwardAtUT(rec, currentUT, out reason, isRecording: isRecording);
         }
 
         private bool CanRewindWithResolvedSaveState(Recording rec)
@@ -2589,7 +2589,7 @@ namespace Parsek
             bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
             string resolvedSave = RecordingStore.GetRewindSaveFileName(rec);
             bool saveExists = DoesRewindSaveExist(rec, resolvedSave);
-            return RecordingStore.CanRewindWithResolvedSaveState(
+            return RewindLauncher.CanRewindWithResolvedSaveState(
                 resolvedSave, saveExists, out reason, isRecording: isRecording);
         }
 
