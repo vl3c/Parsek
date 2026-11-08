@@ -828,8 +828,8 @@ values = ["waterfall-swe-fallback", "restock", "persistent-rotation", "better-ti
 # walker resolves `terminalState=Recovered`, and the vessel does not spawn again). Scoped to
 # the in-flight Recover after a Switch-To; a Tracking Station recovery of a spawned tip is not
 # driven (no seam verb; todo SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX). The
-# spawn-side `Terminated chain spawn suppressed:` line is unreachable and not owed
-# (TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE).
+# spawn-side `Terminated chain spawn suppressed:` line was unreachable and is deleted
+# (TERMINATED-CHAIN-SPAWN-SUPPRESSED-LINE-UNREACHABLE, 2026-11-07).
 # D18 `chain-tip-original-pid` is claimed by TWO lanes, one per route to the chain-tip spawn:
 # CI-2-refly-claim-tip-pid (2026-09-08: a TimeJump past a committed tip after a rewind) and
 # CI-8-chain-tip-original-pid (2026-10-03: the player's Real Spawn Control row button on a

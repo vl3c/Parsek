@@ -136,8 +136,6 @@ namespace Parsek.Patches
                 case GhostMapPresence.TrackingStationSpawnSkipIntermediateChainSegment:
                 case GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink:
                     return "Intermediate chain segments spawn through their chain tip.";
-                case GhostMapPresence.TrackingStationSpawnSkipTerminatedGhostChain:
-                    return "Terminated ghost chains do not spawn.";
                 case null:
                 case "":
                     return "Recording is not eligible to spawn yet.";

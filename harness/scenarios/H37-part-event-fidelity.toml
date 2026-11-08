@@ -53,12 +53,21 @@ tier = "nightly"
 #     event really does animate the ghost — so if the verdict ever stops being true this
 #     reds instead of a doc sentence quietly rotting.
 #
-# All five build their fixtures from PartLoader prefabs DISCOVERED at run time (first few
+#  6. WHEEL DAMAGE (added 2026-11-07, NOT YET FLOWN: PC flights were paused when it
+#     landed). A stock ModuleWheelDamage wheel's busted mesh (damagedTransformName) now
+#     CLONES onto the ghost and is hidden at build; a WheelBroken swaps it in for the
+#     intact mesh (undamagedTransformName), a WheelRepaired swaps back, a loop cycle
+#     restores the intact wheel, and a snapshot carrying isDamaged = True spawns the ghost
+#     broken. Its likeliest red is RESOLUTION: the builder used to strip the busted
+#     renderers outright, so a part whose busted mesh does not clone (a variant filter, a
+#     name that resolves to nothing) has no swap and the cell skips naming the shape.
+#
+# All six build their fixtures from PartLoader prefabs DISCOVERED at run time (first few
 # parts matching a cheap module predicate, capped at 4 builds so a modded install cannot
 # make the batch walk thousands of prefabs), so the batch does not depend on which craft
 # the save is flying, and a cell that cannot self-set-up Skips naming the context it
 # needed.
-description = "Run the in-game PartEventFidelity category unattended: a broken deployable's subtree hide with its repair un-hide and loop-cycle re-show, the converter running loop's motion / cyclic wrap / stop including the empty-deploy-name ISRU shape, the EVA jetpack plume's lazy build and three-flag gate, and the verification that a science experiment's deploy animation is already covered by the AnimateGeneric path."
+description = "Run the in-game PartEventFidelity category unattended: a broken deployable's subtree hide with its repair un-hide and loop-cycle re-show, the converter running loop's motion / cyclic wrap / stop including the empty-deploy-name ISRU shape, the EVA jetpack plume's lazy build and three-flag gate, the verification that a science experiment's deploy animation is already covered by the AnimateGeneric path, and a broken wheel's busted / intact mesh swap with its repair, loop-cycle and broken-snapshot spawn."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "part-event-fidelity", "H37"]
 
@@ -89,7 +98,7 @@ craft = []
 # hlib.validate_spec forbids owning a batch both ways. RunTests produces the identical
 # BATCH_COMPLETE line the logContract pin below needs.
 kind = "seam"
-# NO isolated arg: all 5 declarations are AllowBatchExecution (default) with no restore
+# NO isolated arg: all 6 declarations are AllowBatchExecution (default) with no restore
 # flag, so the ordinary and isolated admission filters are identical here.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
@@ -128,8 +137,10 @@ count = { min = 0, max = 0 }
 # expectations mismatches=0, unityExceptions 0, zero downloads, and the deployed DLL
 # byte-verified as carrying the `ClassifyEvaPlumeReconcile` marker. No RUNTIME_SKIPS entry
 # is owed: the measured split equals the attribute derivation
-# (`hlib.derive_batch_tally` -> total 5, attribute_skipped 0). `total=5` remains
-# ATTRIBUTE-EXACT (5 `[InGameTest(Category = "PartEventFidelity")]` declarations in
+# (`hlib.derive_batch_tally` -> total 5, attribute_skipped 0). The sixth cell (the wheel
+# mesh swap, WHEEL-DAMAGE-NOT-RECORDED) flew green on its first flight 2026-11-07
+# (`2026-11-07_1855`, main 6340484c): `total=6 passed=6 failed=0 skipped=0`. `total=6` is
+# ATTRIBUTE-EXACT (6 `[InGameTest(Category = "PartEventFidelity")]` declarations in
 # Source/Parsek/InGameTests/PartEventFidelityInGameTests.cs, all Scene = FLIGHT, all
 # AllowBatchExecution), kept in sync by CommittedBatchTallySourceSyncTests; `failed=0` is
 # the ASSERTION; `scene=FLIGHT` is the gloops-airshow Focusable route, measured by
@@ -195,7 +206,11 @@ count = { min = 0, max = 0 }
 # fixture now activates the ghost through the production seam
 # (`GhostPlaybackEngine.ActivateGhostVisualsIfNeededForTesting`) rather than a bare
 # SetActive, so it cannot drift from production if that step ever grows.
-required  = ["BATCH_COMPLETE v1 total=5 passed=5 failed=0 skipped=0 category=PartEventFidelity scene=FLIGHT"]
+# 2026-11-07: total / passed are now 6 for the wheel damage cell (item 6 in the header). The
+# first five cells are live-proven as below; the sixth is pinned whole because a stock
+# install always loads a rover wheel and landing gear with a busted mesh (the same
+# reachability argument the other five carried), and its first flight is owed.
+required  = ["BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=PartEventFidelity scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

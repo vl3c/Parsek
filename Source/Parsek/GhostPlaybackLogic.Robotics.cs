@@ -335,7 +335,9 @@ namespace Parsek
                         LogWheelGroundContactDecision(state, currentUT, onGround);
                     }
 
-                    if (wheelInputsUsable)
+                    // A broken wheel does not roll (stock puts it on the wheel's inoperable list), and
+                    // its busted mesh may sit under the spin transform, so the ghost does not spin it.
+                    if (wheelInputsUsable && !IsGhostWheelDamaged(state, info.partPersistentId))
                     {
                         Vector3 spinAxisWorld = info.servoTransform.TransformDirection(
                             info.axisLocal.sqrMagnitude > 0.0001f ? info.axisLocal.normalized : Vector3.right);
@@ -493,6 +495,18 @@ namespace Parsek
         /// sample, long gap, a RELATIVE section without body-fixed frames) lands on the honest
         /// answer here: no known ground speed means stationary wheels.
         /// </summary>
+        /// <summary>
+        /// True while the ghost shows this part's wheel as broken (a WheelBroken event, seed or
+        /// snapshot baseline applied and no repair since). Pure dictionary read.
+        /// </summary>
+        internal static bool IsGhostWheelDamaged(GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.wheelDamageInfos == null) return false;
+            WheelDamageGhostInfo info;
+            return state.wheelDamageInfos.TryGetValue(partPersistentId, out info)
+                && info != null && info.damaged;
+        }
+
         private static bool TryResolveWheelGroundSpeedInputs(
             GhostPlaybackState state, out Vector3 up, out Vector3 horizontalVelocity)
         {

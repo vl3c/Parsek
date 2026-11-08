@@ -143,7 +143,7 @@ stand-in gets one) carries his own members one level deeper. Not user-selectable
 |---|---|---|
 | Kerbal | 210 px | `KerbalsWindowUI.FormatRosterNameCell`: `"Name [Trait]"`, a nested stand-in row prefixed by the tree glyph (`\u251c\u2500 ` mid-group, `\u2514\u2500 ` on the last). Trait from the live roster, falling back to `KerbalSlot.OwnerTrait`; the bracket is dropped when the trait is unknown |
 | Status now | 220 px | `KerbalsPresentation.ClassifyStatus` + `FormatStatus`; see the vocabulary below. Hover text: `FormatStatusTooltip` |
-| Last flight | expands | `FormatLastFlight`: `"{mission} - {outcome word}"` from the kerbal's latest flight row; else `-`. A label-styled button: a click scrolls the Timeline to that mission's last segment (`RosterRow.LastFlightRecordingId`, the same `OnFatesRowClicked` path a Flights row takes) |
+| Last flight | expands | `FormatLastFlight`: `"{mission cell} - {outcome word}"` from the kerbal's latest flight row (the Mission cell, so a stand-in's flight keeps its `(flown by <stand-in>)` note); else `-`. A label-styled button: a click scrolls the Timeline to that mission's last segment (`RosterRow.LastFlightRecordingId`, the same `OnFatesRowClicked` path a Flights row takes) |
 
 ### The status vocabulary, in resolution order
 
@@ -268,10 +268,13 @@ given flight. Two sources can:
    being aboard means no stand-in whatever else flew along - so an unrelated crewmate on a
    multi-seat flight is never read as one.
 2. **FALLBACK - `CrewReservationManager.CrewReplacements`**, used ONLY when the recording has
-   no raw-crew entry at all. The load-time sweep can null a recording's `VesselSnapshot`,
-   which is where raw crew comes from. This map answers the CURRENT stand-in, so on an old
-   flight it can name the wrong one; that is a strictly better answer than silence, and the
-   Mission cell reads "(flown by &lt;name&gt;)" either way.
+   no raw-crew entry at all. Raw crew reads the ghost snapshot first and the vessel snapshot
+   second (`KerbalsModule.ExtractRawCrewFromRecording`, then `EvaCrewName`), and the ghost
+   snapshot is null only when its `_ghost.craft` sidecar is missing or unreadable
+   (`RecordingSidecarStore.LoadSnapshotSidecarsFromPaths`), so the fallback serves a
+   recording that lost both sidecars and already plays no ghost. This map answers the
+   CURRENT stand-in, so on such a flight it can name the wrong one; that is a strictly better
+   answer than silence, and the Mission cell reads "(flown by &lt;name&gt;)" either way.
 
 The choice is the primary one BECAUSE the fallback is time-blind: the reverse-map's own order
 (`ReverseMapCrewNames` first, slot chains second) is about names, not about which flight.
@@ -388,9 +391,11 @@ read the shared reservation explanation (`ReservationExplanation.KerbalOnFlight`
 
 ## 9. Residue
 
-- **The stand-in fallback is time-blind** (section 4). A flight whose recording lost its
-  snapshot can be attributed to the CURRENT stand-in rather than the one who flew it. Fixing
-  it properly means persisting the flown crew per recording, which is a schema change.
+- **The stand-in fallback is time-blind** (section 4). A flight whose recording lost both
+  snapshot sidecars can be attributed to the CURRENT stand-in rather than the one who flew it.
+  Accepted (KERBALS-WINDOW-RESIDUE-2026-09-15 item 2, closed 2026-11-07): it needs a damaged
+  recording, and a persisted flown-crew key would have to be written while the snapshot still
+  exists, so it could not help the recordings that reach the fallback today.
 - **No Tracking Station host.** The window draws in FLIGHT and SPACECENTER only.
 - The `Assigned (<vessel>)` cell names the vessel but does not link to it; the window has no
   navigation affordance and gaining one would be a new control.
@@ -401,8 +406,8 @@ read the shared reservation explanation (`ReservationExplanation.KerbalOnFlight`
   `TryReverseMapCrewNameFromSlots` answer purely off names. So a stand-in who flew a whole
   mission of his own gets it filed under the kerbal he covers, contributes to that kerbal's
   bucket summary, and can FILL the owner's `Last flight` cell with a flight the owner never
-  took; the stand-in's own group does not carry it at all. The `(flown by <stand-in>)`
-  Mission-cell note is the mitigation, and it is a label on the owner's row rather than a
-  fix. The real fix is to
-  persist the flown crew PER RECORDING so the end states can be keyed by who actually flew -
-  a schema change, so out of scope here. Filed in `docs/dev/todo-and-known-bugs.md`.
+  took; the stand-in's own group does not carry it at all. That filing is the reservation
+  model (#254: the owner's slot is what a stand-in's flight holds) and the per-owner grouping
+  is the operator ruling of 2026-09-15, so it stays. What the player reads is labelled: the
+  `(flown by <stand-in>)` note rides the Mission cell and, since 2026-11-07, the owner's Last
+  flight cell too (KERBALS-WINDOW-RESIDUE-2026-09-15 item 5, closed).

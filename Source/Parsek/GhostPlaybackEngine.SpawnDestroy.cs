@@ -468,6 +468,7 @@ namespace Parsek
                         UnityEngine.Object.Destroy(state.materials[i]);
                 }
             }
+            GhostVisualBuilder.DestroyFairingShellMeshes(state.fairingInfos);
 
             // Detach active engine/RCS particle systems so smoke trails linger (#107).
             // Stopped systems with no live particles are destroyed immediately.

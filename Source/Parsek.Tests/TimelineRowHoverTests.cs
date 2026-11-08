@@ -208,6 +208,50 @@ namespace Parsek.Tests
             Assert.Equal(GameActionNotCountedReason.ContractOutcomeAfterEnd, lateFail.NotCountedReason);
         }
 
+        // catches: a fail the walk did not charge (STOCK-UI-RESERVATION-OVERLAYS-2026-09-25,
+        // the Effective=false display bullet) reading as a charged penalty on the Timeline, or
+        // deciding a Mission Control mark / Cancel block. The Timeline must grey it and say
+        // no penalty was charged; the committed-future index keeps the row, but every
+        // contract consumer reads the EARLIEST resolution, which is the charged one, and once
+        // that is past stock no longer holds the contract Active.
+        [Fact]
+        public void IneffectiveFail_IsGreyedAndSaysNotCharged_AndNeverDecidesAContractMark()
+        {
+            var contracts = new ContractsModule();
+            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            var accept = new GameAction { UT = 100, Type = GameActionType.ContractAccept, ContractId = "c1" };
+            var complete = new GameAction { UT = 500, Type = GameActionType.ContractComplete, ContractId = "c1", FundsReward = 10f };
+            var lateFail = new GameAction { UT = 700, Type = GameActionType.ContractFail, ContractId = "c1", FundsPenalty = 50f };
+            var actions = new List<GameAction> { accept, complete, lateFail };
+
+            RecalculationEngine.Recalculate(actions);
+            Assert.True(complete.Effective);
+            Assert.False(lateFail.Effective);
+            Assert.Equal(GameActionNotCountedReason.ContractOutcomeAfterEnd, lateFail.NotCountedReason);
+
+            // The Timeline: the row is greyed (IsEffective false picks the grey not-counted
+            // style), demoted from T1, and its hover says nothing was charged.
+            List<TimelineEntry> entries = TimelineBuilder.Build(
+                new List<Recording>(), actions, new List<Milestone>(), _ => true);
+            TimelineEntry failRow = entries.Find(e => e.Action == lateFail);
+            Assert.NotNull(failRow);
+            Assert.False(failRow.IsEffective);
+            Assert.Equal(SignificanceTier.T2, failRow.Tier);
+            Assert.Contains("no penalty was charged",
+                TimelineRowHover.NotCounted(failRow.Action.NotCountedReason));
+            Assert.True(entries.Find(e => e.Action == complete).IsEffective);
+
+            // The index: before the completion the charged completion decides; after it
+            // the contract is Completed in stock, and an archived row is never marked.
+            CommittedFutureIndex index = Index(accept, complete, lateFail);
+            Assert.Equal(CommittedFutureKind.ContractComplete,
+                StockUiReservationPredicates.CommittedContractResolutionAfter(index, "c1", 200).Kind);
+            StockUiDecoration archived = MissionControlStockAnnotation.Decide(
+                index, 600, "c1", Contracts.Contract.State.Completed, Fmt);
+            Assert.False(archived.Marked);
+            Assert.False(archived.Blocked);
+        }
+
         [Fact]
         public void MilestonesModule_StampsAlreadyAchieved()
         {

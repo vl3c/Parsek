@@ -140,7 +140,18 @@ _PRUNE_PARSEK_SUBDIRS = ("Saves",)
 # version in a fixture is unnamed and the collector would delete it on the first
 # load. Found by `cs-science-flea` (CS-1's produced save, 2026-10-26): three
 # versions of its one recording, each a .prec with no readable mirror.
+# EXCEPT a version the harvested persistent.sfs DOES name: a save that holds a
+# committed tree AND its resumed in-flight copy (`isActive = True`, written after
+# the committed-spawned restore resumed the tree on the live vessel) names the
+# HEAD hash on the in-flight copy's rows but an OLDER hash on the committed
+# copy's, and that older body lives only in `_versions`. Pruning it makes the
+# load reject the committed tree (`stale-sidecar-epoch`) and a seam DiscardTree
+# then reaps the whole tree. Found by `duna-ike-recorded` (B36, 2026-11-07).
+# `_restore_named_versions` copies exactly those files back after the copy.
 _PRUNE_RECORDINGS_SUBDIRS = ("_quarantine", "_versions")
+_VERSION_FILE_RE = re.compile(r"^([0-9a-f]{32})\.([0-9a-f]{16})(?:\.prec|_vessel\.craft|_ghost\.craft)$")
+_SFS_SIDECAR_HASH_RE = re.compile(r"^\s*(?:prec|vessel|ghost)Hash\s*=\s*([0-9a-f]{16})\s*$", re.M)
+_SFS_RECORDING_ID_RE = re.compile(r"^\s*recordingId\s*=\s*([0-9a-f]{32})\s*$", re.M)
 
 
 def log(msg: str) -> None:
@@ -554,6 +565,11 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
             shutil.copytree(src, os.path.join(target, dname), ignore=ignore)
             log("copied %s/" % dname)
 
+    # 3b) --keep-parsek: bring back the retained sidecar versions the harvested
+    # save still names (see _PRUNE_RECORDINGS_SUBDIRS).
+    if keep_parsek:
+        _restore_named_versions(save_dir, target, normalized)
+
     # 4) belt-and-braces prune of any Parsek/backup dir that slipped in (e.g. at
     # the save root, not under a kept dir). In --keep-parsek mode only the
     # backup-staging dirs are swept; the Parsek dir IS the payload.
@@ -638,6 +654,37 @@ def _drop_shared_library_craft(target: str) -> list:
             os.remove(path)
             dropped.append(ship)
     return sorted(dropped)
+
+
+def named_version_files(version_names, sfs_text):
+    """Pure: the `_versions` file names whose (recording id, hash) the save names.
+    A file is kept only when its id is a `recordingId` row AND its hash is one of
+    the save's `precHash` / `vesselHash` / `ghostHash` values; everything else is
+    collector exhaust and stays pruned."""
+    ids = set(_SFS_RECORDING_ID_RE.findall(sfs_text or ""))
+    hashes = set(_SFS_SIDECAR_HASH_RE.findall(sfs_text or ""))
+    kept = []
+    for name in version_names:
+        m = _VERSION_FILE_RE.match(name)
+        if m and m.group(1) in ids and m.group(2) in hashes:
+            kept.append(name)
+    return sorted(kept)
+
+
+def _restore_named_versions(save_dir, target, sfs_text):
+    src = os.path.join(save_dir, "Parsek", "Recordings", "_versions")
+    if not os.path.isdir(src):
+        return
+    names = [n for n in os.listdir(src) if os.path.isfile(os.path.join(src, n))]
+    kept = named_version_files(names, sfs_text)
+    if kept:
+        dst = os.path.join(target, "Parsek", "Recordings", "_versions")
+        os.makedirs(dst, exist_ok=True)
+        for n in kept:
+            shutil.copy2(os.path.join(src, n), os.path.join(dst, n))
+    log("retained sidecar versions: kept %d named by persistent.sfs, pruned %d unnamed%s"
+        % (len(kept), len(names) - len(kept),
+           (" (" + ", ".join(kept) + ")") if kept else ""))
 
 
 def _ignore_pruned(directory, names):

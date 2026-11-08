@@ -11760,7 +11760,39 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
         "B33-tylo-orbit.toml": 400.0,
         "B34-bop-orbit.toml": 400.0,
         "B35-pol-orbit.toml": 400.0,
+        # The moon flight-test program's continuation forges fly B23 / B24 / B25's
+        # machines from the unstripped harvests; their only crossing is the same.
+        "B36-duna-ike-continuation.toml": 600.0,
+        "B37-eve-gilly-continuation.toml": 200.0,
+        "B38-jool-laythe-continuation.toml": 400.0,
     }
+
+    # continuation forge -> the source lane whose machine it flies unchanged
+    # (only the fixture, the preamble and the expectations differ).
+    CONTINUATION_SOURCES = {
+        "B36-duna-ike-continuation.toml": "B23-ike-orbit.toml",
+        "B37-eve-gilly-continuation.toml": "B24-gilly-orbit.toml",
+        "B38-jool-laythe-continuation.toml": "B25-laythe-orbit.toml",
+    }
+
+    def test_the_continuation_forges_fly_their_source_machine_verbatim(self):
+        for spec, source in self.CONTINUATION_SOURCES.items():
+            with open(os.path.join(HARNESS_ROOT, "scenarios", spec), "rb") as fh:
+                forge = tomllib.load(fh)
+            with open(os.path.join(HARNESS_ROOT, "scenarios", source), "rb") as fh:
+                src = tomllib.load(fh)
+            self.assertEqual(src["driver"]["mission"], forge["driver"]["mission"], spec)
+            self.assertEqual(_scenario_mission_params(source),
+                             _scenario_mission_params(spec), spec)
+            mission = [s for s in forge["driver"]["steps"] if s.get("phase") == "mission"]
+            src_mission = [s for s in src["driver"]["steps"] if s.get("phase") == "mission"]
+            self.assertEqual(src_mission, mission, spec)
+            # The resume IS the lane: a DiscardTree would suppress the committed-spawned
+            # restore and StartRecording would open a fresh standalone tree.
+            cmds = [s.get("cmd") for s in forge["driver"]["steps"]]
+            self.assertNotIn("DiscardTree", cmds, spec)
+            self.assertNotIn("StopRecording", cmds, spec)
+            self.assertIn("StartRecording", cmds, spec)
 
     def test_the_dropped_lanes_would_gain_nothing_on_their_only_crossing(self):
         for spec, lead in self.DROPPED_2026_10_14.items():
