@@ -60,7 +60,7 @@ recorded pick-up UT, and keep forbidding a skip with an earlier removal UT and a
 `Spawned flag vessel` after the take-down. A cheaper alternative is to space the plant and the
 pick-up further apart in the lane's act (a dwell of a few seconds before `PickUpFlag`).
 
-## UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. OPEN; performance, low]
+## ~~UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame~~ [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. FIXED 2026-11-08, branch `refactor-w9a-handoff-closure`; xUnit + il_compare; performance, low]
 
 **What is true.** The descent-handoff log in `GhostPlaybackEngine.UpdateUnitMemberPlayback`
 passes a `() => ...` message lambda to `ParsekLog.VerboseRateLimited`, and that lambda captures
@@ -74,6 +74,13 @@ the block inline so the allocation is unchanged.
 its closing brace) into its own method, called only under the existing gate, so the display
 class is allocated only when the lambda can run. The `UnitMember_DescentTrigger_HandoffAndLoiter`
 golden in `UnitMemberPlaybackCharacterizationTests` pins the block's output.
+
+**Fixed.** The block is now `GhostPlaybackEngine.ApplyDescentHandoffHide`, called only under the
+existing `!descentMember && decision == Render && unit.HasDescentTrigger` gate, with the log text,
+rate-limit key and order unchanged. `UpdateUnitMemberPlayback` no longer opens with the display
+class `newobj` (il_compare); the closure is allocated only inside the new method.
+`DescentHandoffHide_HidesTheTransferMemberWhileTheDescentPlays_AndPinsItsLogLine` pins both log
+lines and the key.
 
 ## RESIDUALS-OF-ENTRIES-ARCHIVED-2026-11-07: small follow-ups left inside 20 finished entries moved to the archive [FILED 2026-11-07 (owner: mark the finished entries done). OPEN; each line names its archived entry in `done/todo-and-known-bugs-v11.md` ("Moved out 2026-11-07 (finished entries still listed)"); none is a known player-hit bug]
 
@@ -1530,6 +1537,17 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   the no-segment arm (future-segment scan, retention line) and the result apply. Pinned first by
   `FlightMapPassCharacterizationTests`. Left in place, not reachable headless: the created-ghost
   bookkeeping, the loiter-gap clamp and `UpdateGhostOrbitFromStateVectors` (needs a live vessel).
+- Wave 2 W9a (2026-11-08, this branch, extract-method; each PR characterized against the
+  original code first): #2467 splits `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` into gate
+  groups and `ComputeSpanLoopFrame` into pieces; #2475 splits out `UpdatePlayback`'s
+  per-trajectory body, its exits and frame tail, and `UpdateLoopingPlayback`'s overlap branch;
+  #2482 extracts five blocks of `UpdateUnitMemberPlayback`, and the follow-up moves its descent
+  handoff block into `ApplyDescentHandoffHide` (UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME). Left
+  in place: the cycle-boundary block of `UpdateLoopingPlayback`, which reads the ghost's
+  transform and so cannot be driven headless. Dropped: `GhostVisualBuilder.AddPartVisuals` and
+  `GhostPlaybackLogic.ApplyPartEvents`. AddPartVisuals is Unity work from top to bottom, so no
+  headless test can characterize it. ApplyPartEvents is already a flat dispatcher, and its one
+  worthwhile cut (the switch body) is where main adds the wheel break / repair cases.
 - Wave 2 W9b (2026-11-08, this branch, S1 extract-method): the 200-line
   `FlightRecorder.RestoreTrackSectionAfterFalseAlarm` calls four extracted units: the
   resume-anchor validation, the Relative-to-Absolute boundary repair, the start-UT alignment

@@ -408,5 +408,121 @@ namespace Parsek.Tests
                 && l.Contains("OnLoad: cold-start pending tree detected (state=Limbo)")
                 && l.Contains("preserved alongside active-tree restore"));
         }
+
+        [Fact]
+        public void DropLiveGuiMockSession_ALiveScope_IsWarnedAndDroppedWithoutItsRestore()
+        {
+            bool restoreRan = false;
+            try
+            {
+                Assert.True(Parsek.UI.Gallery.GuiMockSession.Begin(
+                    "kerbals-empty", "kerbals", 7, "utc", () => restoreRan = true));
+                logLines.Clear();
+
+                ParsekScenario.OnLoadPhaseDropLiveGuiMockSession();
+
+                Assert.False(Parsek.UI.Gallery.GuiMockSession.IsLive);
+                Assert.False(restoreRan);
+                Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("[Scenario]")
+                    && l.Contains("GuiMock session found LIVE at OnLoad: state=kerbals-empty window=kerbals"));
+            }
+            finally
+            {
+                Parsek.UI.Gallery.GuiMockSession.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void DropLiveGuiMockSession_NoScope_LogsNothing()
+        {
+            Parsek.UI.Gallery.GuiMockSession.ResetForTesting();
+            logLines.Clear();
+
+            ParsekScenario.OnLoadPhaseDropLiveGuiMockSession();
+
+            Assert.False(Parsek.UI.Gallery.GuiMockSession.IsLive);
+            Assert.DoesNotContain(logLines, l => l.Contains("GuiMock session found LIVE"));
+        }
+
+        private static ParsekSettings DriftedSettings()
+        {
+            return new ParsekSettings
+            {
+                autoRecordOnLaunch = false,
+                autoRecordOnEva = false,
+                autoRecordOnFirstModificationAfterSwitch = false,
+                autoMerge = false,
+                forceFaithfulLoopPlayback = true,
+            };
+        }
+
+        private void RunClampWithEnv(string testCommands, ParsekSettings current)
+        {
+            string priorSeam = System.Environment.GetEnvironmentVariable(
+                TestCommands.ParsekTestCommandAddon.EnvVarName);
+            string priorAutorun = System.Environment.GetEnvironmentVariable(
+                InGameTests.TestRunnerShortcut.EnvTestsVar);
+            ParsekSettings priorOverride = ParsekSettings.CurrentOverrideForTesting;
+            try
+            {
+                System.Environment.SetEnvironmentVariable(
+                    TestCommands.ParsekTestCommandAddon.EnvVarName, testCommands);
+                System.Environment.SetEnvironmentVariable(
+                    InGameTests.TestRunnerShortcut.EnvTestsVar, null);
+                ParsekSettings.ResetAutomationEnvCacheForTesting();
+                ParsekSettings.CurrentOverrideForTesting = current;
+                logLines.Clear();
+
+                ParsekScenario.OnLoadPhaseClampHiddenSettingsToShippingValues();
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = priorOverride;
+                System.Environment.SetEnvironmentVariable(
+                    TestCommands.ParsekTestCommandAddon.EnvVarName, priorSeam);
+                System.Environment.SetEnvironmentVariable(
+                    InGameTests.TestRunnerShortcut.EnvTestsVar, priorAutorun);
+                ParsekSettings.ResetAutomationEnvCacheForTesting();
+            }
+        }
+
+        [Fact]
+        public void ClampHiddenSettings_PlayerSession_ClampsDriftAndLogs()
+        {
+            var settings = DriftedSettings();
+
+            RunClampWithEnv(null, settings);
+
+            Assert.True(settings.autoMerge);
+            Assert.True(settings.autoRecordOnLaunch);
+            Assert.False(settings.forceFaithfulLoopPlayback);
+            Assert.Contains(logLines, l => l.Contains("[Settings]")
+                && l.Contains("Hidden settings clamped to shipping values"));
+        }
+
+        [Fact]
+        public void ClampHiddenSettings_AutomationEnvArmed_KeepsTheStoredValues()
+        {
+            var settings = DriftedSettings();
+
+            RunClampWithEnv("1", settings);
+
+            Assert.False(settings.autoMerge);
+            Assert.False(settings.autoRecordOnLaunch);
+            Assert.True(settings.forceFaithfulLoopPlayback);
+            Assert.DoesNotContain(logLines, l => l.Contains("Hidden settings clamped"));
+        }
+
+        [Fact]
+        public void ClampHiddenSettings_AlreadyShipping_LogsNothing()
+        {
+            var settings = DriftedSettings();
+            ParsekSettings.ClampHiddenSettingsToShippingValues(settings);
+
+            RunClampWithEnv(null, settings);
+
+            Assert.True(settings.autoMerge);
+            Assert.DoesNotContain(logLines, l => l.Contains("Hidden settings clamped"));
+        }
     }
 }
