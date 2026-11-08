@@ -4014,7 +4014,7 @@ namespace Parsek
             PeriodicitySolution solution;
             try
             {
-                extraction = MissionPeriodicity.ExtractConstraints(
+                extraction = MissionLoopUnitBuilder.ExtractPeriodicityConstraints(
                     view, compRoots, committed, mission.ExcludedIntervalKeys,
                     FlightGlobalsBodyInfo.Instance);
                 solution = MissionPeriodicity.Solve(
