@@ -148,7 +148,9 @@ SRC_EXTRAPOLATOR = "Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs"
 SRC_GT_HARNESS = "Source/Parsek/InGameTests/LedgerGroundTruthHarness.cs"
 SRC_GT_REPORT = "Source/Parsek/LedgerGroundTruth.cs"
 SRC_LOG = "Source/Parsek/ParsekLog.cs"
-SRC_REWIND_INVOKER = "Source/Parsek/RewindInvoker.cs"
+# RewindInvoker is a partial class (scripts/refactor/split_rewindinvoker.py); the horizon walk
+# this names is in RunStripActivateMarker, which lives in the StripActivate file.
+SRC_REWIND_INVOKER = "Source/Parsek/RewindInvoker.StripActivate.cs"
 SRC_POOL_REF = "Source/Parsek/GameActions/StockPoolReference.cs"
 
 LIT_TRACE_TAG = "LedgerTrace"

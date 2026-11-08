@@ -44,7 +44,7 @@ namespace Parsek
 
                 // Future recording: Forward button advances UT to recording start.
                 string ffReason;
-                bool canFF = RecordingStore.CanFastForward(
+                bool canFF = RewindLauncher.CanFastForward(
                     rec, out ffReason, isRecording: isRecording);
                 bool prevFF;
                 if (!lastCanFF.TryGetValue(ri, out prevFF) || prevFF != canFF)
@@ -88,7 +88,7 @@ namespace Parsek
                 }
 
                 string rewindReason;
-                bool canRewind = RecordingStore.CanRewind(
+                bool canRewind = RewindLauncher.CanRewind(
                     rec, out rewindReason, isRecording: isRecording);
                 bool prevR;
                 if (!lastCanRewind.TryGetValue(ri, out prevR) || prevR != canRewind)
@@ -143,7 +143,7 @@ namespace Parsek
         // Missions-tab header-bar variant of the legacy rewind/forward control: a plain fixed-width
         // button labelled "Rewind" / "Forward" (so it matches the mission header's other buttons),
         // over the mission's root (launch) recording. Reuses the SAME rewind/forward decision
-        // (ShouldShow* + RecordingStore.CanRewind/CanFastForward) and confirmation dialogs as the
+        // (ShouldShow* + RewindLauncher.CanRewind/CanFastForward) and confirmation dialogs as the
         // recordings-tab R/FF cell; only the rendering (plain button, full-word labels, caller-set
         // width) differs. rec == null draws a blank cell of the given width.
         internal void DrawMissionRewindForwardButton(
@@ -161,7 +161,7 @@ namespace Parsek
 
             if (ShouldShowForwardButton(rec, now))
             {
-                bool canFF = RecordingStore.CanFastForward(rec, out string ffReason, isRecording: isRecording);
+                bool canFF = RewindLauncher.CanFastForward(rec, out string ffReason, isRecording: isRecording);
                 GUI.enabled = canFF;
                 if (GUILayout.Button(
                         new GUIContent("Forward", canFF ? "Fast-forward to this launch" : ffReason),
@@ -176,7 +176,7 @@ namespace Parsek
 
             if (ShouldShowLegacyRewindButton(rec, now))
             {
-                bool canRewind = RecordingStore.CanRewind(rec, out string rewindReason, isRecording: isRecording);
+                bool canRewind = RewindLauncher.CanRewind(rec, out string rewindReason, isRecording: isRecording);
                 ClearLegacyRewindSuppressionForOwnerRow(rec, ri);
                 GUI.enabled = canRewind;
                 if (GUILayout.Button(
@@ -682,7 +682,7 @@ namespace Parsek
                     {
                         ParsekLog.Info("Rewind",
                             $"User confirmed Rewind-to-Launch for \"{capturedOwner.VesselName}\" at UT {capturedOwner.StartUT} (not a Re-Fly)");
-                        RecordingStore.InitiateRewind(capturedOwner);
+                        RewindLauncher.InitiateRewind(capturedOwner);
                     }),
                     new DialogGUIButton("Cancel", () =>
                     {
@@ -729,7 +729,7 @@ namespace Parsek
                             // flight path has additional steps (NotifyRecorder, recorder state)
                             // that don't apply outside flight.
                             double preJumpUT = Planetarium.GetUniversalTime();
-                            if (!RecordingStore.CanFastForwardAtUT(
+                            if (!RewindLauncher.CanFastForwardAtUT(
                                     capturedRec,
                                     preJumpUT,
                                     out string ffReason,

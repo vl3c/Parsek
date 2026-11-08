@@ -659,6 +659,18 @@ namespace Parsek.Tests.Logistics
             return string.Join("\n", lines);
         }
 
+        // The signature through its brace-matched body, braces counted over the comment-blanked,
+        // literal-masked text, so the gate reads this one method and never the next one.
+        private static string MethodBlock(string source, string signature)
+        {
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(source);
+            int s = prepared.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(s >= 0, "marker missing: " + signature);
+            Assert.True(prepared.IndexOf(signature, s + 1, StringComparison.Ordinal) < 0,
+                "marker ambiguous: " + signature);
+            return SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', s));
+        }
+
         private static string Between(string source, string start, string end)
         {
             int s = source.IndexOf(start, StringComparison.Ordinal);
@@ -731,8 +743,8 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void ReFlyStart_PassesTheLoadedNodesRoutesToTheBundleRestore()
         {
-            string consume = Between(ReadSource("RewindInvoker.cs"),
-                "internal static void ConsumePostLoad(", "private static void RunStripActivateMarker(");
+            string consume = MethodBlock(ReadSource(RewindInvokerSourceFiles.PostLoad),
+                "internal static void ConsumePostLoad(");
             Assert.Contains("RouteStore.ReadSavedCommittedRoutes(loadedScenarioNode)", consume);
             Assert.Contains("ReconciliationBundle.Restore( bundle, retireCutoffUT, loadedSaveRoutes, loadedSaveUT, "
                 + "loadedClockUT, loadedSaveEvents);",
