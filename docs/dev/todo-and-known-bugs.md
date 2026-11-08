@@ -3025,7 +3025,7 @@ columns whose blanks are visible, where the old outline simply said nothing.
   lines) split into `ScanRecoveryCandidates`, `SelectRecoveryCandidatePath`,
   `LogRecoveryGuidFilterOutcome` and `WalkRecoveryPickTiers`, behind a 15-scenario
   characterization golden (`PickRecoveryRecordingCharacterizationTests`) written first.
-- Wave 2 W7b2 (2026-11-08, this branch): `LedgerOrchestrator.BuildStrategyConversionAction`
+- Wave 2 W7b2 (2026-11-08, #2489): `LedgerOrchestrator.BuildStrategyConversionAction`
   (201 lines) returns one named builder per currency arm (`BuildStrategyScienceConversionAction`,
   `BuildStrategyFundsConversionAction`, `BuildStrategyReputationConversionAction`), behind a
   characterization golden over every currency, delta sign, reason and tag
