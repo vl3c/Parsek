@@ -2982,6 +2982,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   reassignable of which 12 are test seams; writers, outside readers, reset paths, hosts), from
   the same IL tool. Nothing outside the type writes a field except the `OnTimelineDataChanged`
   event, and nine of the 17 methods of 90 lines or more touch no `LedgerOrchestrator` static.
+- Wave 2 W5c (2026-11-08, this branch, extract-method): `GhostMapPresence.ResolveMapPresenceGhostSource`
+  (603 lines) is a sequence of phase helpers in the same partial file (input, materialized and
+  terminal gates; covering segment; OrbitalCheckpoint SOI gap; state vector; terminal-orbit
+  fallback; the decision emission), the longest 89 lines. Pinned before the split by a golden
+  capture of every decision exit (`MapPresenceSourceResolveCharacterizationTests`).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
