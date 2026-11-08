@@ -1,0 +1,201 @@
+== null-trajectory
+source=None skipReason=null cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-null-trajectory: rec=(null) currentUT=500.0 source=None reason=null null trajectory sourceKind=None rec=(null) body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=(null) idx=3 vessel="(null)" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=null
+== debris
+source=None skipReason=debris cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-debris: rec=debris currentUT=500.0 source=None reason=debris isDebris=True sourceKind=None rec=debris body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=debris idx=3 vessel="Char debris" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=debris
+== playback-toggle-off
+source=None skipReason=playback-disabled cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] Map presence hidden by the playback tick box: surface=map-presence rec=toggle-off vessel="Char toggle-off" reason=playback-disabled
+log [Parsek][VERBOSE][GhostMap] char-playback-toggle-off: rec=toggle-off currentUT=500.0 source=None reason=playback-disabled playbackEnabled=False sourceKind=None rec=toggle-off body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=toggle-off idx=3 vessel="Char toggle-off" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=playback-disabled
+== suppressed
+source=None skipReason=suppressed cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-suppressed: rec=suppressed currentUT=500.0 source=None reason=suppressed isSuppressed=True sourceKind=None rec=suppressed body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=suppressed idx=3 vessel="Char suppressed" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=suppressed
+== live-anchor-double
+source=None skipReason=live-anchor-double cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] anchor-double-suppressed (live-bind event): rec=anchor-double anchorPid=4242 reason=launch-matched-live-vessel-loaded-and-live-bound
+log [Parsek][VERBOSE][GhostMap] char-live-anchor-double: rec=anchor-double currentUT=500.0 source=None reason=live-anchor-double live-anchor double suppressed sourceKind=None rec=anchor-double body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=anchor-double idx=3 vessel="Char anchor-double" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=live-anchor-double
+== already-spawned
+source=None skipReason=already-spawned cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-already-spawned: rec=already-spawned currentUT=500.0 source=None reason=already-spawned already spawned sourceKind=None rec=already-spawned body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=already-spawned idx=3 vessel="Char already-spawned" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=already-spawned
+== loop-alongside-real-then-segment
+source=Segment skipReason=(null) cachedIndex=-1
+segment=Kerbin 400 600 sma=694160 ecc=0.05 inc=0.3 lan=0 argPe=0 mEp=0 epoch=400 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] ResolveMapPresenceGhostSource: loop member rec=alongside drawing map ghost alongside persisted real vessel (loopMemberInWindow)
+log [Parsek][VERBOSE][GhostMap] char-loop-alongside-real-then-segment: rec=alongside currentUT=500.0 source=Segment reason=(none) segmentBody=Kerbin segmentUT=400.0-600.0 sourceKind=Segment rec=alongside body=Kerbin sourceUT=400.0-600.0 epoch=400.0 sma=694160 ecc=0.050000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=alongside idx=3 vessel="Char alongside" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=694160 ecc=0.0500 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING reason=char-loop-alongside-real-then-segment
+== terminal-landed
+source=None skipReason=terminal-Landed cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-terminal-landed: rec=landed currentUT=500.0 source=None reason=terminal-Landed terminal=Landed sourceKind=None rec=landed body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=landed idx=3 vessel="Char landed" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=terminal-Landed
+== transfer-descent-continuation
+source=None skipReason=transfer-member-descent-continuation cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-transfer-descent-continuation: rec=rec_f1363fc127ab47a28812ce4be6515453 currentUT=135.7 source=None reason=transfer-member-descent-continuation descent-trigger transfer member handed off / landed: retire cleanly; the descent set owns the visual (no sub-surface endpoint-tail, no wrong-segment fallback) sourceKind=None rec=rec_f1363fc127ab47a28812ce4be6515453 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=rec_f1363fc127ab47a28812ce4be6515453 idx=3 vessel="Kerbal X Probe" source=None branch=(n/a) body=(none) ut=135.7 scene=LOADING reason=transfer-member-descent-continuation
+== covering-segment
+source=Segment skipReason=(null) cachedIndex=-1
+segment=Kerbin 400 600 sma=694160 ecc=0.05 inc=0.3 lan=0 argPe=0 mEp=0 epoch=400 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-covering-segment: rec=segment currentUT=500.0 source=Segment reason=(none) segmentBody=Kerbin segmentUT=400.0-600.0 sourceKind=Segment rec=segment body=Kerbin sourceUT=400.0-600.0 epoch=400.0 sma=694160 ecc=0.050000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=segment idx=3 vessel="Char segment" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=694160 ecc=0.0500 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING reason=char-covering-segment
+== covering-segment-with-checkpoint
+source=Segment skipReason=(null) cachedIndex=0
+segment=Mun 100 300 sma=250000 ecc=0.2 inc=0 lan=0 argPe=0 mEp=0 epoch=100 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-covering-segment-with-checkpoint: rec=seg-checkpoint currentUT=160.0 source=Segment reason=(none) segmentBody=Mun segmentUT=100.0-300.0 stateVectorSource=OrbitalCheckpoint sectionUT=150.0-190.0 pointUT=150.0 stateVectorBody=Mun alt=47481 speed=515.4 orbitalCheckpointFallback=reject fallbackReason=orbital-checkpoint-state-vector-safer-segment-source isSoiGapRecovery=False gapBodyTransition=False gapPreviousBody=(none) gapNextBody=(none) segmentSourceAvailable=True bodyMatches=True stateVectorBody=Mun expectedBody=Mun withinPlaybackWindow=True activationStartUT=100.0 endUT=300.0 sourceKind=Segment rec=seg-checkpoint body=Mun sourceUT=100.0-300.0 epoch=100.0 sma=250000 ecc=0.200000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=seg-checkpoint idx=3 vessel="Kerbal X" source=Segment branch=(n/a) body=Mun segmentBody=Mun segmentUT=100.0-300.0 sma=250000 ecc=0.2000 inc=0.0000 mna=0.0000 epoch=100.0 ut=160.0 scene=LOADING reason=char-covering-segment-with-checkpoint
+== endpoint-tail-override
+source=EndpointTail skipReason=(null) cachedIndex=-1
+segment=Kerbin 100 600 sma=4547677 ecc=0.822 inc=0.1 lan=76 argPe=340 mEp=1 epoch=453.66 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-endpoint-tail-override: rec=rec_f1363fc127ab47a28812ce4be6515453 currentUT=135.7 source=EndpointTail reason=(none) endpointTailOverride=stale-visible-segment visibleSegmentBody=Kerbin visibleSegmentUT=120.0-150.0 endpointTailSeed=accept tailDecline=(none) tailUT=453.66 tailSma=4547677.0 tailEcc=0.822000 latestSegmentEndUT=150.00 drift=-317.96s tailFrame=absolute historicalRotation=True historicalLon=-31.0000 tailVelFrame=inertial tailYaw=0.000deg tailResidual=0.000 tailInc=0.1000 sourceKind=EndpointTail rec=rec_f1363fc127ab47a28812ce4be6515453 body=Kerbin sourceUT=100.0-600.0 epoch=453.7 sma=4547677 ecc=0.822000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=rec_f1363fc127ab47a28812ce4be6515453 idx=3 vessel="Kerbal X Probe" source=EndpointTail branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=100.0-600.0 sma=4547677 ecc=0.8220 inc=0.1000 mna=1.0000 epoch=453.7 ut=135.7 scene=LOADING reason=char-endpoint-tail-override
+== soi-gap-checkpoint-accepted
+source=StateVectorSoiGap skipReason=soi-gap-state-vector-fallback cachedIndex=0
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=Mun 150 lat=1 lon=2 alt=47481 speed=515.4000244140625
+log [Parsek][VERBOSE][GhostMap] char-soi-gap-checkpoint-accepted: rec=soi-accept currentUT=160.0 source=StateVectorSoiGap reason=soi-gap-state-vector-fallback stateVectorSource=OrbitalCheckpoint sectionUT=150.0-190.0 pointUT=150.0 stateVectorBody=Mun alt=47481 speed=515.4 orbitalCheckpointFallback=accept fallbackReason=soi-gap-state-vector-fallback isSoiGapRecovery=True gapBodyTransition=True gapPreviousBody=Kerbin gapNextBody=Mun segmentSourceAvailable=False bodyMatches=True stateVectorBody=Mun expectedBody=Mun withinPlaybackWindow=True activationStartUT=100.0 endUT=300.0 sourceKind=SoiGapStateVector rec=soi-accept body=Mun sourceUT=150.0 pointUT=150.0 alt=47481 speed=515.4 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=soi-accept idx=3 vessel="Kerbal X" source=StateVectorSoiGap branch=(n/a) body=Mun stateVecAlt=47481 stateVecSpeed=515.4 ut=160.0 scene=LOADING reason=soi-gap-state-vector-fallback
+== soi-gap-checkpoint-rejected
+source=None skipReason=orbital-checkpoint-state-vector-not-soi-gap-recovery cachedIndex=0
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=Mun 150 lat=1 lon=2 alt=47481 speed=515.4000244140625
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Mun sma=250000 result=True
+log [Parsek][VERBOSE][GhostMap] char-soi-gap-checkpoint-rejected: rec=soi-reject currentUT=160.0 source=None reason=orbital-checkpoint-state-vector-not-soi-gap-recovery endUT=300.0 stateVectorSource=OrbitalCheckpoint sectionUT=150.0-190.0 pointUT=150.0 stateVectorBody=Mun alt=47481 speed=515.4 orbitalCheckpointFallback=reject fallbackReason=orbital-checkpoint-state-vector-not-soi-gap-recovery isSoiGapRecovery=False gapBodyTransition=True gapPreviousBody=Kerbin gapNextBody=Mun segmentSourceAvailable=False bodyMatches=True stateVectorBody=Mun expectedBody=Mun withinPlaybackWindow=True activationStartUT=100.0 endUT=300.0 sourceKind=None rec=soi-reject body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=soi-reject idx=3 vessel="Kerbal X" source=None branch=(n/a) body=(none) ut=160.0 scene=LOADING reason=orbital-checkpoint-state-vector-not-soi-gap-recovery
+== soi-gap-checkpoint-rejected-no-terminal-fallback
+source=None skipReason=orbital-checkpoint-state-vector-not-soi-gap-recovery cachedIndex=0
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=Mun 150 lat=1 lon=2 alt=47481 speed=515.4000244140625
+log [Parsek][VERBOSE][GhostMap] char-soi-gap-checkpoint-rejected-no-terminal-fallback: rec=soi-reject-nf currentUT=160.0 source=None reason=orbital-checkpoint-state-vector-not-soi-gap-recovery terminalFallback=False hasOrbitSegments=True stateVectorSource=OrbitalCheckpoint sectionUT=150.0-190.0 pointUT=150.0 stateVectorBody=Mun alt=47481 speed=515.4 orbitalCheckpointFallback=reject fallbackReason=orbital-checkpoint-state-vector-not-soi-gap-recovery isSoiGapRecovery=False gapBodyTransition=True gapPreviousBody=Kerbin gapNextBody=Mun segmentSourceAvailable=False bodyMatches=True stateVectorBody=Mun expectedBody=Mun withinPlaybackWindow=True activationStartUT=100.0 endUT=300.0 sourceKind=None rec=soi-reject-nf body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=soi-reject-nf idx=3 vessel="Kerbal X" source=None branch=(n/a) body=(none) ut=160.0 scene=LOADING reason=orbital-checkpoint-state-vector-not-soi-gap-recovery
+== state-vector
+source=StateVector skipReason=(null) cachedIndex=0
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=Mun 100 lat=0 lon=0 alt=3000 speed=100
+log [Parsek][VERBOSE][GhostMap] GetAtmosphereDepth: FlightGlobals unavailable for body=Mun (TypeInitializationException) — using 0
+log [Parsek][VERBOSE][GhostMap] char-state-vector: rec=state-vector currentUT=150.0 source=StateVector reason=(none) stateVectorBody=Mun alt=3000 speed=100.0 sourceKind=StateVector rec=state-vector body=Mun sourceUT=100.0 pointUT=100.0 alt=3000 speed=100.0 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=state-vector idx=3 vessel="" source=StateVector branch=(n/a) body=Mun stateVecAlt=3000 stateVecSpeed=100.0 ut=150.0 scene=LOADING reason=char-state-vector
+== relative-state-vector-with-segments-elsewhere
+source=StateVector skipReason=(null) cachedIndex=0
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=Mun 100 lat=0.1 lon=0.2 alt=0.5 speed=540
+log [Parsek][VERBOSE][GhostMap] char-relative-state-vector-with-segments-elsewhere: rec=state-vector-relative-anchor currentUT=200.0 source=StateVector reason=(none) stateVectorBody=Mun alt=1 speed=540.0 sourceKind=StateVector rec=state-vector-relative-anchor body=Mun sourceUT=100.0 pointUT=100.0 alt=1 speed=540.0 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=state-vector-relative-anchor idx=3 vessel="" source=StateVector branch=(n/a) body=Mun stateVecAlt=1 stateVecSpeed=540.0 ut=200.0 scene=LOADING reason=char-relative-state-vector-with-segments-elsewhere
+== relative-segment-gap-deferred
+source=None skipReason=relative-state-vector-segment-gap cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-relative-segment-gap-deferred: rec=relative-gap-between-segments currentUT=200.0 source=None reason=relative-state-vector-segment-gap hasOrbitSegments=True relativeFrame=True orbitSegmentGap=True sourceKind=None rec=relative-gap-between-segments body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=relative-gap-between-segments idx=3 vessel="" source=None branch=(n/a) body=(none) ut=200.0 scene=LOADING reason=relative-state-vector-segment-gap
+== relative-segment-gap-deferred-no-terminal-fallback
+source=None skipReason=relative-state-vector-segment-gap cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-relative-segment-gap-deferred-no-terminal-fallback: rec=relative-gap-between-segments currentUT=200.0 source=None reason=relative-state-vector-segment-gap terminalFallback=False hasOrbitSegments=True relativeFrame=True orbitSegmentGap=True sourceKind=None rec=relative-gap-between-segments body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=relative-gap-between-segments idx=3 vessel="" source=None branch=(n/a) body=(none) ut=200.0 scene=LOADING reason=relative-state-vector-segment-gap
+== no-terminal-fallback-no-orbit-data
+source=None skipReason=no-orbit-data cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-no-terminal-fallback-no-orbit-data: rec=no-fallback currentUT=500.0 source=None reason=no-orbit-data terminalFallback=False hasOrbitSegments=False sourceKind=None rec=no-fallback body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=no-fallback idx=3 vessel="" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=no-orbit-data
+== state-vector-miss-no-orbit-data
+source=None skipReason=no-state-vector-point cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] char-state-vector-miss-no-orbit-data: rec=sv-miss currentUT=50.0 source=None reason=no-state-vector-point hasOrbitSegments=False sourceKind=None rec=sv-miss body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=sv-miss idx=3 vessel="" source=None branch=(n/a) body=(none) ut=50.0 scene=LOADING reason=no-state-vector-point
+== terminal-suborbital-refused-for-terminal-orbit
+source=None skipReason=terminal-SubOrbital cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] char-terminal-suborbital-refused-for-terminal-orbit: rec=suborbital-terminal currentUT=500.0 source=None reason=terminal-SubOrbital terminal=SubOrbital terminalOrbitFallback=True sourceKind=None rec=suborbital-terminal body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=suborbital-terminal idx=3 vessel="Char suborbital-terminal" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=terminal-SubOrbital
+== before-activation
+source=None skipReason=before-activation cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] char-before-activation: rec=before-activation currentUT=500.0 source=None reason=before-activation activationStartUT=1000.0 sourceKind=None rec=before-activation body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=before-activation idx=3 vessel="Char before-activation" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=before-activation
+== before-terminal-orbit
+source=None skipReason=before-terminal-orbit cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] char-before-terminal-orbit: rec=before-terminal currentUT=300.0 source=None reason=before-terminal-orbit endUT=1000.0 sourceKind=None rec=before-terminal body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=before-terminal idx=3 vessel="Char before-terminal" source=None branch=(n/a) body=(none) ut=300.0 scene=LOADING reason=before-terminal-orbit
+== terminal-endpoint-tail
+source=EndpointTail skipReason=(null) cachedIndex=-1
+segment=Kerbin 100 600 sma=4547677 ecc=0.822 inc=0.1 lan=76 argPe=340 mEp=1 epoch=453.66 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=4547677 result=True
+log [Parsek][VERBOSE][GhostMap] char-terminal-endpoint-tail: rec=rec_f1363fc127ab47a28812ce4be6515453 currentUT=700.0 source=EndpointTail reason=(none) endpointTailSeed=accept tailDecline=(none) tailUT=453.66 tailSma=4547677.0 tailEcc=0.822000 latestSegmentEndUT=150.00 drift=246.34s tailFrame=absolute historicalRotation=True historicalLon=-31.0000 tailVelFrame=inertial tailYaw=0.000deg tailResidual=0.000 tailInc=0.1000 sourceKind=EndpointTail rec=rec_f1363fc127ab47a28812ce4be6515453 body=Kerbin sourceUT=100.0-600.0 epoch=453.7 sma=4547677 ecc=0.822000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=rec_f1363fc127ab47a28812ce4be6515453 idx=3 vessel="Kerbal X Probe" source=EndpointTail branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=100.0-600.0 sma=4547677 ecc=0.8220 inc=0.1000 mna=1.0000 epoch=453.7 ut=700.0 scene=LOADING reason=char-terminal-endpoint-tail
+== terminal-endpoint-tail-loop-synthesis
+source=EndpointTail skipReason=(null) cachedIndex=-1
+segment=Kerbin 100 600 sma=4547677 ecc=0.822 inc=0.1 lan=76 argPe=340 mEp=1 epoch=453.66 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=4547677 result=True
+log [Parsek][VERBOSE][GhostMap] char-terminal-endpoint-tail-loop-synthesis: rec=rec_f1363fc127ab47a28812ce4be6515453 currentUT=700.0 source=EndpointTail reason=(none) endpointTailSeed=accept tailDecline=(none) tailUT=453.66 tailSma=4547677.0 tailEcc=0.822000 latestSegmentEndUT=150.00 drift=246.34s tailFrame=absolute historicalRotation=True historicalLon=-31.0000 tailVelFrame=inertial tailYaw=0.000deg tailResidual=0.000 tailInc=0.1000 sourceKind=EndpointTail rec=rec_f1363fc127ab47a28812ce4be6515453 body=Kerbin sourceUT=100.0-600.0 epoch=453.7 sma=4547677 ecc=0.822000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=rec_f1363fc127ab47a28812ce4be6515453 idx=3 vessel="Kerbal X Probe" source=EndpointTail branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=100.0-600.0 sma=4547677 ecc=0.8220 inc=0.1000 mna=1.0000 epoch=453.7 ut=700.0 scene=LOADING reason=char-terminal-endpoint-tail-loop-synthesis
+== unseedable-endpoint-conflict
+source=None skipReason=endpoint-conflict cachedIndex=-1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] char-unseedable-endpoint-conflict: rec=endpoint-conflict currentUT=1000.0 source=None reason=endpoint-conflict terminalBody=Kerbin endUT=200.0 seedFailure=endpoint-conflict endpointBody=Mun tailConsidered=True tailAccepted=False tailDecline=no-absolute-coast-tail tailUT=NaN tailSma=NaN tailEcc=NaN latestSegmentEndUT=NaN drift=NaNs tailFrame=(none) sourceKind=None rec=endpoint-conflict body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=endpoint-conflict idx=3 vessel="" source=None branch=(n/a) body=(none) ut=1000.0 scene=LOADING reason=endpoint-conflict
+== terminal-orbit
+source=TerminalOrbit skipReason=(null) cachedIndex=-1
+segment=Kerbin 100 200 sma=700000 ecc=0.01 inc=0.3 lan=0 argPe=0 mEp=0 epoch=100 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] char-terminal-orbit: rec=terminal-orbit currentUT=500.0 source=TerminalOrbit reason=(none) terminalBody=Kerbin endUT=200.0 seedBody=Kerbin seedSource=terminal-orbit endpointBody=(none) seedFallback=no-endpoint-body tailConsidered=False tailAccepted=False tailDecline=(none) tailUT=NaN tailSma=NaN tailEcc=NaN latestSegmentEndUT=NaN drift=NaNs tailFrame=(none) sourceKind=TerminalOrbit rec=terminal-orbit body=Kerbin sourceUT=100.0-200.0 epoch=100.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=terminal-orbit idx=3 vessel="Char terminal-orbit" source=TerminalOrbit branch=(n/a) body=Kerbin terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 ut=500.0 scene=LOADING reason=char-terminal-orbit
+== chain-head-borrows-tip-segments
+source=Segment skipReason=(null) cachedIndex=-1
+segment=Kerbin 1078.0528338768356 2186.5751775686945 sma=865777.71214532177 ecc=0.31755526014312058 inc=0.5473 lan=0 argPe=84.509 mEp=6.1056670826845894 epoch=2348.5488254909719 predicted=True
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence chain-tip segments: head=rec_head tip=rec_tip tipSegments=3 headSegments=0
+log [Parsek][VERBOSE][GhostMap] char-chain-head-borrows-tip-segments: rec=rec_head currentUT=1500.0 source=Segment reason=(none) segmentBody=Kerbin segmentUT=1078.1-2186.6 sourceKind=Segment rec=rec_head body=Kerbin sourceUT=1078.1-2186.6 epoch=2348.5 sma=865778 ecc=0.317555 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=rec_head idx=3 vessel="rec_head" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=1078.1-2186.6 sma=865778 ecc=0.3176 inc=0.5473 mna=6.1057 epoch=2348.5 ut=1500.0 scene=LOADING reason=char-chain-head-borrows-tip-segments
+== chain-head-inside-own-span
+source=StateVector skipReason=(null) cachedIndex=1
+segment=(null) 0 0 sma=0 ecc=0 inc=0 lan=0 argPe=0 mEp=0 epoch=0 predicted=False
+point=Kerbin 150 lat=0 lon=-74.5 alt=80000 speed=2200
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence chain-tip segments: head=rec_head tip=rec_tip tipSegments=3 headSegments=0
+log [Parsek][VERBOSE][GhostMap] GetAtmosphereDepth: FlightGlobals unavailable for body=Kerbin (TypeInitializationException) — using 0
+log [Parsek][VERBOSE][GhostMap] char-chain-head-inside-own-span: rec=rec_head currentUT=150.0 source=StateVector reason=(none) stateVectorBody=Kerbin alt=80000 speed=2200.0 sourceKind=StateVector rec=rec_head body=Kerbin sourceUT=150.0 pointUT=150.0 alt=80000 speed=2200.0 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=rec_head idx=3 vessel="rec_head" source=StateVector branch=(n/a) body=Kerbin stateVecAlt=80000 stateVecSpeed=2200.0 ut=150.0 scene=LOADING reason=char-chain-head-inside-own-span
+== no-log-operation-name
+source=Segment skipReason=(null) cachedIndex=-1
+segment=Kerbin 400 600 sma=694160 ecc=0.05 inc=0.3 lan=0 argPe=0 mEp=0 epoch=400 predicted=False
+point=(null) 0 lat=0 lon=0 alt=0 speed=0
