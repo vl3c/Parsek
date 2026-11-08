@@ -3400,6 +3400,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(findings["missingGlossary"], [])
         self.assertEqual(findings["staleReadings"], [])
         self.assertEqual(findings["missingReadingOrder"], [])
+        # A literal number in an undated prose string must match the model
+        # (archview.PROSE_NUMBER_CLAIMS); a dated one is history.
+        self.assertEqual(findings["staleNumbers"], [])
 
     def test_rendered_atlas_contains_the_live_facts(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
