@@ -211,7 +211,7 @@ namespace Parsek
             Polyline = 3,
 
             /// <summary>
-            /// The flight-scene <c>ParsekUI.DrawMapMarkers</c> labeled marker.
+            /// The flight-scene <c>ParsekFlightMapMarkers.DrawMapMarkers</c> labeled marker.
             /// </summary>
             ImguiLabeledMarker = 4,
 
@@ -249,7 +249,7 @@ namespace Parsek
 
         /// <summary>
         /// The terminal OUTCOME of one ghost's per-recording marker-decision pass in
-        /// <c>ParsekUI.DrawMapMarkers</c> / <c>ParsekTrackingStation.DrawAtmosphericMarkers</c>.
+        /// <c>ParsekFlightMapMarkers.DrawMapMarkers</c> / <c>ParsekTrackingStation.DrawAtmosphericMarkers</c>.
         /// Every branch in those loops maps to exactly one of these so a single per-pid trace
         /// line says, in one token, WHY this ghost's marker drew or did not this frame.
         /// </summary>

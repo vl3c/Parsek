@@ -923,7 +923,7 @@ or `TracedPathTreatment`.
 - ProtoVessel lifecycle for ghost map presence: creates / destroys lightweight vessels for
   the tracking station, orbit lines, and targeting; manages the `ghostMapVesselPids` HashSet
   for O(1) guard checks.
-- Both marker call sites (`ParsekUI.DrawMapMarkers` flight-map,
+- Both marker call sites (`ParsekFlightMapMarkers.DrawMapMarkers` flight-map,
   `ParsekTrackingStation.ClassifyAtmosphericMarkerSkip` TS) route the "draw our non-proto
   marker?" decision through `ShouldDrawNonProtoMarkerForGhost(pid)` (pure core
   `ResolveMarkerDrawDecision`): `IsTracedPathOwnedThisFrame || IsPolylineOwningGhostPhase ||
@@ -956,7 +956,7 @@ what its tooltip said.
   retired proto; and `GhostTrajectoryPolylineRenderer.ClassifyPolylineStaticSkip` gains
   `PolylineStaticSkipReason.PlaybackDisabled`, because the polyline is a SEPARATE draw authority
   and retiring the proto does not retire the line. The flight-map ghostless fallback marker
-  (`ParsekUI.DrawMapMarkers`) carries the gate explicitly although it is covered transitively
+  (`ParsekFlightMapMarkers.DrawMapMarkers`) carries the gate explicitly although it is covered transitively
   (it only draws where the polyline OWNS the phase, and the gated Driver walk publishes no
   ownership for a hidden recording).
 - `ResolveMarkerDrawDecision` / `ShouldDrawNonProtoMarkerForGhost` are UNCHANGED, and must stay
@@ -982,7 +982,7 @@ what its tooltip said.
   `GhostMapPresence.LogMapPresencePlaybackSuppressedOnChange` (`VerboseOnChange`, never
   per-frame), and the per-frame aggregates carry a bucket:
   `ParsekTrackingStation.AtmosphericMarkerSummary.PlaybackDisabled` and
-  `ParsekUI.MapMarkerSummary.PlaybackDisabled`. Both buckets are part of their `HasSignal`, and
+  `ParsekFlightMapMarkers.MapMarkerSummary.PlaybackDisabled`. Both buckets are part of their `HasSignal`, and
   that is the point rather than a detail: those summaries are suppressed entirely when the pass
   has NO signal, so with EVERY recording hidden there was nothing else to count and a `drawn=0`
   reading was UNREACHABLE by construction - measured on harness run `2026-09-14_2133`, which red

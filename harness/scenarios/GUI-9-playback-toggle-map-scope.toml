@@ -26,7 +26,7 @@ tier = "operator"
 # names are reachable here. The flight map view renders the same `GhostMapPresence`
 # ProtoVessels (icon + stock orbit line, driven by `UpdateFlightMapGhostLifecycle`), the
 # same `GhostTrajectoryPolylineRenderer` Driver walk, and the same labelled-marker paths
-# (`ParsekUI.DrawMapMarkers`, both the pid-keyed walk and the recording-keyed ghostless
+# (`ParsekFlightMapMarkers.DrawMapMarkers`, both the pid-keyed walk and the recording-keyed ghostless
 # fallback). The one surface NOT drawn here is the stock Tracking Station list ROW - and a
 # row exists if and only if the ProtoVessel exists (Parsek builds no rows; it creates
 # protos and pokes `SpaceTracking.buildVesselsList`), so retiring the proto IS retiring the

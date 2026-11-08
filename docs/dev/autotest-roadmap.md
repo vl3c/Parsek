@@ -2815,7 +2815,7 @@ pair. The dimensions that actually change code paths:
    is a PERIOD MULTIPLE rather than one period (V16's cadence = 20*P subject).
    "k" is reserved below for cycles observed, never for the period multiple.
 3. **Render host** - THREE, not two. The flight map and the Tracking Station
-   render through different hosts (`ParsekUI.DrawMapMarkers` vs
+   render through different hosts (`ParsekFlightMapMarkers.DrawMapMarkers` vs
    `ParsekTrackingStation`; the TS additionally splits into the one-shot init
    walk and the dynamic overlap path), and the KSC scene is a third:
    `ParsekKSC` owns its own ghost dictionary, its own overlap-ghost model and
