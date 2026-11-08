@@ -307,5 +307,103 @@ namespace Parsek.Tests
             CommittedListOptimizer.TrimBoringTailsForOptimization(new List<Recording>());
             Assert.Empty(logLines);
         }
+        // ---- extracted helpers ----
+
+        [Fact]
+        public void SplitSecondHalfUT_FirstSectionStartElseStartUT()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 150.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 300.0, bodyName = "Kerbin" });
+            Assert.Equal(150.0, CommittedListOptimizer.ResolveSplitSecondHalfUT(rec));
+
+            rec.TrackSections.Add(new TrackSection { startUT = 200.0, endUT = 250.0 });
+            rec.TrackSections.Add(new TrackSection { startUT = 120.0, endUT = 130.0 });
+            Assert.Equal(200.0, CommittedListOptimizer.ResolveSplitSecondHalfUT(rec));
+
+            rec.TrackSections = null;
+            Assert.Equal(150.0, CommittedListOptimizer.ResolveSplitSecondHalfUT(rec));
+        }
+
+        [Fact]
+        public void TrimSkipCounts_DescendingCountThenOrdinalNameAndTheTotal()
+        {
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["too-short"] = 2,
+                ["not-leaf"] = 5,
+                ["b"] = 2,
+                ["B"] = 2,
+            };
+            Assert.Equal("not-leaf=5, B=2, b=2, too-short=2",
+                CommittedListOptimizer.FormatTrimSkipCounts(counts, out int total));
+            Assert.Equal(11, total);
+
+            Assert.Equal("", CommittedListOptimizer.FormatTrimSkipCounts(
+                new Dictionary<string, int>(), out total));
+            Assert.Equal(0, total);
+        }
+
+        [Fact]
+        public void SplitSegmentBodyNames_FromEachHalfsFirstPointElseUnchanged()
+        {
+            var original = new Recording { SegmentBodyName = "old-a" };
+            original.Points.Add(new TrajectoryPoint { ut = 1, bodyName = "Kerbin" });
+            original.Points.Add(new TrajectoryPoint { ut = 2, bodyName = "Mun" });
+            var second = new Recording { SegmentBodyName = "old-b" };
+
+            CommittedListOptimizer.DeriveSplitSegmentBodyNames(original, second);
+            Assert.Equal("Kerbin", original.SegmentBodyName);
+            Assert.Equal("old-b", second.SegmentBodyName);
+
+            second.Points.Add(new TrajectoryPoint { ut = 3, bodyName = "Minmus" });
+            original.Points = null;
+            original.SegmentBodyName = "kept";
+            CommittedListOptimizer.DeriveSplitSegmentBodyNames(original, second);
+            Assert.Equal("kept", original.SegmentBodyName);
+            Assert.Equal("Minmus", second.SegmentBodyName);
+        }
+
+        [Fact]
+        public void SplitChildBranchPoint_MovesToTheSecondHalfOrTheSecondCarriesNone()
+        {
+            var original = new Recording { ChildBranchPointId = "bp-1" };
+            var second = new Recording { ChildBranchPointId = "copied-by-split" };
+            CommittedListOptimizer.AssignSplitChildBranchPoint(original, second, movesToSecond: true);
+            Assert.Null(original.ChildBranchPointId);
+            Assert.Equal("bp-1", second.ChildBranchPointId);
+
+            original = new Recording { ChildBranchPointId = "bp-1" };
+            second = new Recording { ChildBranchPointId = "copied-by-split" };
+            CommittedListOptimizer.AssignSplitChildBranchPoint(original, second, movesToSecond: false);
+            Assert.Equal("bp-1", original.ChildBranchPointId);
+            Assert.Null(second.ChildBranchPointId);
+        }
+
+        [Fact]
+        public void AddToCommittedTree_TheFirstTreeWithTheIdOnly()
+        {
+            RecordingTree other = CommitTree("tree-x");
+            RecordingTree first = CommitTree("tree-y");
+            RecordingTree duplicate = CommitTree("tree-y");
+            var rec = new Recording { RecordingId = "half-2" };
+
+            CommittedListOptimizer.AddToCommittedTree("tree-y", rec);
+            Assert.Same(rec, first.Recordings["half-2"]);
+            Assert.Empty(duplicate.Recordings);
+            Assert.Empty(other.Recordings);
+
+            // Replace, not duplicate.
+            var replacement = new Recording { RecordingId = "half-2" };
+            CommittedListOptimizer.AddToCommittedTree("tree-y", replacement);
+            Assert.Same(replacement, Assert.Single(first.Recordings).Value);
+
+            CommittedListOptimizer.AddToCommittedTree(null, new Recording { RecordingId = "n" });
+            CommittedListOptimizer.AddToCommittedTree("", new Recording { RecordingId = "e" });
+            CommittedListOptimizer.AddToCommittedTree("tree-none", new Recording { RecordingId = "z" });
+            Assert.Single(first.Recordings);
+            Assert.Empty(other.Recordings);
+            Assert.Empty(duplicate.Recordings);
+        }
     }
 }
