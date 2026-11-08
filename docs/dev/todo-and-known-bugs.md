@@ -3075,6 +3075,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `ConsumePostLoad` route gate now reads a brace-matched block instead of a slice to the next
   declaration); `ledgeraudit.SRC_REWIND_INVOKER` names `.StripActivate`; the ERS / ELS
   allowlist adds the five partials that hold raw reads; the delete pin stays on the main file.
+- Wave 2 W7b2 (2026-11-08, #2489): `LedgerOrchestrator.BuildStrategyConversionAction`
+  (201 lines) returns one named builder per currency arm (`BuildStrategyScienceConversionAction`,
+  `BuildStrategyFundsConversionAction`, `BuildStrategyReputationConversionAction`), behind a
+  characterization golden over every currency, delta sign, reason and tag
+  (`BuildStrategyConversionActionCharacterizationTests`) written first.
 - Wave 2 W9b (2026-11-08, this branch, S1 extract-method): the 200-line
   `FlightRecorder.RestoreTrackSectionAfterFalseAlarm` calls four extracted units: the
   resume-anchor validation, the Relative-to-Absolute boundary repair, the start-UT alignment
