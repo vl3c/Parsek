@@ -61,6 +61,7 @@ namespace Parsek
                 SeedAnimationGroupsAndSurfaces(p, sets, logTag);
                 SeedAnimateGeneric(p, cargo, sets, logTag);
                 SeedConverters(p, sets, logTag);
+                SeedWheelDamage(p, sets, logTag);
                 // The v.isEVA gate MIRRORS both pollers (FlightRecorder.CheckEvaState and the BG
                 // wrapper). Without it a kerbal riding an external command seat on a rocket would
                 // seed an EvaJetpackDeployed off his persisted flag that no poll could ever pair or
@@ -85,7 +86,7 @@ namespace Parsek
                 $"ladders={sets.deployedLadders.Count} animGroups={sets.deployedAnimationGroups.Count} " +
                 $"animGeneric={sets.deployedAnimateGenericModules.Count} heat={sets.animateHeatLevels.Count} " +
                 $"engines={sets.activeEngineKeys.Count} rcs={sets.activeRcsKeys.Count} " +
-                $"converters={sets.activeConverterParts.Count} " +
+                $"converters={sets.activeConverterParts.Count} damagedWheels={sets.damagedWheelParts.Count} " +
                 $"evaJetpack={sets.jetpackDeployedParts.Count} evaRagdoll={sets.ragdollParts.Count}");
         }
 
@@ -222,6 +223,21 @@ namespace Parsek
             sets.activeConverterParts.Add(p.persistentId);
             ParsekLog.Verbose(logTag,
                 $"Seeded already-running converter: '{p.partInfo?.name}' pid={p.persistentId}");
+        }
+
+        /// <summary>
+        /// A wheel that is ALREADY broken when recording starts. Without this the first poll would
+        /// read the live flag as a break edge and write a WheelBroken the recording never
+        /// witnessed, so the wheel would appear to break the moment every later recording of that
+        /// rover started.
+        /// </summary>
+        private static void SeedWheelDamage(Part p, PartTrackingSets sets, string logTag)
+        {
+            if (!FlightRecorder.IsAnyWheelDamagedOnPart(p)) return;
+
+            sets.damagedWheelParts.Add(p.persistentId);
+            ParsekLog.Verbose(logTag,
+                $"Seeded already-broken wheel: '{p.partInfo?.name}' pid={p.persistentId}");
         }
 
         /// <summary>
@@ -588,6 +604,10 @@ namespace Parsek
             // S7: a recording that starts with the drill already turning needs the running loop
             // started at UT0 rather than at the recording's first toggle (which may never come).
             EmitFromUintSet(sets.activeConverterParts, PartEventType.ConverterActivated);
+            // A recording that starts with a wheel already broken. The snapshot baseline shows the
+            // busted mesh at spawn too; the seed keeps the split reducer and the loop-cycle replay
+            // honest, exactly like the broken-deployable seed above.
+            EmitFromUintSet(sets.damagedWheelParts, PartEventType.WheelBroken);
             // S4: a recording that starts with the kerbal's pack already out, or already tumbling.
             EmitFromUintSet(sets.jetpackDeployedParts, PartEventType.EvaJetpackDeployed);
             EmitFromUintSet(sets.ragdollParts, PartEventType.EvaRagdollStarted);
@@ -900,6 +920,8 @@ namespace Parsek
         public HashSet<uint> brokenDeployables = new HashSet<uint>();
         /// <summary>S7: pids with at least one running BaseConverter (ISRU / drill / harvester).</summary>
         public HashSet<uint> activeConverterParts = new HashSet<uint>();
+        /// <summary>Pids with a broken ModuleWheelDamage (stock isDamaged).</summary>
+        public HashSet<uint> damagedWheelParts = new HashSet<uint>();
         /// <summary>S4: pids whose KerbalEVA has its jetpack extended.</summary>
         public HashSet<uint> jetpackDeployedParts = new HashSet<uint>();
         /// <summary>

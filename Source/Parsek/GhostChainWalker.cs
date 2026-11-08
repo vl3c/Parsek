@@ -1297,6 +1297,20 @@ namespace Parsek
         /// <summary>
         /// Sets IsTerminated on a chain if the tip recording has a non-spawnable terminal state.
         /// </summary>
+        /// <summary>
+        /// Terminal states that end a chain: the physical object is gone, so the chain has
+        /// no live successor to walk to. Disassembled ends it exactly as Destroyed and
+        /// Recovered do. Never a spawnable terminal
+        /// (<see cref="GhostPlaybackLogic.IsSpawnableTerminal"/>): the spawn decision relies
+        /// on that to refuse a terminated chain's tip by its own terminal.
+        /// </summary>
+        internal static bool IsChainTerminatingTerminal(TerminalState ts)
+        {
+            return ts == TerminalState.Destroyed
+                || ts == TerminalState.Recovered
+                || ts == TerminalState.Disassembled;
+        }
+
         private static void ResolveTermination(
             GhostChain chain, List<RecordingTree> committedTrees)
         {
@@ -1324,10 +1338,7 @@ namespace Parsek
             if (tipRec.TerminalStateValue.HasValue)
             {
                 var ts = tipRec.TerminalStateValue.Value;
-                // Disassembled ends the physical object exactly as Destroyed and
-                // Recovered do: the chain has no live successor to walk to.
-                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
-                    || ts == TerminalState.Disassembled)
+                if (IsChainTerminatingTerminal(ts))
                 {
                     chain.IsTerminated = true;
                     ParsekLog.VerboseOnChange(Tag,

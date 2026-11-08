@@ -175,6 +175,28 @@ namespace Parsek.Tests
                 CommittedFutureIndexCache.Current, PadBuilding, 1500));
         }
 
+        // catches: a repair the walk does not charge (a repair after a repair, Effective=false,
+        // STOCK-UI-RESERVATION-OVERLAYS-2026-09-25's display bullet) dropping out of the
+        // index or holding an intact building. The row stays: it holds Repair only while stock
+        // shows the building destroyed and the walk has it intact, i.e. a destruction no
+        // ledger row carries yet (a flight not committed). When that flight's destruction row
+        // lands before it, this row is the one the walk charges, so a repair now would be a
+        // second charge.
+        [Fact]
+        public void AnUnchargedRepairAfterARepair_HoldsOnlyAnUnledgeredDestruction()
+        {
+            Ledger.AddAction(Destroy(50, PadBuilding));
+            Ledger.AddAction(Repair(100, PadBuilding));
+            Ledger.AddAction(Repair(400, PadBuilding));
+            var index = CommittedFutureIndexCache.Current;
+
+            Assert.False(StockUiReservationPredicates.IsFacilityRepairBlocked(index, Pad(false), 200));
+            Assert.True(StockUiReservationPredicates.IsFacilityRepairBlocked(index, Pad(true), 200));
+            Assert.Equal(400.0,
+                StockUiReservationPredicates.CommittedRepairCoveringDestruction(index, PadBuilding, 200).UT);
+            Assert.False(StockUiReservationPredicates.IsFacilityRepairBlocked(index, Pad(true), 400));
+        }
+
         [Fact]
         public void Blocked_TwoBuildingsRepairedOnDifferentDates_ListsBoth_AndLiftsBuildingByBuilding()
         {

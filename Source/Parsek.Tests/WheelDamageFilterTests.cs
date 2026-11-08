@@ -126,11 +126,10 @@ namespace Parsek.Tests
 
         #region IsRendererOnDamagedTransform
 
-        // Only a null Transform is reachable headlessly: a real one needs the Unity runtime,
-        // and an uninitialized one compares equal to null. So every names value here reaches
-        // the transform half of the guard only, and the parent walk would also answer false
-        // for a null start. The names half of the guard and the ancestor walk have no unit
-        // coverage; they need a live Transform.
+        // A real Transform needs the Unity runtime, so the null-transform guard is the only
+        // part of the Transform adapter reachable headlessly; the names guard and the
+        // ancestor walk live in the pure IsNodeOrAncestorNamed, exercised below over a
+        // fake node chain (TQ-2-wheel-damage-guard-needs-live-transform).
         [Theory]
         [InlineData(null)]
         [InlineData("")]
@@ -142,6 +141,65 @@ namespace Parsek.Tests
                 : name.Length == 0 ? new HashSet<string>()
                 : new HashSet<string> { name };
             Assert.False(GhostVisualBuilder.IsRendererOnDamagedTransform(null, damagedNames));
+        }
+
+        private sealed class FakeNode
+        {
+            public string Name;
+            public FakeNode Parent;
+        }
+
+        private static bool Walk(FakeNode start, HashSet<string> names)
+        {
+            return GhostVisualBuilder.IsNodeOrAncestorNamed(
+                start, names, n => n.Name, n => n.Parent);
+        }
+
+        // root "wheelroot" <- "bustedwheel" <- "mesh" (the renderer's own node)
+        private static FakeNode MakeChain(out FakeNode root, out FakeNode damaged)
+        {
+            root = new FakeNode { Name = "wheelroot" };
+            damaged = new FakeNode { Name = "bustedwheel", Parent = root };
+            return new FakeNode { Name = "mesh", Parent = damaged };
+        }
+
+        [Fact]
+        public void IsNodeOrAncestorNamed_MatchOnParent_ReturnsTrue()
+        {
+            FakeNode leaf = MakeChain(out _, out _);
+            Assert.True(Walk(leaf, new HashSet<string> { "bustedwheel" }));
+        }
+
+        [Fact]
+        public void IsNodeOrAncestorNamed_MatchOnSelfAndOnRoot_ReturnsTrue()
+        {
+            FakeNode leaf = MakeChain(out _, out _);
+            Assert.True(Walk(leaf, new HashSet<string> { "mesh" }));
+            Assert.True(Walk(leaf, new HashSet<string> { "wheelroot" }));
+        }
+
+        [Fact]
+        public void IsNodeOrAncestorNamed_UnrelatedNames_ReturnsFalse()
+        {
+            FakeNode leaf = MakeChain(out _, out _);
+            Assert.False(Walk(leaf, new HashSet<string> { "otherwheel", "Mesh" }));
+        }
+
+        [Fact]
+        public void IsNodeOrAncestorNamed_MatchBelowStart_IsNotSeen()
+        {
+            // The walk goes up only: a damaged name on a child of the start is no match.
+            MakeChain(out _, out FakeNode damaged);
+            Assert.False(Walk(damaged.Parent, new HashSet<string> { "bustedwheel", "mesh" }));
+        }
+
+        [Fact]
+        public void IsNodeOrAncestorNamed_NullOrEmptyNames_ReturnsFalseWithLiveNode()
+        {
+            FakeNode leaf = MakeChain(out _, out _);
+            Assert.False(Walk(leaf, null));
+            Assert.False(Walk(leaf, new HashSet<string>()));
+            Assert.False(Walk(null, new HashSet<string> { "mesh" }));
         }
 
         #endregion

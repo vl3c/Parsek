@@ -453,7 +453,9 @@ confidently wrong.
   unlock — all benign per §0.
 - **Playback cases for `Docked`/`Undocked`** — no visual exists. Fix their identity fields as
   metadata hygiene only.
-- **Fairing clamshell**, **wheel damage meshes** (reversing the strip reintroduces a fixed bug),
+- **Fairing clamshell**, **wheel damage meshes** (reversing the strip reintroduces a fixed bug;
+  SUPERSEDED 2026-11-07 by WHEEL-DAMAGE-NOT-RECORDED, which clones the busted mesh hidden and swaps
+  it in only on a recorded break, so the both-meshes-at-once bug cannot return),
   **light RGB / steerable head** (free rider on M1), **KAL-1000 controller state** (its fidelity is
   the union of M4 + S5).
 

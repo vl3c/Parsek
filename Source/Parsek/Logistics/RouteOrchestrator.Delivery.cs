@@ -191,6 +191,9 @@ namespace Parsek.Logistics
                 route.RecordHold(
                     RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost,
                     lostReason, 0.0, currentUT);
+                // An armed Send Once / pause-after-run deliberately survives: an endpoint loss
+                // is retryable (like the blocked path's postponement holds), not the run, and
+                // every way back to ghost-driving honours or clears the arm.
                 route.TransitionTo(RouteStatus.EndpointLost, "endpoint-lost-at-delivery");
                 // M4b escrow-strand fix (PR #1180 review): see ApplyEndpointLost - drop any
                 // held escrow on the delivery-time endpoint-lost transition too (the cycle
