@@ -851,6 +851,60 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// In-session phase "revert-cleanup" of <see cref="OnLoad"/>: on a revert, keeps a
+        /// pending tree stashed during this transition or a pending Limbo tree, and discards an
+        /// orphaned one left over from a previous flight.
+        /// </summary>
+        internal static void OnLoadPhaseApplyRevertPendingTreeDisposition()
+        {
+            var revertDisposition = ClassifyRevertPendingTreeDisposition(
+                PendingTreeSlot.PendingStashedThisTransition,
+                PendingTreeSlot.HasPendingTree,
+                PendingTreeSlot.PendingTreeStateValue);
+            if (revertDisposition == RevertPendingTreeDisposition.KeepFreshlyStashed)
+            {
+                ParsekLog.Info("Scenario",
+                    "Revert: keeping freshly-stashed pending (stashed this transition) — " +
+                    $"tree={PendingTreeSlot.HasPendingTree}");
+                PendingTreeSlot.PendingStashedThisTransition = false;
+            }
+            else if (revertDisposition == RevertPendingTreeDisposition.KeepLimbo)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Revert: keeping pending Limbo tree " +
+                    $"'{PendingTreeSlot.PendingTree?.TreeName}' " +
+                    $"(state={PendingTreeSlot.PendingTreeStateValue}) — stashed for dispatch");
+            }
+            else if (revertDisposition == RevertPendingTreeDisposition.DiscardOrphaned)
+            {
+                ParsekLog.Info("Scenario", "Clearing orphaned pending tree on revert (stale from previous flight)");
+                DiscardPendingTreeAndAbandonDeferredFlightResults(
+                    "orphaned pending tree discarded on revert");
+            }
+        }
+
+        /// <summary>
+        /// Cold-load phase "missions" of <see cref="OnLoad"/>, after the committed trees and
+        /// missions loaded: prunes orphan missions, seeds defaults, reconciles selections and
+        /// normalizes one loop per tree, sparing the trees the save parks for a later restore.
+        /// </summary>
+        internal static void OnLoadPhaseReconcileMissionsWithCommittedTrees(ConfigNode node)
+        {
+            List<string> parkedTreeIds = CollectParkedTreeIdsForMissionPrune(node);
+            MissionStore.PruneOrphans(
+                RecordingStore.CommittedTrees,
+                parkedTreeIds);
+            MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
+            // Parked ids passed so the M-MIS-8 cross-tree link reconcile DEFERS while a
+            // parked tree (possibly a link's foreign tree) is not committed yet - dropping
+            // the link now would permanently lose the player's partner-journey selection.
+            MissionStore.ReconcileSelections(RecordingStore.CommittedTrees, parkedTreeIds);
+            // Trees passed so the one-loop invariant also covers SPANNED tree sets
+            // (a cross-tree-linked loop vs a loop on its linked foreign tree).
+            MissionStore.NormalizeOneLoopPerTree(RecordingStore.CommittedTrees);
+        }
+
         public override void OnLoad(ConfigNode node)
         {
             // Pre-Parsek backup hold (PreParsekBackup): a save whose first-time backup failed
@@ -1452,30 +1506,7 @@ namespace Parsek
                         // survive long enough for the current OnLoad to classify it correctly.
                         // On true revert the later soft-unstash branch below clears it again;
                         // on quickload/non-revert paths other dispatch owns it.
-                        var revertDisposition = ClassifyRevertPendingTreeDisposition(
-                            PendingTreeSlot.PendingStashedThisTransition,
-                            PendingTreeSlot.HasPendingTree,
-                            PendingTreeSlot.PendingTreeStateValue);
-                        if (revertDisposition == RevertPendingTreeDisposition.KeepFreshlyStashed)
-                        {
-                            ParsekLog.Info("Scenario",
-                                "Revert: keeping freshly-stashed pending (stashed this transition) — " +
-                                $"tree={PendingTreeSlot.HasPendingTree}");
-                            PendingTreeSlot.PendingStashedThisTransition = false;
-                        }
-                        else if (revertDisposition == RevertPendingTreeDisposition.KeepLimbo)
-                        {
-                            ParsekLog.Info("Scenario",
-                                $"Revert: keeping pending Limbo tree " +
-                                $"'{PendingTreeSlot.PendingTree?.TreeName}' " +
-                                $"(state={PendingTreeSlot.PendingTreeStateValue}) — stashed for dispatch");
-                        }
-                        else if (revertDisposition == RevertPendingTreeDisposition.DiscardOrphaned)
-                        {
-                            ParsekLog.Info("Scenario", "Clearing orphaned pending tree on revert (stale from previous flight)");
-                            DiscardPendingTreeAndAbandonDeferredFlightResults(
-                                "orphaned pending tree discarded on revert");
-                        }
+                        OnLoadPhaseApplyRevertPendingTreeDisposition();
                     }
 
                     // Restore tree recording mutable state from RECORDING_TREE nodes.
@@ -2019,18 +2050,7 @@ namespace Parsek
                 // node restored LATER in this OnLoad by TryRestoreActiveTreeNode, or an already
                 // stashed pending tree) so PruneOrphans does not strip the mission name + loop
                 // settings of a tree that survives but is not yet committed. Limbo-tree data-loss fix.
-                List<string> parkedTreeIds = CollectParkedTreeIdsForMissionPrune(node);
-                MissionStore.PruneOrphans(
-                    RecordingStore.CommittedTrees,
-                    parkedTreeIds);
-                MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
-                // Parked ids passed so the M-MIS-8 cross-tree link reconcile DEFERS while a
-                // parked tree (possibly a link's foreign tree) is not committed yet - dropping
-                // the link now would permanently lose the player's partner-journey selection.
-                MissionStore.ReconcileSelections(RecordingStore.CommittedTrees, parkedTreeIds);
-                // Trees passed so the one-loop invariant also covers SPANNED tree sets
-                // (a cross-tree-linked loop vs a loop on its linked foreign tree).
-                MissionStore.NormalizeOneLoopPerTree(RecordingStore.CommittedTrees);
+                OnLoadPhaseReconcileMissionsWithCommittedTrees(node);
 
                 // Cold-start active-tree restore (quickload-resume cold path).
                 // When the player quits KSP mid-flight and later relaunches + "Resume Saved

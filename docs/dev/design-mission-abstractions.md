@@ -740,7 +740,7 @@ into stack "AB" and later undock:
   `HandleAltitudeBoundarySplit` early-returns.
 - Environment / body recording splits (optimizer):
   `RecordingOptimizer.IsSplittableEnvOrBodyBoundary`, run by
-  `RecordingStore.RunOptimizationPass`.
+  `CommittedListOptimizer.RunOptimizationPass`.
 - Chain identity reset: scene-resume restoring only `ActiveTreeId` (the live chain
   commits, including the vessel-switch termination, were removed as unreachable in
   always-tree mode).

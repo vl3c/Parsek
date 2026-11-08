@@ -73,7 +73,7 @@ namespace Parsek
             // Breakup-during-segment falsely triggered the prompt).
             string switchSegmentReason;
             var switchSegmentDisposition =
-                RecordingStore.TryDiscardActiveSwitchSegmentAttempt(
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
                     out switchSegmentReason);
             if (switchSegmentDisposition
                 != RecordingStore.SwitchSegmentDiscardDisposition.NoActiveSession)
@@ -119,7 +119,7 @@ namespace Parsek
             ParsekScenario.DiscardPendingTreeAndRecalculate("merge dialog discard");
             if (refreshSerializedPendingMarker)
             {
-                RecordingStore.RefreshSaveAndQuicksaveAfterDiscard(
+                TreeDiscardService.RefreshSaveAndQuicksaveAfterDiscard(
                     "merge dialog Tree Discard", discardedRecordingCount);
             }
             else
