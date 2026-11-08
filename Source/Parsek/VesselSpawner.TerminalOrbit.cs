@@ -332,7 +332,7 @@ namespace Parsek
             }
         }
 
-        private static double TryGetOrbitPeriod(Orbit orbit, CelestialBody body)
+        internal static double TryGetOrbitPeriod(Orbit orbit, CelestialBody body)
         {
             try
             {
@@ -414,7 +414,7 @@ namespace Parsek
             }
         }
 
-        private static string FormatOptionalDouble(double value)
+        internal static string FormatOptionalDouble(double value)
         {
             return TerminalOrbitSpawnSafety.IsFinite(value)
                 ? value.ToString("R", CultureInfo.InvariantCulture)

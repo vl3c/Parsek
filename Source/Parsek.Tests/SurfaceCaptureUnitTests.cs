@@ -213,6 +213,19 @@ namespace Parsek.Tests
             Assert.False(ParsekFlightSurfaceCapture.IsCreatedVesselTreeMember(null, act, 5));
         }
 
+        [Fact]
+        public void CreatedVesselTreeMember_PidZeroIsNeverAMemberEvenWhenSomethingCarriesZero()
+        {
+            // A zero created pid is refused by its own check, not only by a miss: here both
+            // membership arms would match a zero (a background entry keyed 0 and an active
+            // recording whose vessel pid is still 0).
+            var act = new Recording { RecordingId = "act", VesselPersistentId = 0 };
+            var tree = Tree(act);
+            tree.BackgroundMap[0] = "bg-zero";
+            Assert.False(ParsekFlightSurfaceCapture.IsCreatedVesselTreeMember(tree, act, 0));
+            Assert.False(ParsekFlightSurfaceCapture.IsCreatedVesselTreeMember(tree, null, 0));
+        }
+
         private static SegmentEvent PickUpEvent() =>
             FlagPickUp.BuildEvent(42.5, "Mun", 1, 2, 3, "Flag One");
 
