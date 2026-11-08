@@ -2982,6 +2982,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   reassignable of which 12 are test seams; writers, outside readers, reset paths, hosts), from
   the same IL tool. Nothing outside the type writes a field except the `OnTimelineDataChanged`
   event, and nine of the 17 methods of 90 lines or more touch no `LedgerOrchestrator` static.
+- Wave 2 W5c (2026-11-08, this branch, extract-method): `GhostMapPresence.ResolveMapPresenceGhostSource`
+  (603 lines) is a sequence of phase helpers in the same partial file (input, materialized and
+  terminal gates; covering segment; OrbitalCheckpoint SOI gap; state vector; terminal-orbit
+  fallback; the decision emission), the longest 89 lines. Pinned before the split by a golden
+  capture of every decision exit (`MapPresenceSourceResolveCharacterizationTests`).
 - Wave 2 W9b (2026-11-08, this branch, S1 extract-method): the 200-line
   `FlightRecorder.RestoreTrackSectionAfterFalseAlarm` calls four extracted units: the
   resume-anchor validation, the Relative-to-Absolute boundary repair, the start-UT alignment
@@ -3639,6 +3644,25 @@ compare).
   (file-placement PR 4 deletes `OrbitReseed -> GhostMapPresence`: on the tree it was measured
   on, greedy 285 -> 290, replayed 285). The bound is unchanged by this (287 after RecordingStore
   PR3) and the greedy sequence stays the documented one.
+- 2026-11-07 (refactor branch, W4a): a semantic edge source, behind a flag. Not a Roslyn
+  extractor: `scripts/arch/ilgraph.py` parses the `ikdasm` dump of the built Parsek.dll (stdlib
+  Python, no new package; the DLL is built by every test run) and `semantic.py` measures the
+  same knot and residue over the text model's nodes, with a call to a forwarder credited to the
+  forwarded type. On 668a03255: text residue 179, semantic 150 (knot 432 vs 390); 712 text-only
+  and 637 IL-only edges, all classified (inlined constants, enum members and `nameof`, nested
+  qualifiers, text false positives on the text side; members reached through values, `var`,
+  inferred generics and base lists, which the text scan never reads, on the IL side). CI runs
+  its real-tree cells after the build (`PARSEK_ARCH_IL`). Also: `--check` and
+  `test_atlas_prose_matches_the_tree` now flag literal numbers in undated atlas prose that
+  disagree with the model (`PROSE_NUMBER_CLAIMS`). The ratchet still reads the text scan until
+  W4a2 switches it.
+- 2026-11-07 (refactor branch, W4a2): the residue ratchet reads the semantic graph:
+  `test_semantic.test_the_semantic_residue_ratchet`, bound 150 (min of greedy and replayed over
+  `SEMANTIC_CUT_ORDER` on 668a03255, a tree that still passed the text bound 179). The text
+  residue cell keeps measuring, unbounded, so deleting the RecordingStore metric forwarders (W4c)
+  no longer fights the ratchet. The ratchet runs only with `PARSEK_ARCH_IL` (CI after the build).
+  `WorkflowRunsTheRatchetTests` reds if the CI step that sets it stops running; measure the Debug
+  DLL (a Release build drops typed locals and can read lower).
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

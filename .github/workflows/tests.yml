@@ -108,7 +108,10 @@ jobs:
       # with zero output).
       - name: Install mono
         run: |
-          if command -v mono >/dev/null; then
+          # ikdasm (mono-devel) disassembles Parsek.dll for the semantic
+          # architecture graph below; a runner image with mono but without
+          # mono-devel still installs it.
+          if command -v mono >/dev/null && command -v ikdasm >/dev/null; then
             echo "mono already present: $(mono --version | head -1)"
             exit 0
           fi
@@ -123,8 +126,21 @@ jobs:
             sleep 10
           done
           command -v mono >/dev/null || { echo "::error::mono install failed after retries"; exit 1; }
+          command -v ikdasm >/dev/null || { echo "::error::ikdasm (mono-devel) missing after install"; exit 1; }
 
       - name: Build + run xUnit suite
         env:
           KSPDIR: ${{ github.workspace }}/ksp-refs
         run: scripts/cloud-test.sh
+
+      # The semantic type graph (scripts/arch/ilgraph.py + semantic.py): the
+      # same knot and cut residue as the architecture map, measured on the
+      # compiled Parsek.dll the step above built, where a call through a
+      # forwarder counts as a call to the forwarded type. Its real-tree cells
+      # skip only when PARSEK_ARCH_IL is unset, so here they always run; the
+      # report (residue next to the text scan's, every disagreement
+      # classified) goes to the step log. About a minute.
+      - name: Architecture semantic graph (compiled IL)
+        env:
+          PARSEK_ARCH_IL: ${{ github.workspace }}/Source/Parsek/bin/Debug/Parsek.dll
+        run: python3 -m unittest discover -s scripts/arch -p 'test_semantic.py' -q
