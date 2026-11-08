@@ -862,7 +862,7 @@ namespace Parsek.TestCommands
         /// <c>SpawnControlUI.DrawIfOpen</c>), while nothing raises one WITHOUT A PLAYER
         /// CLICK. Draw paths do raise open flags, but every raise site is a
         /// <c>GUILayout.Button</c> handler: the RouteRunPrompt banner's "Open Logistics"
-        /// button inside <c>ParsekUI.DrawWindow</c> (<c>ParsekUI.cs:809</c>);
+        /// button inside <c>ParsekUI.DrawWindow</c> (<c>ParsekUI.cs:781</c>);
         /// <c>RecordingsTableUI.ShowMissionForRecording</c> / <c>ScrollToRecording</c>
         /// (<c>RecordingsTableUI.cs:467</c> / <c>:521</c>), reached from the Missions
         /// Docked partner rows' Go to and the two Timeline GoTo buttons; and

@@ -3304,13 +3304,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # the two references that held 18 stock-screen types in the kernel: 432, and nine of
         # them (the overlay controller, the RnD / facility / astronaut decorations, the live
         # snapshot, the reason tooltip, the Mission Control UI and two patches, which call
-        # each other) are left as their own 9-type knot.
+        # each other) are left as their own 9-type knot. Wave 2 W6 moves the flight map
+        # markers out of ParsekUI into ParsekFlightMapMarkers, which reaches the knot and is
+        # reached from its host: 433.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [432, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [433, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3452,21 +3454,25 @@ class RealTreeSmokeTests(unittest.TestCase):
         # first, the flight controller second, and the route cut third without its
         # GhostPlaybackLogic and LoopUnit references (the first cut already dropped them).
         # W3b takes 18 stock-screen types out of the knot (432 before; each of the first
-        # three cuts lands 18 lower).
+        # three cuts lands 18 lower). W6 adds ParsekFlightMapMarkers (the flight map markers
+        # moved out of ParsekUI), which only its host reaches: the flight controller's cut
+        # now drops it too and breaks the 22-each tie, so the flight controller goes first
+        # (433 -> 410) and the ghost playback logic second (410 -> 388, the same references).
         first, second, third = self.model["knots"][0]["cuts"][:3]
-        self.assertEqual(first["sink"], "GhostPlaybackLogic")
-        self.assertEqual(first["sizeBefore"], 432)
+        self.assertEqual(first["sink"], "ParsekFlight")
+        self.assertEqual(first["sizeBefore"], 433)
         self.assertEqual(first["sizeAfter"], 410)
-        for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
-            self.assertIn(dropped, first["droppedReferences"])
-        self.assertEqual(second["sink"], "ParsekFlight")
-        self.assertEqual(second["sizeBefore"], 410)
-        self.assertEqual(second["sizeAfter"], 388)
-        for service in ("ParsekFlightGhostPositioner", "ParsekFlightMergeFlow",
+        for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers",
+                        "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
                         "ParsekFlightSpawnHost", "ParsekFlightSplitBrancher",
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
-            self.assertIn(service, second["droppedReferences"])
+            self.assertIn(service, first["droppedReferences"])
+        self.assertEqual(second["sink"], "GhostPlaybackLogic")
+        self.assertEqual(second["sizeBefore"], 410)
+        self.assertEqual(second["sizeAfter"], 388)
+        for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
+            self.assertIn(dropped, second["droppedReferences"])
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
         # that made the launch-identity cut (dropping its RecordingSidecarStore and
         # VesselNameStore references) beat the flight controller for second

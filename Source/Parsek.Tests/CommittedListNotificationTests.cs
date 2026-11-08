@@ -426,7 +426,7 @@ namespace Parsek.Tests
                 "GhostMapPresence.ReindexPresenceAfterDelete(index);",
                 "Positioner.ClearOrbitPlaybackCaches();",
                 "Positioner.ShiftLoopSeamTracesAfterDelete(index);",
-                "ui?.ClearMapMarkerCache();",
+                "mapMarkers?.ClearMapMarkerCache();",
                 "loggedOrbitSegments.Clear();",
                 "loggedOrbitRotationSegments.Clear();",
                 "policy.RemovePendingSpawn(removed.RecordingId);");
@@ -437,7 +437,7 @@ namespace Parsek.Tests
                 "watchMode.OnRecordingInserted(index);",
                 "Positioner.ClearOrbitPlaybackCaches();",
                 "Positioner.ShiftLoopSeamTracesAfterInsert(index);",
-                "ui?.ClearMapMarkerCache();",
+                "mapMarkers?.ClearMapMarkerCache();",
                 "loggedOrbitSegments.Clear();",
                 "loggedOrbitRotationSegments.Clear();");
 

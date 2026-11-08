@@ -135,7 +135,7 @@ The Timeline's view row (`Overview` / `Details` / `Rewind/FF` / `Re-Fly` / `Care
 | Blocked-action popup | `CommittedActionDialog` | A refused stock-control click, no UI parent |
 | Flight-map ghost icon menu | `Patches/GhostVesselLoadPatch.cs` (`ParsekGhostIconMenu`) | Clicking a ghost icon in the flight map; NO parent window |
 | Tracking Station ghost icon menu | `ParsekTrackingStation` (`ParsekTrackingStationGhostMenu`) | Clicking a ghost icon in the TS; NO parent window |
-| Flight map markers | `ParsekUI.DrawMapMarkers` | Map view |
+| Flight map markers | `ParsekFlightMapMarkers.DrawMapMarkers` | Map view |
 | Tracking Station markers | `ParsekTrackingStation.OnGUI` | Tracking Station |
 | In-world ghost labels | `ParsekFlight.DrawGhostLabels` (text from `SpawnWarningUI`) | Flight |
 
