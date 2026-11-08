@@ -3028,6 +3028,17 @@ columns whose blanks are visible, where the old outline simply said nothing.
   production code reads only `CrashReconcileInProgress` directly; all other access goes
   through named methods. `OnLoad` writes 11 of the fields itself, and the extracted
   `OnLoadPhase*` methods write none.
+- Wave 2 W9a (2026-11-08, this branch, extract-method; each PR characterized against the
+  original code first): #2467 splits `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` into gate
+  groups and `ComputeSpanLoopFrame` into pieces; #2475 splits out `UpdatePlayback`'s
+  per-trajectory body, its exits and frame tail, and `UpdateLoopingPlayback`'s overlap branch;
+  #2482 extracts five blocks of `UpdateUnitMemberPlayback`, and the follow-up moves its descent
+  handoff block into `ApplyDescentHandoffHide` (UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME). Left
+  in place: the cycle-boundary block of `UpdateLoopingPlayback`, which reads the ghost's
+  transform and so cannot be driven headless. Dropped: `GhostVisualBuilder.AddPartVisuals` and
+  `GhostPlaybackLogic.ApplyPartEvents`. AddPartVisuals is Unity work from top to bottom, so no
+  headless test can characterize it. ApplyPartEvents is already a flat dispatcher, and its one
+  worthwhile cut (the switch body) is where main adds the wheel break / repair cases.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

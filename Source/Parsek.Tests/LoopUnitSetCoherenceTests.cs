@@ -127,33 +127,41 @@ namespace Parsek.Tests
 
             // The descent-member override and the handoff hide live in ApplyDescentMemberRenderOverride and
             // ApplyDescentHandoffHide, whose bodies sit after UpdateUnitMemberPlayback. The ordering
-            // anchors on their call sites (the first occurrence of each name), and each body is checked to
-            // hold its own decision.
-            int descentOverride = engine.IndexOf(
+            // anchors on their call sites (the first occurrence of each name, before its declaration),
+            // and each brace-matched body is checked to hold its own decision, so a later method's
+            // call cannot satisfy the body check.
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(engine);
+            int descentOverride = prepared.IndexOf(
                 "ApplyDescentMemberRenderOverride(", StringComparison.Ordinal);
-            int overrideBody = engine.IndexOf(
+            int overrideDecl = prepared.IndexOf(
                 "static void ApplyDescentMemberRenderOverride(", StringComparison.Ordinal);
-            int descentResolve = engine.IndexOf(
-                "GhostPlaybackLogic.ResolveDescentMemberEngineRender(", StringComparison.Ordinal);
-            int handoffCall = engine.IndexOf(
+            int handoffCall = prepared.IndexOf(
                 "ApplyDescentHandoffHide(", StringComparison.Ordinal);
-            int handoffBody = engine.IndexOf(
+            int handoffDecl = prepared.IndexOf(
                 "static void ApplyDescentHandoffHide(", StringComparison.Ordinal);
-            int handoffDecision = engine.IndexOf(
-                "GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(", StringComparison.Ordinal);
-            int forcedHide = engine.IndexOf(
-                "hiddenForDescentHandoff = true;", StringComparison.Ordinal);
-            int loiterClamp = engine.IndexOf(
+            int loiterClamp = prepared.IndexOf(
                 "GhostPlaybackLogic.ClampTransferMemberHeadToLoiterGap(", StringComparison.Ordinal);
 
             Assert.True(descentOverride >= 0, "descent-member override missing");
-            Assert.True(overrideBody > descentOverride && descentResolve > overrideBody,
-                "the descent-member override must resolve the descent head in its own body");
+            Assert.True(overrideDecl > descentOverride,
+                "the descent-member override must be called before its declaration");
+            string overrideBody = SourceScanText.BraceMatchedBlock(
+                prepared, prepared.IndexOf('{', overrideDecl));
+            Assert.Contains("GhostPlaybackLogic.ResolveDescentMemberEngineRender(", overrideBody);
+
             Assert.True(handoffCall >= 0, "engine handoff hide call missing");
-            Assert.True(handoffBody > handoffCall && handoffDecision > handoffBody,
+            Assert.True(handoffDecl > handoffCall,
+                "the handoff hide must be called before its declaration");
+            string handoffBody = SourceScanText.BraceMatchedBlock(
+                prepared, prepared.IndexOf('{', handoffDecl));
+            int handoffDecision = handoffBody.IndexOf(
+                "GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(", StringComparison.Ordinal);
+            int forcedHide = handoffBody.IndexOf(
+                "hiddenForDescentHandoff = true;", StringComparison.Ordinal);
+            Assert.True(handoffDecision >= 0,
                 "the handoff hide must make the handoff decision in its own body");
             Assert.True(forcedHide > handoffDecision,
-                "the forced hide belongs to the handoff block");
+                "the forced hide belongs to the handoff block, after its decision");
             Assert.True(loiterClamp >= 0, "loiter-gap clamp call missing");
 
             Assert.True(descentOverride < handoffCall,
