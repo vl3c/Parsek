@@ -710,8 +710,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The reopened section's start UT: the boundary seed's UT when it is finite and not
-        /// after the resume UT (non-checkpoint resumes only), else the resume UT.
+        /// The reopened section's start UT: the boundary seed's UT when it is finite and at most
+        /// <see cref="SectionBoundaryUtEpsilon"/> after the resume UT (non-checkpoint resumes
+        /// only), else the resume UT.
         /// </summary>
         internal static double ResolveFalseAlarmResumeSectionStartUT(
             double ut,
