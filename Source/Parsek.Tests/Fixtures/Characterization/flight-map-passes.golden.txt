@@ -1,0 +1,303 @@
+== create-empty-queue
+seed pending=[] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=500
+after pending=[] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-segment-accepted
+seed pending=[0:c1/False/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=500
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c1 currentUT=500.0 source=Segment reason=(none) segmentBody=Kerbin segmentUT=400.0-600.0 sourceKind=Segment rec=c1 body=Kerbin sourceUT=400.0-600.0 epoch=400.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c1 idx=0 vessel="Char c1" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING reason=map-presence-pending-create
+log [Parsek][VERBOSE][GhostMap] create-dispatch: rec=c1 idx=0 vessel="Char c1" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING
+log [Parsek][VERBOSE][GhostMap] create-segment-intent: rec=c1 idx=0 vessel="Char c1" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 scene=LOADING
+log [Parsek][ERROR][GhostMap] BuildAndLoadGhostProtoVessel(segment): body 'Kerbin' not found for recording index=0 (from visible-segment)
+after pending=[] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-before-any-data-stays-pending
+seed pending=[0:c2/False/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=50
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c2 currentUT=50.0 source=None reason=before-activation activationStartUT=100.0 sourceKind=None rec=c2 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c2 idx=0 vessel="Char c2" source=None branch=(n/a) body=(none) ut=50.0 scene=LOADING reason=before-activation
+after pending=[0:c2/False/(null) ] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=60
+after pending=[0:c2/False/(null) ] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-terminal-orbit-after-end
+seed pending=[0:c3/False/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=950
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c3 currentUT=950.0 source=TerminalOrbit reason=(none) terminalBody=Kerbin endUT=900.0 seedBody=Kerbin seedSource=endpoint-segment endpointBody=Kerbin seedFallback=(none) tailConsidered=True tailAccepted=False tailDecline=no-absolute-coast-tail tailUT=NaN tailSma=NaN tailEcc=NaN latestSegmentEndUT=NaN drift=NaNs tailFrame=(none) sourceKind=TerminalOrbit rec=c3 body=Kerbin sourceUT=100.0-900.0 epoch=400.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c3 idx=0 vessel="Char c3" source=TerminalOrbit branch=(n/a) body=Kerbin terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 ut=950.0 scene=LOADING reason=map-presence-pending-create
+log [Parsek][VERBOSE][GhostMap] create-dispatch: rec=c3 idx=0 vessel="Char c3" source=TerminalOrbit branch=(n/a) body=Kerbin terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 ut=950.0 scene=LOADING
+log [Parsek][VERBOSE][GhostMap] create-terminal-orbit-intent: rec=c3 idx=0 vessel="Char c3" source=TerminalOrbit branch=(n/a) body=Kerbin terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 scene=LOADING
+log [Parsek][ERROR][GhostMap] BuildAndLoadGhostProtoVessel: body 'Kerbin' not found for recording index=0
+after pending=[] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-state-vector-points-only
+seed pending=[0:c4/False/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=500
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] GetAtmosphereDepth: FlightGlobals unavailable for body=Kerbin (TypeInitializationException) — using 0
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c4 currentUT=500.0 source=StateVector reason=(none) stateVectorBody=Kerbin alt=75000 speed=2200.0 sourceKind=StateVector rec=c4 body=Kerbin sourceUT=100.0 pointUT=100.0 alt=75000 speed=2200.0 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c4 idx=0 vessel="Char c4" source=StateVector branch=(n/a) body=Kerbin stateVecAlt=75000 stateVecSpeed=2200.0 ut=500.0 scene=LOADING reason=map-presence-pending-create
+log [Parsek][VERBOSE][GhostMap] create-dispatch: rec=c4 idx=0 vessel="Char c4" source=StateVector branch=(n/a) body=Kerbin stateVecAlt=75000 stateVecSpeed=2200.0 ut=500.0 scene=LOADING
+log [Parsek][VERBOSE][GhostMap] create-state-vector-intent: rec=c4 idx=0 vessel="Char c4" source=StateVector branch=(n/a) body=Kerbin stateVecAlt=75000 stateVecSpeed=2200.0 ut=500.0 scene=LOADING
+log [Parsek][ERROR][GhostMap] create-state-vector-miss: rec=c4 idx=0 vessel="Char c4" source=StateVector branch=(n/a) body=Kerbin ut=500.0 scene=LOADING reason=body-not-found
+after pending=[] last=[] svCached=[0:0 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-soi-gap-pending-flags
+seed pending=[0:c5/True/Mun ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=700
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c5 currentUT=700.0 source=TerminalOrbit reason=(none) terminalBody=Kerbin endUT=900.0 seedBody=Kerbin seedSource=endpoint-segment endpointBody=Kerbin seedFallback=(none) tailConsidered=True tailAccepted=False tailDecline=no-absolute-coast-tail tailUT=NaN tailSma=NaN tailEcc=NaN latestSegmentEndUT=NaN drift=NaNs tailFrame=(none) sourceKind=TerminalOrbit rec=c5 body=Kerbin sourceUT=100.0-900.0 epoch=400.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c5 idx=0 vessel="Char c5" source=TerminalOrbit branch=(n/a) body=Kerbin terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 ut=700.0 scene=LOADING reason=map-presence-pending-create
+log [Parsek][VERBOSE][GhostMap] create-dispatch: rec=c5 idx=0 vessel="Char c5" source=TerminalOrbit branch=(n/a) body=Kerbin terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 ut=700.0 scene=LOADING
+log [Parsek][VERBOSE][GhostMap] create-terminal-orbit-intent: rec=c5 idx=0 vessel="Char c5" source=TerminalOrbit branch=(n/a) body=Kerbin terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 scene=LOADING
+log [Parsek][ERROR][GhostMap] BuildAndLoadGhostProtoVessel: body 'Kerbin' not found for recording index=0
+after pending=[] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-landed-past-segments
+seed pending=[0:c6/False/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=700
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c6 currentUT=700.0 source=None reason=terminal-Landed terminal=Landed sourceKind=None rec=c6 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c6 idx=0 vessel="Char c6" source=None branch=(n/a) body=(none) ut=700.0 scene=LOADING reason=terminal-Landed
+after pending=[0:c6/False/(null) ] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=950
+after pending=[0:c6/False/(null) ] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-several-pending
+seed pending=[2:c7c/False/(null) 0:c7a/False/(null) 1:c7b/False/(null) ] last=[] svCached=[1:0 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=500
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c7c currentUT=500.0 source=None reason=terminal-Landed terminal=Landed sourceKind=None rec=c7c body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c7c idx=2 vessel="Char c7c" source=None branch=(n/a) body=(none) ut=500.0 scene=LOADING reason=terminal-Landed
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c7a currentUT=500.0 source=Segment reason=(none) segmentBody=Kerbin segmentUT=400.0-600.0 sourceKind=Segment rec=c7a body=Kerbin sourceUT=400.0-600.0 epoch=400.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c7a idx=0 vessel="Char c7a" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING reason=map-presence-pending-create
+log [Parsek][VERBOSE][GhostMap] GetAtmosphereDepth: FlightGlobals unavailable for body=Kerbin (TypeInitializationException) — using 0
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c7b currentUT=500.0 source=StateVector reason=(none) stateVectorBody=Kerbin alt=75000 speed=2200.0 sourceKind=StateVector rec=c7b body=Kerbin sourceUT=100.0 pointUT=100.0 alt=75000 speed=2200.0 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c7b idx=1 vessel="Char c7b" source=StateVector branch=(n/a) body=Kerbin stateVecAlt=75000 stateVecSpeed=2200.0 ut=500.0 scene=LOADING reason=map-presence-pending-create
+log [Parsek][VERBOSE][GhostMap] create-dispatch: rec=c7a idx=0 vessel="Char c7a" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING
+log [Parsek][VERBOSE][GhostMap] create-segment-intent: rec=c7a idx=0 vessel="Char c7a" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 scene=LOADING
+log [Parsek][ERROR][GhostMap] BuildAndLoadGhostProtoVessel(segment): body 'Kerbin' not found for recording index=0 (from visible-segment)
+log [Parsek][VERBOSE][GhostMap] create-dispatch: rec=c7b idx=1 vessel="Char c7b" source=StateVector branch=(n/a) body=Kerbin stateVecAlt=75000 stateVecSpeed=2200.0 ut=500.0 scene=LOADING
+log [Parsek][VERBOSE][GhostMap] create-state-vector-intent: rec=c7b idx=1 vessel="Char c7b" source=StateVector branch=(n/a) body=Kerbin stateVecAlt=75000 stateVecSpeed=2200.0 ut=500.0 scene=LOADING
+log [Parsek][ERROR][GhostMap] create-state-vector-miss: rec=c7b idx=1 vessel="Char c7b" source=StateVector branch=(n/a) body=Kerbin ut=500.0 scene=LOADING reason=body-not-found
+after pending=[2:c7c/False/(null) ] last=[] svCached=[1:0 2:-1 0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=950
+after pending=[2:c7c/False/(null) ] last=[] svCached=[1:0 2:-1 0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-pending-index-not-committed
+seed pending=[4:c8/False/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=500
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c8 currentUT=500.0 source=Segment reason=(none) segmentBody=Kerbin segmentUT=400.0-600.0 sourceKind=Segment rec=c8 body=Kerbin sourceUT=400.0-600.0 epoch=400.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c8 idx=4 vessel="Char c8" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING reason=map-presence-pending-create
+log [Parsek][VERBOSE][GhostMap] create-dispatch: rec=c8 idx=4 vessel="Char c8" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING
+log [Parsek][VERBOSE][GhostMap] create-segment-intent: rec=c8 idx=4 vessel="Char c8" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 scene=LOADING
+log [Parsek][ERROR][GhostMap] BuildAndLoadGhostProtoVessel(segment): body 'Kerbin' not found for recording index=4 (from visible-segment)
+after pending=[] last=[] svCached=[4:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-loop-out-of-window-hidden
+seed pending=[0:c9/False/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=3500
+after pending=[0:c9/False/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-loop-in-window-synthesis
+seed pending=[0:c10/False/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=2500
+log [Parsek][VERBOSE][GhostMap] IsTerminalOrbitSynthesisSafeForLoopMember: rec=c10 result=True reason=same-body terminalBody=Kerbin lastPointBody=Kerbin
+log [Parsek][VERBOSE][Policy] Pending map-create accepting terminal-orbit synthesis for loop member rec=#0 vessel="Char c10" pendingLoopShift=2000.0
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c10 currentUT=500.0 source=Segment reason=(none) segmentBody=Kerbin segmentUT=400.0-600.0 sourceKind=Segment rec=c10 body=Kerbin sourceUT=400.0-600.0 epoch=400.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c10 idx=0 vessel="Char c10" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING reason=map-presence-pending-create
+log [Parsek][VERBOSE][GhostMap] create-dispatch: rec=c10 idx=0 vessel="Char c10" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING
+log [Parsek][VERBOSE][GhostMap] create-segment-intent: rec=c10 idx=0 vessel="Char c10" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 scene=LOADING
+log [Parsek][ERROR][GhostMap] BuildAndLoadGhostProtoVessel(segment): body 'Kerbin' not found for recording index=0 (from visible-segment)
+after pending=[] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=2600
+after pending=[] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== create-loop-in-window-cross-body-terminal
+seed pending=[0:c11/False/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=2500
+log [Parsek][VERBOSE][GhostMap] IsTerminalOrbitSynthesisSafeForLoopMember: rec=c11 result=False reason=cross-body-terminal terminalBody=Mun lastPointBody=Kerbin
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=c11 currentUT=500.0 source=Segment reason=(none) segmentBody=Kerbin segmentUT=400.0-600.0 sourceKind=Segment rec=c11 body=Kerbin sourceUT=400.0-600.0 epoch=400.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=c11 idx=0 vessel="Char c11" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING reason=map-presence-pending-create
+log [Parsek][VERBOSE][GhostMap] create-dispatch: rec=c11 idx=0 vessel="Char c11" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 ut=500.0 scene=LOADING
+log [Parsek][VERBOSE][GhostMap] create-segment-intent: rec=c11 idx=0 vessel="Char c11" source=Segment branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 scene=LOADING
+log [Parsek][ERROR][GhostMap] BuildAndLoadGhostProtoVessel(segment): body 'Kerbin' not found for recording index=0 (from visible-segment)
+after pending=[] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-index-out-of-range
+seed pending=[] last=[5:Kerbin/1/0 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=500
+after pending=[] last=[5:Kerbin/1/0 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-no-segments
+seed pending=[] last=[0:Kerbin/1/0 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=500
+after pending=[] last=[0:Kerbin/1/0 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-unchanged-key
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=500
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-changed-key
+seed pending=[] last=[0:Kerbin/1/0 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=500
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=510
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-terminal-fallback
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=700
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=700.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r4 currentUT=700.0 source=TerminalOrbit reason=(none) terminalBody=Kerbin endUT=900.0 seedBody=Kerbin seedSource=endpoint-segment endpointBody=Kerbin seedFallback=(none) tailConsidered=True tailAccepted=False tailDecline=no-absolute-coast-tail tailUT=NaN tailSma=NaN tailEcc=NaN latestSegmentEndUT=NaN drift=NaNs tailFrame=(none) sourceKind=TerminalOrbit rec=r4 body=Kerbin sourceUT=100.0-900.0 epoch=400.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r4 idx=0 vessel="Char r4" source=TerminalOrbit branch=(n/a) body=Kerbin terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 ut=700.0 scene=LOADING reason=map-presence-orbit-update
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=710
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=710.0 body=GAP(no-segment) covered=False source=StateVector effSegs=1 seg=n/a
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=950
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-future-segment-requeue
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=300
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=300.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r5 currentUT=300.0 source=None reason=terminal-Landed terminal=Landed sourceKind=None rec=r5 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r5 idx=0 vessel="Char r5" source=None branch=(n/a) body=(none) ut=300.0 scene=LOADING reason=terminal-Landed
+log [Parsek][VERBOSE][MapPresence] Re-queued recording #0 to pendingMapVessels (gap between orbit segments expectedBody=Kerbin)
+after pending=[0:r5/True/Kerbin ] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-future-segment-already-pending
+seed pending=[0:r6/False/Duna ] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=300
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=300.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r6 currentUT=300.0 source=None reason=terminal-Landed terminal=Landed sourceKind=None rec=r6 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r6 idx=0 vessel="Char r6" source=None branch=(n/a) body=(none) ut=300.0 scene=LOADING reason=terminal-Landed
+after pending=[0:r6/False/Duna ] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-left-orbit-segments
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=700
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=700.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r7 currentUT=700.0 source=None reason=terminal-Landed terminal=Landed sourceKind=None rec=r7 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r7 idx=0 vessel="Char r7" source=None branch=(n/a) body=(none) ut=700.0 scene=LOADING reason=terminal-Landed
+after pending=[] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-left-orbit-cached-state-vector
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=950
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=950.0 body=GAP(no-segment) covered=False source=StateVector effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r8 currentUT=950.0 source=None reason=terminal-Landed terminal=Landed sourceKind=None rec=r8 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r8 idx=0 vessel="Char r8" source=None branch=(n/a) body=(none) ut=950.0 scene=LOADING reason=terminal-Landed
+after pending=[] last=[] svCached=[0:1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-terminal-retention
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=950
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=950.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r9 currentUT=950.0 source=None reason=no-current-segment hasOrbitSegments=True sourceKind=None rec=r9 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r9 idx=0 vessel="Char r9" source=None branch=(n/a) body=(none) ut=950.0 scene=LOADING reason=no-current-segment
+log [Parsek][INFO][Policy] Map presence retained because terminal real spawn is pending/deferred: rec=r9 idx=0 vessel="Char r9" currentUT=950.00 reason=pending-terminal-real-spawn
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[r9 ]
+-- Reseed ut=960
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=960.0 body=GAP(no-segment) covered=False source=StateVector effSegs=1 seg=n/a
+log [Parsek][VERBOSE][Policy] Map presence retained because terminal real spawn is pending/deferred: rec=r9 idx=0 vessel="Char r9" currentUT=960.00 reason=pending-terminal-real-spawn
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[r9 ]
+-- Reseed ut=970
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[r9 ]
+== reseed-terminal-retention-deferred-reason
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=950
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=950.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r10 currentUT=950.0 source=None reason=no-current-segment hasOrbitSegments=True sourceKind=None rec=r10 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r10 idx=0 vessel="Char r10" source=None branch=(n/a) body=(none) ut=950.0 scene=LOADING reason=no-current-segment
+log [Parsek][INFO][Policy] Map presence retained because terminal real spawn is pending/deferred: rec=r10 idx=0 vessel="Char r10" currentUT=950.00 reason=char-deferred
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[r10 ]
+== reseed-terminal-retention-no-id
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=950
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=950.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=(null) currentUT=950.0 source=None reason=no-current-segment hasOrbitSegments=True sourceKind=None rec=(null) body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=(null) idx=0 vessel="Char r11" source=None branch=(n/a) body=(none) ut=950.0 scene=LOADING reason=no-current-segment
+log [Parsek][INFO][Policy] Map presence retained because terminal real spawn is pending/deferred: rec=(null) idx=0 vessel="Char r11" currentUT=950.00 reason=deferred
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[0 ]
+-- Reseed ut=955
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=955.0 body=GAP(no-segment) covered=False source=StateVector effSegs=1 seg=n/a
+log [Parsek][VERBOSE][Policy] Map presence retained because terminal real spawn is pending/deferred: rec=(null) idx=0 vessel="Char r11" currentUT=955.00 reason=deferred
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[0 ]
+== reseed-gap-points-glide
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=400
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=400.0 body=Kerbin covered=False source=StateVector effSegs=2 seg=[200.0,300.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][Policy] Flight gap-points glide: member=0 effUT=400.0 body=Kerbin alt=90000 reFlySuppressed=False (orbit-raise gap, icon glides recorded ascent instead of segment carry)
+after pending=[] last=[0:Kerbin/0/0 ] svCached=[0:1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=401
+log [Parsek][VERBOSE][Policy] Flight gap-points glide: member=0 effUT=401.0 body=Kerbin alt=90000 reFlySuppressed=False (orbit-raise gap, icon glides recorded ascent instead of segment carry)
+after pending=[] last=[0:Kerbin/0/0 ] svCached=[0:1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=550
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=550.0 body=Kerbin covered=True source=Segment effSegs=2 seg=[500.0,600.0] sma=800000 ecc=0.010 | suppressed=1
+after pending=[] last=[0:Kerbin/800000/0.01 ] svCached=[0:1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-gap-points-no-bracket
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=400
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=400.0 body=Kerbin covered=False source=StateVector effSegs=2 seg=[200.0,300.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][Policy] Flight gap-points glide skipped (no bracketing point): member=0 effUT=400.0 (falling through to same-body segment carry)
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=401
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-loop-out-of-window-requeue
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=3500
+log [Parsek][VERBOSE][MapPresence] Re-queued recording #0 to pendingMapVessels (gap between orbit segments expectedBody=(none))
+after pending=[0:r14/True/(null) ] last=[] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-loop-in-window-reapplies
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=2500
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=2510
+after pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-several-indices
+seed pending=[] last=[3:Kerbin/1/0 1:Kerbin/700000/0.01 2:Kerbin/1/0 0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=300
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=3 effUT=300.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r16d currentUT=300.0 source=TerminalOrbit reason=(none) terminalBody=Kerbin endUT=900.0 seedBody=Kerbin seedSource=endpoint-segment endpointBody=Kerbin seedFallback=(none) tailConsidered=True tailAccepted=False tailDecline=no-absolute-coast-tail tailUT=NaN tailSma=NaN tailEcc=NaN latestSegmentEndUT=NaN drift=NaNs tailFrame=(none) sourceKind=TerminalOrbit rec=r16d body=Kerbin sourceUT=100.0-900.0 epoch=400.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r16d idx=3 vessel="Char r16d" source=TerminalOrbit branch=(n/a) body=Kerbin terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 ut=300.0 scene=LOADING reason=map-presence-orbit-update
+log [Parsek][INFO][Policy] Switched ghost map orbit for #3 "Char r16d" to terminal-orbit fallback during sparse gap body=Kerbin sma=700000
+log [Parsek][VERBOSE][GhostMap] update-terminal-orbit-fallback: rec=r16d idx=3 vessel="Char r16d" source=TerminalOrbit branch=(n/a) body=Kerbin segmentBody=Kerbin segmentUT=100.0-900.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 ut=300.0 scene=LOADING reason=sparse-gap-fallback
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=1 effUT=300.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r16b currentUT=300.0 source=None reason=terminal-Landed terminal=Landed sourceKind=None rec=r16b body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r16b idx=1 vessel="Char r16b" source=None branch=(n/a) body=(none) ut=300.0 scene=LOADING reason=terminal-Landed
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=300.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][GhostMap] HasOrbitData(IPlaybackTrajectory): body=Kerbin sma=700000 result=True
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r16a currentUT=300.0 source=TerminalOrbit reason=(none) terminalBody=Kerbin endUT=900.0 seedBody=Kerbin seedSource=endpoint-segment endpointBody=Kerbin seedFallback=(none) tailConsidered=True tailAccepted=False tailDecline=no-absolute-coast-tail tailUT=NaN tailSma=NaN tailEcc=NaN latestSegmentEndUT=NaN drift=NaNs tailFrame=(none) sourceKind=TerminalOrbit rec=r16a body=Kerbin sourceUT=100.0-900.0 epoch=400.0 sma=700000 ecc=0.010000 world=(unresolved)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r16a idx=0 vessel="Char r16a" source=TerminalOrbit branch=(n/a) body=Kerbin terminalOrbitBody=Kerbin terminalSma=700000 terminalEcc=0.0100 ut=300.0 scene=LOADING reason=map-presence-orbit-update
+log [Parsek][VERBOSE][MapPresence] Re-queued recording #1 to pendingMapVessels (gap between orbit segments expectedBody=Kerbin)
+after pending=[1:r16b/True/Kerbin ] last=[3:Kerbin/700000/0.01 2:Kerbin/1/0 0:Kerbin/700000/0.01 ] svCached=[3:-1 1:-1 0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=500
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=3 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+after pending=[1:r16b/True/Kerbin ] last=[3:Kerbin/700000/0.01 2:Kerbin/1/0 0:Kerbin/700000/0.01 ] svCached=[3:-1 1:-1 0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=700
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=3 effUT=700.0 body=GAP(no-segment) covered=False source=StateVector effSegs=1 seg=n/a
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=700.0 body=GAP(no-segment) covered=False source=StateVector effSegs=1 seg=n/a
+after pending=[1:r16b/True/Kerbin ] last=[3:Kerbin/700000/0.01 2:Kerbin/1/0 0:Kerbin/700000/0.01 ] svCached=[3:-1 1:-1 0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+== reseed-then-create-cycle
+seed pending=[] last=[0:Kerbin/700000/0.01 ] svCached=[] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=300
+log [Parsek][VERBOSE][MapTraj] FLIGHT covering-segment CHANGED: member=0 effUT=300.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] map-presence-orbit-update: rec=r17 currentUT=300.0 source=None reason=terminal-Landed terminal=Landed sourceKind=None rec=r17 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r17 idx=0 vessel="Char r17" source=None branch=(n/a) body=(none) ut=300.0 scene=LOADING reason=terminal-Landed
+log [Parsek][VERBOSE][MapPresence] Re-queued recording #0 to pendingMapVessels (gap between orbit segments expectedBody=Kerbin)
+after pending=[0:r17/True/Kerbin ] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=300
+log [Parsek][VERBOSE][GhostMap] map-presence-pending-create: rec=r17 currentUT=300.0 source=None reason=terminal-Landed terminal=Landed sourceKind=None rec=r17 body=(none) sourceUT=(none) world=(none)
+log [Parsek][VERBOSE][GhostMap] source-resolve: rec=r17 idx=0 vessel="Char r17" source=None branch=(n/a) body=(none) ut=300.0 scene=LOADING reason=terminal-Landed
+after pending=[0:r17/True/Kerbin ] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Create ut=450
+after pending=[0:r17/True/Kerbin ] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
+-- Reseed ut=450
+after pending=[0:r17/True/Kerbin ] last=[] svCached=[0:-1 ] svTraj=[] soiBodies=[] retentionLogged=[]
