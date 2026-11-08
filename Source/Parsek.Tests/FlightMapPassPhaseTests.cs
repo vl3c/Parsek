@@ -405,6 +405,41 @@ namespace Parsek.Tests
             Assert.Contains("o", GhostMapPresence.flightTerminalMapRetentionLoggedIds);
         }
 
+        [UnityEntryFact]
+        public void ReseedPass_LoopMemberNoSegment_UsesTheLoopSampleUTNotTheLiveUT()
+        {
+            // A Mission-loop member in its window: live UT 2300 maps to effUT 300, before the
+            // only segment (400-600). The no-segment arm must resolve and scan at effUT (the
+            // future segment re-queues it), not at the live UT (past every segment, where it
+            // would be removed without a re-queue). Off the loop path effUT == currentUT, so
+            // only a loop member tells the two apart.
+            var rec = LandedSegmentRecording("u");
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            GhostMapPresence.flightLastMapOrbitByIndex[0] = ("Kerbin", 700000, 0.01);
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0 }, spanStartUT: 100, spanEndUT: 900,
+                cadenceSeconds: 2000, phaseAnchorUT: 100);
+            var units = new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
+                new Dictionary<int, int> { { 0, 0 } });
+
+            var pass = typeof(GhostMapPresence).GetMethod("RunFlightMapOrbitReseedPass",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.NotNull(pass);
+            try
+            {
+                pass.Invoke(null, new object[] { 2300.0, units, RecordingStore.CommittedRecordings });
+            }
+            catch (System.Reflection.TargetInvocationException e) { throw e.InnerException; }
+
+            Assert.Contains(logLines, l => l.Contains("map-presence-orbit-update: rec=u currentUT=300.0"));
+            Assert.True(GhostMapPresence.flightPendingMapVessels.ContainsKey(0));
+            Assert.Equal("Kerbin", GhostMapPresence.flightPendingMapVessels[0].ExpectedSoiGapBody);
+            Assert.False(GhostMapPresence.flightLastMapOrbitByIndex.ContainsKey(0));
+            Assert.Contains(logLines, l => l.Contains(
+                "Re-queued recording #0 to pendingMapVessels (gap between orbit segments expectedBody=Kerbin)"));
+        }
+
         // ------------------------------------------------ TryFindFirstFutureOrbitSegmentBody
 
         [Fact]
