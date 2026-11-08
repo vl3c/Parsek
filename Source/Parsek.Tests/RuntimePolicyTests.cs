@@ -953,7 +953,7 @@ namespace Parsek.Tests
                     (SegmentEnvironment.ExoPropulsive, 150, 180),
                     (SegmentEnvironment.ExoBallistic, 180, 500))
             };
-            ParsekUI.ApplyAutoLoopRange(rec, true);
+            RecordingsTableUI.ApplyAutoLoopRange(rec, true);
             Assert.Equal(100, rec.LoopStartUT);
             Assert.Equal(180, rec.LoopEndUT);
         }
@@ -966,7 +966,7 @@ namespace Parsek.Tests
                 LoopStartUT = 100,
                 LoopEndUT = 200,
             };
-            ParsekUI.ApplyAutoLoopRange(rec, false);
+            RecordingsTableUI.ApplyAutoLoopRange(rec, false);
             Assert.True(double.IsNaN(rec.LoopStartUT));
             Assert.True(double.IsNaN(rec.LoopEndUT));
         }
@@ -980,7 +980,7 @@ namespace Parsek.Tests
                     (SegmentEnvironment.Atmospheric, 100, 200),
                     (SegmentEnvironment.ExoPropulsive, 200, 300))
             };
-            ParsekUI.ApplyAutoLoopRange(rec, true);
+            RecordingsTableUI.ApplyAutoLoopRange(rec, true);
             Assert.True(double.IsNaN(rec.LoopStartUT));
             Assert.True(double.IsNaN(rec.LoopEndUT));
         }

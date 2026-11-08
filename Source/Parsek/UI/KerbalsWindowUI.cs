@@ -272,6 +272,22 @@ namespace Parsek
             ParsekLog.Verbose("UI", "KerbalsWindow: cache invalidated");
         }
 
+        /// <summary>
+        /// Hooks <see cref="InvalidateCache"/> to <c>LedgerOrchestrator.OnTimelineDataChanged</c>
+        /// (every ledger-side change). Called from both <see cref="ParsekUI"/> constructors,
+        /// after the Timeline window's hook, and undone by <see cref="UnsubscribeTimelineDataChanged"/> from
+        /// <c>ParsekUI.Cleanup</c>, so the hook lives and dies with the scene's ParsekUI.
+        /// </summary>
+        internal void SubscribeTimelineDataChanged()
+        {
+            LedgerOrchestrator.OnTimelineDataChanged += InvalidateCache;
+        }
+
+        internal void UnsubscribeTimelineDataChanged()
+        {
+            LedgerOrchestrator.OnTimelineDataChanged -= InvalidateCache;
+        }
+
         // ------------------------- the live-crew refresh -------------------------
 
         /// <summary>
