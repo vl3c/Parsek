@@ -283,6 +283,15 @@ Source/Parsek/RewindPointAuthor.cs
 # by walking to the effective recording, which is precisely the id we need to
 # store as SupersedeTargetId on the provisional re-fly record (design §6.3).
 Source/Parsek/RewindInvoker.cs
+# The RewindInvoker partial files (scripts/refactor/split_rewindinvoker.py) that hold its
+# raw reads, under the same rationale: the advisory's sibling slot names, the strip /
+# activate run and its resurrected-vessel hold, the disabled-slot strip and committed vessel
+# names, the marker write's provisional reap and origin lookup, and the in-place debris strip.
+Source/Parsek/RewindInvoker.Advisory.cs
+Source/Parsek/RewindInvoker.InPlaceDebris.cs
+Source/Parsek/RewindInvoker.MarkerWrite.cs
+Source/Parsek/RewindInvoker.SlotStrip.cs
+Source/Parsek/RewindInvoker.StripActivate.cs
 
 # ReconciliationBundle (design §6.4) captures the raw committed list + raw
 # ledger actions so the restore-after-load path can re-install them verbatim.
