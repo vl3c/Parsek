@@ -529,7 +529,7 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveReasonUnlessHeld_KeepsALineAnotherButtonStillShows()
         {
-            string text = StockUiRnDDecoration.AppendReason("The pad.", "why");
+            string text = StockUiText.AppendReason("The pad.", "why");
             Assert.Equal(text, StockUiFacilityDecoration.RemoveReasonUnlessHeld(text, "why", new[] { "why" }));
             Assert.Equal("The pad.", StockUiFacilityDecoration.RemoveReasonUnlessHeld(text, "why", new[] { "other" }));
             Assert.Equal("The pad.", StockUiFacilityDecoration.RemoveReasonUnlessHeld(text, "why", null));

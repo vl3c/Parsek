@@ -3161,22 +3161,23 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
 
 
-# The cut order the residue ratchet replays (test_cut_sequence_halves_the_largest_knot):
-# the greedy sequence on the refactor branch as of 2026-11-07. Re-pin it only
-# together with a tightened bound, never to loosen one.
+# The cut order the text residue replays (test_cut_sequence_halves_the_largest_knot):
+# the greedy sequence on the refactor branch after wave 2 W3b (2026-11-07). The ratchet
+# itself reads the semantic graph since W4a2 (semantic.SEMANTIC_CUT_ORDER); keep this
+# list equal to archview.RATCHET_CUT_ORDER (test_semantic.CutOrderTests).
 RATCHET_CUT_ORDER = [
-    "Route",
+    "GhostPlaybackLogic",
     "ParsekFlight",
+    "Route",
     "ParsekScenario",
     "RecordingStore",
-    "GameStateRecorder",
-    "LedgerOrchestrator",
     "RecordingTree",
+    "Mission",
+    "GameStateRecorder",
+    "EffectiveState",
+    "ParsekUI",
     "RouteOrchestrator",
     "FlightRecorder",
-    "GhostPlaybackLogic",
-    "ReFlySessionMarker",
-    "EffectiveState",
 ]
 
 
@@ -3298,13 +3299,18 @@ class RealTreeSmokeTests(unittest.TestCase):
         # OrbitReseed / RecordedTailVelocityResolver, which only reached it through
         # launch identity, are left as their own 2-type knot. W1b moves the hold decision
         # record out of ReFlyInvokeHold into the plain ReFlyHoldEntry, so the rewind hold
-        # (RewindVesselHold.Hold) no longer reaches the classifier: 450.
+        # (RewindVesselHold.Hold) no longer reaches the classifier: 450. Wave 2 W3b moves the
+        # ReasonColorHex const and AppendReason from StockUiRnDDecoration onto StockUiText,
+        # the two references that held 18 stock-screen types in the kernel: 432, and nine of
+        # them (the overlay controller, the RnD / facility / astronaut decorations, the live
+        # snapshot, the reason tooltip, the Mission Control UI and two patches, which call
+        # each other) are left as their own 9-type knot.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [450, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [432, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3395,6 +3401,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(findings["missingGlossary"], [])
         self.assertEqual(findings["staleReadings"], [])
         self.assertEqual(findings["missingReadingOrder"], [])
+        # A literal number in an undated prose string must match the model
+        # (archview.PROSE_NUMBER_CLAIMS); a dated one is history.
+        self.assertEqual(findings["staleNumbers"], [])
 
     def test_rendered_atlas_contains_the_live_facts(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -3442,15 +3451,17 @@ class RealTreeSmokeTests(unittest.TestCase):
         # cuts: the ghost playback logic now ties the flight controller (22 each) and goes
         # first, the flight controller second, and the route cut third without its
         # GhostPlaybackLogic and LoopUnit references (the first cut already dropped them).
+        # W3b takes 18 stock-screen types out of the knot (432 before; each of the first
+        # three cuts lands 18 lower).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "GhostPlaybackLogic")
-        self.assertEqual(first["sizeBefore"], 450)
-        self.assertEqual(first["sizeAfter"], 428)
+        self.assertEqual(first["sizeBefore"], 432)
+        self.assertEqual(first["sizeAfter"], 410)
         for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
             self.assertIn(dropped, first["droppedReferences"])
         self.assertEqual(second["sink"], "ParsekFlight")
-        self.assertEqual(second["sizeBefore"], 428)
-        self.assertEqual(second["sizeAfter"], 406)
+        self.assertEqual(second["sizeBefore"], 410)
+        self.assertEqual(second["sizeAfter"], 388)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
                         "ParsekFlightSpawnHost", "ParsekFlightSplitBrancher",
@@ -3472,10 +3483,10 @@ class RealTreeSmokeTests(unittest.TestCase):
         # ParsekFlightPostSwitchAutoRecord (434 before); PF4 moved it to third
         # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
         # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
-        # after W1b). Since W1c the third cut is the route (406 -> 387).
+        # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b).
         self.assertEqual(third["sink"], "Route")
-        self.assertEqual(third["sizeBefore"], 406)
-        self.assertEqual(third["sizeAfter"], 387)
+        self.assertEqual(third["sizeBefore"], 388)
+        self.assertEqual(third["sizeAfter"], 369)
         self.assertEqual(
             third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
 
@@ -3524,10 +3535,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # Wave 2 W1a (VesselLaunchIdentity's two store calls become installed rules) takes
         # it to 272 of 459 (greedy 272 too); W1b (RewindVesselHold.Hold carries the plain
         # ReFlyHoldEntry, not ReFlyInvokeHold's nested type) to 263 of 450; W1c
-        # (MissionPeriodicity no longer calls MissionLoopUnitBuilder) to 246 of 450, the bound
-        # pinned here. W1c also reorders the greedy sequence (GhostPlaybackLogic first) and the
-        # greedy residue drops to 201; the bound stays on the replayed measure of the pinned
-        # order, which a reorder cannot move.
+        # (MissionPeriodicity no longer calls MissionLoopUnitBuilder) to 246 of 450 on the
+        # then pinned order, with the greedy sequence reordered (GhostPlaybackLogic first) and
+        # the greedy residue at 201. Wave 2 W3b (ReasonColorHex and AppendReason move onto
+        # StockUiText) takes 18 stock-screen types out of the knot: the greedy sequence ends at
+        # 179 of 432, while the W1c-era order replays to 228. The order above is re-pinned to
+        # the new greedy one, which replays to 179, the last text bound pinned here.
         #
         # The bound applies to min(greedy residue, replayed residue). The greedy
         # sequence is a heuristic: deleting a real reference can change which
@@ -3535,16 +3548,26 @@ class RealTreeSmokeTests(unittest.TestCase):
         # steps (file-placement PR 4 deletes OrbitReseed -> GhostMapPresence and
         # the greedy residue rises 285 -> 290 on the tree it was measured on).
         # The replay removes the outgoing edges of the fixed order pinned below
-        # (the greedy order as of 2026-11-07; a name that leaves the model is
+        # (the greedy order after wave 2 W3b; a name that leaves the model is
         # skipped), and for a fixed set of cut types deleting an edge can only
         # shrink the remaining components, so the replayed residue never rises
         # when a reference is removed. The greedy sequence stays the reported,
         # documented one (test_first_cut_matches_the_documented_tree); the
         # minimum is only the ratchet's measure.
+        #
+        # RETIRED as the ratchet 2026-11-07 (W4a2): the bound moved to the
+        # semantic graph read from the compiled IL, where a call through a
+        # forwarder counts as a call to the forwarded type, so code can no
+        # longer move this text residue by adding or deleting forwarders
+        # (test_semantic.RealTreeSemanticTests.test_the_semantic_residue_ratchet,
+        # bound 150 = the semantic residue on 668a03255, a tree that still
+        # passed the text bound 179 here). The text residue stays measured and
+        # reported (`archview.py --check`, `semantic.py`), not bounded:
+        # deleting the RecordingStore metric forwarders (W4c) raises it.
         largest = self.model["knots"][0]
         graph = {entry["name"]: entry["referencesTo"] for entry in self.model["types"]}
         replayed = archview.replay_cut_residue(graph, RATCHET_CUT_ORDER)
-        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), 246)
+        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), largest["size"])
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}
