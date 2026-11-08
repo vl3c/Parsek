@@ -89,7 +89,9 @@ static field access) on another in-assembly type. A call to it is credited to
 the type the forward chain ends in, when every overload of that name and
 arity forwards to the same type. Deleting a forwarder and calling the service
 directly therefore leaves the graph unchanged, and adding one cannot hide an
-edge: the store's metric forwarders stop moving the residue.
+edge: the store's metric forwarders stop moving the residue. W4c (2026-11-08)
+deleted the 11 of them and pointed every caller at its service: the semantic
+residue stayed 150 and the text residue rose 179 -> 193.
 
 Why IL and not Roslyn: the DLL is already built by every CI run and every
 local test run, `ikdasm` is already a tooling dependency, the parser is

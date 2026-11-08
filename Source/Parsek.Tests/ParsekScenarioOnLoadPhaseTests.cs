@@ -6,11 +6,12 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Direct tests of the cold-load phases extracted from <c>ParsekScenario.OnLoad</c>
+    /// Direct tests of the load phases extracted from <c>ParsekScenario.OnLoad</c>
     /// (<c>OnLoadPhase*</c>). Their order inside OnLoad is pinned by
     /// <see cref="ParsekScenarioOnLoadCharacterizationTests"/>; these cells pin what each one
-    /// does. Touches shared static state (ParsekLog, RouteStore, MissionStore, the committed
-    /// trees, the crew replacement map, HighLogic.LoadedScene), hence Sequential.
+    /// does. Touches shared static state (ParsekLog, RecordingStore and the pending tree slot,
+    /// RouteStore, MissionStore, the crew replacement map, HighLogic.LoadedScene), hence
+    /// Sequential.
     /// </summary>
     [Collection("Sequential")]
     public class ParsekScenarioOnLoadPhaseTests : System.IDisposable
@@ -20,6 +21,9 @@ namespace Parsek.Tests
 
         public ParsekScenarioOnLoadPhaseTests()
         {
+            RecordingStore.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+            TreeDiscardPurge.ResetTestOverrides();
             ParsekLog.ResetTestOverrides();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
@@ -37,6 +41,9 @@ namespace Parsek.Tests
             RouteStore.ResetForTesting();
             MissionStore.ResetForTesting();
             RecordingStore.ClearCommittedTreesInternal();
+            RecordingStore.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+            TreeDiscardPurge.ResetTestOverrides();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -50,6 +57,29 @@ namespace Parsek.Tests
                 ExplicitStartUT = startUT,
                 ExplicitEndUT = endUT,
             };
+        }
+
+        private static RecordingTree Tree(string id, string name)
+        {
+            var tree = new RecordingTree
+            {
+                Id = id,
+                TreeName = name,
+                RootRecordingId = "root_" + id,
+                ActiveRecordingId = "root_" + id,
+            };
+            var rec = new Recording
+            {
+                RecordingId = "root_" + id,
+                VesselName = name,
+                TreeId = id,
+                ExplicitStartUT = 100,
+                ExplicitEndUT = 110,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100 });
+            rec.Points.Add(new TrajectoryPoint { ut = 110 });
+            tree.Recordings[rec.RecordingId] = rec;
+            return tree;
         }
 
         private static ConfigNode Snapshot()
@@ -173,6 +203,104 @@ namespace Parsek.Tests
             Assert.NotNull(due.VesselSnapshot);
             Assert.False(due.VesselSpawned);
             Assert.DoesNotContain(logLines, l => l.Contains("Auto-unreserved crew"));
+        }
+
+        // ---- revert-cleanup (pending tree disposition) ----
+
+        [Fact]
+        public void RevertDisposition_FreshlyStashed_KeepsTheTreeAndClearsTheTransitionFlag()
+        {
+            PendingTreeSlot.StashPendingTree(Tree("t_fresh", "Fresh"), PendingTreeState.Finalized);
+            Assert.True(PendingTreeSlot.PendingStashedThisTransition);
+            logLines.Clear();
+
+            ParsekScenario.OnLoadPhaseApplyRevertPendingTreeDisposition();
+
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.False(PendingTreeSlot.PendingStashedThisTransition);
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("Revert: keeping freshly-stashed pending (stashed this transition)")
+                && l.Contains("tree=True"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Clearing orphaned pending tree"));
+        }
+
+        [Fact]
+        public void RevertDisposition_LimboFromAnEarlierTransition_IsKept()
+        {
+            PendingTreeSlot.StashPendingTree(Tree("t_limbo", "Mun Mission"), PendingTreeState.Limbo);
+            PendingTreeSlot.PendingStashedThisTransition = false;
+            logLines.Clear();
+
+            ParsekScenario.OnLoadPhaseApplyRevertPendingTreeDisposition();
+
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("Revert: keeping pending Limbo tree 'Mun Mission' (state=Limbo)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Clearing orphaned pending tree"));
+        }
+
+        [Fact]
+        public void RevertDisposition_FinalizedFromAnEarlierTransition_IsDiscardedAsOrphan()
+        {
+            PendingTreeSlot.StashPendingTree(Tree("t_orphan", "Stale"), PendingTreeState.Finalized);
+            PendingTreeSlot.PendingStashedThisTransition = false;
+            logLines.Clear();
+
+            ParsekScenario.OnLoadPhaseApplyRevertPendingTreeDisposition();
+
+            Assert.False(PendingTreeSlot.HasPendingTree);
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("Clearing orphaned pending tree on revert (stale from previous flight)"));
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("DiscardPendingTree abandon path: orphaned pending tree discarded on revert"));
+        }
+
+        [Fact]
+        public void RevertDisposition_NothingPending_DoesNothing()
+        {
+            logLines.Clear();
+
+            ParsekScenario.OnLoadPhaseApplyRevertPendingTreeDisposition();
+
+            Assert.False(PendingTreeSlot.HasPendingTree);
+            Assert.DoesNotContain(logLines, l => l.Contains("Revert: keeping"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Clearing orphaned pending tree"));
+        }
+
+        // ---- missions (cold reconcile against the committed trees) ----
+
+        [Fact]
+        public void MissionsReconcile_PrunesOrphansSparesParkedTreesAndSeedsCommittedOnes()
+        {
+            MissionStore.EnsureDefaultsForTrees(new[] { Tree("t_gone", "Gone"), Tree("t_parked", "Parked") });
+            Assert.Equal(2, MissionStore.Missions.Count);
+            RecordingStore.AddCommittedTreeForTesting(Tree("t_live", "Live"));
+            var node = new ConfigNode("PARSEK");
+            var parked = node.AddNode("RECORDING_TREE");
+            parked.AddValue("id", "t_parked");
+            parked.AddValue("isActive", "True");
+            var plainCommitted = node.AddNode("RECORDING_TREE");
+            plainCommitted.AddValue("id", "t_gone");
+
+            ParsekScenario.OnLoadPhaseReconcileMissionsWithCommittedTrees(node);
+
+            Assert.Equal(0, MissionStore.CountForTree("t_gone"));
+            Assert.Equal(1, MissionStore.CountForTree("t_parked"));
+            Assert.Equal(1, MissionStore.CountForTree("t_live"));
+            Assert.Equal(2, MissionStore.Missions.Count);
+        }
+
+        [Fact]
+        public void MissionsReconcile_WithoutAParkedNode_PrunesTheUncommittedTreesMission()
+        {
+            MissionStore.EnsureDefaultsForTrees(new[] { Tree("t_parked", "Parked") });
+            RecordingStore.AddCommittedTreeForTesting(Tree("t_live", "Live"));
+
+            ParsekScenario.OnLoadPhaseReconcileMissionsWithCommittedTrees(new ConfigNode("PARSEK"));
+
+            Assert.Equal(0, MissionStore.CountForTree("t_parked"));
+            Assert.Equal(1, MissionStore.CountForTree("t_live"));
         }
     }
 }

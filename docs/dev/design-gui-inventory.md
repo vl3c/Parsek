@@ -710,7 +710,7 @@ Notable control semantics in the body:
 | `G` (+ `S` on a mission folder that absorbed its launched vessel's block) | `groupPicker.OpenForRecording / ForChain / ForRecordings / ForGroup`; `S` is `OpenForRecordings` over the absorbed segments | never disabled; adds later rejected by `CanAddToUserGroup` |
 | `X` on a folder | `ShowDisbandGroupConfirmation` (hover: its recordings and subfolders move up to the parent, nothing is deleted) | only for a non-permanent group. A recording row has no `X`: recordings are never player-deletable |
 | `W` / `W*` | `flight.EnterWatchMode(ri)` | `IsWatchButtonEnabled`; the column draws only in flight |
-| `FF` / `R` | `ShowFastForwardConfirmation` / `ShowRewindConfirmation` | `RecordingStore.CanFastForward` / `CanRewind`, refusal as the hover; `R` is suppressed entirely on an unfinished-flight row. SHOWN ONCE: a row under a folder / block that DREW the same target (same committed index) draws a blank cell (`IsTimeTargetShownByEnclosingRow`, `ResolveChildEnclosingTimeTargets`); STASH resets the inherited targets, so its rows keep theirs |
+| `FF` / `R` | `ShowFastForwardConfirmation` / `ShowRewindConfirmation` | `RewindLauncher.CanFastForward` / `CanRewind`, refusal as the hover; `R` is suppressed entirely on an unfinished-flight row. SHOWN ONCE: a row under a folder / block that DREW the same target (same committed index) draws a blank cell (`IsTimeTargetShownByEnclosingRow`, `ResolveChildEnclosingTimeTargets`); STASH resets the inherited targets, so its rows keep theirs |
 | `Fly` + `Seal` / `Stash` + `Seal` | `RewindInvoker.ShowDialog` / `UnfinishedFlightSealHandler.ShowConfirmation` / `UnfinishedFlightStashHandler.TryStash` | `ResolveReFlyColumnAction` |
 
 Pictures: `ksc-missions-recordings-advanced`, `ksc-missions-recordings-collapsed-advanced`,
@@ -897,9 +897,9 @@ most W + one of FF / R + Go to. The first row after now shows its time as the ho
 The rewind gate is five preconditions evaluated in this order, and the failing one's string
 becomes both the hover and the disabled-hover echo: `Rewind already in progress`,
 `No rewind save available`, `Stop recording before rewinding`, `Merge or discard pending tree
-first`, `Rewind save file missing` (`RecordingStore.CanRewind`). Precondition 2 also removes
+first`, `Rewind save file missing` (`RewindLauncher.CanRewind`). Precondition 2 also removes
 the button, so only 1, 3, 4 and 5 are reachable as greyed states. The FF gate is a
-six-condition near-mirror (`RecordingStore.CanFastForward`).
+six-condition near-mirror (`RewindLauncher.CanFastForward`).
 
 Warp row: a 186 px `Warp to time` button (twice the filter-cell floor) plus four 36 px
 Year / Day / Hour / Minute fields; the plan comes from `WarpToTimeMath.DecideWarpPlan`, the

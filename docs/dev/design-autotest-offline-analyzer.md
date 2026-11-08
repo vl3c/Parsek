@@ -605,7 +605,7 @@ lose the run-happened evidence; it only moves it out of the findings list.
   That pair is the on-disk residue of
   OPTIMIZER-SPLIT-DROPS-MERGESTATE-AND-CLOSES-AN-OPEN-REFLY-SLOT (fixed 2026-09-08,
   PR #1658): `MergeDialog.MergeCommit` promotes a re-flyable slot's tip to
-  `CommittedProvisional` and only THEN runs `RecordingStore.RunOptimizationPass()`;
+  `CommittedProvisional` and only THEN runs `CommittedListOptimizer.RunOptimizationPass()`;
   when the phase-change split cut the just-promoted recording,
   `RecordingOptimizer.TransferTerminalFieldsToSecondHalf` moved the terminal onto a
   brand-new chain TIP but not the `MergeState`, and `Recording.MergeState` defaults

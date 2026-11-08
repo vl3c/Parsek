@@ -767,8 +767,8 @@ namespace Parsek.Tests
             int helperEnd = rewindSrc.IndexOf("internal void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
             string helperBlock = rewindSrc.Substring(helperStart, helperEnd - helperStart);
 
-            Assert.Contains("RecordingStore.CanFastForward(", helperBlock);
-            Assert.Contains("RecordingStore.CanRewind(", helperBlock);
+            Assert.Contains("RewindLauncher.CanFastForward(", helperBlock);
+            Assert.Contains("RewindLauncher.CanRewind(", helperBlock);
             Assert.DoesNotContain("canWatch", rowBlock);
             Assert.DoesNotContain("hasGhost", rowBlock);
             Assert.DoesNotContain("sameBody", rowBlock);
@@ -782,9 +782,9 @@ namespace Parsek.Tests
             int groupEnd = groupSrc.IndexOf("// Hide group checkbox", groupStart, StringComparison.Ordinal);
             string groupBlock = groupSrc.Substring(groupStart, groupEnd - groupStart);
 
-            Assert.Contains("RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording)", groupBlock);
+            Assert.Contains("RewindLauncher.CanFastForward(mainRec, out ffReason, isRecording: isRecording)", groupBlock);
             Assert.Contains("FindGroupLegacyRewindRecordingIndex(descendants, committed, now)", groupBlock);
-            Assert.Contains("RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", groupBlock);
+            Assert.Contains("RewindLauncher.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", groupBlock);
             Assert.Contains("Rewind to launch: {targetName}", groupBlock);
             Assert.DoesNotContain("canWatch", groupBlock);
             Assert.DoesNotContain("hasGhost", groupBlock);
@@ -796,9 +796,9 @@ namespace Parsek.Tests
             string blockTemporal = rowsSrc.Substring(blockStart, blockEnd - blockStart);
 
             Assert.Contains("FindAggregateForwardRecordingIndex(members, committed, now)", blockTemporal);
-            Assert.Contains("RecordingStore.CanFastForward(forwardRec, out ffReason, isRecording: isRecording)", blockTemporal);
+            Assert.Contains("RewindLauncher.CanFastForward(forwardRec, out ffReason, isRecording: isRecording)", blockTemporal);
             Assert.Contains("FindAggregateLegacyRewindRecordingIndex(members, committed, now)", blockTemporal);
-            Assert.Contains("RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", blockTemporal);
+            Assert.Contains("RewindLauncher.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", blockTemporal);
             Assert.DoesNotContain("canWatch", blockTemporal);
             Assert.DoesNotContain("hasGhost", blockTemporal);
             Assert.DoesNotContain("sameBody", blockTemporal);

@@ -23992,7 +23992,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
     EXTRA_DROPS = {"B4-reentry-splashdown.toml": 1}
 
     # Recordings the optimizer adds at the in-flight commit, not debris. Since #1931 the
-    # seam CommitTree runs RecordingStore.RunOptimizationPass, which splits the ascent
+    # seam CommitTree runs CommittedListOptimizer.RunOptimizationPass, which splits the ascent
     # core where it leaves the atmosphere (PersistedPhaseChange Atmospheric ->
     # ExoBallistic). B7's exact window took that +1 on 2026-10-01 (reading
     # 2026-10-01_1310 red on 9 > max 8 alone, re-flight 2026-10-01_1508 PASS at 9). B2,
