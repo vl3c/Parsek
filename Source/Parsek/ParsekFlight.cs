@@ -5,6 +5,7 @@ using System.Globalization;
 using KSP.UI.Screens;
 using ToolbarControl_NS;
 using UnityEngine;
+using System.Runtime.CompilerServices;
 
 namespace Parsek
 {
@@ -2565,5 +2566,1016 @@ namespace Parsek
 
         internal void Log(string message) => ParsekLog.Verbose("Flight", message);
         internal void ScreenMessage(string message, float duration) => ParsekLog.ScreenMessage(message, duration);
+
+        // Public accessors for ParsekUI, the watch-mode diagnostics and the pre-cleanup watch exit and
+        // camera retarget.
+        public bool IsRecording => recorder?.IsRecording ?? false;
+        public bool IsPlaying => isPlaying;
+        public GameObject PreviewGhost => ghostObject;
+        public Dictionary<int, GameObject> TimelineGhosts
+        {
+            get
+            {
+                int currentFrame = Time.frameCount;
+                if (cachedTimelineGhostsFrame != currentFrame)
+                {
+                    cachedTimelineGhosts.Clear();
+                    foreach (var kv in ghostStates)
+                        cachedTimelineGhosts[kv.Key] = kv.Value.ghost;
+                    cachedTimelineGhostsFrame = currentFrame;
+                    ParsekLog.VerboseRateLimited("Flight", "timeline-ghosts-cache",
+                        $"TimelineGhosts: rebuilt cache, {cachedTimelineGhosts.Count} ghosts (frame {currentFrame})");
+                }
+                return cachedTimelineGhosts;
+            }
+        }
+        public bool HasActiveTree => activeTree != null;
+
+        // M-C2 EVA seam-verb read-only accessors (design-autotest-eva-missions.md, Data Model
+        // / "What Doesn't Change"): two dispatch/completion bits the ParsekTestCommands seam
+        // samples. No behavior change; both are pure reads over existing private state.
+
+        /// <summary>True while a deferred split / branch is in progress
+        /// (<c>pendingSplitInProgress</c>). The ParsekTestCommands seam's <c>EvaExit</c> defers
+        /// on it so the <c>OnCrewOnEva</c> skip path cannot silently swallow the branch.</summary>
+        internal bool StructuralSplitPending => pendingSplitInProgress;
+
+        /// <summary>True when Parsek's board-merge machinery is quiescent: no
+        /// <c>ChainToVesselPending</c> recorder flag and no <c>pendingBoardingTargetPid</c>. The
+        /// seam's <c>EvaBoard</c> completion holds until this reads true so a next FIFO command
+        /// can never land inside the board-merge window (F2). On a no-tree run neither token is
+        /// ever armed, so the bit reads true and is inert.</summary>
+        internal bool BoardMergeQuiescent =>
+            !(recorder != null && recorder.ChainToVesselPending) && pendingBoardingTargetPid == 0;
+
+        // Camera follow (watch mode) — forwarded from WatchModeController
+        internal bool IsWatchingGhost => watchMode.IsWatchingGhost;
+        internal int WatchedRecordingIndexForDiagnostics => watchMode != null
+            ? watchMode.WatchedRecordingIndex
+            : -1;
+        internal long WatchedLoopCycleIndexForDiagnostics => watchMode != null
+            ? watchMode.WatchedLoopCycleIndex
+            : -1;
+        internal int WatchedRecordingIndex => watchMode.WatchedRecordingIndex;
+        internal string DescribeWatchFocusForLogs() => watchMode != null
+            ? watchMode.DescribeWatchFocusForLogs()
+            : "watch=uninitialized";
+        internal string DescribeWatchEligibilityForLogs(int index) => watchMode != null
+            ? watchMode.DescribeWatchEligibilityForLogs(index)
+            : $"watchEval(rec=#{index} unavailable=watchMode-null)";
+        internal bool ExitWatchModeBeforeTimelineGhostCleanup(string context)
+        {
+            bool isWatchingGhost = watchMode != null && watchMode.IsWatchingGhost;
+            string focus = watchMode != null
+                ? watchMode.DescribeWatchFocusForLogs()
+                : "watch=uninitialized";
+            return ExitWatchModeBeforeTimelineGhostCleanup(
+                isWatchingGhost,
+                watchMode != null
+                    ? new Action<bool>(skipCameraRestore => watchMode.ExitWatchMode(skipCameraRestore))
+                    : null,
+                isWatchingGhost
+                    ? new Action(() => RetargetStockCamerasBeforeTimelineGhostCleanup(context, focus))
+                    : null,
+                context,
+                focus);
+        }
+
+        internal static bool ExitWatchModeBeforeTimelineGhostCleanup(
+            bool isWatchingGhost,
+            Action exitWatchMode,
+            Action detachStockCameraTarget,
+            string context,
+            string watchFocusForLogs = null)
+        {
+            return ExitWatchModeBeforeTimelineGhostCleanup(
+                isWatchingGhost,
+                exitWatchMode != null
+                    ? new Action<bool>(_ => exitWatchMode())
+                    : null,
+                detachStockCameraTarget,
+                context,
+                watchFocusForLogs);
+        }
+
+        internal static bool ExitWatchModeBeforeTimelineGhostCleanup(
+            bool isWatchingGhost,
+            Action<bool> exitWatchMode,
+            Action detachStockCameraTarget,
+            string context,
+            string watchFocusForLogs = null)
+        {
+            string cleanupContext = string.IsNullOrEmpty(context)
+                ? "timeline-ghost-cleanup"
+                : context;
+            string focus = string.IsNullOrEmpty(watchFocusForLogs)
+                ? "watch=unknown"
+                : watchFocusForLogs;
+
+            if (!isWatchingGhost)
+            {
+                ParsekLog.Verbose("CameraFollow",
+                    $"Watch cleanup guard: no active watch mode before {cleanupContext} ({focus})");
+                return false;
+            }
+
+            if (exitWatchMode == null)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Watch cleanup guard: active watch mode could not be exited before {cleanupContext} ({focus})");
+                return false;
+            }
+
+            ParsekLog.Info("CameraFollow",
+                $"Exiting watch mode before timeline ghost cleanup: context={cleanupContext} skipCameraRestore=true {focus}");
+            detachStockCameraTarget?.Invoke();
+            exitWatchMode(true);
+            return true;
+        }
+
+        private void RetargetStockCamerasBeforeTimelineGhostCleanup(
+            string context,
+            string watchFocusForLogs)
+        {
+            string cleanupContext = string.IsNullOrEmpty(context)
+                ? "timeline-ghost-cleanup"
+                : context;
+            string focus = string.IsNullOrEmpty(watchFocusForLogs)
+                ? "watch=unknown"
+                : watchFocusForLogs;
+            FlightCamera flightCamera = FlightCamera.fetch;
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+
+            if (flightCamera != null
+                && activeVessel != null
+                && activeVessel.gameObject != null)
+            {
+                flightCamera.SetTargetVessel(activeVessel);
+                ParsekLog.Verbose("CameraFollow",
+                    $"Watch cleanup guard: FlightCamera retargeted to active vessel '{activeVessel.vesselName}' before {cleanupContext} ({focus})");
+            }
+            else
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Watch cleanup guard: could not retarget FlightCamera before {cleanupContext} ({focus}) " +
+                    $"camera={(flightCamera != null)} activeVessel={(activeVessel != null)} " +
+                    $"activeVesselGo={(activeVessel != null && activeVessel.gameObject != null)}");
+            }
+
+            if (!MapView.MapIsEnabled)
+                return;
+
+            if (PlanetariumCamera.fetch != null
+                && activeVessel != null
+                && activeVessel.mapObject != null)
+            {
+                PlanetariumCamera.fetch.SetTarget(activeVessel.mapObject);
+                ParsekLog.Verbose("GhostMap",
+                    $"Watch cleanup guard: PlanetariumCamera retargeted to active vessel '{activeVessel.vesselName}' before {cleanupContext}");
+                return;
+            }
+
+            ParsekLog.Verbose("GhostMap",
+                $"Watch cleanup guard: skipped PlanetariumCamera retarget before {cleanupContext} " +
+                $"map={MapView.MapIsEnabled} camera={(PlanetariumCamera.fetch != null)} " +
+                $"activeVessel={(activeVessel != null)} mapObject={(activeVessel != null && activeVessel.mapObject != null)}");
+        }
+
+        // [ERS-exempt] Reads RecordingStore.CommittedRecordings by index only to pair a
+        // policy-held slot with its engine ghost (the engine's index-keyed contract). A
+        // superseded or rewind-retired tip is released by the policy's own hold checks.
+        /// <summary>
+        /// One spawn-blocked chain tip whose playback ghost the policy is holding past its end
+        /// UT (phase 6b-4, design 12.9.2 / 13.5). Resolved once when the hold is first seen, so
+        /// the per-frame positioning reads cached fields and allocates nothing.
+        /// </summary>
+        internal sealed class BlockedChainTipGhostState
+        {
+            public GhostChain chain;
+            public uint chainPid;
+            public int index;
+            public string recordingId;
+            public string vesselName;
+            public GameObject ghost;
+            public BlockedChainTipPoseSource source;
+            public CelestialBody body;
+            public Orbit orbit;
+            public double holdLat;
+            public double holdLon;
+            public double holdAlt;
+            public Quaternion surfaceRelativeRotation;
+            public double heldSinceUT;
+            public float lastPositionLogRealTime;
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> is the tip of an active ghost chain whose spawn is
+        /// collision-blocked. The policy exempts such a held ghost from the hold timeout.
+        /// </summary>
+        internal bool IsSpawnBlockedChainTipFromPolicy(Recording rec)
+        {
+            if (rec == null)
+                return false;
+            GhostChain chain = FindChainTipForRecording(activeGhostChains, rec);
+            return chain != null && chain.SpawnBlocked;
+        }
+
+        /// <summary>
+        /// Pure decision: should the controlled-child loop in
+        /// <see cref="ProcessBreakupEvent"/> skip creating a recording for a
+        /// breakup child whose live <see cref="Vessel"/> is already gone?
+        /// Such a child cannot be sampled or controlled after the coalescer
+        /// window; even with a pre-captured snapshot it becomes a destroyed
+        /// 1-point "Unknown" 0s row. The parent recording's BREAKUP branch
+        /// point already records the split.
+        /// </summary>
+        internal static bool ShouldSkipDeadOnArrivalControlledChild(
+            bool childVesselIsAlive,
+            bool hasPreCapturedSnapshot)
+        {
+            // Kept in the signature for call-site/test forensics: the 2026-04-26
+            // repro proved that snapshot presence does not make a destroyed live
+            // vessel a useful controlled continuation.
+            _ = hasPreCapturedSnapshot;
+            return !childVesselIsAlive;
+        }
+
+        internal static string BuildDeadOnArrivalControlledChildSkipLog(
+            uint pid,
+            bool hasPreCapturedSnapshot)
+        {
+            return $"ProcessBreakupEvent: skipping dead-on-arrival controlled child " +
+                $"pid={pid} (vessel destroyed before window expired, preCapturedSnapshot={hasPreCapturedSnapshot}) — " +
+                "would produce an 'Unknown' 0s row with no playback value";
+        }
+
+        // Why 50m: controlled child recordings should start on the live root-part
+        // position at the split, while debris still uses the pre-captured seed.
+        // KSP.log:16288 in logs/2026-05-02_1132_pr708-refly-long-init-behind
+        // showed a controlled child seed 1118.66m behind the live root because the
+        // along-track propagated residual looked acceptable. Keep both checks:
+        // direct distance catches stale init points, propagated residual catches
+        // seeds that are close in time but off the live root path.
+        internal const double ControlledChildLiveSeedResidualToleranceMeters = 50.0;
+        internal const double MaxBreakupSeedPropagationDeltaSeconds = 1.0;
+        // Production anchor lookup has a wider 1.0s search window, but authoring
+        // child seed flags must stay at physics-clock equality so later coalescer
+        // samples are not marked as structural-event snapshots.
+        internal const double StructuralEventChildSeedUTToleranceSeconds = 1e-6;
+
+        internal static bool ShouldFlagStructuralEventChildSeed(
+            TrajectoryPoint point,
+            double eventUT,
+            double toleranceSeconds = StructuralEventChildSeedUTToleranceSeconds)
+        {
+            if (!IsFinite(point.ut) || !IsFinite(eventUT))
+                return false;
+
+            double tolerance = Math.Max(0.0, toleranceSeconds);
+            return Math.Abs(point.ut - eventUT) <= tolerance;
+        }
+
+        internal static TrajectoryPoint ApplyStructuralEventFlagToChildSeed(
+            TrajectoryPoint point,
+            double eventUT,
+            double toleranceSeconds = StructuralEventChildSeedUTToleranceSeconds)
+        {
+            return ShouldFlagStructuralEventChildSeed(point, eventUT, toleranceSeconds)
+                ? FlightRecorder.ApplyStructuralEventFlag(point)
+                : point;
+        }
+
+        internal static TrajectoryPoint? ApplyStructuralEventFlagToChildSeed(
+            TrajectoryPoint? point,
+            double eventUT,
+            double toleranceSeconds = StructuralEventChildSeedUTToleranceSeconds)
+        {
+            if (!point.HasValue)
+                return null;
+
+            return ApplyStructuralEventFlagToChildSeed(point.Value, eventUT, toleranceSeconds);
+        }
+
+        internal static bool ShouldPreferLiveBreakupChildSeed(
+            bool childHasController,
+            bool liveVesselAvailable,
+            bool capturedSeedAvailable,
+            double seedLiveRootDistanceMeters,
+            double propagatedSeedLiveRootResidualMeters,
+            double toleranceMeters = ControlledChildLiveSeedResidualToleranceMeters)
+        {
+            // Debris seeds remain excluded in this PR: the controlled child is the
+            // user-visible Re-Fly stage, while debris needs a separate threshold policy.
+            if (!childHasController || !liveVesselAvailable || !capturedSeedAvailable)
+                return false;
+
+            double threshold = Math.Max(0.0, toleranceMeters);
+            bool directSeedMissesLiveRoot =
+                IsFinite(seedLiveRootDistanceMeters) && seedLiveRootDistanceMeters > threshold;
+            bool propagatedSeedMissesLiveRoot =
+                IsFinite(propagatedSeedLiveRootResidualMeters) && propagatedSeedLiveRootResidualMeters > threshold;
+
+            return directSeedMissesLiveRoot || propagatedSeedMissesLiveRoot;
+        }
+
+        internal static double ComputeBreakupSeedPropagatedResidualMeters(
+            Vector3d seedWorld,
+            Vector3 seedVelocity,
+            double seedUT,
+            Vector3d liveRootWorld,
+            double liveUT,
+            double maxPropagationDeltaSeconds = MaxBreakupSeedPropagationDeltaSeconds)
+        {
+            double dt = liveUT - seedUT;
+            if (!IsFinite(dt) || dt < 0 || dt > maxPropagationDeltaSeconds)
+                return double.NaN;
+
+            Vector3d velocity = new Vector3d(seedVelocity.x, seedVelocity.y, seedVelocity.z);
+            Vector3d propagatedSeedWorld = seedWorld + velocity * dt;
+            return (propagatedSeedWorld - liveRootWorld).magnitude;
+        }
+
+        /// <summary>
+        /// The ghost of one held-back vessel before its first claim (design 12.5): built from
+        /// the last Rewind-to-Launch's own copy of the vessel when it has one (the landing world
+        /// holds the vessel in its post-claim form), else from the snapshot <c>VesselGhoster</c>
+        /// took before the despawn, and posed where that copy says. Resolved once when shown.
+        /// </summary>
+        internal sealed class ClaimedVesselHoldGhostState
+        {
+            public uint pid;
+            public uint chainPid;
+            public string vesselName;
+            public ConfigNode snapshot;
+            public ConfigNode visual;
+            public bool fromRewindSave;
+            public GameObject ghost;
+            public bool buildFailed;
+            public CelestialBody body;
+            public Orbit orbit;
+            public ClaimedVesselHoldPose pose;
+            public Quaternion surfaceRelativeRotation;
+            public double shownSinceUT;
+            public bool inRange;
+        }
+
+        // Design section 2.12 Rule 3: survivors of a Re-Fly load that a committed recording
+        // flies or recovers after the rewind UT (ReFlyInvokeHold), held without a ghost chain.
+        // Keyed by pid; FirstClaimUT is the first committed use, after which the hold ghost
+        // yields to the committed recording.
+        internal readonly Dictionary<uint, ChainClaimedVessel> reFlyInvokeHolds =
+            new Dictionary<uint, ChainClaimedVessel>();
+
+        // Flag planting and pick-up capture into the active tree.
+        /// <summary>
+        /// Appends the planting date to the plaque text, right-aligned via TMP rich text.
+        /// </summary>
+        internal static string FormatPlaqueWithDate(string originalText, string formattedDate)
+        {
+            if (string.IsNullOrEmpty(formattedDate))
+                return originalText ?? "";
+
+            if (string.IsNullOrEmpty(originalText))
+                return formattedDate;
+
+            return originalText + " - " + formattedDate;
+        }
+
+        /// <summary>
+        /// Checks whether a flag planting event should be recorded for the given vessel.
+        /// The planting kerbal must be the recorded vessel (EVA kerbal) or crew on the recorded vessel.
+        /// </summary>
+        internal static bool ShouldRecordFlagEvent(string placedBy, Vessel recordedVessel)
+        {
+            if (string.IsNullOrEmpty(placedBy) || recordedVessel == null) return false;
+
+            return CrewContainsKerbalNamed(recordedVessel.GetVesselCrew(), placedBy);
+        }
+
+        internal static bool CrewContainsKerbalNamed(List<ProtoCrewMember> crew, string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName) || crew == null)
+                return false;
+
+            for (int i = 0; i < crew.Count; i++)
+            {
+                if (crew[i]?.name == kerbalName)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Finds the background-tracked vessel pid whose live crew contains the flag
+        /// planter, so a flag planted by a background tree member (e.g. an EVA kerbal
+        /// re-controlled after a vessel switch) can be captured into its recording.
+        /// Returns 0 when no background vessel matches. Pure decision helper (crew
+        /// lookup injected) so it is unit-testable without a live tree.
+        /// </summary>
+        internal static uint ResolveBackgroundFlagOwnerPid(
+            string placedBy,
+            IEnumerable<KeyValuePair<uint, string>> backgroundMap,
+            Func<uint, List<ProtoCrewMember>> crewLookup)
+        {
+            if (string.IsNullOrEmpty(placedBy) || backgroundMap == null || crewLookup == null)
+                return 0;
+
+            foreach (var entry in backgroundMap)
+            {
+                if (entry.Key == 0)
+                    continue;
+                if (CrewContainsKerbalNamed(crewLookup(entry.Key), placedBy))
+                    return entry.Key;
+            }
+
+            return 0;
+        }
+
+        /// <summary>
+        /// Appends a captured flag to a tree recording's FlagEvents, keeping the list
+        /// in stable UT order and marking the recording's sidecar dirty so the new
+        /// event persists. Used for background-tracked tree members whose FlagEvents
+        /// are written straight to the recording; the foreground recorder sorts and
+        /// marks dirty at flush time instead. The MarkFilesDirty call is load-bearing:
+        /// without it the .prec sidecar is skipped on the next OnSave and the flag is
+        /// lost on scene reload (see Recording.MarkFilesDirty).
+        /// </summary>
+        internal static void AppendFlagEventToTreeRecording(Recording rec, FlagEvent fe)
+        {
+            if (rec == null)
+                return;
+
+            rec.FlagEvents.Add(fe);
+
+            // Stable UT order: ApplyFlagEvents/SpawnFlagVesselsUpToUT cursor-walk the
+            // list and break on the first future-UT event, so a recording reused
+            // across rewind/re-fly that already holds a higher-UT flag would otherwise
+            // shadow the new one. Mirrors the foreground flush sort (#287).
+            var sorted = FlightRecorder.StableSortByUT(rec.FlagEvents, e => e.ut);
+            rec.FlagEvents.Clear();
+            rec.FlagEvents.AddRange(sorted);
+
+            rec.MarkFilesDirty();
+        }
+
+        /// <summary>
+        /// Creates the placed part's tree member one frame after the placement: in the
+        /// placement frame the parts exist but have not started, and the snapshot and
+        /// first pose are taken from the settled vessel.
+        /// </summary>
+        internal IEnumerator DeferredGroundPartPlacement(
+            string treeId, string parentRecId, uint vesselPid, double placementUT,
+            GroundPartPlacementSource source)
+        {
+            yield return null;
+
+            if (activeTree == null || activeTree.Id != treeId)
+            {
+                ParsekLog.Info("Flight",
+                    $"Ground part placement dropped: active tree changed before the deferred frame " +
+                    $"(vesselPid={vesselPid} tree={treeId})");
+                yield break;
+            }
+            Recording parentRec;
+            if (!activeTree.Recordings.TryGetValue(parentRecId, out parentRec) || parentRec == null)
+            {
+                ParsekLog.Warn("Flight",
+                    $"Ground part placement dropped: parent recording {parentRecId} left the tree " +
+                    $"(vesselPid={vesselPid})");
+                yield break;
+            }
+            Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
+            if (v == null || v.rootPart == null)
+            {
+                ParsekLog.Warn("Flight",
+                    $"Ground part placement dropped: placed vessel pid={vesselPid} is gone before the deferred frame");
+                yield break;
+            }
+            if (activeTree.BackgroundMap.ContainsKey(vesselPid))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"Ground part placement: vessel pid={vesselPid} already a tree member, skipping");
+                yield break;
+            }
+
+            SurfaceCapture.CreateGroundPartMember(parentRec, v, placementUT, source);
+        }
+
+        // The post-switch auto-record watch's types: its decisions, triggers, suppression reasons, the
+        // watch state and the orbit snapshot. The behaviour is ParsekFlightPostSwitchAutoRecord.
+        internal enum PostSwitchAutoRecordStartDecision
+        {
+            None,
+            PromoteTrackedRecording,
+            RestoreAndPromoteTrackedRecording,
+            StartFreshRecording
+        }
+
+        internal enum PostSwitchAutoRecordArmDecision
+        {
+            None,
+            ArmTrackedBackgroundMember,
+            ArmOutsider
+        }
+
+        internal enum PostSwitchAutoRecordTrigger
+        {
+            None,
+            EngineActivity,
+            SustainedRcsActivity,
+            AttitudeChange,
+            CrewChange,
+            ResourceChange,
+            PartStateChange,
+            LandedMotion,
+            OrbitChange
+        }
+
+        internal enum PostSwitchAutoRecordSuppressionReason
+        {
+            None,
+            Disabled,
+            AlreadyRecording,
+            NoActiveVessel,
+            ActiveVesselMismatch,
+            GhostMapVessel,
+            RestoreInProgress,
+            PendingTransition,
+            WarpActive,
+            PackedOrOnRails
+        }
+
+        internal struct PostSwitchOrbitSnapshot
+        {
+            public bool IsValid;
+            public string BodyName;
+            public double SemiMajorAxis;
+            public double Eccentricity;
+            public double Inclination;
+            public double LongitudeOfAscendingNode;
+            public double ArgumentOfPeriapsis;
+        }
+
+        internal sealed class PostSwitchAutoRecordState
+        {
+            public uint VesselPid;
+            public string VesselName;
+            public double ArmedAtUt;
+            public string ArmedReason;
+            public bool TrackedInActiveTree;
+            public string FreshStartParentRecordingId;
+            public bool BaselineCaptured;
+            public double BaselineCapturedUt;
+            public double ComparisonsReadyUt;
+            public double NextManifestEvaluationUt;
+            public Vector3d BaselineWorldPosition;
+            public Quaternion BaselineWorldRotation;
+            public TrajectoryPoint? BaselineSeedPoint;
+            public PostSwitchOrbitSnapshot BaselineOrbit;
+            public double AttitudeThresholdExceededAtUt = double.NaN;
+            public Dictionary<string, ResourceAmount> BaselineResources;
+            public Dictionary<string, InventoryItem> BaselineInventory;
+            public Dictionary<string, int> BaselineCrew;
+            public HashSet<string> BaselinePartStateTokens = new HashSet<string>();
+            public bool ModuleCachesDirty;
+            public int CachedPartCount;
+            public List<(Part part, ModuleEngines engine, int moduleIndex)> CachedEngines
+                = new List<(Part, ModuleEngines, int)>();
+            public HashSet<ulong> ActiveEngineKeys = new HashSet<ulong>();
+            public Dictionary<ulong, float> EngineThrottleMap = new Dictionary<ulong, float>();
+            public List<(Part part, ModuleRCS rcs, int moduleIndex)> CachedRcsModules
+                = new List<(Part, ModuleRCS, int)>();
+            public Dictionary<ulong, int> RcsFrameCountMap = new Dictionary<ulong, int>();
+            public HashSet<ulong> ActiveRcsKeys = new HashSet<ulong>();
+            public Dictionary<ulong, float> RcsThrottleMap = new Dictionary<ulong, float>();
+        }
+
+        // Vessel spawning from playback: chain-tip spawn, tree-leaf spawn, chain ghosting at flight
+        // ready, orphaned and recovered timeline spawns, proximity candidates, warp-to and
+        // fast-forward, and ghost labels.
+        /// <summary>
+        /// Pure: every vessel pid an active chain holds back on a flight load, the chain key
+        /// first, then each claim folded into it (a tug that docks to a depot and carries it to
+        /// a station ends both: the walker folds the station's chain into the depot's, and
+        /// ghosting the key alone leaves the stale station live for the tip to adopt). A folded
+        /// claim whose live vessel is conclusively another launch of the same craft (a
+        /// craft-baked pid) is left out; the key keeps its pid-only ghosting.
+        /// <paramref name="liveGuidOf"/> answers the live vessel's launch guid for a pid (null
+        /// when unknown or not live).
+        /// </summary>
+        internal static List<uint> SelectChainPidsToGhost(
+            uint chainKey, GhostChain chain, Func<uint, string> liveGuidOf)
+        {
+            var pids = new List<uint>();
+            if (chainKey != 0)
+                pids.Add(chainKey);
+            if (chain == null || chain.ClaimedVessels == null)
+                return pids;
+            List<ChainClaimedVessel> held = chain.HeldBackVessels();
+            for (int i = 0; i < held.Count; i++)
+            {
+                ChainClaimedVessel claim = held[i];
+                if (claim.Pid == 0 || pids.Contains(claim.Pid))
+                    continue;
+                string liveGuid = liveGuidOf != null ? liveGuidOf(claim.Pid) : null;
+                if (VesselLaunchIdentity.GuidsConclusivelyDiffer(liveGuid, claim.LaunchGuid))
+                {
+                    ParsekLog.Verbose("Ghoster",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Folded chain claim not held back: pid={0} chain={1} liveLaunch={2} claimLaunch={3} " +
+                            "(another launch of the same craft)",
+                            claim.Pid, chainKey, liveGuid, claim.LaunchGuid ?? "(none)"));
+                    continue;
+                }
+                pids.Add(claim.Pid);
+            }
+            return pids;
+        }
+
+        /// <summary>
+        /// Pure selection half of <see cref="RecoverTimelineSpawnedVessel"/>: does committed
+        /// recording <paramref name="rec"/> hold a live timeline spawn of the same vessel the
+        /// tree leaf <paramref name="leaf"/> is about to spawn? By launch identity
+        /// (<see cref="VesselLaunchIdentity.RecordingsShareVesselIdentity"/>): a renamed copy
+        /// of the vessel still qualifies, and a different launch that merely shares the name
+        /// never does (its spawned vessel is another real ship). The name decides only for
+        /// guid-less legacy recordings.
+        /// </summary>
+        internal static bool IsTimelineSpawnOfLeafVessel(Recording rec, Recording leaf)
+        {
+            if (rec == null || leaf == null) return false;
+            if (!rec.VesselSpawned || rec.SpawnedVesselPersistentId == 0) return false;
+            return VesselLaunchIdentity.RecordingsShareVesselIdentity(rec, leaf);
+        }
+
+        /// <summary>
+        /// Routes spawn through VesselGhoster for chain tips, or existing
+        /// SpawnOrRecoverIfTooClose for normal recordings.
+        /// Handles collision-blocked chains: if spawn is blocked, chain stays active.
+        /// If chain was previously blocked, tries to spawn at propagated position.
+        /// Called by ParsekPlaybackPolicy when engine fires PlaybackCompleted with needsSpawn.
+        /// </summary>
+        internal void SpawnVesselOrChainTipFromPolicy(Recording rec, int index)
+        {
+            SpawnHost.SpawnVesselOrChainTip(rec, index);
+        }
+
+        /// <summary>Called by policy to switch camera to a spawned vessel after watch-mode spawn.</summary>
+        internal void DeferredActivateVesselFromPolicy(uint vesselPid) =>
+            StartCoroutine(DeferredActivateVessel(vesselPid));
+
+
+        // UpdateWatchCamera, ProcessWatchEndHoldTimer, FindWatchedGhostState,
+        // TryResolveOverlapRetarget moved to WatchModeController
+
+        internal bool IsAnyWarpActive() => GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
+
+        internal void ExitAllWarpForPlaybackStart(string context)
+        {
+            if (!IsAnyWarpActive()) return;
+            TimeWarp.SetRate(0, true);
+            Log($"Warp reset for playback start ({context})");
+        }
+
+        IEnumerator DeferredActivateVessel(uint pid)
+        {
+            // Wait up to 5 seconds for the vessel to appear and load.
+            // Distant vessels (e.g. splashdown site 37km away) take much longer
+            // than 10 frames to load — KSP must range-load them first.
+            float deadline = UnityEngine.Time.time + 5f;
+            while (UnityEngine.Time.time < deadline)
+            {
+                yield return null;
+                Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid
+                    && !GhostMapPresence.IsGhostMapVessel(vessel.persistentId));
+                if (v != null)
+                {
+                    // Only activate if within physics range. ForceSetActiveVessel on an
+                    // unloaded vessel triggers a full FLIGHT→FLIGHT scene reload (black
+                    // screen flash). Better to stay on the pad and let the player switch
+                    // manually via tracking station or map view.
+                    if (!v.loaded)
+                    {
+                        Log($"Spawned vessel pid={pid} not loaded — staying on current vessel");
+                        yield break;
+                    }
+                    v.IgnoreGForces(240);
+                    FlightGlobals.ForceSetActiveVessel(v);
+                    Log($"Activated spawned vessel pid={pid} ({v.vesselName})");
+                    yield break;
+                }
+            }
+            Log($"WARNING: Could not find spawned vessel pid={pid} within 5 seconds");
+        }
+
+        /// <summary>
+        /// Static query: returns chain status text for a recording, or null if not in a chain.
+        /// Checks whether the recording's vessel PID matches any active ghost chain,
+        /// or whether the recording is the tip recording for any chain.
+        /// Callable from ParsekUI without needing an instance reference.
+        /// </summary>
+        internal static string GetChainStatusForRecording(
+            Dictionary<uint, GhostChain> chains, Recording rec)
+        {
+            if (chains == null || chains.Count == 0 || rec == null)
+                return null;
+
+            // Check if this recording's vessel is ghosted (vessel PID match)
+            GhostChain vesselChain;
+            if (rec.VesselPersistentId != 0 &&
+                chains.TryGetValue(rec.VesselPersistentId, out vesselChain))
+            {
+                var info = vesselChain;
+                return SpawnWarningUI.FormatChainStatus(info, rec.VesselName);
+            }
+
+            // Check if this recording is the tip recording for any chain
+            foreach (var kvp in chains)
+            {
+                if (kvp.Value.TipRecordingId == rec.RecordingId)
+                {
+                    return string.Format(CultureInfo.InvariantCulture,
+                        "Chain tip -- will spawn vessel at UT={0}",
+                        kvp.Value.SpawnUT.ToString("F0", CultureInfo.InvariantCulture));
+                }
+            }
+
+            return null;
+        }
+
+        internal static SpawnWarpOutcomeInput BuildSpawnWarpOutcomeInput(
+            Recording rec, double targetUT, double elapsedSeconds, bool chainSpawnBlocked,
+            bool walkbackExhaustedAtArm, int collisionBlockCountAtArm)
+        {
+            if (rec == null)
+                return new SpawnWarpOutcomeInput { RecordingFound = false, ElapsedSeconds = elapsedSeconds };
+            return new SpawnWarpOutcomeInput
+            {
+                RecordingFound = true,
+                SpawnedVesselPersistentId = rec.SpawnedVesselPersistentId,
+                VesselSpawned = rec.VesselSpawned,
+                SpawnAbandoned = rec.SpawnAbandoned,
+                KscRetired = rec.VesselSpawned && rec.SpawnedVesselPersistentId == 0
+                    && VesselSpawner.IsSettledAsKscRetirement(rec),
+                WalkbackExhausted = rec.WalkbackExhausted,
+                CollisionBlockCount = rec.CollisionBlockCount,
+                WalkbackExhaustedAtArm = walkbackExhaustedAtArm,
+                CollisionBlockCountAtArm = collisionBlockCountAtArm,
+                ChainSpawnBlocked = chainSpawnBlocked,
+                SpawnAttempts = rec.SpawnAttempts,
+                TerminalSpawnCannotSpawnSafely = rec.TerminalSpawnCannotSpawnSafely,
+                TerminalSpawnSafetyDeferred = rec.TerminalSpawnSafetyDeferred,
+                TerminalSpawnSafetyReasonCode = rec.TerminalSpawnSafetyReasonCode,
+                TerminalSpawnNextAttemptUT = rec.TerminalSpawnNextAttemptUT,
+                TerminalDecisionAfterWarp = rec.TerminalSpawnSafetyDecisionUT >= targetUT,
+                AbandonNote = SpawnWarpOutcomeWatch.GetAbandonNote(rec.RecordingId),
+                ElapsedSeconds = elapsedSeconds
+            };
+        }
+
+        // Split event handlers: dock, undock, EVA, board and joint-break GameEvents, OnPartCouple and
+        // OnVesselsUndocking, and the per-frame split helpers Update calls.
+        /// <summary>
+        /// Not-recording half of <see cref="HandleKerbalLeftVehicleUndock"/>: the same routes
+        /// as a hatch EVA (a tracked background parent branch, else the deferred auto-record),
+        /// but only once the kerbal holds the focus. A seat dismount moves focus to the kerbal
+        /// right after its undock (<c>ForceSetActiveVessel</c>); a claw release keeps it on the
+        /// claw's vessel, and an auto-record armed there would wait for, and start on, whatever
+        /// EVA kerbal the player next switches to.
+        /// </summary>
+        internal IEnumerator DeferredKerbalLeftVehicleNotRecording(
+            GameEvents.FromToAction<Part, Part> evaData, Vessel kerbalVessel)
+        {
+            yield return null;
+            bool kerbalActive = ShouldRouteKerbalLeftVehicleNotRecording(
+                isRecording: IsRecording,
+                kerbalVesselAlive: kerbalVessel != null,
+                kerbalIsActive: kerbalVessel != null
+                    && ReferenceEquals(FlightGlobals.ActiveVessel, kerbalVessel));
+            if (!kerbalActive)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: kerbal-left-vehicle not routed as a not-recording EVA " +
+                    $"(recording={IsRecording} kerbalAlive={kerbalVessel != null} " +
+                    $"activePid={FlightGlobals.ActiveVessel?.persistentId ?? 0u})");
+                yield break;
+            }
+            OnCrewOnEva(evaData);
+        }
+
+        /// <summary>Pure gate of <see cref="DeferredKerbalLeftVehicleNotRecording"/>.</summary>
+        internal static bool ShouldRouteKerbalLeftVehicleNotRecording(
+            bool isRecording, bool kerbalVesselAlive, bool kerbalIsActive)
+        {
+            return !isRecording && kerbalVesselAlive && kerbalIsActive;
+        }
+
+        /// <summary>
+        /// Appends a segment event to a tree recording in stable UT order and marks its sidecar
+        /// dirty, the segment-event twin of <see cref="AppendFlagEventToTreeRecording"/>.
+        /// </summary>
+        internal static void AppendSegmentEventToTreeRecording(Recording rec, SegmentEvent evt)
+        {
+            if (rec == null)
+                return;
+            rec.SegmentEvents.Add(evt);
+            var sorted = FlightRecorder.StableSortByUT(rec.SegmentEvents, e => e.ut);
+            rec.SegmentEvents.Clear();
+            rec.SegmentEvents.AddRange(sorted);
+            rec.MarkFilesDirty();
+        }
+
+        /// <summary>
+        /// Handles deferred split checks: stops the recorder and starts a deferred vessel-creation
+        /// check when FlightRecorder signals a joint break or a decouple-created vessel indicates
+        /// a split without a matching joint-break callback.
+        /// </summary>
+        internal static DeferredSplitCheckTrigger ResolveDeferredSplitCheckTrigger(
+            bool pendingSplitInProgress,
+            bool recorderIsRecording,
+            bool jointBreakPending,
+            bool decoupleCreatedVesselsPending)
+        {
+            if (pendingSplitInProgress || !recorderIsRecording)
+                return DeferredSplitCheckTrigger.None;
+
+            if (jointBreakPending)
+                return DeferredSplitCheckTrigger.JointBreak;
+
+            if (decoupleCreatedVesselsPending)
+                return DeferredSplitCheckTrigger.DecoupleCreatedVessel;
+
+            return DeferredSplitCheckTrigger.None;
+        }
+
+        internal static bool ShouldCaptureDecoupleCreatedVessel(
+            uint recordedVesselPid,
+            uint originalVesselPid)
+        {
+            return recordedVesselPid != 0 && originalVesselPid == recordedVesselPid;
+        }
+
+        internal static bool TrySelectDecouplePartOriginSeed(
+            uint rootPartPersistentId,
+            TryResolveTrajectoryPoint resolvePartOriginSeed,
+            out TrajectoryPoint seed)
+        {
+            seed = default;
+            if (rootPartPersistentId == 0u || resolvePartOriginSeed == null)
+                return false;
+
+            return resolvePartOriginSeed(rootPartPersistentId, out seed);
+        }
+
+        internal static bool ShouldUseUndockPartOriginSeed(
+            uint undockedPartPersistentId,
+            uint rootPartPersistentId)
+        {
+            return undockedPartPersistentId != 0u
+                && rootPartPersistentId != 0u
+                && undockedPartPersistentId == rootPartPersistentId;
+        }
+
+        internal static double ResolveDeferredSplitBranchUT(
+            double fallbackUT,
+            double exactTriggerUT,
+            IEnumerable<uint> newVesselPids,
+            IReadOnlyDictionary<uint, TrajectoryPoint> capturedTrajectoryPoints)
+        {
+            double branchUT = !double.IsNaN(exactTriggerUT) ? exactTriggerUT : fallbackUT;
+            if (newVesselPids == null || capturedTrajectoryPoints == null)
+                return branchUT;
+
+            foreach (uint pid in newVesselPids)
+            {
+                TrajectoryPoint point;
+                if (!capturedTrajectoryPoints.TryGetValue(pid, out point) || double.IsNaN(point.ut))
+                    continue;
+
+                if (double.IsNaN(branchUT) || point.ut < branchUT)
+                    branchUT = point.ut;
+            }
+
+            return double.IsNaN(branchUT) ? fallbackUT : branchUT;
+        }
+
+        internal static void InvalidateTailLiftPlanCache()
+        {
+            s_tailLiftPlanCache.Clear();
+            s_tailLiftPlanTerminalBodyCache.Clear();
+        }
+
+        internal static void RegisterPreviewRecordingForTailLift(Recording rec)
+        {
+            s_previewRecordingForTailLift = rec;
+            // The preview source has changed identity; drop any stale plan cached
+            // under the same recordingId from a prior preview (or stale lookup).
+            InvalidateTailLiftPlanCache();
+        }
+
+        internal static void ClearPreviewRecordingForTailLift()
+        {
+            if (s_previewRecordingForTailLift == null) return;
+            s_previewRecordingForTailLift = null;
+            InvalidateTailLiftPlanCache();
+        }
+
+        internal static double ResolveEffectiveAltitudeWithTailLift(
+            CelestialBody body, double latitude, double longitude,
+            double recordedAltitude, double recordedGroundClearance,
+            ReferenceFrame referenceFrame, double pointUT, string recordingId)
+        {
+            double phase7 = ResolvePhase7EffectiveAltitude(
+                body, latitude, longitude, recordedAltitude,
+                recordedGroundClearance, referenceFrame);
+
+            // Phase 7 owns finite-clearance points. Tail-lift only fills the
+            // atmospheric/legacy NaN-clearance gap on Absolute-frame payloads.
+            if (referenceFrame != ReferenceFrame.Absolute)
+                return phase7;
+            if (!double.IsNaN(recordedGroundClearance))
+                return phase7;
+            if (string.IsNullOrEmpty(recordingId))
+                return phase7;
+
+            TerrainCorrector.TailLiftPlan plan = ParsekFlightGhostPositioner.ResolveTailLiftPlan(recordingId, body);
+            return phase7 + TerrainCorrector.EvaluateTailLift(pointUT, in plan);
+        }
+
+        /// <summary>
+        /// Phase 7 (design doc §13.1, §18 Phase 7) — pure helper: given a
+        /// recorded altitude and a recordedGroundClearance, returns the
+        /// altitude to render at. When clearance is NaN (legacy point or
+        /// non-surface environment), returns the recorded altitude
+        /// unchanged (HR-9 silent fall-through). When clearance is finite,
+        /// looks up the current terrain height at lat/lon via
+        /// <see cref="Parsek.Rendering.TerrainCacheBuckets"/> and returns
+        /// <c>terrain + clearance</c>. If the cache returns NaN (PQS
+        /// unspun, body missing) we fall back to the recorded altitude rather
+        /// than producing an invalid world position.
+        ///
+        /// <para>The <paramref name="referenceFrame"/> parameter is a
+        /// **safety gate** (review pass P2-1): when the section is
+        /// <see cref="ReferenceFrame.Relative"/> (anchor-local metres in
+        /// lat/lon/alt — see CLAUDE.md "Rotation / world frame") or
+        /// <see cref="ReferenceFrame.OrbitalCheckpoint"/>, the helper
+        /// short-circuits to <paramref name="recordedAltitude"/> regardless
+        /// of clearance. Today's recorder never writes a finite clearance on
+        /// a non-Absolute point, so this path is unreachable in practice —
+        /// but a future codec / optimizer / merge that surfaced a finite
+        /// clearance on a RELATIVE point would otherwise interpret metre-
+        /// scale lat/lon as degrees and produce a position deep inside the
+        /// planet. Pin the contract at the renderer.</para>
+        /// </summary>
+        internal static double ResolvePhase7EffectiveAltitude(
+            CelestialBody body, double latitude, double longitude,
+            double recordedAltitude, double recordedGroundClearance,
+            ReferenceFrame referenceFrame)
+        {
+            if (double.IsNaN(recordedGroundClearance))
+                return recordedAltitude;
+            if (referenceFrame != ReferenceFrame.Absolute)
+            {
+                // P2-1: defensive short-circuit. A RELATIVE-frame point
+                // stores anchor-local metres in latitude/longitude/altitude;
+                // applying terrain correction would mix metres with degrees
+                // catastrophically. OrbitalCheckpoint sections have no
+                // per-point latitude/longitude/altitude payload either.
+                ParsekLog.VerboseRateLimited("Pipeline-Terrain",
+                    "non-absolute-frame-skip",
+                    $"ResolvePhase7EffectiveAltitude: skipping terrain correction " +
+                    $"for non-Absolute frame={referenceFrame} " +
+                    $"clearance={recordedGroundClearance.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"— returning recorded altitude " +
+                    $"{recordedAltitude.ToString("F2", CultureInfo.InvariantCulture)}m " +
+                    $"(future-codec safety gate; today's recorder never writes " +
+                    $"finite clearance on non-Absolute points)",
+                    5.0);
+                return recordedAltitude;
+            }
+            if (object.ReferenceEquals(body, null))
+                return recordedAltitude;
+
+            double currentTerrain = Parsek.Rendering.TerrainCacheBuckets.GetCachedSurfaceHeight(
+                body, latitude, longitude);
+            if (double.IsNaN(currentTerrain))
+            {
+                // Cache returned NaN (PQS not spun, body has no controller).
+                // HR-9 fall-through to recorded altitude — better one frame
+                // of altitude pop than clipping into terrain (design §13.3).
+                ParsekLog.VerboseRateLimited("Pipeline-Terrain",
+                    "effective-altitude-pqs-miss",
+                    $"ResolvePhase7EffectiveAltitude: terrain NaN at " +
+                    $"body={body.bodyName} lat={latitude.ToString("F6", CultureInfo.InvariantCulture)} " +
+                    $"lon={longitude.ToString("F6", CultureInfo.InvariantCulture)} " +
+                    $"— falling back to recorded altitude " +
+                    $"{recordedAltitude.ToString("F2", CultureInfo.InvariantCulture)}m",
+                    5.0);
+                return recordedAltitude;
+            }
+
+            return currentTerrain + recordedGroundClearance;
+        }
     }
 }

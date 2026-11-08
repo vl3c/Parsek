@@ -265,7 +265,7 @@ namespace Parsek.Tests.Rendering
         /// point in the same file must be terrain-corrected. Both halves are
         /// needed: with NaN points only, a helper stubbed to
         /// <c>return recordedAltitude</c> would pass, so the NaN test at
-        /// <c>ParsekFlight.TailLift.cs</c> would not be the deciding term.
+        /// the tail-lift helper in <c>ParsekFlight.cs</c> would not be the deciding term.
         /// Catches a regression where a future refactor wires the helper to
         /// the wrong altitude (e.g. stores effectiveAltitude back into
         /// <c>point.altitude</c>, or passes <c>recordedGroundClearance</c>
