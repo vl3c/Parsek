@@ -357,6 +357,7 @@ namespace Parsek.Tests
             Assert.Equal("old-b", second.SegmentBodyName);
 
             second.Points.Add(new TrajectoryPoint { ut = 3, bodyName = "Minmus" });
+            second.Points.Add(new TrajectoryPoint { ut = 4, bodyName = "Kerbin" });
             original.Points = null;
             original.SegmentBodyName = "kept";
             CommittedListOptimizer.DeriveSplitSegmentBodyNames(original, second);
