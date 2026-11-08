@@ -3093,6 +3093,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   recording), `WalkAfterFailedTreeCommit`, `LogTreeCommitPendingScienceOutcome` and
   `WalkAndCompleteTreeCommit`, behind a ten-scenario golden with faults before and after the
   science persists (`NotifyLedgerTreeCommittedCharacterizationTests`) written first.
+- Wave 2 W7b4 (2026-11-08, this branch): `LedgerOrchestrator.RecalculateAndPatchCore`
+  (180 lines) is a sequence of named steps in the same partial file: `PrepareRecalculationWalk`,
+  `WalkLedgerAndReconcile`, `ResolveRecalcPatchDeferralReason`, the two patch branches
+  `ApplyDeferredPatchMilestoneReach` / `PatchKspFromRecalculatedWalk`, and
+  `LogRecalculateAndPatchComplete`, behind a 13-scenario walk golden over every entry point
+  (`RecalculateAndPatchCoreCharacterizationTests`) written first.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
