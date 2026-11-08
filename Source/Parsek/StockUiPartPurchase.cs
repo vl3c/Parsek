@@ -218,7 +218,7 @@ namespace Parsek
             if (behaviour != null && !behaviour.enabled)
                 behaviour.enabled = true;
             string existing = StockUiText.Get(label);
-            StockUiText.Set(label, StockUiRnDDecoration.AppendReason(existing, why, what));
+            StockUiText.Set(label, StockUiText.AppendReason(existing, why, what));
         }
 
         private static void SetInteractable(Button button, bool interactable)

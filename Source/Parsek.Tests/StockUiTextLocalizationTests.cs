@@ -42,7 +42,7 @@ namespace Parsek.Tests
 
         private static string Line(string why)
         {
-            return "<color=" + StockUiRnDDecoration.ReasonColorHex + ">" + why + "</color>";
+            return "<color=" + StockUiText.ReasonColorHex + ">" + why + "</color>";
         }
 
         private int ResolvedLogCount(string site)
@@ -90,28 +90,28 @@ namespace Parsek.Tests
         [Fact]
         public void AppendReason_OnAKey_AppendsToTheLocalizedText_AndRemoveReasonGivesItBack()
         {
-            string composed = StockUiRnDDecoration.AppendReason(Key, Why, "facility menu description");
+            string composed = StockUiText.AppendReason(Key, Why, "facility menu description");
 
             Assert.Equal(English + "\n" + Line(Why), composed);
             Assert.DoesNotContain("#autoLOC", composed);
-            Assert.Equal(composed, StockUiRnDDecoration.AppendReason(composed, Why, "facility menu description"));
+            Assert.Equal(composed, StockUiText.AppendReason(composed, Why, "facility menu description"));
             Assert.Equal(English, StockUiFacilityDecoration.RemoveReason(composed, Why));
         }
 
         [Fact]
         public void AppendReason_WithoutAReason_LeavesTheKeyForStockToLocalize()
         {
-            Assert.Equal(Key, StockUiRnDDecoration.AppendReason(Key, null, "site"));
-            Assert.Equal(Key, StockUiRnDDecoration.AppendReason(Key, "", "site"));
+            Assert.Equal(Key, StockUiText.AppendReason(Key, null, "site"));
+            Assert.Equal(Key, StockUiText.AppendReason(Key, "", "site"));
             Assert.Empty(localizerCalls);
         }
 
         [Fact]
         public void ResolvedKey_LogsOncePerSite()
         {
-            StockUiRnDDecoration.AppendReason(Key, Why, "facility menu description");
-            StockUiRnDDecoration.AppendReason(Key, Why, "facility menu description");
-            StockUiRnDDecoration.AppendReason(Key, Why, "R&D node description");
+            StockUiText.AppendReason(Key, Why, "facility menu description");
+            StockUiText.AppendReason(Key, Why, "facility menu description");
+            StockUiText.AppendReason(Key, Why, "R&D node description");
 
             Assert.Equal(1, ResolvedLogCount("facility menu description"));
             Assert.Equal(1, ResolvedLogCount("R&D node description"));
