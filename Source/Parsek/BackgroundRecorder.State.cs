@@ -60,6 +60,8 @@ namespace Parsek
             public HashSet<uint> brokenDeployables = new HashSet<uint>();
             /// <summary>S7: pids with a running BaseConverter (see FlightRecorder.activeConverterParts).</summary>
             public HashSet<uint> activeConverterParts = new HashSet<uint>();
+            /// <summary>Pids with a broken ModuleWheelDamage (see FlightRecorder.damagedWheelParts).</summary>
+            public HashSet<uint> damagedWheelParts = new HashSet<uint>();
             /// <summary>S4: pids whose KerbalEVA has its jetpack extended.</summary>
             public HashSet<uint> jetpackDeployedParts = new HashSet<uint>();
             /// <summary>S4: pids whose KerbalEVA is ragdolled.</summary>

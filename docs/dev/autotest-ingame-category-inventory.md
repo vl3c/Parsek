@@ -1,4 +1,4 @@
-# In-game test category inventory (all 137 categories)
+# In-game test category inventory (all 139 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -110,6 +110,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `DisabledHoverEcho` | 1 | 1 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, added as a 31st constituent 2026-09-08, flown run `2026-09-08_1041`, executes 1 of 1 - the whole category at FLIGHT with zero skips. Its cell measures an IMGUI hover, which Unity samples from the OS pointer, so nothing inside the engine can fake it and an unattended batch used to read "not measured" and skip; the cell now PARKS the OS pointer over its own probe button for the measurement (Windows `user32` `SetCursorPos` through a P/Invoke inside the test, previous position restored in the `finally`) and every failure mode - not Windows, no usable `user32`, no game window handle - degrades to "not placed" and leaves the original skip. Measured 1 of 1 by census CEN-12 (scratch, run `2026-09-08_1035`) on `gloops-airshow`, the lane's own host. THE B5 READING - "interactive-only, nothing available" - was a bound on the SEAM, and the seam was the wrong place to look: no harness verb can move the pointer, but the test process is inside the same window and can. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below. The self-skip column stays 1: the placement can still fail and the skip is what it falls back to) | A |
 | `Diagnostics` | 6 | 6 | 3 | 3 | 0 | 1 | H27 | A |
 | `EvaSpawnPosition` | 2 | 2 | 0 | 0 | 0 | 2 | H20 | A |
+| `FairingGhostVisual` | 2 | 2 | 0 | 0 | 0 | 2 | FGV-1-fairing-ghost-visual (authored 2026-11-07, flown green twice in its one-cell shape, interim pin `total=2`). Two FLIGHT IEnumerator cells. The first spawns four small stock fairing vessels co-orbital with the active vessel (closed nose, interstage truss, open top, colour variant), builds each one's Parsek ghost from the real vessel's own backup snapshot beside it, and photographs the pair intact, after stock `DeployFairing` + `ApplyFairingJettisonedState`, and (interstage only) after separation, then with a ghost rebuilt from the post-separation snapshot, comparing truss pieces and base-ring texture. The second does the same for a Making History engine plate (shroud + mount pattern) and an LV-T45 engine shroud, into `Screenshots/fgv-*.png`. A visual-confirmation lane: its product is the images. Self-skips without an orbiting host or the stock fairing parts | A |
 | `FinalizeBackfill` | 7 | 7 | 0 | 0 | 0 | 0 | H10 | A |
 | `FinalizeLimbo` | 2 | 2 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `Flight` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
@@ -149,9 +150,10 @@ Two limits of this table, stated so nobody over-reads it:
 | `MiningHarvest` | 2 | 0 | 0 | 0 | 2 | 2 | MINE-5a-rover-live-drill-harvest-cap (ISOLATED, authored 2026-11-06, LIVE-PROVEN 2026-11-07 `2026-11-07_0022`; pinned whole 2 / 0 / 0). The D5 catch-up cell's own body (`HarvestCapture_CatchUpOnLoad`, which skips on every `Logistics` host) and the live plausibility-cap measurement, on `miner-rover-landed` with its four drills deployed by the lane. Its own category so `Logistics`' pinned total=47 does not move | A |
 | `MissionPhasing` | 4 | 4 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 4; the residue wants an airborne vessel) | B |
 | `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below), LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim; predicted on the 2026-09-07 second census, scratch CEN-4, run `2026-09-07_2010`, at 2 of 13 over `depot-route-recorded` - the dock-composition cell plus the station-mission phase-lock cell `RealSave_StationMission_PhaseLocksOrHolds`, which H54's `duna-one-recorded` host does not reach. The two lanes are different slices of ONE category, which is what the archetype note below predicts: no single real save is more than one or two archetypes. The census also read 1 of 13 on `career-earned-pad`, which is why LT-3 does not carry it. Both driving lanes execute a SLICE - H54 3 of 13, LT-4 2 of 13 - so the promotion rule does NOT fire and the bucket stays **B**, the archetype residue being the reason) | B |
+| `MoonArrivalHold` | 1 | 0 | 1 | 0 | 0 | 1 | NOT DRIVEN (2026-11-07, the lone-moon arrival hold, thread "Re-time looped moon trips"). One SPACECENTER cell that walks the LIVE body graph: for every moon of every planet reachable from Kerbin, a looped trip that arrives at the planet and goes on to that one moon must engage the moon hold on the moon's live orbital period, and the per-loop hold must put the moon back within its live SOI crossing time at every replayed encounter (a landing on a tidally locked moon too). Pure planner calls, no store touched. Self-skips on a pack with no reachable moon. Its OWN category for the standing reason (a cell in `Missions` moves the M1 / H54 / LT-4 pins). Driven by `V31M-duna-ike-continuation-player-loop` (LIVE-PROVEN 2026-11-07, `2026-11-07_2248`: `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=MoonArrivalHold scene=SPACECENTER`), plus `V31T` (`_2258`), `V32M` (`_2252`) and `V33M` (`_2254`), all LIVE-PROVEN with the same per-category line, and `V32T` (`_2300`), every lane of the moon flight-test program Group A | A |
 | `Optimizer` | 3 | 0 | 3 | 0 | 0 | 3 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes the whole category at SPACECENTER with zero skips. Its cells mutate the live store and skip whenever a committed recording is present, which is why that lane injects NOTHING. 2 -> 3 on 2026-09-22 (register item C2): `OnRailsBoundarySeam_SuppressesSplit_InGame`, the D3 `boundary-seam` cell; the re-pin's runs are in autotest-status.md) | A |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 1 of 6 - `LightInfosValid` - over the playing `part-showcase` corpus. The FIRST execution of any cell in this category anywhere; the five skips want an active ghost whose engine / chute / fairing / decoupler FX resolve at the batch UT, which the static showcase ghosts do not give, so this is a SLICE at 1 of 6: the promotion rule below does NOT fire on a green flight that drove only part of the category, and the bucket stays **B**) | B |
-| `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
+| `PartEventFidelity` | 6 | 6 | 0 | 0 | 0 | 5 | H37 (sixth cell, wheel damage, added 2026-11-07 and not yet flown) | A |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips; its deployable cell asserted the retired pre-S2 snap on the census and is re-pinned to the shipped animated contract) | A |
 | `Periodicity` | 13 | 1 | 9 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
@@ -231,10 +233,12 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **137 categories / 689 declarations**. Buckets **A 102 categories
-(390 declarations)**, **B 34 categories (295 declarations)**, **C 1 category (4
-declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
-gallery, which ships no lane by design (P2 owns the two gallery lanes).
+Totals, re-derived: **139 categories / 693 declarations**. Buckets **A 103 categories
+(393 declarations)**, **B 34 categories (295 declarations)**, **C 2 categories (5
+declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
+gallery, which ships no lane by design (P2 owns the two gallery lanes), and
+`MoonArrivalHold`, opened 2026-11-07 by the lone-moon arrival hold, which waits for the
+moon flight-test program.
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
 the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
 same day and it stays **B** (each lane is a scene slice, 4 of 9).
@@ -260,7 +264,9 @@ the same standing, A 97 -> 98 categories, 382 -> 383 declarations. The 2026-10-2
 CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT's `ClockCauseScope` (CLK-1, one FLIGHT cell) landed WITH
 its lane (live-proven the same day) into **A** on the same standing, A 98 -> 99 categories, 383 -> 384 declarations. The
 2026-10-31 fix for RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP's `StandaloneLoopMap` (SLM-1 / SLM-2 / SLM-1T, one AnyScene
-cell) landed WITH its lanes (live-proven 2026-11-01) into **A** on the same standing, A 99 -> 100 categories, 384 -> 385 declarations. All re-derived
+cell) landed WITH its lanes (live-proven 2026-11-01) into **A** on the same standing, A 99 -> 100 categories, 384 -> 385 declarations. The
+2026-11-07 fairing snapshot lane's `FairingGhostVisual` (FGV-1, one FLIGHT cell) landed WITH its never-flown lane into **A**
+on the same standing, A 102 -> 103 categories, 391 -> 392 declarations. All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
@@ -605,7 +611,7 @@ neither Breaking Ground robotics nor deployable prefabs whose clips separate sto
 from deploy; the 2026-08-11 flight measured `total=7 passed=7 failed=0 skipped=0` and
 disproved both, so that pin is whole too.
 
-`PartEventFidelity` (5 declarations, wired as `H37-part-event-fidelity`) is the live
+`PartEventFidelity` (6 declarations since 2026-11-07, wired as `H37-part-event-fidelity`) is the live
 half of P8, and it arrived with its driver on the same ground as the two above. Four
 of its cells cover the wave's new signals - a broken deployable's subtree hide plus
 its repair un-hide and loop-cycle re-show, the converter running loop's motion and
@@ -622,7 +628,9 @@ no usable prefab. `H37` shipped with an interim `passed=` pin and is now LIVE-PR
 after a first flight that red 3/5, the 2026-08-12 re-fly measured `total=5 passed=5
 failed=0 skipped=0`, all five guards satisfied on stock-minimal, so the pin is literal,
 no `RUNTIME_SKIPS` entry is owed and `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` is
-EMPTY again. Bucket A1, same standing as `H36`.
+EMPTY again. Bucket A1, same standing as `H36`. A sixth cell landed 2026-11-07 (a broken
+wheel swaps to its busted mesh on the ghost and a repair swaps it back); the pin moved to
+`total=6 passed=6` and its first flight is owed while PC flights are paused.
 
 WHAT ITS FIRST FLIGHT COST AND BOUGHT, because it is the most useful thing this category
 has produced so far: neither non-green cell was the install shortfall the interim pin was
@@ -1763,9 +1771,9 @@ time verbatim and was taken WHOLE, `GUI-1-census-ksc` left
 `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and the row moved to bucket **A** - which
 empties this sub-reason.
 
-### Bucket C - not batch-runnable (1 category, 5 declarations)
+### Bucket C - not batch-runnable (2 categories, 5 declarations)
 
-The row here is not batch-UNRUNNABLE; it is the one category with no lane yet, which the triage line counts as C: `GuiMock` (5, P1 of the GUI state gallery). `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
+The rows here are not batch-UNRUNNABLE; they are the categories with no lane yet, which the triage line counts as C: `GuiMock` (4, P1 of the GUI state gallery) and `MoonArrivalHold` (1, the lone-moon arrival hold, 2026-11-07). `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
 
 The sub-reasons below were EMPTY since R12 closed C2 on 2026-07-30 - the header said
 "1 category, 10 declarations" until 2026-09-06 because it was never re-derived after

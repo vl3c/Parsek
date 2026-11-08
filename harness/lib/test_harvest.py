@@ -362,6 +362,41 @@ class KeepParsekModeTests(unittest.TestCase):
         self.assertFalse(os.path.isdir(os.path.join(kept, "_versions")))
         self.assertFalse(os.path.isdir(os.path.join(kept, "_quarantine")))
 
+    def test_keep_parsek_keeps_a_retained_version_the_save_names(self):
+        # A committed tree plus its resumed in-flight copy: the committed rows name an
+        # OLDER prec hash that only `_versions` holds. That one file must survive (the
+        # load rejects the committed tree without it); an unnamed one must not.
+        import tempfile
+        rid = "311d98e32547491e8dd37aec2526d25d"
+        save = tempfile.mkdtemp()
+        self._make_save(save)
+        with open(os.path.join(save, "persistent.sfs"), "a") as fh:
+            fh.write("RECORDING" + chr(10) + "{" + chr(10) + "recordingId = %s" % rid + chr(10)
+                     + "precHash = 0a796226a7c3ce16" + chr(10) + "}" + chr(10))
+        versions = os.path.join(save, "Parsek", "Recordings", "_versions")
+        os.makedirs(os.path.join(versions, "_quarantine"))
+        for name in (rid + ".0a796226a7c3ce16.prec", rid + ".024e00dd6ca54b1c.prec",
+                     os.path.join("_quarantine", rid + ".0a796226a7c3ce16.prec")):
+            with open(os.path.join(versions, name), "w") as fh:
+                fh.write("old")
+        rc, target = self._harvest_into_temp(save, "recorded-named-version",
+                                             keep_parsek=True)
+        self.assertEqual(rc, 0)
+        kept = os.path.join(target, "Parsek", "Recordings", "_versions")
+        self.assertEqual([rid + ".0a796226a7c3ce16.prec"], sorted(os.listdir(kept)))
+
+    def test_named_version_files_needs_both_the_id_and_the_hash(self):
+        rid = "311d98e32547491e8dd37aec2526d25d"
+        other = "cb6acf4e1f4043878db57c89ffc9948f"
+        sfs = ("recordingId = %s" % rid + chr(10) + "		precHash = 0a796226a7c3ce16" + chr(13) + chr(10)
+               + "vesselHash = 338e43c296772404" + chr(10))
+        names = [rid + ".0a796226a7c3ce16.prec", rid + ".338e43c296772404_vessel.craft",
+                 other + ".0a796226a7c3ce16.prec", rid + ".ffffffffffffffff.prec",
+                 rid + ".0a796226a7c3ce16.prec.txt"]
+        self.assertEqual([rid + ".0a796226a7c3ce16.prec",
+                          rid + ".338e43c296772404_vessel.craft"],
+                         harvest.named_version_files(names, sfs))
+
     def test_default_mode_still_prunes_parsek_entirely(self):
         import tempfile
         save = tempfile.mkdtemp()

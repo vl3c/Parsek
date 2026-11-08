@@ -97,14 +97,80 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OnRailsTransition_OrbitalCheckpointSection_PreservesEnvironment()
+        public void OnRailsTransition_OrbitalCheckpointSection_PreservesNonPropulsiveEnvironment()
+        {
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, 3000.0);
+            recorder.CloseCurrentTrackSection(3050.0);
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint, 3050.0);
+            recorder.CloseCurrentTrackSection(3100.0);
+
+            Assert.Equal(SegmentEnvironment.ExoBallistic, recorder.TrackSections[1].environment);
+        }
+
+        /// <summary>
+        /// RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: the environment hysteresis is
+        /// frozen while packed, so a go-on-rails inside a burn's debounce window hands the
+        /// checkpoint section ExoPropulsive. A packed vessel cannot thrust, so the section is
+        /// stamped ExoBallistic; the physics section before it keeps its real label.
+        /// </summary>
+        [Fact]
+        public void OnRailsTransition_OrbitalCheckpointSection_NeverCarriesExoPropulsive()
         {
             recorder.StartNewTrackSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, 3000.0);
             recorder.CloseCurrentTrackSection(3050.0);
-            recorder.StartNewTrackSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.OrbitalCheckpoint, 3050.0);
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.OrbitalCheckpoint, 3050.0,
+                TrackSectionSource.Checkpoint);
             recorder.CloseCurrentTrackSection(3100.0);
 
+            Assert.Equal(SegmentEnvironment.ExoPropulsive, recorder.TrackSections[0].environment);
+            Assert.Equal(SegmentEnvironment.ExoBallistic, recorder.TrackSections[1].environment);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Recorder]")
+                && l.Contains("TrackSection env normalized: ExoPropulsive -> ExoBallistic ref=OrbitalCheckpoint")
+                && l.Contains("UT=3050.00"));
+            Assert.Contains(logLines, l =>
+                l.Contains("TrackSection started: env=ExoBallistic ref=OrbitalCheckpoint"));
+        }
+
+        [Fact]
+        public void OnRailsSoiTransition_HysteresisStillPropulsive_OpensBallisticCheckpoint()
+        {
+            // OnVesselSOIChanged hands the seam the frozen hysteresis environment.
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic,
+                ReferenceFrame.OrbitalCheckpoint, 4000.0, TrackSectionSource.Checkpoint);
+            recorder.TransitionTrackSectionAtSoiBoundary(
+                SegmentEnvironment.ExoPropulsive, 4100.0, onRails: true);
+            recorder.CloseCurrentTrackSection(4500.0);
+
+            Assert.Equal(2, recorder.TrackSections.Count);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, recorder.TrackSections[1].referenceFrame);
+            Assert.Equal(SegmentEnvironment.ExoBallistic, recorder.TrackSections[1].environment);
+        }
+
+        [Fact]
+        public void OffRailsSoiTransition_PropulsiveAbsoluteSection_KeepsItsLabel()
+        {
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, 4000.0);
+            recorder.TransitionTrackSectionAtSoiBoundary(
+                SegmentEnvironment.ExoPropulsive, 4100.0, onRails: false);
+            recorder.CloseCurrentTrackSection(4500.0);
+
+            Assert.Equal(ReferenceFrame.Absolute, recorder.TrackSections[1].referenceFrame);
             Assert.Equal(SegmentEnvironment.ExoPropulsive, recorder.TrackSections[1].environment);
+            Assert.DoesNotContain(logLines, l => l.Contains("TrackSection env normalized"));
+        }
+
+        [Theory]
+        [InlineData(SegmentEnvironment.ExoPropulsive, ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic)]
+        [InlineData(SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.ExoBallistic)]
+        [InlineData(SegmentEnvironment.Atmospheric, ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.Atmospheric)]
+        [InlineData(SegmentEnvironment.Approach, ReferenceFrame.OrbitalCheckpoint, SegmentEnvironment.Approach)]
+        [InlineData(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, SegmentEnvironment.ExoPropulsive)]
+        [InlineData(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Relative, SegmentEnvironment.ExoPropulsive)]
+        public void ResolveTrackSectionEnvironment_OnlyPackedPropulsiveChanges(
+            SegmentEnvironment env, ReferenceFrame frame, SegmentEnvironment expected)
+        {
+            Assert.Equal(expected, FlightRecorder.ResolveTrackSectionEnvironment(env, frame));
         }
 
         /// <summary>

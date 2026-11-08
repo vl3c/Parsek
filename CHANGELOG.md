@@ -4,19 +4,41 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## Unreleased
+## 1.0.1
 
 ### Changed
 
+- **Ghosts show broken wheels.** A wheel that breaks during a flight now shows its broken mesh on
+  the replay from that moment, and swaps back when an engineer repairs it. A vessel that started
+  its flight with a broken wheel replays with it broken. (WHEEL-DAMAGE-NOT-RECORDED)
 - **A recording's hover says what the flight used and carried.** Hovering a recording's Status
   in the Recordings window now also lists the fuel and other resources it used or gained, the
   cargo parts it unloaded or loaded, and crew changes. (GUI-I)
 - **A Re-Fly merge says what it undid.** When merging a Re-Fly takes the old flight's losses off
   your career, a short message names them: a kerbal's death, contract failures, reputation
   penalties. (GUI-EXPOSURE-4)
+- **Ghost fairings look like the real ones.** In flight a ghost's fairing is now built by KSP's own
+  fairing builder from the shape you drew, with the same panels, nose, paint and colour variant
+  (the base ring too), and an interstage fairing shows KSP's lattice truss, which stays on after
+  the upper stage leaves, as it does on the real craft. (T25)
+- **Ghost engine plates and engine shrouds look like the real ones.** A ghost engine plate shows
+  only the engine mount pattern you picked, and a plate or engine shows only the shroud length
+  of its chosen variant, instead of every option stacked on top of each other. (T25)
 
 ### Fixed
 
+- **A looped trip that goes on to a moon of another planet meets the moon.** A looped mission
+  that flies to Duna and on to Ike (or to Laythe, Gilly or any one moon) now waits at the edge of
+  the planet's area until the moon is back where it was in your flight, so the ghost reaches the
+  moon instead of jumping to it. (LOOP-LONE-MOON-ARRIVAL-NOT-ALIGNED)
+- **The Kerbals window says when a stand-in flew a kerbal's last flight.** A flight a stand-in
+  flew is listed under the kerbal it stood in for; the Roster's Last flight cell now adds
+  "(flown by <stand-in>)" as the Flights tab already did, instead of reading as the kerbal's own
+  flight. (KERBALS-WINDOW-RESIDUE-2026-09-15)
+- **A coast that starts right after a burn no longer counts as part of the burn.** Time warp
+  taken just after cutting the engines left the recorder thinking the engines still ran, so an
+  idle coast at the end of a flight was kept and a loop kept it too. New recordings mark it as a
+  coast. (RECORDER-UNPACK-STUB-KEEPS-COAST-PROPULSIVE)
 - **A crashed flight's ghost looks the same on the map whether it was stored whole or in pieces.**
   The climb part of a crash flight no longer shows as a KSP vessel on an orbit it never flew; in
   the Tracking Station a crash flight's ghost now keeps Parsek's marker along its coast instead of
