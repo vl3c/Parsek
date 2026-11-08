@@ -158,6 +158,10 @@ Source/Parsek/ParsekFlight.SplitBranching.cs
 Source/Parsek/ParsekFlight.SwitchContinuation.cs
 Source/Parsek/ParsekFlight.TimelinePlayback.cs
 Source/Parsek/ParsekFlight.TreeRestore.cs
+# The blocked chain tip ghost partial reads the committed list by INDEX to pair a
+# policy-held slot with its engine ghost (the engine's index-keyed contract), not to
+# decide visibility; supersede is honoured through the policy's hold release.
+Source/Parsek/ParsekFlight.BlockedChainTipGhost.cs
 # ParsekFlight's spawn host, lifted out of the spawning, placement-jump and time-jump
 # partials with its bodies verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF5). It reads the
 # committed list by INDEX to find the engine ghost (index-keyed ghostStates) drawing a

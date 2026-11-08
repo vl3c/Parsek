@@ -3035,16 +3035,14 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `ConsumePostLoad` route gate now reads a brace-matched block instead of a slice to the next
   declaration); `ledgeraudit.SRC_REWIND_INVOKER` names `.StripActivate`; the ERS / ELS
   allowlist adds the five partials that hold raw reads; the delete pin stays on the main file.
-- Wave 2 W8a (S3, pure move): the ten `ParsekFlight.*.cs` partials under 200 lines (`.Accessors`,
-  `.BlockedChainTipGhost`, `.BreakupChildSeed`, `.ClaimedVesselHoldGhost`, `.Flags`,
-  `.GroundPartPlacement`, `.PostSwitchAutoRecord`, `.Spawning`, `.SplitEvents`, `.TailLift`) are
-  folded back into `ParsekFlight.cs` (`scripts/refactor/fold_parsekflight_partials.py`). IL is
-  identical except the constructor, where the one moved field initializer
-  (`reFlyInvokeHolds = new Dictionary<uint, ChainClaimedVessel>()`, reads nothing) now runs
-  last. `ParsekFlightSourceFiles` drops the ten files, the non-loop live-PID audit the five rows
-  they had (the `ParsekFlight.cs` row scans the folded code) and the ERS / ELS allowlist the two
-  entries; the eight folded files that were not allowlisted now sit under `ParsekFlight.cs`'s
-  file-wide ERS / ELS and UI-complexity exemptions (none holds a raw read today).
+- Wave 2 W8a (S3, pure move, IL identical): the five `ParsekFlight.*.cs` partials under 200 lines
+  that the ParsekFlight split wrote out of `ParsekFlight.cs` (`.Accessors`, `.Flags`,
+  `.PostSwitchAutoRecord`, `.Spawning`, `.SplitEvents`) are folded back into it
+  (`scripts/refactor/fold_parsekflight_partials.py`), restoring their pre-split gate coverage. The
+  older siblings under 200 lines (`.BlockedChainTipGhost`, `.BreakupChildSeed`,
+  `.ClaimedVesselHoldGhost`, `.GroundPartPlacement`, `.TailLift`) stay separate files, so no gate
+  that scans them today is lost to `ParsekFlight.cs`'s file-wide exemptions. `ParsekFlightSourceFiles`
+  and the non-loop live-PID audit drop the five rows; the ERS / ELS allowlist drops `.SplitEvents`.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

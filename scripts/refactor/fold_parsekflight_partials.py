@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fold the small ParsekFlight partial files back into ParsekFlight.cs.
+"""Fold the small split-out ParsekFlight partial files back into ParsekFlight.cs.
 
 A pure file move (wave 2, W8a). Each file in FOLDED holds one ``public partial class
 ParsekFlight`` block and nothing else; its class body is copied verbatim to the end of the
@@ -31,18 +31,18 @@ MAIN = "ParsekFlight.cs"
 CLASS_LINE = "    public partial class ParsekFlight"
 MAIN_CLASS_LINE = "    public partial class ParsekFlight : MonoBehaviour"
 
-# The ParsekFlight partial files under 200 lines (plan W8 8a), folded in this order.
+# The ParsekFlight partials under 200 lines (plan W8 8a) that scripts/refactor/split_parsekflight.py
+# wrote out of ParsekFlight.cs, folded in this order. Folding them restores the coverage they had
+# before that split. The older siblings under 200 lines (BlockedChainTipGhost, BreakupChildSeed,
+# ClaimedVesselHoldGhost, GroundPartPlacement, TailLift) were never part of ParsekFlight.cs and stay
+# separate files: a file-wide exemption on ParsekFlight.cs (ERS / ELS, UI complexity mode) would
+# otherwise cover code that a gate scans today.
 FOLDED = [
     "ParsekFlight.Accessors.cs",
-    "ParsekFlight.BlockedChainTipGhost.cs",
-    "ParsekFlight.BreakupChildSeed.cs",
-    "ParsekFlight.ClaimedVesselHoldGhost.cs",
     "ParsekFlight.Flags.cs",
-    "ParsekFlight.GroundPartPlacement.cs",
     "ParsekFlight.PostSwitchAutoRecord.cs",
     "ParsekFlight.Spawning.cs",
     "ParsekFlight.SplitEvents.cs",
-    "ParsekFlight.TailLift.cs",
 ]
 
 

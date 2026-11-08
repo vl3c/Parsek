@@ -19,11 +19,10 @@ namespace Parsek.Tests
     /// A gate that pins a COUNT in one file keeps naming that file. Phase B of the plan lifts
     /// members out of the partial class into service types (<see cref="ServiceFileNames"/>);
     /// <see cref="ReadAll"/> appends their files after the partials, so a gate that read a moved
-    /// body in "ParsekFlight.cs" still reads it. The partials under 200 lines (five split files
-    /// and the older siblings BlockedChainTipGhost, BreakupChildSeed, ClaimedVesselHoldGhost,
-    /// GroundPartPlacement and TailLift) were folded back into <c>ParsekFlight.cs</c> by
-    /// <c>scripts/refactor/fold_parsekflight_partials.py</c>, so a whole-class read now covers
-    /// those five older siblings too.
+    /// body in "ParsekFlight.cs" still reads it. The split files under 200 lines (Accessors, Flags,
+    /// PostSwitchAutoRecord, Spawning, SplitEvents) were folded back into <c>ParsekFlight.cs</c>
+    /// by <c>scripts/refactor/fold_parsekflight_partials.py</c>; a whole-class read covers the
+    /// same code.
     /// </summary>
     internal static class ParsekFlightSourceFiles
     {
@@ -46,7 +45,12 @@ namespace Parsek.Tests
         /// </summary>
         internal static readonly string[] OtherPartialFileNames =
         {
+            "ParsekFlight.BlockedChainTipGhost.cs",
+            "ParsekFlight.BreakupChildSeed.cs",
+            "ParsekFlight.ClaimedVesselHoldGhost.cs",
             "ParsekFlight.Finalization.cs",
+            "ParsekFlight.GroundPartPlacement.cs",
+            "ParsekFlight.TailLift.cs",
             "ParsekFlight.TerminalEvents.cs",
             "ParsekFlight.TerminalOrbit.cs",
         };
