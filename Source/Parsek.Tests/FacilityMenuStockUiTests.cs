@@ -264,7 +264,7 @@ namespace Parsek.Tests
         {
             Assert.Equal("why", StockUiFacilityDecoration.ComposeTooltipText(true, "ignored", "why"));
             string composed = StockUiFacilityDecoration.ComposeTooltipText(false, "Stock text", "why");
-            Assert.Equal("Stock text\n<color=" + StockUiRnDDecoration.ReasonColorHex + ">why</color>", composed);
+            Assert.Equal("Stock text\n<color=" + StockUiText.ReasonColorHex + ">why</color>", composed);
             Assert.Equal(composed, StockUiFacilityDecoration.ComposeTooltipText(false, composed, "why"));
         }
 
@@ -272,10 +272,10 @@ namespace Parsek.Tests
         public void RemoveReason_UndoesAppendReason_AndLeavesOtherTextAlone()
         {
             string stock = "The Launch Pad is where rockets go up.";
-            string appended = StockUiRnDDecoration.AppendReason(stock, "why");
+            string appended = StockUiText.AppendReason(stock, "why");
             Assert.Equal(stock, StockUiFacilityDecoration.RemoveReason(appended, "why"));
             Assert.Equal(stock, StockUiFacilityDecoration.RemoveReason(stock, "why"));
-            Assert.Equal("", StockUiFacilityDecoration.RemoveReason(StockUiRnDDecoration.AppendReason("", "why"), "why"));
+            Assert.Equal("", StockUiFacilityDecoration.RemoveReason(StockUiText.AppendReason("", "why"), "why"));
             Assert.Null(StockUiFacilityDecoration.RemoveReason(null, "why"));
             Assert.Equal(appended, StockUiFacilityDecoration.RemoveReason(appended, null));
         }

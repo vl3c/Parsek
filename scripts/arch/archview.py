@@ -53,18 +53,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # the same list; test_semantic keeps the two equal). The prose number check
 # reads it for "the residue after the pinned cut order".
 RATCHET_CUT_ORDER = [
-    "Route",
+    "GhostPlaybackLogic",
     "ParsekFlight",
+    "Route",
     "ParsekScenario",
     "RecordingStore",
-    "GameStateRecorder",
-    "LedgerOrchestrator",
     "RecordingTree",
+    "Mission",
+    "GameStateRecorder",
+    "EffectiveState",
+    "ParsekUI",
     "RouteOrchestrator",
     "FlightRecorder",
-    "GhostPlaybackLogic",
-    "ReFlySessionMarker",
-    "EffectiveState",
 ]
 
 SKIP_DIR_NAMES = {"bin", "obj", "Properties"}

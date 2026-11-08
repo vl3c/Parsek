@@ -74,21 +74,21 @@ TEXT_CUT_ORDER = archview.RATCHET_CUT_ORDER
 
 # The cut order the semantic residue ratchet replays
 # (test_semantic.test_the_semantic_residue_ratchet): the semantic greedy
-# sequence on the refactor branch at 62d9b1b56, unchanged at be2512a0d
-# (2026-11-07). Re-pin it only together with a tightened bound, never to
+# sequence on the refactor branch at 668a03255 (after wave 2 W1c and W3b,
+# 2026-11-08). Re-pin it only together with a tightened bound, never to
 # loosen one.
 SEMANTIC_CUT_ORDER = [
-    "Route",
+    "GhostPlaybackLogic",
     "RecordingTree",
     "FlightRecorder",
     "ParsekFlight",
     "ParsekScenario",
     "GameStateRecorder",
-    "ReFlySessionMarker",
     "RecordingStore",
     "EffectiveState",
-    "GhostPlaybackLogic",
     "GhostMapPresence",
+    "VesselSpawner",
+    "RouteOrchestrator",
     "RecalculationEngine",
 ]
 

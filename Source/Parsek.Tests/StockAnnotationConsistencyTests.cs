@@ -220,8 +220,8 @@ namespace Parsek.Tests
         [Fact]
         public void BlockReasonsAreOrange_OnlyTheMissionControlRowStatusIsBlue()
         {
-            Assert.Equal("#f97306", StockUiRnDDecoration.ReasonColorHex);
-            Assert.Equal("#" + MissionControlStockAnnotation.DetailColor, StockUiRnDDecoration.ReasonColorHex);
+            Assert.Equal("#f97306", StockUiText.ReasonColorHex);
+            Assert.Equal("#" + MissionControlStockAnnotation.DetailColor, StockUiText.ReasonColorHex);
             Assert.Equal("8fd3ff", MissionControlStockAnnotation.StatusColor);
             Assert.Contains(MissionControlStockAnnotation.StatusColor, MissionControlStockAnnotation.RowStatusMarker);
             Assert.DoesNotContain(MissionControlStockAnnotation.StatusColor, MissionControlStockAnnotation.DetailMarker);

@@ -600,20 +600,22 @@ class RealTreeSemanticTests(unittest.TestCase):
         self.assertEqual(users, [])
 
     def test_the_semantic_residue_ratchet(self):
-        # The architecture ratchet (W4a2, 2026-11-07). The bound is the
-        # semantic residue measured on be2512a0d, the tree where the text
-        # residue (test_archview.test_cut_sequence_halves_the_largest_knot)
-        # still passed its bound 263: greedy 250, replayed 250 with
-        # SEMANTIC_CUT_ORDER (also 250 on 62d9b1b56 under the text bound 272;
-        # W1b's deletion of the false text edge ReFlyInvokeHold -> Hold moved
-        # the text residue 9 and this one 0). Like the text ratchet before it,
-        # the measure is min(greedy residue, replayed residue); the replay never
-        # rises when a reference is removed. A call through a forwarder is a
-        # call to the forwarded type here, so adding or deleting a forwarder
-        # does not move it. Tighten the bound to the measured value in the PR
-        # that lowers it; never loosen it, not even for a new type that only
-        # splits a residue member.
-        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 250)
+        # The architecture ratchet (W4a2). The bound is the semantic residue
+        # measured on 668a03255 (2026-11-08, after wave 2 W1c and W3b), the
+        # tree where the text residue
+        # (test_archview.test_cut_sequence_halves_the_largest_knot) still
+        # passed its bound 179: greedy 150, replayed 150 with
+        # SEMANTIC_CUT_ORDER. History of the same pair: 250 under the text
+        # bound 272 (62d9b1b56) and 263 (be2512a0d; W1b deleted the false
+        # text edge ReFlyInvokeHold -> Hold, which moved the text residue 9
+        # and this one 0). Like the text ratchet before it, the measure is
+        # min(greedy residue, replayed residue); the replay never rises when
+        # a reference is removed. A call through a forwarder is a call to the
+        # forwarded type here, so adding or deleting a forwarder does not move
+        # it. Tighten the bound to the measured value in the PR that lowers
+        # it; never loosen it, not even for a new type that only splits a
+        # residue member.
+        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 150)
 
 if __name__ == "__main__":
     unittest.main()

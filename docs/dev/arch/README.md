@@ -118,9 +118,10 @@ in one residue and not the other, the disagreeing edges that touch it.
 CI runs `scripts/arch/test_semantic.py` after the build with `PARSEK_ARCH_IL`
 pointing at the built DLL (its real-tree cells, the residue ratchet among
 them, skip only when that is unset).
-On the refactor branch at be2512a0d (2026-11-07): text residue 263, semantic
-residue 250 (greedy and replayed with `SEMANTIC_CUT_ORDER`), knot 450 against
-405; text-only edges 713, IL-only 637, every one classified. Two text false
+On the refactor branch at 668a03255 (2026-11-08, after wave 2 W1c and W3b):
+text residue 179, semantic residue 150 (greedy and replayed with
+`SEMANTIC_CUT_ORDER`), knot 432 against 390; text-only edges 712, IL-only 637,
+every one classified. Two text false
 positives that held weight: the UI node `State` (StockUiReasonTooltip's private
 nested class) is matched by every `Contract.State` / `RDTech.State` token in
 GameActions and Patches (foreign-qualifier), and `Hold` (RewindVesselHold's
@@ -343,8 +344,8 @@ changes any dependency; it reports them.
 The residue after the last cut is a ratchet. Since 2026-11-07 (W4a2) it reads
 the **semantic graph** (next section's "The semantic graph", read from the
 compiled IL), in `scripts/arch/test_semantic.py`
-(`test_the_semantic_residue_ratchet`, bound 250, the semantic residue on
-be2512a0d, a tree that still passed the text bound 263): refactor work must
+(`test_the_semantic_residue_ratchet`, bound 150, the semantic residue on
+668a03255, a tree that still passed the text bound 179): refactor work must
 not loosen it, not even for a new type that only splits an existing residue
 member - keep such a type off the cycle or make it a partial of a type already
 in the knot. A call through a forwarder counts there as a call to the
@@ -369,14 +370,14 @@ change which sink wins an early step and leave a larger residue after the same
 **replayed residue** (`replay_cut_residue`): the largest component left after
 removing the outgoing references of a fixed, pinned cut order
 (`SEMANTIC_CUT_ORDER` in `semantic.py`, the semantic greedy order on
-be2512a0d). For a fixed set of cut types, deleting a reference can only shrink
+668a03255). For a fixed set of cut types, deleting a reference can only shrink
 the remaining components, so a pure move that removes a reference can never red
 the ratchet; adding a reference, or a new type that sits inside the residue,
 still can. The printed and documented sequence stays the greedy one.
 
 The text scan's own residue (`test_archview.py`'s
 `test_cut_sequence_halves_the_largest_knot`, replayed over
-`archview.RATCHET_CUT_ORDER`, 263 on be2512a0d) is still measured and
+`archview.RATCHET_CUT_ORDER`, 179 on 668a03255) is still measured and
 reported, no longer bounded: it moves when a forwarder is added or deleted.
 
 `ladder.html` shows the same information in place. The row of a knot level is
