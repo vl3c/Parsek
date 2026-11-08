@@ -533,7 +533,7 @@ namespace Parsek
             return true;
         }
 
-        private static string HashOfLoadedSnapshot(
+        internal static string HashOfLoadedSnapshot(
             SnapshotSidecarLoadState state, string path, string currentHash, bool resolved)
         {
             if (state != SnapshotSidecarLoadState.Loaded || string.IsNullOrEmpty(path))
@@ -857,7 +857,7 @@ namespace Parsek
             return state;
         }
 
-        private static string DetermineSnapshotLoadFailureReason(
+        internal static string DetermineSnapshotLoadFailureReason(
             SnapshotSidecarLoadSummary summary, Recording rec)
         {
             if (rec == null)
@@ -1752,7 +1752,7 @@ namespace Parsek
             return summary;
         }
 
-        private static bool ShouldWriteReadableSidecarMirrors()
+        internal static bool ShouldWriteReadableSidecarMirrors()
         {
             if (WriteReadableSidecarMirrorsOverrideForTesting.HasValue)
                 return WriteReadableSidecarMirrorsOverrideForTesting.Value;
@@ -1761,14 +1761,14 @@ namespace Parsek
             return settings == null || settings.writeReadableSidecarMirrors;
         }
 
-        private static string FormatSidecarContext(Recording rec)
+        internal static string FormatSidecarContext(Recording rec)
         {
             return FormatSidecarContext(
                 rec,
                 rec != null ? rec.GhostSnapshotMode : GhostSnapshotMode.Unspecified);
         }
 
-        private static string FormatSidecarContext(Recording rec, GhostSnapshotMode ghostSnapshotMode)
+        internal static string FormatSidecarContext(Recording rec, GhostSnapshotMode ghostSnapshotMode)
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
@@ -1779,12 +1779,12 @@ namespace Parsek
                 ghostSnapshotMode);
         }
 
-        private static string FormatPathForSidecarLog(string path)
+        internal static string FormatPathForSidecarLog(string path)
         {
             return string.IsNullOrEmpty(path) ? "<null>" : path;
         }
 
-        private static string FormatExceptionForSidecarLog(Exception ex)
+        internal static string FormatExceptionForSidecarLog(Exception ex)
         {
             if (ex == null)
                 return "<none>";
@@ -1792,7 +1792,7 @@ namespace Parsek
             return ex.GetType().Name + ":" + (ex.Message ?? string.Empty);
         }
 
-        private static string SafeSaveFolderForSidecarLog()
+        internal static string SafeSaveFolderForSidecarLog()
         {
             try
             {
@@ -1870,7 +1870,7 @@ namespace Parsek
             }
         }
 
-        private static string GetReadableMirrorPath(string authoritativePath)
+        internal static string GetReadableMirrorPath(string authoritativePath)
         {
             return string.IsNullOrEmpty(authoritativePath) ? null : authoritativePath + ".txt";
         }
