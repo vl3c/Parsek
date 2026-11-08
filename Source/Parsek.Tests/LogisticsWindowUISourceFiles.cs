@@ -40,7 +40,12 @@ namespace Parsek.Tests
         /// Every other file on disk must be in <see cref="SplitFileNames"/>, or
         /// <see cref="Paths"/> throws naming it.
         /// </summary>
-        internal static readonly string[] OtherPartialFileNames = Array.Empty<string>();
+        // The window's section of the MAIN Parsek window (the candidate banner and the
+        // Logistics launcher). Not read with the class: it draws in the main window, so the
+        // gates that budget the Logistics window's own text must not count it.
+        internal const string MainWindowSection = "LogisticsWindowUI.MainWindowSection.cs";
+
+        internal static readonly string[] OtherPartialFileNames = { MainWindowSection };
 
         /// <summary>The main file then the area files (ordinal), all under <paramref name="uiDir"/>.</summary>
         internal static IReadOnlyList<string> Paths(string uiDir)
