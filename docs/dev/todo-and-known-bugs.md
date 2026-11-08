@@ -1530,14 +1530,6 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   the no-segment arm (future-segment scan, retention line) and the result apply. Pinned first by
   `FlightMapPassCharacterizationTests`. Left in place, not reachable headless: the created-ghost
   bookkeeping, the loiter-gap clamp and `UpdateGhostOrbitFromStateVectors` (needs a live vessel).
-- Wave 2 W8a (S3, pure move, IL identical): the five `ParsekFlight.*.cs` partials under 200 lines
-  that the ParsekFlight split wrote out of `ParsekFlight.cs` (`.Accessors`, `.Flags`,
-  `.PostSwitchAutoRecord`, `.Spawning`, `.SplitEvents`) are folded back into it
-  (`scripts/refactor/fold_parsekflight_partials.py`), restoring their pre-split gate coverage. The
-  older siblings under 200 lines (`.BlockedChainTipGhost`, `.BreakupChildSeed`,
-  `.ClaimedVesselHoldGhost`, `.GroundPartPlacement`, `.TailLift`) stay separate files, so no gate
-  that scans them today is lost to `ParsekFlight.cs`'s file-wide exemptions. `ParsekFlightSourceFiles`
-  and the non-loop live-PID audit drop the five rows; the ERS / ELS allowlist drops `.SplitEvents`.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
