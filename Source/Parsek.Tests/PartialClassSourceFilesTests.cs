@@ -84,6 +84,10 @@ namespace Parsek.Tests
                 VesselSpawnerSourceFiles.Paths(parsek).Count);
             Assert.Equal(1 + ParsekScenarioSourceFiles.SplitFileNames.Length,
                 ParsekScenarioSourceFiles.Paths(parsek).Count);
+            Assert.Equal(1 + MissionsWindowUISourceFiles.SplitFileNames.Length,
+                MissionsWindowUISourceFiles.Paths(Path.Combine(parsek, "UI")).Count);
+            Assert.Equal(1 + LogisticsWindowUISourceFiles.SplitFileNames.Length,
+                LogisticsWindowUISourceFiles.Paths(Path.Combine(parsek, "UI")).Count);
         }
     }
 }

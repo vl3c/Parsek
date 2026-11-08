@@ -2987,6 +2987,18 @@ columns whose blanks are visible, where the old outline simply said nothing.
   terminal gates; covering segment; OrbitalCheckpoint SOI gap; state vector; terminal-orbit
   fallback; the decision emission), the longest 89 lines. Pinned before the split by a golden
   capture of every decision exit (`MapPresenceSourceResolveCharacterizationTests`).
+- Wave 2 W8c, second PR (S3, pure move, IL identical): `UI/MissionsWindowUI.cs` (5,039 lines)
+  and `UI/LogisticsWindowUI.cs` (4,782) are partial classes over 8 files each
+  (`scripts/refactor/split_missionswindowui.py`, `split_logisticswindowui.py`; every field,
+  property, constant and the constructor stay in the main file). Missions: main 1,538 (the
+  tab draw, reveal navigation, styles, sorting, column header, testing seams), `.ViewData`
+  626, `.VesselRows` 594, `.Periodicity` 594, `.Loop` 540, `.Interact` 463, `.MissionRows`
+  424, `.ForeignDocks` 330. Logistics: main 1,185 (window lifecycle and draw, styles, testing
+  seams), `.Legibility` 896, `.Detail` 778, `.Rows` 714, `.Actions` 496, `.Sections` 467,
+  `.LinkPicker` 169, `.Formatting` 168. The source gates that read either file now read the
+  whole class through `MissionsWindowUISourceFiles` / `LogisticsWindowUISourceFiles` (or the
+  one area file a single-method gate names); the ERS / ELS allowlist adds the four Missions
+  partials that hold its raw reads.
 - Wave 2 W2c (2026-11-08, this branch, docs only): the `ParsekScenario` static-state map,
   `docs/dev/research/parsekscenario-static-state-map-2026-11-08.md`. It covers 31
   reassignable fields and no readonly collections: writers, readers, outside entry points,

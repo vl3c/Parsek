@@ -606,8 +606,9 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void MissionsWindow_ReadsTheMissionLevelBinding_AndClearsTheLoopOnAPartnerInclude()
         {
-            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
-                RepoRoot(), "Source", "Parsek", "UI", "MissionsWindowUI.cs"));
+            // MissionsWindowUI is a partial class: the scan reads every file of it.
+            string src = MissionsWindowUISourceFiles.ReadAll(System.IO.Path.Combine(
+                RepoRoot(), "Source", "Parsek", "UI"));
             int count = 0, at = 0;
             while ((at = src.IndexOf("RouteTreeGuard.RouteBindingForMission(", at, System.StringComparison.Ordinal)) >= 0)
             {
@@ -656,8 +657,9 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void LogisticsCreate_ToastsEachPartnerMissionByItsOwnName()
         {
-            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
-                RepoRoot(), "Source", "Parsek", "UI", "LogisticsWindowUI.cs"));
+            // LogisticsWindowUI is a partial class: the scan reads every file of it.
+            string src = LogisticsWindowUISourceFiles.ReadAll(System.IO.Path.Combine(
+                RepoRoot(), "Source", "Parsek", "UI"));
             int loop = src.IndexOf("outcome.PartnerMissionsCleared[pi]", System.StringComparison.Ordinal);
             Assert.True(loop >= 0, "the create path must read the partner missions it cleared");
             int toast = src.IndexOf("FormatMissionNowRepeatsOnRouteToast(partnerName)", loop,
