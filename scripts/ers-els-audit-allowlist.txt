@@ -155,7 +155,6 @@ Source/Parsek/ParsekFlight.GhostPositioning.cs
 Source/Parsek/ParsekFlight.MergeFlow.cs
 Source/Parsek/ParsekFlight.RecorderSession.cs
 Source/Parsek/ParsekFlight.SplitBranching.cs
-Source/Parsek/ParsekFlight.SplitEvents.cs
 Source/Parsek/ParsekFlight.SwitchContinuation.cs
 Source/Parsek/ParsekFlight.TimelinePlayback.cs
 Source/Parsek/ParsekFlight.TreeRestore.cs

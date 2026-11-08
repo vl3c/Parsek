@@ -6,7 +6,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for <see cref="ParsekUI.BuildGroupTreeData"/> — pure data computation
+    /// Tests for <see cref="RecordingsTableUI.BuildGroupTreeData"/> — pure data computation
     /// that builds the group tree structures for the recordings list UI.
     /// </summary>
     [Collection("Sequential")]
@@ -68,7 +68,7 @@ namespace Parsek.Tests
             var sorted = new int[0];
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -91,7 +91,7 @@ namespace Parsek.Tests
             var sorted = IdentityIndices(1);
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -116,7 +116,7 @@ namespace Parsek.Tests
             var sorted = IdentityIndices(2);
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -144,7 +144,7 @@ namespace Parsek.Tests
             var sorted = IdentityIndices(1);
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -171,7 +171,7 @@ namespace Parsek.Tests
             var sorted = IdentityIndices(3);
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -197,7 +197,7 @@ namespace Parsek.Tests
             var sorted = IdentityIndices(2);
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -218,7 +218,7 @@ namespace Parsek.Tests
             var sorted = IdentityIndices(2);
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -243,7 +243,7 @@ namespace Parsek.Tests
             var sorted = IdentityIndices(1);
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -271,7 +271,7 @@ namespace Parsek.Tests
             var sorted = IdentityIndices(3);
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -295,7 +295,7 @@ namespace Parsek.Tests
             var sorted = new int[0];
             var emptyGroups = new List<string> { "EmptyGroupA", "EmptyGroupB" };
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -317,7 +317,7 @@ namespace Parsek.Tests
             var sorted = IdentityIndices(1);
             var emptyGroups = new List<string> { "EmptyChild" };
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -350,7 +350,7 @@ namespace Parsek.Tests
             var sorted = new int[] { 2, 0 };
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
@@ -376,7 +376,7 @@ namespace Parsek.Tests
             var sorted = new int[] { 0, 0 };
             var emptyGroups = new List<string>();
 
-            ParsekUI.BuildGroupTreeData(committed, sorted, emptyGroups,
+            RecordingsTableUI.BuildGroupTreeData(committed, sorted, emptyGroups,
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
 
