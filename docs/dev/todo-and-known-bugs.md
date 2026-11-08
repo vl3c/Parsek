@@ -1517,6 +1517,11 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   of four W6 steps that make `ParsekUI` reach no residue type; measured on the semantic
   graph, all four take the residue 150 -> 140, this one alone moves nothing (knot 390 -> 391,
   residue 150).
+- Wave 2 W7b3 (2026-11-08, #2495): `LedgerOrchestrator.NotifyLedgerTreeCommitted`
+  (195 lines) keeps its try / catch / finally and calls `FileTreeRecordingCommit` (one
+  recording), `WalkAfterFailedTreeCommit`, `LogTreeCommitPendingScienceOutcome` and
+  `WalkAndCompleteTreeCommit`, behind a ten-scenario golden with faults before and after the
+  science persists (`NotifyLedgerTreeCommittedCharacterizationTests`) written first.
 - Wave 2 W8a (S3, pure move, IL identical): the five `ParsekFlight.*.cs` partials under 200 lines
   that the ParsekFlight split wrote out of `ParsekFlight.cs` (`.Accessors`, `.Flags`,
   `.PostSwitchAutoRecord`, `.Spawning`, `.SplitEvents`) are folded back into it
