@@ -114,11 +114,11 @@ namespace Parsek
             var retainedParentChainTipCandidates =
                 CollectRetainedParentChainTipAdoptionCandidates(
                     tree, decisions, activeReFlyTargetId);
-            RecordingStore.CommitPendingTree();
+            TreeCommitService.CommitPendingTree();
             // Phase C/F: mark recordings fully applied after the tree moves
             // from pending to committed state.
             RecordingStore.MarkTreeAsApplied(tree);
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             AdoptExistingSourceVesselsForRetainedParentChainTips(
                 tree,
                 decisions,
