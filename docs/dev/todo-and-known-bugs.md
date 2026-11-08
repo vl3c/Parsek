@@ -3080,7 +3080,7 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `BuildStrategyFundsConversionAction`, `BuildStrategyReputationConversionAction`), behind a
   characterization golden over every currency, delta sign, reason and tag
   (`BuildStrategyConversionActionCharacterizationTests`) written first.
-- Wave 2 W7b3 (2026-11-08, this branch): `LedgerOrchestrator.NotifyLedgerTreeCommitted`
+- Wave 2 W7b3 (2026-11-08, #2495): `LedgerOrchestrator.NotifyLedgerTreeCommitted`
   (195 lines) keeps its try / catch / finally and calls `FileTreeRecordingCommit` (one
   recording), `WalkAfterFailedTreeCommit`, `LogTreeCommitPendingScienceOutcome` and
   `WalkAndCompleteTreeCommit`, behind a ten-scenario golden with faults before and after the
