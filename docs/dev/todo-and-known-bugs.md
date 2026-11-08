@@ -1529,6 +1529,14 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   recording), `WalkAfterFailedTreeCommit`, `LogTreeCommitPendingScienceOutcome` and
   `WalkAndCompleteTreeCommit`, behind a ten-scenario golden with faults before and after the
   science persists (`NotifyLedgerTreeCommittedCharacterizationTests`) written first.
+- Wave 2 W5b (2026-11-08): dropped. Moving the source resolver into its own type raises the
+  replayed residue by one (the W5a note above), so it needs a DECOUPLE of its knot calls first.
+- Wave 2 W5c2 (2026-11-08, this branch, extract-method): the flight map deferred-create pass
+  (204 -> 154 lines) and orbit-reseed pass (321 -> 161) call eight helpers in the same file:
+  loop synthesis and source resolve of a pending entry; loop-window teardown, gap-points glide,
+  the no-segment arm (future-segment scan, retention line) and the result apply. Pinned first by
+  `FlightMapPassCharacterizationTests`. Left in place, not reachable headless: the created-ghost
+  bookkeeping, the loiter-gap clamp and `UpdateGhostOrbitFromStateVectors` (needs a live vessel).
 - Wave 2 W9a (2026-11-08, this branch, extract-method; each PR characterized against the
   original code first): #2467 splits `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` into gate
   groups and `ComputeSpanLoopFrame` into pieces; #2475 splits out `UpdatePlayback`'s
