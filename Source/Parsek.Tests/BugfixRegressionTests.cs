@@ -22,19 +22,19 @@ namespace Parsek.Tests
         [Fact]
         public void FormatDuration_Seconds_ReturnsSecondsOnly()
         {
-            Assert.Equal("45s", ParsekUI.FormatDuration(45));
+            Assert.Equal("45s", RecordingsTableUI.FormatDuration(45));
         }
 
         [Fact]
         public void FormatDuration_Minutes_ReturnsMinutesAndSeconds()
         {
-            Assert.Equal("2m 10s", ParsekUI.FormatDuration(130));
+            Assert.Equal("2m 10s", RecordingsTableUI.FormatDuration(130));
         }
 
         [Fact]
         public void FormatDuration_Hours_ReturnsHoursAndMinutes()
         {
-            Assert.Equal("2h 0m", ParsekUI.FormatDuration(7200));
+            Assert.Equal("2h 0m", RecordingsTableUI.FormatDuration(7200));
         }
 
         [Fact]
@@ -42,7 +42,7 @@ namespace Parsek.Tests
         {
             // KSP: 1 day = 6h = 21600s
             // 50000s = 2 days (43200s) + 6800s = 2d + 1h (3600) + 3200s remainder
-            Assert.Equal("2d 1h", ParsekUI.FormatDuration(50000));
+            Assert.Equal("2d 1h", RecordingsTableUI.FormatDuration(50000));
         }
 
         [Fact]
@@ -51,31 +51,31 @@ namespace Parsek.Tests
             // KSP: 1 year = 426 days = 426 * 21600 = 9201600s
             // 10000000s = 1 year (9201600) + 798400s remainder
             // 798400 / 21600 = 36.96 days → 36 days
-            Assert.Equal("1y 36d", ParsekUI.FormatDuration(10000000));
+            Assert.Equal("1y 36d", RecordingsTableUI.FormatDuration(10000000));
         }
 
         [Fact]
         public void FormatDuration_Zero_ReturnsZeroSeconds()
         {
-            Assert.Equal("0s", ParsekUI.FormatDuration(0));
+            Assert.Equal("0s", RecordingsTableUI.FormatDuration(0));
         }
 
         [Fact]
         public void FormatDuration_NaN_ReturnsZeroSeconds()
         {
-            Assert.Equal("0s", ParsekUI.FormatDuration(double.NaN));
+            Assert.Equal("0s", RecordingsTableUI.FormatDuration(double.NaN));
         }
 
         [Fact]
         public void FormatDuration_Negative_ReturnsZeroSeconds()
         {
-            Assert.Equal("0s", ParsekUI.FormatDuration(-10));
+            Assert.Equal("0s", RecordingsTableUI.FormatDuration(-10));
         }
 
         [Fact]
         public void FormatDuration_Infinity_ReturnsZeroSeconds()
         {
-            Assert.Equal("0s", ParsekUI.FormatDuration(double.PositiveInfinity));
+            Assert.Equal("0s", RecordingsTableUI.FormatDuration(double.PositiveInfinity));
         }
     }
 
@@ -337,7 +337,7 @@ namespace Parsek.Tests
             };
             var descendants = new HashSet<int> { 0 };
 
-            ParsekUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
+            RecordingsTableUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
 
             Assert.Equal(1, statusOrder); // 1 = active
             // Active recording with points should return a T+ countdown, not literal "active"
@@ -354,7 +354,7 @@ namespace Parsek.Tests
             };
             var descendants = new HashSet<int> { 0 };
 
-            ParsekUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
+            RecordingsTableUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
 
             Assert.Equal(0, statusOrder); // 0 = future
             Assert.StartsWith("T-", statusText);
@@ -370,7 +370,7 @@ namespace Parsek.Tests
             };
             var descendants = new HashSet<int> { 0 };
 
-            ParsekUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
+            RecordingsTableUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
 
             Assert.Equal(2, statusOrder); // 2 = past
             Assert.Equal("past", statusText);
@@ -388,7 +388,7 @@ namespace Parsek.Tests
             };
             var descendants = new HashSet<int> { 0, 1, 2 };
 
-            ParsekUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
+            RecordingsTableUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
 
             Assert.Equal(1, statusOrder); // active wins
         }
@@ -405,7 +405,7 @@ namespace Parsek.Tests
             };
             var descendants = new HashSet<int> { 0, 1, 2 };
 
-            ParsekUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
+            RecordingsTableUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
 
             Assert.Equal(0, statusOrder); // future wins over past
         }
@@ -417,7 +417,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>();
             var descendants = new HashSet<int>();
 
-            ParsekUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
+            RecordingsTableUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
 
             Assert.Equal(2, statusOrder);
             Assert.Equal("-", statusText);
@@ -433,7 +433,7 @@ namespace Parsek.Tests
             var committed = new List<Recording> { rec };
             var descendants = new HashSet<int> { 0 };
 
-            ParsekUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
+            RecordingsTableUI.GetGroupStatus(descendants, committed, now, out string statusText, out int statusOrder);
 
             Assert.Equal(1, statusOrder);
             // With points present, should show T+ countdown, not "active"

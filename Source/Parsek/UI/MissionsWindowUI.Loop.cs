@@ -392,7 +392,7 @@ namespace Parsek
                 double autoShown = showEffective ? effectiveSeconds : requestedSeconds;
                 string autoText = ParsekUI.FormatLoopValue(
                         ParsekUI.ConvertFromSeconds(autoShown, globalDisplayUnit), globalDisplayUnit)
-                    + ParsekUI.UnitSuffix(globalDisplayUnit);
+                    + RecordingsTableUI.UnitSuffix(globalDisplayUnit);
                 // A non-editable field cannot be the one being edited; drop any stale edit focus.
                 if (loopPeriodFocusedMissionId == mission.Id)
                     loopPeriodFocusedMissionId = null;

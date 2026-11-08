@@ -307,7 +307,7 @@ namespace Parsek.Tests
         [InlineData(2500000, "2.5Mm")]
         public void FormatAltitude_CorrectOutput(double meters, string expected)
         {
-            Assert.Equal(expected, ParsekUI.FormatAltitude(meters));
+            Assert.Equal(expected, RecordingsTableUI.FormatAltitude(meters));
         }
     }
 
@@ -321,7 +321,7 @@ namespace Parsek.Tests
         [InlineData(2268, "2.3km/s")]
         public void FormatSpeed_CorrectOutput(double mps, string expected)
         {
-            Assert.Equal(expected, ParsekUI.FormatSpeed(mps));
+            Assert.Equal(expected, RecordingsTableUI.FormatSpeed(mps));
         }
     }
 
@@ -337,7 +337,7 @@ namespace Parsek.Tests
         [InlineData(18000000, "18.0Mm")]
         public void FormatDistance_CorrectOutput(double meters, string expected)
         {
-            Assert.Equal(expected, ParsekUI.FormatDistance(meters));
+            Assert.Equal(expected, RecordingsTableUI.FormatDistance(meters));
         }
     }
 }

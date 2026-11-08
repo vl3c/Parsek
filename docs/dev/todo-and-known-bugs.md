@@ -1558,6 +1558,12 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   Vessel / FlightGlobals / Planetarium read, so no headless test reaches it through the
   original method; or it reads private recorder state, so a verbatim test-side oracle
   cannot compile. The pure blocks left are small log pairs.
+- Wave 2 W7b4 (2026-11-08, #2499): `LedgerOrchestrator.RecalculateAndPatchCore`
+  (180 lines) is a sequence of named steps in the same partial file: `PrepareRecalculationWalk`,
+  `WalkLedgerAndReconcile`, `ResolveRecalcPatchDeferralReason`, the two patch branches
+  `ApplyDeferredPatchMilestoneReach` / `PatchKspFromRecalculatedWalk`, and
+  `LogRecalculateAndPatchComplete`, behind a 13-scenario walk golden over every entry point
+  (`RecalculateAndPatchCoreCharacterizationTests`) written first.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
