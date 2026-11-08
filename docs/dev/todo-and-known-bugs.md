@@ -2987,6 +2987,13 @@ columns whose blanks are visible, where the old outline simply said nothing.
   terminal gates; covering segment; OrbitalCheckpoint SOI gap; state vector; terminal-orbit
   fallback; the decision emission), the longest 89 lines. Pinned before the split by a golden
   capture of every decision exit (`MapPresenceSourceResolveCharacterizationTests`).
+- Wave 2 W2c (2026-11-08, this branch, docs only): the `ParsekScenario` static-state map,
+  `docs/dev/research/parsekscenario-static-state-map-2026-11-08.md`. It covers 31
+  reassignable fields and no readonly collections: writers, readers, outside entry points,
+  reset paths, and direct and reflection test writers. It uses the same IL tool. Outside
+  production code reads only `CrashReconcileInProgress` directly; all other access goes
+  through named methods. `OnLoad` writes 11 of the fields itself, and the extracted
+  `OnLoadPhase*` methods write none.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
