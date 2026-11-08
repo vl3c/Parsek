@@ -616,7 +616,7 @@ namespace Parsek.Patches
         /// tick (MapOrbitUpdateIntervalSec = 0.5s under load, plus the on-vessel apply jitter);
         /// 1.5s is comfortably above that. Once seg-drive applies, bounds return and the
         /// director / visible-body-frame branches engage with fresh bounds, so the icon shows
-        /// on the correct mesh position naturally. Also read by ParsekUI.DrawMapMarkers (the
+        /// on the correct mesh position naturally. Also read by ParsekFlightMapMarkers.DrawMapMarkers (the
         /// labeled marker prefers the trajectory-derived position through the same window).
         /// </summary>
         internal const float PolylineReleaseGraceSeconds = 1.5f;

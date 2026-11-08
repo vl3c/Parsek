@@ -610,7 +610,7 @@ namespace Parsek.Tests
             //
             // `close` is OUT after checking the MIRROR DIRECTION rather than by symmetry:
             // a drawing window can LOWER its own flag UNPROMPTED, while nothing raises one
-            // WITHOUT A PLAYER CLICK. Draw paths do raise open flags (ParsekUI.cs:809's
+            // WITHOUT A PLAYER CLICK. Draw paths do raise open flags (ParsekUI.cs:781's
             // RouteRunPrompt banner, RecordingsTableUI.cs:467/:521,
             // StructureListWindowUI.cs:89/:100) but all of those are GUILayout.Button
             // handlers, and the seam synthesises no clicks - so there is no self-opening
