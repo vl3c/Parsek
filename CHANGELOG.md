@@ -17,6 +17,13 @@ All notable changes to Parsek are documented here.
 - **A Re-Fly merge says what it undid.** When merging a Re-Fly takes the old flight's losses off
   your career, a short message names them: a kerbal's death, contract failures, reputation
   penalties. (GUI-EXPOSURE-4)
+- **Ghost fairings look like the real ones.** In flight a ghost's fairing is now built by KSP's own
+  fairing builder from the shape you drew, with the same panels, nose, paint and colour variant
+  (the base ring too), and an interstage fairing shows KSP's lattice truss, which stays on after
+  the upper stage leaves, as it does on the real craft. (T25)
+- **Ghost engine plates and engine shrouds look like the real ones.** A ghost engine plate shows
+  only the engine mount pattern you picked, and a plate or engine shows only the shroud length
+  of its chosen variant, instead of every option stacked on top of each other. (T25)
 
 ### Fixed
 

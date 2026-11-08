@@ -901,23 +901,30 @@ namespace Parsek
         /// </summary>
         private static JettisonGhostInfo ResolveJettisonTransforms(
             Part prefab, Dictionary<Transform, Transform> cloneMap,
-            uint persistentId, string partName)
+            uint persistentId, string partName, ConfigNode partNode)
         {
             var ghostJettisonTransforms = new List<Transform>();
             var resolvedJettisonNames = new List<string>();
+            List<ConfigNode> snapshotJettisons = SnapshotModulesNamed(partNode, "ModuleJettison");
+            int jettisonOrdinal = 0;
             for (int moduleIndex = 0; moduleIndex < prefab.Modules.Count; moduleIndex++)
             {
                 var jettison = prefab.Modules[moduleIndex] as ModuleJettison;
                 if (jettison == null) continue;
+                ConfigNode snapJettison = jettisonOrdinal < snapshotJettisons.Count
+                    ? snapshotJettisons[jettisonOrdinal] : null;
+                jettisonOrdinal++;
 
                 string jettisonNameList = jettison.jettisonName;
                 if (string.IsNullOrWhiteSpace(jettisonNameList)) continue;
 
-                string[] jettisonNames = jettisonNameList.Split(
-                    new[] { ',' }, System.StringSplitOptions.RemoveEmptyEntries);
-                for (int nameIndex = 0; nameIndex < jettisonNames.Length; nameIndex++)
+                // A shroud list over variant meshes (engine plates): only the one stock
+                // recorded as active, never a forced-on mesh of another variant.
+                List<string> jettisonNames = SelectJettisonNames(
+                    jettisonNameList, snapJettison != null ? snapJettison.GetValue("activejettisonName") : null);
+                for (int nameIndex = 0; nameIndex < jettisonNames.Count; nameIndex++)
                 {
-                    string jettisonName = jettisonNames[nameIndex].Trim();
+                    string jettisonName = jettisonNames[nameIndex];
                     if (string.IsNullOrEmpty(jettisonName)) continue;
 
                     Transform srcJettison = prefab.FindModelTransform(jettisonName);
