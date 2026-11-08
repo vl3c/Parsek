@@ -165,11 +165,13 @@ namespace Parsek.Reaim
                     loiterCuts, bodyInfo, windowSpacingSeconds, launchBodyName, loopSlackSeconds);
             }
 
-            // M-MIS-6 multi-moon (Jool-class) shape: 2+ constrained moons, never station-bearing
-            // (the extractor's station+moon reject already returned above). One per-loop hold on
-            // the joint configuration period T_config; its own gates fail closed with amber
-            // (docs/dev/design-mission-multimoon-alignment.md D1/D5/D6).
-            if (destSet.ConstrainedMoonCount >= 2)
+            // Moon configuration hold: the M-MIS-6 multi-moon (Jool-class) shape (2+ constrained
+            // moons, never station-bearing - the extractor's station+moon reject already returned
+            // above) AND the lone-moon arrival (exactly one constrained moon and no landing
+            // rotation in force, e.g. Kerbin -> Duna -> Ike orbit or Ike landing). One per-loop
+            // hold on the configuration period T_config; its own gates fail closed with amber
+            // (docs/dev/design-mission-multimoon-alignment.md D1/D5/D6, section 9).
+            if (UsesMoonConfigurationHold(destSet, mode))
             {
                 return ComputeMultiMoonConfigHold(
                     destSet, targetBody, recordedArrivalUT, mode, phaseAnchorUT, spanStartUT,
@@ -229,6 +231,31 @@ namespace Parsek.Reaim
             single.IsStationHold = isStationHold;
             single.AlignAnchorPid = isStationHold ? destSet.StationAnchorPid : 0;
             return single;
+        }
+
+        /// <summary>
+        /// True when the destination shape's arrival hold is the moon CONFIGURATION hold
+        /// (<see cref="ComputeMultiMoonConfigHold"/>): a Supported, station-free set with either
+        /// 2+ constrained moons (M-MIS-6), or exactly ONE constrained moon and no destination
+        /// landing rotation in force (no landing on the target, or landing alignment Off). The
+        /// lone moon is the periodicity design's MoonConfig constraint (Phase 4, "each inner
+        /// moon's orbital phase"): without it an orbit-only or moon-landing arrival takes no hold
+        /// and the moon-relative replay detaches from the target-relative approach. A landing on
+        /// the target with the rotation hold in force keeps the shipped rotation hold (and, for
+        /// a tidally locked moon such as Ike, aligns the moon for free). The builder reads the
+        /// same predicate to keep the destination timeline rigid (no post-entry loiter cut).
+        /// Pure.
+        /// </summary>
+        internal static bool UsesMoonConfigurationHold(
+            DestinationConstraintExtractor.DestinationConstraintSet destSet,
+            TransitedBodyRotationMode mode)
+        {
+            if (!destSet.Supported || destSet.HasStation || destSet.IsJointLandingStation)
+                return false;
+            if (destSet.ConstrainedMoonCount >= 2)
+                return true;
+            return destSet.ConstrainedMoonCount == 1
+                && (!destSet.HasLandingRotation || mode == TransitedBodyRotationMode.Drop);
         }
 
         /// <summary>
@@ -470,7 +497,8 @@ namespace Parsek.Reaim
             double loopSlackSeconds)
         {
             var ic = CultureInfo.InvariantCulture;
-            string shape = destSet.ConstrainedMoonCount.ToString(ic) + " constrained moons of '"
+            string shape = destSet.ConstrainedMoonCount.ToString(ic)
+                + (destSet.ConstrainedMoonCount == 1 ? " constrained moon of '" : " constrained moons of '")
                 + (targetBody ?? "?") + "'";
 
             // Destination-side loiter-cut rigidity guard (the shipped L8 refusal): a cut excised
@@ -492,7 +520,7 @@ namespace Parsek.Reaim
             CollectConfigParticipants(destSet.Constraints, mode, launchBodyName, participants);
             CollectConfigParticipants(destSet.MoonRotations, mode, launchBodyName, participants);
             if (participants.Count == 0)
-                return ArrivalHoldResult.None; // defensive: >=2 valid moon periods always remain
+                return ArrivalHoldResult.None; // defensive: every constrained moon's period remains
 
             var tolerances = new double[participants.Count];
             for (int i = 0; i < participants.Count; i++)

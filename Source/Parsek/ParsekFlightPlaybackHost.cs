@@ -1671,6 +1671,8 @@ namespace Parsek
             // recording live while pendingSplitRecorder holds the recorder).
             string activeReFlyRecordingId = activeReFlyMarker?.ActiveReFlyRecordingId;
             string liveRecorderRecordingId = ResolveLiveRecorderRecordingId();
+            double continuationHoldLookahead = GhostCommNetMath.HoldPredictionLookaheadSeconds(
+                GhostCommNetMath.FlightHoldPredictionTickSeconds, TimeWarp.CurrentRate);
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -1836,8 +1838,12 @@ namespace Parsek
                 // Scenario 15: a vessel whose terminal spawn a later continuation owns (an
                 // intermediate ghost-chain link, or a superseded terminal spawn) stays on rails
                 // at its end state until that continuation takes it over; its node is held there.
+                // The hold scans the committed list, so it is resolved only near or past EndUT,
+                // the only UTs at which anything reads it (as the Tracking Station does).
                 if (hasData && !rec.IsDebris && !supersededByRelation && !rewindRetired
-                    && !spawnHistoricalNeverReplayed)
+                    && !spawnHistoricalNeverReplayed
+                    && GhostCommNetMath.ShouldResolveContinuationHold(
+                        currentUT, rec.EndUT, continuationHoldLookahead))
                 {
                     GhostCommNetMath.ApplyContinuationHold(
                         ref commNetInput, rec, committed, host.activeGhostChains,

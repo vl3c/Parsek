@@ -40,6 +40,13 @@ namespace Parsek
         /// deployableExtended value: broken is not a point on the stowed&lt;-&gt;deployed axis.
         /// </summary>
         public bool deployableBroken;
+        /// <summary>
+        /// The part's ModuleWheelDamage persisted <c>isDamaged = True</c>, so the ghost must spawn
+        /// showing the busted wheel. A plain bool for the same reason as
+        /// <see cref="deployableBroken"/>: an intact wheel is the build-time default, so there is
+        /// no "not broken" opinion to carry.
+        /// </summary>
+        public bool wheelDamaged;
         /// <summary>ModuleWheelDeployment.stateString — Deployed / Retracted; null otherwise.</summary>
         public bool? gearDeployed;
         /// <summary>Cargo/service bay open state, resolved from the paired ModuleAnimateGeneric animTime against the prefab's closedPosition.</summary>
@@ -64,6 +71,7 @@ namespace Parsek
         internal bool HasAnyBaseline =>
             deployableExtended.HasValue
             || deployableBroken
+            || wheelDamaged
             || gearDeployed.HasValue
             || cargoBayOpen.HasValue
             || animateGenericDeployed.HasValue
@@ -180,6 +188,11 @@ namespace Parsek
                             if (gearDeployed || gearRetracted)
                                 baseline.gearDeployed = gearDeployed;
                         }
+                        continue;
+                    case "ModuleWheelDamage":
+                        if (TryParseSnapshotBool(module.GetValue("isDamaged"), out bool wheelDamaged)
+                            && wheelDamaged)
+                            baseline.wheelDamaged = true;
                         continue;
                     case "ModuleParachute":
                         if (string.IsNullOrEmpty(baseline.parachutePersistentState))

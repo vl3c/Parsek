@@ -158,6 +158,23 @@ namespace Parsek
                             ApplyDeployableBrokenStateWithOutcome(
                                 state, evt.partPersistentId, broken: true));
                         break;
+                    // A wheel break / repair is a mesh swap, a snap in the frame it happened.
+                    case PartEventType.WheelBroken:
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.WheelDamage,
+                            evt.partPersistentId,
+                            ApplyWheelDamageStateWithOutcome(
+                                state, evt.partPersistentId, damaged: true));
+                        break;
+                    case PartEventType.WheelRepaired:
+                        tally.Record(
+                            evt.eventType,
+                            GhostPartEventSurface.WheelDamage,
+                            evt.partPersistentId,
+                            ApplyWheelDamageStateWithOutcome(
+                                state, evt.partPersistentId, damaged: false));
+                        break;
                     // S7: evt.ut is the loop's phase origin, which is what makes a scrubbed or
                     // looping replay land on the SAME pose for the same recorded moment.
                     case PartEventType.ConverterActivated:

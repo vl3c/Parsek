@@ -664,6 +664,95 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Whether ANY stock <c>ModuleWheelDamage</c> on this part is broken. <c>isDamaged</c> is a
+        /// <c>[KSPField(isPersistant = true)] public bool</c> (decompiled, KSP 1.12.5), so it is
+        /// readable on any loaded part and rides the vessel snapshot too. Stock fires no GameEvent
+        /// on the break itself (<c>SetDamaged(true)</c> fires <c>onPartRepaired</c>, oddly, and the
+        /// repair fires <c>onWheelRepaired</c>), so the flag is POLLED, the same way the deployable
+        /// BROKEN edge is. A Unity-destroyed module reads as intact.
+        /// </summary>
+        internal static bool IsAnyWheelDamagedOnPart(Part p)
+        {
+            if (p?.Modules == null) return false;
+            for (int m = 0; m < p.Modules.Count; m++)
+            {
+                if (p.Modules[m] is ModuleWheels.ModuleWheelDamage damage
+                    && damage != null
+                    && damage.isDamaged)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The wheel break / repair edge. A plain reversible two-state signal, per PART: stock
+        /// swaps two named transforms (<c>undamagedTransformName</c> off, <c>damagedTransformName</c>
+        /// on) and the EVA repair swaps them back. Nothing else in the recorder reads this set, so
+        /// unlike the deployable BROKEN edge there is no precedence dance with another family.
+        ///
+        /// Budget: 0-2 events per wheel per flight. A wheel breaks from an over-stress or a hard
+        /// landing, and a repair needs an engineer on EVA carrying repair kits.
+        /// </summary>
+        internal static PartEvent? CheckWheelDamageTransition(
+            uint partPersistentId, string partName, bool isDamaged,
+            HashSet<uint> damagedSet, double ut)
+        {
+            if (damagedSet == null) return null;
+            bool wasDamaged = damagedSet.Contains(partPersistentId);
+
+            if (isDamaged && !wasDamaged)
+            {
+                damagedSet.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.WheelBroken,
+                    partName = partName
+                };
+            }
+
+            if (!isDamaged && wasDamaged)
+            {
+                damagedSet.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.WheelRepaired,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        /// <summary>Flight-side wheel damage poll. The background recorder has the twin wrapper.</summary>
+        private void CheckWheelDamageState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var evt = CheckWheelDamageTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown",
+                    IsAnyWheelDamagedOnPart(p), damagedWheelParts, ut);
+                if (evt.HasValue)
+                {
+                    PartEvents.Add(evt.Value);
+                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        $"pid={evt.Value.partPersistentId} (wheel damage)");
+                }
+            }
+        }
+
+        /// <summary>
         /// S4: the EVA jetpack's deploy / stow edge.
         ///
         /// <c>KerbalEVA.JetpackDeployed</c> is a clean two-state player action, so this is a plain

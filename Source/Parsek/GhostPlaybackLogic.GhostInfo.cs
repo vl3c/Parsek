@@ -41,6 +41,11 @@ namespace Parsek
             PopulateEngineInfos(state, result);
 
             PopulateDeployableInfos(state, result);
+            // Wheel damage swaps are built intact (busted meshes hidden by the builder), so the
+            // dictionary needs no spawn pass of its own; the snapshot baseline and the prefix
+            // replay below set any wheel that was already broken.
+            if (result.wheelDamageInfos != null)
+                state.wheelDamageInfos = BuildDictByPid(result.wheelDamageInfos, w => w.partPersistentId);
             PopulateHeatInfos(state, result);
             PopulateLightInfos(state, result);
 
@@ -114,6 +119,7 @@ namespace Parsek
 
             int deployableApplied = 0;
             int brokenApplied = 0;
+            int wheelsBroken = 0;
             int parachuteApplied = 0;
             int lightApplied = 0;
             int servoApplied = 0;
@@ -148,6 +154,12 @@ namespace Parsek
                     brokenApplied++;
                 }
 
+                if (actions.wheelDamaged
+                    && ApplyWheelDamageState(state, pid, damaged: true))
+                {
+                    wheelsBroken++;
+                }
+
                 if (ApplySnapshotParachuteBaseline(state, pid, actions.parachuteAction))
                     parachuteApplied++;
 
@@ -179,6 +191,7 @@ namespace Parsek
             string summary =
                 $"Snapshot baseline applied: parts={baselines.Count} " +
                 $"deployables={deployableApplied} brokenDeployables={brokenApplied} " +
+                $"brokenWheels={wheelsBroken} " +
                 $"parachutes={parachuteApplied} " +
                 $"lights={lightApplied} servos={servoApplied} servosSkipped={servoSkipped} " +
                 $"(vessel='{state.vesselName ?? "unknown"}')";
@@ -208,6 +221,8 @@ namespace Parsek
             /// drive different ghost surfaces (a pose vs a SetActive).
             /// </summary>
             public bool deployableBroken;
+            /// <summary>The snapshot said this part's wheel is broken: spawn showing the busted mesh.</summary>
+            public bool wheelDamaged;
             public bool? lightPower;
             public bool? blinkEnabled;
             public float? blinkRateHz;
@@ -258,6 +273,8 @@ namespace Parsek
             // to compete with (the parser leaves deployableExtended unset for BROKEN), so this is
             // an independent flag rather than another arm of the single-opinion cascade.
             actions.deployableBroken = baseline.deployableBroken;
+            // Independent of every other surface: a mesh swap, not a pose.
+            actions.wheelDamaged = baseline.wheelDamaged;
 
             if (baseline.deployableExtended.HasValue)
                 actions.deployableTarget = baseline.deployableExtended;
