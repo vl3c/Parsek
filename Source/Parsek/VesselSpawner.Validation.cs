@@ -114,14 +114,14 @@ namespace Parsek
             return snapshot;
         }
 
-        private static void LogMaterializationSnapshotRejected(string logContext, string reason)
+        internal static void LogMaterializationSnapshotRejected(string logContext, string reason)
         {
             ParsekLog.Warn("Spawner",
                 $"Spawn validation rejected materialization for {logContext}: {reason} - " +
                 "keeping ghost-only/abandon instead of loading corrupt ProtoVessel (#620)");
         }
 
-        private static string AddRecordingSnapshotMaterializationContext(string reason, Recording rec)
+        internal static string AddRecordingSnapshotMaterializationContext(string reason, Recording rec)
         {
             if (rec == null)
                 return reason;
@@ -398,7 +398,7 @@ namespace Parsek
             return false;
         }
 
-        private static string DescribeSpawnValidationContext(Recording rec, string logContext)
+        internal static string DescribeSpawnValidationContext(Recording rec, string logContext)
         {
             string vesselName = rec != null ? rec.VesselName : null;
             if (string.IsNullOrEmpty(logContext))

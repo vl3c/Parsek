@@ -39,7 +39,7 @@ namespace Parsek
         internal const string ReplayBypassReasonDifferentLaunch = "different-launch";
         internal const string ReplayBypassReasonSameLaunch = "same-launch";
 
-        private static bool IsHeadlessKspAccessFailure(Exception ex)
+        internal static bool IsHeadlessKspAccessFailure(Exception ex)
         {
             for (Exception current = ex; current != null; current = current.InnerException)
             {
