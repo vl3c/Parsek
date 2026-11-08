@@ -20,6 +20,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. OPEN; performance, low]
+
+**What is true.** The descent-handoff log in `GhostPlaybackEngine.UpdateUnitMemberPlayback`
+passes a `() => ...` message lambda to `ParsekLog.VerboseRateLimited`, and that lambda captures
+the parameter `i` and the local `unitCycle`. The compiler hoists both into a display class that
+it allocates at method entry (`IL_0000: newobj <>c__DisplayClass_0::.ctor`), so every call
+allocates one object, for every unit member on every frame, even though the lambda runs only
+for a rendering non-descent member of a unit that has a descent trigger. The extraction kept
+the block inline so the allocation is unchanged.
+
+**Fix.** Move the descent-handoff block (from `bool hiddenForDescentHandoff = false;` through
+its closing brace) into its own method, called only under the existing gate, so the display
+class is allocated only when the lambda can run. The `UnitMember_DescentTrigger_HandoffAndLoiter`
+golden in `UnitMemberPlaybackCharacterizationTests` pins the block's output.
+
 ## REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT: a replace commit can mark a surviving replacement destroyed and keep a stale situation [FILED 2026-11-07 from the review of the TreeCommitService unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2452), by code reading. OPEN; not reproduced in play, low]
 
 **What is true.**

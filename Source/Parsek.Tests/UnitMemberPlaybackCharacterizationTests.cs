@@ -433,5 +433,134 @@ namespace Parsek.Tests
 
             AssertGolden("3247C4568CEA9CAF", 78);
         }
+
+        // ------------------------------------------------------------------
+        // The extracted pieces, called directly.
+        // ------------------------------------------------------------------
+
+        private static int SkipCount(GhostPlaybackEngine engine, string field)
+            => (int)typeof(GhostPlaybackEngine).GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(engine);
+
+        [Fact]
+        public void DescentOverride_RendersTheMemberOnTheDescentHead_OrForcesTheHide()
+        {
+            GhostPlaybackLogic.LoopUnit unit = DescentTriggerTests.BuildDescentUnit(engage: true).UnitsByOwner[0];
+            double trigger = DescentTrigger.ComputeRotationAlignedTriggerUT(
+                DescentEntryUT, DescentDeorbit, DescentDunaTrot);
+            var ctx = Ctx(trigger + 400, 1f);
+
+            double loopUT = 123.0;
+            var decision = GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow;
+            GhostPlaybackEngine.ApplyDescentMemberRenderOverride(
+                49, unit, ctx, 0, 30_000_000, 30_000_800, ref loopUT, ref decision);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
+            Assert.Equal(30_000_400.0, loopUT, 3);
+            Assert.Contains(transcript, l => l.Contains("[ReaimDescent] engine descent trigger member=49 cycle=0 phase=Descent render=True"));
+
+            loopUT = 123.0;
+            decision = GhostPlaybackLogic.UnitMemberRenderDecision.Render;
+            GhostPlaybackEngine.ApplyDescentMemberRenderOverride(
+                50, unit, ctx, 0, 30_000_800, 30_001_500, ref loopUT, ref decision);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow, decision);
+            Assert.Equal(123.0, loopUT);
+        }
+
+        [Fact]
+        public void BoundarySecondary_LiveInTheBorrowWindow_NoneWhenNotEngagedOrForADescentMember()
+        {
+            GhostPlaybackLogic.LoopUnit hold = LaunchHoldUnit();
+
+            var live = GhostPlaybackEngine.DecideUnitMemberBoundarySecondary(
+                hold, Ctx(2150, 1f), 0, 500, descentMember: false, out double loopUT, out long cycle);
+            Assert.Equal(GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render, live);
+            Assert.Equal(50.0, loopUT, 6);
+            Assert.Equal(2, cycle);
+
+            var descent = GhostPlaybackEngine.DecideUnitMemberBoundarySecondary(
+                hold, Ctx(2150, 1f), 0, 500, descentMember: true, out loopUT, out cycle);
+            Assert.Equal(GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.NoSecondary, descent);
+            Assert.Equal(0.0, loopUT);
+            Assert.Equal(0, cycle);
+
+            var notEngaged = GhostPlaybackEngine.DecideUnitMemberBoundarySecondary(
+                SpanUnit(), Ctx(1320, 1f), 1000, 1050, descentMember: false, out loopUT, out cycle);
+            Assert.Equal(GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.NoSecondary, notEngaged);
+            Assert.Equal(1000.0, loopUT);
+            Assert.Equal(0, cycle);
+        }
+
+        [UnityEntryFact]
+        public void HideOutsideWindow_InterCycleTail_LogsTheWaitAndCountsTheSkip()
+        {
+            var engine = NewEngine(Set(SpanUnit()));
+            engine.HideUnitMemberOutsideWindow(
+                0, Traj("h0", 1000, 1050), Flags("h0", 1050), Ctx(1450, 1f), SpanUnit(), "unit-0",
+                GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail, 1100, 1000, 1050,
+                hiddenForDescentHandoff: false, boundarySecondaryLive: false, 0, 0,
+                suppressGhosts: false, suppressVisualFx: true, state: null, ghostActive: false);
+
+            Assert.Contains(transcript, l => l.Contains(
+                "[Engine] Chain-loop unit owner=0 in inter-cycle wait at loopUT=1100.00 - all members hidden"));
+            Assert.Contains(transcript, l => l.Contains("reason=mission-loop-unit-inactive"));
+            Assert.Equal(1, SkipCount(engine, "frameSkipMissionLoopUnitInactive"));
+            Assert.DoesNotContain(transcript, l => l.StartsWith("EVT Destroyed"));
+        }
+
+        [UnityEntryFact]
+        public void HideOutsideWindow_DescentHandoff_NamesTheHandoffAndDestroysTheGhost()
+        {
+            var engine = NewEngine(Set(SpanUnit()));
+            var state = new GhostPlaybackState { loopCycleIndex = 1 };
+            engine.ghostStates[1] = state;
+            engine.HideUnitMemberOutsideWindow(
+                1, Traj("h1", 1050, 1100), Flags("h1", 1100), Ctx(1320, 1f), SpanUnit(), "unit-0",
+                GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow, 1060, 1050, 1100,
+                hiddenForDescentHandoff: true, boundarySecondaryLive: false, 0, 0,
+                suppressGhosts: false, suppressVisualFx: true, state: state, ghostActive: true);
+
+            Assert.Contains(transcript, l => l.Contains(
+                "member #1 hidden: loopUT=1060.00 descent handoff (unit descent playing; window [1050.00,1100.00])"));
+            Assert.Contains(transcript, l => l.Contains("destroyed (descent handoff hide (unit descent playing))"));
+            Assert.Contains("Engine|unit-0-handoff-hide-1", RateLimitKeys());
+            Assert.Empty(engine.ghostStates);
+        }
+
+        [UnityEntryFact]
+        public void BeforeActivation_HidesBelowThePayloadStart_AndPassesAtIt()
+        {
+            var engine = NewEngine(Set(SpanUnit()));
+            var traj = SpanTrajs()[2];
+
+            Assert.True(engine.TryHideUnitMemberBeforeActivation(
+                2, traj, Flags("a2", 1100), Ctx(1320, 1f), SpanUnit(), "unit-0", 1020, null, false));
+            Assert.Contains(transcript, l => l.Contains("below member activation UT=1040.00"));
+            Assert.Equal(1, SkipCount(engine, "frameSkipMissionLoopUnitInactive"));
+
+            transcript.Clear();
+            Assert.False(engine.TryHideUnitMemberBeforeActivation(
+                2, traj, Flags("a2", 1100), Ctx(1340, 1f), SpanUnit(), "unit-0", 1040, null, false));
+            Assert.Empty(transcript);
+        }
+
+        [UnityEntryFact]
+        public void SelfOverlap_ZeroDurationMember_DestroysAndKeepsTheCallerState()
+        {
+            var engine = NewEngine(Set(OverlapUnit()));
+            var state = new GhostPlaybackState { loopCycleIndex = 2 };
+            engine.ghostStates[1] = state;
+            var trajs = new List<IPlaybackTrajectory> { Traj("b0", 1000, 1300), Traj("b1", 1000, 1300) };
+            bool active = true;
+
+            engine.UpdateUnitMemberSelfOverlap(
+                1, trajs[1], Flags("b1", 1300), Ctx(1250, 1f), trajs, OverlapUnit(), "unit-0", 300, 1100, 1100,
+                suppressGhosts: false, suppressVisualFx: true, ref state, ref active);
+
+            Assert.Contains(transcript, l => l.Contains("reason=unit-overlap-member-zero-duration"));
+            Assert.Contains(transcript, l => l.Contains("destroyed (unit overlap member zero duration)"));
+            Assert.Equal(1, SkipCount(engine, "frameSkipMissionLoopUnitInactive"));
+            Assert.True(active);
+            Assert.NotNull(state);
+        }
     }
 }
