@@ -467,6 +467,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DescentHandoffHide_HidesTheTransferMemberWhileTheDescentPlays_AndPinsItsLogLine()
+        {
+            GhostPlaybackLogic.LoopUnit unit = DescentTriggerTests.BuildDescentUnit(engage: true).UnitsByOwner[0];
+            var ic = CultureInfo.InvariantCulture;
+            double trigger = DescentTrigger.ComputeRotationAlignedTriggerUT(
+                DescentEntryUT, DescentDeorbit, DescentDunaTrot);
+
+            // Descent playing: the rendering transfer member hides.
+            double liveUT = trigger + 400;
+            double loopUT = liveUT - DescentPa;
+            var decision = GhostPlaybackLogic.UnitMemberRenderDecision.Render;
+            bool hidden = false;
+            ParsekLog.ResetRateLimitsForTesting();
+            GhostPlaybackEngine.ApplyDescentHandoffHide(
+                5, unit, Ctx(liveUT, 1f), 0, loopUT, ref decision, ref hidden);
+            Assert.True(hidden);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow, decision);
+            Assert.Contains("[Parsek][VERBOSE][ReaimDescent] engine transfer/loiter member=5 cycle=0"
+                + " unitDescentPhase=Descent baseDecision=Render liveUT=" + liveUT.ToString("R", ic)
+                + " loopUT=" + loopUT.ToString("R", ic)
+                + " -> HIDDEN (descent playing; hand off to descent member, no double ghost)",
+                transcript.ConvertAll(l => l.Substring("LOG ".Length)));
+            Assert.Contains("ReaimDescent|engine-transfer-handoff." + DescentPa.ToString("R", ic) + ".0.5.Descent.True",
+                RateLimitKeys());
+
+            // Loitering: the member keeps rendering, and the line says so.
+            transcript.Clear();
+            liveUT = DescentEntryUT + 10;
+            loopUT = liveUT - DescentPa;
+            decision = GhostPlaybackLogic.UnitMemberRenderDecision.Render;
+            hidden = false;
+            ParsekLog.ResetRateLimitsForTesting();
+            GhostPlaybackEngine.ApplyDescentHandoffHide(
+                5, unit, Ctx(liveUT, 1f), 0, loopUT, ref decision, ref hidden);
+            Assert.False(hidden);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
+            Assert.Contains("[Parsek][VERBOSE][ReaimDescent] engine transfer/loiter member=5 cycle=0"
+                + " unitDescentPhase=Loiter baseDecision=Render liveUT=" + liveUT.ToString("R", ic)
+                + " loopUT=" + loopUT.ToString("R", ic) + " -> kept (loiter/normal ghost)",
+                transcript.ConvertAll(l => l.Substring("LOG ".Length)));
+        }
+
+        [Fact]
         public void BoundarySecondary_LiveInTheBorrowWindow_NoneWhenNotEngagedOrForADescentMember()
         {
             GhostPlaybackLogic.LoopUnit hold = LaunchHoldUnit();

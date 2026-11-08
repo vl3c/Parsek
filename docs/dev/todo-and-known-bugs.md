@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. OPEN; performance, low]
+## ~~UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame~~ [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. FIXED 2026-11-08, branch `refactor-w9a-handoff-closure`; xUnit + il_compare; performance, low]
 
 **What is true.** The descent-handoff log in `GhostPlaybackEngine.UpdateUnitMemberPlayback`
 passes a `() => ...` message lambda to `ParsekLog.VerboseRateLimited`, and that lambda captures
@@ -34,6 +34,13 @@ the block inline so the allocation is unchanged.
 its closing brace) into its own method, called only under the existing gate, so the display
 class is allocated only when the lambda can run. The `UnitMember_DescentTrigger_HandoffAndLoiter`
 golden in `UnitMemberPlaybackCharacterizationTests` pins the block's output.
+
+**Fixed.** The block is now `GhostPlaybackEngine.ApplyDescentHandoffHide`, called only under the
+existing `!descentMember && decision == Render && unit.HasDescentTrigger` gate, with the log text,
+rate-limit key and order unchanged. `UpdateUnitMemberPlayback` no longer opens with the display
+class `newobj` (il_compare); the closure is allocated only inside the new method.
+`DescentHandoffHide_HidesTheTransferMemberWhileTheDescentPlays_AndPinsItsLogLine` pins both log
+lines and the key.
 
 ## REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT: a replace commit can mark a surviving replacement destroyed and keep a stale situation [FILED 2026-11-07 from the review of the TreeCommitService unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2452), by code reading. OPEN; not reproduced in play, low]
 

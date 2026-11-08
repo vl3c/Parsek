@@ -125,15 +125,20 @@ namespace Parsek.Tests
             // pin the ordering by source position inside UpdateUnitMemberPlayback.
             string engine = ReadEngineSource();
 
-            // The descent-member override lives in ApplyDescentMemberRenderOverride, whose body sits
-            // after UpdateUnitMemberPlayback, so the ordering anchors on its call site (the first
-            // occurrence of the name) and the body is checked to hold the descent resolve.
+            // The descent-member override and the handoff hide live in ApplyDescentMemberRenderOverride and
+            // ApplyDescentHandoffHide, whose bodies sit after UpdateUnitMemberPlayback. The ordering
+            // anchors on their call sites (the first occurrence of each name), and each body is checked to
+            // hold its own decision.
             int descentOverride = engine.IndexOf(
                 "ApplyDescentMemberRenderOverride(", StringComparison.Ordinal);
             int overrideBody = engine.IndexOf(
                 "static void ApplyDescentMemberRenderOverride(", StringComparison.Ordinal);
             int descentResolve = engine.IndexOf(
                 "GhostPlaybackLogic.ResolveDescentMemberEngineRender(", StringComparison.Ordinal);
+            int handoffCall = engine.IndexOf(
+                "ApplyDescentHandoffHide(", StringComparison.Ordinal);
+            int handoffBody = engine.IndexOf(
+                "static void ApplyDescentHandoffHide(", StringComparison.Ordinal);
             int handoffDecision = engine.IndexOf(
                 "GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(", StringComparison.Ordinal);
             int forcedHide = engine.IndexOf(
@@ -144,15 +149,16 @@ namespace Parsek.Tests
             Assert.True(descentOverride >= 0, "descent-member override missing");
             Assert.True(overrideBody > descentOverride && descentResolve > overrideBody,
                 "the descent-member override must resolve the descent head in its own body");
-            Assert.True(handoffDecision >= 0, "engine handoff decision call missing");
-            Assert.True(forcedHide >= 0, "forced handoff hide assignment missing");
+            Assert.True(handoffCall >= 0, "engine handoff hide call missing");
+            Assert.True(handoffBody > handoffCall && handoffDecision > handoffBody,
+                "the handoff hide must make the handoff decision in its own body");
+            Assert.True(forcedHide > handoffDecision,
+                "the forced hide belongs to the handoff block");
             Assert.True(loiterClamp >= 0, "loiter-gap clamp call missing");
 
-            Assert.True(descentOverride < handoffDecision,
+            Assert.True(descentOverride < handoffCall,
                 "the handoff hide must run after the descent-member override");
-            Assert.True(handoffDecision < forcedHide,
-                "the forced hide belongs to the handoff block");
-            Assert.True(forcedHide < loiterClamp,
+            Assert.True(handoffCall < loiterClamp,
                 "the handoff hide must run before the loiter-gap clamp (hide wins over the wrap)");
         }
     }
