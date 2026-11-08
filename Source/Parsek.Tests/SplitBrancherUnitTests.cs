@@ -253,7 +253,7 @@ namespace Parsek.Tests
                 branchPartnerPid: routeTargetPid, branchPartnerGuid: null));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void MergeBranch_EndsTheBackgroundParentAndWiresTheChild()
         {
             var act = new Recording { RecordingId = "act", VesselPersistentId = 10 };
@@ -279,7 +279,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("Route proof"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void MergeBranch_RouteEndpointRestoredFromTheBackgroundSnapshot()
         {
             var act = new Recording { RecordingId = "act", VesselPersistentId = 10 };
@@ -303,7 +303,7 @@ namespace Parsek.Tests
                 && l.Contains("targetPid=77 snapshot=False transportParts=0 endpointParts=2"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void MergeBranch_PreCoupleSnapshotBackfillsTheEndpointRoot()
         {
             var act = new Recording { RecordingId = "act", VesselPersistentId = 10 };
@@ -322,7 +322,7 @@ namespace Parsek.Tests
                 && l.Contains("endpointParts=3"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void MergeBranch_BackgroundSnapshotBackfillsTheRootWhenNoPreCoupleSnapshot()
         {
             var act = new Recording { RecordingId = "act", VesselPersistentId = 10 };
@@ -341,7 +341,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("Route proof endpoint root backfilled from the pre-couple snapshot: targetPid=77 rootPartUId=555"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void MergeBranch_BackgroundSnapshotOfAnotherPid_DoesNotBackfillTheRoot()
         {
             var act = new Recording { RecordingId = "act", VesselPersistentId = 10 };
@@ -362,7 +362,7 @@ namespace Parsek.Tests
                 && l.Contains("endpointParts=1"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void MergeBranch_EndpointWithARootIsNotBackfilled()
         {
             var act = new Recording { RecordingId = "act", VesselPersistentId = 10 };
@@ -377,7 +377,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("root backfilled"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void MergeBranch_PreCoupleSnapshotOfAnotherPid_IsIgnored()
         {
             var act = new Recording { RecordingId = "act", VesselPersistentId = 10 };
@@ -395,7 +395,7 @@ namespace Parsek.Tests
                 && l.Contains("endpointParts=0"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void MergeBranch_NoEndpointAnywhere_LogsUnavailable()
         {
             var act = new Recording { RecordingId = "act", VesselPersistentId = 10 };
@@ -534,7 +534,7 @@ namespace Parsek.Tests
                 && l.Contains("name '(null)' is not used"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void BreakupSeedPose_NoSeed_AndNoLiveVessel()
         {
             Assert.Equal("seedPoint=none",
@@ -563,7 +563,7 @@ namespace Parsek.Tests
                 && l.Contains("capturedUT=9.50 liveUT=10.25 reason=live-vessel-missing"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void BreakupSeedLiveRootDistance_NoVessel_FalseAndNaN()
         {
             Assert.False(ParsekFlightSplitBrancher.TryComputeBreakupSeedLiveRootDistance(
