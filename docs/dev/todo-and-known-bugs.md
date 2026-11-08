@@ -1984,6 +1984,10 @@ were placed, it merged into the kernel knot (584). The fix direction below is un
   `AppendReason` onto `StockUiText` (simulated on a scratch copy) gives knots [459, 9, 4, 3],
   replayed residue 283 -> 265 and greedy residue 290 -> 238. As an extra cut,
   `StrategyReservationPredicates` is worth 283 -> 282 only.
+- Done (W3b, MOVE, 2026-11-07): `ReasonColorHex` and `AppendReason` now live on `StockUiText`.
+  Measured after W1a / W1b / W1c (base bound 246, greedy 201, knot 450): knots
+  [432, 9, 4, 3, 2], greedy residue 179 (the greedy sequence now cuts `ParsekUI` at step 10).
+  The ratchet order is re-pinned to that sequence and the bound tightened to 179.
 
 **Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
 explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
@@ -2973,6 +2977,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   new `scripts/refactor/static_state_map.py` so a same-named field of another type is never
   counted. It also records why a separate source-resolver type would raise the replayed
   residue 263 -> 264 unless its five knot calls are passed in.
+- Wave 2 W7a (2026-11-08, this branch, docs only): the `LedgerOrchestrator` static-state map,
+  `docs/dev/research/ledgerorchestrator-static-state-map-2026-11-08.md` (35 fields, 30
+  reassignable of which 12 are test seams; writers, outside readers, reset paths, hosts), from
+  the same IL tool. Nothing outside the type writes a field except the `OnTimelineDataChanged`
+  event, and nine of the 17 methods of 90 lines or more touch no `LedgerOrchestrator` static.
 - Wave 2 W5c (2026-11-08, this branch, extract-method): `GhostMapPresence.ResolveMapPresenceGhostSource`
   (603 lines) is a sequence of phase helpers in the same partial file (input, materialized and
   terminal gates; covering segment; OrbitalCheckpoint SOI gap; state vector; terminal-orbit

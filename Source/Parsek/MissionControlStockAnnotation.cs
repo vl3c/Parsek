@@ -33,7 +33,7 @@ namespace Parsek
         internal const string StatusColor = "8fd3ff";
 
         /// <summary>The colour of the detail-panel block: a block reason, so stock's own
-        /// reason orange (<see cref="StockUiRnDDecoration.ReasonColorHex"/>), like every other
+        /// reason orange (<see cref="StockUiText.ReasonColorHex"/>), like every other
         /// stock-screen block reason.</summary>
         internal const string DetailColor = "f97306";
 
