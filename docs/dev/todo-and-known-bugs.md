@@ -3021,6 +3021,10 @@ columns whose blanks are visible, where the old outline simply said nothing.
   production code reads only `CrashReconcileInProgress` directly; all other access goes
   through named methods. `OnLoad` writes 11 of the fields itself, and the extracted
   `OnLoadPhase*` methods write none.
+- Wave 2 W7b1 (2026-11-08, #2480): `LedgerOrchestrator.PickRecoveryRecording` (304
+  lines) split into `ScanRecoveryCandidates`, `SelectRecoveryCandidatePath`,
+  `LogRecoveryGuidFilterOutcome` and `WalkRecoveryPickTiers`, behind a 15-scenario
+  characterization golden (`PickRecoveryRecordingCharacterizationTests`) written first.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
