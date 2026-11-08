@@ -365,46 +365,9 @@ namespace Parsek
             // launches overlap — use multi-cycle path.
             if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
             {
-                bool suppressOverlapGhosts = false;
-                if (suppressGhosts
-                    && (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
-                            ctx.currentUT,
-                            intervalSeconds,
-                            duration,
-                            playbackStartUT,
-                            scheduleStartUT,
-                            out double overlapLoopUT,
-                            out _)
-                        || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
-                            ctx.warpRate, traj, overlapLoopUT)))
-                {
-                    GhostRenderTrace.EmitGuardSkip(
-                        traj, index, ctx.currentUT, "overlap-loop-warp-hidden");
-                    if (ghostActive && state.ghost.activeSelf)
-                    {
-                        state.ghost.SetActive(false);
-                        ParsekLog.Info("Engine",
-                            $"Ghost #{index} \"{traj.VesselName}\" (loop) hidden: warp > {WarpThresholds.GhostHide}x");
-                        OnLoopCameraAction?.Invoke(new CameraActionEvent
-                        {
-                            Index = index, Action = CameraActionType.ExitWatch,
-                            Trajectory = traj, Flags = flags
-                        });
-                    }
-                    DestroyAllOverlapGhosts(index);
-                    CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
-                    return;
-                }
-                else if (suppressGhosts)
-                {
-                    // Keep the newest stationary primary mesh visible, but continue
-                    // culling overlap clones at high warp for the original perf reason.
-                    suppressOverlapGhosts = true;
-                }
-
-                UpdateOverlapPlayback(index, traj, flags, ctx, state,
-                    intervalSeconds, duration, playbackStartUT, scheduleStartUT,
-                    suppressVisualFx, suppressOverlapGhosts);
+                UpdateOverlapLoopDispatch(
+                    index, traj, flags, ctx, state, ghostActive, suppressGhosts, suppressVisualFx,
+                    intervalSeconds, duration, playbackStartUT, scheduleStartUT);
                 return;
             }
 
@@ -695,6 +658,68 @@ namespace Parsek
                         effectiveSuppressVisualFx))
                     GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
             }
+        }
+
+        /// <summary>
+        /// The overlap branch of <see cref="UpdateLoopingPlayback"/> (#381: the period is shorter than the
+        /// recording, so launches overlap): at warp, either hide everything (the newest overlap instance cannot be
+        /// resolved or its mesh is warp-suppressed) or keep the newest primary and cull the clones; then run the
+        /// multi-cycle overlap playback. The caller returns after it.
+        /// </summary>
+        internal void UpdateOverlapLoopDispatch(
+            int index,
+            IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags,
+            FrameContext ctx,
+            GhostPlaybackState state,
+            bool ghostActive,
+            bool suppressGhosts,
+            bool suppressVisualFx,
+            double intervalSeconds,
+            double duration,
+            double playbackStartUT,
+            double scheduleStartUT)
+        {
+            bool suppressOverlapGhosts = false;
+            if (suppressGhosts
+                && (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                        ctx.currentUT,
+                        intervalSeconds,
+                        duration,
+                        playbackStartUT,
+                        scheduleStartUT,
+                        out double overlapLoopUT,
+                        out _)
+                    || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                        ctx.warpRate, traj, overlapLoopUT)))
+            {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "overlap-loop-warp-hidden");
+                if (ghostActive && state.ghost.activeSelf)
+                {
+                    state.ghost.SetActive(false);
+                    ParsekLog.Info("Engine",
+                        $"Ghost #{index} \"{traj.VesselName}\" (loop) hidden: warp > {WarpThresholds.GhostHide}x");
+                    OnLoopCameraAction?.Invoke(new CameraActionEvent
+                    {
+                        Index = index, Action = CameraActionType.ExitWatch,
+                        Trajectory = traj, Flags = flags
+                    });
+                }
+                DestroyAllOverlapGhosts(index);
+                CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                return;
+            }
+            else if (suppressGhosts)
+            {
+                // Keep the newest stationary primary mesh visible, but continue
+                // culling overlap clones at high warp for the original perf reason.
+                suppressOverlapGhosts = true;
+            }
+
+            UpdateOverlapPlayback(index, traj, flags, ctx, state,
+                intervalSeconds, duration, playbackStartUT, scheduleStartUT,
+                suppressVisualFx, suppressOverlapGhosts);
         }
 
         /// <summary>

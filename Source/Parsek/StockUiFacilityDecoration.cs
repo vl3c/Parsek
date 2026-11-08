@@ -153,7 +153,7 @@ namespace Parsek
         /// </summary>
         internal static string ComposeTooltipText(bool parsekOwned, string stockText, string why, string site = null)
         {
-            return parsekOwned ? (why ?? "") : StockUiRnDDecoration.AppendReason(stockText, why, site);
+            return parsekOwned ? (why ?? "") : StockUiText.AppendReason(stockText, why, site);
         }
 
         /// <summary>
@@ -169,12 +169,12 @@ namespace Parsek
             return RemoveReason(text, why);
         }
 
-        /// <summary>Removes a line <see cref="StockUiRnDDecoration.AppendReason"/> added.
+        /// <summary>Removes a line <see cref="StockUiText.AppendReason"/> added.
         /// Text without it is returned unchanged.</summary>
         internal static string RemoveReason(string text, string why)
         {
             if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(why)) return text;
-            string line = "<color=" + StockUiRnDDecoration.ReasonColorHex + ">" + why + "</color>";
+            string line = "<color=" + StockUiText.ReasonColorHex + ">" + why + "</color>";
             string withBreak = "\n" + line;
             if (text.Contains(withBreak)) return text.Replace(withBreak, "");
             return text == line ? "" : text.Replace(line, "");
@@ -714,7 +714,7 @@ namespace Parsek
             if (text == null) return;
             if (state.DescriptionReason != null && state.DescriptionReason != why)
                 text = RemoveReasonUnlessHeld(text, state.DescriptionReason, DescriptionReasonsBesides(menu, state));
-            StockUiText.Set(label, StockUiRnDDecoration.AppendReason(text, why, "facility menu description"));
+            StockUiText.Set(label, StockUiText.AppendReason(text, why, "facility menu description"));
             state.DescriptionReason = why;
         }
 
