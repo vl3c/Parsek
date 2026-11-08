@@ -507,6 +507,8 @@ namespace Parsek.Tests
                 + " unitDescentPhase=Loiter baseDecision=Render liveUT=" + liveUT.ToString("R", ic)
                 + " loopUT=" + loopUT.ToString("R", ic) + " -> kept (loiter/normal ghost)",
                 transcript.ConvertAll(l => l.Substring("LOG ".Length)));
+            Assert.Contains("ReaimDescent|engine-transfer-handoff." + DescentPa.ToString("R", ic) + ".0.5.Loiter.False",
+                RateLimitKeys());
         }
 
         [Fact]
