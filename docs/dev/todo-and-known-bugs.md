@@ -20,6 +20,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. OPEN; performance, low]
+
+**What is true.** The descent-handoff log in `GhostPlaybackEngine.UpdateUnitMemberPlayback`
+passes a `() => ...` message lambda to `ParsekLog.VerboseRateLimited`, and that lambda captures
+the parameter `i` and the local `unitCycle`. The compiler hoists both into a display class that
+it allocates at method entry (`IL_0000: newobj <>c__DisplayClass_0::.ctor`), so every call
+allocates one object, for every unit member on every frame, even though the lambda runs only
+for a rendering non-descent member of a unit that has a descent trigger. The extraction kept
+the block inline so the allocation is unchanged.
+
+**Fix.** Move the descent-handoff block (from `bool hiddenForDescentHandoff = false;` through
+its closing brace) into its own method, called only under the existing gate, so the display
+class is allocated only when the lambda can run. The `UnitMember_DescentTrigger_HandoffAndLoiter`
+golden in `UnitMemberPlaybackCharacterizationTests` pins the block's output.
+
 ## RESIDUALS-OF-ENTRIES-ARCHIVED-2026-11-07: small follow-ups left inside 20 finished entries moved to the archive [FILED 2026-11-07 (owner: mark the finished entries done). OPEN; each line names its archived entry in `done/todo-and-known-bugs-v11.md` ("Moved out 2026-11-07 (finished entries still listed)"); none is a known player-hit bug]
 
 - AUTOMERGE-ON-BY-DEFAULT: four residuals at the end of that entry (frequency of the resume miss, step 1 still injected, entrance A undriven, the dangling limbo dispatch).
@@ -1428,6 +1443,27 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   whole class through `MissionsWindowUISourceFiles` / `LogisticsWindowUISourceFiles` (or the
   one area file a single-method gate names); the ERS / ELS allowlist adds the four Missions
   partials that hold its raw reads.
+- Wave 2 W2c (2026-11-08, this branch, docs only): the `ParsekScenario` static-state map,
+  `docs/dev/research/parsekscenario-static-state-map-2026-11-08.md`. It covers 31
+  reassignable fields and no readonly collections: writers, readers, outside entry points,
+  reset paths, and direct and reflection test writers. It uses the same IL tool. Outside
+  production code reads only `CrashReconcileInProgress` directly; all other access goes
+  through named methods. `OnLoad` writes 11 of the fields itself, and the extracted
+  `OnLoadPhase*` methods write none.
+- Wave 2 W7b1 (2026-11-08, #2480): `LedgerOrchestrator.PickRecoveryRecording` (304
+  lines) split into `ScanRecoveryCandidates`, `SelectRecoveryCandidatePath`,
+  `LogRecoveryGuidFilterOutcome` and `WalkRecoveryPickTiers`, behind a 15-scenario
+  characterization golden (`PickRecoveryRecordingCharacterizationTests`) written first.
+- Wave 2 W8c, RewindInvoker (S3, pure move, IL identical): `RewindInvoker.cs` (4,644 lines,
+  a static class) is a partial class over 10 files (`scripts/refactor/split_rewindinvoker.py`;
+  every field and constant stays in the main file): `RewindInvoker.cs` 399 (`StartInvoke`, the
+  temp quicksave delete, the error handlers), `.MarkerWrite` 694, `.InPlaceDebris` 673,
+  `.QuicksaveScrub` 605, `.StripActivate` 567, `.SlotStrip` 457, `.Gate` 446, `.PostLoad` 353,
+  `.Advisory` 335, `.ForkIdentity` 223. Source gates read the class through
+  `RewindInvokerSourceFiles` or the one area file a single-method gate names (the
+  `ConsumePostLoad` route gate now reads a brace-matched block instead of a slice to the next
+  declaration); `ledgeraudit.SRC_REWIND_INVOKER` names `.StripActivate`; the ERS / ELS
+  allowlist adds the five partials that hold raw reads; the delete pin stays on the main file.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
@@ -2074,6 +2110,11 @@ compare).
   no longer fights the ratchet. The ratchet runs only with `PARSEK_ARCH_IL` (CI after the build).
   `WorkflowRunsTheRatchetTests` reds if the CI step that sets it stops running; measure the Debug
   DLL (a Release build drops typed locals and can read lower).
+- 2026-11-08 (refactor branch, W4c, MOVE): the 11 RecordingStore metric-only forwarders are
+  deleted (the six RewindLauncher eligibility / launch calls, TreeCommitService x2,
+  TreeDiscardService, CommittedListOptimizer, SwitchSegmentAttempts) and their 20 call sites call
+  the service. il_compare: only those call targets change, plus the 11 removed methods. Semantic
+  residue 150 (unchanged), text residue 179 -> 193 (reported, unbounded).
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

@@ -887,7 +887,7 @@ namespace Parsek
                 && !ReferenceEquals(activeTree, committedTree)
                 && string.Equals(activeTree.Id, marker.TreeId, StringComparison.Ordinal))
             {
-                RecordingStore.UnionActiveReFlyTreeIntoCommittedForMerge(
+                TreeCommitService.UnionActiveReFlyTreeIntoCommittedForMerge(
                     committedTree, activeTree, marker,
                     out unionedRecs, out unionedBps);
             }
