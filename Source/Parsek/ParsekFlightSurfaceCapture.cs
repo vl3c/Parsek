@@ -117,6 +117,18 @@ namespace Parsek
             SegmentEvent evt = FlagPickUp.BuildEvent(
                 ut, body != null ? body.name : null, flag.latitude, flag.longitude, flag.altitude, flag.vesselName);
 
+            RouteFlagPickUp(evt, pickerPid, flag.vesselName, body != null ? body.name : "?", ut);
+        }
+
+        /// <summary>
+        /// Puts a built flag pick-up event on the recording that owns the picking kerbal: the
+        /// foreground recorder's (the active tree recording when it exists, else the recorder's
+        /// buffer), else a background tree member's, else nowhere (logged).
+        /// <paramref name="bodyLabel"/> is the body name the foreground line prints.
+        /// </summary>
+        internal void RouteFlagPickUp(
+            SegmentEvent evt, uint pickerPid, string flagName, string bodyLabel, double ut)
+        {
             if (host.recorder != null && host.recorder.IsRecording && host.recorder.RecordingVesselId == pickerPid)
             {
                 // Straight onto the active tree recording when it exists: the mid-flight
@@ -135,7 +147,7 @@ namespace Parsek
                 }
                 ParsekLog.Info("Flight",
                     $"Flag pick-up captured (foreground recorder pid={pickerPid} rec={activeRecId ?? "(recorder buffer)"}): " +
-                    $"'{flag.vesselName}' on {(body != null ? body.name : "?")} ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
+                    $"'{flagName}' on {bodyLabel} ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
                 return;
             }
 
@@ -147,12 +159,12 @@ namespace Parsek
                 ParsekFlight.AppendSegmentEventToTreeRecording(bgRec, evt);
                 ParsekLog.Info("Flight",
                     $"Flag pick-up captured (background tree member pid={pickerPid} rec={bgRecId}): " +
-                    $"'{flag.vesselName}' ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
+                    $"'{flagName}' ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
                 return;
             }
 
             ParsekLog.Verbose("Flight",
-                $"Flag '{flag.vesselName}' picked up by pid={pickerPid} but no foreground or background " +
+                $"Flag '{flagName}' picked up by pid={pickerPid} but no foreground or background " +
                 $"recording owns the kerbal - not recorded (recorderPid={(host.recorder != null ? host.recorder.RecordingVesselId : 0)}, " +
                 $"hasTree={host.activeTree != null})");
         }
@@ -213,13 +225,9 @@ namespace Parsek
                 out int createdPartCount, out string createdPartName);
             uint createdPid = created != null ? created.persistentId : 0u;
 
-            Recording activeRec = null;
-            if (host.activeTree != null && !string.IsNullOrEmpty(host.activeTree.ActiveRecordingId))
-                host.activeTree.Recordings.TryGetValue(host.activeTree.ActiveRecordingId, out activeRec);
+            Recording activeRec = TryGetActiveTreeRecording(host.activeTree);
 
-            bool isTreeMember = host.activeTree != null && createdPid != 0
-                && (host.activeTree.BackgroundMap.ContainsKey(createdPid)
-                    || (activeRec != null && activeRec.VesselPersistentId == createdPid));
+            bool isTreeMember = IsCreatedVesselTreeMember(host.activeTree, activeRec, createdPid);
 
             GroundPartPlacementVerdict verdict = GroundPartPlacement.EvaluatePlacement(
                 hasActiveTree: host.activeTree != null,
@@ -251,6 +259,30 @@ namespace Parsek
                 source, partName, createdPid, activeRec.RecordingId, placementUT));
             host.StartCoroutine(host.DeferredGroundPartPlacement(
                 host.activeTree.Id, activeRec.RecordingId, createdPid, placementUT, source));
+        }
+
+        /// <summary>
+        /// The active tree's active recording, or null when there is no tree, no active id, or
+        /// the id is not in it.
+        /// </summary>
+        internal static Recording TryGetActiveTreeRecording(RecordingTree tree)
+        {
+            Recording activeRec = null;
+            if (tree != null && !string.IsNullOrEmpty(tree.ActiveRecordingId))
+                tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRec);
+            return activeRec;
+        }
+
+        /// <summary>
+        /// The vessel a ground placement created is already this tree's: a background member,
+        /// or the vessel the active recording records.
+        /// </summary>
+        internal static bool IsCreatedVesselTreeMember(
+            RecordingTree tree, Recording activeRec, uint createdPid)
+        {
+            return tree != null && createdPid != 0
+                && (tree.BackgroundMap.ContainsKey(createdPid)
+                    || (activeRec != null && activeRec.VesselPersistentId == createdPid));
         }
 
         internal void CreateGroundPartMember(Recording parentRec, Vessel v, double placementUT,
@@ -384,9 +416,7 @@ namespace Parsek
 
             ReadLiveSlot(module, slot, out string partNameAfter, out int quantityAfter);
 
-            Recording activeRec = null;
-            if (host.activeTree != null && !string.IsNullOrEmpty(host.activeTree.ActiveRecordingId))
-                host.activeTree.Recordings.TryGetValue(host.activeTree.ActiveRecordingId, out activeRec);
+            Recording activeRec = TryGetActiveTreeRecording(host.activeTree);
 
             ForeignInventoryMembership membership =
                 ForeignInventoryTransfer.ResolveMembership(host.activeTree, changedPid);
@@ -411,19 +441,8 @@ namespace Parsek
 
             // Direction: the last reading of this slot, else the vessel's own saved state
             // (its ProtoPartSnapshot, untouched since load or the last save), else unknown.
-            long key = ForeignInventorySlotKey(containerPid, slot);
-            int? quantityBefore = null;
-            string partNameBefore = null;
-            if (foreignInventorySlotReadings.TryGetValue(key, out KeyValuePair<string, int> reading))
-            {
-                partNameBefore = reading.Key;
-                quantityBefore = reading.Value;
-            }
-            else if (TryReadSavedSlotCore(module, slot, out string savedName, out int savedQuantity))
-            {
-                partNameBefore = savedName;
-                quantityBefore = savedQuantity;
-            }
+            ResolvePriorSlotReading(module, containerPid, slot,
+                out string partNameBefore, out int? quantityBefore);
 
             SegmentEventType type = ForeignInventoryTransfer.ClassifySlotChange(quantityBefore, quantityAfter);
             double ut = Planetarium.GetUniversalTime();
@@ -438,6 +457,28 @@ namespace Parsek
             }
 
             AdoptForeignCargoPartner(activeRec, changed, transfer);
+        }
+
+        /// <summary>
+        /// The slot's reading before this change: the last reading recorded for it, else the
+        /// vessel's own saved state, else unknown (both outs null).
+        /// </summary>
+        internal void ResolvePriorSlotReading(ModuleInventoryPart module, uint containerPid, int slot,
+            out string partNameBefore, out int? quantityBefore)
+        {
+            long key = ForeignInventorySlotKey(containerPid, slot);
+            quantityBefore = null;
+            partNameBefore = null;
+            if (foreignInventorySlotReadings.TryGetValue(key, out KeyValuePair<string, int> reading))
+            {
+                partNameBefore = reading.Key;
+                quantityBefore = reading.Value;
+            }
+            else if (TryReadSavedSlotCore(module, slot, out string savedName, out int savedQuantity))
+            {
+                partNameBefore = savedName;
+                quantityBefore = savedQuantity;
+            }
         }
 
         /// <summary>
@@ -473,9 +514,7 @@ namespace Parsek
             uint partPid = part != null ? part.persistentId : 0u;
             string partName = part != null && part.partInfo != null ? part.partInfo.name : null;
 
-            Recording activeRec = null;
-            if (host.activeTree != null && !string.IsNullOrEmpty(host.activeTree.ActiveRecordingId))
-                host.activeTree.Recordings.TryGetValue(host.activeTree.ActiveRecordingId, out activeRec);
+            Recording activeRec = TryGetActiveTreeRecording(host.activeTree);
 
             ForeignInventoryMembership membership =
                 ForeignInventoryTransfer.ResolveMembership(host.activeTree, changedPid);

@@ -183,5 +183,130 @@ namespace Parsek.Tests
             Assert.Null(savedName);
             Assert.Equal(0, savedQuantity);
         }
+
+        // ================= extracted helpers =================
+
+        [Fact]
+        public void ActiveTreeRecording_ResolvesOrNull()
+        {
+            var act = new Recording { RecordingId = "act" };
+            var tree = Tree(act);
+            Assert.Same(act, ParsekFlightSurfaceCapture.TryGetActiveTreeRecording(tree));
+            Assert.Null(ParsekFlightSurfaceCapture.TryGetActiveTreeRecording(null));
+            tree.ActiveRecordingId = "";
+            Assert.Null(ParsekFlightSurfaceCapture.TryGetActiveTreeRecording(tree));
+            tree.ActiveRecordingId = "gone";
+            Assert.Null(ParsekFlightSurfaceCapture.TryGetActiveTreeRecording(tree));
+        }
+
+        [Fact]
+        public void CreatedVesselTreeMember_BackgroundOrTheActiveRecordingsVessel()
+        {
+            var act = new Recording { RecordingId = "act", VesselPersistentId = 5 };
+            var tree = Tree(act);
+            tree.BackgroundMap[7] = "bg";
+            Assert.True(ParsekFlightSurfaceCapture.IsCreatedVesselTreeMember(tree, act, 7));
+            Assert.True(ParsekFlightSurfaceCapture.IsCreatedVesselTreeMember(tree, act, 5));
+            Assert.False(ParsekFlightSurfaceCapture.IsCreatedVesselTreeMember(tree, null, 5));
+            Assert.False(ParsekFlightSurfaceCapture.IsCreatedVesselTreeMember(tree, act, 9));
+            Assert.False(ParsekFlightSurfaceCapture.IsCreatedVesselTreeMember(tree, act, 0));
+            Assert.False(ParsekFlightSurfaceCapture.IsCreatedVesselTreeMember(null, act, 5));
+        }
+
+        private static SegmentEvent PickUpEvent() =>
+            FlagPickUp.BuildEvent(42.5, "Mun", 1, 2, 3, "Flag One");
+
+        [Fact]
+        public void FlagPickUpRoute_ForegroundRecorderWithTree_GoesOnTheActiveRecording()
+        {
+            var act = new Recording { RecordingId = "act", VesselPersistentId = 5 };
+            var flight = Flight(Tree(act));
+            flight.recorder = RecordingRecorder(5);
+
+            flight.SurfaceCapture.RouteFlagPickUp(PickUpEvent(), 5, "Flag One", "Mun", 42.5);
+
+            var evt = Assert.Single(act.SegmentEvents);
+            Assert.Equal(SegmentEventType.FlagPickedUp, evt.type);
+            Assert.Empty(flight.recorder.SegmentEvents);
+            Assert.Contains(logLines, l => l.Contains("[INFO][Flight]")
+                && l.Contains("Flag pick-up captured (foreground recorder pid=5 rec=act): 'Flag One' on Mun ut=42.5"));
+        }
+
+        [Fact]
+        public void FlagPickUpRoute_ForegroundRecorderWithoutTreeRecording_StaysInTheBuffer()
+        {
+            var tree = Tree(new Recording { RecordingId = "act", VesselPersistentId = 5 });
+            tree.ActiveRecordingId = "gone";
+            var flight = Flight(tree);
+            flight.recorder = RecordingRecorder(5);
+
+            flight.SurfaceCapture.RouteFlagPickUp(PickUpEvent(), 5, "Flag One", "?", 42.5);
+
+            Assert.Single(flight.recorder.SegmentEvents);
+            // The line names the active id even though the event went to the buffer.
+            Assert.Contains(logLines, l => l.Contains("Flag pick-up captured (foreground recorder pid=5 rec=gone): 'Flag One' on ? ut=42.5"));
+
+            var noTree = Flight(null);
+            noTree.recorder = RecordingRecorder(5);
+            noTree.SurfaceCapture.RouteFlagPickUp(PickUpEvent(), 5, "Flag One", "Mun", 42.5);
+            Assert.Single(noTree.recorder.SegmentEvents);
+            Assert.Contains(logLines, l => l.Contains("Flag pick-up captured (foreground recorder pid=5 rec=(recorder buffer)): 'Flag One' on Mun ut=42.5"));
+        }
+
+        [Fact]
+        public void FlagPickUpRoute_BackgroundTreeMember_GoesOnItsRecording()
+        {
+            var act = new Recording { RecordingId = "act", VesselPersistentId = 5 };
+            var bg = new Recording { RecordingId = "bg", VesselPersistentId = 7 };
+            var tree = Tree(act, bg);
+            tree.BackgroundMap[7] = "bg";
+            var flight = Flight(tree);
+            // A recorder on another vessel, or one that is not recording, does not own the picker.
+            flight.recorder = RecordingRecorder(7);
+            flight.recorder.IsRecording = false;
+
+            flight.SurfaceCapture.RouteFlagPickUp(PickUpEvent(), 7, "Flag One", "Mun", 42.5);
+
+            Assert.Single(bg.SegmentEvents);
+            Assert.Empty(act.SegmentEvents);
+            Assert.Empty(flight.recorder.SegmentEvents);
+            Assert.Contains(logLines, l => l.Contains("Flag pick-up captured (background tree member pid=7 rec=bg): 'Flag One' ut=42.5"));
+        }
+
+        [Fact]
+        public void FlagPickUpRoute_NoOwner_IsNotRecorded()
+        {
+            var tree = Tree(new Recording { RecordingId = "act", VesselPersistentId = 5 });
+            tree.BackgroundMap[7] = "missing";
+            var flight = Flight(tree);
+            flight.recorder = RecordingRecorder(5);
+
+            flight.SurfaceCapture.RouteFlagPickUp(PickUpEvent(), 7, "Flag One", "Mun", 42.5);
+            Flight(null).SurfaceCapture.RouteFlagPickUp(PickUpEvent(), 7, "Flag Two", "Mun", 42.5);
+
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][Flight]")
+                && l.Contains("Flag 'Flag One' picked up by pid=7 but no foreground or background recording owns the kerbal")
+                && l.Contains("recorderPid=5, hasTree=True"));
+            Assert.Contains(logLines, l => l.Contains("Flag 'Flag Two' picked up by pid=7")
+                && l.Contains("recorderPid=0, hasTree=False"));
+            Assert.Empty(flight.recorder.SegmentEvents);
+        }
+
+        [Fact]
+        public void PriorSlotReading_RecordedReadingElseUnknown()
+        {
+            var capture = Flight(null).SurfaceCapture;
+            capture.foreignInventorySlotReadings[ParsekFlightSurfaceCapture.ForeignInventorySlotKey(11, 2)] =
+                new KeyValuePair<string, int>("evaRepairKit", 3);
+
+            capture.ResolvePriorSlotReading(null, 11, 2, out string name, out int? quantity);
+            Assert.Equal("evaRepairKit", name);
+            Assert.Equal(3, quantity);
+
+            // No reading and no saved state to fall back on.
+            capture.ResolvePriorSlotReading(null, 11, 1, out string unknownName, out int? unknownQuantity);
+            Assert.Null(unknownName);
+            Assert.Null(unknownQuantity);
+        }
     }
 }

@@ -150,10 +150,7 @@ namespace Parsek
                 Recording tipRecording = string.IsNullOrEmpty(chain.TipRecordingId)
                     ? null
                     : ParsekFlightPlaybackHost.FindTipRecordingById(chain.TipRecordingId);
-                if (tipRecording != null
-                    && (!tipRecording.TerminalStateValue.HasValue
-                        || tipRecording.TerminalStateValue == TerminalState.Orbiting
-                        || tipRecording.TerminalStateValue == TerminalState.Docked))
+                if (ShouldCreateGhostMapVesselForChainTip(tipRecording))
                     GhostMapPresence.CreateGhostVessel(chain, tipRecording);
 
                 // Every vessel the chain holds back (its key and the claims folded into it),
@@ -193,6 +190,18 @@ namespace Parsek
                 }
             }
             return ghostedCount;
+        }
+
+        /// <summary>
+        /// A chain tip gets a ghost map vessel when its flight has not ended, or ended in a
+        /// stable orbit or docked (terminated chains are filtered before this is asked).
+        /// </summary>
+        internal static bool ShouldCreateGhostMapVesselForChainTip(Recording tipRecording)
+        {
+            return tipRecording != null
+                && (!tipRecording.TerminalStateValue.HasValue
+                    || tipRecording.TerminalStateValue == TerminalState.Orbiting
+                    || tipRecording.TerminalStateValue == TerminalState.Docked);
         }
 
         // Phase F: ComputeTreeDeltaFunds/Science/Reputation removed.
@@ -355,10 +364,7 @@ namespace Parsek
                 }
                 else
                 {
-                    if (reason != null && reason.StartsWith("pre-existing"))
-                        keptPreExisting++;
-                    else if (reason != null && reason.StartsWith("no same-launch"))
-                        keptDifferentLaunch++;
+                    TallyKeptVesselReason(reason, ref keptPreExisting, ref keptDifferentLaunch);
                     ParsekLog.Verbose("Flight",
                         $"CleanupOrphanedSpawnedVessels: keeping '{vessel.vesselName}' " +
                         $"pid={vessel.persistentId} guid={candidateGuid ?? "(none)"} — {reason}");
@@ -369,6 +375,31 @@ namespace Parsek
                 ParsekLog.Info("Flight",
                     $"CleanupOrphanedSpawnedVessels: recovered {recovered} orphaned vessel(s) " +
                     $"(kept {keptPreExisting} pre-existing, {keptDifferentLaunch} different-launch)");
+        }
+
+        /// <summary>
+        /// Counts a kept vessel under the summary's two named reasons: a vessel that existed
+        /// before the reverted flight, or one that is a different launch.
+        /// </summary>
+        internal static void TallyKeptVesselReason(
+            string reason, ref int keptPreExisting, ref int keptDifferentLaunch)
+        {
+            if (reason != null && reason.StartsWith("pre-existing"))
+                keptPreExisting++;
+            else if (reason != null && reason.StartsWith("no same-launch"))
+                keptDifferentLaunch++;
+        }
+
+        /// <summary>
+        /// A committed recording whose live spawn carries the leaf's vessel name but is NOT a
+        /// timeline spawn of the leaf's vessel: a name is not an identity, so it is left alone
+        /// (and counted for the summary line).
+        /// </summary>
+        internal static bool IsSameNamedSpawnOfOtherVessel(Recording rec, string vesselName)
+        {
+            return rec != null && rec.VesselSpawned && rec.SpawnedVesselPersistentId != 0
+                && !string.IsNullOrEmpty(vesselName)
+                && string.Equals(rec.VesselName, vesselName, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -387,9 +418,7 @@ namespace Parsek
                 var rec = committed[i];
                 if (!ParsekFlight.IsTimelineSpawnOfLeafVessel(rec, leaf))
                 {
-                    if (rec != null && rec.VesselSpawned && rec.SpawnedVesselPersistentId != 0
-                        && !string.IsNullOrEmpty(vesselName)
-                        && string.Equals(rec.VesselName, vesselName, StringComparison.Ordinal))
+                    if (IsSameNamedSpawnOfOtherVessel(rec, vesselName))
                         skippedSameNameOtherVessel++;
                     continue;
                 }
@@ -866,14 +895,7 @@ namespace Parsek
 
             // Drop samples for recordings that are no longer in-range / ghosted, so the cache
             // doesn't grow unboundedly across a long session.
-            if (host.proximityVelocitySamples.Count > seenRecordingIds.Count)
-            {
-                var stale = new List<string>();
-                foreach (var key in host.proximityVelocitySamples.Keys)
-                    if (!seenRecordingIds.Contains(key)) stale.Add(key);
-                for (int s = 0; s < stale.Count; s++)
-                    host.proximityVelocitySamples.Remove(stale[s]);
-            }
+            PruneStaleProximitySamples(host.proximityVelocitySamples, seenRecordingIds);
 
             // Printed when the counts change, not every 1.5 s scan: a ghost parked just
             // outside the spawn radius would otherwise repeat the same line all session.
@@ -890,6 +912,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Drops the velocity samples of recordings the scan no longer saw. Skipped when the
+        /// cache holds no more entries than the scan saw.
+        /// </summary>
+        internal static void PruneStaleProximitySamples(
+            Dictionary<string, ParsekFlight.ProximityVelocitySample> samples,
+            HashSet<string> seenRecordingIds)
+        {
+            if (samples.Count > seenRecordingIds.Count)
+            {
+                var stale = new List<string>();
+                foreach (var key in samples.Keys)
+                    if (!seenRecordingIds.Contains(key)) stale.Add(key);
+                for (int s = 0; s < stale.Count; s++)
+                    samples.Remove(stale[s]);
+            }
+        }
+
+        /// <summary>
+        /// A candidate outside either warp gate (the spawn radius, the warp relative speed).
+        /// The list keeps such a row greyed; the screen alert waits for both gates.
+        /// </summary>
+        internal static bool IsOutsideProximityWarpGates(NearbySpawnCandidate cand)
+        {
+            return cand.distance > ParsekFlight.NearbySpawnRadius || cand.relativeSpeed > ParsekFlight.MaxRelativeSpeed;
+        }
+
+        /// <summary>
         /// Fires one-time screen notifications for newly discovered proximity candidates.
         /// </summary>
         private void NotifyNewProximityCandidates(double currentUT)
@@ -900,7 +949,7 @@ namespace Parsek
                 // The list keeps too-fast ghosts (greyed rows), but the screen-message alert
                 // promises "fast forward and interact", so it fires only once the ghost is
                 // inside both warp gates.
-                if (cand.distance > ParsekFlight.NearbySpawnRadius || cand.relativeSpeed > ParsekFlight.MaxRelativeSpeed)
+                if (IsOutsideProximityWarpGates(cand))
                     continue;
                 if (host.notifiedSpawnRecordingIds.Add(cand.recordingId))
                 {
@@ -1024,18 +1073,8 @@ namespace Parsek
             if (spawnWarpWatchRecordingId == null)
                 return;
 
-            Recording rec = null;
-            var committed = RecordingStore.CommittedRecordings;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                if (committed[i] != null
-                    && string.Equals(committed[i].RecordingId, spawnWarpWatchRecordingId,
-                        StringComparison.Ordinal))
-                {
-                    rec = committed[i];
-                    break;
-                }
-            }
+            Recording rec = FindCommittedRecordingById(
+                RecordingStore.CommittedRecordings, spawnWarpWatchRecordingId);
 
             double elapsed = Time.realtimeSinceStartup - spawnWarpWatchArmedRealtime;
             GhostChain chain = rec != null ? ParsekFlight.FindChainTipForRecording(host.activeGhostChains, rec) : null;
@@ -1059,6 +1098,27 @@ namespace Parsek
             SpawnWarpOutcomeWatch.ClearAbandonNote(spawnWarpWatchRecordingId);
             spawnWarpWatchRecordingId = null;
             spawnWarpWatchVesselName = null;
+        }
+
+        /// <summary>
+        /// The first non-null recording in <paramref name="committed"/> whose id is
+        /// <paramref name="recordingId"/> (ordinal), or null.
+        /// </summary>
+        internal static Recording FindCommittedRecordingById(
+            IReadOnlyList<Recording> committed, string recordingId)
+        {
+            Recording rec = null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (committed[i] != null
+                    && string.Equals(committed[i].RecordingId, recordingId,
+                        StringComparison.Ordinal))
+                {
+                    rec = committed[i];
+                    break;
+                }
+            }
+            return rec;
         }
 
         /// <summary>
@@ -1161,16 +1221,8 @@ namespace Parsek
             // The current watched ghost may be far away after the time jump.
             if (host.watchMode.IsWatchingGhost)
             {
-                var committed = RecordingStore.CommittedRecordings;
-                int ffTargetIdx = -1;
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    if (committed[i].RecordingId == rec.RecordingId)
-                    {
-                        ffTargetIdx = i;
-                        break;
-                    }
-                }
+                int ffTargetIdx = IndexOfCommittedRecordingId(
+                    RecordingStore.CommittedRecordings, rec.RecordingId);
                 if (ffTargetIdx >= 0 && ffTargetIdx != host.watchMode.WatchedRecordingIndex)
                 {
                     ParsekLog.Info("CameraFollow",
@@ -1190,6 +1242,25 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "Fast-forwarded to \"{0}\" ({1:F0}s)",
                     rec.VesselName, targetUT - currentUT), 3f);
+        }
+
+        /// <summary>
+        /// The index of the first recording in <paramref name="committed"/> whose id equals
+        /// <paramref name="recordingId"/>, or -1. Every entry is read, so a null entry throws.
+        /// </summary>
+        internal static int IndexOfCommittedRecordingId(
+            IReadOnlyList<Recording> committed, string recordingId)
+        {
+            int ffTargetIdx = -1;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (committed[i].RecordingId == recordingId)
+                {
+                    ffTargetIdx = i;
+                    break;
+                }
+            }
+            return ffTargetIdx;
         }
 
         /// <summary>

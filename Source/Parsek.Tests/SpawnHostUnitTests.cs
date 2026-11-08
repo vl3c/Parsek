@@ -189,5 +189,111 @@ namespace Parsek.Tests
             ParsekFlightSpawnHost.LogMoveGateOnChange(rec, MoveGateVerdict.Pass);
             Assert.Contains(logLines, l => l.Contains("Move gate: ref=mg-1 refusal=None") && !l.Contains("detail="));
         }
+
+        // ================= extracted helpers =================
+
+        [Fact]
+        public void ChainTipGhostMapVessel_OpenOrbitingOrDockedOnly()
+        {
+            Assert.False(ParsekFlightSpawnHost.ShouldCreateGhostMapVesselForChainTip(null));
+            Assert.True(ParsekFlightSpawnHost.ShouldCreateGhostMapVesselForChainTip(new Recording { RecordingId = "open" }));
+            foreach (TerminalState ts in Enum.GetValues(typeof(TerminalState)))
+            {
+                var rec = new Recording { RecordingId = "t" };
+                rec.StampTerminalState(ts, "test");
+                bool expected = ts == TerminalState.Orbiting || ts == TerminalState.Docked;
+                Assert.True(expected == ParsekFlightSpawnHost.ShouldCreateGhostMapVesselForChainTip(rec), ts.ToString());
+            }
+        }
+
+        [Fact]
+        public void KeptVesselReasonTally_CountsTheTwoNamedPrefixesOnly()
+        {
+            int preExisting = 0, differentLaunch = 0;
+            ParsekFlightSpawnHost.TallyKeptVesselReason("pre-existing in the revert target", ref preExisting, ref differentLaunch);
+            ParsekFlightSpawnHost.TallyKeptVesselReason("no same-launch recording", ref preExisting, ref differentLaunch);
+            ParsekFlightSpawnHost.TallyKeptVesselReason("no same-launch again", ref preExisting, ref differentLaunch);
+            ParsekFlightSpawnHost.TallyKeptVesselReason("prelaunch skipped", ref preExisting, ref differentLaunch);
+            ParsekFlightSpawnHost.TallyKeptVesselReason(null, ref preExisting, ref differentLaunch);
+            ParsekFlightSpawnHost.TallyKeptVesselReason("Pre-existing", ref preExisting, ref differentLaunch);
+            Assert.Equal(1, preExisting);
+            Assert.Equal(2, differentLaunch);
+        }
+
+        [Fact]
+        public void SameNamedSpawnOfOtherVessel_NeedsALiveSpawnAndTheExactName()
+        {
+            var spawned = new Recording { RecordingId = "r", VesselName = "Lander", VesselSpawned = true, SpawnedVesselPersistentId = 5 };
+            Assert.True(ParsekFlightSpawnHost.IsSameNamedSpawnOfOtherVessel(spawned, "Lander"));
+            Assert.False(ParsekFlightSpawnHost.IsSameNamedSpawnOfOtherVessel(spawned, "lander"));
+            Assert.False(ParsekFlightSpawnHost.IsSameNamedSpawnOfOtherVessel(spawned, ""));
+            Assert.False(ParsekFlightSpawnHost.IsSameNamedSpawnOfOtherVessel(spawned, null));
+            Assert.False(ParsekFlightSpawnHost.IsSameNamedSpawnOfOtherVessel(null, "Lander"));
+            Assert.False(ParsekFlightSpawnHost.IsSameNamedSpawnOfOtherVessel(
+                new Recording { VesselName = "Lander", VesselSpawned = false, SpawnedVesselPersistentId = 5 }, "Lander"));
+            Assert.False(ParsekFlightSpawnHost.IsSameNamedSpawnOfOtherVessel(
+                new Recording { VesselName = "Lander", VesselSpawned = true, SpawnedVesselPersistentId = 0 }, "Lander"));
+        }
+
+        [Fact]
+        public void FindCommittedRecordingById_FirstNonNullOrdinalMatch()
+        {
+            var a = new Recording { RecordingId = "a" };
+            var b1 = new Recording { RecordingId = "b" };
+            var b2 = new Recording { RecordingId = "b" };
+            var list = new List<Recording> { null, a, b1, b2 };
+            Assert.Same(b1, ParsekFlightSpawnHost.FindCommittedRecordingById(list, "b"));
+            Assert.Same(a, ParsekFlightSpawnHost.FindCommittedRecordingById(list, "a"));
+            Assert.Null(ParsekFlightSpawnHost.FindCommittedRecordingById(list, "A"));
+            Assert.Null(ParsekFlightSpawnHost.FindCommittedRecordingById(new List<Recording>(), "a"));
+        }
+
+        [Fact]
+        public void IndexOfCommittedRecordingId_FirstMatchElseMinusOne()
+        {
+            var list = new List<Recording>
+            {
+                new Recording { RecordingId = "a" }, new Recording { RecordingId = "b" }, new Recording { RecordingId = "b" },
+            };
+            Assert.Equal(1, ParsekFlightSpawnHost.IndexOfCommittedRecordingId(list, "b"));
+            Assert.Equal(-1, ParsekFlightSpawnHost.IndexOfCommittedRecordingId(list, "c"));
+            // Every entry is read: a null entry before the match throws, as the inline loop did.
+            Assert.Throws<NullReferenceException>(() => ParsekFlightSpawnHost.IndexOfCommittedRecordingId(
+                new List<Recording> { null, new Recording { RecordingId = "a" } }, "a"));
+        }
+
+        [Fact]
+        public void ProximitySamplePrune_DropsUnseenOnlyWhenTheCacheIsLarger()
+        {
+            var samples = new Dictionary<string, ParsekFlight.ProximityVelocitySample>
+            {
+                ["a"] = default(ParsekFlight.ProximityVelocitySample),
+                ["b"] = default(ParsekFlight.ProximityVelocitySample),
+                ["c"] = default(ParsekFlight.ProximityVelocitySample),
+            };
+            ParsekFlightSpawnHost.PruneStaleProximitySamples(samples, new HashSet<string> { "b" });
+            Assert.Equal(new[] { "b" }, new List<string>(samples.Keys).ToArray());
+
+            // Same count: nothing pruned, even when the ids differ.
+            var even = new Dictionary<string, ParsekFlight.ProximityVelocitySample>
+            {
+                ["x"] = default(ParsekFlight.ProximityVelocitySample),
+            };
+            ParsekFlightSpawnHost.PruneStaleProximitySamples(even, new HashSet<string> { "y" });
+            Assert.True(even.ContainsKey("x"));
+        }
+
+        [Fact]
+        public void ProximityWarpGates_DistanceOrSpeedOutside()
+        {
+            var inside = new NearbySpawnCandidate { distance = ParsekFlight.NearbySpawnRadius, relativeSpeed = ParsekFlight.MaxRelativeSpeed };
+            Assert.False(ParsekFlightSpawnHost.IsOutsideProximityWarpGates(inside));
+            var far = inside; far.distance = ParsekFlight.NearbySpawnRadius + 1;
+            Assert.True(ParsekFlightSpawnHost.IsOutsideProximityWarpGates(far));
+            var fast = inside; fast.relativeSpeed = ParsekFlight.MaxRelativeSpeed + 0.01;
+            Assert.True(ParsekFlightSpawnHost.IsOutsideProximityWarpGates(fast));
+            var unsampled = inside; unsampled.relativeSpeed = double.PositiveInfinity;
+            Assert.True(ParsekFlightSpawnHost.IsOutsideProximityWarpGates(unsampled));
+        }
     }
 }
