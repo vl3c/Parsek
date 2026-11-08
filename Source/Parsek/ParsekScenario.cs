@@ -953,6 +953,38 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Step of <see cref="OnLoad"/> "reset-dialog": drops a GUI state gallery mock scope found
+        /// live at load (warn-logged; an exit path did not clear it).
+        /// </summary>
+        internal static void OnLoadPhaseDropLiveGuiMockSession()
+        {
+            if (Parsek.UI.Gallery.GuiMockSession.IsLive)
+            {
+                ParsekLog.Warn("Scenario",
+                    "GuiMock session found LIVE at OnLoad: state="
+                    + (Parsek.UI.Gallery.GuiMockSession.StateId ?? "-")
+                    + " window=" + (Parsek.UI.Gallery.GuiMockSession.Window ?? "-")
+                    + " - dropping it (nothing injected reaches a save, so no data is "
+                    + "at risk; an exit path did not clear)");
+                Parsek.UI.Gallery.GuiMockSession.ResetForTesting();
+            }
+        }
+
+        /// <summary>
+        /// Step of <see cref="OnLoad"/> "settings": clamps the hidden settings to their shipping
+        /// values (logged when something moved), unless an automation env hook is armed.
+        /// </summary>
+        internal static void OnLoadPhaseClampHiddenSettingsToShippingValues()
+        {
+            if (!ParsekSettings.AutomationEnvPresent
+                && ParsekSettings.ClampHiddenSettingsToShippingValues(ParsekSettings.Current))
+            {
+                ParsekLog.Info("Settings",
+                    "Hidden settings clamped to shipping values (stale save-stored values overridden)");
+            }
+        }
+
         public override void OnLoad(ConfigNode node)
         {
             // Pre-Parsek backup hold (PreParsekBackup): a save whose first-time backup failed
@@ -1016,16 +1048,7 @@ namespace Parsek
                 // turns "nothing injected can survive into a load" from an assumption
                 // into an observable claim, which is the only kind of crash-safety
                 // statement worth making.
-                if (Parsek.UI.Gallery.GuiMockSession.IsLive)
-                {
-                    ParsekLog.Warn("Scenario",
-                        "GuiMock session found LIVE at OnLoad: state="
-                        + (Parsek.UI.Gallery.GuiMockSession.StateId ?? "-")
-                        + " window=" + (Parsek.UI.Gallery.GuiMockSession.Window ?? "-")
-                        + " - dropping it (nothing injected reaches a save, so no data is "
-                        + "at risk; an exit path did not clear)");
-                    Parsek.UI.Gallery.GuiMockSession.ResetForTesting();
-                }
+                OnLoadPhaseDropLiveGuiMockSession();
 
                 // Restore user-intent settings (tracking-station visibility, readable
                 // sidecar mirrors, etc.) from the
@@ -1050,12 +1073,7 @@ namespace Parsek
                 // from an older career) is clamped back to the shipping value here - unless
                 // an automation env hook is armed, in which case the harness keeps authority
                 // over these fields (fixture pins + SetSetting must survive scene loads).
-                if (!ParsekSettings.AutomationEnvPresent
-                    && ParsekSettings.ClampHiddenSettingsToShippingValues(ParsekSettings.Current))
-                {
-                    ParsekLog.Info("Settings",
-                        "Hidden settings clamped to shipping values (stale save-stored values overridden)");
-                }
+                OnLoadPhaseClampHiddenSettingsToShippingValues();
                 RecorderStateLog.RecState("OnLoad:settings-applied", CaptureScenarioRecorderState());
 
                 // The save-wide format stamp: log what wrote this save (pre-1.0, current, newer).
