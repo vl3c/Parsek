@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security;
 using Xunit;
 
 namespace Parsek.Tests
@@ -45,13 +46,24 @@ namespace Parsek.Tests
         public void Dispose()
         {
             foreach (ParsekUI ui in built)
-                ui.Cleanup();
+                CleanupIgnoringUnityTeardown(ui);
             LedgerOrchestrator.OnTimelineDataChanged = savedTimelineHook;
             DisplayNames.ResetSubscribersForTesting();
             ParsekUI.ResetUiComplexityModeForTesting();
             ParsekSettings.CurrentOverrideForTesting = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+        }
+
+        // Cleanup drops both signal hooks first, then resets the cached window styles, which
+        // reads a Unity native (GUIStyleState.background): the Windows .NET host throws
+        // SecurityException there and mono throws MissingMethodException. The unhooks have
+        // already run by then, so the cells still observe them.
+        private static void CleanupIgnoringUnityTeardown(ParsekUI ui)
+        {
+            try { ui.Cleanup(); }
+            catch (SecurityException) { }
+            catch (MissingMethodException) { }
         }
 
         private ParsekUI Build()
@@ -95,7 +107,7 @@ namespace Parsek.Tests
         public void Cleanup_UnhooksBothSignals()
         {
             ParsekUI ui = Build();
-            ui.Cleanup();
+            CleanupIgnoringUnityTeardown(ui);
 
             Assert.Equal("", Fire(RaiseTimeline));
             Assert.Equal("", Fire(RaiseRename));
@@ -105,8 +117,8 @@ namespace Parsek.Tests
         public void SecondCleanup_IsANoOp()
         {
             ParsekUI ui = Build();
-            ui.Cleanup();
-            ui.Cleanup();
+            CleanupIgnoringUnityTeardown(ui);
+            CleanupIgnoringUnityTeardown(ui);
 
             Assert.Equal("", Fire(RaiseTimeline));
             Assert.Equal("", Fire(RaiseRename));
@@ -121,12 +133,12 @@ namespace Parsek.Tests
             Assert.Equal("TKTK", Fire(RaiseTimeline));
             Assert.Equal("TKTK", Fire(RaiseRename));
 
-            previous.Cleanup();
+            CleanupIgnoringUnityTeardown(previous);
 
             Assert.Equal("TK", Fire(RaiseTimeline));
             Assert.Equal("TK", Fire(RaiseRename));
 
-            next.Cleanup();
+            CleanupIgnoringUnityTeardown(next);
 
             Assert.Equal("", Fire(RaiseTimeline));
             Assert.Equal("", Fire(RaiseRename));
@@ -138,7 +150,7 @@ namespace Parsek.Tests
             int outside = 0;
             LedgerOrchestrator.OnTimelineDataChanged += () => outside++;
             ParsekUI ui = Build();
-            ui.Cleanup();
+            CleanupIgnoringUnityTeardown(ui);
 
             Assert.Equal("", Fire(RaiseTimeline));
             Assert.Equal(1, outside);
