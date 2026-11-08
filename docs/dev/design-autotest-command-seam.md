@@ -952,7 +952,7 @@ explicit choice. No other near-miss word is accepted - `newest`, `last`, `active
 all stay `unknown-tree`.
 
 **Why it exists, and it is a MEASURED wall rather than a convenience.** Rewind-to-Launch
-needs a subject carrying a launch quicksave: `RecordingStore.CanRewind` resolves the owner
+needs a subject carrying a launch quicksave: `RewindLauncher.CanRewind` resolves the owner
 through `GetRewindRecording`, which wants a non-empty `Recording.RewindSaveFileName` on the
 recording or its tree ROOT. Every committed recorded fixture ships that field EMPTY by
 harvest policy (`harvest_bdock_station.py` prunes `Parsek/Saves` and clears the hint;

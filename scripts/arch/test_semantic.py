@@ -530,8 +530,9 @@ jobs:
                 self.assertNotEqual(semantic_step_problems(text), [])
 
 
-# The RecordingStore forwarders the arch refresh (2026-11-07) lists as kept for
-# the text metric, with the service each one forwards to.
+# The RecordingStore forwarders the arch refresh (2026-11-07) listed as kept for
+# the text metric, with the service each one forwarded to. W4c deleted them and
+# pointed every caller at the service.
 STORE_FORWARDERS = {
     ("CanRewind", 3): "RewindLauncher",
     ("CanRewindWithResolvedSaveState", 4): "RewindLauncher",
@@ -566,16 +567,20 @@ class RealTreeSemanticTests(unittest.TestCase):
         self.assertEqual(set(self.result["semantic"]), set(self.result["text"]))
         self.assertGreater(len(semantic.edge_set(self.result["semantic"])), 5000)
 
-    def test_the_documented_store_forwarders_resolve_to_their_services(self):
-        table = ilgraph.forwarder_table(self.result["parsed"]["methods"])
-        resolved = {
-            (name, arity): ilgraph.short_name(target)
-            for (owner, name, arity), target in table.items()
-            if owner == "Parsek.RecordingStore"
-        }
+    def test_the_store_metric_forwarders_stay_deleted(self):
+        # W4c deleted them; a call through one counts as a call to the service
+        # here anyway, so a re-added copy would only hide the edge from the
+        # text scan again. The service still declares every member.
+        declared = {}
+        for method in self.result["parsed"]["methods"]:
+            if method["type"] is None:
+                continue
+            declared.setdefault(ilgraph.short_name(method["type"]), set()).add(
+                (method["name"], method["arity"]))
         for key, service in STORE_FORWARDERS.items():
             with self.subTest(member=key):
-                self.assertEqual(resolved.get(key), service)
+                self.assertNotIn(key, declared.get("RecordingStore", set()))
+                self.assertIn(key, declared.get(service, set()))
 
     def test_the_known_false_names_are_explained(self):
         # Two text false positives the wave-2 streams found carrying residue

@@ -306,6 +306,28 @@ namespace Parsek.Tests
             int resolve = IndexOrFail(cold, "ResolveColdLoadClockUT(");
             int kspLoad = IndexOrFail(cold, "LedgerOrchestrator.OnKspLoad(");
             Assert.True(read < resolve && resolve < kspLoad);
+
+            // The OnLoadPhase* methods extracted from OnLoad sit outside its text, so the
+            // count above does not see them: none of them may read the live clock either
+            // (the cold-branch clock locals are passed in as parameters).
+            string prepared = ReadParsekSourcePrepared(ScenarioPath);
+            var declared = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Match decl in Regex.Matches(prepared, @"\bstatic\s+[\w<>\[\],.\s]+?\s(OnLoadPhase\w+)\s*\([^()]*\)\s*\{"))
+            {
+                string name = decl.Groups[1].Value;
+                Assert.True(declared.Add(name), "load-reconcile gate: " + name + " is declared twice");
+                string phaseBody = SourceScanText.BraceMatchedBlock(prepared, decl.Index + decl.Length - 1);
+                Assert.True(Occurrences(phaseBody, "Planetarium.GetUniversalTime()") == 0,
+                    "load-reconcile gate: " + name + " reads Planetarium.GetUniversalTime(); "
+                    + "an OnLoad phase takes the cold clock as a parameter");
+            }
+            foreach (Match call in Regex.Matches(body, @"\b(OnLoadPhase\w+)\s*\("))
+            {
+                Assert.True(declared.Contains(call.Groups[1].Value),
+                    "load-reconcile gate: OnLoad calls " + call.Groups[1].Value
+                    + " but its body was not scanned for a clock read");
+            }
+            Assert.NotEmpty(declared);
         }
 
         [Fact]
