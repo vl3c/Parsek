@@ -130,9 +130,6 @@ namespace Parsek
             Vessel v = activeRec.VesselPersistentId != 0
                 ? FlightRecorder.FindVesselByPid(activeRec.VesselPersistentId)
                 : null;
-            bool sceneExitLifetimeExtended = false;
-            bool sceneExitSuppliedSnapshots = false;
-            bool sceneExitSuppliedTerminalOrbit = false;
             bool preserveRestoredSceneExitTerminalState =
                 ParsekFlightMergeFlow.ShouldPreserveRestoredSceneExitTerminalState(
                     activeRec,
@@ -142,47 +139,13 @@ namespace Parsek
 
             if (isSceneExit && !preserveRestoredSceneExitTerminalState)
             {
-                ConfigNode vesselSnapshotBefore = activeRec.VesselSnapshot;
-                TerminalOrbitMetadataSnapshot terminalOrbitBefore =
-                    CaptureTerminalOrbitMetadataSnapshot(activeRec);
-                sceneExitLifetimeExtended = IncompleteBallisticSceneExitFinalizer.TryApply(
+                if (ApplyActiveRecordingSceneExitLifetime(
                     activeRec,
                     v,
                     commitUT,
-                    "EnsureActiveRecordingTerminalState",
-                    tree);
-                sceneExitSuppliedSnapshots =
-                    !ReferenceEquals(vesselSnapshotBefore, activeRec.VesselSnapshot)
-                    && activeRec.VesselSnapshot != null;
-                sceneExitSuppliedTerminalOrbit =
-                    sceneExitLifetimeExtended
-                    && ParsekFlightMergeFlow.DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, activeRec);
-                if (sceneExitLifetimeExtended)
-                {
-                    if (activeRec.TerminalStateValue.HasValue
-                        && ParsekFlightMergeFlow.UsesTerminalOrbitMetadata(activeRec.TerminalStateValue.Value))
-                    {
-                        if (sceneExitSuppliedTerminalOrbit)
-                        {
-                            ParsekLog.Verbose("Flight",
-                                $"EnsureActiveRecordingTerminalState: preserving scene-exit terminal orbit for " +
-                                $"'{activeRec.RecordingId}' (body={activeRec.TerminalOrbitBody}, " +
-                                $"terminal={activeRec.TerminalStateValue})");
-                        }
-                        else
-                        {
-                            PopulateTerminalOrbitFromLastSegment(activeRec);
-                            if (string.IsNullOrEmpty(activeRec.TerminalOrbitBody))
-                            {
-                                ParsekLog.Warn("Flight",
-                                    $"EnsureActiveRecordingTerminalState: scene-exit terminal orbit remains empty for " +
-                                    $"'{activeRec.RecordingId}' (terminal={activeRec.TerminalStateValue}, " +
-                                    $"orbitSegments={activeRec.OrbitSegments?.Count ?? 0})");
-                            }
-                        }
-                    }
+                    tree,
+                    out bool sceneExitSuppliedSnapshots))
                     return sceneExitSuppliedSnapshots;
-                }
             }
 
             if (v != null)
@@ -212,67 +175,137 @@ namespace Parsek
             }
 
             if (isSceneExit)
-            {
-                // PR #572 follow-up: same gate as the leaf path — when the
-                // active recording was just repaired from the committed tree
-                // this frame, do not overwrite its (intentionally unset)
-                // terminal state with a Landed/Splashed inference based on
-                // the last trajectory point. The gate's only clause is
-                // RestoredFromCommittedTreeThisFrame; an additional
-                // orbital-evidence clause was considered (Option D in the
-                // design plan) and rejected because the legitimate
-                // orbit-then-land case shares the same shape (high
-                // MaxDistanceFromLaunch + stable orbit segment + low-altitude
-                // last point) — see ShouldSkipSceneExitSurfaceInferenceForRestoredRecording's
-                // doc comment.
-                //
-                // Bug 2 follow-up (2026-04-30 STASH probe regression): also skip the
-                // inference when the surviving payload would only support the
-                // SubOrbital fallback default — see HasOnlySubOrbitalFallbackEvidence's
-                // doc.
-                string subOrbitalFallbackReason;
-                bool subOrbitalFallbackOnly =
-                    HasOnlySubOrbitalFallbackEvidence(activeRec, out subOrbitalFallbackReason);
-                if (preserveRestoredSceneExitTerminalState
-                    || ParsekFlightMergeFlow.ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
-                        activeRec, out restoredSceneExitReason)
-                    || subOrbitalFallbackOnly)
-                {
-                    activeRec.RestoredFromCommittedTreeThisFrame = false;
-                    PopulateTerminalOrbitFromLastSegment(activeRec);
-                    string skipReason = restoredSceneExitReason ?? subOrbitalFallbackReason;
-                    ParsekLog.Info("Flight",
-                        $"FinalizeTreeRecordings: skipping Landed/Splashed inference " +
-                        $"for active recording '{activeRec.RecordingId}' " +
-                        $"(vessel pid={activeRec.VesselPersistentId}) — {skipReason} " +
-                        $"(lastPtAlt={(activeRec.Points.Count > 0 ? activeRec.Points[activeRec.Points.Count - 1].altitude : double.NaN):F1}m " +
-                        $"maxDist={activeRec.MaxDistanceFromLaunch:F0}m " +
-                        $"orbitSegs={activeRec.OrbitSegments?.Count ?? 0})");
-                    RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.SceneExitNonLeafSkipInfer");
-                    return false;
-                }
-
-                var inferredState = InferTerminalStateFromTrajectory(activeRec);
-                activeRec.StampTerminalState(
-                    inferredState, "FinalizeTreeRecordings.SceneExitNonLeaf");
-                ParsekLog.Info("Flight",
-                    $"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
-                    $"vessel pid={activeRec.VesselPersistentId} not found on scene exit — " +
-                    $"inferred {inferredState} from trajectory");
-                PopulateTerminalOrbitFromLastSegment(activeRec);
-                if (inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
-                {
-                    PopulateTerminalPositionFromLastPoint(activeRec, inferredState);
-                    ParsekFlightMergeFlow.TryCaptureTerrainHeightFromLastTrajectoryPoint(activeRec);
-                }
-                RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.SceneExitNonLeaf");
-                return false;
-            }
+                return InferActiveRecordingTerminalStateOnSceneExit(
+                    activeRec,
+                    preserveRestoredSceneExitTerminalState,
+                    restoredSceneExitReason);
 
             ParsekLog.Verbose("Flight",
                 $"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
                 $"vessel pid={activeRec.VesselPersistentId} not found before terminal-state " +
                 $"assignment (isSceneExit={isSceneExit})");
+            return false;
+        }
+
+        /// <summary>
+        /// Runs the scene-exit incomplete-ballistic finalizer on the active recording and, when
+        /// it extended the recording, settles the terminal orbit metadata. Returns whether it
+        /// extended the recording; <paramref name="sceneExitSuppliedSnapshots"/> reports whether
+        /// it supplied a new vessel snapshot.
+        /// </summary>
+        private static bool ApplyActiveRecordingSceneExitLifetime(
+            Recording activeRec,
+            Vessel v,
+            double commitUT,
+            RecordingTree tree,
+            out bool sceneExitSuppliedSnapshots)
+        {
+            ConfigNode vesselSnapshotBefore = activeRec.VesselSnapshot;
+            TerminalOrbitMetadataSnapshot terminalOrbitBefore =
+                CaptureTerminalOrbitMetadataSnapshot(activeRec);
+            bool sceneExitLifetimeExtended = IncompleteBallisticSceneExitFinalizer.TryApply(
+                activeRec,
+                v,
+                commitUT,
+                "EnsureActiveRecordingTerminalState",
+                tree);
+            sceneExitSuppliedSnapshots =
+                !ReferenceEquals(vesselSnapshotBefore, activeRec.VesselSnapshot)
+                && activeRec.VesselSnapshot != null;
+            bool sceneExitSuppliedTerminalOrbit =
+                sceneExitLifetimeExtended
+                && ParsekFlightMergeFlow.DidSceneExitUpdateTerminalOrbitMetadata(terminalOrbitBefore, activeRec);
+            if (sceneExitLifetimeExtended)
+            {
+                if (activeRec.TerminalStateValue.HasValue
+                    && ParsekFlightMergeFlow.UsesTerminalOrbitMetadata(activeRec.TerminalStateValue.Value))
+                {
+                    if (sceneExitSuppliedTerminalOrbit)
+                    {
+                        ParsekLog.Verbose("Flight",
+                            $"EnsureActiveRecordingTerminalState: preserving scene-exit terminal orbit for " +
+                            $"'{activeRec.RecordingId}' (body={activeRec.TerminalOrbitBody}, " +
+                            $"terminal={activeRec.TerminalStateValue})");
+                    }
+                    else
+                    {
+                        PopulateTerminalOrbitFromLastSegment(activeRec);
+                        if (string.IsNullOrEmpty(activeRec.TerminalOrbitBody))
+                        {
+                            ParsekLog.Warn("Flight",
+                                $"EnsureActiveRecordingTerminalState: scene-exit terminal orbit remains empty for " +
+                                $"'{activeRec.RecordingId}' (terminal={activeRec.TerminalStateValue}, " +
+                                $"orbitSegments={activeRec.OrbitSegments?.Count ?? 0})");
+                        }
+                    }
+                }
+            }
+            return sceneExitLifetimeExtended;
+        }
+
+        /// <summary>
+        /// Scene exit with no live vessel and no cache: infers the active recording's terminal
+        /// state from the trajectory, or skips the inference (restored recording, SubOrbital-only
+        /// evidence). Always returns false, the caller's result.
+        /// </summary>
+        private static bool InferActiveRecordingTerminalStateOnSceneExit(
+            Recording activeRec,
+            bool preserveRestoredSceneExitTerminalState,
+            string restoredSceneExitReason)
+        {
+            // PR #572 follow-up: same gate as the leaf path — when the
+            // active recording was just repaired from the committed tree
+            // this frame, do not overwrite its (intentionally unset)
+            // terminal state with a Landed/Splashed inference based on
+            // the last trajectory point. The gate's only clause is
+            // RestoredFromCommittedTreeThisFrame; an additional
+            // orbital-evidence clause was considered (Option D in the
+            // design plan) and rejected because the legitimate
+            // orbit-then-land case shares the same shape (high
+            // MaxDistanceFromLaunch + stable orbit segment + low-altitude
+            // last point) — see ShouldSkipSceneExitSurfaceInferenceForRestoredRecording's
+            // doc comment.
+            //
+            // Bug 2 follow-up (2026-04-30 STASH probe regression): also skip the
+            // inference when the surviving payload would only support the
+            // SubOrbital fallback default — see HasOnlySubOrbitalFallbackEvidence's
+            // doc.
+            string subOrbitalFallbackReason;
+            bool subOrbitalFallbackOnly =
+                HasOnlySubOrbitalFallbackEvidence(activeRec, out subOrbitalFallbackReason);
+            if (preserveRestoredSceneExitTerminalState
+                || ParsekFlightMergeFlow.ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(
+                    activeRec, out restoredSceneExitReason)
+                || subOrbitalFallbackOnly)
+            {
+                activeRec.RestoredFromCommittedTreeThisFrame = false;
+                PopulateTerminalOrbitFromLastSegment(activeRec);
+                string skipReason = restoredSceneExitReason ?? subOrbitalFallbackReason;
+                ParsekLog.Info("Flight",
+                    $"FinalizeTreeRecordings: skipping Landed/Splashed inference " +
+                    $"for active recording '{activeRec.RecordingId}' " +
+                    $"(vessel pid={activeRec.VesselPersistentId}) — {skipReason} " +
+                    $"(lastPtAlt={(activeRec.Points.Count > 0 ? activeRec.Points[activeRec.Points.Count - 1].altitude : double.NaN):F1}m " +
+                    $"maxDist={activeRec.MaxDistanceFromLaunch:F0}m " +
+                    $"orbitSegs={activeRec.OrbitSegments?.Count ?? 0})");
+                RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.SceneExitNonLeafSkipInfer");
+                return false;
+            }
+
+            var inferredState = InferTerminalStateFromTrajectory(activeRec);
+            activeRec.StampTerminalState(
+                inferredState, "FinalizeTreeRecordings.SceneExitNonLeaf");
+            ParsekLog.Info("Flight",
+                $"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
+                $"vessel pid={activeRec.VesselPersistentId} not found on scene exit — " +
+                $"inferred {inferredState} from trajectory");
+            PopulateTerminalOrbitFromLastSegment(activeRec);
+            if (inferredState == TerminalState.Landed || inferredState == TerminalState.Splashed)
+            {
+                PopulateTerminalPositionFromLastPoint(activeRec, inferredState);
+                ParsekFlightMergeFlow.TryCaptureTerrainHeightFromLastTrajectoryPoint(activeRec);
+            }
+            RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.SceneExitNonLeaf");
             return false;
         }
 
