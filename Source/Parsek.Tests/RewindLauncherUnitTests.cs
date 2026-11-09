@@ -582,5 +582,204 @@ namespace Parsek.Tests
             Assert.Null(RewindContext.RewindQuicksaveVesselPids);
             Assert.Contains(logLines, l => l.Contains("Captured 0 surviving vessel PID(s) from quicksave"));
         }
+        // ---------- Extracted units ----------
+
+        [Theory]
+        [InlineData(false, "a", false)]
+        [InlineData(true, "a", true)]
+        [InlineData(true, "b", false)]
+        [InlineData(true, "", false)]
+        [InlineData(true, null, false)]
+        public void ShouldKeepSpawnState_OnlyForANamedNonEmptyId(bool haveSet, string id, bool expected)
+        {
+            var keep = haveSet ? new HashSet<string> { "a", "" } : null;
+            Assert.Equal(expected, RewindLauncher.ShouldKeepSpawnState(keep, id));
+        }
+
+        [Fact]
+        public void ClearSpawnState_ZeroesTheSpawnFieldsOnly()
+        {
+            var rec = MakeSpawnedRecording();
+
+            RewindLauncher.ClearSpawnState(rec);
+
+            Assert.False(rec.VesselSpawned);
+            Assert.False(rec.VesselDestroyed);
+            Assert.Equal(0, rec.SpawnAttempts);
+            Assert.Equal(0, rec.SpawnDeathCount);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+            Assert.Equal(0, rec.CollisionBlockCount);
+            Assert.False(rec.SpawnAbandoned);
+            Assert.False(rec.WalkbackExhausted);
+            Assert.False(rec.DuplicateBlockerRecovered);
+            Assert.False(rec.TerminalSpawnSafetyDeferred);
+            // The per-playback fields belong to the caller.
+            Assert.Equal(7, rec.LastAppliedResourceIndex);
+            Assert.True(rec.SpawnSuppressedByRewind);
+            Assert.Equal(4, rec.SceneExitSituation);
+            Assert.Empty(logLines);
+        }
+
+        [Theory]
+        [InlineData(null, false)]
+        [InlineData(MergeJournal.Phases.Complete, false)]
+        [InlineData(MergeJournal.Phases.Begin, true)]
+        [InlineData(MergeJournal.Phases.Durable2Done, true)]
+        public void IsMergeJournalUnfinished_TrueUntilComplete(string phase, bool expected)
+        {
+            MergeJournal journal = phase == null ? null : new MergeJournal { Phase = phase };
+            Assert.Equal(expected, RewindLauncher.IsMergeJournalUnfinished(journal));
+        }
+
+        [Fact]
+        public void RewindSavesDir_JoinsRootSavesAndFolder_NullsReadAsEmpty()
+        {
+            Assert.Equal(Path.Combine("/ksp", "saves", "career"),
+                RewindLauncher.BuildRewindSavesDir("/ksp", "career"));
+            Assert.Equal(Path.Combine("", "saves", ""),
+                RewindLauncher.BuildRewindSavesDir(null, null));
+        }
+
+        [Fact]
+        public void RewindTempSavePath_AppendsTheSfsExtension()
+        {
+            Assert.Equal(Path.Combine("/ksp/saves/career", "parsek_rw_ab.sfs"),
+                RewindLauncher.BuildRewindTempSavePath("/ksp/saves/career", "parsek_rw_ab"));
+        }
+
+        [Fact]
+        public void DeleteFileIfPresent_DeletesAnExistingFile_IgnoresAMissingOne()
+        {
+            string path = Path.Combine(tempDir, "tmp.sfs");
+            File.WriteAllText(path, "x");
+
+            RewindLauncher.DeleteFileIfPresent(path);
+            Assert.False(File.Exists(path));
+
+            RewindLauncher.DeleteFileIfPresent(path);
+            RewindLauncher.DeleteFileIfPresent(null);
+        }
+
+        [Fact]
+        public void WindBack_SubtractsTheLeadAndLogsBothClocks()
+        {
+            var fs = new ConfigNode("FLIGHTSTATE");
+            fs.AddValue("UT", "50");
+
+            double adjusted = RewindLauncher.WindBackFlightStateUT(fs, 15.0, out double own);
+
+            Assert.Equal(35.0, adjusted);
+            Assert.Equal(50.0, own);
+            Assert.Equal("35", fs.GetValue("UT"));
+            Assert.Contains(logLines, l => l.Contains("[INFO][Rewind]") && l.Contains("UT adjusted:"));
+        }
+
+        [Fact]
+        public void WindBack_ZeroLeadKeepsTheClock()
+        {
+            var fs = new ConfigNode("FLIGHTSTATE");
+            fs.AddValue("UT", "12.5");
+
+            double adjusted = RewindLauncher.WindBackFlightStateUT(fs, 0.0, out double own);
+
+            Assert.Equal(12.5, adjusted);
+            Assert.Equal(12.5, own);
+            Assert.Equal("12.5", fs.GetValue("UT"));
+        }
+
+        [Fact]
+        public void WindBack_UnparseableUT_LeavesTheNodeAndReturnsNaN()
+        {
+            var fs = new ConfigNode("FLIGHTSTATE");
+            fs.AddValue("UT", "");
+
+            double adjusted = RewindLauncher.WindBackFlightStateUT(fs, 15.0, out double own);
+
+            Assert.True(double.IsNaN(adjusted));
+            Assert.True(double.IsNaN(own));
+            Assert.Equal("", fs.GetValue("UT"));
+            Assert.Contains(logLines, l => l.Contains("[WARN][Rewind]") && l.Contains("UT value ''"));
+        }
+
+        private static ConfigNode Vessel(string name, string pid)
+        {
+            var v = new ConfigNode("VESSEL");
+            v.AddValue("name", name);
+            if (pid != null) v.AddValue("persistentId", pid);
+            return v;
+        }
+
+        [Fact]
+        public void Strip_RemovesByNameAndByPid_AndLogsOneSummary()
+        {
+            var fs = new ConfigNode("FLIGHTSTATE");
+            fs.AddNode(Vessel("Rocket", "1"));
+            fs.AddNode(Vessel("Probe", "7"));
+            fs.AddNode(Vessel("Rocket", "2"));
+            fs.AddNode(Vessel("Station", "9"));
+
+            RewindLauncher.StripRewindSaveVessels(fs,
+                RewindSpawnScope.RewindOwnerStrip.FromNames(new[] { "Rocket" }), new HashSet<uint> { 7u });
+
+            Assert.Equal(new[] { "Station" }, fs.GetNodes("VESSEL").Select(v => v.GetValue("name")).ToArray());
+            Assert.Single(logLines, l => l.Contains("Stripped 3 vessel(s) from save")
+                && l.Contains("(2 by name [Rocket], 0 by owner guid, 1 by PID; kept 0 other launch(es)"));
+        }
+
+        [Fact]
+        public void Strip_NullPidSet_StripsByNameOnly()
+        {
+            var fs = new ConfigNode("FLIGHTSTATE");
+            fs.AddNode(Vessel("Rocket", "1"));
+            fs.AddNode(Vessel("Probe", "7"));
+
+            RewindLauncher.StripRewindSaveVessels(fs,
+                RewindSpawnScope.RewindOwnerStrip.FromNames(new[] { "Rocket" }), null);
+
+            Assert.Equal(new[] { "Probe" }, fs.GetNodes("VESSEL").Select(v => v.GetValue("name")).ToArray());
+        }
+
+        [Fact]
+        public void ReadVesselNodeGuids_OneSlotPerNode_NullWithoutAGuid()
+        {
+            var guid = Guid.NewGuid();
+            var withGuid = Vessel("A", "1");
+            withGuid.AddValue("pid", guid.ToString());
+
+            string[] guids = RewindLauncher.ReadVesselNodeGuids(new[] { withGuid, Vessel("B", "2") });
+
+            Assert.Equal(2, guids.Length);
+            Assert.Equal(guid.ToString("N"), guids[0]);
+            Assert.Null(guids[1]);
+            Assert.Empty(RewindLauncher.ReadVesselNodeGuids(new ConfigNode[0]));
+        }
+
+        [Theory]
+        [InlineData("7", true)]
+        [InlineData("+7", true)]
+        [InlineData(" 7 ", true)]
+        [InlineData("8", false)]
+        [InlineData("7.0", false)]
+        [InlineData("-7", false)]
+        [InlineData("abc", false)]
+        [InlineData(null, false)]
+        public void IsVesselNodePidIn_InvariantIntegerMembership(string pid, bool expected)
+        {
+            Assert.Equal(expected,
+                RewindLauncher.IsVesselNodePidIn(Vessel("V", pid), new HashSet<uint> { 7u }));
+        }
+
+        [Fact]
+        public void CollectSurvivingVesselPids_SkipsUnparseableAndMissingPids()
+        {
+            var fs = new ConfigNode("FLIGHTSTATE");
+            fs.AddNode(Vessel("A", "3"));
+            fs.AddNode(Vessel("B", "x"));
+            fs.AddNode(Vessel("C", null));
+            fs.AddNode(Vessel("D", "4"));
+
+            Assert.Equal(new HashSet<uint> { 3u, 4u }, RewindLauncher.CollectSurvivingVesselPids(fs));
+            Assert.Empty(RewindLauncher.CollectSurvivingVesselPids(new ConfigNode("FLIGHTSTATE")));
+        }
     }
 }
