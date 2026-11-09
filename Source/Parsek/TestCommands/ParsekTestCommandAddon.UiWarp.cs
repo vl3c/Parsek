@@ -39,7 +39,7 @@ namespace Parsek.TestCommands
             }
 
             ParsekFlight flight = ParsekFlight.Instance;
-            SpawnControlUI window = ui.GetSpawnControlUI();
+            SpawnControlUI window = ParsekWindowSet.Of(ui).GetSpawnControlUI();
             if (flight == null || window == null)
             {
                 ParsekLog.Warn(Tag, "uiaction rejected reason="

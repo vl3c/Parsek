@@ -533,7 +533,7 @@ namespace Parsek
             return true;
         }
 
-        private static string HashOfLoadedSnapshot(
+        internal static string HashOfLoadedSnapshot(
             SnapshotSidecarLoadState state, string path, string currentHash, bool resolved)
         {
             if (state != SnapshotSidecarLoadState.Loaded || string.IsNullOrEmpty(path))
@@ -857,7 +857,7 @@ namespace Parsek
             return state;
         }
 
-        private static string DetermineSnapshotLoadFailureReason(
+        internal static string DetermineSnapshotLoadFailureReason(
             SnapshotSidecarLoadSummary summary, Recording rec)
         {
             if (rec == null)
@@ -947,15 +947,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True when the recording's head files are not its own but the bytes its named hashes
-        /// point at are all on disk (at least one as a retained version) and pass the same
-        /// currency checks there. That is a committed recording whose id a restore attempt
-        /// resumed in place: the attempt's save wrote the head and retained the committed
-        /// bytes under their hash, so the committed copy is current without a rewrite (a
-        /// rewrite would advance its sidecar epoch and move the committed history before any
-        /// merge). False with a reason otherwise; the caller then checks or rewrites the head.
-        /// </summary>
-        /// <summary>
         /// True when the recording names no trajectory hash, or its <c>.prec</c> head holds
         /// exactly the bytes it names. A head that holds other bytes (another copy of the same
         /// id wrote it) returns false with <c>head-holds-other-bytes</c>.
@@ -986,6 +977,15 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// True when the recording's head files are not its own but the bytes its named hashes
+        /// point at are all on disk (at least one as a retained version) and pass the same
+        /// currency checks there. That is a committed recording whose id a restore attempt
+        /// resumed in place: the attempt's save wrote the head and retained the committed
+        /// bytes under their hash, so the committed copy is current without a rewrite (a
+        /// rewrite would advance its sidecar epoch and move the committed history before any
+        /// merge). False with a reason otherwise; the caller then checks or rewrites the head.
+        /// </summary>
         internal static bool AreRecordingFilesCurrentThroughNamedVersions(Recording rec, out string reason)
         {
             reason = null;
@@ -1752,7 +1752,7 @@ namespace Parsek
             return summary;
         }
 
-        private static bool ShouldWriteReadableSidecarMirrors()
+        internal static bool ShouldWriteReadableSidecarMirrors()
         {
             if (WriteReadableSidecarMirrorsOverrideForTesting.HasValue)
                 return WriteReadableSidecarMirrorsOverrideForTesting.Value;
@@ -1761,14 +1761,14 @@ namespace Parsek
             return settings == null || settings.writeReadableSidecarMirrors;
         }
 
-        private static string FormatSidecarContext(Recording rec)
+        internal static string FormatSidecarContext(Recording rec)
         {
             return FormatSidecarContext(
                 rec,
                 rec != null ? rec.GhostSnapshotMode : GhostSnapshotMode.Unspecified);
         }
 
-        private static string FormatSidecarContext(Recording rec, GhostSnapshotMode ghostSnapshotMode)
+        internal static string FormatSidecarContext(Recording rec, GhostSnapshotMode ghostSnapshotMode)
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
@@ -1779,12 +1779,12 @@ namespace Parsek
                 ghostSnapshotMode);
         }
 
-        private static string FormatPathForSidecarLog(string path)
+        internal static string FormatPathForSidecarLog(string path)
         {
             return string.IsNullOrEmpty(path) ? "<null>" : path;
         }
 
-        private static string FormatExceptionForSidecarLog(Exception ex)
+        internal static string FormatExceptionForSidecarLog(Exception ex)
         {
             if (ex == null)
                 return "<none>";
@@ -1792,7 +1792,7 @@ namespace Parsek
             return ex.GetType().Name + ":" + (ex.Message ?? string.Empty);
         }
 
-        private static string SafeSaveFolderForSidecarLog()
+        internal static string SafeSaveFolderForSidecarLog()
         {
             try
             {
@@ -1870,7 +1870,7 @@ namespace Parsek
             }
         }
 
-        private static string GetReadableMirrorPath(string authoritativePath)
+        internal static string GetReadableMirrorPath(string authoritativePath)
         {
             return string.IsNullOrEmpty(authoritativePath) ? null : authoritativePath + ".txt";
         }

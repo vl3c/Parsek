@@ -94,6 +94,8 @@ $allowedTypes = @(
     # --- the windows the applier injects into, and their PURE model types ---
     'KerbalsWindowUI', 'KerbalsPresentation',
     'StructureListWindowUI', 'ParsekUI', 'UiComplexityMode', 'UiSurface',
+    # ParsekWindowSet: the scene's typed window holder the applier asks for the window.
+    'ParsekWindowSet',
     'UiSurfaceVisibility',
 
     # --- pure presentation / model / builder types the states construct or call ---

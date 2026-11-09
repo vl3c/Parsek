@@ -1040,7 +1040,7 @@ namespace Parsek.TestCommands
                                   windowId: ReadHostMainWindowId);
                 case TestCommandUiAction.MissionsWindow:
                 {
-                    RecordingsTableUI w = ui.GetRecordingsTableUI();
+                    RecordingsTableUI w = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
                                   () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i,
@@ -1050,7 +1050,7 @@ namespace Parsek.TestCommands
                 }
                 case TestCommandUiAction.TimelineWindow:
                 {
-                    TimelineWindowUI w = ui.GetTimelineUI();
+                    TimelineWindowUI w = ParsekWindowSet.Of(ui).GetTimelineUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
                                   () => w.TierFilterModeIndexForTesting,
@@ -1061,7 +1061,7 @@ namespace Parsek.TestCommands
                 }
                 case TestCommandUiAction.KerbalsWindow:
                 {
-                    KerbalsWindowUI w = ui.GetKerbalsUI();
+                    KerbalsWindowUI w = ParsekWindowSet.Of(ui).GetKerbalsUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
                                   () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i,
@@ -1071,7 +1071,7 @@ namespace Parsek.TestCommands
                 }
                 case TestCommandUiAction.LogisticsWindow:
                 {
-                    LogisticsWindowUI w = ui.GetLogisticsUI();
+                    LogisticsWindowUI w = ParsekWindowSet.Of(ui).GetLogisticsUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
                                   minW: LogisticsWindowUI.MinWindowWidth,
@@ -1080,7 +1080,7 @@ namespace Parsek.TestCommands
                 }
                 case TestCommandUiAction.StructureWindow:
                 {
-                    StructureListWindowUI w = ui.GetStructureListUI();
+                    StructureListWindowUI w = ParsekWindowSet.Of(ui).GetStructureListUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
                                   minW: StructureListWindowUI.MinWindowWidth,
@@ -1089,7 +1089,7 @@ namespace Parsek.TestCommands
                 }
                 case TestCommandUiAction.RouteHistoryWindow:
                 {
-                    StructureListWindowUI w = ui.GetRouteHistoryUI();
+                    StructureListWindowUI w = ParsekWindowSet.Of(ui).GetRouteHistoryUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
                                   minW: StructureListWindowUI.MinWindowWidth,
@@ -1098,7 +1098,7 @@ namespace Parsek.TestCommands
                 }
                 case TestCommandUiAction.SettingsWindow:
                 {
-                    SettingsWindowUI w = ui.GetSettingsWindowUI();
+                    SettingsWindowUI w = ParsekWindowSet.Of(ui).GetSettingsWindowUI();
                     // NO minimum: this window has no resize handle at all, so there is no
                     // drag floor to reproduce. It still GROWS to its own content minimum
                     // during the layout pass, which is what the rect read-back's size
@@ -1109,7 +1109,7 @@ namespace Parsek.TestCommands
                 }
                 case TestCommandUiAction.SpawnControlWindow:
                 {
-                    SpawnControlUI w = ui.GetSpawnControlUI();
+                    SpawnControlUI w = ParsekWindowSet.Of(ui).GetSpawnControlUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
                                   minW: SpawnControlUI.MinWindowWidth,
@@ -1118,7 +1118,7 @@ namespace Parsek.TestCommands
                 }
                 case TestCommandUiAction.TestRunnerWindow:
                 {
-                    TestRunnerUI w = ui.GetTestRunnerUI();
+                    TestRunnerUI w = ParsekWindowSet.Of(ui).GetTestRunnerUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
                                   minW: TestRunnerUI.MinWindowWidth,

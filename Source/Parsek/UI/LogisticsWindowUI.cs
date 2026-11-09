@@ -33,7 +33,7 @@ namespace Parsek
     /// Repaint pass always draw the same control set. Basic shows the Every column
     /// read-only and hides Runs, the steppers, Link, Recent runs and Flights used.</para>
     /// </summary>
-    internal partial class LogisticsWindowUI
+    internal partial class LogisticsWindowUI : ILogisticsWindow
     {
         private readonly ParsekUI parentUI;
 
@@ -153,7 +153,7 @@ namespace Parsek
 
         /// <summary>Whether the round-trip link picker popup is open (the Basic close
         /// set's read; see <c>ParsekUI.BuildGatedWindowCloseSet</c>).</summary>
-        internal bool IsLinkPickerOpen => linkPickerOpen;
+        public bool IsLinkPickerOpen => linkPickerOpen;
 
         /// <summary>
         /// Closes the round-trip link picker on a switch to Basic: its opener (the detail
@@ -161,7 +161,7 @@ namespace Parsek
         /// tuning action Basic does not show. Owns no input lock; the Logistics window
         /// itself stays open.
         /// </summary>
-        internal void CloseLinkPickerForModeChange()
+        public void CloseLinkPickerForModeChange()
         {
             if (!linkPickerOpen) return;
             linkPickerOpen = false;
