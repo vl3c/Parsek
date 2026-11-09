@@ -424,5 +424,172 @@ namespace Parsek.Tests
         {
             Assert.Equal(expected, RewindSpawnScope.IsStableState(situation));
         }
+
+        // ---------- Extracted units ----------
+
+        [Fact]
+        public void AliasNames_DecisionNameAndCapturedName_MinusTheOwnerName()
+        {
+            var owner = Rec("own", "New Name", "t", 10, 100, 1u);
+            var decision = new VesselNameDecision { Name = "New Name" };
+            decision.CapturedNames["own"] = "Old Name";
+            var strip = new RewindSpawnScope.RewindOwnerStrip { OwnerName = "New Name" };
+
+            RewindSpawnScope.AddOwnerAliasNames(strip, owner, decision);
+
+            Assert.Equal(new HashSet<string> { "Old Name" }, strip.OwnerAliasNames);
+        }
+
+        [Fact]
+        public void AliasNames_NoCapturedName_FallsBackToTheOwnersCurrentName()
+        {
+            var owner = Rec("own", "Current", "t", 10, 100, 1u);
+            var decision = new VesselNameDecision { Name = "Decided" };
+            var strip = new RewindSpawnScope.RewindOwnerStrip { OwnerName = "Other" };
+
+            RewindSpawnScope.AddOwnerAliasNames(strip, owner, decision);
+
+            Assert.Equal(new HashSet<string> { "Decided", "Current" }, strip.OwnerAliasNames);
+        }
+
+        [Fact]
+        public void AliasNames_NullOwnerIdAndEmptyNames_AddNothingEmpty()
+        {
+            var owner = Rec(null, "", "t", 10, 100, 1u);
+            var decision = new VesselNameDecision { Name = "" };
+            decision.CapturedNames["x"] = "Never";
+            var strip = new RewindSpawnScope.RewindOwnerStrip();
+
+            RewindSpawnScope.AddOwnerAliasNames(strip, owner, decision);
+
+            Assert.Empty(strip.OwnerAliasNames);
+        }
+
+        [Fact]
+        public void ChainEvaChildNames_ReadOnlyTheGivenList()
+        {
+            var owner = Rec("own", "Ship", "t", 10, 100, 1u, chainId: "ch");
+            var jeb = Rec("eva1", "Jebediah Kerman", "t", 20, 30, 2u, chainId: "ch");
+            jeb.EvaCrewName = "Jebediah Kerman";
+            var bill = Rec("eva2", "Bill Kerman", "t", 30, 40, 3u, chainId: "ch");
+            bill.EvaCrewName = "Bill Kerman";
+            RecordingStore.AddRecordingWithTreeForTesting(bill);
+            var strip = new RewindSpawnScope.RewindOwnerStrip();
+
+            RewindSpawnScope.AddChainEvaChildNames(strip, owner, new List<Recording> { owner, jeb });
+
+            Assert.Equal(new HashSet<string> { "Jebediah Kerman" }, strip.NameOnly);
+            Assert.Contains(logLines, l => l.Contains("Rewind strip includes 1 EVA child vessel name(s) from chain 'ch'"));
+        }
+
+        [Fact]
+        public void ChainEvaChildNames_NoneFound_LogsNothing()
+        {
+            var owner = Rec("own", "Ship", "t", 10, 100, 1u, chainId: "ch");
+            var strip = new RewindSpawnScope.RewindOwnerStrip();
+
+            RewindSpawnScope.AddChainEvaChildNames(strip, owner, new List<Recording> { owner });
+
+            Assert.Empty(strip.NameOnly);
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void HolderOrNoCandidate_NullSelfAndSameId_ButNotAnEmptyIdMatch()
+        {
+            var holder = Rec("h", "P", "t", 0, 1, 1u);
+            Assert.True(RewindSpawnScope.IsHolderOrNoCandidate(holder, null));
+            Assert.True(RewindSpawnScope.IsHolderOrNoCandidate(holder, holder));
+            Assert.True(RewindSpawnScope.IsHolderOrNoCandidate(holder, Rec("h", "P", "t", 0, 1, 1u)));
+            Assert.False(RewindSpawnScope.IsHolderOrNoCandidate(holder, Rec("o", "P", "t", 0, 1, 1u)));
+
+            var idless = Rec("", "P", "t", 0, 1, 1u);
+            Assert.False(RewindSpawnScope.IsHolderOrNoCandidate(idless, Rec("", "P", "t", 0, 1, 1u)));
+        }
+
+        private static string Route(Recording holder, Recording other, uint pid, bool unique,
+            string supersededBy, bool adopted, out bool adoptedContinuation)
+        {
+            return RewindSpawnScope.ClassifyReproductionRoute(
+                holder, other, pid, unique, supersededBy, adopted, out adoptedContinuation);
+        }
+
+        [Fact]
+        public void Route_SupersedingContinuation_WinsOverEveryOtherRoute()
+        {
+            var holder = Rec("h", "P", "t", 0, 1, 7u, chainId: "ch");
+            var other = Rec("c", "P", "t", 0, 1, 7u, chainId: "ch");
+
+            Assert.Equal("superseding-continuation-replays",
+                Route(holder, other, 7u, true, "c", false, out bool adoptedContinuation));
+            Assert.False(adoptedContinuation);
+        }
+
+        [Fact]
+        public void Route_AdoptedSupersedingContinuation_IsNoRouteAndFlagged()
+        {
+            var holder = Rec("h", "P", "t", 0, 1, 7u, chainId: "ch");
+            var other = Rec("c", "P", "t", 0, 1, 7u, chainId: "ch");
+
+            Assert.Null(Route(holder, other, 7u, true, "c", true, out bool adoptedContinuation));
+            Assert.True(adoptedContinuation);
+        }
+
+        [Fact]
+        public void Route_ChainMember_NeedsTheChainAndTheTree()
+        {
+            var holder = Rec("h", "P", "t", 0, 1, 1u, chainId: "ch");
+
+            Assert.Equal("chain-member-replays",
+                Route(holder, Rec("m", "P", "t", 0, 1, 2u, chainId: "ch"), 9u, true, null, false, out _));
+            Assert.Null(Route(holder, Rec("m", "P", "t2", 0, 1, 2u, chainId: "ch"), 9u, true, null, false, out _));
+            Assert.Null(Route(Rec("h", "P", "t", 0, 1, 1u), Rec("m", "P", "t", 0, 1, 2u), 9u, true, null, false, out _));
+        }
+
+        [Fact]
+        public void Route_SameVessel_UniquePidMatchesByPidAlone()
+        {
+            var holder = Rec("h", "P", "t", 0, 1, 1u, guid: "aaaa0000aaaa0000aaaa0000aaaa0000");
+            var other = Rec("o", "P", "t2", 0, 1, 9u, guid: "bbbb0000bbbb0000bbbb0000bbbb0000");
+
+            Assert.Equal("same-vessel-recording-replays",
+                Route(holder, other, 9u, true, null, false, out _));
+            Assert.Null(Route(holder, other, 8u, true, null, false, out _));
+            Assert.Null(Route(holder, other, 9u, true, null, true, out _));
+        }
+
+        [Fact]
+        public void Route_SameVessel_BakedPidNeedsGuidsThatDoNotDiffer()
+        {
+            var holder = Rec("h", "P", "t", 0, 1, 9u, guid: "aaaa0000aaaa0000aaaa0000aaaa0000");
+            var relaunch = Rec("o", "P", "t2", 0, 1, 9u, guid: "bbbb0000bbbb0000bbbb0000bbbb0000");
+            var sameLaunch = Rec("s", "P", "t2", 0, 1, 9u, guid: "aaaa0000aaaa0000aaaa0000aaaa0000");
+            var unknown = Rec("u", "P", "t2", 0, 1, 9u);
+
+            Assert.Null(Route(holder, relaunch, 9u, false, null, false, out _));
+            Assert.Equal("same-vessel-recording-replays", Route(holder, sameLaunch, 9u, false, null, false, out _));
+            Assert.Equal("same-vessel-recording-replays", Route(holder, unknown, 9u, false, null, false, out _));
+        }
+
+        [Fact]
+        public void KeptHolders_SkipAStrippedPid_KeepTheRestWithTheirIds()
+        {
+            var scope = new RewindSpawnScope.RewindSpawnStripScope();
+            scope.StripPids.Add(5u);
+            var stripped = Rec("a", "P", "t", 0, 1, 1u);
+            stripped.SpawnedVesselPersistentId = 5u;
+            var kept = Rec("b", "Q", "t", 0, 1, 2u);
+            kept.SpawnedVesselPersistentId = 6u;
+            var keptNoId = Rec(null, "R", "t", 0, 1, 3u);
+            keptNoId.SpawnedVesselPersistentId = 7u;
+
+            RewindSpawnScope.RecordKeptHolders(scope, new List<Recording> { stripped, kept, keptNoId }, 12.5);
+
+            Assert.Equal(new HashSet<uint> { 6u, 7u }, scope.KeptPids);
+            Assert.Equal(new HashSet<string> { "b" }, scope.KeptHolderRecordingIds);
+            Assert.Equal(2, logLines.Count(l => l.Contains("as committed history")));
+            Assert.Contains(logLines, l => l.Contains("keep spawned pid=7 of 'R' (id=<no-id>)")
+                && l.Contains("adjustedUT=12.5"));
+        }
     }
 }
