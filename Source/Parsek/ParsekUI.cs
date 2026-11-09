@@ -152,7 +152,8 @@ namespace Parsek
             this.routeHistoryUI = new StructureListWindowUI(this, routeHistory: true);
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
-            LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
+            timelineUI.SubscribeTimelineDataChanged();
+            kerbalsUI.SubscribeTimelineDataChanged();
             DisplayNames.DisplayNamesChanged += OnDisplayNamesChanged;
             kerbalsUI.SubscribeLiveCrewEvents();
         }
@@ -173,15 +174,10 @@ namespace Parsek
             this.routeHistoryUI = new StructureListWindowUI(this, routeHistory: true);
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
-            LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
+            timelineUI.SubscribeTimelineDataChanged();
+            kerbalsUI.SubscribeTimelineDataChanged();
             DisplayNames.DisplayNamesChanged += OnDisplayNamesChanged;
             kerbalsUI.SubscribeLiveCrewEvents();
-        }
-
-        private void OnTimelineDataChanged()
-        {
-            timelineUI.InvalidateCache();
-            kerbalsUI.InvalidateCache();
         }
 
         // The Timeline and Kerbals view models bake vessel and mission names; a rename moves
@@ -192,7 +188,7 @@ namespace Parsek
             kerbalsUI.InvalidateCache();
         }
 
-        private const float SpacingSmall = 3f;
+        internal const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
 
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
@@ -755,94 +751,9 @@ namespace Parsek
                     "Your missions, and the recordings they are built from.")))
                 ToggleRecordingsWindow();
 
-            // --- M6 Record-Supply-Run helper banner ---
-            // Non-blocking prompt armed by RouteRunPrompt at commit time when an
-            // eligible route candidate landed. Drawn here (the main window)
-            // rather than as a modal so it never interrupts gameplay - the
-            // commit-time ScreenMessage announces it while the window is
-            // closed, and this banner carries the Open / Dismiss actions.
-            if (RouteRunPrompt.HasPendingPrompt)
-            {
-                // Staleness guard (cheap id-membership only): dismissed
-                // elsewhere (Logistics window row button) drops the banner.
-                // Cleared ONLY on the Layout event so the same frame's Repaint
-                // pass sees the identical control count (IMGUI stability).
-                if (Event.current.type == EventType.Layout
-                    && RouteStore.IsCandidateDismissed(RouteRunPrompt.PendingPromptTreeId))
-                {
-                    RouteRunPrompt.ClearPendingPrompt("dismissed-elsewhere");
-                }
-                if (RouteRunPrompt.HasPendingPrompt)
-                {
-                    GUILayout.Label(
-                        $"Supply Route candidate:\n'{RouteRunPrompt.PendingPromptLabel ?? "<unnamed>"}'",
-                        GUI.skin.box, GUILayout.ExpandWidth(true));
-                    GUILayout.BeginHorizontal();
-                    if (GUILayout.Button("Open Logistics"))
-                    {
-                        logisticsUI.IsOpen = true;
-                        ParsekLog.Info("UI",
-                            $"RouteRunPrompt banner: Open Logistics clicked tree={RouteRunPrompt.PendingPromptTreeId}");
-                        RouteRunPrompt.ClearPendingPrompt("opened-logistics");
-                    }
-                    if (GUILayout.Button(new GUIContent(
-                        "Dismiss",
-                        "Drops the suggestion; undo it in Logistics > Dismissed.")))
-                    {
-                        // Dismiss here also dismisses the candidate (the tree
-                        // leaves the Logistics Candidates section; reversible
-                        // from its "Dismissed (N)" subsection).
-                        RouteStore.DismissCandidateTree(
-                            RouteRunPrompt.PendingPromptTreeId, RouteRunPrompt.PendingPromptLabel);
-                        RouteRunPrompt.ClearPendingPrompt("dismissed-from-banner");
-                    }
-                    GUILayout.EndHorizontal();
-                    GUILayout.Space(SpacingSmall);
-                }
-            }
-
-            // --- Logistics (v0, available in both Flight and KSC) ---
-            // Grouped with Timeline + Recordings as the primary navigation set.
-            // The whole button tints red when any route is hard-broken (EndpointLost /
-            // MissingSourceRecording / SourceChanged) so a problem is visible without
-            // opening the window. The label is just "Logistics" (no live count); the
-            // route count is still computed for the broken-tint diagnostic log only.
-            IReadOnlyList<Route> logisticsRoutes = RouteStore.CommittedRoutes;
-            int logisticsRouteCount = logisticsRoutes != null ? logisticsRoutes.Count : 0;
-            bool anyLogisticsBroken = LogisticsButtonState.AnyRouteHardBroken(
-                logisticsRoutes != null
-                    ? logisticsRoutes.Select(r => r.Status)
-                    : Enumerable.Empty<RouteStatus>());
-            if (anyLogisticsBroken)
-            {
-                ParsekLog.VerboseRateLimited("UI", "logistics-button-broken-tint",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Logistics button broken-state tint applied (routeCount={0})",
-                        logisticsRouteCount));
-            }
-            Color prevLogisticsColor = GUI.color;
-            if (anyLogisticsBroken)
-                GUI.color = StatusColor(StatusColorKind.Red);
-            else if (RouteRunPrompt.HasPendingPrompt)
-                // M6 Record-Supply-Run helper: cyan highlight while the banner
-                // above is pending (broken-red wins - an error outranks a hint).
-                GUI.color = StatusColor(StatusColorKind.Cyan);
-            try
-            {
-                if (UiSurfaceVisibility.IsVisible(UiSurface.MainButtonLogistics, complexity)
-                    && GUILayout.Button(new GUIContent(
-                        "Logistics",
-                        "Supply routes that repeat a delivery you already flew.")))
-                {
-                    logisticsUI.IsOpen = !logisticsUI.IsOpen;
-                    ParsekLog.Verbose("UI",
-                        $"Logistics window toggled: {(logisticsUI.IsOpen ? "open" : "closed")}");
-                }
-            }
-            finally
-            {
-                GUI.color = prevLogisticsColor;
-            }
+            // --- Supply Route candidate banner + Logistics launcher ---
+            // Drawn by the Logistics window, which owns the route prompt it reads.
+            logisticsUI.DrawMainWindowSection(complexity);
 
             // --- Kerbals, with its LEADING separator ---
             // Kerbals draws in both modes (owner re-ruling 2026-09-22). The separator that
@@ -1912,87 +1823,6 @@ namespace Parsek
         }
 
         // ════════════════════════════════════════════════════════════════
-        //  Forwarding methods for backward compatibility with tests
-        //  (canonical implementations are on RecordingsTableUI)
-        // ════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// Forwards to RecordingsTableUI.BuildGroupTreeData for backward compatibility with tests.
-        /// </summary>
-        internal static void BuildGroupTreeData(
-            IReadOnlyList<Recording> committed, int[] sortedIndices,
-            List<string> KnownEmptyGroups,
-            out Dictionary<string, List<int>> grpToRecs,
-            out Dictionary<string, List<int>> chainToRecs,
-            out Dictionary<string, List<string>> grpChildren,
-            out List<string> rootGrps,
-            out HashSet<string> rootChainIds)
-        {
-            RecordingsTableUI.BuildGroupTreeData(committed, sortedIndices, KnownEmptyGroups,
-                out grpToRecs, out chainToRecs, out grpChildren, out rootGrps, out rootChainIds);
-        }
-
-        internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status, LaunchSite }
-
-        internal static int GetStatusOrder(Recording rec, double now)
-            => RecordingsTableUI.GetStatusOrder(rec, now);
-
-        internal static double GetRecordingSortKey(Recording rec, SortColumn column, double now, int rowFallback)
-            => RecordingsTableUI.GetRecordingSortKey(rec, (RecordingsTableUI.SortColumn)(int)column, now, rowFallback);
-
-        internal static double GetChainSortKey(List<int> members, IReadOnlyList<Recording> committed,
-            SortColumn column, double now)
-            => RecordingsTableUI.GetChainSortKey(members, committed, (RecordingsTableUI.SortColumn)(int)column, now);
-
-        internal static int CompareRecordings(
-            Recording ra, Recording rb,
-            SortColumn column, bool ascending, double now)
-            => RecordingsTableUI.CompareRecordings(ra, rb, (RecordingsTableUI.SortColumn)(int)column, ascending, now);
-
-        internal static int[] BuildSortedIndices(
-            IReadOnlyList<Recording> committed, SortColumn column, bool ascending, double now)
-            => RecordingsTableUI.BuildSortedIndices(committed, (RecordingsTableUI.SortColumn)(int)column, ascending, now);
-
-        internal static string FormatDuration(double seconds)
-            => RecordingsTableUI.FormatDuration(seconds);
-
-        internal static string FormatAltitude(double meters)
-            => RecordingsTableUI.FormatAltitude(meters);
-
-        internal static string FormatSpeed(double mps)
-            => RecordingsTableUI.FormatSpeed(mps);
-
-        internal static string FormatDistance(double meters)
-            => RecordingsTableUI.FormatDistance(meters);
-
-        internal static double GetGroupEarliestStartUT(HashSet<int> descendants, IReadOnlyList<Recording> committed)
-            => RecordingsTableUI.GetGroupEarliestStartUT(descendants, committed);
-
-        internal static double GetGroupSpanDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
-            => RecordingsTableUI.GetGroupSpanDuration(descendants, committed);
-
-        internal static int FindGroupMainRecordingIndex(
-            HashSet<int> descendants, IReadOnlyList<Recording> committed)
-            => RecordingsTableUI.FindGroupMainRecordingIndex(descendants, committed);
-
-        internal static void GetGroupStatus(HashSet<int> descendants, IReadOnlyList<Recording> committed,
-            double now, out string statusText, out int statusOrder)
-            => RecordingsTableUI.GetGroupStatus(descendants, committed, now, out statusText, out statusOrder);
-
-        internal static double GetGroupSortKey(HashSet<int> descendants, IReadOnlyList<Recording> committed,
-            SortColumn column, double now)
-            => RecordingsTableUI.GetGroupSortKey(descendants, committed, (RecordingsTableUI.SortColumn)(int)column, now);
-
-        internal static string UnitSuffix(LoopTimeUnit unit)
-            => RecordingsTableUI.UnitSuffix(unit);
-
-        internal static LoopTimeUnit CycleRecordingUnit(LoopTimeUnit u)
-            => RecordingsTableUI.CycleRecordingUnit(u);
-
-        internal static void ApplyAutoLoopRange(Recording rec, bool loopEnabled)
-            => RecordingsTableUI.ApplyAutoLoopRange(rec, loopEnabled);
-
-        // ════════════════════════════════════════════════════════════════
         //  Settings / Spawn Control / Test Runner (extracted)
         // ════════════════════════════════════════════════════════════════
 
@@ -2041,7 +1871,8 @@ namespace Parsek
             if (ReferenceEquals(activeInstance, this))
                 activeInstance = null;
 
-            LedgerOrchestrator.OnTimelineDataChanged -= OnTimelineDataChanged;
+            timelineUI.UnsubscribeTimelineDataChanged();
+            kerbalsUI.UnsubscribeTimelineDataChanged();
             DisplayNames.DisplayNamesChanged -= OnDisplayNamesChanged;
             // The Kerbals tab reads LIVE crew state as well as the ledger, so it carries
             // its own stock-event subscriptions alongside the ledger hook above; they are

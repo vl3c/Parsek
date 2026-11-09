@@ -176,11 +176,7 @@ namespace Parsek
                 InFlightRecoveryRequest.MoveAwaitingStockPayout(
                     original.RecordingId, second.RecordingId, "optimization-split");
 
-                // Derive SegmentBodyName from trajectory points
-                if (original.Points != null && original.Points.Count > 0)
-                    original.SegmentBodyName = original.Points[0].bodyName;
-                if (second.Points != null && second.Points.Count > 0)
-                    second.SegmentBodyName = second.Points[0].bodyName;
+                DeriveSplitSegmentBodyNames(original, second);
 
                 // BranchPoint linkage: ChildBranchPointId moves to the half whose
                 // time range owns the branch point (a Re-Fly atmo/exo split can fall
@@ -193,15 +189,7 @@ namespace Parsek
                     original.TreeId,
                     original.ChildBranchPointId,
                     second.StartUT);
-                if (childBranchPointMovesToSecond)
-                {
-                    second.ChildBranchPointId = original.ChildBranchPointId;
-                    original.ChildBranchPointId = null;
-                }
-                else
-                {
-                    second.ChildBranchPointId = null;
-                }
+                AssignSplitChildBranchPoint(original, second, childBranchPointMovesToSecond);
                 // second.ParentRecordingId stays the original's own parent link (copied by
                 // SplitAtSection); it is not a link to the original.
 
@@ -217,17 +205,7 @@ namespace Parsek
                 RecordingStore.InsertCommittedAt(recIdx + 1, second);
 
                 // Update tree dict if applicable
-                if (!string.IsNullOrEmpty(original.TreeId))
-                {
-                    for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
-                    {
-                        if (RecordingStore.CommittedTrees[t].Id == original.TreeId)
-                        {
-                            RecordingStore.CommittedTrees[t].AddOrReplaceRecording(second);
-                            break;
-                        }
-                    }
-                }
+                AddToCommittedTree(original.TreeId, second);
 
                 original.FilesDirty = true;
                 second.FilesDirty = true;
@@ -308,7 +286,7 @@ namespace Parsek
         /// deep-copies RecordingGroups, and carries over chain / tree / vessel / pre-launch
         /// / session / supersede / switch-segment fields). Straight-line field copy.
         /// </summary>
-        private static void CopySplitIdentityFields(Recording original, Recording second)
+        internal static void CopySplitIdentityFields(Recording original, Recording second)
         {
             // Assign identity
             second.RecordingId = Guid.NewGuid().ToString("N");
@@ -339,7 +317,7 @@ namespace Parsek
             second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
         }
 
-        private static void TrimBoringTailsForOptimization(IReadOnlyList<Recording> recordings)
+        internal static void TrimBoringTailsForOptimization(IReadOnlyList<Recording> recordings)
         {
             // Boring tail trim pass: remove trailing idle tails from leaf recordings
             // so the real vessel spawns promptly instead of waiting through minutes of
@@ -382,22 +360,32 @@ namespace Parsek
                     $"Optimization pass: trimmed boring tails from {trimCount} recording(s)");
             if (skipCounts != null && skipCounts.Count > 0)
             {
-                int totalSkipped = 0;
-                foreach (var n in skipCounts.Values) totalSkipped += n;
-                var ordered = new List<KeyValuePair<string, int>>(skipCounts);
-                // Descending count, then ordinal name as tie-break, so equal-count
-                // categories don't reorder run-to-run (List<T>.Sort is not stable).
-                ordered.Sort((a, b) =>
-                {
-                    int c = b.Value.CompareTo(a.Value);
-                    return c != 0 ? c : string.CompareOrdinal(a.Key, b.Key);
-                });
-                var parts = new List<string>(ordered.Count);
-                foreach (var kv in ordered) parts.Add($"{kv.Key}={kv.Value}");
+                string counts = FormatTrimSkipCounts(skipCounts, out int totalSkipped);
                 ParsekLog.Verbose("RecordingStore",
                     $"Optimization pass: TrimBoringTail skipped {totalSkipped} recording(s) — " +
-                    string.Join(", ", parts));
+                    counts);
             }
+        }
+
+        /// <summary>
+        /// The per-category part of the boring-tail skip summary: <c>name=count</c> pairs
+        /// joined by <c>", "</c>, by descending count, then ordinal name as tie-break, so
+        /// equal-count categories do not reorder run to run (List&lt;T&gt;.Sort is not
+        /// stable). <paramref name="totalSkipped"/> is the sum of the counts.
+        /// </summary>
+        internal static string FormatTrimSkipCounts(Dictionary<string, int> skipCounts, out int totalSkipped)
+        {
+            totalSkipped = 0;
+            foreach (var n in skipCounts.Values) totalSkipped += n;
+            var ordered = new List<KeyValuePair<string, int>>(skipCounts);
+            ordered.Sort((a, b) =>
+            {
+                int c = b.Value.CompareTo(a.Value);
+                return c != 0 ? c : string.CompareOrdinal(a.Key, b.Key);
+            });
+            var parts = new List<string>(ordered.Count);
+            foreach (var kv in ordered) parts.Add($"{kv.Key}={kv.Value}");
+            return string.Join(", ", parts);
         }
 
         /// <summary>
@@ -453,12 +441,10 @@ namespace Parsek
         /// into rows: they are the rows-to-be, and the converter reads their tag as
         /// ownership (RETAG-ON-SPLIT-MISSES-LATER-ROWS).
         /// </summary>
-        private static void RetagLedgerActionsAfterOptimizationSplit(Recording original, Recording second)
+        internal static void RetagLedgerActionsAfterOptimizationSplit(Recording original, Recording second)
         {
             if (original == null || second == null) return;
-            double splitUT = second.TrackSections != null && second.TrackSections.Count > 0
-                ? second.TrackSections[0].startUT
-                : second.StartUT;
+            double splitUT = ResolveSplitSecondHalfUT(second);
             int deathIntervalsByEndUT;
             int retagged = Ledger.RetagActionsForSplitSecondHalf(
                 original.RecordingId, second.RecordingId, splitUT, out deathIntervalsByEndUT);
@@ -481,7 +467,68 @@ namespace Parsek
                     $"(splitUT={splitUT.ToString("R", CultureInfo.InvariantCulture)})");
         }
 
-        private static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)
+        /// <summary>
+        /// The cut a split's ledger, event and science retags partition at: the second
+        /// half's first section start (which <see cref="RecordingOptimizer.SplitAtSection"/>
+        /// sets to its split UT), else its <see cref="Recording.StartUT"/>.
+        /// </summary>
+        internal static double ResolveSplitSecondHalfUT(Recording second)
+        {
+            return second.TrackSections != null && second.TrackSections.Count > 0
+                ? second.TrackSections[0].startUT
+                : second.StartUT;
+        }
+
+        /// <summary>
+        /// Derives each split half's <see cref="Recording.SegmentBodyName"/> from its first
+        /// trajectory point; a half with no points keeps the name it has.
+        /// </summary>
+        internal static void DeriveSplitSegmentBodyNames(Recording original, Recording second)
+        {
+            if (original.Points != null && original.Points.Count > 0)
+                original.SegmentBodyName = original.Points[0].bodyName;
+            if (second.Points != null && second.Points.Count > 0)
+                second.SegmentBodyName = second.Points[0].bodyName;
+        }
+
+        /// <summary>
+        /// Puts the original's <see cref="Recording.ChildBranchPointId"/> on the half whose
+        /// time range owns it: moved to the second half (and cleared on the first) when
+        /// <paramref name="movesToSecond"/>, else the second half carries none.
+        /// </summary>
+        internal static void AssignSplitChildBranchPoint(Recording original, Recording second, bool movesToSecond)
+        {
+            if (movesToSecond)
+            {
+                second.ChildBranchPointId = original.ChildBranchPointId;
+                original.ChildBranchPointId = null;
+            }
+            else
+            {
+                second.ChildBranchPointId = null;
+            }
+        }
+
+        /// <summary>
+        /// Adds (or replaces) <paramref name="rec"/> in the first committed tree whose id is
+        /// <paramref name="treeId"/>; a null or empty id, or no such tree, changes nothing.
+        /// </summary>
+        internal static void AddToCommittedTree(string treeId, Recording rec)
+        {
+            if (!string.IsNullOrEmpty(treeId))
+            {
+                for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
+                {
+                    if (RecordingStore.CommittedTrees[t].Id == treeId)
+                    {
+                        RecordingStore.CommittedTrees[t].AddOrReplaceRecording(rec);
+                        break;
+                    }
+                }
+            }
+        }
+
+        internal static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)
         {
             string treeId = target != null && !string.IsNullOrEmpty(target.TreeId)
                 ? target.TreeId

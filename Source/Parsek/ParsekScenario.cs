@@ -442,6 +442,44 @@ namespace Parsek
             // gameplay with a popup.
         }
 
+        /// <summary>
+        /// Step of <see cref="OnSave"/> "safety-net": warns when HighLogic.SaveFolder no longer
+        /// names the save this scenario loaded (file writes would target another save directory).
+        /// </summary>
+        internal void OnSavePhaseWarnOnSaveFolderMismatch()
+        {
+            string currentSaveFolder = HighLogic.SaveFolder;
+            if (IsSaveFolderMismatch(scenarioSaveFolder, currentSaveFolder))
+            {
+                ParsekLog.Warn("Scenario",
+                    $"OnSave: save folder mismatch — loaded for '{scenarioSaveFolder}' " +
+                    $"but current is '{currentSaveFolder}'. Data may write to wrong save directory.");
+            }
+        }
+
+        /// <summary>
+        /// Step of <see cref="OnSave"/> "clear-nodes": adds to <paramref name="dirtyCount"/> the
+        /// committed recordings and committed-tree recordings whose sidecar files are dirty, read
+        /// before the recording save clears the flag.
+        /// </summary>
+        internal static void OnSavePhaseCountDirtyRecordings(IReadOnlyList<Recording> recordings, ref int dirtyCount)
+        {
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (recordings[i].FilesDirty)
+                    dirtyCount++;
+            }
+            var committedTrees = RecordingStore.CommittedTrees;
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                foreach (var rec in committedTrees[t].Recordings.Values)
+                {
+                    if (rec.FilesDirty)
+                        dirtyCount++;
+                }
+            }
+        }
+
         public override void OnSave(ConfigNode node)
         {
             // S9 game-mode gate: an inert game writes back exactly what it loaded (no
@@ -479,13 +517,7 @@ namespace Parsek
                 // Under normal KSP flow OnSave fires before the folder changes, but if it doesn't,
                 // file writes (SaveRecordingFiles, GameStateStore, MilestoneStore) would target
                 // the wrong save directory.
-                string currentSaveFolder = HighLogic.SaveFolder;
-                if (IsSaveFolderMismatch(scenarioSaveFolder, currentSaveFolder))
-                {
-                    ParsekLog.Warn("Scenario",
-                        $"OnSave: save folder mismatch — loaded for '{scenarioSaveFolder}' " +
-                        $"but current is '{currentSaveFolder}'. Data may write to wrong save directory.");
-                }
+                OnSavePhaseWarnOnSaveFolderMismatch();
 
                 // Clear any existing recording nodes
                 savePhase = "clear-nodes";
@@ -496,20 +528,7 @@ namespace Parsek
                 ParsekLog.Info("Scenario", $"OnSave: saving {recordings.Count} committed recordings");
 
                 // Count dirty recordings before save (SaveRecordingFiles clears FilesDirty)
-                for (int i = 0; i < recordings.Count; i++)
-                {
-                    if (recordings[i].FilesDirty)
-                        dirtyCount++;
-                }
-                var committedTrees = RecordingStore.CommittedTrees;
-                for (int t = 0; t < committedTrees.Count; t++)
-                {
-                    foreach (var rec in committedTrees[t].Recordings.Values)
-                    {
-                        if (rec.FilesDirty)
-                            dirtyCount++;
-                    }
-                }
+                OnSavePhaseCountDirtyRecordings(recordings, ref dirtyCount);
 
                 savePhase = "recordings";
                 SaveTreeRecordings(node);

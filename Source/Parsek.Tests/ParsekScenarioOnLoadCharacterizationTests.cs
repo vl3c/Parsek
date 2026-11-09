@@ -247,20 +247,31 @@ namespace Parsek.Tests
 
         internal static List<string> ExpandedOnLoadTokens(string classText, HashSet<string> reached)
         {
-            var declarations = PhaseDeclarations(classText);
+            return ExpandedTokens(classText, OnLoadSignature, PhasePrefix, reached);
+        }
+
+        /// <summary>
+        /// The token stream of the method with <paramref name="signature"/>, every call to a
+        /// method named <paramref name="prefix"/>* replaced by that method's own stream. Shared
+        /// by the characterizations of the other long ParsekScenario methods.
+        /// </summary>
+        internal static List<string> ExpandedTokens(
+            string classText, string signature, string prefix, HashSet<string> reached)
+        {
+            var declarations = PhaseDeclarations(classText, prefix);
             var result = new List<string>();
-            Expand(classText, MethodBody(classText, OnLoadSignature), declarations, reached,
+            Expand(classText, MethodBody(classText, signature), declarations, prefix, reached,
                 new Stack<string>(), result);
             return result;
         }
 
         private static void Expand(
             string classText, string body, Dictionary<string, List<int>> declarations,
-            HashSet<string> reached, Stack<string> active, List<string> output)
+            string prefix, HashSet<string> reached, Stack<string> active, List<string> output)
         {
             foreach (string token in Tokenize(body))
             {
-                string phase = PhaseName(token);
+                string phase = PhaseName(token, prefix);
                 if (phase == null)
                 {
                     output.Add(token);
@@ -271,18 +282,18 @@ namespace Parsek.Tests
                 reached.Add(phase);
                 active.Push(phase);
                 Expand(classText, MethodBody(classText, declarations[phase][0]), declarations,
-                    reached, active, output);
+                    prefix, reached, active, output);
                 active.Pop();
             }
         }
 
-        private static string PhaseName(string token)
+        private static string PhaseName(string token, string prefix)
         {
             if (!token.StartsWith("C:", StringComparison.Ordinal)) return null;
             string chain = token.Substring(2);
             if (chain.StartsWith("this.", StringComparison.Ordinal)) chain = chain.Substring(5);
             if (chain.IndexOf('.') >= 0) return null;
-            return chain.StartsWith(PhasePrefix, StringComparison.Ordinal) ? chain : null;
+            return chain.StartsWith(prefix, StringComparison.Ordinal) ? chain : null;
         }
 
         /// <summary>
@@ -291,14 +302,20 @@ namespace Parsek.Tests
         /// </summary>
         internal static Dictionary<string, List<int>> PhaseDeclarations(string classText)
         {
+            return PhaseDeclarations(classText, PhasePrefix);
+        }
+
+        /// <summary>As <see cref="PhaseDeclarations(string)"/>, for methods named <paramref name="prefix"/>*.</summary>
+        internal static Dictionary<string, List<int>> PhaseDeclarations(string classText, string prefix)
+        {
             string masked = Mask(classText);
             var result = new Dictionary<string, List<int>>(StringComparer.Ordinal);
             int from = 0;
             while (true)
             {
-                int at = masked.IndexOf(PhasePrefix, from, StringComparison.Ordinal);
+                int at = masked.IndexOf(prefix, from, StringComparison.Ordinal);
                 if (at < 0) break;
-                from = at + PhasePrefix.Length;
+                from = at + prefix.Length;
                 if (at > 0 && IsIdentChar(masked[at - 1])) continue;
                 int end = at;
                 while (end < masked.Length && IsIdentChar(masked[end])) end++;
@@ -314,7 +331,7 @@ namespace Parsek.Tests
             return result;
         }
 
-        private static int CountCalls(string masked, string name)
+        internal static int CountCalls(string masked, string name)
         {
             int count = 0, from = 0;
             while (true)
@@ -339,7 +356,7 @@ namespace Parsek.Tests
             return MethodBody(classText, at);
         }
 
-        private static string MethodBody(string classText, int declarationIndex)
+        internal static string MethodBody(string classText, int declarationIndex)
         {
             string masked = Mask(classText);
             int paren = masked.IndexOf('(', declarationIndex);
@@ -594,8 +611,13 @@ namespace Parsek.Tests
 
         private static string GoldenPath()
         {
+            return GoldenPath("ParsekScenario.OnLoad.tokens.txt");
+        }
+
+        internal static string GoldenPath(string fileName)
+        {
             return Path.Combine(RepoRoot(), "Source", "Parsek.Tests", "Fixtures",
-                "SourceCharacterization", "ParsekScenario.OnLoad.tokens.txt");
+                "SourceCharacterization", fileName);
         }
 
         private static string RepoRoot()
@@ -604,7 +626,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
         }
 
-        private static string ParsekSourceRoot()
+        internal static string ParsekSourceRoot()
         {
             string root = Path.Combine(RepoRoot(), "Source", "Parsek");
             Assert.True(Directory.Exists(root), "Parsek source root not found at " + root);

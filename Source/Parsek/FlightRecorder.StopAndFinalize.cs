@@ -546,7 +546,62 @@ namespace Parsek
                 ? resumeSection.Value.source
                 : TrackSectionSource.Active;
 
-            string resumeAnchorRecordingId = null;
+            ApplyFalseAlarmResumeAnchor(ut, resumeSection, ref resumeRef, out string resumeAnchorRecordingId);
+
+            TrajectoryPoint? boundaryPoint = resumeSection.HasValue
+                ? GetLastFrameFromTrackSection(resumeSection.Value)
+                : (TrajectoryPoint?)null;
+            TrajectoryPoint? absoluteBoundaryPoint = resumeSection.HasValue
+                ? GetLastBodyFixedFrameFromTrackSection(resumeSection.Value)
+                : (TrajectoryPoint?)null;
+
+            RepairDowngradedResumeBoundaryPoints(
+                resumeSection, resumeRef, ref boundaryPoint, ref absoluteBoundaryPoint);
+
+            double sectionStartUT = ResolveFalseAlarmResumeSectionStartUT(ut, resumeRef, boundaryPoint);
+
+            ClampClosedSectionOverhangAtResumeSeam(TrackSections, sectionStartUT);
+
+            StartNewTrackSection(resumeEnv, resumeRef, sectionStartUT, resumeSource);
+
+            if (resumeRef == ReferenceFrame.Relative)
+            {
+                currentTrackSection.anchorRecordingId = resumeAnchorRecordingId;
+                currentTrackSection.anchorVesselId = 0u;
+            }
+
+            isOnRails = false;
+            if (resumeRef == ReferenceFrame.OrbitalCheckpoint)
+            {
+                if (resumeOrbitSegment.HasValue)
+                {
+                    currentOrbitSegment = resumeOrbitSegment.Value;
+                    isOnRails = true;
+                }
+                else
+                {
+                    ParsekLog.Warn("Recorder",
+                        $"ResumeAfterFalseAlarm: reopened OrbitalCheckpoint TrackSection without restoring on-rails state at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                }
+            }
+
+            if (resumeRef != ReferenceFrame.OrbitalCheckpoint)
+                SeedBoundaryPoint(boundaryPoint, absoluteBoundaryPoint);
+        }
+
+        /// <summary>
+        /// Validates the Relative anchor a false-alarm resume would reopen with and sets the
+        /// recorder's anchor fields: a missing or unresolvable recorded anchor downgrades the
+        /// resume to Absolute and clears the anchor; any non-Relative resume clears it too.
+        /// Returns the anchor id the reopened Relative section carries (null otherwise).
+        /// </summary>
+        internal void ApplyFalseAlarmResumeAnchor(
+            double ut,
+            TrackSection? resumeSection,
+            ref ReferenceFrame resumeRef,
+            out string resumeAnchorRecordingId)
+        {
+            resumeAnchorRecordingId = null;
             uint resumeAnchorDiagnosticPid = 0u;
             if (resumeRef == ReferenceFrame.Relative)
             {
@@ -600,14 +655,19 @@ namespace Parsek
                 isRelativeMode = false;
                 ClearCurrentRecordingAnchor();
             }
+        }
 
-            TrajectoryPoint? boundaryPoint = resumeSection.HasValue
-                ? GetLastFrameFromTrackSection(resumeSection.Value)
-                : (TrajectoryPoint?)null;
-            TrajectoryPoint? absoluteBoundaryPoint = resumeSection.HasValue
-                ? GetLastBodyFixedFrameFromTrackSection(resumeSection.Value)
-                : (TrajectoryPoint?)null;
-
+        /// <summary>
+        /// When the resume was downgraded from Relative to Absolute, replaces the Relative
+        /// boundary seed (anchor-local metres) with the body-fixed primary point, or drops it
+        /// when the prior section has none, and clears the body-fixed seed.
+        /// </summary>
+        internal static void RepairDowngradedResumeBoundaryPoints(
+            TrackSection? resumeSection,
+            ReferenceFrame resumeRef,
+            ref TrajectoryPoint? boundaryPoint,
+            ref TrajectoryPoint? absoluteBoundaryPoint)
+        {
             // Frame-mismatch repair when resume-anchor validation downgraded a
             // RELATIVE resume to ABSOLUTE: `boundaryPoint` is the prior
             // Relative section's last frame, whose lat/lon/alt fields hold
@@ -647,7 +707,18 @@ namespace Parsek
                 // clarity.
                 absoluteBoundaryPoint = null;
             }
+        }
 
+        /// <summary>
+        /// The reopened section's start UT: the boundary seed's UT when it is finite and at most
+        /// <see cref="SectionBoundaryUtEpsilon"/> after the resume UT (non-checkpoint resumes
+        /// only), else the resume UT.
+        /// </summary>
+        internal static double ResolveFalseAlarmResumeSectionStartUT(
+            double ut,
+            ReferenceFrame resumeRef,
+            TrajectoryPoint? boundaryPoint)
+        {
             double sectionStartUT = ut;
             if (resumeRef != ReferenceFrame.OrbitalCheckpoint
                 && boundaryPoint.HasValue
@@ -663,7 +734,17 @@ namespace Parsek
                         $"to boundary seed UT={sectionStartUT.ToString("F3", CultureInfo.InvariantCulture)}");
                 }
             }
+            return sectionStartUT;
+        }
 
+        /// <summary>
+        /// Runs <see cref="TryClampClosedSectionEndToBoundarySeed"/> at the stop/resume seam and
+        /// logs the clamp, or warns when an overhang exists but the clamp refused.
+        /// </summary>
+        internal static void ClampClosedSectionOverhangAtResumeSeam(
+            List<TrackSection> sections,
+            double sectionStartUT)
+        {
             // Disjoint-cover repair at the stop/resume seam (INV2-NO-DOUBLE-COVER,
             // 2026-07-22 B5 triage): FinalizeRecordingState closed the section at the
             // stop-frame UT, which overhangs the section's last recorded frame by up
@@ -676,7 +757,7 @@ namespace Parsek
             // endUT down to the seed loses no data and makes the sections touch
             // exactly.
             if (TryClampClosedSectionEndToBoundarySeed(
-                    TrackSections, sectionStartUT, out double overhangEndUT, out string clampRefusalReason))
+                    sections, sectionStartUT, out double overhangEndUT, out string clampRefusalReason))
             {
                 ParsekLog.Info("Recorder",
                     $"ResumeAfterFalseAlarm: clamped closed TrackSection endUT " +
@@ -690,7 +771,7 @@ namespace Parsek
                 // survives in the pending tree and only SessionMerger.MergeTree at
                 // commit can heal it (a destroy-before-commit persist would carry
                 // it to the sidecar). Rare, diagnostically important — log it.
-                TrackSection lastPersisted = TrackSections[TrackSections.Count - 1];
+                TrackSection lastPersisted = sections[sections.Count - 1];
                 ParsekLog.Warn("Recorder",
                     $"ResumeAfterFalseAlarm: closed TrackSection endUT " +
                     $"{lastPersisted.endUT.ToString("F3", CultureInfo.InvariantCulture)} overhangs " +
@@ -699,32 +780,6 @@ namespace Parsek
                     $"sectionStartUT={lastPersisted.startUT.ToString("F3", CultureInfo.InvariantCulture)}) — " +
                     $"overlap left for commit-time merge resolution");
             }
-
-            StartNewTrackSection(resumeEnv, resumeRef, sectionStartUT, resumeSource);
-
-            if (resumeRef == ReferenceFrame.Relative)
-            {
-                currentTrackSection.anchorRecordingId = resumeAnchorRecordingId;
-                currentTrackSection.anchorVesselId = 0u;
-            }
-
-            isOnRails = false;
-            if (resumeRef == ReferenceFrame.OrbitalCheckpoint)
-            {
-                if (resumeOrbitSegment.HasValue)
-                {
-                    currentOrbitSegment = resumeOrbitSegment.Value;
-                    isOnRails = true;
-                }
-                else
-                {
-                    ParsekLog.Warn("Recorder",
-                        $"ResumeAfterFalseAlarm: reopened OrbitalCheckpoint TrackSection without restoring on-rails state at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
-                }
-            }
-
-            if (resumeRef != ReferenceFrame.OrbitalCheckpoint)
-                SeedBoundaryPoint(boundaryPoint, absoluteBoundaryPoint);
         }
 
         /// <summary>

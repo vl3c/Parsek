@@ -200,7 +200,7 @@ namespace Parsek.InGameTests
                 // event dispatch, not across a direct call.
                 GameEvents.onVesselChange.Fire(FlightGlobals.ActiveVessel);
                 // The ledger hook, fired through its own delegate - which is how
-                // ParsekUI.OnTimelineDataChanged reaches the Kerbals window's
+                // the Kerbals window's own hook (SubscribeTimelineDataChanged) reaches its
                 // InvalidateCache (the kerbals-invalidate suppression site).
                 Action timelineHook = LedgerOrchestrator.OnTimelineDataChanged;
                 if (timelineHook != null) timelineHook();

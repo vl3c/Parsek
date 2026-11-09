@@ -1542,7 +1542,7 @@ frame can never disagree about the control count. Every draw site reads
 | `MainButtonSpawnControl` | `UiComplexityMode.cs` | HIDE | `ParsekUI.DrawWindow`, `ParsekUI.IsSpawnControlReachable` | the launcher, and the proximity toast's call to action |
 | `MainButtonTimeline` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
 | `MainButtonRecordings` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing (the `Missions` launcher) |
-| `MainButtonLogistics` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
+| `MainButtonLogistics` | `UiComplexityMode.cs` | KEEP | `LogisticsWindowUI.DrawMainWindowSection` (drawn in `ParsekUI.DrawWindow`) | nothing |
 | `MainButtonKerbals` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
 | `MainButtonSettings` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
 | `TabRecordings` | `UiComplexityMode.cs` | HIDE | `RecordingsTableUI.VisibleTabCount` | the tab bar, the Recordings tab and its whole body |
