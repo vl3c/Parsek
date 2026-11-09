@@ -413,13 +413,13 @@ namespace Parsek
         {
             return LedgerLoadMigration.IsResourceImpactingAction(t);
         }
-        private struct KerbalAssignmentRepairRename
+        internal struct KerbalAssignmentRepairRename
         {
             public string FromName;
             public string ToName;
         }
 
-        private struct KerbalAssignmentEndStateRewrite
+        internal struct KerbalAssignmentEndStateRewrite
         {
             public string KerbalName;
             public KerbalEndState FromState;
@@ -463,7 +463,7 @@ namespace Parsek
             return changed;
         }
 
-        private sealed class KerbalAssignmentRepairStats
+        internal sealed class KerbalAssignmentRepairStats
         {
             public readonly List<KerbalAssignmentRepairRename> RemappedRows
                 = new List<KerbalAssignmentRepairRename>();
@@ -480,6 +480,32 @@ namespace Parsek
             if (existing == null || existing.Count == 0)
                 return stats;
 
+            var filteredExisting = FilterKerbalRepairExistingRows(existing, stats);
+
+            if (desired == null || desired.Count == 0 || filteredExisting.Count == 0)
+                return stats;
+
+            var matchedExisting = new bool[filteredExisting.Count];
+            var matchedDesired = new bool[desired.Count];
+
+            // Reorder-only repairs should not log false remap samples. Match exact-name rows
+            // first, then classify the remaining unmatched rows as true remaps/rewrites.
+            MatchKerbalRepairRowsBySameName(
+                filteredExisting, desired, matchedExisting, matchedDesired, stats);
+            MatchKerbalRepairRowsAsRemaps(
+                filteredExisting, desired, matchedExisting, matchedDesired, stats);
+
+            return stats;
+        }
+
+        /// <summary>
+        /// The first step of <see cref="ClassifyKerbalAssignmentRepair"/>: the stored rows
+        /// it compares against, without null rows and tourist rows (counted in
+        /// <paramref name="stats"/>).
+        /// </summary>
+        internal static List<GameAction> FilterKerbalRepairExistingRows(
+            List<GameAction> existing, KerbalAssignmentRepairStats stats)
+        {
             var filteredExisting = new List<GameAction>();
             for (int i = 0; i < existing.Count; i++)
             {
@@ -497,14 +523,21 @@ namespace Parsek
                 filteredExisting.Add(existingAction);
             }
 
-            if (desired == null || desired.Count == 0 || filteredExisting.Count == 0)
-                return stats;
+            return filteredExisting;
+        }
 
-            var matchedExisting = new bool[filteredExisting.Count];
-            var matchedDesired = new bool[desired.Count];
-
-            // Reorder-only repairs should not log false remap samples. Match exact-name rows
-            // first, then classify the remaining unmatched rows as true remaps/rewrites.
+        /// <summary>
+        /// The exact-name pass of <see cref="ClassifyKerbalAssignmentRepair"/>: pair each
+        /// desired row with the first unconsumed stored row of the same name and timing, and
+        /// record an end-state rewrite where the pair's end states differ.
+        /// </summary>
+        internal static void MatchKerbalRepairRowsBySameName(
+            List<GameAction> filteredExisting,
+            List<GameAction> desired,
+            bool[] matchedExisting,
+            bool[] matchedDesired,
+            KerbalAssignmentRepairStats stats)
+        {
             for (int i = 0; i < desired.Count; i++)
             {
                 var desiredAction = desired[i];
@@ -527,7 +560,20 @@ namespace Parsek
                     });
                 }
             }
+        }
 
+        /// <summary>
+        /// The rename pass of <see cref="ClassifyKerbalAssignmentRepair"/>: pair each
+        /// desired row the exact-name pass left with the first unconsumed stored row of the
+        /// same timing, and record a remap and / or an end-state rewrite.
+        /// </summary>
+        internal static void MatchKerbalRepairRowsAsRemaps(
+            List<GameAction> filteredExisting,
+            List<GameAction> desired,
+            bool[] matchedExisting,
+            bool[] matchedDesired,
+            KerbalAssignmentRepairStats stats)
+        {
             for (int i = 0; i < desired.Count; i++)
             {
                 if (matchedDesired[i])
@@ -563,8 +609,6 @@ namespace Parsek
                     });
                 }
             }
-
-            return stats;
         }
 
         private static int FindRepairRowMatch(
