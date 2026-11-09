@@ -336,7 +336,8 @@ namespace Parsek.Tests
         [Fact]
         public void StripScope_IdlessHolderAlwaysReplays_SoItsPidIsStripped()
         {
-            // The replay-scope gate never calls an id-less recording historical.
+            // The replay-scope gate never calls an id-less recording historical. An empty id
+            // logs as empty (only a null id reads <no-id>).
             var holder = Rec("", "Probe", "t", 10, 100, 5u);
             holder.SpawnedVesselPersistentId = 5u;
 
@@ -345,7 +346,7 @@ namespace Parsek.Tests
 
             Assert.Equal(new HashSet<uint> { 5u }, scope.StripPids);
             Assert.Empty(scope.KeptPids);
-            Assert.Contains(logLines, l => l.Contains("strip spawned pid=5 of 'Probe' (id=<no-id>) via holder-replays"));
+            Assert.Contains(logLines, l => l.Contains("strip spawned pid=5 of 'Probe' (id=) via holder-replays"));
         }
 
         [Fact]
