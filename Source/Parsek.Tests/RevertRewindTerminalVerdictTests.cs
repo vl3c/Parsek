@@ -371,7 +371,7 @@ namespace Parsek.Tests
                 "internal static int ResetTreeRecordingMutableStateForLoad(");
             string launcher = StripComments(ReadParsekSource("RewindLauncher.cs"));
             string rewind = BraceBody(launcher,
-                "private static void ResetRecordingPlaybackFields(");
+                "internal static void ResetRecordingPlaybackFields(");
 
             foreach (var body in new[] { helper, rewind })
             {

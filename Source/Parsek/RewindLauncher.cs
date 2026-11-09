@@ -78,7 +78,7 @@ namespace Parsek
             return (RecordingStore.CommittedRecordings.Count, RecordingStore.CommittedTrees.Count);
         }
 
-        private static void ResetRecordingPlaybackFields(
+        internal static void ResetRecordingPlaybackFields(
             Recording rec,
             HashSet<string> keepSpawnStateRecordingIds = null,
             HashSet<string> keptLogged = null)
@@ -252,7 +252,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool CanRewindPreFileCheck(string resolvedSave, out string reason, bool isRecording)
+        internal static bool CanRewindPreFileCheck(string resolvedSave, out string reason, bool isRecording)
         {
             if (RewindContext.IsRewinding)
             {
@@ -319,7 +319,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool CanFastForwardPreRuntime(Recording rec, out string reason, bool isRecording)
+        internal static bool CanFastForwardPreRuntime(Recording rec, out string reason, bool isRecording)
         {
             if (RewindContext.IsRewinding)
             {
@@ -751,7 +751,7 @@ namespace Parsek
             catch { }
         }
 
-        private static void TryDeleteFileQuietly(string path)
+        internal static void TryDeleteFileQuietly(string path)
         {
             try { File.Delete(path); }
             catch { }
