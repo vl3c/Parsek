@@ -3072,8 +3072,9 @@ The mapping cannot live on the pure side at all: that half must stay free of
 already had the getter), `SelectedTabForTesting` + `TabCountForTesting` on
 `KerbalsWindowUI`, `TierFilterModeIndexForTesting` on `TimelineWindowUI` (an INT over the
 private filter-mode enum, so the enum stays private), `GetLogisticsUI()` /
-`GetStructureListUI()` on `ParsekUI` (the two sub-windows with no accessor, because
-neither is in the Advanced -> Basic close set),
+`GetStructureListUI()` (the two sub-windows with no accessor, because
+neither is in the Advanced -> Basic close set; every window accessor now lives on
+`ParsekWindowSet`, reached as `ParsekWindowSet.Of(ui)`),
 `ParsekUI.PersistedUiComplexityMode` + `ParsekUI.TryRequeuePersistedUiComplexityMode()`
 (the setting-vs-latch pair the `complexity` no-op test needs; the second is deliberately
 not a general mode setter - it can only queue the value the settings object already
