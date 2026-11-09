@@ -947,15 +947,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True when the recording's head files are not its own but the bytes its named hashes
-        /// point at are all on disk (at least one as a retained version) and pass the same
-        /// currency checks there. That is a committed recording whose id a restore attempt
-        /// resumed in place: the attempt's save wrote the head and retained the committed
-        /// bytes under their hash, so the committed copy is current without a rewrite (a
-        /// rewrite would advance its sidecar epoch and move the committed history before any
-        /// merge). False with a reason otherwise; the caller then checks or rewrites the head.
-        /// </summary>
-        /// <summary>
         /// True when the recording names no trajectory hash, or its <c>.prec</c> head holds
         /// exactly the bytes it names. A head that holds other bytes (another copy of the same
         /// id wrote it) returns false with <c>head-holds-other-bytes</c>.
@@ -986,6 +977,15 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// True when the recording's head files are not its own but the bytes its named hashes
+        /// point at are all on disk (at least one as a retained version) and pass the same
+        /// currency checks there. That is a committed recording whose id a restore attempt
+        /// resumed in place: the attempt's save wrote the head and retained the committed
+        /// bytes under their hash, so the committed copy is current without a rewrite (a
+        /// rewrite would advance its sidecar epoch and move the committed history before any
+        /// merge). False with a reason otherwise; the caller then checks or rewrites the head.
+        /// </summary>
         internal static bool AreRecordingFilesCurrentThroughNamedVersions(Recording rec, out string reason)
         {
             reason = null;
