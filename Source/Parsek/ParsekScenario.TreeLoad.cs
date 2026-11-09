@@ -13,6 +13,51 @@ namespace Parsek
     public partial class ParsekScenario
     {
         /// <summary>
+        /// Per-tree step of <see cref="LoadRecordingTrees"/>: loads every recording's sidecar files,
+        /// counting the recordings that failed to hydrate and, of those, the synthetic-fixture markers
+        /// (no .prec and no points, the shape of an injected test recording).
+        /// </summary>
+        internal static void LoadRecordingTreesPhaseHydrateSidecars(RecordingTree tree, out int sidecarHydrationFailures, out int syntheticFixtureFailures)
+        {
+            sidecarHydrationFailures = 0;
+            syntheticFixtureFailures = 0;
+
+            // Load bulk data from external files for each recording in the tree.
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (!RecordingSidecarStore.LoadRecordingFiles(rec))
+                {
+                    sidecarHydrationFailures++;
+                    // Bug #422: distinguish synthetic-fixture markers (no .prec sidecar,
+                    // zero trajectory points — expected for injected test recordings)
+                    // from genuine degradations (parse error, id mismatch, stale epoch,
+                    // snapshot failure, etc). The per-recording INFO line already
+                    // describes the synthetic case; the roll-up WARN would duplicate it.
+                    if (IsSyntheticFixtureSidecarMarker(rec))
+                        syntheticFixtureFailures++;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Per-tree step of <see cref="LoadRecordingTrees"/>: adds the tree's recordings to the committed
+        /// list for ghost playback and adds their counts to the load summary's running totals.
+        /// </summary>
+        internal static void LoadRecordingTreesPhaseAddTreeRecordingsToCommitted(RecordingTree tree, ref int treeRecCount, ref int treeTotalPoints, ref int treeTotalOrbitSegments, ref int treeTotalPartEvents, ref int treeWithTrackSections, ref int treeWithSnapshots)
+        {
+            foreach (var rec in tree.Recordings.Values)
+            {
+                RecordingStore.AddCommittedInternal(rec);
+                treeRecCount++;
+                treeTotalPoints += rec.Points.Count;
+                treeTotalOrbitSegments += rec.OrbitSegments.Count;
+                treeTotalPartEvents += rec.PartEvents.Count;
+                if (rec.TrackSections != null && rec.TrackSections.Count > 0) treeWithTrackSections++;
+                if (rec.VesselSnapshot != null) treeWithSnapshots++;
+            }
+        }
+
+        /// <summary>
         /// Loads committed recording trees from RECORDING_TREE ConfigNodes. Clears stale
         /// trees, loads each tree and its bulk data, and adds tree recordings to the
         /// committed recordings list for ghost playback.
@@ -82,24 +127,7 @@ namespace Parsek
                             "because it holds no recording");
                         continue;
                     }
-                    int sidecarHydrationFailures = 0;
-                    int syntheticFixtureFailures = 0;
-
-                    // Load bulk data from external files for each recording in the tree.
-                    foreach (var rec in tree.Recordings.Values)
-                    {
-                        if (!RecordingSidecarStore.LoadRecordingFiles(rec))
-                        {
-                            sidecarHydrationFailures++;
-                            // Bug #422: distinguish synthetic-fixture markers (no .prec sidecar,
-                            // zero trajectory points — expected for injected test recordings)
-                            // from genuine degradations (parse error, id mismatch, stale epoch,
-                            // snapshot failure, etc). The per-recording INFO line already
-                            // describes the synthetic case; the roll-up WARN would duplicate it.
-                            if (IsSyntheticFixtureSidecarMarker(rec))
-                                syntheticFixtureFailures++;
-                        }
-                    }
+                    LoadRecordingTreesPhaseHydrateSidecars(tree, out int sidecarHydrationFailures, out int syntheticFixtureFailures);
 
                     int droppedHydrationFailures = DropFailedSidecarHydrationRecordings(
                         tree,
@@ -131,16 +159,7 @@ namespace Parsek
                     committedTrees.Add(tree);
 
                     // Add tree recordings to CommittedRecordings for ghost playback
-                    foreach (var rec in tree.Recordings.Values)
-                    {
-                        RecordingStore.AddCommittedInternal(rec);
-                        treeRecCount++;
-                        treeTotalPoints += rec.Points.Count;
-                        treeTotalOrbitSegments += rec.OrbitSegments.Count;
-                        treeTotalPartEvents += rec.PartEvents.Count;
-                        if (rec.TrackSections != null && rec.TrackSections.Count > 0) treeWithTrackSections++;
-                        if (rec.VesselSnapshot != null) treeWithSnapshots++;
-                    }
+                    LoadRecordingTreesPhaseAddTreeRecordingsToCommitted(tree, ref treeRecCount, ref treeTotalPoints, ref treeTotalOrbitSegments, ref treeTotalPartEvents, ref treeWithTrackSections, ref treeWithSnapshots);
 
                     ScenarioLog($"[Parsek Scenario] Loaded tree '{tree.TreeName}': " +
                         $"{tree.Recordings.Count} recordings, {tree.BranchPoints.Count} branch points");
