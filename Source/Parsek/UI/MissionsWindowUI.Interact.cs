@@ -37,7 +37,7 @@ namespace Parsek
         private void DrawInteractReFly(Recording rec, int committedIndex)
         {
             BeginInteractCell();
-            parentUI.GetRecordingsTableUI().DrawReFlyColumnCell(
+            ParsekWindowSet.Of(parentUI).GetRecordingsTableUI().DrawReFlyColumnCell(
                 rec, committedIndex, Planetarium.GetUniversalTime(), InteractButtonWidth, 0f);
             EndInteractCell();
         }
@@ -61,7 +61,7 @@ namespace Parsek
                     $"Mission partner GoTo: mission='{mission?.Name}' " +
                     $"recording={goToRecordingId} partnerMission='{partnerMission ?? "<unresolved>"}' " +
                     $"bp={branchPointId ?? "<none>"}");
-                parentUI.GetRecordingsTableUI().ShowMissionForRecording(goToRecordingId);
+                ParsekWindowSet.Of(parentUI).GetRecordingsTableUI().ShowMissionForRecording(goToRecordingId);
             }
             EndInteractCell();
         }
@@ -87,7 +87,7 @@ namespace Parsek
             int rootIdx = ResolveMissionRootRecordingIndex(view, rewindCommitted);
             Recording rootRec = rootIdx >= 0 ? rewindCommitted[rootIdx] : null;
             double now = Planetarium.GetUniversalTime();
-            RecordingsTableUI table = parentUI.GetRecordingsTableUI();
+            RecordingsTableUI table = ParsekWindowSet.Of(parentUI).GetRecordingsTableUI();
 
             BeginInteractCell();
             if (table.MissionRewindForwardVisible(rootRec, now))

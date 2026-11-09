@@ -837,7 +837,7 @@ namespace Parsek.TestCommands
         private static void InstallKerbalsMock(ParsekUI ui, GuiMockState state,
                                                GuiMockPayload payload, List<Action> undo)
         {
-            KerbalsWindowUI w = ui.GetKerbalsUI();
+            KerbalsWindowUI w = ParsekWindowSet.Of(ui).GetKerbalsUI();
 
             w.CachedViewModelForTesting = payload.Kerbals;
             // NULL on restore, not the pre-mock view model. The invalidations suppressed
@@ -864,7 +864,7 @@ namespace Parsek.TestCommands
         private static void InstallStructureMock(ParsekUI ui, GuiMockPayload payload,
                                                  List<Action> undo)
         {
-            StructureListWindowUI w = ui.GetStructureListUI();
+            StructureListWindowUI w = ParsekWindowSet.Of(ui).GetStructureListUI();
             // This window has no rebuild-on-null path - `steps` is written only by an
             // OpenFor* call - so its restore puts the captured target BACK rather than
             // nulling it. That asymmetry with the other two arms is the window's, not the

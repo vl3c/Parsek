@@ -1552,7 +1552,7 @@ namespace Parsek.TestCommands
         private static InGameTestRunner SettingsTestRunnerWindowRunner()
         {
             ParsekUI ui = ParsekUI.ActiveInstance;
-            TestRunnerUI window = ui != null ? ui.GetTestRunnerUI() : null;
+            TestRunnerUI window = ui != null ? ParsekWindowSet.Of(ui).GetTestRunnerUI() : null;
             return window != null ? window.RunnerForTesting : null;
         }
 

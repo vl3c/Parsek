@@ -315,7 +315,7 @@ namespace Parsek
             {
                 ParsekLog.Info("UI",
                     $"Route Go to: route={ShortId(route.Id)} recording={leg.GoToRecordingId}");
-                parentUI.GetRecordingsTableUI().ShowMissionForRecording(leg.GoToRecordingId);
+                ParsekWindowSet.Of(parentUI).GetRecordingsTableUI().ShowMissionForRecording(leg.GoToRecordingId);
             }
         }
 

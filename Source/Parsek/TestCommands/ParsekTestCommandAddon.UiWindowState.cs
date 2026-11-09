@@ -133,7 +133,7 @@ namespace Parsek.TestCommands
                         + $"max={TestCommandUiWindowState.OffsetToken(TestCommandUiWindowState.MaxScrollOffset)}");
                     return;
                 }
-                WideWindowScroll wide = ui.GetRecordingsTableUI().WideScroll;
+                WideWindowScroll wide = ParsekWindowSet.Of(ui).GetRecordingsTableUI().WideScroll;
                 float beforeX = wide.ScrollX;
                 wide.ScrollX = offsetX;
                 // Settled read-back only: the horizontal scroll view clamps the offset to
@@ -157,7 +157,7 @@ namespace Parsek.TestCommands
                         + $"max={TestCommandUiWindowState.OffsetToken(TestCommandUiWindowState.MaxScrollOffset)}");
                     return;
                 }
-                TimelineWindowUI tl = ui.GetTimelineUI();
+                TimelineWindowUI tl = ParsekWindowSet.Of(ui).GetTimelineUI();
                 float beforeY = tl.EntryScrollYForTesting;
                 tl.EntryScrollYForTesting = offset;
                 // No immediate read-back assertion: the scroll view CLAMPS the offset to its
@@ -180,7 +180,7 @@ namespace Parsek.TestCommands
                     + $"presets={TestCommandUiWindowState.PresetTokenNames}");
                 return;
             }
-            TimelineWindowUI timeline = ui.GetTimelineUI();
+            TimelineWindowUI timeline = ParsekWindowSet.Of(ui).GetTimelineUI();
             string beforePreset = timeline.ActiveTimeRangePresetForTesting;
             timeline.ApplyTimeRangePresetForTesting(rawValue, ReadUniversalTimeOrZero());
             string afterPreset = timeline.ActiveTimeRangePresetForTesting;
@@ -250,10 +250,10 @@ namespace Parsek.TestCommands
         {
             if (spec.Name == TestCommandUiAction.TimelineWindow)
                 return TestCommandUiAction.TabTokenAt(
-                    spec, ui.GetTimelineUI().TierFilterModeIndexForTesting);
+                    spec, ParsekWindowSet.Of(ui).GetTimelineUI().TierFilterModeIndexForTesting);
             if (spec.Name == TestCommandUiAction.MissionsWindow)
                 return TestCommandUiAction.TabTokenAt(
-                    spec, ui.GetRecordingsTableUI().SelectedTabForTesting);
+                    spec, ParsekWindowSet.Of(ui).GetRecordingsTableUI().SelectedTabForTesting);
             return null;
         }
 
@@ -262,13 +262,13 @@ namespace Parsek.TestCommands
             switch (key)
             {
                 case TestCommandUiWindowState.SrcRecordingsKey:
-                    return ui.GetTimelineUI().ShowRecordingEntriesForTesting;
+                    return ParsekWindowSet.Of(ui).GetTimelineUI().ShowRecordingEntriesForTesting;
                 case TestCommandUiWindowState.SrcActionsKey:
-                    return ui.GetTimelineUI().ShowActionEntriesForTesting;
+                    return ParsekWindowSet.Of(ui).GetTimelineUI().ShowActionEntriesForTesting;
                 case TestCommandUiWindowState.SrcEventsKey:
-                    return ui.GetTimelineUI().ShowEventEntriesForTesting;
+                    return ParsekWindowSet.Of(ui).GetTimelineUI().ShowEventEntriesForTesting;
                 case TestCommandUiWindowState.CustomRangeKey:
-                    return ui.GetTimelineUI().ShowCustomRangeForTesting;
+                    return ParsekWindowSet.Of(ui).GetTimelineUI().ShowCustomRangeForTesting;
                 // The Recordings tab's Archive header filter, in the positive sense
                 // (TestCommandUiWindowState's class header): true lists archived recordings.
                 case TestCommandUiWindowState.ArchivedKey:
@@ -287,16 +287,16 @@ namespace Parsek.TestCommands
             switch (key)
             {
                 case TestCommandUiWindowState.SrcRecordingsKey:
-                    ui.GetTimelineUI().ShowRecordingEntriesForTesting = value;
+                    ParsekWindowSet.Of(ui).GetTimelineUI().ShowRecordingEntriesForTesting = value;
                     return;
                 case TestCommandUiWindowState.SrcActionsKey:
-                    ui.GetTimelineUI().ShowActionEntriesForTesting = value;
+                    ParsekWindowSet.Of(ui).GetTimelineUI().ShowActionEntriesForTesting = value;
                     return;
                 case TestCommandUiWindowState.SrcEventsKey:
-                    ui.GetTimelineUI().ShowEventEntriesForTesting = value;
+                    ParsekWindowSet.Of(ui).GetTimelineUI().ShowEventEntriesForTesting = value;
                     return;
                 case TestCommandUiWindowState.CustomRangeKey:
-                    ui.GetTimelineUI().ShowCustomRangeForTesting = value;
+                    ParsekWindowSet.Of(ui).GetTimelineUI().ShowCustomRangeForTesting = value;
                     return;
                 case TestCommandUiWindowState.ArchivedKey:
                     GroupHierarchyStore.HideActive = !value;
@@ -314,12 +314,12 @@ namespace Parsek.TestCommands
         {
             if (key == TestCommandUiWindowState.ScrollYKey)
                 return TestCommandUiWindowState.OffsetToken(
-                    ui.GetTimelineUI().EntryScrollYForTesting);
+                    ParsekWindowSet.Of(ui).GetTimelineUI().EntryScrollYForTesting);
             if (key == TestCommandUiWindowState.ScrollXKey)
                 return TestCommandUiWindowState.OffsetToken(
-                    ui.GetRecordingsTableUI().WideScroll.ScrollX);
+                    ParsekWindowSet.Of(ui).GetRecordingsTableUI().WideScroll.ScrollX);
             if (key == TestCommandUiWindowState.PresetKey)
-                return ui.GetTimelineUI().ActiveTimeRangePresetForTesting ?? string.Empty;
+                return ParsekWindowSet.Of(ui).GetTimelineUI().ActiveTimeRangePresetForTesting ?? string.Empty;
             return TestCommandUiWindowState.BoolToken(ReadBoolState(ui, window, key));
         }
 

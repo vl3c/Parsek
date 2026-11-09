@@ -75,8 +75,8 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            RecordingsTableUI table = ui.GetRecordingsTableUI();
-            MissionsWindowUI missions = ui.GetMissionsUI();
+            RecordingsTableUI table = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
+            MissionsWindowUI missions = ParsekWindowSet.Of(ui).GetMissionsUI();
             if (table == null || missions == null)
             {
                 InGameAssert.Skip("Recordings / Missions window not constructed in this scene");

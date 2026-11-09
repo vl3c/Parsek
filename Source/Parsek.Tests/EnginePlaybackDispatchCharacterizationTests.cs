@@ -350,6 +350,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SkippedEntry_PlaybackDisabledPastEnd_LogsInvariantUnderCommaCulture()
+        {
+            // The Windows host runs under the OS culture; a comma-decimal culture
+            // must still print the dot form this log line is read by.
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+                var engine = NewEngine();
+                var traj = Traj("d2", 100, 200.25);
+                traj.PlaybackEnabled = false;
+                var f = Flags("d2", 200.25);
+                f.skipGhost = true;
+                f.skipReason = GhostPlaybackSkipReason.PlaybackDisabled;
+
+                engine.HandleSkippedPlaybackEntry(0, traj, f, new FrameContext { currentUT = 500.5, warpRate = 1f });
+
+                Assert.Contains(transcript, l => l.Contains(
+                    "[Engine] Disabled past-end completion: #0 \"V-d2\" UT=500.50 endUT=200.25 ghostActive=false"));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Fact]
         public void SkippedEntry_StructuralCause_IsSilentSkip()
         {
             var engine = NewEngine();

@@ -23,7 +23,7 @@ namespace Parsek
     /// Both draw the same table (Time | Event | Location | Vessel), hover strip and Close;
     /// reopening an instance retargets it. Read-only.
     /// </summary>
-    internal class StructureListWindowUI
+    internal class StructureListWindowUI : IStructureLogWindow
     {
         /// <summary>Internal rather than private because the gallery snapshot below
         /// carries one, and an internal struct cannot have a private-typed field.</summary>
@@ -192,7 +192,7 @@ namespace Parsek
         /// route's events. While open it rebuilds when the route event log or the
         /// route's name moves (<see cref="RefreshIfChanged"/>).
         /// </summary>
-        internal void OpenForRoute(string routeId, string displayTitle)
+        public void OpenForRoute(string routeId, string displayTitle)
         {
             mode = TargetMode.Route;
             targetId = routeId;
@@ -223,7 +223,7 @@ namespace Parsek
         /// tree with no Mission). While open, the Log rebuilds when the mission's include set,
         /// its name or the committed recordings move (<see cref="RefreshIfChanged"/>).
         /// </summary>
-        internal void OpenForMission(string treeId, string missionIdOrNull, string displayTitle)
+        public void OpenForMission(string treeId, string missionIdOrNull, string displayTitle)
         {
             mode = TargetMode.Mission;
             targetId = treeId;

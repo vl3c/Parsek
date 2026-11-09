@@ -204,7 +204,7 @@ namespace Parsek.TestCommands
                 if (string.Equals(tabToken, TestCommandUiSelectSort.RecordingsTabToken,
                                   StringComparison.Ordinal))
                 {
-                    RecordingsTableUI rt = ui.GetRecordingsTableUI();
+                    RecordingsTableUI rt = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
                     return new UiSortHandle
                     {
                         GetColumn = () => rt.SortColumnIndexForTesting,
@@ -213,7 +213,7 @@ namespace Parsek.TestCommands
                         SetAscending = v => rt.SortAscendingForTesting = v,
                     };
                 }
-                MissionsWindowUI mw = ui.GetMissionsUI();
+                MissionsWindowUI mw = ParsekWindowSet.Of(ui).GetMissionsUI();
                 return new UiSortHandle
                 {
                     GetColumn = () => mw.SortColumnIndexForTesting,
@@ -224,7 +224,7 @@ namespace Parsek.TestCommands
             }
             if (window == TestCommandUiAction.LogisticsWindow)
             {
-                LogisticsWindowUI lw = ui.GetLogisticsUI();
+                LogisticsWindowUI lw = ParsekWindowSet.Of(ui).GetLogisticsUI();
                 return new UiSortHandle
                 {
                     GetColumn = () => lw.RouteSortColumnIndexForTesting,
@@ -235,7 +235,7 @@ namespace Parsek.TestCommands
             }
             if (window == TestCommandUiAction.SpawnControlWindow)
             {
-                SpawnControlUI sc = ui.GetSpawnControlUI();
+                SpawnControlUI sc = ParsekWindowSet.Of(ui).GetSpawnControlUI();
                 return new UiSortHandle
                 {
                     GetColumn = () => sc.SortColumnIndexForTesting,
@@ -316,7 +316,7 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            MissionsWindowUI missionsUi = ui.GetMissionsUI();
+            MissionsWindowUI missionsUi = ParsekWindowSet.Of(ui).GetMissionsUI();
             List<MissionVesselRow> rows = missionsUi.VesselRowsForTesting(tree);
             List<ForeignDockLink> links = missionsUi.ForeignDockLinksForTesting(
                 tree, RecordingStore.CommittedTrees);
@@ -449,7 +449,7 @@ namespace Parsek.TestCommands
                 RecordingTree tree = FindCommittedTree(mission.TreeId);
                 MissionVesselRow row = tree == null
                     ? null
-                    : FindVesselRow(ctx.Ui.GetMissionsUI().VesselRowsForTesting(tree), value);
+                    : FindVesselRow(ParsekWindowSet.Of(ctx.Ui).GetMissionsUI().VesselRowsForTesting(tree), value);
                 // A row that no longer resolves, or one with NO interval keys of its own, is
                 // report-only rather than an ERROR. The first is a tree that changed under
                 // the frame; the second is a real shape - ClassifyInclusion answers `All` for
