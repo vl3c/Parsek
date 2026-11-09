@@ -141,35 +141,96 @@ namespace Parsek.Tests
         [Fact]
         public void Hide_PolicyGate_IsClassifierOnly_NoDepthCheck()
         {
-            // Source-inspection regression pinning the follow-up: the hide
-            // branch in DrawRecordingRow must gate on IsUnfinishedFlight(rec)
-            // alone, with no `unfinishedFlightRowDepth > 0` prefix, otherwise
-            // normal-list RP-backed rows silently bypass the refuse path.
+            // Source-inspection regression pinning the follow-up: the row hide write must
+            // gate on IsUnfinishedFlight(rec) alone, with no `unfinishedFlightRowDepth > 0`
+            // prefix, otherwise normal-list RP-backed rows silently bypass the refuse path.
+            // DrawRecordingRow hands a changed Archive checkbox to ApplyRecordingArchiveToggle,
+            // so the gate reads both bodies: the row must dispatch there and nowhere write the
+            // flag itself, and the helper must hold the classifier gate and the write.
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            // RecordingsTableUI is a partial class: the hide branch lives in DrawRecordingRow,
-            // read from the file that holds it.
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", RecordingsTableUISourceFiles.TableRows));
 
-            // Comments blanked before the needle checks (StripCSharpComments is
-            // length-preserving, so indexes taken from the raw text address the same
-            // characters). Without it both needles read the large comment block inside
-            // this window: the classifier call surviving only in a comment would pass,
-            // and a comment mentioning the depth check would trip the negative.
-            string preparedUiSrc = SourceScanText.StripCSharpComments(uiSrc);
-            int hideAnchor = uiSrc.IndexOf("// Hide checkbox", StringComparison.Ordinal);
-            Assert.True(hideAnchor >= 0, "Hide checkbox anchor should exist in RecordingsTableUI.TableRows.cs");
-            int endAnchor = preparedUiSrc.IndexOf("GUILayout.EndHorizontal();", hideAnchor + 1, StringComparison.Ordinal);
-            Assert.True(endAnchor > hideAnchor, "Expected closing EndHorizontal after Hide checkbox block");
-            // Capture enough of the branch to include both if-branches.
-            int branchEnd = preparedUiSrc.IndexOf("rec.Hidden = hidden;", endAnchor, StringComparison.Ordinal);
-            Assert.True(branchEnd > hideAnchor, "Expected hide flip branch in source");
-            string hideBlock = preparedUiSrc.Substring(hideAnchor, branchEnd - hideAnchor);
+            List<string> problems = FindRowHidePolicyProblems(uiSrc);
 
-            Assert.DoesNotContain("unfinishedFlightRowDepth > 0", hideBlock);
-            Assert.Contains("EffectiveState.IsUnfinishedFlight(rec)", hideBlock);
+            Assert.True(problems.Count == 0,
+                "the row Archive write must gate on the classifier alone: "
+                + string.Join("; ", problems.ToArray()));
+        }
+
+        /// <summary>
+        /// What the row Archive path gets wrong, comments excluded. Empty list = the row
+        /// dispatches to the helper and the helper gates on the classifier alone.
+        /// </summary>
+        internal static List<string> FindRowHidePolicyProblems(string src)
+        {
+            var problems = new List<string>();
+            string row = MethodBodyText(src, "private bool DrawRecordingRow(");
+            string helper = MethodBodyText(src, "internal void ApplyRecordingArchiveToggle(");
+            if (row == null) { problems.Add("DrawRecordingRow not found"); return problems; }
+            if (helper == null) { problems.Add("ApplyRecordingArchiveToggle not found"); return problems; }
+
+            if (row.IndexOf("ApplyRecordingArchiveToggle(rec, hidden);", StringComparison.Ordinal) < 0)
+                problems.Add("DrawRecordingRow does not dispatch to ApplyRecordingArchiveToggle(rec, hidden)");
+            if (row.IndexOf("rec.Hidden =", StringComparison.Ordinal) >= 0)
+                problems.Add("DrawRecordingRow writes rec.Hidden itself");
+            if (helper.IndexOf("EffectiveState.IsUnfinishedFlight(rec)", StringComparison.Ordinal) < 0)
+                problems.Add("the helper does not consult EffectiveState.IsUnfinishedFlight(rec)");
+            if (helper.IndexOf("rec.Hidden = hidden;", StringComparison.Ordinal) < 0)
+                problems.Add("the helper does not write rec.Hidden = hidden");
+            if (helper.IndexOf("unfinishedFlightRowDepth", StringComparison.Ordinal) >= 0)
+                problems.Add("the helper reads unfinishedFlightRowDepth");
+            return problems;
+        }
+
+        /// <summary>
+        /// The comment-stripped text of the method body whose signature starts with
+        /// <paramref name="signature"/>, braces included; null when the signature is absent.
+        /// The brace walk runs over the literal-masked form (both forms are length-preserving,
+        /// so the same span addresses the same characters).
+        /// </summary>
+        internal static string MethodBodyText(string src, string signature)
+        {
+            src = src.Replace("\r\n", "\n");
+            string stripped = SourceScanText.StripCSharpComments(src);
+            string masked = SourceScanText.StripCommentsAndMaskLiterals(src);
+            int decl = masked.IndexOf(signature, StringComparison.Ordinal);
+            if (decl < 0) return null;
+            int open = masked.IndexOf('{', decl);
+            string block = SourceScanText.BraceMatchedBlock(masked, open);
+            return stripped.Substring(open, block.Length);
+        }
+
+        // anti-vacuity for the row scan above: each problem it names is reported by a decoy
+        // that has exactly that defect.
+        [Fact]
+        public void TheRowHidePolicyScanRedsOnEachDefect()
+        {
+            const string row =
+                "        private bool DrawRecordingRow(int ri)\n        {\n"
+                + "            if (hidden != rec.Hidden)\n            {\n"
+                + "                ApplyRecordingArchiveToggle(rec, hidden);\n"
+                + "            }\n            return false;\n        }\n";
+            const string helper =
+                "        internal void ApplyRecordingArchiveToggle(Recording rec, bool hidden)\n        {\n"
+                + "            if (IsArchiveRefusedForUnfinishedFlight(hidden, EffectiveState.IsUnfinishedFlight(rec)))\n"
+                + "            {\n                ParsekLog.Warn(\"UnfinishedFlights\", $\"rec={rec.RecordingId ?? \"<no-id>\"}\");\n            }\n"
+                + "            else\n            {\n                rec.Hidden = hidden;\n            }\n        }\n";
+            Assert.Empty(FindRowHidePolicyProblems(row + helper));
+
+            Assert.Single(FindRowHidePolicyProblems(
+                row.Replace("ApplyRecordingArchiveToggle(rec, hidden);", "// ApplyRecordingArchiveToggle(rec, hidden);") + helper));
+            Assert.Single(FindRowHidePolicyProblems(
+                row.Replace("return false;", "rec.Hidden = hidden; return false;") + helper));
+            Assert.Single(FindRowHidePolicyProblems(
+                row + helper.Replace("EffectiveState.IsUnfinishedFlight(rec)",
+                    "true /* EffectiveState.IsUnfinishedFlight(rec) */")));
+            Assert.Single(FindRowHidePolicyProblems(
+                row + helper.Replace("hidden, EffectiveState", "hidden && unfinishedFlightRowDepth > 0, EffectiveState")));
+            Assert.Single(FindRowHidePolicyProblems(
+                row + helper.Replace("rec.Hidden = hidden;", "// rec.Hidden = hidden;")));
         }
 
         // catches: the Archive refusal losing its DIRECTION. Refusing exists to keep rewind
@@ -227,16 +288,22 @@ namespace Parsek.Tests
                 + string.Join("; ", missing.ToArray()));
         }
 
-        // anti-vacuity for the scan above: the block is WRAPPED in a comment that names the
-        // per-row refusal it now shares, so a scan over raw source text answers "routed" for
-        // a block that only talks about routing. Decoy with the three needles present in the
-        // comment and nowhere else; every one of them must still read as missing.
+        // anti-vacuity for the scan above: the helper is WRAPPED in a comment that names the
+        // per-row refusal it shares, so a scan over raw source text answers "routed" for a
+        // body that only talks about routing. Decoy with the three needles present in the
+        // comment and nowhere else; every one of them must still read as missing, while the
+        // dispatch (present as code) does not.
         [Fact]
         public void TheGroupHideAllScanRedsWhenTheRoutingExistsOnlyInAComment()
         {
             string decoy =
                 "            bool newAllHidden = GUILayout.Toggle(allHidden, Content);\n"
+                + "            GUILayout.EndHorizontal();\n"
                 + "            if (newAllHidden != allHidden)\n            {\n"
+                + "                ApplyGroupArchiveToggle(groupName, descendants, committed, memberCount, newAllHidden);\n"
+                + "            }\n            GUILayout.EndHorizontal();\n"
+                + "        internal void ApplyGroupArchiveToggle(string groupName, HashSet<int> descendants,\n"
+                + "            IReadOnlyList<Recording> committed, int memberCount, bool newAllHidden)\n        {\n"
                 + "                // Same guard as the per-row control: this used to skip\n"
                 + "                // IsArchiveRefusedForUnfinishedFlight(newAllHidden, ...) and the\n"
                 + "                // EffectiveState.IsUnfinishedFlight(committed[idx]) count behind it,\n"
@@ -244,34 +311,50 @@ namespace Parsek.Tests
                 + "                foreach (int idx in descendants)\n"
                 + "                    committed[idx].Hidden = newAllHidden;\n"
                 + "                ParsekLog.Info(\"UI\", $\"Group '{groupName}' hide-all={newAllHidden}\");\n"
-                + "            }\n";
+                + "        }\n";
 
             List<string> missing = FindMissingGroupHideAllRoutingTokens(decoy);
 
             Assert.Equal(3, missing.Count);
+            Assert.DoesNotContain(missing, m => m.StartsWith("ApplyGroupArchiveToggle(", StringComparison.Ordinal));
+
+            // The dispatch half: a host that writes the folder inline instead of calling the
+            // helper is reported even when a correct helper exists elsewhere in the file.
+            string inline = decoy.Replace(
+                "ApplyGroupArchiveToggle(groupName, descendants, committed, memberCount, newAllHidden);",
+                "foreach (int idx in descendants) committed[idx].Hidden = newAllHidden;");
+            List<string> missingInline = FindMissingGroupHideAllRoutingTokens(inline);
+            Assert.Contains(missingInline, m => m.StartsWith("ApplyGroupArchiveToggle(", StringComparison.Ordinal));
         }
 
         /// <summary>
-        /// The routing tokens the group hide-all block does not actually contain, comments
-        /// excluded. Empty list = the block routes through the shared refusal.
-        /// <para>Anchored on CODE at both ends (the toggle assignment and the log line's
-        /// literal), not on the leading comment the block used to be found by: stripping
-        /// comments is what makes the needles mean something, and it also removes the old
-        /// anchor.</para>
+        /// The routing tokens the group hide-all path does not actually contain, comments
+        /// excluded. Empty list = the folder Archive write routes through the shared refusal.
+        /// <para>DrawGroupTree hands a changed folder Archive checkbox to
+        /// <c>ApplyGroupArchiveToggle</c>, so the dispatch is read in DrawGroupTree (from the
+        /// toggle assignment on) and the three routing needles inside the helper's own
+        /// brace-matched body, never in a neighbouring method.</para>
         /// </summary>
         internal static List<string> FindMissingGroupHideAllRoutingTokens(string src)
         {
+            src = src.Replace("\r\n", "\n");
             string prepared = SourceScanText.StripCSharpComments(src);
 
             int anchor = prepared.IndexOf(
                 "bool newAllHidden = GUILayout.Toggle(", StringComparison.Ordinal);
             Assert.True(anchor >= 0,
                 "the group hide-all toggle assignment should exist in RecordingsTableUI.GroupTree.cs");
-            int blockEnd = prepared.IndexOf("hide-all={newAllHidden}", anchor, StringComparison.Ordinal);
-            Assert.True(blockEnd > anchor, "Expected the group hide-all log line after the anchor");
-            string groupHideBlock = prepared.Substring(anchor, blockEnd - anchor);
 
             var missing = new List<string>();
+            const string dispatch =
+                "ApplyGroupArchiveToggle(groupName, descendants, committed, memberCount, newAllHidden);";
+            int call = prepared.IndexOf(dispatch, anchor, StringComparison.Ordinal);
+            int hostEnd = prepared.IndexOf("GUILayout.EndHorizontal();", anchor, StringComparison.Ordinal);
+            hostEnd = hostEnd < 0 ? -1 : prepared.IndexOf("GUILayout.EndHorizontal();", hostEnd + 1, StringComparison.Ordinal);
+            if (call < 0 || hostEnd < 0 || call > hostEnd)
+                missing.Add(dispatch);
+
+            string helper = MethodBodyText(src, "internal void ApplyGroupArchiveToggle(");
             foreach (string token in new[]
                      {
                          "IsArchiveRefusedForUnfinishedFlight(newAllHidden",
@@ -279,7 +362,7 @@ namespace Parsek.Tests
                          "BuildGroupArchiveRefusedMessage(groupName",
                      })
             {
-                if (groupHideBlock.IndexOf(token, StringComparison.Ordinal) < 0)
+                if (helper == null || helper.IndexOf(token, StringComparison.Ordinal) < 0)
                     missing.Add(token);
             }
             return missing;
