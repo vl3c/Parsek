@@ -286,7 +286,7 @@ namespace Parsek.Tests
         // Archive writes trigger is observable as its own log line.
         internal static RecordingsTableUI MakeTable()
         {
-            return new ParsekUI(UIMode.KSC).GetRecordingsTableUI();
+            return ParsekWindowSet.Of(ParsekWindowSet.BuildUI(UIMode.KSC)).GetRecordingsTableUI();
         }
 
         // ---------------------------------------------------------------------------------
