@@ -771,7 +771,9 @@ namespace Parsek
                 bool skipHasPointData = traj.Points != null && traj.Points.Count > 0;
                 ParsekLog.Verbose("Engine",
                     $"Disabled past-end completion: #{i} \"{traj.VesselName}\" " +
-                    $"UT={ctx.currentUT:F2} endUT={traj.EndUT:F2} ghostActive=false");
+                    "UT=" + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture) +
+                    " endUT=" + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture) +
+                    " ghostActive=false");
                 HandlePastEndGhost(i, traj, f, ctx, state: null, ghostActive: false, skipHasPointData);
             }
         }
