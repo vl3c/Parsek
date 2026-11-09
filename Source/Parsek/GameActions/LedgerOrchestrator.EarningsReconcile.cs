@@ -127,7 +127,7 @@ namespace Parsek
             public int KerbalDeathPairedSkipped;
         }
 
-        private struct EarningsWindowEmittedDeltas
+        internal struct EarningsWindowEmittedDeltas
         {
             public double EmittedFundsDelta;
             public double EmittedRepDelta;
@@ -371,146 +371,163 @@ namespace Parsek
                 {
                     var a = walk[i];
                     if (a == null) continue;
-                    // A reputation row inside the reputation seed is already in the seed
-                    // value, so the walk zeroes its EffectiveRep; the store still sees
-                    // its event. Count the amount stock moved the pool by instead.
-                    bool insideSeedRep = ReputationSeedMembership.ShouldSkipAsInsideSeed(
-                        a.Type, a.InsideReputationSeed);
-                    float repLeg = insideSeedRep
-                        ? EstimateInsideSeedRowRep(a, events, startUT, endUT, recordingId)
-                        : a.EffectiveRep;
-                    if (insideSeedRep) deltas.InsideSeedRepRowsCounted++;
-                    switch (a.Type)
-                    {
-                        case GameActionType.FundsEarning:
-                            // #440B: preemptive parity with FundsModule, which skips
-                            // crediting when !Effective. No TransformedFundsAwarded
-                            // exists today; read raw FundsAwarded.
-                            if (!a.Effective) break;
-                            deltas.EmittedFundsDelta += a.FundsAwarded;
-                            break;
-                        case GameActionType.FundsSpending:
-                            deltas.EmittedFundsDelta -= a.FundsSpent;
-                            break;
-                        case GameActionType.ReputationEarning:
-                            // #440B: EffectiveRep is curve-applied by ReputationModule
-                            // (ApplyReputationCurve). Mirrors ReconcilePostWalk.
-                            deltas.EmittedRepDelta += repLeg;
-                            break;
-                        case GameActionType.ReputationPenalty:
-                            // The kerbal-death leg is excluded on BOTH sides (see
-                            // ComputeEarningsWindowStoreDeltas): the row is a copy of the
-                            // VesselLoss event, so counting it here while a re-commit
-                            // drops the row would make first commit and re-commit
-                            // disagree. Every other penalty source stays - and so does a
-                            // kerbal-death row whose magnitude does NOT agree with the
-                            // event it claims to copy, because that pair does not cancel
-                            // and the discrepancy is exactly what this walk is for.
-                            if (IsMagnitudePairedKerbalDeathRepPenaltyRow(a, events))
-                            {
-                                deltas.KerbalDeathPairedSkipped++;
-                                break;
-                            }
-                            // #440B: EffectiveRep is signed negative for penalties
-                            // (ReputationModule.ProcessContractPenaltyRep). No unary minus.
-                            deltas.EmittedRepDelta += repLeg;
-                            break;
-                        case GameActionType.ContractComplete:
-                        // A parameter's own reward is the other half of the ContractReward
-                        // store deltas; same fields, same gate.
-                        case GameActionType.ContractParameterComplete:
-                            // #440B: read post-walk Transformed* / EffectiveRep. Gate on
-                            // Effective to skip duplicate completions (module skips credit).
-                            if (!a.Effective) break;
-                            deltas.EmittedFundsDelta += a.TransformedFundsReward;
-                            deltas.EmittedRepDelta += repLeg;
-                            deltas.EmittedSciDelta += a.TransformedScienceReward;
-                            break;
-                        case GameActionType.ContractFail:
-                        case GameActionType.ContractCancel:
-                            // #440B: funds penalty has no transform today; keep raw.
-                            // Rep penalty: EffectiveRep is already signed negative.
-                            // Gate on Effective: a fail / cancel of an already-resolved
-                            // contract charges nothing (ContractsModule).
-                            if (!a.Effective) break;
-                            deltas.EmittedFundsDelta -= a.FundsPenalty;
-                            deltas.EmittedRepDelta += repLeg;
-                            break;
-                        case GameActionType.ContractAccept:
-                            // #438 gap #1: without this case the advance payment's
-                            // FundsChanged(ContractAdvance) delta had no emitted-side
-                            // counterpart and every accepted contract whose UT fell
-                            // inside a commit window produced a spurious funds WARN.
-                            deltas.EmittedFundsDelta += a.AdvanceFunds;
-                            deltas.ContractAcceptCount++;
-                            break;
-                        case GameActionType.FacilityUpgrade:
-                            // #438 gap #6: symmetric to the KSC-side ReconcileKscAction
-                            // path -- a facility spend inside a recording's commit window
-                            // must subtract from the emitted delta to match the store's
-                            // negative FundsChanged.
-                            deltas.EmittedFundsDelta -= a.FacilityCost;
-                            deltas.FacilityUpgradeCount++;
-                            break;
-                        case GameActionType.FacilityRepair:
-                            // A repair of a building the walk already has intact is free
-                            // (FundsModule.ShouldChargeFacilityRepair).
-                            if (!a.Effective) break;
-                            deltas.EmittedFundsDelta -= a.FacilityCost;
-                            deltas.FacilityRepairCount++;
-                            break;
-                        case GameActionType.MilestoneAchievement:
-                            // #440B: rep leg reads EffectiveRep (curve-applied). Funds/Sci
-                            // legs keep raw MilestoneFundsAwarded / MilestoneScienceAwarded
-                            // (no transform today). Gate on Effective for duplicate milestones.
-                            // A partly credited world-record row emits only its new
-                            // thresholds' share, like a zeroed duplicate emits nothing.
-                            if (!a.Effective) break;
-                            deltas.EmittedFundsDelta += a.CreditedMilestoneFunds;
-                            deltas.EmittedRepDelta += repLeg;
-                            deltas.EmittedSciDelta += a.CreditedMilestoneScience;
-                            break;
-                        case GameActionType.ScienceEarning:
-                            // #440B: EffectiveScience is post-subject-cap (ScienceModule).
-                            // At cap, EffectiveScience=0 while ScienceAwarded != 0 --
-                            // this silences a false-positive WARN on capped subjects.
-                            if (!a.Effective) break;
-                            deltas.EmittedSciDelta += a.EffectiveScience;
-                            deltas.EffectiveScienceActions.Add(a);
-                            break;
-                        case GameActionType.ScienceSpending:
-                            deltas.EmittedSciDelta -= a.Cost;
-                            break;
-                        case GameActionType.StrategyScienceDebit:
-                            // ComputeEarningsWindowStoreDeltas sums every in-window
-                            // ScienceChanged delta that passes its RECORDING-SCOPE filter
-                            // (EventMatchesRecordingScope) regardless of the event's
-                            // reason key, so without this emitted-side arm a currency
-                            // exchange landing inside a flight commit window fires a false
-                            // "missing earning channel" science WARN.
-                            deltas.EmittedSciDelta -= a.Cost;
-                            break;
-                        case GameActionType.StrategyScienceCredit:
-                            // Mirror of the debit arm above for the OUTPUT direction.
-                            // (Query-family rows are written UNTAGGED and land in the
-                            // ledger immediately rather than in a commit's newActions,
-                            // so this arm bites only if a future producer ever emits a
-                            // tagged one - it is here so the type is never silently
-                            // absent from the emitted side.)
-                            deltas.EmittedSciDelta += a.ScienceAwarded;
-                            break;
-                        case GameActionType.ScienceLabEarning:
-                            // The lab's subject-less credit: its ScienceChanged
-                            // (ScienceTransmission / VesselRecovery) is on the store side,
-                            // and before this row existed it fired the "missing earning
-                            // channel" WARN on every lab transmission.
-                            deltas.EmittedSciDelta += a.ScienceAwarded;
-                            break;
-                    }
+                    AccumulateEmittedEarningsRow(
+                        ref deltas, a, events, startUT, endUT, recordingId);
                 }
             }
 
             return deltas;
+        }
+
+        /// <summary>
+        /// One row of <see cref="ComputeEarningsWindowEmittedDeltas"/>: add what the row
+        /// emitted to the funds, reputation and science totals (a row inside the reputation
+        /// seed counts the amount stock moved the pool by) and to the per-type counters.
+        /// </summary>
+        internal static void AccumulateEmittedEarningsRow(
+            ref EarningsWindowEmittedDeltas deltas,
+            GameAction a,
+            IReadOnlyList<GameStateEvent> events,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            // A reputation row inside the reputation seed is already in the seed
+            // value, so the walk zeroes its EffectiveRep; the store still sees
+            // its event. Count the amount stock moved the pool by instead.
+            bool insideSeedRep = ReputationSeedMembership.ShouldSkipAsInsideSeed(
+                a.Type, a.InsideReputationSeed);
+            float repLeg = insideSeedRep
+                ? EstimateInsideSeedRowRep(a, events, startUT, endUT, recordingId)
+                : a.EffectiveRep;
+            if (insideSeedRep) deltas.InsideSeedRepRowsCounted++;
+            switch (a.Type)
+            {
+                case GameActionType.FundsEarning:
+                    // #440B: preemptive parity with FundsModule, which skips
+                    // crediting when !Effective. No TransformedFundsAwarded
+                    // exists today; read raw FundsAwarded.
+                    if (!a.Effective) break;
+                    deltas.EmittedFundsDelta += a.FundsAwarded;
+                    break;
+                case GameActionType.FundsSpending:
+                    deltas.EmittedFundsDelta -= a.FundsSpent;
+                    break;
+                case GameActionType.ReputationEarning:
+                    // #440B: EffectiveRep is curve-applied by ReputationModule
+                    // (ApplyReputationCurve). Mirrors ReconcilePostWalk.
+                    deltas.EmittedRepDelta += repLeg;
+                    break;
+                case GameActionType.ReputationPenalty:
+                    // The kerbal-death leg is excluded on BOTH sides (see
+                    // ComputeEarningsWindowStoreDeltas): the row is a copy of the
+                    // VesselLoss event, so counting it here while a re-commit
+                    // drops the row would make first commit and re-commit
+                    // disagree. Every other penalty source stays - and so does a
+                    // kerbal-death row whose magnitude does NOT agree with the
+                    // event it claims to copy, because that pair does not cancel
+                    // and the discrepancy is exactly what this walk is for.
+                    if (IsMagnitudePairedKerbalDeathRepPenaltyRow(a, events))
+                    {
+                        deltas.KerbalDeathPairedSkipped++;
+                        break;
+                    }
+                    // #440B: EffectiveRep is signed negative for penalties
+                    // (ReputationModule.ProcessContractPenaltyRep). No unary minus.
+                    deltas.EmittedRepDelta += repLeg;
+                    break;
+                case GameActionType.ContractComplete:
+                // A parameter's own reward is the other half of the ContractReward
+                // store deltas; same fields, same gate.
+                case GameActionType.ContractParameterComplete:
+                    // #440B: read post-walk Transformed* / EffectiveRep. Gate on
+                    // Effective to skip duplicate completions (module skips credit).
+                    if (!a.Effective) break;
+                    deltas.EmittedFundsDelta += a.TransformedFundsReward;
+                    deltas.EmittedRepDelta += repLeg;
+                    deltas.EmittedSciDelta += a.TransformedScienceReward;
+                    break;
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    // #440B: funds penalty has no transform today; keep raw.
+                    // Rep penalty: EffectiveRep is already signed negative.
+                    // Gate on Effective: a fail / cancel of an already-resolved
+                    // contract charges nothing (ContractsModule).
+                    if (!a.Effective) break;
+                    deltas.EmittedFundsDelta -= a.FundsPenalty;
+                    deltas.EmittedRepDelta += repLeg;
+                    break;
+                case GameActionType.ContractAccept:
+                    // #438 gap #1: without this case the advance payment's
+                    // FundsChanged(ContractAdvance) delta had no emitted-side
+                    // counterpart and every accepted contract whose UT fell
+                    // inside a commit window produced a spurious funds WARN.
+                    deltas.EmittedFundsDelta += a.AdvanceFunds;
+                    deltas.ContractAcceptCount++;
+                    break;
+                case GameActionType.FacilityUpgrade:
+                    // #438 gap #6: symmetric to the KSC-side ReconcileKscAction
+                    // path -- a facility spend inside a recording's commit window
+                    // must subtract from the emitted delta to match the store's
+                    // negative FundsChanged.
+                    deltas.EmittedFundsDelta -= a.FacilityCost;
+                    deltas.FacilityUpgradeCount++;
+                    break;
+                case GameActionType.FacilityRepair:
+                    // A repair of a building the walk already has intact is free
+                    // (FundsModule.ShouldChargeFacilityRepair).
+                    if (!a.Effective) break;
+                    deltas.EmittedFundsDelta -= a.FacilityCost;
+                    deltas.FacilityRepairCount++;
+                    break;
+                case GameActionType.MilestoneAchievement:
+                    // #440B: rep leg reads EffectiveRep (curve-applied). Funds/Sci
+                    // legs keep raw MilestoneFundsAwarded / MilestoneScienceAwarded
+                    // (no transform today). Gate on Effective for duplicate milestones.
+                    // A partly credited world-record row emits only its new
+                    // thresholds' share, like a zeroed duplicate emits nothing.
+                    if (!a.Effective) break;
+                    deltas.EmittedFundsDelta += a.CreditedMilestoneFunds;
+                    deltas.EmittedRepDelta += repLeg;
+                    deltas.EmittedSciDelta += a.CreditedMilestoneScience;
+                    break;
+                case GameActionType.ScienceEarning:
+                    // #440B: EffectiveScience is post-subject-cap (ScienceModule).
+                    // At cap, EffectiveScience=0 while ScienceAwarded != 0 --
+                    // this silences a false-positive WARN on capped subjects.
+                    if (!a.Effective) break;
+                    deltas.EmittedSciDelta += a.EffectiveScience;
+                    deltas.EffectiveScienceActions.Add(a);
+                    break;
+                case GameActionType.ScienceSpending:
+                    deltas.EmittedSciDelta -= a.Cost;
+                    break;
+                case GameActionType.StrategyScienceDebit:
+                    // ComputeEarningsWindowStoreDeltas sums every in-window
+                    // ScienceChanged delta that passes its RECORDING-SCOPE filter
+                    // (EventMatchesRecordingScope) regardless of the event's
+                    // reason key, so without this emitted-side arm a currency
+                    // exchange landing inside a flight commit window fires a false
+                    // "missing earning channel" science WARN.
+                    deltas.EmittedSciDelta -= a.Cost;
+                    break;
+                case GameActionType.StrategyScienceCredit:
+                    // Mirror of the debit arm above for the OUTPUT direction.
+                    // (Query-family rows are written UNTAGGED and land in the
+                    // ledger immediately rather than in a commit's newActions,
+                    // so this arm bites only if a future producer ever emits a
+                    // tagged one - it is here so the type is never silently
+                    // absent from the emitted side.)
+                    deltas.EmittedSciDelta += a.ScienceAwarded;
+                    break;
+                case GameActionType.ScienceLabEarning:
+                    // The lab's subject-less credit: its ScienceChanged
+                    // (ScienceTransmission / VesselRecovery) is on the store side,
+                    // and before this row existed it fired the "missing earning
+                    // channel" WARN on every lab transmission.
+                    deltas.EmittedSciDelta += a.ScienceAwarded;
+                    break;
+            }
         }
 
         /// <summary>

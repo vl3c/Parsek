@@ -1,0 +1,193 @@
+== live landed commit backs up snapshot
+return false
+seam FindVesselByPid(5001)
+seam IsFound(stub)
+seam FindLaterSpawnOwner -> null
+seam DetermineTerminalState -> Landed
+seam CaptureTerminalOrbit(v01)
+seam CaptureTerminalPosition(v01)
+seam TryBackupSnapshot -> node
+seam TryRefreshStableTerminalSnapshot(v01, sceneExit=false, FinalizeIndividualRecording)
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
+set f.GhostVisualSnapshot: <null> -> node:VESSEL(sit=LANDED)
+set f.TerminalStateValue: <null> -> Landed
+set f.VesselSnapshot: <null> -> node:VESSEL(sit=LANDED)
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v01 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v01' sections=0 points=2 maxDist=0m
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v01' vessel='Vessel v01' points=2 orbitSegs=0 terminal=Landed maxDist=0m snapshot=True leaf=True
+== live landed commit backup null
+return false
+seam FindVesselByPid(5002)
+seam IsFound(stub)
+seam FindLaterSpawnOwner -> null
+seam DetermineTerminalState -> Landed
+seam CaptureTerminalOrbit(v02)
+seam CaptureTerminalPosition(v02)
+seam TryBackupSnapshot -> null
+seam TryRefreshStableTerminalSnapshot(v02, sceneExit=false, FinalizeIndividualRecording)
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
+set f.TerminalStateValue: <null> -> Landed
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v02 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v02' sections=0 points=2 maxDist=0m
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v02' vessel='Vessel v02' points=2 orbitSegs=0 terminal=Landed maxDist=0m snapshot=False leaf=True
+== live landed commit keeps ghost snapshot
+return false
+seam FindVesselByPid(5003)
+seam IsFound(stub)
+seam FindLaterSpawnOwner -> null
+seam DetermineTerminalState -> Landed
+seam CaptureTerminalOrbit(v03)
+seam CaptureTerminalPosition(v03)
+seam TryBackupSnapshot -> node
+seam TryRefreshStableTerminalSnapshot(v03, sceneExit=false, FinalizeIndividualRecording)
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
+set f.TerminalStateValue: <null> -> Landed
+set f.VesselSnapshot: <null> -> node:VESSEL(sit=LANDED)
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v03 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v03' sections=0 points=2 maxDist=0m
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v03' vessel='Vessel v03' points=2 orbitSegs=0 terminal=Landed maxDist=0m snapshot=True leaf=True
+== live orbiting scene-exit refreshes body
+return false
+seam FindVesselByPid(5004)
+seam IsFound(stub)
+seam FindLaterSpawnOwner -> null
+seam DetermineTerminalState -> Orbiting
+seam CaptureTerminalOrbit(v04)
+seam CaptureTerminalPosition(v04)
+seam TryRefreshStableTerminalSnapshot(v04, sceneExit=true, FinalizeIndividualRecording)
+seam CaptureTerminalOrbit(v04)
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
+set f.SceneExitSituation: -1 -> 32
+set f.TerminalOrbitBody: <null> -> 'Mun'
+set f.TerminalOrbitEccentricity: d:0000000000000000 -> d:3F847AE147AE147B
+set f.TerminalOrbitEpoch: d:0000000000000000 -> d:4062C00000000000
+set f.TerminalOrbitInclination: d:0000000000000000 -> d:4008000000000000
+set f.TerminalOrbitSemiMajorAxis: d:0000000000000000 -> d:410E848000000000
+set f.TerminalStateValue: <null> -> Orbiting
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v04 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v04' sections=0 points=2 maxDist=0m
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v04' vessel='Vessel v04' points=2 orbitSegs=0 terminal=Orbiting maxDist=0m snapshot=False leaf=True termOrbit[body=Mun epoch=150.00 sma=250000.0 ecc=0.0100 periR=247500.0 apoR=252500.0 inc=3.00]
+== live orbiting commit no body captured
+return false
+seam FindVesselByPid(5005)
+seam IsFound(stub)
+seam FindLaterSpawnOwner -> null
+seam DetermineTerminalState -> Orbiting
+seam CaptureTerminalOrbit(v05)
+seam CaptureTerminalPosition(v05)
+seam TryBackupSnapshot -> null
+seam TryRefreshStableTerminalSnapshot(v05, sceneExit=false, FinalizeIndividualRecording)
+seam CaptureTerminalOrbit(v05)
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
+set f.TerminalStateValue: <null> -> Orbiting
+log [Parsek][WARN][Flight] FinalizeIndividualRecording: terminal orbit refresh declined for 'v05' (terminal=Orbiting, vesselFound=True, orbitSegments=0) — TerminalOrbitBody remains empty
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v05 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v05' sections=0 points=2 maxDist=0m
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v05' vessel='Vessel v05' points=2 orbitSegs=0 terminal=Orbiting maxDist=0m snapshot=False leaf=True
+== live vessel owned by later spawn
+return false
+seam FindVesselByPid(5006)
+seam IsFound(stub)
+seam FindLaterSpawnOwner -> v06-owner
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
+log [Parsek][INFO][Flight] FinalizeIndividualRecording: live vessel pid=5006 for 'v06' (endUT=120.00) is the terminal spawn of later committed recording 'v06-owner' (endUT=900.00) - not finalized from the live vessel
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v06 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v06' sections=0 points=2 maxDist=0m
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v06' vessel='Vessel v06' points=2 orbitSegs=0 terminal=none maxDist=0m snapshot=False leaf=False
+== tree-active recording skips spawn-owner check
+return false
+seam FindVesselByPid(5007)
+seam IsFound(stub)
+seam DetermineTerminalState -> Landed
+seam CaptureTerminalOrbit(v07)
+seam CaptureTerminalPosition(v07)
+seam TryBackupSnapshot -> null
+seam TryRefreshStableTerminalSnapshot(v07, sceneExit=false, FinalizeIndividualRecording)
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
+set f.SegmentBodyName: <null> -> 'Kerbin'
+set f.SegmentPhase: <null> -> 'surface'
+set f.TerminalStateValue: <null> -> Landed
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v07 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] Final SegmentPhase applied from terminal-surface: rec=v07 old=<none> new=Kerbin surface sourceRec=<none>
+log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v07' sections=0 points=2 maxDist=0m
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v07' vessel='Vessel v07' points=2 orbitSegs=0 terminal=Landed maxDist=0m snapshot=False leaf=True
+== live existing landed refreshes stable snapshot
+return false
+seam FindVesselByPid(5008)
+seam IsFound(stub)
+seam FindLaterSpawnOwner -> null
+seam TryRefreshStableTerminalSnapshot(v08, sceneExit=true, FinalizeIndividualRecording)
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v08 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v08' sections=0 points=2 maxDist=0m
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v08' vessel='Vessel v08' points=2 orbitSegs=0 terminal=Landed maxDist=0m snapshot=False leaf=True
+== live existing destroyed no refresh
+return false
+seam FindVesselByPid(5009)
+seam IsFound(stub)
+seam FindLaterSpawnOwner -> null
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v09 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v09' sections=0 points=2 maxDist=0m
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v09' vessel='Vessel v09' points=2 orbitSegs=0 terminal=Destroyed maxDist=0m snapshot=False leaf=True
+== live scene-exit override supplies snapshot
+return true
+seam FindVesselByPid(5010)
+seam IsFound(stub)
+seam FindLaterSpawnOwner -> null
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:4070400000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
+set f.FilesDirty: false -> true
+set f.GhostSnapshotMode: Unspecified -> AliasVessel
+set f.GhostVisualSnapshot: <null> -> node:VESSEL(sit=LANDED)
+set f.TerminalStateValue: <null> -> Landed
+set f.VesselSnapshot: <null> -> node:VESSEL(sit=LANDED)
+set p.EndUT: d:4059000000000000 -> d:4070400000000000
+log [Parsek][VERBOSE][Extrapolator] FinalizeIndividualRecording: updated ghost snapshot mode for 'v10' Unspecified->AliasVessel after applying terminal snapshot
+log [Parsek][INFO][Extrapolator] FinalizeIndividualRecording: scene-exit finalization applied to 'v10' (patched=0, extrapolated=0, appendedSegments=0, terminal=Landed, terminalUT=260.0, vesselFound=False, elapsedMs=<t>)
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v10 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v10' vessel='Vessel v10' points=1 orbitSegs=0 terminal=Landed maxDist=0m snapshot=True leaf=True
+== live destroyed cache repair not stale
+return false
+seam FindVesselByPid(5011)
+seam IsFound(stub)
+seam FindLaterSpawnOwner -> null
+seam CaptureTerminalOrbit(v11)
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:4059000000000000
+set f.ExplicitStartUT: d:FFF8000000000000 -> d:4056800000000000
+log [Parsek][VERBOSE][Flight] Finalization cache repair skipped: rec=rec[v11|Vessel v11|sa|-] reason=futureOrInvalidTerminalUT existingTerminal=SubOrbital cacheTerminal=Destroyed terminalUT=180.000 commitUT=120.000
+log [Parsek][WARN][Flight] FinalizeIndividualRecording: terminal orbit refresh declined for 'v11' (terminal=SubOrbital, vesselFound=True, orbitSegments=0) — TerminalOrbitBody remains empty
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v11 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v11' sections=0 points=2 maxDist=0m
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v11' vessel='Vessel v11' points=2 orbitSegs=0 terminal=SubOrbital maxDist=0m snapshot=False leaf=True
