@@ -256,7 +256,7 @@ namespace Parsek
             return scope;
         }
 
-        private static bool IsTransferMemberId(Recording rec, ICollection<string> transferMemberIds)
+        internal static bool IsTransferMemberId(Recording rec, ICollection<string> transferMemberIds)
         {
             return rec != null && transferMemberIds != null
                 && !string.IsNullOrEmpty(rec.RecordingId)
