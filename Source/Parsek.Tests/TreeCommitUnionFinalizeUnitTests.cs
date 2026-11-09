@@ -396,5 +396,129 @@ namespace Parsek.Tests
             TreeCommitService.FinalizeTreeCommit(Tree("a", "a", Rec("a")));
             Assert.Contains(logLines, l => l.Contains("window UT 0-0, recordingId=tree"));
         }
+
+        // ---------- Extracted units ----------
+
+        [Fact]
+        public void UnionRecordingsInto_CountsOnlyNewIds()
+        {
+            var existing = Tree("a", "a", Rec("a"), Rec("s"));
+            var incoming = Tree("a", "a", Rec("s"), Rec("n1"), Rec("n2"));
+
+            Assert.Equal(2, TreeCommitService.UnionRecordingsInto(existing, incoming));
+            Assert.Equal(4, existing.Recordings.Count);
+            Assert.Same(incoming.Recordings["s"], existing.Recordings["s"]);
+        }
+
+        [Fact]
+        public void UnionBranchPointsInto_NullIncomingListAddsNothing()
+        {
+            var existing = Tree("a", "a");
+            existing.BranchPoints.Add(Bp("bp1"));
+            var incoming = Tree("a", "a");
+            incoming.BranchPoints = null;
+
+            Assert.Equal(0, TreeCommitService.UnionBranchPointsInto(existing, incoming));
+            Assert.Single(existing.BranchPoints);
+        }
+
+        [Fact]
+        public void UnionBranchPointsInto_KnownIdIsOrdinal()
+        {
+            var existing = Tree("a", "a");
+            existing.BranchPoints.Add(Bp("BP1"));
+            var incoming = Tree("a", "a");
+            incoming.BranchPoints.Add(Bp("bp1"));
+
+            Assert.Equal(1, TreeCommitService.UnionBranchPointsInto(existing, incoming));
+        }
+
+        [Theory]
+        [InlineData(null, "in", "in")]
+        [InlineData("", "in", "in")]
+        [InlineData("keep", "in", "keep")]
+        [InlineData(null, null, null)]
+        [InlineData(null, "", null)]
+        public void AdoptMissingRootRecordingId_Table(string existingRoot, string incomingRoot, string expected)
+        {
+            var existing = Tree(existingRoot, null);
+            TreeCommitService.AdoptMissingRootRecordingId(existing, Tree(incomingRoot, null));
+            Assert.Equal(expected, existing.RootRecordingId);
+        }
+
+        [Theory]
+        [InlineData("head", "tip", true, "tip")]
+        [InlineData(null, "tip", true, "tip")]
+        [InlineData("tip", "tip", false, "tip")]
+        [InlineData("head", null, false, "head")]
+        [InlineData("head", "", false, "head")]
+        [InlineData("tip", "TIP", true, "TIP")]
+        public void AdoptIncomingActiveRecordingId_Table(string existingActive, string incomingActive,
+            bool swapped, string expected)
+        {
+            var existing = Tree(null, existingActive);
+            Assert.Equal(swapped, TreeCommitService.AdoptIncomingActiveRecordingId(existing, Tree(null, incomingActive)));
+            Assert.Equal(expected, existing.ActiveRecordingId);
+        }
+
+        [Fact]
+        public void MergeTreeRecordings_AppendsNewReplacesOtherInstanceSkipsSameInstance()
+        {
+            var same = Rec("same", endUT: 10);
+            var oldCopy = Rec("swap", endUT: 10);
+            oldCopy.RewindSaveFileName = "parsek_rw_swap";
+            RecordingStore.AddRecordingWithTreeForTesting(same);
+            RecordingStore.AddRecordingWithTreeForTesting(oldCopy);
+            var newCopy = Rec("swap", endUT: 20);
+            var fresh = Rec("fresh", endUT: 30);
+            same.FilesDirty = false;
+            var tree = Tree("same", "same", same, newCopy, fresh);
+            int version = RecordingStore.StateVersion;
+
+            TreeCommitService.MergeTreeRecordingsIntoCommitted(tree, null, null,
+                out int added, out int replaced, out int saves, out int runtime);
+
+            Assert.Equal(1, added);
+            Assert.Equal(1, replaced);
+            Assert.Equal(1, saves);
+            Assert.True(runtime >= 0);
+            Assert.Equal(new[] { "same", "swap", "fresh" },
+                RecordingStore.CommittedRecordings.Select(r => r.RecordingId).ToArray());
+            Assert.Same(newCopy, RecordingStore.CommittedRecordings[1]);
+            Assert.Equal("parsek_rw_swap", newCopy.RewindSaveFileName);
+            Assert.True(same.FilesDirty && newCopy.FilesDirty && fresh.FilesDirty);
+            // The caller owns the bump: appends and replaces here are unbumped.
+            Assert.Equal(version, RecordingStore.StateVersion);
+        }
+
+        [Fact]
+        public void MergeTreeRecordings_EmptyTree_CountsNothing()
+        {
+            TreeCommitService.MergeTreeRecordingsIntoCommitted(Tree(null, null), null, null,
+                out int added, out int replaced, out int saves, out int runtime);
+
+            Assert.Equal(0, added + replaced + saves + runtime);
+            Assert.Empty(RecordingStore.CommittedRecordings);
+        }
+
+        [Theory]
+        [InlineData(-1, 3, false)]
+        [InlineData(0, 3, true)]
+        [InlineData(2, 3, true)]
+        [InlineData(3, 3, false)]
+        [InlineData(0, 0, false)]
+        public void IsCommittedTreeIndex_Table(int index, int count, bool expected)
+        {
+            Assert.Equal(expected, TreeCommitService.IsCommittedTreeIndex(index, count));
+        }
+
+        [Fact]
+        public void ComputeTreeEndUT_LatestEnd_ZeroForNoneOrNegative()
+        {
+            Assert.Equal(500.0, TreeCommitService.ComputeTreeEndUT(
+                Tree(null, null, Rec("a", endUT: 120), Rec("b", endUT: 500), Rec("c", endUT: 300))));
+            Assert.Equal(0.0, TreeCommitService.ComputeTreeEndUT(Tree(null, null)));
+            Assert.Equal(0.0, TreeCommitService.ComputeTreeEndUT(Tree(null, null, Rec("n", endUT: -40))));
+        }
     }
 }
