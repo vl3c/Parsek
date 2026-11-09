@@ -104,26 +104,9 @@ namespace Parsek
             // folder the tree-root vessel's block is absorbed (its segments draw directly
             // under the mission row), and the header's Loop and G cells take over what that
             // block's header offered, so they need its members now.
-            List<int> directMembers;
-            grpToRecs.TryGetValue(groupName, out directMembers);
-            List<GroupDisplayBlock> displayBlocks = directMembers != null
-                ? BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs)
-                : null;
-            List<int> absorbedRootMembers = null;
-            if (displayBlocks != null)
-            {
-                RecordingTree missionTree = MissionGroupLink.FindTreeByRootGroup(groupName);
-                string rootBlockKey = missionTree != null
-                    ? ResolveRootVesselBlockKey(groupName, ResolveTreeRootRecording(missionTree))
-                    : null;
-                int absorbedIdx = FindRootVesselBlockIndex(displayBlocks, rootBlockKey);
-                if (absorbedIdx >= 0)
-                {
-                    absorbedRootMembers = displayBlocks[absorbedIdx].Members;
-                    displayBlocks = FlattenAbsorbedBlock(displayBlocks, absorbedIdx, groupName);
-                }
-                LogRootBlockAbsorptionTransition(groupName, rootBlockKey, absorbedRootMembers);
-            }
+            List<int> absorbedRootMembers;
+            List<GroupDisplayBlock> displayBlocks = ResolveFolderDisplayBlocks(
+                groupName, committed, grpToRecs, chainToRecs, out absorbedRootMembers);
 
             float indent = SelfConnectorIndent(depth);
 
@@ -348,30 +331,8 @@ namespace Parsek
                 GUILayout.EndHorizontal();
                 if (newLoop != grpLoopAgg.AllLoop)
                 {
-                    if (grpRouteBound)
-                    {
-                        ParsekLog.Info("RouteGuard",
-                            $"Recordings-tab group Loop blocked for '{groupName}' (a descendant is on a route-bound tree); request={newLoop} ignored");
-                    }
-                    else if (absorbedRootMembers != null)
-                    {
-                        SplitAbsorbedLoopWrite(grpLoopScope, absorbedRootMembers,
-                            out List<int> withAutoRange, out List<int> withoutAutoRange);
-                        int rootWritten = BulkSetLoopPlayback(
-                            committed, withAutoRange, newLoop, applyAutoRange: true);
-                        int otherWritten = BulkSetLoopPlayback(
-                            committed, withoutAutoRange, newLoop, applyAutoRange: false);
-                        ParsekLog.Info("UI",
-                            $"Group '{groupName}' loop set to {newLoop} "
-                            + $"(launched vessel {rootWritten.ToString(CultureInfo.InvariantCulture)} "
-                            + "recordings with auto loop range, other "
-                            + $"{otherWritten.ToString(CultureInfo.InvariantCulture)} without)");
-                    }
-                    else
-                    {
-                        int written = BulkSetLoopPlayback(committed, descendants, newLoop, applyAutoRange: false);
-                        ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({written} recordings)");
-                    }
+                    ApplyGroupLoopToggle(groupName, newLoop, grpRouteBound, committed,
+                        descendants, grpLoopScope, absorbedRootMembers);
                 }
             }
 
@@ -597,47 +558,7 @@ namespace Parsek
             GUILayout.EndHorizontal();
             if (newAllHidden != allHidden)
             {
-                // The per-row Archive checkbox refuses to hide an Unfinished Flight
-                // (see DrawRecordingRow: rewind access must remain visible). This
-                // path wrote Hidden over every descendant with no such check, so
-                // archiving a FOLDER buried exactly the re-flyable flight the per-row
-                // control exists to protect (finding P17). Same guard, group
-                // granularity: refuse the whole toggle so the folder's Hidden flag and
-                // its members' can never disagree, and name the count so the player
-                // knows what to resolve. Only the HIDE direction is gated - un-hiding
-                // an Unfinished Flight is the recovery path, never a loss.
-                int unfinishedCount = 0;
-                if (newAllHidden)
-                {
-                    foreach (int idx in descendants)
-                        if (EffectiveState.IsUnfinishedFlight(committed[idx]))
-                            unfinishedCount++;
-                }
-
-                if (IsArchiveRefusedForUnfinishedFlight(newAllHidden, unfinishedCount > 0))
-                {
-                    ParsekLog.Warn("UnfinishedFlights",
-                        $"Group hide-all refused for group '{groupName}': "
-                        + $"{unfinishedCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} of "
-                        + $"{memberCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} "
-                        + "member(s) are Unfinished Flights; rewind access must remain "
-                        + "visible (design §7.33)");
-                    ParsekLog.ScreenMessage(
-                        BuildGroupArchiveRefusedMessage(groupName, unfinishedCount), 4f);
-                }
-                else
-                {
-                    foreach (int idx in descendants)
-                        committed[idx].Hidden = newAllHidden;
-                    // Also update group-level visibility
-                    if (newAllHidden)
-                        GroupHierarchyStore.AddHiddenGroup(groupName);
-                    else
-                        GroupHierarchyStore.RemoveHiddenGroup(groupName);
-                    NotifyTimelineOfArchiveChange();
-                    ParsekLog.Info("UI",
-                        $"Group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
-                }
+                ApplyGroupArchiveToggle(groupName, descendants, committed, memberCount, newAllHidden);
             }
 
             GUILayout.EndHorizontal();
@@ -662,6 +583,127 @@ namespace Parsek
             {
                 enclosingRewindTargetIdx = savedEnclosingRewind;
                 enclosingForwardTargetIdx = savedEnclosingForward;
+            }
+        }
+
+        /// <summary>
+        /// A folder's own display blocks, or null when it has no direct members. On a mission
+        /// folder the tree-root vessel's block is flattened into single rows and its members
+        /// come back in <paramref name="absorbedRootMembers"/> (null when nothing was
+        /// absorbed); a change of absorption is logged once.
+        /// </summary>
+        internal List<GroupDisplayBlock> ResolveFolderDisplayBlocks(string groupName,
+            IReadOnlyList<Recording> committed,
+            Dictionary<string, List<int>> grpToRecs,
+            Dictionary<string, List<int>> chainToRecs,
+            out List<int> absorbedRootMembers)
+        {
+            List<int> directMembers;
+            grpToRecs.TryGetValue(groupName, out directMembers);
+            List<GroupDisplayBlock> displayBlocks = directMembers != null
+                ? BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs)
+                : null;
+            absorbedRootMembers = null;
+            if (displayBlocks != null)
+            {
+                RecordingTree missionTree = MissionGroupLink.FindTreeByRootGroup(groupName);
+                string rootBlockKey = missionTree != null
+                    ? ResolveRootVesselBlockKey(groupName, ResolveTreeRootRecording(missionTree))
+                    : null;
+                int absorbedIdx = FindRootVesselBlockIndex(displayBlocks, rootBlockKey);
+                if (absorbedIdx >= 0)
+                {
+                    absorbedRootMembers = displayBlocks[absorbedIdx].Members;
+                    displayBlocks = FlattenAbsorbedBlock(displayBlocks, absorbedIdx, groupName);
+                }
+                LogRootBlockAbsorptionTransition(groupName, rootBlockKey, absorbedRootMembers);
+            }
+            return displayBlocks;
+        }
+
+        /// <summary>
+        /// Writes a folder Loop toggle change. A route-bound scope is refused and logged; on a
+        /// mission folder that absorbed its launched vessel's block those members are written
+        /// WITH the auto loop range and every other loopable descendant WITHOUT; otherwise
+        /// every descendant is written without it.
+        /// </summary>
+        internal static void ApplyGroupLoopToggle(string groupName, bool newLoop, bool grpRouteBound,
+            IReadOnlyList<Recording> committed, HashSet<int> descendants,
+            IEnumerable<int> grpLoopScope, List<int> absorbedRootMembers)
+        {
+            if (grpRouteBound)
+            {
+                ParsekLog.Info("RouteGuard",
+                    $"Recordings-tab group Loop blocked for '{groupName}' (a descendant is on a route-bound tree); request={newLoop} ignored");
+            }
+            else if (absorbedRootMembers != null)
+            {
+                SplitAbsorbedLoopWrite(grpLoopScope, absorbedRootMembers,
+                    out List<int> withAutoRange, out List<int> withoutAutoRange);
+                int rootWritten = BulkSetLoopPlayback(
+                    committed, withAutoRange, newLoop, applyAutoRange: true);
+                int otherWritten = BulkSetLoopPlayback(
+                    committed, withoutAutoRange, newLoop, applyAutoRange: false);
+                ParsekLog.Info("UI",
+                    $"Group '{groupName}' loop set to {newLoop} "
+                    + $"(launched vessel {rootWritten.ToString(CultureInfo.InvariantCulture)} "
+                    + "recordings with auto loop range, other "
+                    + $"{otherWritten.ToString(CultureInfo.InvariantCulture)} without)");
+            }
+            else
+            {
+                int written = BulkSetLoopPlayback(committed, descendants, newLoop, applyAutoRange: false);
+                ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({written} recordings)");
+            }
+        }
+
+        /// <summary>
+        /// Writes a folder Archive toggle change over every descendant, or refuses a hide that
+        /// would bury an Unfinished Flight (warning plus a screen message naming the count).
+        /// </summary>
+        internal void ApplyGroupArchiveToggle(string groupName, HashSet<int> descendants,
+            IReadOnlyList<Recording> committed, int memberCount, bool newAllHidden)
+        {
+            // The per-row Archive checkbox refuses to hide an Unfinished Flight
+            // (see DrawRecordingRow: rewind access must remain visible). This
+            // path wrote Hidden over every descendant with no such check, so
+            // archiving a FOLDER buried exactly the re-flyable flight the per-row
+            // control exists to protect (finding P17). Same guard, group
+            // granularity: refuse the whole toggle so the folder's Hidden flag and
+            // its members' can never disagree, and name the count so the player
+            // knows what to resolve. Only the HIDE direction is gated - un-hiding
+            // an Unfinished Flight is the recovery path, never a loss.
+            int unfinishedCount = 0;
+            if (newAllHidden)
+            {
+                foreach (int idx in descendants)
+                    if (EffectiveState.IsUnfinishedFlight(committed[idx]))
+                        unfinishedCount++;
+            }
+
+            if (IsArchiveRefusedForUnfinishedFlight(newAllHidden, unfinishedCount > 0))
+            {
+                ParsekLog.Warn("UnfinishedFlights",
+                    $"Group hide-all refused for group '{groupName}': "
+                    + $"{unfinishedCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} of "
+                    + $"{memberCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} "
+                    + "member(s) are Unfinished Flights; rewind access must remain "
+                    + "visible (design §7.33)");
+                ParsekLog.ScreenMessage(
+                    BuildGroupArchiveRefusedMessage(groupName, unfinishedCount), 4f);
+            }
+            else
+            {
+                foreach (int idx in descendants)
+                    committed[idx].Hidden = newAllHidden;
+                // Also update group-level visibility
+                if (newAllHidden)
+                    GroupHierarchyStore.AddHiddenGroup(groupName);
+                else
+                    GroupHierarchyStore.RemoveHiddenGroup(groupName);
+                NotifyTimelineOfArchiveChange();
+                ParsekLog.Info("UI",
+                    $"Group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
             }
         }
 
