@@ -13,7 +13,7 @@ namespace Parsek
     /// Manages the recordings list, sorting, group tree, rename, loop period editing, and all
     /// recordings-window-specific UI state.
     /// </summary>
-    internal partial class RecordingsTableUI
+    internal partial class RecordingsTableUI : IRecordingsTableWindow
     {
         private readonly ParsekUI parentUI;
 
@@ -165,6 +165,7 @@ namespace Parsek
 
         // Runtime-only empty groups (not persisted)
         internal List<string> KnownEmptyGroups = new List<string>();
+        List<string> IRecordingsTableWindow.KnownEmptyGroups => KnownEmptyGroups;
 
         // Cached phase label styles
         private GUIStyle phaseStyleAtmo;
@@ -384,7 +385,7 @@ namespace Parsek
         /// <c>ParsekUI.OnUiComplexityModeApplied</c>, so the clamp happens the moment the
         /// mode takes effect rather than waiting for the next draw.
         /// </summary>
-        internal void ClampTabForBasic()
+        public void ClampTabForBasic()
         {
             ApplyTabClamp(UiComplexityMode.Basic, "mode apply");
         }
@@ -399,7 +400,7 @@ namespace Parsek
         /// reachability rule rather than a lock rule.
         /// <para>This window itself is NOT closed - it survives as the Missions window.</para>
         /// </summary>
-        internal void CloseGroupPickerForModeChange()
+        public void CloseGroupPickerForModeChange()
         {
             if (groupPicker == null)
                 return;
@@ -408,7 +409,7 @@ namespace Parsek
         }
 
         /// <summary>Whether this window's group picker popup is currently open.</summary>
-        internal bool IsGroupPickerOpen => groupPicker != null && groupPicker.IsOpen;
+        public bool IsGroupPickerOpen => groupPicker != null && groupPicker.IsOpen;
 
         /// <summary>
         /// Test seam: the group picker instance, so the close-set tests can open it the
@@ -731,7 +732,7 @@ namespace Parsek
             this.groupPicker = new GroupPickerUI(parentUI);
         }
 
-        internal bool IsMouseOverOpenWindow(Vector2 mousePosition)
+        public bool IsMouseOverOpenWindow(Vector2 mousePosition)
         {
             return ParsekUI.IsPointerOverOpenWindow(
                 showRecordingsWindow,
@@ -761,7 +762,7 @@ namespace Parsek
                 selectedTab = TabMissions;
             }
 
-            parentUI.GetMissionsUI().RevealMissionForRecording(recordingId);
+            ParsekWindowSet.Of(parentUI).GetMissionsUI().RevealMissionForRecording(recordingId);
         }
 
         /// <summary>
@@ -780,7 +781,7 @@ namespace Parsek
         /// </summary>
         private void NotifyTimelineOfArchiveChange()
         {
-            parentUI?.GetTimelineUI()?.InvalidateCache();
+            ParsekWindowSet.Of(parentUI)?.GetTimelineUI()?.InvalidateCache();
         }
 
         /// <summary>
@@ -971,7 +972,7 @@ namespace Parsek
             }
         }
 
-        internal void ReleaseInputLock()
+        public void ReleaseInputLock()
         {
             if (!recordingsWindowHasInputLock) return;
             InputLockManager.RemoveControlLock(RecordingsInputLockId);

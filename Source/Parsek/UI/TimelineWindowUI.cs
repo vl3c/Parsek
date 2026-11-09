@@ -11,7 +11,7 @@ namespace Parsek
     /// from recordings and game actions, with current-UT divider, tier filtering,
     /// resource budget, and rewind access.
     /// </summary>
-    internal class TimelineWindowUI
+    internal class TimelineWindowUI : ITimelineWindow
     {
         internal enum TimelineWatchButtonAction
         {
@@ -676,12 +676,12 @@ namespace Parsek
         /// before the Kerbals window's hook so a ledger change drops this cache first, and undone by <see cref="UnsubscribeTimelineDataChanged"/> from
         /// <c>ParsekUI.Cleanup</c>, so the hook lives and dies with the scene's ParsekUI.
         /// </summary>
-        internal void SubscribeTimelineDataChanged()
+        public void SubscribeTimelineDataChanged()
         {
             LedgerOrchestrator.OnTimelineDataChanged += InvalidateCache;
         }
 
-        internal void UnsubscribeTimelineDataChanged()
+        public void UnsubscribeTimelineDataChanged()
         {
             LedgerOrchestrator.OnTimelineDataChanged -= InvalidateCache;
         }
@@ -2011,7 +2011,7 @@ namespace Parsek
                 var rec = FindRecordingById(entry.RecordingId);
                 if (rec != null)
                 {
-                    var tableUI = parentUI.GetRecordingsTableUI();
+                    var tableUI = ParsekWindowSet.Of(parentUI).GetRecordingsTableUI();
                     var flight = parentUI.Flight;
                     // Use the CommittedRecordings index here: every ghost-engine /
                     // watch-mode API below keys on that raw list, not on ERS. Same
@@ -2142,7 +2142,7 @@ namespace Parsek
                 var rec = FindRecordingById(entry.RecordingId);
                 if (rec != null)
                 {
-                    var tableUI = parentUI.GetRecordingsTableUI();
+                    var tableUI = ParsekWindowSet.Of(parentUI).GetRecordingsTableUI();
 
                     if (entry.Type == TimelineEntryType.UnfinishedFlightSeparation)
                     {

@@ -1208,7 +1208,7 @@ namespace Parsek
 
             CaptureFreshRolloutVesselPidIfApplicable();
 
-            ui = new ParsekUI(this);
+            ui = ParsekWindowSet.BuildUI(this);
             mapMarkers = new ParsekFlightMapMarkers(this);
 
             // Camera follow (watch mode)

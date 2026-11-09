@@ -15,10 +15,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void SectionsStartExpandedAndToggleIndependently()
         {
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
-                LogisticsWindowUI w = ui.GetLogisticsUI();
+                LogisticsWindowUI w = ParsekWindowSet.Of(ui).GetLogisticsUI();
                 string active = LogisticsRoutePresentation.ActiveSectionName;
                 string paused = LogisticsRoutePresentation.PausedSectionName;
                 string candidates = LogisticsRoutePresentation.CandidatesSectionName;

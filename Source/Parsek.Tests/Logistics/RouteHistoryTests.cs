@@ -482,11 +482,11 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void RouteHistoryIsASecondWindowBesideTheMissionLog()
         {
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
-                StructureListWindowUI log = ui.GetStructureListUI();
-                StructureListWindowUI history = ui.GetRouteHistoryUI();
+                StructureListWindowUI log = ParsekWindowSet.Of(ui).GetStructureListUI();
+                StructureListWindowUI history = ParsekWindowSet.Of(ui).GetRouteHistoryUI();
                 Assert.NotSame(log, history);
                 Assert.True(history.IsRouteHistory);
                 Assert.False(log.IsRouteHistory);

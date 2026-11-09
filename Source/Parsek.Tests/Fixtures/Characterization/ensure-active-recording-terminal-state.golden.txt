@@ -1,0 +1,161 @@
+== no active recording id
+return false
+== active id not in tree
+return false
+== already terminal
+return false
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: active recording 'e03' already has terminalState=Landed — skipping
+== scene-exit result landed with snapshot
+return true
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:4070400000000000
+set f.FilesDirty: false -> true
+set f.GhostSnapshotMode: Unspecified -> AliasVessel
+set f.GhostVisualSnapshot: <null> -> node:VESSEL(sit=LANDED)
+set f.TerminalPosition: <null> -> {altitude=d:4028000000000000 body='Kerbin' latitude=d:3FF4000000000000 longitude=d:C052A00000000000 rotation={w=f:3F800000 x=f:00000000 y=f:00000000 z=f:00000000} rotationRecorded=<null> situation=Landed}
+set f.TerminalStateValue: <null> -> Landed
+set f.TerrainHeightAtEnd: d:FFF8000000000000 -> d:4021000000000000
+set f.VesselSnapshot: <null> -> node:VESSEL(sit=LANDED)
+set p.EndUT: d:4059000000000000 -> d:4070400000000000
+log [Parsek][VERBOSE][Extrapolator] EnsureActiveRecordingTerminalState: updated ghost snapshot mode for 'e04' Unspecified->AliasVessel after applying terminal snapshot
+log [Parsek][INFO][Extrapolator] EnsureActiveRecordingTerminalState: scene-exit finalization applied to 'e04' (patched=0, extrapolated=0, appendedSegments=0, terminal=Landed, terminalUT=260.0, vesselFound=False, elapsedMs=<t>)
+== scene-exit result orbiting ghost-only orbit from last segment
+return false
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:4071800000000000
+set f.FilesDirty: false -> true
+set f.GhostSnapshotMode: Unspecified -> Separate
+set f.GhostVisualSnapshot: <null> -> node:VESSEL(sit=ORBITING)
+set f.TerminalOrbitArgumentOfPeriapsis: d:0000000000000000 -> d:4008000000000000
+set f.TerminalOrbitBody: <null> -> 'Mun'
+set f.TerminalOrbitEccentricity: d:0000000000000000 -> d:3F947AE147AE147B
+set f.TerminalOrbitEpoch: d:0000000000000000 -> d:4059000000000000
+set f.TerminalOrbitInclination: d:0000000000000000 -> d:3FF0000000000000
+set f.TerminalOrbitLAN: d:0000000000000000 -> d:4000000000000000
+set f.TerminalOrbitMeanAnomalyAtEpoch: d:0000000000000000 -> d:3FD999999999999A
+set f.TerminalOrbitSemiMajorAxis: d:0000000000000000 -> d:41124F8000000000
+set f.TerminalStateValue: <null> -> Orbiting
+set p.EndUT: d:4066800000000000 -> d:4071800000000000
+log [Parsek][VERBOSE][Extrapolator] EnsureActiveRecordingTerminalState: applied ghost-only scene-exit finalization for 'e05' without a vessel snapshot
+log [Parsek][VERBOSE][Extrapolator] EnsureActiveRecordingTerminalState: updated ghost snapshot mode for 'e05' Unspecified->Separate after applying terminal snapshot
+log [Parsek][INFO][Extrapolator] EnsureActiveRecordingTerminalState: scene-exit finalization applied to 'e05' (patched=0, extrapolated=0, appendedSegments=0, terminal=Orbiting, terminalUT=280.0, vesselFound=False, elapsedMs=<t>)
+log [Parsek][INFO][Flight] PopulateTerminalOrbitFromLastSegment: recovered orbit for 'e05' from segment body=Mun sma=300000.0
+== scene-exit result orbiting no orbit data
+return true
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:4071800000000000
+set f.FilesDirty: false -> true
+set f.GhostSnapshotMode: Unspecified -> AliasVessel
+set f.GhostVisualSnapshot: <null> -> node:VESSEL(sit=ORBITING)
+set f.TerminalStateValue: <null> -> Orbiting
+set f.VesselSnapshot: <null> -> node:VESSEL(sit=ORBITING)
+set p.EndUT: d:4059000000000000 -> d:4071800000000000
+log [Parsek][VERBOSE][Extrapolator] EnsureActiveRecordingTerminalState: updated ghost snapshot mode for 'e06' Unspecified->AliasVessel after applying terminal snapshot
+log [Parsek][INFO][Extrapolator] EnsureActiveRecordingTerminalState: scene-exit finalization applied to 'e06' (patched=0, extrapolated=0, appendedSegments=0, terminal=Orbiting, terminalUT=280.0, vesselFound=False, elapsedMs=<t>)
+log [Parsek][WARN][Flight] EnsureActiveRecordingTerminalState: scene-exit terminal orbit remains empty for 'e06' (terminal=Orbiting, orbitSegments=0)
+== scene-exit result suborbital with terminal orbit
+return true
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:406E000000000000
+set f.FilesDirty: false -> true
+set f.GhostSnapshotMode: Unspecified -> AliasVessel
+set f.GhostVisualSnapshot: <null> -> node:VESSEL(sit=SUB_ORBITAL)
+set f.TerminalOrbitArgumentOfPeriapsis: d:0000000000000000 -> d:4018000000000000
+set f.TerminalOrbitBody: <null> -> 'Kerbin'
+set f.TerminalOrbitEccentricity: d:0000000000000000 -> d:3FC999999999999A
+set f.TerminalOrbitEpoch: d:0000000000000000 -> d:406E000000000000
+set f.TerminalOrbitInclination: d:0000000000000000 -> d:4010000000000000
+set f.TerminalOrbitLAN: d:0000000000000000 -> d:4014000000000000
+set f.TerminalOrbitMeanAnomalyAtEpoch: d:0000000000000000 -> d:3FE6666666666666
+set f.TerminalOrbitSemiMajorAxis: d:0000000000000000 -> d:4123D62000000000
+set f.TerminalStateValue: <null> -> SubOrbital
+set f.VesselSnapshot: <null> -> node:VESSEL(sit=SUB_ORBITAL)
+set p.EndUT: d:4059000000000000 -> d:406E000000000000
+log [Parsek][VERBOSE][Extrapolator] EnsureActiveRecordingTerminalState: updated ghost snapshot mode for 'e07' Unspecified->AliasVessel after applying terminal snapshot
+log [Parsek][INFO][Extrapolator] EnsureActiveRecordingTerminalState: scene-exit finalization applied to 'e07' (patched=0, extrapolated=0, appendedSegments=0, terminal=SubOrbital, terminalUT=240.0, vesselFound=False, elapsedMs=<t>)
+log [Parsek][VERBOSE][Flight] EnsureActiveRecordingTerminalState: preserving scene-exit terminal orbit for 'e07' (body=Kerbin, terminal=SubOrbital)
+== commit cache fallback
+return false
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> OrbitSegment
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:4066800000000000
+set f.FilesDirty: false -> true
+set f.OrbitSegments: []#0 -> [{angularVelocity={x=f:00000000 y=f:00000000 z=f:00000000} argumentOfPeriapsis=d:4008000000000000 bodyName='Kerbin' eccentricity=d:3FB999999999999A endUT=d:4066800000000000 epoch=d:4059000000000000 inclination=d:3FF0000000000000 isPredicted=true longitudeOfAscendingNode=d:4000000000000000 meanAnomalyAtEpoch=d:3FD999999999999A orbitalFrameRotation={w=f:00000000 x=f:00000000 y=f:00000000 z=f:00000000} semiMajorAxis=d:41255CC000000000 startUT=d:4059000000000000}]#1
+set f.TerminalStateValue: <null> -> Destroyed
+set p.EndUT: d:4059000000000000 -> d:4066800000000000
+set p.HasOrbitSegments: false -> true
+log [Parsek][INFO][FinalizerCache] Apply accepted: consumer=EnsureActiveRecordingTerminalState rec=rec[e08|Vessel e08|tree|-] cacheStatus=Fresh owner=ActiveRecorder staleAllowed=True appendedSegments=1 removedPredictedSegments=0 lastAuthoredUT=100.000 oldExplicitEndUT=- newExplicitEndUT=180.000 terminal=Destroyed terminalUT=180.000
+log [Parsek][INFO][Flight] Finalization source=cache consumer=EnsureActiveRecordingTerminalState rec=rec[e08|Vessel e08|tree|-] terminal=Destroyed terminalUT=180.000 appendedSegments=1 staleAllowed=True
+== scene-exit declined then cache fallback
+return false
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> OrbitSegment
+set f.ExplicitEndUT: d:FFF8000000000000 -> d:4066800000000000
+set f.FilesDirty: false -> true
+set f.OrbitSegments: []#0 -> [{angularVelocity={x=f:00000000 y=f:00000000 z=f:00000000} argumentOfPeriapsis=d:4008000000000000 bodyName='Kerbin' eccentricity=d:3FB999999999999A endUT=d:4066800000000000 epoch=d:4059000000000000 inclination=d:3FF0000000000000 isPredicted=true longitudeOfAscendingNode=d:4000000000000000 meanAnomalyAtEpoch=d:3FD999999999999A orbitalFrameRotation={w=f:00000000 x=f:00000000 y=f:00000000 z=f:00000000} semiMajorAxis=d:41255CC000000000 startUT=d:4059000000000000}]#1
+set f.TerminalStateValue: <null> -> Destroyed
+set p.EndUT: d:4059000000000000 -> d:4066800000000000
+set p.HasOrbitSegments: false -> true
+log [Parsek][INFO][FinalizerCache] Apply accepted: consumer=EnsureActiveRecordingTerminalState rec=rec[e09|Vessel e09|tree|-] cacheStatus=Fresh owner=ActiveRecorder staleAllowed=True appendedSegments=1 removedPredictedSegments=0 lastAuthoredUT=100.000 oldExplicitEndUT=- newExplicitEndUT=180.000 terminal=Destroyed terminalUT=180.000
+log [Parsek][INFO][Flight] Finalization source=cache consumer=EnsureActiveRecordingTerminalState rec=rec[e09|Vessel e09|tree|-] terminal=Destroyed terminalUT=180.000 appendedSegments=1 staleAllowed=True
+== scene-exit cache rejected then inference
+return false
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.TerminalStateValue: <null> -> SubOrbital
+log [Parsek][WARN][FinalizerCache] Apply rejected: consumer=EnsureActiveRecordingTerminalState reason=RejectedMismatchedRecording rec=rec[e10|Vessel e10|tree|-] cacheRec=other-recording recPid=44 cachePid=44 cacheStatus=Fresh owner=ActiveRecorder lastAuthoredUT=- terminal=Destroyed terminalUT=180.000
+log [Parsek][INFO][Flight] FinalizeTreeRecordings: active recording 'e10' vessel pid=44 not found on scene exit — inferred SubOrbital from trajectory
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeTreeRecordings.SceneExitNonLeaf rec=e10 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+== scene-exit infers landed
+return false
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TerminalPosition
+set f.TerminalPosition: <null> -> {altitude=d:4024000000000000 body='Kerbin' latitude=d:3FC999999999999A longitude=d:C0529EB851EB851F rotation={w=f:00000000 x=f:00000000 y=f:00000000 z=f:00000000} rotationRecorded=true situation=Landed}
+set f.TerminalStateValue: <null> -> Landed
+log [Parsek][INFO][Flight] FinalizeTreeRecordings: active recording 'e11' vessel pid=0 not found on scene exit — inferred Landed from trajectory
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeTreeRecordings.SceneExitNonLeaf rec=e11 before=(Unknown,(none)) after=(TerminalPosition,Kerbin) status=resolved changed=True
+== scene-exit infers suborbital
+return false
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.TerminalStateValue: <null> -> SubOrbital
+log [Parsek][INFO][Flight] FinalizeTreeRecordings: active recording 'e12' vessel pid=0 not found on scene exit — inferred SubOrbital from trajectory
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeTreeRecordings.SceneExitNonLeaf rec=e12 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+== scene-exit inference with orbit segment
+return false
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> OrbitSegment
+set f.TerminalOrbitArgumentOfPeriapsis: d:0000000000000000 -> d:4008000000000000
+set f.TerminalOrbitBody: <null> -> 'Kerbin'
+set f.TerminalOrbitEccentricity: d:0000000000000000 -> d:3FA999999999999A
+set f.TerminalOrbitEpoch: d:0000000000000000 -> d:405B800000000000
+set f.TerminalOrbitInclination: d:0000000000000000 -> d:3FF0000000000000
+set f.TerminalOrbitLAN: d:0000000000000000 -> d:4000000000000000
+set f.TerminalOrbitMeanAnomalyAtEpoch: d:0000000000000000 -> d:3FD999999999999A
+set f.TerminalOrbitSemiMajorAxis: d:0000000000000000 -> d:41255CC000000000
+set f.TerminalStateValue: <null> -> SubOrbital
+log [Parsek][INFO][Flight] FinalizeTreeRecordings: active recording 'e13' vessel pid=0 not found on scene exit — inferred SubOrbital from trajectory
+log [Parsek][INFO][Flight] PopulateTerminalOrbitFromLastSegment: recovered orbit for 'e13' from segment body=Kerbin sma=700000.0
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeTreeRecordings.SceneExitNonLeaf rec=e13 before=(Unknown,(none)) after=(OrbitSegment,Kerbin) status=resolved changed=True
+== scene-exit single point suborbital-only skip
+return false
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+log [Parsek][INFO][Flight] FinalizeTreeRecordings: skipping Landed/Splashed inference for active recording 'e14' (vessel pid=0) — trajectory has insufficient points for inference (points=1 < 2 with no Landed/Orbiting signal; likely quickload-trim or split survivor whose terminal lived on a now-removed sibling chain segment) (lastPtAlt=5000.0m maxDist=0m orbitSegs=0)
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeTreeRecordings.SceneExitNonLeafSkipInfer rec=e14 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+== scene-exit restored this frame skips inference
+return false
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.RestoredFromCommittedTreeThisFrame: true -> false
+log [Parsek][INFO][Flight] FinalizeTreeRecordings: skipping Landed/Splashed inference for active recording 'e15' (vessel pid=4444) — recording was repaired from committed tree this frame (PR #572 follow-up: trajectory came from a non-authoritative committed copy) (lastPtAlt=10.0m maxDist=0m orbitSegs=0)
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeTreeRecordings.SceneExitNonLeafSkipInfer rec=e15 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+== scene-exit restored pid zero
+return false
+set f.EndpointBodyName: <null> -> 'Kerbin'
+set f.EndpointPhase: Unknown -> TrajectoryPoint
+set f.RestoredFromCommittedTreeThisFrame: true -> false
+log [Parsek][INFO][Flight] FinalizeTreeRecordings: skipping Landed/Splashed inference for active recording 'e16' (vessel pid=0) — recording was repaired from committed tree this frame (PR #572 follow-up: trajectory came from a non-authoritative committed copy) (lastPtAlt=10.0m maxDist=0m orbitSegs=0)
+log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeTreeRecordings.SceneExitNonLeafSkipInfer rec=e16 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
+== commit vessel not found
+return false
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: active recording 'e17' vessel pid=4545 not found before terminal-state assignment (isSceneExit=False)
+== commit empty pid zero
+return false
+log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: active recording 'e18' vessel pid=0 not found before terminal-state assignment (isSceneExit=False)

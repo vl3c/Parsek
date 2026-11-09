@@ -28,7 +28,7 @@ namespace Parsek
     /// the pure <see cref="KerbalsPresentation"/>; this file gathers the live inputs and
     /// draws. Full contract: <c>docs/dev/design-gui-kerbals-window.md</c>.</para>
     /// </summary>
-    internal class KerbalsWindowUI
+    internal class KerbalsWindowUI : IKerbalsWindow
     {
         private readonly ParsekUI parentUI;
 
@@ -278,12 +278,12 @@ namespace Parsek
         /// after the Timeline window's hook, and undone by <see cref="UnsubscribeTimelineDataChanged"/> from
         /// <c>ParsekUI.Cleanup</c>, so the hook lives and dies with the scene's ParsekUI.
         /// </summary>
-        internal void SubscribeTimelineDataChanged()
+        public void SubscribeTimelineDataChanged()
         {
             LedgerOrchestrator.OnTimelineDataChanged += InvalidateCache;
         }
 
-        internal void UnsubscribeTimelineDataChanged()
+        public void UnsubscribeTimelineDataChanged()
         {
             LedgerOrchestrator.OnTimelineDataChanged -= InvalidateCache;
         }
@@ -309,7 +309,7 @@ namespace Parsek
         /// <para>Which events, and why each one: the table is in
         /// <c>docs/dev/design-gui-kerbals-window.md</c> section 7.</para>
         /// </summary>
-        internal void SubscribeLiveCrewEvents()
+        public void SubscribeLiveCrewEvents()
         {
             GameEvents.onVesselCrewWasModified.Add(OnCrewVesselEvent);
             GameEvents.onVesselChange.Add(OnCrewVesselChangeEvent);
@@ -323,7 +323,7 @@ namespace Parsek
                 "KerbalsWindow: subscribed to 8 live-crew GameEvents");
         }
 
-        internal void UnsubscribeLiveCrewEvents()
+        public void UnsubscribeLiveCrewEvents()
         {
             GameEvents.onVesselCrewWasModified.Remove(OnCrewVesselEvent);
             GameEvents.onVesselChange.Remove(OnCrewVesselChangeEvent);
@@ -557,7 +557,7 @@ namespace Parsek
         /// </summary>
         internal bool HasInputLock => kerbalsWindowHasInputLock;
 
-        internal void ReleaseInputLock()
+        public void ReleaseInputLock()
         {
             if (!kerbalsWindowHasInputLock) return;
             InputLockManager.RemoveControlLock(KerbalsInputLockId);
@@ -775,7 +775,7 @@ namespace Parsek
                     cellStyle, GUILayout.ExpandWidth(true))
                 && canJump)
             {
-                var timelineUI = parentUI != null ? parentUI.GetTimelineUI() : null;
+                var timelineUI = parentUI != null ? ParsekWindowSet.Of(parentUI).GetTimelineUI() : null;
                 Action<string> scrollCallback = timelineUI != null
                     ? timelineUI.ScrollToRecording
                     : (Action<string>)null;
@@ -889,7 +889,7 @@ namespace Parsek
                 // Mirrors the Timeline row cross-link pattern (TimelineWindowUI.DrawEntryRow).
                 // GetTimelineUI() can return null during cold-start scene transitions - the
                 // helper tolerates a null callback and still emits the diagnostic log (E14).
-                var timelineUI = parentUI != null ? parentUI.GetTimelineUI() : null;
+                var timelineUI = parentUI != null ? ParsekWindowSet.Of(parentUI).GetTimelineUI() : null;
                 Action<string> scrollCallback = timelineUI != null
                     ? timelineUI.ScrollToRecording
                     : (Action<string>)null;
@@ -971,7 +971,7 @@ namespace Parsek
         }
 
         // Pure helper for the Flights -> Timeline cross-link. Production passes
-        // `parentUI.GetTimelineUI().ScrollToRecording` as the callback; tests pass a
+        // `ParsekWindowSet.Of(parentUI).GetTimelineUI().ScrollToRecording` as the callback; tests pass a
         // lambda spy. Tolerates a null callback (E14 - GetTimelineUI() can be null
         // during cold-start scene transitions) so the click never NREs; the log
         // still fires so stale-id clicks leave a diagnostic trail.

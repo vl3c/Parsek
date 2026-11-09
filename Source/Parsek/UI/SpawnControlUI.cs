@@ -8,7 +8,7 @@ namespace Parsek
     /// Real Spawn Control window extracted from ParsekUI.
     /// Shows nearby spawn candidates with sort, warp, and departure controls.
     /// </summary>
-    internal class SpawnControlUI
+    internal class SpawnControlUI : ISpawnControlWindow
     {
         private readonly ParsekUI parentUI;
 
@@ -238,7 +238,7 @@ namespace Parsek
         /// Whether this window currently holds its KSP input lock (diagnostic read for the
         /// design-7.2 close handler; see ParsekUI.BuildGatedWindowCloseSet).
         /// </summary>
-        internal bool HasInputLock => spawnControlWindowHasInputLock;
+        public bool HasInputLock => spawnControlWindowHasInputLock;
 
         public void ReleaseInputLock()
         {

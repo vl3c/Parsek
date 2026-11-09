@@ -21,10 +21,10 @@ namespace Parsek.Tests
             // Bracketed like the sibling classes: constructing a ParsekUI writes the static
             // activeInstance and re-seeds the static applied-mode latch.
             ParsekUI.ResetUiComplexityModeForTesting();
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
-                Assert.NotNull(ui.GetTimelineUI());
+                Assert.NotNull(ParsekWindowSet.Of(ui).GetTimelineUI());
             }
             finally
             {
