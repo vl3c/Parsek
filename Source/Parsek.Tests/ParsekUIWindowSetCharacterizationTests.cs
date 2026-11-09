@@ -65,14 +65,14 @@ namespace Parsek.Tests
 
         private ParsekUI BuildKsc()
         {
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             built.Add(ui);
             return ui;
         }
 
         private ParsekUI BuildFlightWithoutHost()
         {
-            var ui = new ParsekUI((ParsekFlight)null);
+            var ui = ParsekWindowSet.BuildUI((ParsekFlight)null);
             built.Add(ui);
             return ui;
         }
@@ -82,16 +82,16 @@ namespace Parsek.Tests
         {
             return new List<KeyValuePair<string, object>>
             {
-                new KeyValuePair<string, object>("RecordingsTable", ui.GetRecordingsTableUI()),
-                new KeyValuePair<string, object>("Missions", ui.GetMissionsUI()),
-                new KeyValuePair<string, object>("SpawnControl", ui.GetSpawnControlUI()),
-                new KeyValuePair<string, object>("Timeline", ui.GetTimelineUI()),
-                new KeyValuePair<string, object>("Kerbals", ui.GetKerbalsUI()),
-                new KeyValuePair<string, object>("TestRunner", ui.GetTestRunnerUI()),
-                new KeyValuePair<string, object>("Settings", ui.GetSettingsWindowUI()),
-                new KeyValuePair<string, object>("Logistics", ui.GetLogisticsUI()),
-                new KeyValuePair<string, object>("StructureList", ui.GetStructureListUI()),
-                new KeyValuePair<string, object>("RouteHistory", ui.GetRouteHistoryUI()),
+                new KeyValuePair<string, object>("RecordingsTable", ParsekWindowSet.Of(ui).GetRecordingsTableUI()),
+                new KeyValuePair<string, object>("Missions", ParsekWindowSet.Of(ui).GetMissionsUI()),
+                new KeyValuePair<string, object>("SpawnControl", ParsekWindowSet.Of(ui).GetSpawnControlUI()),
+                new KeyValuePair<string, object>("Timeline", ParsekWindowSet.Of(ui).GetTimelineUI()),
+                new KeyValuePair<string, object>("Kerbals", ParsekWindowSet.Of(ui).GetKerbalsUI()),
+                new KeyValuePair<string, object>("TestRunner", ParsekWindowSet.Of(ui).GetTestRunnerUI()),
+                new KeyValuePair<string, object>("Settings", ParsekWindowSet.Of(ui).GetSettingsWindowUI()),
+                new KeyValuePair<string, object>("Logistics", ParsekWindowSet.Of(ui).GetLogisticsUI()),
+                new KeyValuePair<string, object>("StructureList", ParsekWindowSet.Of(ui).GetStructureListUI()),
+                new KeyValuePair<string, object>("RouteHistory", ParsekWindowSet.Of(ui).GetRouteHistoryUI()),
             };
         }
 
@@ -100,15 +100,15 @@ namespace Parsek.Tests
         {
             return new Dictionary<string, bool>
             {
-                { "RecordingsTable", ui.GetRecordingsTableUI().IsOpen },
-                { "SpawnControl", ui.GetSpawnControlUI().IsOpen },
-                { "Timeline", ui.GetTimelineUI().IsOpen },
-                { "Kerbals", ui.GetKerbalsUI().IsOpen },
-                { "TestRunner", ui.GetTestRunnerUI().IsOpen },
-                { "Settings", ui.GetSettingsWindowUI().IsOpen },
-                { "Logistics", ui.GetLogisticsUI().IsOpen },
-                { "StructureList", ui.GetStructureListUI().IsOpen },
-                { "RouteHistory", ui.GetRouteHistoryUI().IsOpen },
+                { "RecordingsTable", ParsekWindowSet.Of(ui).GetRecordingsTableUI().IsOpen },
+                { "SpawnControl", ParsekWindowSet.Of(ui).GetSpawnControlUI().IsOpen },
+                { "Timeline", ParsekWindowSet.Of(ui).GetTimelineUI().IsOpen },
+                { "Kerbals", ParsekWindowSet.Of(ui).GetKerbalsUI().IsOpen },
+                { "TestRunner", ParsekWindowSet.Of(ui).GetTestRunnerUI().IsOpen },
+                { "Settings", ParsekWindowSet.Of(ui).GetSettingsWindowUI().IsOpen },
+                { "Logistics", ParsekWindowSet.Of(ui).GetLogisticsUI().IsOpen },
+                { "StructureList", ParsekWindowSet.Of(ui).GetStructureListUI().IsOpen },
+                { "RouteHistory", ParsekWindowSet.Of(ui).GetRouteHistoryUI().IsOpen },
             };
         }
 
@@ -131,10 +131,10 @@ namespace Parsek.Tests
                     Assert.True(w.Value != null, "no " + w.Key + " window");
                 Assert.Equal(windows.Count,
                     windows.Select(w => w.Value).Distinct(ReferenceEqualityComparer.Instance).Count());
-                Assert.False(ui.GetStructureListUI().IsRouteHistory);
-                Assert.True(ui.GetRouteHistoryUI().IsRouteHistory);
+                Assert.False(ParsekWindowSet.Of(ui).GetStructureListUI().IsRouteHistory);
+                Assert.True(ParsekWindowSet.Of(ui).GetRouteHistoryUI().IsRouteHistory);
                 // The table's runtime-only empty groups are the ParsekUI's own list.
-                Assert.Same(ui.GetRecordingsTableUI().KnownEmptyGroups, ui.KnownEmptyGroups);
+                Assert.Same(ParsekWindowSet.Of(ui).GetRecordingsTableUI().KnownEmptyGroups, ui.KnownEmptyGroups);
             }
         }
 
@@ -381,26 +381,28 @@ namespace Parsek.Tests
             Assert.DoesNotContain("testRunnerUI.ReleaseInputLock", body);
         }
 
-        // Construction: the ten windows in this order, then the instance goes live, the
-        // mode latch seeds, and the signal hooks attach. Both constructors.
+        // Construction: the ten windows in this order (built by the window set, called back
+        // from the ParsekUI constructor at its first step after the scene fields), then the
+        // instance goes live, the mode latch seeds, and the signal hooks attach.
         [Theory]
-        [InlineData("public ParsekUI(ParsekFlight flight)")]
-        [InlineData("public ParsekUI(UIMode mode)")]
-        public void Constructor_BuildsTheWindowsInOrder_BeforeGoingLive(string signature)
+        [InlineData("internal ParsekUI(ParsekFlight flight, Func<ParsekUI, IParsekUIWindows> buildWindows)")]
+        [InlineData("internal ParsekUI(UIMode mode, Func<ParsekUI, IParsekUIWindows> buildWindows)")]
+        public void Constructor_BuildsTheWindowsFirst_BeforeGoingLive(string signature)
         {
             string body = Body("ParsekUI.cs", signature);
             AssertCallsInOrder("ParsekUI " + signature, body, new[]
             {
-                "this.recordingsTableUI = new RecordingsTableUI(this);",
-                "this.missionsUI = new MissionsWindowUI(this);",
-                "this.spawnControlUI = new SpawnControlUI(this);",
-                "this.timelineUI = new TimelineWindowUI(this);",
-                "this.kerbalsUI = new KerbalsWindowUI(this);",
-                "this.testRunnerUI = new TestRunnerUI(this);",
-                "this.settingsUI = new SettingsWindowUI(this);",
-                "this.logisticsUI = new LogisticsWindowUI(this);",
-                "this.structureListUI = new StructureListWindowUI(this);",
-                "this.routeHistoryUI = new StructureListWindowUI(this, routeHistory: true);",
+                "this.mode = ",
+                "this.windows = buildWindows(this);",
+                "this.recordingsTableUI = windows.RecordingsTable;",
+                "this.spawnControlUI = windows.SpawnControl;",
+                "this.timelineUI = windows.Timeline;",
+                "this.kerbalsUI = windows.Kerbals;",
+                "this.testRunnerUI = windows.TestRunner;",
+                "this.settingsUI = windows.Settings;",
+                "this.logisticsUI = windows.Logistics;",
+                "this.structureListUI = windows.StructureList;",
+                "this.routeHistoryUI = windows.RouteHistory;",
                 "activeInstance = this;",
                 "InitializeAppliedUiComplexityModeFromSettings();",
                 "timelineUI.SubscribeTimelineDataChanged();",
@@ -408,6 +410,29 @@ namespace Parsek.Tests
                 "DisplayNames.DisplayNamesChanged += OnDisplayNamesChanged;",
                 "kerbalsUI.SubscribeLiveCrewEvents();",
             });
+            Assert.DoesNotContain("new ", body);
+        }
+
+        [Fact]
+        public void WindowSet_BuildsTheTenWindowsInOrder()
+        {
+            string body = Body("UI/ParsekWindowSet.cs", "private ParsekWindowSet(ParsekUI ui)");
+            AssertCallsInOrder("ParsekWindowSet", body, new[]
+            {
+                "recordingsTableUI = new RecordingsTableUI(ui);",
+                "missionsUI = new MissionsWindowUI(ui);",
+                "spawnControlUI = new SpawnControlUI(ui);",
+                "timelineUI = new TimelineWindowUI(ui);",
+                "kerbalsUI = new KerbalsWindowUI(ui);",
+                "testRunnerUI = new TestRunnerUI(ui);",
+                "settingsUI = new SettingsWindowUI(ui);",
+                "logisticsUI = new LogisticsWindowUI(ui);",
+                "structureListUI = new StructureListWindowUI(ui);",
+                "routeHistoryUI = new StructureListWindowUI(ui, routeHistory: true);",
+            });
+            int news = 0, at = 0;
+            while ((at = body.IndexOf("new ", at, StringComparison.Ordinal)) >= 0) { news++; at++; }
+            Assert.Equal(10, news);
         }
 
         private sealed class ReferenceEqualityComparer : IEqualityComparer<object>

@@ -266,7 +266,7 @@ namespace Parsek.TestCommands
         {
             if (window == TestCommandUiAction.TestRunnerWindow)
             {
-                TestRunnerUI w = ui != null ? ui.GetTestRunnerUI() : null;
+                TestRunnerUI w = ui != null ? ParsekWindowSet.Of(ui).GetTestRunnerUI() : null;
                 return w != null ? w.RunnerForTesting : null;
             }
             if (window == TestCommandUiAction.TestRunnerGlobalWindow)

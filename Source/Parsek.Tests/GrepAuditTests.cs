@@ -552,6 +552,8 @@ namespace Parsek.Tests
 
             "KerbalsWindowUI", "KerbalsPresentation",
             "StructureListWindowUI", "ParsekUI", "UiComplexityMode", "UiSurface",
+            // The scene's typed window holder the applier asks for the window.
+            "ParsekWindowSet",
             "UiSurfaceVisibility",
 
             "KerbalsModule", "KerbalEndState", "GameAction", "GameActionType",

@@ -137,7 +137,7 @@ namespace Parsek.InGameTests
             // closes itself in FLIGHT, so the close asserted below is the mode's. It is NOT the
             // global Ctrl+Shift+T runner window, which is never gated (edge case 13), so a
             // batch launched from either runner keeps running while this window is hidden.
-            TestRunnerUI runnerWindow = ui.GetTestRunnerUI();
+            TestRunnerUI runnerWindow = ParsekWindowSet.Of(ui).GetTestRunnerUI();
             UnityEngine.Rect originalRect = runnerWindow.WindowRectForTesting;
             bool originalOpen = runnerWindow.IsOpen;
 
@@ -242,10 +242,10 @@ namespace Parsek.InGameTests
 
         private static void OpenEveryGatedWindow(ParsekUI ui)
         {
-            ui.GetKerbalsUI().IsOpen = true;
-            ui.GetSpawnControlUI().IsOpen = true;
-            ui.GetTestRunnerUI().IsOpen = true;
-            ui.GetRecordingsTableUI().GroupPickerForTesting
+            ParsekWindowSet.Of(ui).GetKerbalsUI().IsOpen = true;
+            ParsekWindowSet.Of(ui).GetSpawnControlUI().IsOpen = true;
+            ParsekWindowSet.Of(ui).GetTestRunnerUI().IsOpen = true;
+            ParsekWindowSet.Of(ui).GetRecordingsTableUI().GroupPickerForTesting
                 .OpenForGroup("ParsekUiModeTest", UnityEngine.Vector2.zero);
         }
 

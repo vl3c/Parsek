@@ -9,7 +9,7 @@ namespace Parsek
     /// Test runner window extracted from ParsekUI.
     /// Displays in-game tests by category with run/reset/cancel controls.
     /// </summary>
-    internal class TestRunnerUI
+    internal class TestRunnerUI : ITestRunnerWindow
     {
         private readonly ParsekUI parentUI;
 
@@ -164,14 +164,14 @@ namespace Parsek
         /// Whether this window currently holds its KSP input lock (diagnostic read for the
         /// design-7.2 close handler; see ParsekUI.BuildGatedWindowCloseSet).
         /// </summary>
-        internal bool HasInputLock => testRunnerWindowHasInputLock;
+        public bool HasInputLock => testRunnerWindowHasInputLock;
 
         /// <summary>
         /// Internal (was private) so the design-7.2 mode-change close handler can release
         /// this window's lock explicitly. The Settings-launched runner has no reopen path in
         /// Basic, so it is in the close set even though it maps to no `UiSurface`.
         /// </summary>
-        internal void ReleaseInputLock()
+        public void ReleaseInputLock()
         {
             if (!testRunnerWindowHasInputLock) return;
             InputLockManager.RemoveControlLock(TestRunnerInputLockId);
@@ -219,7 +219,7 @@ namespace Parsek
         /// <summary>How many category folds are open (the op's <c>expanded=</c>).</summary>
         internal int ExpandedCategoryCountForTesting => expandedTestCategories.Count;
 
-        internal bool IsMouseOverOpenWindow(Vector2 mousePosition)
+        public bool IsMouseOverOpenWindow(Vector2 mousePosition)
         {
             return ParsekUI.IsPointerOverOpenWindow(
                 showTestRunnerWindow,

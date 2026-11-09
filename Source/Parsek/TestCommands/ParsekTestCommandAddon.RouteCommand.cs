@@ -389,7 +389,7 @@ namespace Parsek.TestCommands
         {
             ParsekUI ui = ParsekUI.ActiveInstance;
             if (ui == null) return;
-            LogisticsWindowUI window = ui.GetLogisticsUI();
+            LogisticsWindowUI window = ParsekWindowSet.Of(ui).GetLogisticsUI();
             if (window == null) return;
             window.DirtyLegibilityCacheForTesting();
         }
