@@ -425,8 +425,9 @@ namespace Parsek.Tests
         [Fact]
         public void QuietDelete_SwallowsAMissingFileAndANullPath()
         {
-            RewindLauncher.TryDeleteFileQuietly(Path.Combine(tempDir, "absent.sfs"));
-            RewindLauncher.TryDeleteFileQuietly(null);
+            Assert.Null(Record.Exception(() =>
+                RewindLauncher.TryDeleteFileQuietly(Path.Combine(tempDir, "absent.sfs"))));
+            Assert.Null(Record.Exception(() => RewindLauncher.TryDeleteFileQuietly(null)));
         }
 
         // ---------- PreProcessRewindSave edges ----------
@@ -582,6 +583,7 @@ namespace Parsek.Tests
             Assert.Null(RewindContext.RewindQuicksaveVesselPids);
             Assert.Contains(logLines, l => l.Contains("Captured 0 surviving vessel PID(s) from quicksave"));
         }
+
         // ---------- Extracted units ----------
 
         [Theory]
@@ -656,8 +658,8 @@ namespace Parsek.Tests
             RewindLauncher.DeleteFileIfPresent(path);
             Assert.False(File.Exists(path));
 
-            RewindLauncher.DeleteFileIfPresent(path);
-            RewindLauncher.DeleteFileIfPresent(null);
+            Assert.Null(Record.Exception(() => RewindLauncher.DeleteFileIfPresent(path)));
+            Assert.Null(Record.Exception(() => RewindLauncher.DeleteFileIfPresent(null)));
         }
 
         [Fact]
