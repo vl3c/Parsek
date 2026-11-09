@@ -80,7 +80,7 @@ namespace Parsek.Tests
             Assert.True(main.IndexOf(sectionCall, call + 1, StringComparison.Ordinal) < 0,
                 "ParsekUI.DrawWindow draws the Logistics section twice");
             string section = MethodBodyText("UI/LogisticsWindowUI.MainWindowSection.cs",
-                "internal void DrawMainWindowSection(UiComplexityMode complexity)");
+                "public void DrawMainWindowSection(UiComplexityMode complexity)");
             return main.Substring(0, call) + section + main.Substring(call + sectionCall.Length);
         }
 

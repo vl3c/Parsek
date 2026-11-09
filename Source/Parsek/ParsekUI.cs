@@ -54,39 +54,40 @@ namespace Parsek
         // Map view markers: icon atlas, fallback texture, label style, hover/sticky
         // state all live in MapMarkerRenderer (shared with ParsekTrackingStation).
 
-        // Recordings table window (extracted to RecordingsTableUI)
-        private RecordingsTableUI recordingsTableUI;
+        // The sub-windows, built and held with their concrete types by ParsekWindowSet;
+        // ParsekUI reaches each through the interface naming what it calls on it.
+        private readonly IParsekUIWindows windows;
 
-        // Missions window (extracted to MissionsWindowUI)
-        private MissionsWindowUI missionsUI;
+        // Recordings table window (RecordingsTableUI)
+        private IRecordingsTableWindow recordingsTableUI;
 
         private const float ResizeHandleSize = 16f;
 
-        // Settings window (extracted to SettingsWindowUI)
-        private SettingsWindowUI settingsUI;
+        // Settings window (SettingsWindowUI)
+        private ISettingsWindow settingsUI;
 
-        // Test runner window (extracted to TestRunnerUI)
-        private TestRunnerUI testRunnerUI;
+        // Test runner window (TestRunnerUI)
+        private ITestRunnerWindow testRunnerUI;
 
-        // Timeline window (extracted to TimelineWindowUI, replaces ActionsWindowUI)
-        private TimelineWindowUI timelineUI;
+        // Timeline window (TimelineWindowUI)
+        private ITimelineWindow timelineUI;
 
         // Kerbals window (reserved crew, active stand-ins, retired stand-ins; #385)
-        private KerbalsWindowUI kerbalsUI;
+        private IKerbalsWindow kerbalsUI;
 
         // Window drag tracking for position logging
         private Rect lastMainWindowRect;
-        // Spawn Control window (extracted to SpawnControlUI)
-        private SpawnControlUI spawnControlUI;
+        // Spawn Control window (SpawnControlUI)
+        private ISpawnControlWindow spawnControlUI;
 
         // Structure-list window (one reusable instance, retargeted per mission / route)
-        private StructureListWindowUI structureListUI;
+        private IStructureLogWindow structureListUI;
         // The Route History: a second instance of the log-table window, opened from a
         // supply route's Log button (its own id, rect, lock and open state).
-        private StructureListWindowUI routeHistoryUI;
+        private IStructureLogWindow routeHistoryUI;
 
         // Logistics window (v0 — Supply Routes tab + Send Once button)
-        private LogisticsWindowUI logisticsUI;
+        private ILogisticsWindow logisticsUI;
 
         private static readonly string VersionLabel = "v" +
             System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
@@ -99,23 +100,9 @@ namespace Parsek
         internal ParsekFlight Flight => flight;
         internal UIMode Mode => mode;
         internal bool InFlightMode => InFlight;
-        internal RecordingsTableUI GetRecordingsTableUI() => recordingsTableUI;
-        internal SettingsWindowUI GetSettingsWindowUI() => settingsUI;
-        internal TimelineWindowUI GetTimelineUI() => timelineUI;
-
-        // The remaining gated, lock-owning sub-windows (design 7.2 close set). Exposed the
-        // same way as the accessors above so the unit and in-game mode tests can open them
-        // and assert the close handler shut them again.
-        internal KerbalsWindowUI GetKerbalsUI() { return kerbalsUI; }
-        internal SpawnControlUI GetSpawnControlUI() { return spawnControlUI; }
-        internal TestRunnerUI GetTestRunnerUI() { return testRunnerUI; }
-
-        // The two remaining sub-windows, exposed for the automation-only UiAction seam verb
-        // (the GUI census opens every window in turn and photographs it). Neither is in the
-        // Advanced -> Basic close set, which is why neither needed an accessor before.
-        internal LogisticsWindowUI GetLogisticsUI() { return logisticsUI; }
-        internal StructureListWindowUI GetStructureListUI() { return structureListUI; }
-        internal StructureListWindowUI GetRouteHistoryUI() { return routeHistoryUI; }
+        // The window set this ParsekUI was built with. The typed windows are reached
+        // through ParsekWindowSet.Of(ui).
+        internal IParsekUIWindows Windows => windows;
 
         /// <summary>
         /// Why the Real Spawn Control launcher is greyed out. The window turns a recorded
@@ -136,20 +123,22 @@ namespace Parsek
         // un-press the toolbar button.
         internal Action CloseMainWindow { get; set; }
 
-        public ParsekUI(ParsekFlight flight)
+        // Built through ParsekWindowSet.BuildUI, whose callback builds the windows at the
+        // point where this constructor used to build them itself.
+        internal ParsekUI(ParsekFlight flight, Func<ParsekUI, IParsekUIWindows> buildWindows)
         {
             this.flight = flight;
             this.mode = UIMode.Flight;
-            this.recordingsTableUI = new RecordingsTableUI(this);
-            this.missionsUI = new MissionsWindowUI(this);
-            this.spawnControlUI = new SpawnControlUI(this);
-            this.timelineUI = new TimelineWindowUI(this);
-            this.kerbalsUI = new KerbalsWindowUI(this);
-            this.testRunnerUI = new TestRunnerUI(this);
-            this.settingsUI = new SettingsWindowUI(this);
-            this.logisticsUI = new LogisticsWindowUI(this);
-            this.structureListUI = new StructureListWindowUI(this);
-            this.routeHistoryUI = new StructureListWindowUI(this, routeHistory: true);
+            this.windows = buildWindows(this);
+            this.recordingsTableUI = windows.RecordingsTable;
+            this.spawnControlUI = windows.SpawnControl;
+            this.timelineUI = windows.Timeline;
+            this.kerbalsUI = windows.Kerbals;
+            this.testRunnerUI = windows.TestRunner;
+            this.settingsUI = windows.Settings;
+            this.logisticsUI = windows.Logistics;
+            this.structureListUI = windows.StructureList;
+            this.routeHistoryUI = windows.RouteHistory;
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             timelineUI.SubscribeTimelineDataChanged();
@@ -158,20 +147,20 @@ namespace Parsek
             kerbalsUI.SubscribeLiveCrewEvents();
         }
 
-        public ParsekUI(UIMode mode)
+        internal ParsekUI(UIMode mode, Func<ParsekUI, IParsekUIWindows> buildWindows)
         {
             this.flight = null;
             this.mode = mode;
-            this.recordingsTableUI = new RecordingsTableUI(this);
-            this.missionsUI = new MissionsWindowUI(this);
-            this.spawnControlUI = new SpawnControlUI(this);
-            this.timelineUI = new TimelineWindowUI(this);
-            this.kerbalsUI = new KerbalsWindowUI(this);
-            this.testRunnerUI = new TestRunnerUI(this);
-            this.settingsUI = new SettingsWindowUI(this);
-            this.logisticsUI = new LogisticsWindowUI(this);
-            this.structureListUI = new StructureListWindowUI(this);
-            this.routeHistoryUI = new StructureListWindowUI(this, routeHistory: true);
+            this.windows = buildWindows(this);
+            this.recordingsTableUI = windows.RecordingsTable;
+            this.spawnControlUI = windows.SpawnControl;
+            this.timelineUI = windows.Timeline;
+            this.kerbalsUI = windows.Kerbals;
+            this.testRunnerUI = windows.TestRunner;
+            this.settingsUI = windows.Settings;
+            this.logisticsUI = windows.Logistics;
+            this.structureListUI = windows.StructureList;
+            this.routeHistoryUI = windows.RouteHistory;
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             timelineUI.SubscribeTimelineDataChanged();
@@ -883,17 +872,13 @@ namespace Parsek
         }
 
         // ════════════════════════════════════════════════════════════════
-        //  Recordings table (extracted to RecordingsTableUI)
+        //  Recordings table (RecordingsTableUI)
         // ════════════════════════════════════════════════════════════════
 
         public void DrawRecordingsWindowIfOpen(Rect mainWindowRect)
         {
             recordingsTableUI.DrawIfOpen(mainWindowRect);
         }
-
-        // The Missions view is drawn as a tab inside the Recordings window
-        // (RecordingsTableUI dispatches to it); it is no longer a standalone window.
-        internal MissionsWindowUI GetMissionsUI() => missionsUI;
 
         internal void ToggleRecordingsWindow()
         {

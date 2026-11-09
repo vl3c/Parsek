@@ -13,7 +13,7 @@ namespace Parsek
     // TooltipEchoBudgetTests budgets this file at the main window's width, not this window's.
     internal partial class LogisticsWindowUI
     {
-        internal void DrawMainWindowSection(UiComplexityMode complexity)
+        public void DrawMainWindowSection(UiComplexityMode complexity)
         {
             // --- M6 Record-Supply-Run helper banner ---
             // Non-blocking prompt armed by RouteRunPrompt at commit time when an

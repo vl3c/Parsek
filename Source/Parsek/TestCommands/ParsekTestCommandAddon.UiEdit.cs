@@ -171,13 +171,13 @@ namespace Parsek.TestCommands
             switch (field)
             {
                 case TestCommandUiEdit.RecordingNameField:
-                    return ui.GetRecordingsTableUI()
+                    return ParsekWindowSet.Of(ui).GetRecordingsTableUI()
                              .TryBeginRecordingRenameForTesting(key, draft);
                 case TestCommandUiEdit.GroupNameField:
-                    return ui.GetRecordingsTableUI()
+                    return ParsekWindowSet.Of(ui).GetRecordingsTableUI()
                              .TryBeginGroupRenameForTesting(key, draft);
                 case TestCommandUiEdit.MissionTitleField:
-                    return ui.GetMissionsUI().TryBeginMissionRenameForTesting(key, draft);
+                    return ParsekWindowSet.Of(ui).GetMissionsUI().TryBeginMissionRenameForTesting(key, draft);
                 default:
                     // Unreachable through the parse (the field came from the table), so a
                     // miss here means the table and this switch have drifted - loud rather
@@ -192,15 +192,15 @@ namespace Parsek.TestCommands
             switch (field)
             {
                 case TestCommandUiEdit.RecordingNameField:
-                    ui.GetRecordingsTableUI().CommitRecordingRenameForTesting();
+                    ParsekWindowSet.Of(ui).GetRecordingsTableUI().CommitRecordingRenameForTesting();
                     return;
                 case TestCommandUiEdit.GroupNameField:
                     // Takes the OLD name, which is this editor's row key: the commit reads
                     // the draft off the window and needs to be told what it is renaming.
-                    ui.GetRecordingsTableUI().CommitGroupRenameForTesting(key);
+                    ParsekWindowSet.Of(ui).GetRecordingsTableUI().CommitGroupRenameForTesting(key);
                     return;
                 case TestCommandUiEdit.MissionTitleField:
-                    ui.GetMissionsUI().CommitMissionRenameForTesting();
+                    ParsekWindowSet.Of(ui).GetMissionsUI().CommitMissionRenameForTesting();
                     return;
                 default:
                     throw new InvalidOperationException(
@@ -215,11 +215,11 @@ namespace Parsek.TestCommands
             switch (field)
             {
                 case TestCommandUiEdit.RecordingNameField:
-                    return ui.GetRecordingsTableUI().RenamingRecordingFocusedForTesting;
+                    return ParsekWindowSet.Of(ui).GetRecordingsTableUI().RenamingRecordingFocusedForTesting;
                 case TestCommandUiEdit.GroupNameField:
-                    return ui.GetRecordingsTableUI().RenamingGroupFocusedForTesting;
+                    return ParsekWindowSet.Of(ui).GetRecordingsTableUI().RenamingGroupFocusedForTesting;
                 case TestCommandUiEdit.MissionTitleField:
-                    return ui.GetMissionsUI().RenamingMissionFocusedForTesting;
+                    return ParsekWindowSet.Of(ui).GetMissionsUI().RenamingMissionFocusedForTesting;
                 default:
                     throw new InvalidOperationException(
                         "no drew-flag read for op=edit field=" + (field ?? "<null>"));
@@ -232,11 +232,11 @@ namespace Parsek.TestCommands
             switch (field)
             {
                 case TestCommandUiEdit.RecordingNameField:
-                    return ui.GetRecordingsTableUI().RenamingRecordingIdForTesting;
+                    return ParsekWindowSet.Of(ui).GetRecordingsTableUI().RenamingRecordingIdForTesting;
                 case TestCommandUiEdit.GroupNameField:
-                    return ui.GetRecordingsTableUI().RenamingGroupForTesting;
+                    return ParsekWindowSet.Of(ui).GetRecordingsTableUI().RenamingGroupForTesting;
                 case TestCommandUiEdit.MissionTitleField:
-                    return ui.GetMissionsUI().RenamingMissionIdForTesting;
+                    return ParsekWindowSet.Of(ui).GetMissionsUI().RenamingMissionIdForTesting;
                 default:
                     throw new InvalidOperationException(
                         "no read site for op=edit field=" + (field ?? "<null>"));

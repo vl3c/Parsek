@@ -214,8 +214,8 @@ namespace Parsek.TestCommands
             var sets = new List<UiExpandSet>();
             if (window == TestCommandUiAction.MissionsWindow)
             {
-                RecordingsTableUI rt = ui.GetRecordingsTableUI();
-                MissionsWindowUI mw = ui.GetMissionsUI();
+                RecordingsTableUI rt = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
+                MissionsWindowUI mw = ParsekWindowSet.Of(ui).GetMissionsUI();
                 sets.Add(new UiExpandSet
                 {
                     Prefix = TestCommandUiState.GroupKeyPrefix,
@@ -268,7 +268,7 @@ namespace Parsek.TestCommands
             }
             if (window == TestCommandUiAction.KerbalsWindow)
             {
-                KerbalsWindowUI kw = ui.GetKerbalsUI();
+                KerbalsWindowUI kw = ParsekWindowSet.Of(ui).GetKerbalsUI();
                 sets.Add(new UiExpandSet
                 {
                     Prefix = TestCommandUiState.RosterKeyPrefix,
@@ -290,7 +290,7 @@ namespace Parsek.TestCommands
             }
             if (window == TestCommandUiAction.LogisticsWindow)
             {
-                LogisticsWindowUI lw = ui.GetLogisticsUI();
+                LogisticsWindowUI lw = ParsekWindowSet.Of(ui).GetLogisticsUI();
                 sets.Add(new UiExpandSet
                 {
                     Prefix = TestCommandUiState.RowKeyPrefix,
@@ -307,7 +307,7 @@ namespace Parsek.TestCommands
                 // its own discovery), so on these two the load-bearing direction is
                 // `key=none` - the collapsed category list is the state no capture had -
                 // and `key=category:<name>` re-opens one.
-                TestRunnerUI tr = ui.GetTestRunnerUI();
+                TestRunnerUI tr = ParsekWindowSet.Of(ui).GetTestRunnerUI();
                 sets.Add(new UiExpandSet
                 {
                     Prefix = TestCommandUiState.CategoryKeyPrefix,
@@ -368,7 +368,7 @@ namespace Parsek.TestCommands
             {
                 // The Route History, through the production opener the route's Log button
                 // calls.
-                structure = ui.GetRouteHistoryUI();
+                structure = ParsekWindowSet.Of(ui).GetRouteHistoryUI();
                 if (!TryResolveRouteTarget(wanted, out resolvedId, out title,
                                            out List<string> routeCandidates))
                 {
@@ -379,7 +379,7 @@ namespace Parsek.TestCommands
             }
             else
             {
-                structure = ui.GetStructureListUI();
+                structure = ParsekWindowSet.Of(ui).GetStructureListUI();
                 if (!TryResolveMissionTarget(wanted, out resolvedId, out string missionId,
                                              out title, out List<string> candidates))
                 {
@@ -423,8 +423,8 @@ namespace Parsek.TestCommands
                                             UiActionPending pending)
         {
             StructureListWindowUI structure = pending.TargetKind == UiTargetKind.Route
-                ? ctx.Ui.GetRouteHistoryUI()
-                : ctx.Ui.GetStructureListUI();
+                ? ParsekWindowSet.Of(ctx.Ui).GetRouteHistoryUI()
+                : ParsekWindowSet.Of(ctx.Ui).GetStructureListUI();
             bool open = structure.IsOpen;
             if (!open)
             {
@@ -563,7 +563,7 @@ namespace Parsek.TestCommands
             bool opened;
             if (mode == UiPickerMode.SetParent)
             {
-                RecordingsTableUI rt = ui.GetRecordingsTableUI();
+                RecordingsTableUI rt = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
                 opened = rt.TryOpenGroupPickerForGroupForTesting(wanted);
                 if (!opened)
                 {
@@ -574,7 +574,7 @@ namespace Parsek.TestCommands
             }
             else if (mode == UiPickerMode.Manage)
             {
-                RecordingsTableUI rt = ui.GetRecordingsTableUI();
+                RecordingsTableUI rt = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
                 bool takeFirst = wanted == TestCommandUiState.RecordingFirstToken;
                 opened = rt.TryOpenGroupPickerForRecordingForTesting(
                     wanted, takeFirst, out string resolvedId);
@@ -588,7 +588,7 @@ namespace Parsek.TestCommands
             }
             else
             {
-                LogisticsWindowUI lw = ui.GetLogisticsUI();
+                LogisticsWindowUI lw = ParsekWindowSet.Of(ui).GetLogisticsUI();
                 if (!lw.LinkPickerAvailableForTesting)
                 {
                     ParsekLog.Warn(Tag, "uiaction rejected reason="
@@ -648,8 +648,8 @@ namespace Parsek.TestCommands
                                             UiActionPending pending)
         {
             bool open = pending.PickerMode == UiPickerMode.Link
-                ? ctx.Ui.GetLogisticsUI().LinkPickerOpenForTesting
-                : ctx.Ui.GetRecordingsTableUI().IsGroupPickerOpen;
+                ? ParsekWindowSet.Of(ctx.Ui).GetLogisticsUI().LinkPickerOpenForTesting
+                : ParsekWindowSet.Of(ctx.Ui).GetRecordingsTableUI().IsGroupPickerOpen;
             if (!open)
             {
                 ParsekLog.Error(Tag, "uiaction error reason="

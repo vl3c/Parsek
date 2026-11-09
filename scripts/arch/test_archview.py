@@ -3306,13 +3306,16 @@ class RealTreeSmokeTests(unittest.TestCase):
         # snapshot, the reason tooltip, the Mission Control UI and two patches, which call
         # each other) are left as their own 9-type knot. Wave 2 W6 moves the flight map
         # markers out of ParsekUI into ParsekFlightMapMarkers, which reaches the knot and is
-        # reached from its host: 433.
+        # reached from its host: 433. W6's window set (ParsekUI holds its windows through
+        # interfaces; ParsekWindowSet builds and holds them typed) adds three: the set, which
+        # its hosts reach and which reaches the windows, ISpawnControlWindow, whose DrawIfOpen
+        # names ParsekFlight, and IParsekUIWindows, which names ISpawnControlWindow: 436.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [433, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [436, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3458,19 +3461,22 @@ class RealTreeSmokeTests(unittest.TestCase):
         # moved out of ParsekUI), which only its host reaches: the flight controller's cut
         # now drops it too and breaks the 22-each tie, so the flight controller goes first
         # (433 -> 410) and the ghost playback logic second (410 -> 388, the same references).
+        # W6's window set (three more knot types, see the knot sizes above) is reached from
+        # the flight controller, which builds it: the first cut drops it too and lands lower
+        # (436 -> 405), and the ghost playback cut follows from there (405 -> 383).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 433)
-        self.assertEqual(first["sizeAfter"], 410)
-        for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers",
+        self.assertEqual(first["sizeBefore"], 436)
+        self.assertEqual(first["sizeAfter"], 405)
+        for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
                         "ParsekFlightSpawnHost", "ParsekFlightSplitBrancher",
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "GhostPlaybackLogic")
-        self.assertEqual(second["sizeBefore"], 410)
-        self.assertEqual(second["sizeAfter"], 388)
+        self.assertEqual(second["sizeBefore"], 405)
+        self.assertEqual(second["sizeAfter"], 383)
         for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
             self.assertIn(dropped, second["droppedReferences"])
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
@@ -3489,10 +3495,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # ParsekFlightPostSwitchAutoRecord (434 before); PF4 moved it to third
         # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
         # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
-        # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b).
+        # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
+        # 383 -> 364 after W6's window set).
         self.assertEqual(third["sink"], "Route")
-        self.assertEqual(third["sizeBefore"], 388)
-        self.assertEqual(third["sizeAfter"], 369)
+        self.assertEqual(third["sizeBefore"], 383)
+        self.assertEqual(third["sizeAfter"], 364)
         self.assertEqual(
             third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
 

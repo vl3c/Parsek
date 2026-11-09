@@ -648,8 +648,8 @@ namespace Parsek.Tests
         [Fact]
         public void SeamReadBack_FollowsTheLitButton()
         {
-            var ui = new ParsekUI(UIMode.KSC);
-            TimelineWindowUI window = ui.GetTimelineUI();
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            TimelineWindowUI window = ParsekWindowSet.Of(ui).GetTimelineUI();
             Assert.Equal("All", window.ActiveTimeRangePresetForTesting);
             Assert.False(window.ShowCustomRangeForTesting);
 

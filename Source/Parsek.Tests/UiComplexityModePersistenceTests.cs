@@ -383,10 +383,10 @@ namespace Parsek.Tests
             ParsekSettings.CurrentOverrideForTesting = settings;
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
 
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
-                RecordingsTableUI table = ui.GetRecordingsTableUI();
+                RecordingsTableUI table = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
                 Assert.NotNull(table);
 
                 // Land on the Recordings tab. ScrollToRecording is the only lever that selects

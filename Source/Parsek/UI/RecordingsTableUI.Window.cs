@@ -238,7 +238,7 @@ namespace Parsek
                     GUILayout.Width(50)))
             {
                 filter.Clear();
-                parentUI.GetTimelineUI()?.ResetTimeRangeSliders();
+                ParsekWindowSet.Of(parentUI).GetTimelineUI()?.ResetTimeRangeSliders();
                 ParsekLog.Verbose("UI", "Time-range filter: cleared from Recordings table");
             }
             GUILayout.EndHorizontal();
@@ -303,7 +303,7 @@ namespace Parsek
                 // height, so neither the control count nor the window height depends on whether
                 // the cursor is over a tooltipped control.
                 recordingsWindowTooltipText = string.Empty;
-                parentUI.GetMissionsUI().DrawMissionsTabContent(wideScroll);
+                ParsekWindowSet.Of(parentUI).GetMissionsUI().DrawMissionsTabContent(wideScroll);
                 DrawMissionsTabBottomBar();
                 return;
             }
