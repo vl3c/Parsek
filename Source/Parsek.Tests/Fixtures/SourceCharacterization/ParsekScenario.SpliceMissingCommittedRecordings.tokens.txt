@@ -1,0 +1,94 @@
+C:string.IsNullOrEmpty
+A:committedTree
+C:FindCommittedTreeById
+C:ParsekLog.Verbose
+S:"Scenario"
+S:$"SpliceMissingCommittedRecordings: tree id={loadedTree.Id} has no in-memory "
+S:$"committed counterpart — nothing to splice"
+A:loadedBefore
+A:committedCount
+A:splicedRecordings
+A:refreshedRecordings
+A:refreshedRecordingsFull
+A:refreshedRecordingsRecorderStatePreserved
+A:splicedBranchPoints
+A:updatedBranchPoints
+A:splicedRecordingIds
+C:List
+A:refreshedRecordingIds
+C:List
+A:recId
+A:committedRec
+C:string.IsNullOrEmpty
+A:loadedRec
+A:loadedHasId
+C:loadedTree.Recordings.TryGetValue
+A:clone
+C:Recording.DeepClone
+C:RecordingSidecarStore.ClearSidecarLoadFailure
+C:clone.MarkFilesDirty
+C:loadedTree.AddOrReplaceRecording
+A:splicedRecordings
+C:splicedRecordingIds.Add
+A:isActive
+C:string.IsNullOrEmpty
+C:string.Equals
+C:RefreshLoadedRecordingFromCommittedSplit
+A:refreshedRecordings
+C:refreshedRecordingIds.Add
+A:refreshedRecordingsRecorderStatePreserved
+A:refreshedRecordingsFull
+A:loadedTree.BranchPoints
+C:List
+A:loadedBpIndex
+C:Dictionary
+A:i
+A:i
+A:loadedBp
+C:string.IsNullOrEmpty
+A:b
+A:b
+A:committedBp
+C:string.IsNullOrEmpty
+C:loadedBpIndex.TryGetValue
+A:clonedBp
+C:CloneBranchPoint
+C:loadedTree.BranchPoints.Add
+A:splicedBranchPoints
+A:loadedBp
+A:listsDiverged
+C:StringListsEqual
+C:StringListsEqual
+A:loadedBp.ParentRecordingIds
+C:List
+C:List
+A:loadedBp.ChildRecordingIds
+C:List
+C:List
+A:updatedBranchPoints
+A:repairedChainPredecessors
+C:RepairMissingContiguousChainPredecessors
+S:"SpliceMissingCommittedRecordings"
+A:loadedAfter
+C:loadedTree.RebuildBackgroundMap
+C:ParsekLog.Info
+S:"Scenario"
+S:$"SpliceMissingCommittedRecordings: tree '{loadedTree.TreeName}' (id={loadedTree.Id}) "
+S:$"loadedBefore={loadedBefore} committed={committedCount} after={loadedAfter} "
+S:$"splicedRecordings={splicedRecordings} "
+S:$"refreshedRecordings={refreshedRecordings} "
+S:$"(full={refreshedRecordingsFull} "
+S:$"recorderStatePreserved={refreshedRecordingsRecorderStatePreserved}) "
+S:$"repairedChainPredecessors={repairedChainPredecessors} "
+S:$"splicedBranchPoints={splicedBranchPoints} "
+S:$"updatedBranchPoints={updatedBranchPoints} "
+S:$"source=committed-tree-in-memory"
+C:ParsekLog.Verbose
+S:"Scenario"
+S:$"SpliceMissingCommittedRecordings: "
+S:$"splicedIds=[{string.Join(",", splicedRecordingIds)}] "
+S:$"refreshedIds=[{string.Join(",", refreshedRecordingIds)}]"
+C:ParsekLog.Verbose
+S:"Scenario"
+S:$"SpliceMissingCommittedRecordings: tree '{loadedTree.TreeName}' (id={loadedTree.Id}) "
+S:$"loaded={loadedBefore} committed={committedCount} — already in sync, nothing to splice"

@@ -78,7 +78,7 @@ namespace Parsek
             return (RecordingStore.CommittedRecordings.Count, RecordingStore.CommittedTrees.Count);
         }
 
-        private static void ResetRecordingPlaybackFields(
+        internal static void ResetRecordingPlaybackFields(
             Recording rec,
             HashSet<string> keepSpawnStateRecordingIds = null,
             HashSet<string> keptLogged = null)
@@ -89,9 +89,7 @@ namespace Parsek
             // the spawn fields below are all a re-spawn needs. Same rule as the OnLoad
             // tree-mutable-state reset (ParsekScenario.ResetTreeRecordingMutableStateForLoad).
 
-            bool keepSpawnState = keepSpawnStateRecordingIds != null
-                && !string.IsNullOrEmpty(rec.RecordingId)
-                && keepSpawnStateRecordingIds.Contains(rec.RecordingId);
+            bool keepSpawnState = ShouldKeepSpawnState(keepSpawnStateRecordingIds, rec.RecordingId);
             if (keepSpawnState)
             {
                 // Committed history the rewind kept: its vessel exists at the rewind target
@@ -103,16 +101,7 @@ namespace Parsek
             }
             else
             {
-                rec.VesselSpawned = false;
-                rec.VesselDestroyed = false;
-                rec.SpawnAttempts = 0;
-                rec.SpawnDeathCount = 0;
-                rec.SpawnedVesselPersistentId = 0;
-                rec.CollisionBlockCount = 0;
-                rec.SpawnAbandoned = false;
-                rec.WalkbackExhausted = false;
-                rec.DuplicateBlockerRecovered = false;
-                TerminalOrbitSpawnSafety.Clear(rec);
+                ClearSpawnState(rec);
             }
             rec.LastAppliedResourceIndex = -1;
             // SpawnSuppressedByRewind is cleared here so a subsequent rewind starts
@@ -127,6 +116,35 @@ namespace Parsek
             rec.SpawnSuppressedByRewindUT = double.NaN;
 
             rec.SceneExitSituation = -1;
+        }
+
+        /// <summary>
+        /// True when the rewind keeps this recording's spawn state: the keep set names its
+        /// (non-empty) id.
+        /// </summary>
+        internal static bool ShouldKeepSpawnState(HashSet<string> keepSpawnStateRecordingIds, string recordingId)
+        {
+            return keepSpawnStateRecordingIds != null
+                && !string.IsNullOrEmpty(recordingId)
+                && keepSpawnStateRecordingIds.Contains(recordingId);
+        }
+
+        /// <summary>
+        /// Zeroes the spawn link and every spawn-attempt counter, and drops the terminal
+        /// spawn-safety deferral, so a replay can spawn the recording's vessel again.
+        /// </summary>
+        internal static void ClearSpawnState(Recording rec)
+        {
+            rec.VesselSpawned = false;
+            rec.VesselDestroyed = false;
+            rec.SpawnAttempts = 0;
+            rec.SpawnDeathCount = 0;
+            rec.SpawnedVesselPersistentId = 0;
+            rec.CollisionBlockCount = 0;
+            rec.SpawnAbandoned = false;
+            rec.WalkbackExhausted = false;
+            rec.DuplicateBlockerRecovered = false;
+            TerminalOrbitSpawnSafety.Clear(rec);
         }
 
         /// <summary>
@@ -252,7 +270,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool CanRewindPreFileCheck(string resolvedSave, out string reason, bool isRecording)
+        internal static bool CanRewindPreFileCheck(string resolvedSave, out string reason, bool isRecording)
         {
             if (RewindContext.IsRewinding)
             {
@@ -319,7 +337,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool CanFastForwardPreRuntime(Recording rec, out string reason, bool isRecording)
+        internal static bool CanFastForwardPreRuntime(Recording rec, out string reason, bool isRecording)
         {
             if (RewindContext.IsRewinding)
             {
@@ -422,8 +440,7 @@ namespace Parsek
             // no-fix — let MergeJournalOrchestrator.RunFinisher resolve the journal
             // on the next OnLoad first, then the user can rewind.
             var scenarioForJournalCheck = ParsekScenario.Instance;
-            if (scenarioForJournalCheck?.ActiveMergeJournal != null
-                && scenarioForJournalCheck.ActiveMergeJournal.Phase != MergeJournal.Phases.Complete)
+            if (IsMergeJournalUnfinished(scenarioForJournalCheck?.ActiveMergeJournal))
             {
                 if (!RecordingStore.SuppressLogging)
                     ParsekLog.Error("Rewind",
@@ -451,6 +468,16 @@ namespace Parsek
                 messageLabel: "Rewind");
             if (!loaded)
                 UndoLiveTreeDropAfterFailedRewind(droppedLiveTreeId, droppedTreeRestored, "Rewind");
+        }
+
+        /// <summary>
+        /// True while a re-fly merge journal exists and has not reached its Complete phase:
+        /// both rewind entry points refuse then, so the journal finishes on the next OnLoad
+        /// instead of straddling the rewind's LoadGame.
+        /// </summary>
+        internal static bool IsMergeJournalUnfinished(MergeJournal journal)
+        {
+            return journal != null && journal.Phase != MergeJournal.Phases.Complete;
         }
 
         /// <summary>
@@ -538,15 +565,12 @@ namespace Parsek
             RewindCarry.CaptureRewindPointsForRewind(ParsekScenario.Instance, messageLabel);
             try
             {
-                string savesDir = Path.Combine(
-                    KSPUtil.ApplicationRootPath ?? "",
-                    "saves",
-                    HighLogic.SaveFolder ?? "");
+                string savesDir = BuildRewindSavesDir(KSPUtil.ApplicationRootPath, HighLogic.SaveFolder);
 
                 string sourcePath = Path.Combine(savesDir,
                     RecordingPaths.BuildRewindSaveRelativePath(saveFileName));
                 tempCopyName = saveFileName;
-                string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
+                string tempPath = BuildRewindTempSavePath(savesDir, tempCopyName);
 
                 // Copy from Parsek/Saves/ to the root saves dir so LoadGame can find it.
                 File.Copy(sourcePath, tempPath, true);
@@ -683,8 +707,7 @@ namespace Parsek
             }
 
             var scenario = ParsekScenario.Instance;
-            if (scenario?.ActiveMergeJournal != null
-                && scenario.ActiveMergeJournal.Phase != MergeJournal.Phases.Complete)
+            if (IsMergeJournalUnfinished(scenario?.ActiveMergeJournal))
             {
                 if (!RecordingStore.SuppressLogging)
                     ParsekLog.Error("Rewind",
@@ -740,18 +763,35 @@ namespace Parsek
 
             try
             {
-                string savesDir = Path.Combine(
-                    KSPUtil.ApplicationRootPath ?? "",
-                    "saves",
-                    HighLogic.SaveFolder ?? "");
-                string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
-                if (File.Exists(tempPath))
-                    File.Delete(tempPath);
+                string savesDir = BuildRewindSavesDir(KSPUtil.ApplicationRootPath, HighLogic.SaveFolder);
+                DeleteFileIfPresent(BuildRewindTempSavePath(savesDir, tempCopyName));
             }
             catch { }
         }
 
-        private static void TryDeleteFileQuietly(string path)
+        /// <summary>
+        /// The save folder's directory under the install's <c>saves</c> root; a null root or
+        /// folder reads as empty. LoadGame reads only this directory, never a subdirectory.
+        /// </summary>
+        internal static string BuildRewindSavesDir(string applicationRootPath, string saveFolder)
+        {
+            return Path.Combine(applicationRootPath ?? "", "saves", saveFolder ?? "");
+        }
+
+        /// <summary>The temporary root-level copy of a rewind save that LoadGame reads.</summary>
+        internal static string BuildRewindTempSavePath(string savesDir, string tempCopyName)
+        {
+            return Path.Combine(savesDir, tempCopyName + ".sfs");
+        }
+
+        /// <summary>Deletes the file when it exists; a missing file is not an error.</summary>
+        internal static void DeleteFileIfPresent(string path)
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+
+        internal static void TryDeleteFileQuietly(string path)
         {
             try { File.Delete(path); }
             catch { }
@@ -836,11 +876,53 @@ namespace Parsek
                 return double.NaN;
             }
 
-            // Wind back UT
+            double saveOwnUT;
+            double adjustedUT = WindBackFlightStateUT(flightState, leadTime, out saveOwnUT);
+
+            // Remove vessels matching name OR persistentId
+            HashSet<uint> vesselPids = resolveVesselPids != null
+                ? resolveVesselPids(adjustedUT)
+                : null;
+            StripRewindSaveVessels(flightState, ownerStrip, vesselPids);
+
+            // Capture PIDs of surviving vessels in the quicksave.
+            // Used by StripFuturePrelaunchVessels to whitelist known-good PRELAUNCH
+            // vessels and strip only unknown ones that appeared after the rewind point.
+            var survivingPids = CollectSurvivingVesselPids(flightState);
+            RewindContext.SetQuicksaveVesselPids(survivingPids.Count > 0 ? survivingPids : null);
+            if (!RecordingStore.SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Captured {survivingPids.Count} surviving vessel PID(s) from quicksave");
+
+            // The landing scene reloads persistent.sfs, so a vessel a committed future claims
+            // lands in its latest (post-claim) form; keep the rewind save's own copy of each
+            // claimed vessel for the ghost that stands in for it until the claim.
+            if (resolveClaimedVesselPids != null)
+            {
+                HashSet<uint> claimedPids = resolveClaimedVesselPids(adjustedUT);
+                int heldCopies = ClaimedVesselHoldGhost.CaptureRewindSaveVessels(flightState, claimedPids);
+                if (!RecordingStore.SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Captured {heldCopies} rewind-save copy(ies) of {claimedPids?.Count ?? 0} " +
+                        "vessel(s) a committed future claims");
+            }
+
+            root.Save(sfsPath);
+            return saveOwnUT;
+        }
+
+        /// <summary>
+        /// Winds the FLIGHTSTATE clock back by <paramref name="leadTime"/>, never below 0, and
+        /// writes it round-trip invariant. Returns the wound-back UT and gives the save's own
+        /// UT in <paramref name="saveOwnUT"/>; both are NaN (and the node is untouched) when
+        /// the UT value is missing or unparseable.
+        /// </summary>
+        internal static double WindBackFlightStateUT(ConfigNode flightState, double leadTime, out double saveOwnUT)
+        {
             string utStr = flightState.GetValue("UT");
             double ut;
             double adjustedUT = double.NaN;
-            double saveOwnUT = double.NaN;
+            saveOwnUT = double.NaN;
             if (!string.IsNullOrEmpty(utStr) &&
                 double.TryParse(utStr, NumberStyles.Any, CultureInfo.InvariantCulture, out ut))
             {
@@ -857,20 +939,24 @@ namespace Parsek
                 ParsekLog.Warn("Rewind",
                     $"PreProcessRewindSave: missing or invalid UT value '{utStr ?? "(null)"}' in FLIGHTSTATE");
             }
+            return adjustedUT;
+        }
 
-            // Remove vessels matching name OR persistentId
-            HashSet<uint> vesselPids = resolveVesselPids != null
-                ? resolveVesselPids(adjustedUT)
-                : null;
+        /// <summary>
+        /// Removes from FLIGHTSTATE every vessel the owner strip claims (by name or owner
+        /// guid) and every vessel whose persistentId is in <paramref name="vesselPids"/>, keeps
+        /// an earlier launch of the owner's craft, and logs one summary of the counts.
+        /// </summary>
+        internal static void StripRewindSaveVessels(
+            ConfigNode flightState, RewindSpawnScope.RewindOwnerStrip ownerStrip, HashSet<uint> vesselPids)
+        {
             bool hasPids = vesselPids != null && vesselPids.Count > 0;
             int removedByName = 0;
             int removedByGuid = 0;
             int removedByPid = 0;
             int keptOtherLaunch = 0;
             var vesselNodes = flightState.GetNodes("VESSEL");
-            var vesselGuids = new string[vesselNodes.Length];
-            for (int g = 0; g < vesselNodes.Length; g++)
-                vesselGuids[g] = VesselLaunchIdentity.TryReadVesselGuid(vesselNodes[g]);
+            var vesselGuids = ReadVesselNodeGuids(vesselNodes);
             bool ownerAnchored = RewindSpawnScope.RewindOwnerStripIsAnchored(ownerStrip, vesselGuids);
             for (int i = vesselNodes.Length - 1; i >= 0; i--)
             {
@@ -898,18 +984,10 @@ namespace Parsek
                             $"(owner guid={ownerStrip.OwnerGuid})");
                 }
 
-                if (hasPids)
+                if (hasPids && IsVesselNodePidIn(vesselNodes[i], vesselPids))
                 {
-                    string pidStr = vesselNodes[i].GetValue("persistentId");
-                    uint pid;
-                    if (pidStr != null
-                        && uint.TryParse(pidStr, NumberStyles.Integer,
-                            CultureInfo.InvariantCulture, out pid)
-                        && vesselPids.Contains(pid))
-                    {
-                        flightState.RemoveNode(vesselNodes[i]);
-                        removedByPid++;
-                    }
+                    flightState.RemoveNode(vesselNodes[i]);
+                    removedByPid++;
                 }
             }
 
@@ -921,10 +999,37 @@ namespace Parsek
                     $"({removedByName} by name [{namesStr}], {removedByGuid} by owner guid, " +
                     $"{removedByPid} by PID; kept {keptOtherLaunch} other launch(es) of the owner's craft)");
             }
+        }
 
-            // Capture PIDs of surviving vessels in the quicksave.
-            // Used by StripFuturePrelaunchVessels to whitelist known-good PRELAUNCH
-            // vessels and strip only unknown ones that appeared after the rewind point.
+        /// <summary>Each VESSEL node's launch guid, by index (null where none is readable).</summary>
+        internal static string[] ReadVesselNodeGuids(ConfigNode[] vesselNodes)
+        {
+            var vesselGuids = new string[vesselNodes.Length];
+            for (int g = 0; g < vesselNodes.Length; g++)
+                vesselGuids[g] = VesselLaunchIdentity.TryReadVesselGuid(vesselNodes[g]);
+            return vesselGuids;
+        }
+
+        /// <summary>
+        /// True when the VESSEL node's persistentId parses (invariant integer) to a member of
+        /// <paramref name="pids"/>.
+        /// </summary>
+        internal static bool IsVesselNodePidIn(ConfigNode vesselNode, HashSet<uint> pids)
+        {
+            string pidStr = vesselNode.GetValue("persistentId");
+            uint pid;
+            return pidStr != null
+                && uint.TryParse(pidStr, NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out pid)
+                && pids.Contains(pid);
+        }
+
+        /// <summary>
+        /// The persistentIds of the VESSEL nodes left in FLIGHTSTATE, skipping any that do not
+        /// parse: the quicksave whitelist for the post-load prelaunch strip.
+        /// </summary>
+        internal static HashSet<uint> CollectSurvivingVesselPids(ConfigNode flightState)
+        {
             var survivingPids = new HashSet<uint>();
             var survivingNodes = flightState.GetNodes("VESSEL");
             for (int s = 0; s < survivingNodes.Length; s++)
@@ -933,26 +1038,7 @@ namespace Parsek
                 if (uint.TryParse(survivingNodes[s].GetValue("persistentId"), out spid))
                     survivingPids.Add(spid);
             }
-            RewindContext.SetQuicksaveVesselPids(survivingPids.Count > 0 ? survivingPids : null);
-            if (!RecordingStore.SuppressLogging)
-                ParsekLog.Info("Rewind",
-                    $"Captured {survivingPids.Count} surviving vessel PID(s) from quicksave");
-
-            // The landing scene reloads persistent.sfs, so a vessel a committed future claims
-            // lands in its latest (post-claim) form; keep the rewind save's own copy of each
-            // claimed vessel for the ghost that stands in for it until the claim.
-            if (resolveClaimedVesselPids != null)
-            {
-                HashSet<uint> claimedPids = resolveClaimedVesselPids(adjustedUT);
-                int heldCopies = ClaimedVesselHoldGhost.CaptureRewindSaveVessels(flightState, claimedPids);
-                if (!RecordingStore.SuppressLogging)
-                    ParsekLog.Info("Rewind",
-                        $"Captured {heldCopies} rewind-save copy(ies) of {claimedPids?.Count ?? 0} " +
-                        "vessel(s) a committed future claims");
-            }
-
-            root.Save(sfsPath);
-            return saveOwnUT;
+            return survivingPids;
         }
     }
 }
