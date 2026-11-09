@@ -68,7 +68,7 @@ namespace Parsek.Tests
 
         private ParsekUI Build()
         {
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             built.Add(ui);
             return ui;
         }

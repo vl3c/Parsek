@@ -150,12 +150,12 @@ namespace Parsek.TestCommands
                     return;
 
                 case TestCommandUiDialogRaise.RewindDialog:
-                    ParsekUI.ActiveInstance.GetRecordingsTableUI()
+                    ParsekWindowSet.Of(ParsekUI.ActiveInstance).GetRecordingsTableUI()
                         .ShowRewindConfirmation(target);
                     return;
 
                 case TestCommandUiDialogRaise.FastForwardDialog:
-                    ParsekUI.ActiveInstance.GetRecordingsTableUI()
+                    ParsekWindowSet.Of(ParsekUI.ActiveInstance).GetRecordingsTableUI()
                         .ShowFastForwardConfirmation(target);
                     return;
 
@@ -164,17 +164,17 @@ namespace Parsek.TestCommands
                     return;
 
                 case TestCommandUiDialogRaise.DeleteRouteDialog:
-                    ParsekUI.ActiveInstance.GetLogisticsUI()
+                    ParsekWindowSet.Of(ParsekUI.ActiveInstance).GetLogisticsUI()
                         .SpawnDeleteRouteConfirmationForTesting(host.Route);
                     return;
 
                 case TestCommandUiDialogRaise.DeleteDormantRouteDialog:
-                    ParsekUI.ActiveInstance.GetLogisticsUI()
+                    ParsekWindowSet.Of(ParsekUI.ActiveInstance).GetLogisticsUI()
                         .SpawnDeleteDormantRouteConfirmationForTesting(host.Route);
                     return;
 
                 case TestCommandUiDialogRaise.CreateRouteDialog:
-                    ParsekUI.ActiveInstance.GetLogisticsUI()
+                    ParsekWindowSet.Of(ParsekUI.ActiveInstance).GetLogisticsUI()
                         .SpawnCreateRouteConfirmationForTesting(host.Candidate);
                     return;
 
@@ -295,7 +295,7 @@ namespace Parsek.TestCommands
             candidate = null;
             detail = null;
             ParsekUI ui = ParsekUI.ActiveInstance;
-            LogisticsWindowUI window = ui != null ? ui.GetLogisticsUI() : null;
+            LogisticsWindowUI window = ui != null ? ParsekWindowSet.Of(ui).GetLogisticsUI() : null;
             if (window == null)
             {
                 detail = "no-logistics-window";

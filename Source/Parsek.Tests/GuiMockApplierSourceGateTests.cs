@@ -118,10 +118,10 @@ namespace Parsek.Tests
             var expected = new[]
             {
                 new { Method = "InstallKerbalsMock",
-                      Accessor = "ui.GetKerbalsUI()",
+                      Accessor = "ParsekWindowSet.Of(ui).GetKerbalsUI()",
                       Member = "CachedViewModelForTesting" },
                 new { Method = "InstallStructureMock",
-                      Accessor = "ui.GetStructureListUI()",
+                      Accessor = "ParsekWindowSet.Of(ui).GetStructureListUI()",
                       Member = "OpenWithGallerySteps" },
             };
 

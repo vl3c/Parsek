@@ -85,7 +85,7 @@ namespace Parsek.InGameTests
 
             GuiMockState state = GuiMockCatalogue.ById("kerbals.roster.lost");
             InGameAssert.IsTrue(state != null, "the catalogue has no kerbals.roster.lost");
-            KerbalsWindowUI kerbals = ui.GetKerbalsUI();
+            KerbalsWindowUI kerbals = ParsekWindowSet.Of(ui).GetKerbalsUI();
             KerbalsWindowUI.KerbalsViewModel? payloadVm = state.Build().Kerbals;
             kerbals.CachedViewModelForTesting = payloadVm;
             InGameAssert.IsTrue(
@@ -137,7 +137,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("no live ParsekUI in this scene");
                 yield break;
             }
-            KerbalsWindowUI kerbals = ui.GetKerbalsUI();
+            KerbalsWindowUI kerbals = ParsekWindowSet.Of(ui).GetKerbalsUI();
             bool kerbalsWasOpen = kerbals.IsOpen;
             kerbals.IsOpen = true;
             kerbals.InvalidateCache();
@@ -252,7 +252,7 @@ namespace Parsek.InGameTests
             if (string.Equals(state.Window, GuiMockSession.KerbalsWindow,
                               StringComparison.Ordinal))
             {
-                KerbalsWindowUI w = ui.GetKerbalsUI();
+                KerbalsWindowUI w = ParsekWindowSet.Of(ui).GetKerbalsUI();
                 bool wasOpen = w.IsOpen;
                 int wasTab = w.SelectedTabForTesting;
                 w.IsOpen = true;
@@ -273,7 +273,7 @@ namespace Parsek.InGameTests
                     w.IsOpen = wasOpen;
                 };
             }
-            StructureListWindowUI s = ui.GetStructureListUI();
+            StructureListWindowUI s = ParsekWindowSet.Of(ui).GetStructureListUI();
             StructureListWindowUI.GalleryTargetSnapshot prev = s.CaptureGalleryTarget();
             s.OpenWithGallerySteps(payload.Structure.Title,
                                    payload.Structure.Steps);

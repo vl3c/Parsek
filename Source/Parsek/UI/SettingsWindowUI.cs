@@ -10,7 +10,7 @@ namespace Parsek
     /// settings simplification; Data Management and its wipe buttons by the 2026-09-26
     /// no-player-deletion ruling).
     /// </summary>
-    internal class SettingsWindowUI
+    internal class SettingsWindowUI : ISettingsWindow
     {
         private readonly ParsekUI parentUI;
 
@@ -256,7 +256,7 @@ namespace Parsek
         /// both are consumed with identical frame semantics and neither can change an IMGUI
         /// control count inside a frame (the fit alters window size options only).</para>
         /// </summary>
-        internal void RequestHeightRemeasure()
+        public void RequestHeightRemeasure()
         {
             settingsWindowHeightRemeasurePending = true;
             var ic = System.Globalization.CultureInfo.InvariantCulture;
@@ -290,14 +290,14 @@ namespace Parsek
             set { settingsWindowRect = value; }
         }
 
-        internal void ReleaseInputLock()
+        public void ReleaseInputLock()
         {
             if (!settingsWindowHasInputLock) return;
             InputLockManager.RemoveControlLock(SettingsInputLockId);
             settingsWindowHasInputLock = false;
         }
 
-        internal bool IsMouseOverOpenWindow(Vector2 mousePosition)
+        public bool IsMouseOverOpenWindow(Vector2 mousePosition)
         {
             return ParsekUI.IsPointerOverOpenWindow(
                 showSettingsWindow,
