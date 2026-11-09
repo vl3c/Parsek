@@ -625,7 +625,7 @@ namespace Parsek
         /// Adds tree recordings to committed list, flushes to disk, rebuilds background map,
         /// captures baseline, and creates a milestone.
         /// </summary>
-        private static void FinalizeTreeCommit(RecordingTree tree, int replaceCommittedTreeIndex = -1)
+        internal static void FinalizeTreeCommit(RecordingTree tree, int replaceCommittedTreeIndex = -1)
         {
             // Add all tree recordings to committedRecordings (enables ghost playback).
             // Skip recordings already present (chain segments committed mid-flight
@@ -1293,7 +1293,7 @@ namespace Parsek
         /// inconsistent — the strict-replace fallback below handles
         /// duplicate-skip semantics in that case.
         /// </summary>
-        private static bool TryUnionActiveReFlyTreeIntoCommitted(
+        internal static bool TryUnionActiveReFlyTreeIntoCommitted(
             RecordingTree existing,
             RecordingTree incoming,
             ReFlySessionMarker marker,
