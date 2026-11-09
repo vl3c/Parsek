@@ -610,7 +610,10 @@ class RealTreeSemanticTests(unittest.TestCase):
         # tree where the text residue
         # (test_archview.test_cut_sequence_halves_the_largest_knot) still
         # passed its bound 179: greedy 150, replayed 150 with
-        # SEMANTIC_CUT_ORDER. History of the same pair: 250 under the text
+        # SEMANTIC_CUT_ORDER. Tightened to 141 on 272daa49d (2026-11-09, after
+        # wave 2 W6: ParsekUI reaches its windows only through interfaces, so it
+        # leaves the residue): greedy 141, replayed 145.
+        # History of the same pair: 250 under the text
         # bound 272 (62d9b1b56) and 263 (be2512a0d; W1b deleted the false
         # text edge ReFlyInvokeHold -> Hold, which moved the text residue 9
         # and this one 0). Like the text ratchet before it, the measure is
@@ -620,7 +623,7 @@ class RealTreeSemanticTests(unittest.TestCase):
         # it. Tighten the bound to the measured value in the PR that lowers
         # it; never loosen it, not even for a new type that only splits a
         # residue member.
-        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 150)
+        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 141)
 
 if __name__ == "__main__":
     unittest.main()

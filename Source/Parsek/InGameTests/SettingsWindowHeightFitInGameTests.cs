@@ -58,7 +58,7 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            SettingsWindowUI settings = ui.GetSettingsWindowUI();
+            SettingsWindowUI settings = ParsekWindowSet.Of(ui).GetSettingsWindowUI();
 
             UiComplexityMode originalMode = ParsekUI.AppliedUiComplexityMode;
             bool originalOpen = settings.IsOpen;

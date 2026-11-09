@@ -161,7 +161,7 @@ namespace Parsek
 
             ParsekLog.Info("KSC", "ParsekKSC starting in Space Center scene");
 
-            ui = new ParsekUI(UIMode.KSC);
+            ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             GameEvents.onGamePause.Add(OnGamePause);
             GameEvents.onGameUnpause.Add(OnGameUnpause);
             // kscGhosts and its side tables are keyed by committed index; a table delete or

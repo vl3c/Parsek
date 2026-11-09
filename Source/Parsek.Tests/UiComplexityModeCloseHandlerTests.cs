@@ -73,7 +73,7 @@ namespace Parsek.Tests
         [Fact]
         public void CloseHandlerCoversEveryGatedLockOwner()
         {
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
                 IReadOnlyList<ParsekUI.GatedWindowCloseTarget> set = ui.BuildGatedWindowCloseSet();
@@ -132,7 +132,7 @@ namespace Parsek.Tests
             ParsekSettings.CurrentOverrideForTesting = settings;
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
 
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
                 OpenEveryGatedSurface(ui);
@@ -149,7 +149,7 @@ namespace Parsek.Tests
 
                 Assert.Equal(UiComplexityMode.Basic, ParsekUI.AppliedUiComplexityMode);
                 Assert.All(set, t => Assert.False(t.IsOpen(), $"{t.Name} still open after entering Basic"));
-                Assert.False(ui.GetRecordingsTableUI().IsGroupPickerOpen);
+                Assert.False(ParsekWindowSet.Of(ui).GetRecordingsTableUI().IsGroupPickerOpen);
             }
             finally
             {
@@ -170,22 +170,22 @@ namespace Parsek.Tests
             ParsekSettings.CurrentOverrideForTesting = settings;
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
 
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
-                TimelineWindowUI timeline = ui.GetTimelineUI();
-                RecordingsTableUI table = ui.GetRecordingsTableUI();
+                TimelineWindowUI timeline = ParsekWindowSet.Of(ui).GetTimelineUI();
+                RecordingsTableUI table = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
                 timeline.IsOpen = true;
                 table.IsOpen = true;
-                ui.GetSpawnControlUI().IsOpen = true;
-                ui.GetKerbalsUI().IsOpen = true;
+                ParsekWindowSet.Of(ui).GetSpawnControlUI().IsOpen = true;
+                ParsekWindowSet.Of(ui).GetKerbalsUI().IsOpen = true;
 
                 // Advanced -> Basic: the gated window goes, the kept ones stay.
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
                 ParsekUI.ApplyPendingUiComplexityModeIfAny();
 
-                Assert.False(ui.GetSpawnControlUI().IsOpen);
-                Assert.True(ui.GetKerbalsUI().IsOpen,
+                Assert.False(ParsekWindowSet.Of(ui).GetSpawnControlUI().IsOpen);
+                Assert.True(ParsekWindowSet.Of(ui).GetKerbalsUI().IsOpen,
                     "Kerbals draws in Basic (owner re-ruling 2026-09-22) and must survive the switch");
                 Assert.True(timeline.IsOpen, "Timeline is not gated and must survive the switch to Basic");
                 Assert.True(table.IsOpen, "the Missions window survives as the Missions window (design 7.2)");
@@ -221,10 +221,10 @@ namespace Parsek.Tests
             ParsekSettings.CurrentOverrideForTesting = settings;
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
 
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
-                SpawnControlUI spawn = ui.GetSpawnControlUI();
+                SpawnControlUI spawn = ParsekWindowSet.Of(ui).GetSpawnControlUI();
                 spawn.IsOpen = true;
                 spawn.SortColumnIndexForTesting = (int)SpawnControlSortColumn.SpawnTime;
                 int expectedSort = spawn.SortColumnIndexForTesting;
@@ -265,10 +265,10 @@ namespace Parsek.Tests
             ParsekSettings.CurrentOverrideForTesting = settings;
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
 
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
-                SettingsWindowUI settingsWindow = ui.GetSettingsWindowUI();
+                SettingsWindowUI settingsWindow = ParsekWindowSet.Of(ui).GetSettingsWindowUI();
                 Assert.False(settingsWindow.HeightRemeasurePendingForTesting);
 
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
@@ -314,10 +314,10 @@ namespace Parsek.Tests
             ParsekSettings.CurrentOverrideForTesting = settings;
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
 
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
-                SettingsWindowUI settingsWindow = ui.GetSettingsWindowUI();
+                SettingsWindowUI settingsWindow = ParsekWindowSet.Of(ui).GetSettingsWindowUI();
 
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
@@ -352,7 +352,7 @@ namespace Parsek.Tests
             ParsekSettings.CurrentOverrideForTesting = settings;
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
 
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
                 OpenEveryGatedSurface(ui);
@@ -399,7 +399,7 @@ namespace Parsek.Tests
             ParsekSettings.CurrentOverrideForTesting = settings;
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
 
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
@@ -535,12 +535,12 @@ namespace Parsek.Tests
 
         private static void OpenEveryGatedSurface(ParsekUI ui)
         {
-            ui.GetSpawnControlUI().IsOpen = true;
-            ui.GetTestRunnerUI().IsOpen = true;
+            ParsekWindowSet.Of(ui).GetSpawnControlUI().IsOpen = true;
+            ParsekWindowSet.Of(ui).GetTestRunnerUI().IsOpen = true;
             // Opened the way a Recordings-tab row's `G` button opens it (edge case 4).
-            ui.GetRecordingsTableUI().GroupPickerForTesting.OpenForGroup("test-group", Vector2.zero);
+            ParsekWindowSet.Of(ui).GetRecordingsTableUI().GroupPickerForTesting.OpenForGroup("test-group", Vector2.zero);
             // Opened through the production opener the detail block's Link control uses.
-            Assert.True(ui.GetLogisticsUI().OpenLinkPickerForTesting(
+            Assert.True(ParsekWindowSet.Of(ui).GetLogisticsUI().OpenLinkPickerForTesting(
                 new Parsek.Logistics.Route { Id = "route-close-set", Name = "Close set route" }));
         }
 

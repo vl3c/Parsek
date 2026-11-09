@@ -234,7 +234,7 @@ namespace Parsek.Tests
                     "    return Handle(ReadHostShowUi, WriteHostShowUi);",
                     "case TestCommandUiAction.KerbalsWindow:",
                     "{",
-                    "    KerbalsWindowUI w = ui.GetKerbalsUI();",
+                    "    KerbalsWindowUI w = ParsekWindowSet.Of(ui).GetKerbalsUI();",
                     "    return Handle(() => w.IsOpen, v => w.IsOpen = v,",
                     "                  KerbalsWindowUI.MinWindowWidth,",
                     "                  KerbalsWindowUI.MinWindowHeight);",

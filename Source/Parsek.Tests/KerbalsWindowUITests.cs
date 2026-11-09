@@ -1468,10 +1468,10 @@ namespace Parsek.Tests
         [Fact]
         public void ScrollToRecording_OpensTheTimelineWindowWhenItIsClosed()
         {
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
-                TimelineWindowUI timeline = ui.GetTimelineUI();
+                TimelineWindowUI timeline = ParsekWindowSet.Of(ui).GetTimelineUI();
                 Assert.False(timeline.IsOpen);
 
                 // Exactly what a Flights row hands OnFatesRowClicked.
@@ -2078,10 +2078,10 @@ namespace Parsek.Tests
         public void LiveCrewRefresh_TheDocumentedEventSetIsExactlyWhatTheWindowSubscribes()
         {
             string src = TooltipEchoBudgetTests.ReadParsekSource("UI/KerbalsWindowUI.cs");
-            int start = src.IndexOf("internal void SubscribeLiveCrewEvents()",
+            int start = src.IndexOf("public void SubscribeLiveCrewEvents()",
                 StringComparison.Ordinal);
             Assert.True(start >= 0, "SubscribeLiveCrewEvents moved or was renamed.");
-            int end = src.IndexOf("internal void UnsubscribeLiveCrewEvents()",
+            int end = src.IndexOf("public void UnsubscribeLiveCrewEvents()",
                 start, StringComparison.Ordinal);
             Assert.True(end > start, "UnsubscribeLiveCrewEvents moved or was renamed.");
             string body = src.Substring(start, end - start);
