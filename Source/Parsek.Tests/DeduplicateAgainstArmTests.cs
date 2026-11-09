@@ -140,6 +140,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EconomicArm_TwoSameKeyRowsOfOtherCaptures_LogNamesTheFirstRow()
+        {
+            var result = new List<GameAction>();
+            int ev = 0, legacy = 0, kept = 0;
+            var c = Spend("c1", 100.0, "n1", 9, true);
+
+            LedgerOrchestrator.DedupEventOrEconomicCandidate(
+                new List<GameAction>
+                {
+                    Spend("first", 100.0, "n1", 7, true),
+                    Spend("second", 100.0625, "n1", 8, true),
+                },
+                c, result, ref ev, ref legacy, ref kept);
+
+            Assert.Same(c, Assert.Single(result));
+            Assert.Equal(1, kept);
+            string line = Assert.Single(logLines, l => l.Contains("as a second event"));
+            Assert.Contains("row first ut=100 has the same key but capture cseq=7", line);
+            Assert.DoesNotContain("second", line.Substring(line.IndexOf("row ", System.StringComparison.Ordinal)));
+        }
+
+        [Fact]
         public void EconomicArm_RowWithoutCaptureNumber_FallsBackToTheLegacyMatch()
         {
             var result = new List<GameAction>();

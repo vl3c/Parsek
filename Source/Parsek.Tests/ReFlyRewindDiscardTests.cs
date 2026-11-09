@@ -448,7 +448,7 @@ namespace Parsek.Tests
             string body = RewindPointSurvivesRewindTests.MethodBody(
                 RewindPointSurvivesRewindTests.ReadSource("RewindLauncher.cs"),
                 "internal static void InitiateRewind(Recording rec)");
-            int journal = body.IndexOf("ActiveMergeJournal.Phase != MergeJournal.Phases.Complete", StringComparison.Ordinal);
+            int journal = body.IndexOf("IsMergeJournalUnfinished(scenarioForJournalCheck?.ActiveMergeJournal)", StringComparison.Ordinal);
             int end = body.IndexOf("MergeDialog.TryDiscardLiveReFlySessionForRewind(", StringComparison.Ordinal);
             int begin = body.IndexOf("BeginRewindForOwner(owner);", StringComparison.Ordinal);
             int load = body.IndexOf("ExecuteRewindSaveLoad(", StringComparison.Ordinal);

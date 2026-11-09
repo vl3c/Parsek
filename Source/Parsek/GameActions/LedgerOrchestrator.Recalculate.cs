@@ -1289,8 +1289,45 @@ namespace Parsek
             }
 
             // actionId -> contract guid, for contract-shaped actions only.
-            var contractGuidByActionId = new Dictionary<string, Guid>(StringComparer.Ordinal);
             var source = Ledger.Actions;
+            var contractGuidByActionId = MapContractGuidsByActionId(source);
+
+            if (contractGuidByActionId.Count == 0)
+                return null;
+
+            var startUtByRecordingId = new Dictionary<string, double>(StringComparer.Ordinal);
+            var cutoffs = new Dictionary<Guid, double>();
+            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+            {
+                var tombstone = scenario.LedgerTombstones[i];
+                if (tombstone == null ||
+                    string.IsNullOrEmpty(tombstone.ActionId) ||
+                    string.IsNullOrEmpty(tombstone.RetiringRecordingId))
+                {
+                    continue;
+                }
+
+                Guid contractGuid;
+                if (!contractGuidByActionId.TryGetValue(tombstone.ActionId, out contractGuid))
+                    continue;
+
+                double startUt = ResolveContractReinstateStartUt(tombstone, startUtByRecordingId);
+
+                FoldContractReinstateCutoff(cutoffs, contractGuid, startUt);
+            }
+
+            return cutoffs.Count == 0 ? null : cutoffs;
+        }
+
+        /// <summary>
+        /// The first step of <see cref="BuildContractReinstateCutoffsForPatch"/>: each
+        /// contract-shaped row's ActionId mapped to its parsed contract guid (rows without an
+        /// id, a contract id or a parseable guid are left out; a repeated id keeps the last).
+        /// </summary>
+        internal static Dictionary<string, Guid> MapContractGuidsByActionId(
+            IReadOnlyList<GameAction> source)
+        {
+            var contractGuidByActionId = new Dictionary<string, Guid>(StringComparer.Ordinal);
             for (int i = 0; i < source.Count; i++)
             {
                 var action = source[i];
@@ -1314,55 +1351,44 @@ namespace Parsek
                 }
             }
 
-            if (contractGuidByActionId.Count == 0)
-                return null;
+            return contractGuidByActionId;
+        }
 
-            var startUtByRecordingId = new Dictionary<string, double>(StringComparer.Ordinal);
-            var cutoffs = new Dictionary<Guid, double>();
-            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+        /// <summary>
+        /// The cutoff UT one tombstone gives in <see cref="BuildContractReinstateCutoffsForPatch"/>:
+        /// the StartUT of its retiring recording (looked up once per recording id and cached
+        /// in <paramref name="startUtByRecordingId"/>), else the tombstone's own UT.
+        /// </summary>
+        internal static double ResolveContractReinstateStartUt(
+            LedgerTombstone tombstone, Dictionary<string, double> startUtByRecordingId)
+        {
+            double startUt;
+            if (!startUtByRecordingId.TryGetValue(tombstone.RetiringRecordingId, out startUt))
             {
-                var tombstone = scenario.LedgerTombstones[i];
-                if (tombstone == null ||
-                    string.IsNullOrEmpty(tombstone.ActionId) ||
-                    string.IsNullOrEmpty(tombstone.RetiringRecordingId))
+                startUt = double.NaN;
+                var committed = RecordingStore.CommittedRecordings;
+                for (int r = 0; r < committed.Count; r++)
                 {
-                    continue;
-                }
-
-                Guid contractGuid;
-                if (!contractGuidByActionId.TryGetValue(tombstone.ActionId, out contractGuid))
-                    continue;
-
-                double startUt;
-                if (!startUtByRecordingId.TryGetValue(tombstone.RetiringRecordingId, out startUt))
-                {
-                    startUt = double.NaN;
-                    var committed = RecordingStore.CommittedRecordings;
-                    for (int r = 0; r < committed.Count; r++)
+                    var rec = committed[r];
+                    if (rec != null &&
+                        string.Equals(rec.RecordingId, tombstone.RetiringRecordingId, StringComparison.Ordinal))
                     {
-                        var rec = committed[r];
-                        if (rec != null &&
-                            string.Equals(rec.RecordingId, tombstone.RetiringRecordingId, StringComparison.Ordinal))
-                        {
-                            startUt = rec.StartUT;
-                            break;
-                        }
+                        startUt = rec.StartUT;
+                        break;
                     }
-                    startUtByRecordingId[tombstone.RetiringRecordingId] = startUt;
                 }
-
-                if (double.IsNaN(startUt))
-                {
-                    // The retiring recording is gone (discarded tree, pruned attempt). Fall
-                    // back to the tombstone's own UT — the merge clock, which is at or after
-                    // the rewind in every production path, so the selection stays bounded.
-                    startUt = tombstone.UT;
-                }
-
-                FoldContractReinstateCutoff(cutoffs, contractGuid, startUt);
+                startUtByRecordingId[tombstone.RetiringRecordingId] = startUt;
             }
 
-            return cutoffs.Count == 0 ? null : cutoffs;
+            if (double.IsNaN(startUt))
+            {
+                // The retiring recording is gone (discarded tree, pruned attempt). Fall
+                // back to the tombstone's own UT — the merge clock, which is at or after
+                // the rewind in every production path, so the selection stays bounded.
+                startUt = tombstone.UT;
+            }
+
+            return startUt;
         }
 
         private static HashSet<string> BuildTombstonedScienceSpendingNodeIds()

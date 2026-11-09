@@ -370,8 +370,12 @@ namespace Parsek.Tests
             string helper = BraceBody(scenario,
                 "internal static int ResetTreeRecordingMutableStateForLoad(");
             string launcher = StripComments(ReadParsekSource("RewindLauncher.cs"));
-            string rewind = BraceBody(launcher,
-                "private static void ResetRecordingPlaybackFields(");
+            string rewindReset = BraceBody(launcher,
+                "internal static void ResetRecordingPlaybackFields(");
+            Assert.Contains("ClearSpawnState(rec);", rewindReset);
+            // The rewind reset zeroes the spawn fields through its ClearSpawnState unit.
+            string rewind = rewindReset + BraceBody(launcher,
+                "internal static void ClearSpawnState(Recording rec)");
 
             foreach (var body in new[] { helper, rewind })
             {
