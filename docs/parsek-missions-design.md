@@ -321,6 +321,7 @@ For a celestial mission, an arbitrary relaunch time means the replay no longer m
 
 - `Rotation(B)` only when the set has BOTH a surface / atmospheric segment of B AND an inertial orbit of B (the ascent-to-orbit hand-off).
 - `Orbital(C)` for every SOI-entry body. Direct-child orbital target = `Supported`; sibling / cross-parent = `UnsupportedCrossParent`; rendezvous / dock = `UnsupportedRendezvous`.
+- Moon-rooted frame (rule 4a): when the launch body is a moon and the mission stays inside its planet's SOI (Laythe -> Vall, Mun -> Minmus, a moon -> planet return), each sibling moon emits a `Supported` `Orbital(C)`, the planet emits nothing, and the launch moon emits `Orbital(launch moon)` once the mission leaves it, so the loop waits until both moons are back in place. A moon launch that leaves the planet's SOI stays `UnsupportedCrossParent`.
 
 `Solve` (`:561`) picks the dominant constraint, locks `P = m * dominantPeriod` (joint best-fit `FindBestJointMultiple`, up to 16 multiples), and returns the next window `UT0 + k*P >= now`. In the builder (`MissionLoopUnitBuilder.cs:267`), when `ShouldPhaseLock` the anchor SNAPS to `NextWindowUT` and the cadence is quantized to a multiple of P (`QuantizeCadenceToMultipleOfP` `:621`). Tolerance is physics-derived (orbital: roughly `SOI_radius(C) / orbital_velocity(C)`; rotation: a small fraction of a degree); the residual is reported green when within tolerance, amber otherwise.
 

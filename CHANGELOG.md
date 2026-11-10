@@ -4,6 +4,16 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **A looped trip from one moon to another waits until both moons line up.** Looping a Laythe ->
+  Vall or Mun -> Minmus flight (or a moon -> planet return) now repeats only when both moons are
+  back where they were, so the ghost no longer jumps as it leaves one moon or reaches the other.
+  The trip replays exactly as recorded; only the wait between loops changes.
+  (MOON-TO-MOON-LOOP-NOT-RETIMED)
+
 ## 1.0.1
 
 ### Changed
