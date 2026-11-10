@@ -1,0 +1,134 @@
+A:lastRestoredQuicksaveTreeFacts
+A:pendingFreshRecordingAfterDiscard
+A:pendingActiveTreeResumeRewindSave
+C:PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression
+S:"TryRestoreActiveTreeNode:rewind-in-progress"
+C:ParsekLog.Warn
+S:"Scenario"
+S:"TryRestoreActiveTreeNode: consumed active-tree restore "
+S:$"suppression while rewind was already skipping restore reason='{rewindSuppressReason}'"
+C:ParsekLog.Verbose
+S:"Scenario"
+S:"TryRestoreActiveTreeNode: skipped (rewind in progress — active tree deliberately discarded)"
+A:treeNodes
+C:node.GetNodes
+S:"RECORDING_TREE"
+A:t
+A:t
+C:IsActiveTreeNode
+A:tree
+C:RecordingTree.Load
+A:pendingActiveTreeResumeRewindSave
+C:ClearPendingQuickloadResumeContext
+C:ParsekLog.Warn
+S:"Scenario"
+S:$"TryRestoreActiveTreeNode: skipped active tree '{tree.TreeName}' id={tree.Id} "
+S:"because all recordings were rejected by the schema gate"
+A:lastRestoredQuicksaveTreeFacts
+C:CaptureQuicksaveTreeFacts
+C:CollectQuicksaveCommittedRecordingIds
+C:CollectQuicksaveCommittedTreeIds
+C:ParsekLog.Verbose
+S:"Scenario"
+S:$"TryRestoreActiveTreeNode: captured quicksave facts tree='{tree.TreeName}' id={tree.Id} "
+S:$"members={lastRestoredQuicksaveTreeFacts?.Members.Count ?? 0} "
+S:$"treeCommittedInQuicksave={(lastRestoredQuicksaveTreeFacts != null && lastRestoredQuicksaveTreeFacts.TreeCommittedInQuicksave ? "true" : "false")}"
+C:PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression
+S:"TryRestoreActiveTreeNode:active-tree"
+A:pendingActiveTreeResumeRewindSave
+C:ParsekLog.Info
+S:"Scenario"
+S:"TryRestoreActiveTreeNode: suppressed saved active tree restore "
+S:$"tree='{tree.TreeName}' id={tree.Id} recordings={tree.Recordings.Count} "
+S:$"activeRecId={tree.ActiveRecordingId ?? "<null>"} reason='{suppressReason}' - "
+S:"leaving committed mission tree intact and not stashing pending-Limbo"
+A:sidecarHydrationFailures
+A:staleEpochHydrationFailures
+C:RecordingSidecarStore.LoadRecordingFiles
+A:sidecarHydrationFailures
+A:staleEpochHydrationFailures
+C:TryDeclineDiscardedActiveTree
+C:ShouldKeepPendingTreeAfterHydrationFailure
+C:ParsekLog.Warn
+S:"Scenario"
+S:$"TryRestoreActiveTreeNode: keeping in-memory pending tree "
+S:$"'{PendingTreeSlot.PendingTree.TreeName}' because saved active tree "
+S:$"'{tree.TreeName}' had {staleEpochHydrationFailures} stale-sidecar epoch failure(s)"
+A:salvagedHydrationFailures
+C:RestoreHydrationFailedRecordingsFromPendingTree
+A:droppedHydrationFailures
+C:DropFailedSidecarHydrationRecordings
+S:"TryRestoreActiveTreeNode"
+A:pendingActiveTreeResumeRewindSave
+C:ClearPendingQuickloadResumeContext
+C:ParsekLog.Warn
+S:"Scenario"
+S:$"TryRestoreActiveTreeNode: skipped active tree '{tree.TreeName}' id={tree.Id} "
+S:$"after dropping {droppedHydrationFailures} recording(s) with incompatible sidecars"
+A:saveAttemptRearmed
+C:TryRearmSaveAttemptForRestoredTree
+A:liveAttemptKeepsCommittedCopy
+C:ShouldLiveAttemptKeepCommittedCopy
+C:CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree
+A:splicedFromCommitted
+C:SpliceMissingCommittedRecordingsIntoLoadedTree
+C:RepairMissingContiguousChainPredecessors
+S:"TryRestoreActiveTreeNode"
+C:tree.RebuildBackgroundMap
+C:SplitParentLinks.RepairStaleParents
+S:"TryRestoreActiveTreeNode"
+A:reFlySessionResumed
+C:IsResumedReFlySessionTree
+A:committedCopyDetached
+C:RecordingStore.RemoveCommittedTreeById
+S:"TryRestoreActiveTreeNode"
+C:ParsekLog.Info
+S:"Scenario"
+S:$"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' "
+S:$"(id={tree.Id}) committed: the restored tree is the live Re-Fly session "
+S:$"sess={Instance?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}"
+C:ParsekLog.Info
+S:"Scenario"
+S:$"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' "
+S:$"(id={tree.Id}) committed and skipped the splice: the restored tree is the "
+S:"re-armed restore attempt's clone"
+C:ParsekLog.Info
+S:"Scenario"
+S:$"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' "
+S:$"(id={tree.Id}) committed: the restored tree is the live restore attempt's clone"
+C:ParsekLog.Verbose
+S:"Scenario"
+S:$"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' "
+S:$"(id={tree.Id}) needed detaching"
+C:ParsekLog.Info
+S:"Scenario"
+S:$"TryRestoreActiveTreeNode: keeping in-memory Finalized tree "
+S:$"'{PendingTreeSlot.PendingTree.TreeName}' — skipping .sfs replacement "
+S:$"(OnSave ran before finalization, .sfs maxDist is stale)"
+C:PendingTreeSlot.PopPendingTree
+A:stashState
+C:string.IsNullOrEmpty
+C:PendingTreeSlot.StashPendingTree
+A:pendingActiveTreeResumeRewindSave
+C:GetValue
+S:"resumeRewindSave"
+C:ParsekLog.Info
+S:"Scenario"
+S:$"TryRestoreActiveTreeNode: stashed active tree '{tree.TreeName}' "
+S:$"({tree.Recordings.Count} recording(s), activeRecId={tree.ActiveRecordingId ?? "<null>"}) "
+S:$"into pending-{stashState} slot for revert-detection dispatch"
+S:$" with {sidecarHydrationFailures} sidecar hydration failure(s)"
+S:$", salvaged {salvagedHydrationFailures} from pending"
+S:""
+S:""
+S:$", spliced {splicedFromCommitted} post-RP recording(s) from committed tree"
+S:""
+C:RecorderStateLog.RecState
+S:"TryRestoreActiveTreeNode:stashed"
+C:CaptureScenarioRecorderState
+C:PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression
+S:"TryRestoreActiveTreeNode:no-active-tree"
+C:ParsekLog.Warn
+S:"Scenario"
+S:"TryRestoreActiveTreeNode: consumed active-tree restore "
+S:$"suppression but no active tree node was present reason='{noActiveSuppressReason}'"
