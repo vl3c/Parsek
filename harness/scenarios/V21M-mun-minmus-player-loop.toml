@@ -1,5 +1,41 @@
 schema = 1
 id = "V21M-mun-minmus-player-loop"
+# =====================================================================================
+# 2026-11-10 RE-PIN BY PREDICTION TO THE MOON-ROOTED PHASE-LOCK CLOCK (commit bbdcf920,
+# todo MOON-TO-MOON-LOOP-NOT-RETIMED). THE NEXT FLIGHT OF THIS LANE IS THE READING RUN.
+# Rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`) makes this Mun-rooted
+# tree that never leaves Kerbin's SOI SUPPORTED: constraints {Orbital(Minmus)
+# P=1,077,310.521, Orbital(Mun) P=138,984.377}, Solve `method=joint-best-fit`
+# P = 4 * P_Minmus = 4,309,242.084 (Mun residual 726.4 s, within tolerance), and the
+# zero-drift schedule builds (`scheduleWithinTol=yes`). So `PhaseLock APPLIED`
+# replaces `PhaseLock SKIPPED ... support=UnsupportedCrossParent`, ApplyReaim is no
+# longer reached, and the H3 clock of section 3 (`cadence = span`,
+# `overlapCadence = span / 20`, instance 21) is HISTORY.
+# HOW IT WAS PREDICTED: the real `MissionLoopUnitBuilder.TryBuildLoopUnitForSelection`
+# -> `MissionsWindowUI.ComputeNextRelaunchUT` driven in a scratch xUnit cell over THIS
+# fixture's own RECORDING_TREE and `.prec.txt` sidecar, with stock body values (Mun
+# 138,984.37657447575 and Minmus 1,077,310.5210188075 as the lanes log them). The cell
+# reproduced section 3.8's measured span to the last digit.
+#   span       [21,747.100307940531, 305,654.54607706395] (unchanged)
+#   L0         4,330,989.184383 = ut0 + 4 * P_Minmus (schedule first launch; the first
+#              Minmus multiple at which the Mun is back within its tolerance)
+#   L1         8,640,231.268458 = L0 + 4 * P_Minmus (the second StartLoopPlayback)
+#   cadence = overlapCadence = 4,309,242.084 s >= span: the loop NO LONGER
+#   SELF-OVERLAPS, so cycle 2 is the next scheduled launch, not instance 21.
+# `A` no longer moves anything: L0 is ~4.03 Ms past A. The section-3.7 byte-fact
+# offsets are unchanged; the table re-cuts as (floored, the 3.9 convention):
+#   cycle-1 arrival seam L0 + 267,230.864 = 4,598,220.048 -> 4598040 / 4598160 / 4598360
+#   cycle-1 park         L0 + 283,674.587 = 4,614,663.771 -> 4614663
+#   cycle-2 arrival seam L1 + 267,230.864 = 8,907,462.132 -> 8907282 / 8907402 / 8907602
+#   cycle-2 park         L1 + 283,674.587 = 8,923,905.855 -> 8923905
+# Each +12 s WarpToUT dwell moved with its jump, and the census margin (0.293 * tail =
+# 232.86 s) is unchanged. The first StartLoopPlayback is now a ~4.03 Ms forward clock
+# set (FastForwardToEventUT has no magnitude cap). No required or forbidden token
+# names the routing, so none changed. Error term: the live body periods (L1 is
+# ut0 + 8 * P_Minmus, sub-millisecond on the logged value); the model risk is the
+# road itself (the schedule's window choice), which the reading run confirms off
+# `PhaseLock APPLIED ... ->4330989.18...` and the two `relaunchUt=` echoes.
+# =====================================================================================
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
@@ -917,9 +953,9 @@ steps = [
   # table had these 3 s late, because `A` was seeded 2.814 s high; `A` stays a seed
   # (it is run-dependent at the ~0.3 s level). See 3.5 for why a mis-seeded FORWARD
   # jump greens the steps and is caught only by the section-5 render pin.
-  { cmd = "TimeJump", args = { ut = "586903" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "587023" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "587223" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "4598040" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "4598160" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "4598360" }, expect = "OK", budget = 300 },
   # ============================================================================
   # +140 DWELL BLOCK, V17M's verbatim. Its run 3 established what it is for: the
   # on-change proto-line lens printing NOTHING through a 10.3-wall-second dwell is
@@ -927,9 +963,9 @@ steps = [
   # subject, not that a rate-limit window was shut. It is the standing guard that a
   # silent census reading at this epoch is dwell-backed truth.
   # ============================================================================
-  # 1x FLIGHT time to UT 587235: the +140 dwell, 12 s after the jump (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # 1x FLIGHT time to UT 4598372: the +140 dwell, 12 s after the jump (40 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-  { cmd = "WarpToUT", args = { ut = "587235", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT", args = { ut = "4598372", maxRate = "1" }, expect = "OK", budget = 120 },
   # CYCLE-1 PARK EPOCH: relaunch + 283,674.587 = 603,527, i.e. 70.7% into the
   # MEASURED 794.74 s
   # parked tail. **THE SECOND-THINNEST MARGIN ANY LANE CARRYING THE CENSUS BLOCK HAS
@@ -940,7 +976,7 @@ steps = [
   # is a SEED - if the re-pin measures a shorter one, move THIS EPOCH earlier rather
   # than shrinking the block, and see header 3.3 for the shorter-than-~424 s case,
   # which does not crowd the pin but makes it unsatisfiable.
-  { cmd = "TimeJump", args = { ut = "603527" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "4614663" }, expect = "OK", budget = 300 },
   # ============================================================================
   # THE CENSUS-PACING DWELL BLOCK - 40 x RecordingState, V16M's verbatim and PROVEN
   # machinery: its reading run emitted the census MEASURING line at BOTH arrivals,
@@ -951,9 +987,9 @@ steps = [
   # which every predecessor placed at this epoch and which header section 7 drops
   # with its arithmetic.
   # ============================================================================
-  # 1x FLIGHT time to UT 603539: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # 1x FLIGHT time to UT 4614675: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-  { cmd = "WarpToUT", args = { ut = "603539", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT", args = { ut = "4614675", maxRate = "1" }, expect = "OK", budget = 120 },
   # STEP 3: "Warp to..." AGAIN. Under the predicted H3 clock this resolves the
   # INSTANCE-21 relaunch at **603,760.004134646** (LOGGED, run 1) - exactly one span
   # after instance 1, an identity run 1 reproduced to the last digit,
@@ -965,20 +1001,20 @@ steps = [
   # cycle-2 seam **870,990.87**. The full-precision overlapCadence 14,195.372288456 is
   # carried through all 21 steps - header 3.4's truncation lesson (0.02 s/step floored
   # four cycle-2 UTs one second early last time) applies to this cut unchanged.
-  { cmd = "TimeJump", args = { ut = "870810" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "870930" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "871130" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "8907282" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "8907402" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "8907602" }, expect = "OK", budget = 300 },
   # The same +140 dwell block for cycle 2 - the instance-21 = instance-1 + span
   # identity makes this epoch the second sample of the SAME leg, so both cycles
   # carry the same instrument.
-  # 1x FLIGHT time to UT 871142: the cycle-2 +140 dwell, 12 s after the jump (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # 1x FLIGHT time to UT 8907614: the cycle-2 +140 dwell, 12 s after the jump (40 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-  { cmd = "WarpToUT", args = { ut = "871142", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT", args = { ut = "8907614", maxRate = "1" }, expect = "OK", budget = 120 },
   # CYCLE-2 PARK EPOCH: the same +283,674.587 offset off the LOGGED cycle-2
   # relaunch = 887,434. It is
   # the counterpart sample of the cycle-1 park and is READ from the collected log
   # rather than asserted - nothing below pins anything at this epoch.
-  { cmd = "TimeJump", args = { ut = "887434" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "8923905" }, expect = "OK", budget = 300 },
   # ============================================================================
   # TWELVE DWELL TICKS - **THE THING THAT MAKES THE CYCLE-2 PARK AN EPOCH RATHER THAN
   # A CLOCK SET.** V17M and V19M both held this epoch open with an `EnterWatchMode`

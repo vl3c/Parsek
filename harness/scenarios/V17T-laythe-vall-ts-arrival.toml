@@ -1,5 +1,20 @@
 schema = 1
 id = "V17T-laythe-vall-ts-arrival"
+# =====================================================================================
+# 2026-11-10 RE-PIN BY PREDICTION TO THE MOON-ROOTED PHASE-LOCK CLOCK (commit bbdcf920,
+# todo MOON-TO-MOON-LOOP-NOT-RETIMED). THE NEXT FLIGHT OF THIS LANE IS THE READING RUN.
+# The tree now takes `PhaseLock APPLIED` (Orbital(Vall) + Orbital(Laythe), P = P_Vall,
+# zero-drift schedule); the derivation is in V17M's 2026-11-10 header note. Cycle 1
+# relaunches at L0 = 28,922,988.686, so the one jump (still V17M's third cycle-1
+# bracket, L0 + 75,439.623 + 140) moves 28976421 -> 28998568 and the dwell to
+# 28998580. The cadence is now P_Vall >= span, so the unit NO LONGER SELF-OVERLAPS:
+# the Tracking Station draws ONE loop-mapped ghost through the per-index lifecycle
+# (`CreateGhostVesselFromSource`, `orbitSource=visible-segment`) instead of twenty
+# overlap instances (`orbitSource=overlap-instance-segment`), so that required token
+# is re-pointed to `visible-segment`. The forty-tick spawn-throttle reasoning below
+# is moot with one instance; the dwell is kept as plain settle time. Everything below
+# describes the H3 clock and is history.
+# =====================================================================================
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
@@ -306,7 +321,10 @@ steps = [
   { cmd = "StartLoopPlayback", args = { tree = "9aa3c87c95a147388e6220bd36796fd9" }, expect = "OK", budget = 300 },
   # FORWARD TO ~140 s PAST THE SEEDED CYCLE-1 Jool->Vall SEAM (FLIGHT-only).
   # V17M's third cycle-1 bracket jump, reused verbatim. CALIBRATION SEED under H1.
-  { cmd = "TimeJump", args = { ut = "28976421" }, expect = "OK", budget = 300 },
+  # 2026-11-10 (predicted, header note): this jump is now L0 + 75,439.623 + 140 = 28,998,568.309 under the predicted phase-lock clock (L0 = 28,922,988.686).
+  # The step text above is the H3-era derivation and its overlap-instance spawn
+  # sizing below no longer applies (one non-overlapping instance).
+  { cmd = "TimeJump", args = { ut = "28998568" }, expect = "OK", budget = 300 },
   # PERSIST the armed mission state + the jumped clock.
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
   # RE-KILL THE RECORDER immediately before the load the guard rejects (V5's
@@ -323,9 +341,9 @@ steps = [
   # ticks). Run 1's two ticks gave the scene ~0.65 s = 3 ticks = 6 ghosts and
   # FlushAndQuit cut cycle 1 off. Forty RecordingState ticks (>= 10 wall s,
   # V16M's proven sizing) give the fill-in loop ~4x the headroom it needs.
-  # 1x Tracking Station time to UT 28976433: 12 s after the save at the jump UT 28976421, spawn-throttle headroom for the oldest cycle (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # 1x Tracking Station time to UT 28998580: 12 s after the save at the jump UT 28998568, spawn-throttle headroom for the oldest cycle (40 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-  { cmd = "WarpToUT", args = { ut = "28976433", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT", args = { ut = "28998580", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -438,7 +456,10 @@ required  = [
   "FastForwardToEventUT: jumping to UT=",
   "loadgame trackstation route: booting to TRACKSTATION save=",
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
-  "GhostMap\\] Created ghost vessel .*orbitSource=overlap-instance-segment .*scene=TRACKSTATION",
+  # 2026-11-10: was `orbitSource=overlap-instance-segment`. The phase-locked unit no
+  # longer self-overlaps, so its one ghost comes from the per-index create
+  # (header 2026-11-10 note). A PREDICTION: the reading run confirms the word.
+  "GhostMap\\] Created ghost vessel .*orbitSource=visible-segment .*scene=TRACKSTATION",
   "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Vall scene=TRACKSTATION",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
