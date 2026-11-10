@@ -1,0 +1,386 @@
+== no-ghosts-early-return
+seed ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+== committed-null-teardown
+seed ghosts=[0:9001 ] pids=[9001 ] bounds=[9001:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9001 scene=TRACKSTATION reason=tracking-station-committed-null
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 500.0 reason=tracking-station-committed-null
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== index-stale-teardown
+seed ghosts=[3:9002 ] pids=[9002 ] bounds=[9002:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=3: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=3 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9002 scene=TRACKSTATION reason=tracking-station-index-stale
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #3 — UT 500.0 reason=tracking-station-index-stale
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== overlap-handoff-teardown
+seed ghosts=[0:9003 ] pids=[9003 ] bounds=[9003:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9003 scene=TRACKSTATION reason=overlap-handoff-to-per-instance
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 500.0 reason=overlap-handoff-to-per-instance
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== loop-out-of-window-teardown
+seed ghosts=[0:9004 ] pids=[9004 ] bounds=[9004:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=3500
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9004 scene=TRACKSTATION reason=mission-loop-out-of-window
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 3500.0 reason=mission-loop-out-of-window
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== suppressed-child-started
+seed ghosts=[0:9005 ] pids=[9005 ] bounds=[9005:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9005 scene=TRACKSTATION reason=tracking-station-child-started
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 500.0 reason=tracking-station-child-started
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== playback-disabled
+seed ghosts=[0:9006 ] pids=[9006 ] bounds=[9006:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9006 scene=TRACKSTATION reason=playback-disabled
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 500.0 reason=playback-disabled
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== materialized-real-vessel
+seed ghosts=[0:9007 ] pids=[9007 ] bounds=[9007:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9007 scene=TRACKSTATION reason=tracking-station-spawned-real-vessel
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 500.0 reason=tracking-station-spawned-real-vessel
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== segment-bounds-unchanged-no-apply
+seed ghosts=[0:9100 ] pids=[9100 ] bounds=[9100:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+after ghosts=[0:9100 ] pids=[9100 ] bounds=[9100:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=510
+after ghosts=[0:9100 ] pids=[9100 ] bounds=[9100:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+== segment-bounds-changed-apply
+seed ghosts=[0:9101 ] pids=[9101 ] bounds=[9101:100-200 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=Segment body=Kerbin segSma=700000 hasEffective=True
+log [Parsek][VERBOSE][GhostMap] Cached body-frame bounds pid=9101 recIndex=0 body=Kerbin rawBodyFrameUT=400.00-600.00 segIndices=0-0 loopShift=0.00
+log [Parsek][VERBOSE][GhostMap] update-segment: rec=(null) idx=0 vessel="(null)" source=Segment branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9101 segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 scene=TRACKSTATION
+after ghosts=[0:9101 ] pids=[9101 ] bounds=[9101:100-200 ] bodyFrame=[9101:400-600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:Segment/Kerbin/400 ] counters=0/0/1
+-- tick ut=510
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=Segment body=Kerbin segSma=700000 hasEffective=True
+after ghosts=[0:9101 ] pids=[9101 ] bounds=[9101:100-200 ] bodyFrame=[9101:400-600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:Segment/Kerbin/400 ] counters=0/0/2
+== no-bounds-no-segment-skip
+seed ghosts=[0:9102 ] pids=[9102 ] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=300
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=300.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+after ghosts=[0:9102 ] pids=[9102 ] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+== no-bounds-covering-segment-apply
+seed ghosts=[0:9103 ] pids=[9103 ] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=Segment body=Kerbin segSma=700000 hasEffective=True
+log [Parsek][VERBOSE][GhostMap] Cached body-frame bounds pid=9103 recIndex=0 body=Kerbin rawBodyFrameUT=400.00-600.00 segIndices=0-0 loopShift=0.00
+log [Parsek][VERBOSE][GhostMap] update-segment: rec=(null) idx=0 vessel="(null)" source=Segment branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9103 segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 scene=TRACKSTATION
+after ghosts=[0:9103 ] pids=[9103 ] bounds=[] bodyFrame=[9103:400-600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:Segment/Kerbin/400 ] counters=0/0/1
+== cross-body-gap-expired
+seed ghosts=[0:9104 ] pids=[9104 ] bounds=[9104:200-300 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=400
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=400.0 body=GAP(no-segment) covered=False source=Segment effSegs=2 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9104 scene=TRACKSTATION reason=tracking-station-expired
+log [Parsek][INFO][GhostMap] Orbit proto retired AT terminal orbit bound: idx=0 pid=9104 reason=tracking-station-expired boundEndUT=300.0 liveUT=400.0 overshoot=100.0s (segment drive clamped at the last recorded orbit's end; proto retired here, NOT driven past-window past the bound - e.g. a parking-orbit proto yielding to the descent at the deorbit)
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 400.0 reason=tracking-station-expired
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== landed-past-segments-expired
+seed ghosts=[0:9105 ] pids=[9105 ] bounds=[9105:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=950
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=950.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9105 scene=TRACKSTATION reason=tracking-station-expired
+log [Parsek][INFO][GhostMap] Orbit proto retired AT terminal orbit bound: idx=0 pid=9105 reason=tracking-station-expired boundEndUT=600.0 liveUT=950.0 overshoot=350.0s (segment drive clamped at the last recorded orbit's end; proto retired here, NOT driven past-window past the bound - e.g. a parking-orbit proto yielding to the descent at the deorbit)
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 950.0 reason=tracking-station-expired
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== terminal-orbit-endpoint-tail
+seed ghosts=[0:9106 ] pids=[9106 ] bounds=[9106:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=950
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=950.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9106 scene=TRACKSTATION reason=tracking-station-expired
+log [Parsek][INFO][GhostMap] Orbit proto retired AT terminal orbit bound: idx=0 pid=9106 reason=tracking-station-expired boundEndUT=600.0 liveUT=950.0 overshoot=350.0s (segment drive clamped at the last recorded orbit's end; proto retired here, NOT driven past-window past the bound - e.g. a parking-orbit proto yielding to the descent at the deorbit)
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 950.0 reason=tracking-station-expired
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+-- tick ut=960
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== terminal-orbit-no-bounds
+seed ghosts=[0:9107 ] pids=[9107 ] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=950
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=950.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+after ghosts=[0:9107 ] pids=[9107 ] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+== state-vector-update
+seed ghosts=[0:9200 ] pids=[9200 ] bounds=[] bodyFrame=[] svTraj=[0:v0 ] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=GAP(no-segment) covered=False source=StateVector effSegs=0 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] GetAtmosphereDepth: FlightGlobals unavailable for body=Kerbin (TypeInitializationException) — using 0
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=v0 idx=0 vessel="Char v0" source=StateVector branch=(n/a) body=Kerbin ghostPid=9200 ut=500.0 scene=TRACKSTATION reason=no-orbit-driver
+after ghosts=[0:9200 ] pids=[9200 ] bounds=[] bodyFrame=[] svTraj=[0:v0 ] svCached=[0:0 ] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=505
+log [Parsek][VERBOSE][GhostMap] GetAtmosphereDepth: FlightGlobals unavailable for body=Kerbin (TypeInitializationException) — using 0
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=v0 idx=0 vessel="Char v0" source=StateVector branch=(n/a) body=Kerbin ghostPid=9200 ut=505.0 scene=TRACKSTATION reason=no-orbit-driver
+after ghosts=[0:9200 ] pids=[9200 ] bounds=[] bodyFrame=[] svTraj=[0:v0 ] svCached=[0:0 ] holds=[] lastKnown=[] counters=0/0/0
+== state-vector-below-threshold
+seed ghosts=[0:9201 ] pids=[9201 ] bounds=[] bodyFrame=[] svTraj=[0:v1 ] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=GAP(no-segment) covered=False source=StateVector effSegs=0 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] GetAtmosphereDepth: FlightGlobals unavailable for body=Kerbin (TypeInitializationException) — using 0
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9201 scene=TRACKSTATION reason=below-state-vector-threshold
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 500.0 reason=below-state-vector-threshold
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== state-vector-expired-after-end
+seed ghosts=[0:9202 ] pids=[9202 ] bounds=[] bodyFrame=[] svTraj=[0:v2 ] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=950
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=950.0 body=GAP(no-segment) covered=False source=StateVector effSegs=0 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9202 scene=TRACKSTATION reason=tracking-station-state-vector-expired
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 950.0 reason=tracking-station-state-vector-expired
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== state-vector-no-bracket
+seed ghosts=[0:9203 ] pids=[9203 ] bounds=[] bodyFrame=[] svTraj=[0:v3 ] svCached=[0:0 ] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=50
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=50.0 body=GAP(no-segment) covered=False source=StateVector effSegs=0 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9203 scene=TRACKSTATION reason=tracking-station-state-vector-expired
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 50.0 reason=tracking-station-state-vector-expired
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== state-vector-relative-fast
+seed ghosts=[0:9204 ] pids=[9204 ] bounds=[] bodyFrame=[] svTraj=[0:v4 ] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=GAP(no-segment) covered=False source=StateVector effSegs=0 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=v4 idx=0 vessel="Char v4" source=StateVector branch=(n/a) body=Kerbin ghostPid=9204 ut=500.0 scene=TRACKSTATION reason=no-orbit-driver
+after ghosts=[0:9204 ] pids=[9204 ] bounds=[] bodyFrame=[] svTraj=[0:v4 ] svCached=[0:0 ] holds=[] lastKnown=[] counters=0/0/0
+== state-vector-relative-slow
+seed ghosts=[0:9205 ] pids=[9205 ] bounds=[] bodyFrame=[] svTraj=[0:v5 ] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=GAP(no-segment) covered=False source=StateVector effSegs=0 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9205 scene=TRACKSTATION reason=below-state-vector-threshold
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 500.0 reason=below-state-vector-threshold
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== gap-points-glide
+seed ghosts=[0:9300 ] pids=[9300 ] bounds=[9300:200-300 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=400
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=400.0 body=Kerbin covered=False source=StateVector effSegs=2 seg=[200.0,300.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=g0 idx=0 vessel="Char g0" source=StateVector branch=(n/a) body=Kerbin ghostPid=9300 ut=400.0 scene=TRACKSTATION reason=no-orbit-driver
+log [Parsek][VERBOSE][GhostMap] TS gap-points glide: member=0 effUT=400.0 body=Kerbin alt=90000 reFlySuppressed=False (orbit-raise gap, icon glides recorded ascent instead of segment carry)
+after ghosts=[0:9300 ] pids=[9300 ] bounds=[9300:200-300 ] bodyFrame=[] svTraj=[] svCached=[0:1 ] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=401
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=g0 idx=0 vessel="Char g0" source=StateVector branch=(n/a) body=Kerbin ghostPid=9300 ut=401.0 scene=TRACKSTATION reason=no-orbit-driver
+log [Parsek][VERBOSE][GhostMap] TS gap-points glide: member=0 effUT=401.0 body=Kerbin alt=90000 reFlySuppressed=False (orbit-raise gap, icon glides recorded ascent instead of segment carry)
+after ghosts=[0:9300 ] pids=[9300 ] bounds=[9300:200-300 ] bodyFrame=[] svTraj=[] svCached=[0:1 ] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=550
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=550.0 body=Kerbin covered=True source=Segment effSegs=2 seg=[500.0,600.0] sma=800000 ecc=0.010 | suppressed=1
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=Segment body=Kerbin segSma=800000 hasEffective=True
+log [Parsek][VERBOSE][GhostMap] Cached body-frame bounds pid=9300 recIndex=0 body=Kerbin rawBodyFrameUT=200.00-600.00 segIndices=0-1 loopShift=0.00
+log [Parsek][VERBOSE][GhostMap] update-segment: rec=(null) idx=0 vessel="(null)" source=Segment branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9300 segmentBody=Kerbin segmentUT=500.0-600.0 sma=800000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=500.0 scene=TRACKSTATION
+after ghosts=[0:9300 ] pids=[9300 ] bounds=[9300:200-300 ] bodyFrame=[9300:200-600 ] svTraj=[] svCached=[0:1 ] holds=[] lastKnown=[0:Segment/Kerbin/500 ] counters=0/0/1
+== gap-points-no-bracket
+seed ghosts=[0:9301 ] pids=[9301 ] bounds=[9301:200-300 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=400
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=400.0 body=Kerbin covered=False source=StateVector effSegs=2 seg=[200.0,300.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] TS gap-points glide skipped (no bracketing point): member=0 effUT=400.0 (falling through to same-body segment carry)
+after ghosts=[0:9301 ] pids=[9301 ] bounds=[9301:200-300 ] bodyFrame=[] svTraj=[] svCached=[0:-1 ] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=401
+after ghosts=[0:9301 ] pids=[9301 ] bounds=[9301:200-300 ] bodyFrame=[] svTraj=[] svCached=[0:-1 ] holds=[] lastKnown=[] counters=0/0/0
+== checkpoint-consumed-no-segment
+seed ghosts=[0:9400 ] pids=[9400 ] bounds=[9400:300-700 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=350
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=350.0 body=GAP(no-segment) covered=False source=Segment effSegs=0 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=k0 idx=0 vessel="Char k0" source=StateVector branch=(n/a) body=Kerbin ghostPid=9400 ut=350.0 scene=TRACKSTATION reason=no-orbit-driver
+after ghosts=[0:9400 ] pids=[9400 ] bounds=[9400:300-700 ] bodyFrame=[] svTraj=[] svCached=[0:0 ] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=360
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=k0 idx=0 vessel="Char k0" source=StateVector branch=(n/a) body=Kerbin ghostPid=9400 ut=360.0 scene=TRACKSTATION reason=no-orbit-driver
+after ghosts=[0:9400 ] pids=[9400 ] bounds=[9400:300-700 ] bodyFrame=[] svTraj=[] svCached=[0:0 ] holds=[] lastKnown=[] counters=0/0/0
+== checkpoint-defers-to-segment
+seed ghosts=[0:9401 ] pids=[9401 ] bounds=[9401:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][GhostMap] TS orbit source: OrbitalCheckpoint section at effUT=500.0 deferring to covering OrbitSegment (idx=0 pid=9401 segUT=400.0-600.0 body=Kerbin)
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+after ghosts=[0:9401 ] pids=[9401 ] bounds=[9401:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+== checkpoint-state-vector-ghost
+seed ghosts=[0:9402 ] pids=[9402 ] bounds=[] bodyFrame=[] svTraj=[0:k2 ] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=StateVector effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] GetAtmosphereDepth: FlightGlobals unavailable for body=Kerbin (TypeInitializationException) — using 0
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9402 scene=TRACKSTATION reason=below-state-vector-threshold
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 500.0 reason=below-state-vector-threshold
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== loop-in-window-segment-reapply
+seed ghosts=[0:9500 ] pids=[9500 ] bounds=[9500:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=2500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] IsTerminalOrbitSynthesisSafeForLoopMember: rec=l0 result=True reason=same-body terminalBody=Kerbin lastPointBody=Kerbin
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=Segment body=Kerbin segSma=700000 hasEffective=True
+log [Parsek][VERBOSE][GhostMap] Cached body-frame bounds pid=9500 recIndex=0 body=Kerbin rawBodyFrameUT=400.00-600.00 segIndices=0-0 loopShift=2000.00
+log [Parsek][VERBOSE][GhostMap] update-segment: rec=(null) idx=0 vessel="(null)" source=Segment branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9500 segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 scene=TRACKSTATION
+after ghosts=[0:9500 ] pids=[9500 ] bounds=[9500:400-600 ] bodyFrame=[9500:2400-2600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:Segment/Kerbin/400 ] counters=0/0/1
+-- tick ut=2510
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=Segment body=Kerbin segSma=700000 hasEffective=True
+after ghosts=[0:9500 ] pids=[9500 ] bounds=[9500:400-600 ] bodyFrame=[9500:2400-2600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:Segment/Kerbin/400 ] counters=0/0/2
+== loop-in-window-terminal-synthesis
+seed ghosts=[0:9501 ] pids=[9501 ] bounds=[9501:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=2500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=GAP(no-segment) covered=False source=Segment effSegs=0 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] IsTerminalOrbitSynthesisSafeForLoopMember: rec=l1 result=True reason=same-body terminalBody=Kerbin lastPointBody=Kerbin
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9501 scene=TRACKSTATION reason=tracking-station-expired
+log [Parsek][INFO][GhostMap] Orbit proto retired AT terminal orbit bound: idx=0 pid=9501 reason=tracking-station-expired boundEndUT=600.0 liveUT=2500.0 overshoot=1900.0s (segment drive clamped at the last recorded orbit's end; proto retired here, NOT driven past-window past the bound - e.g. a parking-orbit proto yielding to the descent at the deorbit)
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 2500.0 reason=tracking-station-expired
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== loop-in-window-cross-body-terminal
+seed ghosts=[0:9502 ] pids=[9502 ] bounds=[9502:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=2500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=GAP(no-segment) covered=False source=Segment effSegs=0 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] IsTerminalOrbitSynthesisSafeForLoopMember: rec=l2 result=False reason=cross-body-terminal terminalBody=Mun lastPointBody=Kerbin
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9502 scene=TRACKSTATION reason=tracking-station-expired
+log [Parsek][INFO][GhostMap] Orbit proto retired AT terminal orbit bound: idx=0 pid=9502 reason=tracking-station-expired boundEndUT=600.0 liveUT=2500.0 overshoot=1900.0s (segment drive clamped at the last recorded orbit's end; proto retired here, NOT driven past-window past the bound - e.g. a parking-orbit proto yielding to the descent at the deorbit)
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 2500.0 reason=tracking-station-expired
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/1/0
+== loop-in-window-materialized-kept
+seed ghosts=[0:9503 ] pids=[9503 ] bounds=[9503:400-600 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=2500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] IsTerminalOrbitSynthesisSafeForLoopMember: rec=l3 result=True reason=same-body terminalBody=Kerbin lastPointBody=Kerbin
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=Segment body=Kerbin segSma=700000 hasEffective=True
+log [Parsek][VERBOSE][GhostMap] Cached body-frame bounds pid=9503 recIndex=0 body=Kerbin rawBodyFrameUT=400.00-600.00 segIndices=0-0 loopShift=2000.00
+log [Parsek][VERBOSE][GhostMap] update-segment: rec=(null) idx=0 vessel="(null)" source=Segment branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9503 segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 scene=TRACKSTATION
+after ghosts=[0:9503 ] pids=[9503 ] bounds=[9503:400-600 ] bodyFrame=[9503:2400-2600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:Segment/Kerbin/400 ] counters=0/0/1
+== several-ghosts-mixed
+seed ghosts=[3:9603 1:9601 2:9602 0:9600 7:9607 ] pids=[9603 9601 9602 9600 9607 ] bounds=[9603:400-600 9602:400-600 9600:100-200 ] bodyFrame=[] svTraj=[1:m1 ] svCached=[2:5 ] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=500
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=3 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=1 effUT=500.0 body=GAP(no-segment) covered=False source=StateVector effSegs=0 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] GetAtmosphereDepth: FlightGlobals unavailable for body=Kerbin (TypeInitializationException) — using 0
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=m1 idx=1 vessel="Char m1" source=StateVector branch=(n/a) body=Kerbin ghostPid=9601 ut=500.0 scene=TRACKSTATION reason=no-orbit-driver
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=2 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=500.0 body=Kerbin covered=True source=Segment effSegs=1 seg=[400.0,600.0] sma=700000 ecc=0.010
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=Segment body=Kerbin segSma=700000 hasEffective=True
+log [Parsek][VERBOSE][GhostMap] Cached body-frame bounds pid=9600 recIndex=0 body=Kerbin rawBodyFrameUT=400.00-600.00 segIndices=0-0 loopShift=0.00
+log [Parsek][VERBOSE][GhostMap] update-segment: rec=(null) idx=0 vessel="(null)" source=Segment branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9600 segmentBody=Kerbin segmentUT=400.0-600.0 sma=700000 ecc=0.0100 inc=0.3000 mna=0.0000 epoch=400.0 scene=TRACKSTATION
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=3: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=3 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9603 scene=TRACKSTATION reason=playback-disabled
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #3 — UT 500.0 reason=playback-disabled
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=7: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=7 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9607 scene=TRACKSTATION reason=tracking-station-index-stale
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #7 — UT 500.0 reason=tracking-station-index-stale
+after ghosts=[1:9601 2:9602 0:9600 ] pids=[9601 9602 9600 ] bounds=[9602:400-600 9600:100-200 ] bodyFrame=[9600:400-600 ] svTraj=[1:m1 ] svCached=[2:5 1:0 ] holds=[] lastKnown=[0:Segment/Kerbin/400 ] counters=0/2/1
+-- tick ut=950
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=2 effUT=950.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=950.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=1: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=1 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9601 scene=TRACKSTATION reason=tracking-station-state-vector-expired
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #1 — UT 950.0 reason=tracking-station-state-vector-expired
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=2: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=2 vessel="(null)" source=None branch=(n/a) body=(none) ghostPid=9602 scene=TRACKSTATION reason=tracking-station-expired
+log [Parsek][INFO][GhostMap] Orbit proto retired AT terminal orbit bound: idx=2 pid=9602 reason=tracking-station-expired boundEndUT=600.0 liveUT=950.0 overshoot=350.0s (segment drive clamped at the last recorded orbit's end; proto retired here, NOT driven past-window past the bound - e.g. a parking-orbit proto yielding to the descent at the deorbit)
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #2 — UT 950.0 reason=tracking-station-expired
+log [Parsek][WARN][GhostMap] RemoveGhostVesselForRecording: Die() threw for index=0: <die-message>
+log [Parsek][INFO][GhostMap] destroy: rec=(null) idx=0 vessel="(null)" source=Segment branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9600 ut=400.0 scene=TRACKSTATION reason=tracking-station-expired
+log [Parsek][INFO][GhostMap] Orbit proto retired AT terminal orbit bound: idx=0 pid=9600 reason=tracking-station-expired boundEndUT=200.0 liveUT=950.0 overshoot=750.0s (segment drive clamped at the last recorded orbit's end; proto retired here, NOT driven past-window past the bound - e.g. a parking-orbit proto yielding to the descent at the deorbit)
+log [Parsek][INFO][GhostMap] Removed tracking-station ghost #0 — UT 950.0 reason=tracking-station-expired
+after ghosts=[] pids=[] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/5/1
+== endpoint-tail-overrides-covering-segment
+seed ghosts=[0:9800 ] pids=[9800 ] bounds=[9800:120-150 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=135.7
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=135.7 body=Kerbin covered=True source=Segment effSegs=1 seg=[120.0,150.0] sma=512941 ecc=0.575
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=EndpointTail body=Kerbin segSma=4547677 hasEffective=True
+log [Parsek][VERBOSE][GhostMap] Cached body-frame bounds pid=9800 recIndex=0 source=single-segment-fallback rawSegmentUT=100.00-600.00 loopShift=0.00
+log [Parsek][VERBOSE][GhostMap] update-segment: rec=(null) idx=0 vessel="(null)" source=EndpointTail branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9800 segmentBody=Kerbin segmentUT=100.0-600.0 sma=4547677 ecc=0.8220 inc=0.1000 mna=1.0000 epoch=453.7 scene=TRACKSTATION
+after ghosts=[0:9800 ] pids=[9800 ] bounds=[9800:120-150 ] bodyFrame=[9800:100-600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:EndpointTail/Kerbin/100 ] counters=0/0/1
+-- tick ut=140
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=EndpointTail body=Kerbin segSma=4547677 hasEffective=True
+after ghosts=[0:9800 ] pids=[9800 ] bounds=[9800:120-150 ] bodyFrame=[9800:100-600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:EndpointTail/Kerbin/100 ] counters=0/0/2
+== endpoint-tail-rescues-terminal-expiry
+seed ghosts=[0:9801 ] pids=[9801 ] bounds=[9801:120-150 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=700
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=700.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=EndpointTail body=Kerbin segSma=4547677 hasEffective=True
+log [Parsek][VERBOSE][GhostMap] Cached body-frame bounds pid=9801 recIndex=0 source=single-segment-fallback rawSegmentUT=100.00-600.00 loopShift=0.00
+log [Parsek][VERBOSE][GhostMap] update-segment: rec=(null) idx=0 vessel="(null)" source=EndpointTail branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9801 segmentBody=Kerbin segmentUT=100.0-600.0 sma=4547677 ecc=0.8220 inc=0.1000 mna=1.0000 epoch=453.7 scene=TRACKSTATION
+after ghosts=[0:9801 ] pids=[9801 ] bounds=[9801:120-150 ] bodyFrame=[9801:100-600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:EndpointTail/Kerbin/100 ] counters=0/0/1
+-- tick ut=710
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=EndpointTail body=Kerbin segSma=4547677 hasEffective=True
+after ghosts=[0:9801 ] pids=[9801 ] bounds=[9801:120-150 ] bodyFrame=[9801:100-600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:EndpointTail/Kerbin/100 ] counters=0/0/2
+== endpoint-tail-no-bounds-terminal
+seed ghosts=[0:9802 ] pids=[9802 ] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=700
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=700.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+after ghosts=[0:9802 ] pids=[9802 ] bounds=[] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+== endpoint-tail-loop-member-synthesis
+seed ghosts=[0:9803 ] pids=[9803 ] bounds=[9803:120-150 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=2550
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=550.0 body=GAP(no-segment) covered=False source=Segment effSegs=1 seg=n/a
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] IsTerminalOrbitSynthesisSafeForLoopMember: rec=rec_<guid> result=True reason=same-body terminalBody=Kerbin lastPointBody=Kerbin
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=EndpointTail body=Kerbin segSma=4547677 hasEffective=True
+log [Parsek][VERBOSE][GhostMap] Cached body-frame bounds pid=9803 recIndex=0 source=single-segment-fallback rawSegmentUT=100.00-600.00 loopShift=2000.00
+log [Parsek][VERBOSE][GhostMap] update-segment: rec=(null) idx=0 vessel="(null)" source=EndpointTail branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9803 segmentBody=Kerbin segmentUT=100.0-600.0 sma=4547677 ecc=0.8220 inc=0.1000 mna=1.0000 epoch=453.7 scene=TRACKSTATION
+after ghosts=[0:9803 ] pids=[9803 ] bounds=[9803:120-150 ] bodyFrame=[9803:2100-2600 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:EndpointTail/Kerbin/100 ] counters=0/0/1
+== endpoint-tail-loop-member-covering-not-overridden
+seed ghosts=[0:9804 ] pids=[9804 ] bounds=[9804:120-150 ] bodyFrame=[] svTraj=[] svCached=[] holds=[] lastKnown=[] counters=0/0/0
+-- tick ut=2135.7
+log [Parsek][VERBOSE][MapTraj] TS covering-segment CHANGED: member=0 effUT=135.7 body=Kerbin covered=True source=Segment effSegs=1 seg=[120.0,150.0] sma=512941 ecc=0.575
+log [Parsek][VERBOSE][LaunchSiteZones] Making History not installed: no fallback launch-site circles (KSC pad / runway only)
+log [Parsek][VERBOSE][GhostMap] IsTerminalOrbitSynthesisSafeForLoopMember: rec=rec_<guid> result=True reason=same-body terminalBody=Kerbin lastPointBody=Kerbin
+log [Parsek][ERROR][GhostMap] ApplyOrbitToVessel: no OrbitDriver for recording #0
+log [Parsek][VERBOSE][ReaimSeam] map orbit applied: rec=0 source=Segment body=Kerbin segSma=512941 hasEffective=True
+log [Parsek][VERBOSE][GhostMap] Cached body-frame bounds pid=9804 recIndex=0 body=Kerbin rawBodyFrameUT=120.00-150.00 segIndices=0-0 loopShift=2000.00
+log [Parsek][VERBOSE][GhostMap] update-segment: rec=(null) idx=0 vessel="(null)" source=Segment branch=(n/a) body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9804 segmentBody=Kerbin segmentUT=120.0-150.0 sma=512941 ecc=0.5746 inc=0.0977 mna=1.6818 epoch=120.0 scene=TRACKSTATION
+after ghosts=[0:9804 ] pids=[9804 ] bounds=[9804:120-150 ] bodyFrame=[9804:2120-2150 ] svTraj=[] svCached=[] holds=[] lastKnown=[0:Segment/Kerbin/120 ] counters=0/0/1

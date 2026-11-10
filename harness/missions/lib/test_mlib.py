@@ -12,6 +12,7 @@ the venv, so the whole suite runs on the base interpreter.
 
 import math
 import os
+import re
 import tomllib
 import unittest
 from dataclasses import dataclass, fields, replace
@@ -9742,6 +9743,211 @@ def _landed(**kw):
                 landing_ap_enabled=0, landing_ap_status="")
     base.update(kw)
     return snap(**base)
+
+
+class LandedSurfaceClassMarkTests(unittest.TestCase):
+    """The SURFACE-CLASS MARK (todo B13-LANDER-NEVER-STATIONARY): the mission
+    judges, from its own speed reads, which surface class Parsek's recorder must
+    be reading at the commit, and stamps it into KSP.log so B13's logContract can
+    cross-check the recorder against it. A sliding lander passes; a recorder
+    whose class disagrees with the measured motion reds."""
+
+    MARKED = replace(B13_PARAMS, landed_surface_class_mark=True)
+
+    def _settle_state(self, params, window=()):
+        base = mlib.b5_initial_state(params)
+        fields = {**base.__dict__, "phase": mlib.B5_LANDED_SETTLE,
+                  "phase_entry_ut": 0.0, "landed_stable_streak": 2,
+                  "landed_speed_window": window}
+        return base.__class__(**fields)
+
+    @staticmethod
+    def _window(speeds, start=200.0, step=0.5):
+        return tuple((start + step * i, sp) for i, sp in enumerate(speeds))
+
+    # --- pure helpers -----------------------------------------------------
+
+    def test_surface_speed_is_the_magnitude_and_fails_to_nan(self):
+        self.assertAlmostEqual(
+            0.5, mlib.landed_surface_speed(_landed(horizontal_speed=0.3,
+                                                   vertical_speed=-0.4)))
+        self.assertTrue(math.isnan(mlib.landed_surface_speed(
+            _landed(horizontal_speed=float("nan")))))
+        self.assertTrue(math.isnan(mlib.landed_surface_speed(
+            _landed(vertical_speed=float("nan")))))
+
+    def test_the_window_keeps_six_seconds_and_ignores_a_timeless_sample(self):
+        w = ()
+        for i in range(20):
+            w = mlib.landed_speed_window_push(w, 100.0 + 0.5 * i, 0.3)
+        self.assertEqual(109.5, w[-1][0])
+        self.assertEqual(109.5 - mlib.LANDED_SURFACE_CLASS_WINDOW_SECONDS, w[0][0])
+        self.assertEqual(w, mlib.landed_speed_window_push(w, float("nan"), 0.3))
+
+    def test_the_class_bands(self):
+        cls = lambda speeds: mlib.landed_surface_class(self._window(speeds))[0]
+        twelve = 12  # 11 steps of 0.5 s = a 5.5 s span, over the 5 s minimum
+        self.assertEqual(mlib.LANDED_SURFACE_CLASS_STATIONARY, cls([0.0] * twelve))
+        self.assertEqual(mlib.LANDED_SURFACE_CLASS_STATIONARY,
+                         cls([mlib.LANDED_SURFACE_PARKED_MAX_MPS] * twelve))
+        self.assertEqual(mlib.LANDED_SURFACE_CLASS_MOBILE, cls([0.6] * twelve))
+        self.assertEqual(mlib.LANDED_SURFACE_CLASS_MOBILE,
+                         cls([mlib.LANDED_SURFACE_SLIDING_MIN_MPS] * twelve))
+        # Settling through the recorder's 0.1 m/s threshold: no judgement.
+        self.assertEqual(mlib.LANDED_SURFACE_CLASS_EITHER, cls([0.1] * twelve))
+        self.assertEqual(mlib.LANDED_SURFACE_CLASS_EITHER,
+                         cls([0.6] * 11 + [0.04]))
+        self.assertEqual(mlib.LANDED_SURFACE_CLASS_EITHER,
+                         cls([0.0] * 11 + [0.06]))
+        # A non-finite read, or a window shorter than the recorder's debounce
+        # plus margin, cannot judge either.
+        self.assertEqual(mlib.LANDED_SURFACE_CLASS_EITHER,
+                         cls([0.6] * 11 + [float("nan")]))
+        self.assertEqual(mlib.LANDED_SURFACE_CLASS_EITHER, cls([0.6] * 10))
+        self.assertEqual((mlib.LANDED_SURFACE_CLASS_EITHER, None, None),
+                         mlib.landed_surface_class(()))
+        self.assertEqual((mlib.LANDED_SURFACE_CLASS_MOBILE, 0.55, 0.65),
+                         mlib.landed_surface_class(self._window([0.65] + [0.55] * 11)))
+
+    def test_the_window_outspans_the_recorder_debounce(self):
+        # A class held for the whole window must have been CONFIRMED by the
+        # recorder (EnvironmentHysteresis.SurfaceSpeedDebounceSeconds = 3.0).
+        self.assertGreater(mlib.LANDED_SURFACE_CLASS_WINDOW_MIN_SPAN, 3.0)
+        self.assertGreaterEqual(mlib.LANDED_SURFACE_CLASS_WINDOW_SECONDS,
+                                mlib.LANDED_SURFACE_CLASS_WINDOW_MIN_SPAN)
+        # Banded around the recorder's 0.1 m/s rule (EnvironmentDetector).
+        self.assertLess(mlib.LANDED_SURFACE_PARKED_MAX_MPS, 0.1)
+        self.assertGreater(mlib.LANDED_SURFACE_SLIDING_MIN_MPS, 0.1)
+
+    # --- the machine ------------------------------------------------------
+
+    def test_off_the_commit_frame_emits_exactly_the_commit(self):
+        st = self._settle_state(B13_PARAMS)
+        st2, acts = mlib.b5_decide(st, _landed(ut=130.0))
+        self.assertEqual(mlib.B5_SURFACE_COMMIT, st2.phase)
+        self.assertEqual([mlib.Action(mlib.ACTION_PARSEK_COMMIT_TREE)], acts)
+        self.assertEqual((), st2.landed_speed_window)
+        self.assertEqual("", st2.landed_surface_class)
+
+    def test_a_sliding_lander_marks_surface_mobile_before_the_commit(self):
+        # The B13 shape: creeping downhill at ~0.6 m/s, just under the 0.5 m/s
+        # horizontal settle floor, with a steady vertical component.
+        window = self._window([0.6] * 11, start=124.0)
+        st = self._settle_state(self.MARKED, window)
+        st2, acts = mlib.b5_decide(
+            st, _landed(ut=129.5, horizontal_speed=0.45, vertical_speed=-0.3))
+        self.assertEqual(mlib.B5_SURFACE_COMMIT, st2.phase)
+        self.assertEqual(2, len(acts), acts)
+        mark, commit = acts
+        self.assertEqual(mlib.ACTION_PARSEK_SEAM_COMMAND, mark.kind)
+        self.assertEqual("MissionMark", mark.seam_verb)
+        self.assertEqual((("label", "b5-landed-expect-SurfaceMobile"),),
+                         mark.seam_args)
+        self.assertEqual(mlib.B5_TAG_SURFACE_CLASS_MARK, mark.seam_tag)
+        self.assertEqual(mlib.ACTION_PARSEK_COMMIT_TREE, commit.kind)
+        self.assertEqual(mlib.LANDED_SURFACE_CLASS_MOBILE, st2.landed_surface_class)
+
+    def test_a_parked_lander_marks_surface_stationary(self):
+        window = self._window([0.0] * 11, start=124.0)
+        st = self._settle_state(self.MARKED, window)
+        st2, acts = mlib.b5_decide(st, _landed(ut=129.5, horizontal_speed=0.0))
+        self.assertEqual((("label", "b5-landed-expect-SurfaceStationary"),),
+                         acts[0].seam_args)
+
+    def test_the_window_fills_during_the_dwell(self):
+        st = self._settle_state(self.MARKED)
+        st = replace(st, landed_stable_streak=0)
+        st2, acts = mlib.b5_decide(st, _landed(ut=10.0, horizontal_speed=0.3,
+                                               vertical_speed=-0.4))
+        self.assertEqual(mlib.B5_LANDED_SETTLE, st2.phase)
+        self.assertEqual(((10.0, 0.5),), tuple(
+            (u, round(sp, 6)) for u, sp in st2.landed_speed_window))
+
+    def _committing(self, **snap_kw):
+        st = replace(self._settle_state(self.MARKED),
+                     phase=mlib.B5_SURFACE_COMMIT, phase_entry_ut=130.0,
+                     phases_reached=(mlib.B5_LANDED_SETTLE, mlib.B5_SURFACE_COMMIT))
+        return mlib.b5_decide(st, _landed(ut=131.0, seam_commit_result="OK",
+                                          **snap_kw))[0]
+
+    def test_surface_commit_carries_the_mark_verdict_for_its_own_tag_only(self):
+        done = self._committing(seam_command_result="OK",
+                                seam_command_tag=mlib.B5_TAG_SURFACE_CLASS_MARK)
+        self.assertEqual(mlib.B5_SURFACE_COMMITTED, done.phase)
+        self.assertEqual("OK", done.surface_class_mark_result)
+        other = self._committing(seam_command_result="OK", seam_command_tag="x")
+        self.assertEqual("", other.surface_class_mark_result)
+
+    def test_the_mark_assertion_makes_a_missing_mark_a_mission_failure(self):
+        def row(state):
+            rows = mlib.evaluate_b5_assertions(
+                [], state.params, phases_reached=tuple(state.phases_reached),
+                min_target_altitude=None, state=state)
+            return {r.name: r for r in rows}
+        ok = self._committing(seam_command_result="OK",
+                              seam_command_tag=mlib.B5_TAG_SURFACE_CLASS_MARK)
+        self.assertTrue(row(ok)["surfaceClassMarked"].met)
+        bad = self._committing(seam_command_result="TIMEOUT",
+                               seam_command_tag=mlib.B5_TAG_SURFACE_CLASS_MARK)
+        self.assertFalse(row(bad)["surfaceClassMarked"].met)
+        unmarked = replace(ok, params=B13_PARAMS)
+        self.assertNotIn("surfaceClassMarked", row(unmarked))
+
+    # --- the B13 spec's agreement token ------------------------------------
+
+    @classmethod
+    def _contract(cls):
+        path = os.path.join(HARNESS_ROOT, "scenarios", "B13-mun-landing.toml")
+        with open(path, "rb") as fh:
+            spec = tomllib.load(fh)
+        assert spec["driver"]["missionParams"]["landedSurfaceClassMark"] is True
+        pats = [p for p in spec["expectations"]["logContracts"]["required"]
+                if "MISSIONMARK" in p]
+        assert len(pats) == 1, pats
+        return pats[0]
+
+    @staticmethod
+    def _log(*lines):
+        return "".join("[LOG 00:00:00.000] [Parsek][INFO]" + l + "\r\n"
+                       for l in lines)
+
+    def _mark(self, cls):
+        return ("[TestCommands] MISSIONMARK label=%s%s ut=23571.06"
+                % (mlib.LANDED_SURFACE_CLASS_MARK_PREFIX, cls))
+
+    def test_the_contract_accepts_agreement_and_reds_disagreement(self):
+        pat = self._contract()
+        touch = "[Environment] Environment transition: Approach -> %s at UT=23005.90 (debounce=3.0s)"
+        settle = "[Environment] Environment transition: SurfaceMobile -> SurfaceStationary at UT=23100.00 (debounce=3.0s)"
+        other = "[Recorder] TrackSection started: env=SurfaceMobile ref=Absolute"
+        cases = [
+            # (lines, matches)
+            ((touch % "SurfaceMobile", other, self._mark("SurfaceMobile")), True),
+            ((touch % "SurfaceMobile", settle, self._mark("SurfaceStationary")), True),
+            ((touch % "SurfaceStationary", self._mark("SurfaceStationary")), True),
+            ((touch % "SurfaceMobile", self._mark("either")), True),
+            ((touch % "SurfaceStationary", self._mark("either")), True),
+            # The recorder stuck on Mobile under a parked lander.
+            ((touch % "SurfaceMobile", other, self._mark("SurfaceStationary")), False),
+            # The recorder reading Stationary under a sliding lander.
+            ((touch % "SurfaceMobile", settle, self._mark("SurfaceMobile")), False),
+            ((touch % "SurfaceStationary", self._mark("SurfaceMobile")), False),
+            # No mark at all.
+            ((touch % "SurfaceMobile", other), False),
+        ]
+        for lines, want in cases:
+            with self.subTest(lines=lines):
+                self.assertEqual(want, re.search(pat, self._log(*lines)) is not None)
+
+    def test_the_contract_names_the_mlib_label_and_the_csharp_line(self):
+        pat = self._contract()
+        self.assertIn("MISSIONMARK label=" + mlib.LANDED_SURFACE_CLASS_MARK_PREFIX, pat)
+        self.assertIn(mlib.LANDED_SURFACE_CLASS_EITHER, pat)
+        # The MISSIONMARK literal is TestCommandMissionMark.FormatMarkMessage's.
+        cs = os.path.join(os.path.dirname(HARNESS_ROOT), "Source", "Parsek",
+                          "TestCommands", "TestCommandMissionMark.cs")
+        with open(cs, encoding="utf-8") as fh:
+            self.assertIn('"MISSIONMARK label="', fh.read())
 
 
 class LandingDefaultsPreserveOrbitAndFlybyTests(unittest.TestCase):

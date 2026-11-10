@@ -2242,6 +2242,7 @@ B13_PARAMS = dict(
     landedDwellSeconds=120,
     landedDebounceFrames=3,
     landedTimeoutSeconds=600,
+    landedSurfaceClassMark=True,
 )
 
 
@@ -2331,7 +2332,11 @@ class B13LandingShellTests(B11OrbitShellTests):
             # The seam answered OK -> SURFACE-COMMITTED terminal.
             snap(ut=touchdown_ut + 140.0, body=body, situation="LANDED",
                  altitude=2.98, vertical_speed=0.0, horizontal_speed=0.01,
-                 landing_ap_enabled=0, seam_commit_result="OK"))
+                 landing_ap_enabled=0, seam_commit_result="OK",
+                 # The surface-class MissionMark (landedSurfaceClassMark) went
+                 # out just before the commit and answered OK too.
+                 seam_command_result="OK",
+                 seam_command_tag=mlib.B5_TAG_SURFACE_CLASS_MARK))
         return descent + landed + settle
 
     def test_b13_happy_path_commits_the_tree_landed_on_the_mun(self):
@@ -2372,8 +2377,21 @@ class B13LandingShellTests(B11OrbitShellTests):
                          {"reachedOrbit", "reachedTargetSoi",
                           "flybyPeriapsisFloor", "capturedInTargetOrbit",
                           "parkedStable", "landedOnTargetBody", "landedStable",
-                          "treeCommitted"})
+                          "treeCommitted", "surfaceClassMarked"})
         self.assertTrue(all(by_name.values()), result["assertions"])
+        # The surface-class mark goes out BEFORE the commit, in the same frame,
+        # and names the class this fixture's window supports: its settle
+        # samples are 127 s apart, so the 6 s window holds only the commit
+        # frame and cannot judge -> `either`.
+        marks = [a for a in control.actions
+                 if a.kind == mlib.ACTION_PARSEK_SEAM_COMMAND
+                 and a.seam_verb == "MissionMark"]
+        self.assertEqual(len(marks), 1, control.actions)
+        self.assertEqual(marks[0].seam_args,
+                         (("label", "b5-landed-expect-either"),))
+        self.assertEqual(marks[0].seam_tag, mlib.B5_TAG_SURFACE_CLASS_MARK)
+        self.assertEqual(control.actions.index(marks[0]) + 1,
+                         kinds.index(mlib.ACTION_PARSEK_COMMIT_TREE))
         # NO settle tail (the SF-4 contract): reads stop at the terminal frame.
         self.assertEqual(control.reads, len(frames))
         self.assertTrue(control.closed)
@@ -2388,7 +2406,9 @@ class B13LandingShellTests(B11OrbitShellTests):
                       targetPeriapsisFloorMeters=6000,
                       captureBurnTimeoutSeconds=200000,
                       parkMinPeriapsisMeters=10000,
-                      parkMaxApoapsisMeters=1500000)
+                      parkMaxApoapsisMeters=1500000,
+                      # B14's spec does not arm the surface-class mark.
+                      landedSurfaceClassMark=False)
         frames = (self._transfer_frames(body="Minmus",
                                         transfer_ap=46_000_000.0)
                   + self._capture_frames_to_park(body="Minmus")

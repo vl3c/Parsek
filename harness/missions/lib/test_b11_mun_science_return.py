@@ -83,7 +83,11 @@ PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 # Re-pinned 2026-11-06 for new fields only (B5Params transfer_node_wait_warp,
 # correction_coarse_throttle, correction_fine_dv; B5State corr_coarse): the traces with
 # those fields' default reprs removed hash to the old pins.
-MOR_TRACE_DIGEST = "5ee53bde1c06949849284d6edc5d58b8fed1aab14f0e331dc999a01d7673c348"
+# Re-pinned 2026-11-10 for new fields only (B5Params landed_surface_class_mark; B5State
+# landed_speed_window, landed_surface_class, landed_class_min_speed,
+# landed_class_max_speed, surface_class_mark_result): with those fields' default reprs
+# removed the trace hashes to the previous pin 5ee53bde...c348.
+MOR_TRACE_DIGEST = "9bae0487be0594423c9ee94ae335257b6b5057275d5129614800aa6006c978e8"
 
 _PARK_EXIT_UT = 48_200.0
 _PARK = dict(body="Mun", situation="ORBITING", periapsis=989_990.0, apoapsis=1_010_010.0,

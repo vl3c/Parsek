@@ -925,7 +925,17 @@ namespace Parsek.Tests
 
             int groupWatchStart = groupSrc.IndexOf("// Watch button (flight only) — Bug #382", StringComparison.Ordinal);
             int groupWatchEnd = groupSrc.IndexOf("// Rewind / Forward button. Forward still targets", groupWatchStart, StringComparison.Ordinal);
-            string groupWatchBlock = groupSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
+            string groupWatchShell = groupSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
+            // The rotation step lives in ResolveGroupWatchRotation, which the folder's Watch
+            // block dispatches to: read the block and that helper's body as one span.
+            Assert.Contains("ResolveGroupWatchRotation(", groupWatchShell);
+            int rotationStart = groupSrc.IndexOf(
+                "internal static GhostPlaybackLogic.GroupWatchAdvanceResult ResolveGroupWatchRotation(",
+                StringComparison.Ordinal);
+            Assert.True(rotationStart >= 0, "ResolveGroupWatchRotation not found");
+            int rotationEnd = groupSrc.IndexOf("/// <summary>", rotationStart, StringComparison.Ordinal);
+            string groupWatchBlock = groupWatchShell + "\n"
+                + groupSrc.Substring(rotationStart, rotationEnd - rotationStart);
 
             Assert.Contains("GhostPlaybackLogic.AdvanceGroupWatchCursor", groupWatchBlock);
             Assert.Contains("groupWatchCursorByGroupName", groupWatchBlock);

@@ -133,7 +133,12 @@ steps = [
 # negative control `_1544` (token inverted to `(immediate, debounce=0\.0s)`, red on exactly
 # that token).
 # D14: boot facts of this host (RVR-1's set).
-D4  = ["hysteresis"]
+# D4 `surface-stationary`, MOVED HERE FROM B13 on 2026-11-10 (todo
+# B13-LANDER-NEVER-STATIONARY): B13's untargeted Mun landing can end sliding down a
+# slope, so it can no longer prove the class on every flight. The same required token
+# proves it here: its FROM class is the SurfaceStationary the recorder held for the
+# parked rover before the drive (seeded by `Hysteresis initialized: initial=SurfaceStationary`).
+D4  = ["hysteresis", "surface-stationary"]
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]
