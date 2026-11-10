@@ -70,16 +70,7 @@ namespace Parsek
             // a Rewind-to-Launch lead window): never pruned as future. Only a ready clock is
             // raised; a clock that is not ready keeps every row anyway.
             if (currentUtReady)
-            {
-                double heldMaxUT = LedgerHeldWindow.ResolveLedgerNowUT(maxUT);
-                if (heldMaxUT != maxUT)
-                {
-                    ParsekLog.Info(Tag,
-                        "OnKspLoad: reconcile clock " + maxUT.ToString("R", CultureInfo.InvariantCulture) +
-                        " raised to the ledger held-through UT " + heldMaxUT.ToString("R", CultureInfo.InvariantCulture));
-                    maxUT = heldMaxUT;
-                }
-            }
+                maxUT = ResolveOnKspLoadReconcileUT(maxUT);
 
             // O3: a recording the save names but that did not load keeps its rows. Before the
             // reconcile, which prunes rows tagged to a recording missing from the loaded set.
@@ -124,15 +115,8 @@ namespace Parsek
             // ready, so a genuine future-timeline (post-rewind) cold load is still honored.
             // currentUtReady was computed above (it also gates row preservation in Reconcile).
 
-            bool hasFutureActions = HasActionsAfterUT(maxUT);
-            bool useCurrentUtCutoff =
-                useCurrentUtCutoffForFutureActions && currentUtReady && hasFutureActions;
-            ParsekLog.Info(Tag,
-                "OnKspLoad recalc decision: useCurrentUtCutoff=" + useCurrentUtCutoff +
-                " maxUT=" + maxUT.ToString("R", CultureInfo.InvariantCulture) +
-                " featureSupportsCutoff=" + useCurrentUtCutoffForFutureActions +
-                " currentUtReady=" + currentUtReady +
-                " hasFutureActions=" + hasFutureActions);
+            bool useCurrentUtCutoff = DecideOnKspLoadCurrentUtCutoff(
+                maxUT, useCurrentUtCutoffForFutureActions, currentUtReady);
             if (useCurrentUtCutoff)
             {
                 RecalculateAndPatchForCurrentTimelineUT(maxUT, "ksp-load");
@@ -143,6 +127,44 @@ namespace Parsek
             }
 
             KerbalLoadRepairDiagnostics.EmitAndReset();
+        }
+
+        /// <summary>
+        /// <see cref="OnKspLoad"/>'s reconcile clock on a ready clock: the ledger held-through
+        /// UT when it is later than <paramref name="maxUT"/> (logged), else
+        /// <paramref name="maxUT"/>.
+        /// </summary>
+        internal static double ResolveOnKspLoadReconcileUT(double maxUT)
+        {
+            double heldMaxUT = LedgerHeldWindow.ResolveLedgerNowUT(maxUT);
+            if (heldMaxUT != maxUT)
+            {
+                ParsekLog.Info(Tag,
+                    "OnKspLoad: reconcile clock " + maxUT.ToString("R", CultureInfo.InvariantCulture) +
+                    " raised to the ledger held-through UT " + heldMaxUT.ToString("R", CultureInfo.InvariantCulture));
+                maxUT = heldMaxUT;
+            }
+            return maxUT;
+        }
+
+        /// <summary>
+        /// <see cref="OnKspLoad"/>'s recalc decision: true when the load recalculates at the
+        /// current UT (the feature is on, the clock is ready and rows lie past it), else a
+        /// full replay. Logs the decision and its inputs.
+        /// </summary>
+        internal static bool DecideOnKspLoadCurrentUtCutoff(
+            double maxUT, bool useCurrentUtCutoffForFutureActions, bool currentUtReady)
+        {
+            bool hasFutureActions = HasActionsAfterUT(maxUT);
+            bool useCurrentUtCutoff =
+                useCurrentUtCutoffForFutureActions && currentUtReady && hasFutureActions;
+            ParsekLog.Info(Tag,
+                "OnKspLoad recalc decision: useCurrentUtCutoff=" + useCurrentUtCutoff +
+                " maxUT=" + maxUT.ToString("R", CultureInfo.InvariantCulture) +
+                " featureSupportsCutoff=" + useCurrentUtCutoffForFutureActions +
+                " currentUtReady=" + currentUtReady +
+                " hasFutureActions=" + hasFutureActions);
+            return useCurrentUtCutoff;
         }
 
         /// <summary>
