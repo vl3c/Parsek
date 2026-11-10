@@ -20,6 +20,33 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~POSITIONER-BODY-LOOKUP-AND-SEGMENT-INDEX-PER-FRAME-COST: every ghost allocates closures for its body lookups, and orbit ghosts box their segment list, every frame~~ [FILED 2026-11-10 from the read of the positioner InterpolateAndPosition core (refactor branch `claude/project-thread-bkwmrr` at e29de7161), by reading the source and IL. FIXED 2026-11-10, branch `refactor-w0-bodylookup`; xUnit + il_compare; performance, low]
+
+**What is true.** `ParsekFlightGhostPositioner` looked every body up with
+`FlightGlobals.Bodies.Find(b => b.name == x)` (27 sites, plus 4 `b != null && b.bodyName == x`
+sites and the tail-lift terminal lookup). Each lambda captures a local or a parameter, so the
+compiler hoists it into a display class allocated when its scope starts (26 `newobj
+<>c__DisplayClass` in 25 methods), including the point-interpolation core that runs per frame
+for every ghost. Separately, the orbit-segment path of `InterpolateAndPosition` called
+`segments.IndexOf(seg.Value)` every frame for its orbit cache key; `OrbitSegment` has no
+`Equals`, so the default comparer boxes each element it compares and compares fields by
+reflection.
+
+**Fix.** Each lookup goes through `ParsekFlightGhostPositioner.FindFirstMatching<T>(IList<T>, name,
+matcher)`, a `List.Find` loop over a static, non-capturing matcher that keeps the replaced
+lambda's predicate with the name passed as an argument (`FindBodyByName` / `FindBodyByNameOrNull`
+/ `FindLiveBodyByBodyNameOrNull` keep the `.Find` versus `?.Find` null-list behavior). The orbit
+path takes the index from `TrajectoryMath.FindOrbitSegmentIndex` (which `FindOrbitSegment` now
+reads) and `TrajectoryMath.ResolveOrbitSegmentIndexOfFound`, which returns the found index except
+at the one point where `IndexOf` can differ: the last segment repeats an earlier one field for
+field and the UT is its endUT. That point still calls `IndexOf`, so the cache key is unchanged.
+
+**Fixed.** il_compare shows no display-class `newobj` left in the positioner (26 before) and no
+`IndexOf` on the per-frame path; the box-opcode count of every changed method is unchanged
+(all inside the once-per-key log interpolations). `PositionerNoAllocLookupTests` pins the lookup
+against `List.Find` for every matcher, name and null-entry layout, and the segment index against
+`IndexOf` over 400 random lists with repeated segments.
+
 ## B13-LANDER-NEVER-STATIONARY: the B13 Mun lander records Approach -> SurfaceMobile and never reaches SurfaceStationary [FILED 2026-11-08 from the wave-2 overnight flights (refactor branch `claude/project-thread-bkwmrr` at f28324df0, DLL sha256 bde5f2b3...), runs `2026-11-08_0139_B13-mun-landing` and re-fly `2026-11-08_0422`, both PARSEK-FAIL(expectations). OPEN; not yet placed (refactor or pre-existing), medium]
 
 **What is true.** Both flights were MISSION-OK and every verifier but expectations was PASS or
