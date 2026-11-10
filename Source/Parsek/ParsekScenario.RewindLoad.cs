@@ -80,22 +80,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Handles the rewind (go-back) path during OnLoad. Restores milestone state,
-        /// collects cleanup PIDs/names, resets playback state, strips orphaned vessels,
-        /// schedules resource adjustment, re-reserves crew, and clears rewind flags.
+        /// Step of <see cref="HandleRewindOnLoad"/>: collects the spawned vessel pids and every
+        /// recording's vessel name into the pending-cleanup sets OnFlightReady reads (null when empty).
         /// </summary>
-        private void HandleRewindOnLoad(ConfigNode node, IReadOnlyList<Recording> recordings)
+        internal static void HandleRewindOnLoadPhaseCollectCleanupData()
         {
-            RecorderStateLog.RecState("HandleRewindOnLoad:entry", CaptureScenarioRecorderState());
-            ParsekLog.Info("Rewind",
-                $"OnLoad: rewind detected, skipping .sfs recording/crew load " +
-                $"(using {recordings.Count} in-memory recordings)");
-            ClearActiveReFlyMarkerForPlainRewind();
-
-            // Restore milestone mutable state with resetUnmatched=true
-            // (milestones created after rewind point get reset to unreplayed)
-            MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
-
             // Collect spawned vessel PIDs for belt-and-suspenders in OnFlightReady
             var (rewindSpawnedPids, _) = RewindLauncher.CollectSpawnedVesselInfo();
             RewindLauncher.PendingCleanupPids = rewindSpawnedPids.Count > 0 ? rewindSpawnedPids : null;
@@ -109,7 +98,15 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 $"OnLoad: rewind cleanup data set — " +
                 $"{rewindSpawnedPids.Count} pid(s), {allRecordingNames.Count} name(s)");
+        }
 
+        /// <summary>
+        /// Step of <see cref="HandleRewindOnLoad"/>: resets the playback state of every recording
+        /// and tree (keeping the historical spawns the pre-load strip kept), then marks only the rewound
+        /// active/source recording as spawn-suppressed.
+        /// </summary>
+        internal static void HandleRewindOnLoadPhaseResetPlaybackAndProtectSource(IReadOnlyList<Recording> recordings)
+        {
             // Reset ALL playback state (recordings + trees), except the spawn state of
             // committed history whose vessel the pre-load strip kept (an earlier tree's
             // spawned vessel that no replaying recording re-produces).
@@ -126,7 +123,15 @@ namespace Parsek
             ParsekLog.Info("Rewind",
                 $"OnLoad: SpawnSuppressedByRewind scope evaluated — " +
                 $"protectedActiveSource={protectedCount}; same-tree future recordings remain spawn-eligible (#573/#589)");
+        }
 
+        /// <summary>
+        /// Step of <see cref="HandleRewindOnLoad"/>: strips the future vessels from the loaded
+        /// flightState (launch-identity match, then the PRELAUNCH pid-whitelist pass), clears the
+        /// pending-cleanup sets so OnFlightReady does not strip again, and drops the quicksave pids.
+        /// </summary>
+        internal static void HandleRewindOnLoadPhaseStripFutureVessels()
+        {
             // Strip vessels belonging to a recording's launch from flightState.
             // The rewind save was preprocessed to strip the recorded vessel,
             // but KSP's scene transition may reintroduce vessels from the old
@@ -193,6 +198,30 @@ namespace Parsek
                 }
                 RewindContext.SetQuicksaveVesselPids(null);
             }
+        }
+
+        /// <summary>
+        /// Handles the rewind (go-back) path during OnLoad. Restores milestone state,
+        /// collects cleanup PIDs/names, resets playback state, strips orphaned vessels,
+        /// schedules resource adjustment, re-reserves crew, and clears rewind flags.
+        /// </summary>
+        private void HandleRewindOnLoad(ConfigNode node, IReadOnlyList<Recording> recordings)
+        {
+            RecorderStateLog.RecState("HandleRewindOnLoad:entry", CaptureScenarioRecorderState());
+            ParsekLog.Info("Rewind",
+                $"OnLoad: rewind detected, skipping .sfs recording/crew load " +
+                $"(using {recordings.Count} in-memory recordings)");
+            ClearActiveReFlyMarkerForPlainRewind();
+
+            // Restore milestone mutable state with resetUnmatched=true
+            // (milestones created after rewind point get reset to unreplayed)
+            MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
+
+            HandleRewindOnLoadPhaseCollectCleanupData();
+
+            HandleRewindOnLoadPhaseResetPlaybackAndProtectSource(recordings);
+
+            HandleRewindOnLoadPhaseStripFutureVessels();
 
             // Hold back every vessel of the rewind's world the committed future uses after the
             // rewind (rewind design 10.13, flight recorder design 12.5 / 20.3), in every scene.
