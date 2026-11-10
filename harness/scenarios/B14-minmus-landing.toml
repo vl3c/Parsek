@@ -369,8 +369,9 @@ landedTimeoutSeconds       = 600
 # so the claim was covered by a green verdict that had not seen it. That is the
 # exact pattern D5 `bg-recording` was removed from B11/B12 for. The claim now
 # matches what this flight MEASURED, and the token below is class-specific so it
-# cannot be satisfied by B13's class. `surface-stationary` stays on B13, which
-# measured it.
+# cannot be satisfied by B13's class. `surface-stationary` moved from B13 to
+# RVR-21 on 2026-11-10 (B13 now accepts either class, cross-checked against its
+# own speed mark).
 #
 # DELIBERATELY NOT CLAIMED, though the recording will carry them: D7 gear (the
 # landing legs DO produce GearDeployed part events, but nothing in the harness
