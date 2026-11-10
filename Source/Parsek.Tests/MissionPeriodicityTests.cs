@@ -453,9 +453,66 @@ namespace Parsek.Tests
             Assert.Equal(49000.0, minmus.PhaseOffsetSeconds);
             Assert.Equal(ConstraintKind.Orbital, mun.Kind);
             Assert.Equal(MunOrbit, mun.PeriodSeconds);
-            Assert.Equal(0.0, mun.PhaseOffsetSeconds);
+            Assert.Equal(2000.0, mun.PhaseOffsetSeconds);      // the Mun SOI exit (3000 - 1000)
             Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
                 && l.Contains("moon-rooted frame launchMoon=Mun planet=Kerbin"));
+        }
+
+        [Fact]
+        public void Schedule_MunParkThenMinmus_LaunchMoonPinnedAtSoiExit_UnderPhasingKnob()
+        {
+            // Guards the review finding on rule 4a: the launch moon's phase must be pinned at the
+            // moment the mission LEAVES it, not at its parking-orbit entry. A recording that parks
+            // around the Mun before leaving gives the phasing knob a loiter run there; when the knob
+            // adds or drops revs the Mun SOI exit moves by d * T_park, so Orbital(Mun) must sit in
+            // the shifted group and every launch must still meet the Mun at the exit.
+            const double TPark = 2716.0;
+            const long Revs = 5;
+            var ascent = SurfaceLeg("s", 1000, 1100, "Mun");
+            var park = OrbitLeg("o", 1100, 15000, "Mun");
+            WithSoiEntry(park, 15000, 60000, "Kerbin");
+            WithSoiEntry(park, 60000, 70000, "Minmus");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            park.ChainId = "C"; park.ChainIndex = 1;
+            var fake = StockFake();
+            var ex = Extract(TreeOf("t", ascent, park), fake);
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint munOrbital = ex.Constraints.Single(
+                c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Mun");
+            Assert.Equal(14000.0, munOrbital.PhaseOffsetSeconds);  // SOI exit 15000 - ut0 1000
+
+            var knob = new PhasingKnobInput
+            {
+                RunStartUT = 1300.0,
+                RunEndUT = 1300.0 + Revs * TPark,
+                PeriodSeconds = TPark,
+                RecordedRevs = Revs,
+                StaticCuts = new List<GhostPlaybackLogic.LoopCut>(),
+                SpanSeconds = 69000.0,
+            };
+            bool ok = MissionPeriodicity.TryBuildRelaunchSchedule(
+                ex.Constraints, ex.Support, ex.UT0, ex.UT0, fake,
+                out MissionRelaunchSchedule sched, 0.0, ex.LaunchBodyName,
+                TransitedBodyRotationMode.Loose, knob);
+            Assert.True(ok);
+
+            double munTol = MissionPeriodicity.ToleranceSecondsFor(munOrbital, fake);
+            double launch = sched.FirstLaunchUT;
+            for (long n = 0; n < 4; n++)
+            {
+                long d = 0;
+                if (sched.HasPhasingKnob)
+                {
+                    Assert.True(sched.TryGetLaunchTiming(n, out LaunchTimingEntry timing));
+                    d = timing.KeptRevs - Revs;
+                }
+                // The Mun's phase at the shifted SOI exit, relative to the recorded exit.
+                double drift = Math.Abs(Math.IEEERemainder(launch - ex.UT0 + d * TPark, MunOrbit));
+                Assert.True(drift <= munTol,
+                    $"launch {n} at {launch} with d={d} meets the Mun {drift}s off (tol {munTol}s)");
+                launch = sched.NextLaunchAfter(launch + 1.0);
+            }
         }
 
         [Fact]

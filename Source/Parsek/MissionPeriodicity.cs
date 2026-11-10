@@ -550,6 +550,10 @@ namespace Parsek
             string moonFrameParent = ResolveMoonRootedFrameParent(
                 launchBody, orbitBodiesSorted, bodyInfo);
             bool leftLaunchMoon = false;
+            // The UT the mission first reaches the planet's frame or a sibling moon (the launch-moon
+            // SOI exit): the launch moon's phase is pinned THERE, not at its parking-orbit entry, so a
+            // phasing loiter around the launch moon moves the check with the exit (review of 4a).
+            double leftLaunchMoonUT = double.PositiveInfinity;
 
             foreach (var ob in orbitBodiesSorted)
             {
@@ -564,6 +568,7 @@ namespace Parsek
                     // The shared planet's frame itself: its legs replay relative to it, so only the
                     // launch moon's phase (4a, below) constrains them.
                     leftLaunchMoon = true;
+                    leftLaunchMoonUT = Math.Min(leftLaunchMoonUT, ob.Value);
                     continue;
                 }
 
@@ -572,7 +577,10 @@ namespace Parsek
                     ? false
                     : !IsSameParentTarget(body, launchBody, bodyInfo);
                 if (moonFrameParent != null)
+                {
                     leftLaunchMoon = true;
+                    leftLaunchMoonUT = Math.Min(leftLaunchMoonUT, ob.Value);
+                }
 
                 if (double.IsNaN(orbitPeriod) || double.IsInfinity(orbitPeriod) || orbitPeriod <= 0.0)
                 {
@@ -607,10 +615,9 @@ namespace Parsek
                 if (!double.IsNaN(launchMoonPeriod) && !double.IsInfinity(launchMoonPeriod)
                     && launchMoonPeriod > 0.0)
                 {
-                    double launchOrbitStart;
-                    double launchOffset = earliestOrbitStartByBody.TryGetValue(launchBody, out launchOrbitStart)
-                        ? Math.Max(0.0, launchOrbitStart - ut0)
-                        : 0.0;
+                    double launchOffset = double.IsInfinity(leftLaunchMoonUT)
+                        ? 0.0
+                        : Math.Max(0.0, leftLaunchMoonUT - ut0);
                     result.Constraints.Add(new PhaseConstraint
                     {
                         Kind = ConstraintKind.Orbital,
@@ -1863,11 +1870,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// A target body C is "same-parent" when it orbits the launch body directly
-        /// (C.referenceBody == launchBody). Used by rule 4 to pick the recurrence period
-        /// (C.orbit.period for same-parent; the synodic period for cross-parent, Phase 4).
-        /// </summary>
-        /// <summary>
         /// The shared planet of a moon-rooted mission (rule 4a), or null. Non-null only when the
         /// launch body is a MOON (its parent itself has a parent, so the parent is not the star) and
         /// EVERY other included orbit body is that parent planet or a direct child of it (a sibling
@@ -1898,6 +1900,11 @@ namespace Parsek
             return any ? parent : null;
         }
 
+        /// <summary>
+        /// A target body C is "same-parent" when it orbits the launch body directly
+        /// (C.referenceBody == launchBody). Used by rule 4 to pick the recurrence period
+        /// (C.orbit.period for same-parent; the synodic period for cross-parent, Phase 4).
+        /// </summary>
         internal static bool IsSameParentTarget(string targetBody, string launchBody, IBodyInfo bodyInfo)
         {
             if (string.IsNullOrEmpty(targetBody) || string.IsNullOrEmpty(launchBody) || bodyInfo == null)
