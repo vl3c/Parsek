@@ -201,6 +201,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Golden_LaunchHoldAlignedRegionBFlip()
+        {
+            // Slack 300 s: the aligned loop's early launch of N+1 flips the single output in region B.
+            AssertGolden(new Config
+            {
+                Anchor = 300, S0 = 0, S1 = 1000, Cadence = 1300,
+                RotationPeriod = 700, LaunchHold = true, SoiExit = 600,
+            }, "78F680AF5B762B58", 1577, 144, 2697);
+        }
+
+        [Fact]
         public void Golden_LaunchHoldWithArrivalHoldAndCuts()
         {
             AssertGolden(new Config
@@ -289,6 +300,75 @@ namespace Parsek.Tests
                     MissionPeriodicity.ScheduleLookaheadMultiples, 2500.0),
             }, "4221A661AF383157", 1521, 0, 1641);
         }
+        /// <summary>
+        /// Which launch-advance diagnostic branches the launch-hold goldens reach: the line kinds written and the
+        /// region / boundary-overlap / secondary / capped tokens of the per-loop line, collected over every
+        /// launch-hold configuration above plus a cadence whose region B flips the primary on an aligned loop.
+        /// A golden digest proves a branch unchanged only when some configuration reaches it. The fourth
+        /// configuration (cadence 1300, Golden_LaunchHoldAlignedRegionBFlip) adds the aligned loop's region-B flip.
+        /// </summary>
+        [Fact]
+        public void LaunchAdvanceDiagnostics_BranchesReachedByTheGoldens()
+        {
+            var configs = new[]
+            {
+                new Config { Anchor = 300, S0 = 0, S1 = 1000, Cadence = 2000, RotationPeriod = 700, LaunchHold = true, SoiExit = 600 },
+                new Config { Anchor = 300, S0 = 0, S1 = 1000, Cadence = 1000, RotationPeriod = 700, LaunchHold = true, SoiExit = 600 },
+                new Config
+                {
+                    Anchor = 300, S0 = 0, S1 = 1000, Cadence = 1500,
+                    RotationPeriod = 700, LaunchHold = true, SoiExit = 450,
+                    Cuts = Cuts(150, 100), HoldSeconds = 60, HoldAtUT = 800, HoldAlign = 100,
+                },
+                new Config { Anchor = 300, S0 = 0, S1 = 1000, Cadence = 1300, RotationPeriod = 700, LaunchHold = true, SoiExit = 600 },
+            };
+            var reached = new SortedSet<string>(StringComparer.Ordinal);
+            var tokenPattern = new Regex(
+                @"(region=\S+|boundaryOverlap=\S+|secondaryActive=\S+|capped=\S+)", RegexOptions.CultureInvariant);
+            foreach (Config c in configs)
+            {
+                for (double ut = -500.0; ut <= 20000.0; ut += 12.5)
+                {
+                    ParsekLog.ResetRateLimitsForTesting();
+                    logLines.Clear();
+                    GhostPlaybackLogic.ComputeSpanLoopFrame(
+                        ut, c.Anchor, c.S0, c.S1, c.Cadence,
+                        null, c.Cuts, c.HoldSeconds, c.HoldAtUT, c.HoldAlign,
+                        c.RotationPeriod, c.LaunchHold, c.SoiExit);
+                    foreach (string line in logLines)
+                    {
+                        int colon = line.IndexOf(':', line.IndexOf("[Reaim]", StringComparison.Ordinal) + 1);
+                        string kind = line.Substring(0, colon < 0 ? line.Length : colon);
+                        reached.Add("line " + kind);
+                        if (line.Contains("per-loop launch advance:"))
+                            foreach (Match m in tokenPattern.Matches(line))
+                                reached.Add("token " + m.Value);
+                    }
+                }
+            }
+            // Not reachable through the frame: the CAPPED warning and capped=True. The frame's advance is the full
+            // raw delta whenever that is positive (ComputeBoundaryOverlapAdvanceSeconds), and an aligned flip's
+            // advNext equals its raw delta, so the rendered raw delta never exceeds the advance used. The direct
+            // test of the diagnostic unit drives that branch instead.
+            string actual = string.Join("\n", reached);
+            string expected = string.Join("\n", new[]
+            {
+                "line [Parsek][VERBOSE][Reaim] boundary-overlap engaged",
+                "line [Parsek][VERBOSE][Reaim] boundary-overlap secondary clock-launch",
+                "line [Parsek][VERBOSE][Reaim] launch instant",
+                "line [Parsek][VERBOSE][Reaim] per-loop arrival hold",
+                "line [Parsek][VERBOSE][Reaim] per-loop launch advance",
+                "token boundaryOverlap=False",
+                "token boundaryOverlap=True",
+                "token capped=False",
+                "token region=A-current",
+                "token region=B-earlyNext",
+                "token secondaryActive=False",
+                "token secondaryActive=True",
+            });
+            Assert.True(actual == expected, "reached:\n" + actual);
+        }
+
         // ------------------------------------------------------------------
         // The three extracted pieces, called directly.
         // ------------------------------------------------------------------
