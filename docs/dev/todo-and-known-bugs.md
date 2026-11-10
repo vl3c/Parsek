@@ -1620,6 +1620,14 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   `ApplyDeferredPatchMilestoneReach` / `PatchKspFromRecalculatedWalk`, and
   `LogRecalculateAndPatchComplete`, behind a 13-scenario walk golden over every entry point
   (`RecalculateAndPatchCoreCharacterizationTests`) written first.
+- Wave 2 W9b-4 (2026-11-10, this branch, S1 extract-method): `FlightRecorder.OnPhysicsFrame`
+  (190 lines) calls four extracted units for its sampling-cadence decision: the high-fidelity
+  proximity source, the active Re-Fly cadence note, the effective sample intervals and the
+  sample-skipped line. No headless test reaches that decision through the host (it reads
+  `v.transform.rotation` first), so the proof is a normalized-IL block equality (each unit's
+  body is the block removed from the old host, and the new host is the old one with each block
+  replaced by its call), direct tests of every unit, and the two reachable entry gates
+  characterized first (`OnPhysicsFrameCharacterizationTests`).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
