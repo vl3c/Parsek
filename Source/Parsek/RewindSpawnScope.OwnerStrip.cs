@@ -129,36 +129,53 @@ namespace Parsek
             if (strip.OwnerGuid != null) strip.OwnerIdentityGuids.Add(strip.OwnerGuid);
             VesselNameDecision decision = VesselNameStore.FindByGuid(strip.OwnerGuid);
             if (decision != null)
-            {
-                if (!string.IsNullOrEmpty(decision.Name)) strip.OwnerAliasNames.Add(decision.Name);
-                string captured = owner.RecordingId != null
-                    && decision.CapturedNames.TryGetValue(owner.RecordingId, out string c)
-                    ? c : owner.VesselName;
-                if (!string.IsNullOrEmpty(captured)) strip.OwnerAliasNames.Add(captured);
-                strip.OwnerAliasNames.Remove(strip.OwnerName ?? "");
-            }
+                AddOwnerAliasNames(strip, owner, decision);
             if (!string.IsNullOrEmpty(owner.ChainId))
-            {
-                foreach (var committed in RecordingStore.CommittedRecordings)
-                {
-                    if (committed.ChainId == owner.ChainId &&
-                        !string.IsNullOrEmpty(committed.EvaCrewName) &&
-                        committed.VesselName != owner.VesselName &&
-                        committed.VesselName != null)
-                    {
-                        strip.NameOnly.Add(committed.VesselName);
-                    }
-                }
-                if (strip.NameOnly.Count > 0 && !RecordingStore.SuppressLogging)
-                    ParsekLog.Info("Rewind",
-                        $"Rewind strip includes {strip.NameOnly.Count} EVA child vessel name(s) from chain '{owner.ChainId}'");
-            }
+                AddChainEvaChildNames(strip, owner, RecordingStore.CommittedRecordings);
 
             if (!RecordingStore.SuppressLogging)
                 ParsekLog.Verbose("Rewind",
                     $"Rewind owner strip: owner='{strip.OwnerName}' guid={strip.OwnerGuid ?? "(none, name-only)"} " +
                     $"evaChildNames={strip.NameOnly.Count} identityGuids={strip.OwnerIdentityGuids.Count} ownerAliases={strip.OwnerAliasNames.Count}");
             return strip;
+        }
+
+        /// <summary>
+        /// The unanchored alias pair from the owner's vessel name decision: the decision name
+        /// and the owner recording's own captured name (else its current name), minus the
+        /// owner name itself.
+        /// </summary>
+        internal static void AddOwnerAliasNames(RewindOwnerStrip strip, Recording owner, VesselNameDecision decision)
+        {
+            if (!string.IsNullOrEmpty(decision.Name)) strip.OwnerAliasNames.Add(decision.Name);
+            string captured = owner.RecordingId != null
+                && decision.CapturedNames.TryGetValue(owner.RecordingId, out string c)
+                ? c : owner.VesselName;
+            if (!string.IsNullOrEmpty(captured)) strip.OwnerAliasNames.Add(captured);
+            strip.OwnerAliasNames.Remove(strip.OwnerName ?? "");
+        }
+
+        /// <summary>
+        /// Adds to the name-only set every EVA kerbal vessel name of the owner's chain (a
+        /// recording of the same chain with an EVA crew name, named, under another name than
+        /// the owner), and logs how many the set holds.
+        /// </summary>
+        internal static void AddChainEvaChildNames(
+            RewindOwnerStrip strip, Recording owner, IReadOnlyList<Recording> committedRecordings)
+        {
+            foreach (var committed in committedRecordings)
+            {
+                if (committed.ChainId == owner.ChainId &&
+                    !string.IsNullOrEmpty(committed.EvaCrewName) &&
+                    committed.VesselName != owner.VesselName &&
+                    committed.VesselName != null)
+                {
+                    strip.NameOnly.Add(committed.VesselName);
+                }
+            }
+            if (strip.NameOnly.Count > 0 && !RecordingStore.SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Rewind strip includes {strip.NameOnly.Count} EVA child vessel name(s) from chain '{owner.ChainId}'");
         }
 
         /// <summary>
