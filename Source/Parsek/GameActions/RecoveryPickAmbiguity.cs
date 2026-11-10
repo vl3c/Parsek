@@ -64,7 +64,7 @@ namespace Parsek
     /// <see cref="Survivors"/> is the POST-filter set (a subsequence of the name-match set,
     /// in store order). Reading a pre-filter set here would reinstate candidates stage 1
     /// removed and break the monotone property the whole stage-1 safety argument rests on -
-    /// see <c>LedgerOrchestrator.FindSessionProvisionalAmong</c>, which carries the same
+    /// see <c>RecoveryRecordingPicker.FindSessionProvisionalAmong</c>, which carries the same
     /// constraint for the tier-1 tie-break.
     /// </para>
     /// </summary>
@@ -162,7 +162,7 @@ namespace Parsek
     /// <list type="number">
     /// <item>
     /// more than one candidate SURVIVED the stage-1 launch-guid filter
-    /// (<c>LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid</c>);
+    /// (<c>RecoveryRecordingPicker.FilterRecoveryCandidatesByLaunchGuid</c>);
     /// </item>
     /// <item>
     /// the tier that chose among them is WEAK - <see cref="RecoveryPickTier.MostRecentEnded"/>
