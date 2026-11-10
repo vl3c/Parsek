@@ -177,7 +177,9 @@ namespace Parsek.Tests
 
         // ---------------- FallBackToAbsoluteDebrisSeed
 
-        [Fact]
+        // FallBackToAbsoluteDebrisSeed calls DescribeVesselRootForDiagnostics, whose body reads
+        // rootPart.transform (an internalcall): the Windows .NET host refuses it on entry.
+        [UnityEntryFact]
         public void AbsoluteFallback_DropsTheQueuedParentPose_AndWarns()
         {
             Fixture f = Build();
@@ -200,7 +202,9 @@ namespace Parsek.Tests
                 line);
         }
 
-        [Fact]
+        // FallBackToAbsoluteDebrisSeed calls DescribeVesselRootForDiagnostics, whose body reads
+        // rootPart.transform (an internalcall): the Windows .NET host refuses it on entry.
+        [UnityEntryFact]
         public void AbsoluteFallback_NoParentRecording_ReportsUnresolved()
         {
             Fixture f = Build();
