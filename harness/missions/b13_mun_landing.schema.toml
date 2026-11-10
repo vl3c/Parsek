@@ -502,3 +502,15 @@ max = 100
 required = true
 type = "number"
 min = 60.0
+
+# SURFACE-CLASS MARK. true stamps, at the settled-commit frame, the surface
+# class Parsek's recorder must be reading (judged from this mission's own speed
+# telemetry by the recorder's 0.1 m/s rule, banded: <= 0.05 m/s for the whole
+# 6 s window expects SurfaceStationary, >= 0.2 m/s expects SurfaceMobile,
+# anything between expects either) into KSP.log as
+# `MISSIONMARK label=b5-landed-expect-<class>`, and adds the surfaceClassMarked
+# assertion (met when the mark answered OK). The spec's logContract
+# cross-checks the recorder's last transition against it. Absent = false.
+[params.landedSurfaceClassMark]
+required = false
+type = "bool"

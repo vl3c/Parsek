@@ -5409,6 +5409,20 @@ class B5Params:
                                            # settled" from "settled but not
                                            # in-gate at the end of the dwell".
                                            # Spec key landedTimeoutSeconds.
+    landed_surface_class_mark: bool = False
+                                           # True arms the SURFACE-CLASS MARK:
+                                           # at the settled-commit frame the
+                                           # machine stamps the surface class
+                                           # Parsek's recorder MUST be reading
+                                           # (from this mission's own speed
+                                           # telemetry) into KSP.log through a
+                                           # MissionMark, so the spec's
+                                           # logContract can cross-check the
+                                           # recorder's class against it. See
+                                           # landed_surface_class. Off (the
+                                           # default) leaves every landing lane
+                                           # byte-identical. Spec key
+                                           # landedSurfaceClassMark.
     # --- PRE-TRANSFER JETTISON (armed by B19; default-off everywhere else) -----
     # > 0 ARMS a JETTISON phase between the ORBIT waypoint and PLAN-TRANSFER:
     # pop stages, thrust-safe, until the INTENDED transfer engine is the one
@@ -5923,6 +5937,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         landed_dwell=float(params.get("landedDwellSeconds", 120.0)),
         landed_debounce=int(params.get("landedDebounceFrames", 3)),
         landed_timeout=float(params.get("landedTimeoutSeconds", 600.0)),
+        landed_surface_class_mark=bool(params.get("landedSurfaceClassMark", False)),
         # Pre-transfer jettison: absent (0) unless a spec arms it.
         jettison_activations=int(params.get("jettisonMaxActivations", 0)),
         jettison_timeout=float(params.get("jettisonTimeoutSeconds", 600.0)),
@@ -12386,6 +12401,17 @@ class B5State:
     landed_situation: str = ""
     landed_vertical_speed: Optional[float] = None
     landed_horizontal_speed: Optional[float] = None
+    # SURFACE-CLASS MARK bookkeeping (landed_surface_class_mark only; inert and
+    # empty for every other lane). The recent gate-evaluated LANDED-SETTLE
+    # frames as (ut, surface speed) pairs, trimmed to
+    # LANDED_SURFACE_CLASS_WINDOW_SECONDS; the class judged at the commit
+    # frame; the window's min / max speed behind that judgement; and the
+    # MissionMark seam verdict OBSERVED for it ("" = never issued / unread).
+    landed_speed_window: Tuple[Tuple[float, float], ...] = ()
+    landed_surface_class: str = ""
+    landed_class_min_speed: Optional[float] = None
+    landed_class_max_speed: Optional[float] = None
+    surface_class_mark_result: str = ""
     # The mid-mission command-seam CommitTree verdict actually OBSERVED
     # ("OK" / "ERROR" / "TIMEOUT"); "" while never issued or still polling.
     # SHARED by ORBIT-COMMIT and SURFACE-COMMIT (one seam, one verdict).
@@ -15280,6 +15306,111 @@ def landed_stable(params: B5Params, snapshot: TelemetrySnapshot) -> bool:
             <= params.landed_max_horizontal_speed)
 
 
+# ---------------------------------------------------------------------------
+# SURFACE-CLASS MARK (landed_surface_class_mark). A landed lander is not always
+# parked: an untargeted touchdown on a crater wall can keep CREEPING downhill at
+# a steady ~0.6 m/s for many minutes (B13, 2026-11-08 / 2026-11-09: 0.55-0.65
+# m/s for the whole 565 s from touchdown to commit), which passes this
+# machine's 0.5 m/s HORIZONTAL settle floor only at its very end. Parsek's
+# recorder classifies on the SAME physical quantity with a far tighter
+# threshold (EnvironmentDetector.Classify: srfSpeed > 0.1 m/s -> SurfaceMobile,
+# else SurfaceStationary, confirmed by EnvironmentHysteresis after a 3.0 s
+# debounce evaluated every physics frame), so on such a landing it correctly
+# reads SurfaceMobile to the end. Which class a landing ends in is therefore a
+# fact about the TERRAIN, not about Parsek, and a spec must not pin one class.
+#
+# What a spec CAN pin, and what this mark exists for, is AGREEMENT: this
+# mission measures the lander's surface speed independently (kRPC), judges the
+# class the recorder must be reading by the recorder's own rule, and stamps it
+# into KSP.log next to the recorder's own transition lines. The spec's
+# logContract then requires that the LAST recorder transition before the mark
+# names the class the mark expects. A recorder stuck on SurfaceMobile under a
+# parked lander, or reading SurfaceStationary under a sliding one, reds the
+# lane; a lander that genuinely slides passes.
+#
+# The judgement is BANDED so the two independent reads cannot disagree on
+# noise: every sample in the window at or under PARKED_MAX expects
+# SurfaceStationary (half the recorder's 0.1 threshold), every sample at or
+# over SLIDING_MIN expects SurfaceMobile (twice it), and anything else - a
+# lander still settling through the threshold, a non-finite read, or a window
+# that does not yet cover WINDOW_MIN_SPAN - expects either class. The window
+# must cover MORE than the recorder's 3.0 s debounce, so a class held for the
+# whole window has had time to be confirmed by the recorder.
+# ---------------------------------------------------------------------------
+LANDED_SURFACE_PARKED_MAX_MPS = 0.05
+LANDED_SURFACE_SLIDING_MIN_MPS = 0.2
+LANDED_SURFACE_CLASS_WINDOW_SECONDS = 6.0
+LANDED_SURFACE_CLASS_WINDOW_MIN_SPAN = 5.0
+# The class names are Parsek's own SegmentEnvironment members, so the spec's
+# logContract can back-reference the recorder's transition line against the
+# mark label with one regex group.
+LANDED_SURFACE_CLASS_STATIONARY = "SurfaceStationary"
+LANDED_SURFACE_CLASS_MOBILE = "SurfaceMobile"
+LANDED_SURFACE_CLASS_EITHER = "either"
+# MissionMark label = prefix + class; the generalized seam sub-id tag.
+LANDED_SURFACE_CLASS_MARK_PREFIX = "b5-landed-expect-"
+B5_TAG_SURFACE_CLASS_MARK = "surface-class"
+
+
+def landed_surface_speed(snapshot: TelemetrySnapshot) -> float:
+    """The lander's total surface speed (m/s): the magnitude the recorder's
+    ``vessel.srfSpeed`` classifies on, rebuilt from this mission's horizontal
+    and vertical reads. NaN when either read is non-finite."""
+    h = snapshot.horizontal_speed
+    v = snapshot.vertical_speed
+    if not (_is_finite(h) and _is_finite(v)):
+        return float("nan")
+    return math.hypot(float(h), float(v))
+
+
+def landed_speed_window_push(window: Tuple[Tuple[float, float], ...],
+                             ut: float, speed: float
+                             ) -> Tuple[Tuple[float, float], ...]:
+    """Append one (ut, speed) sample and drop every sample older than
+    LANDED_SURFACE_CLASS_WINDOW_SECONDS before it. A non-finite ut leaves the
+    window unchanged (it cannot be placed in time)."""
+    if not _is_finite(ut):
+        return window
+    floor = float(ut) - LANDED_SURFACE_CLASS_WINDOW_SECONDS
+    kept = tuple(s for s in window if s[0] >= floor)
+    return kept + ((float(ut), float(speed)),)
+
+
+def landed_surface_class(window: Tuple[Tuple[float, float], ...]
+                         ) -> Tuple[str, Optional[float], Optional[float]]:
+    """The surface class the recorder must be reading at the end of
+    ``window``, plus the window's min and max speed (None when unread).
+
+    Banded and fail-OPEN to ``either``: see the SURFACE-CLASS MARK note. Pure."""
+    if not window:
+        return LANDED_SURFACE_CLASS_EITHER, None, None
+    speeds = [sp for _, sp in window]
+    if not all(_is_finite(sp) for sp in speeds):
+        return LANDED_SURFACE_CLASS_EITHER, None, None
+    lo, hi = min(speeds), max(speeds)
+    span = window[-1][0] - window[0][0]
+    if span < LANDED_SURFACE_CLASS_WINDOW_MIN_SPAN:
+        return LANDED_SURFACE_CLASS_EITHER, lo, hi
+    if hi <= LANDED_SURFACE_PARKED_MAX_MPS:
+        return LANDED_SURFACE_CLASS_STATIONARY, lo, hi
+    if lo >= LANDED_SURFACE_SLIDING_MIN_MPS:
+        return LANDED_SURFACE_CLASS_MOBILE, lo, hi
+    return LANDED_SURFACE_CLASS_EITHER, lo, hi
+
+
+def landed_surface_class_mark_action(surface_class: str,
+                                     lo: Optional[float],
+                                     hi: Optional[float]) -> Action:
+    """The MissionMark that stamps ``surface_class`` into KSP.log
+    (``MISSIONMARK label=b5-landed-expect-<class> ut=<ut>``)."""
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="MissionMark",
+                  seam_args=(("label", LANDED_SURFACE_CLASS_MARK_PREFIX
+                              + surface_class),),
+                  seam_tag=B5_TAG_SURFACE_CLASS_MARK,
+                  text="surface class=%s windowMinSpeed=%s windowMaxSpeed=%s"
+                       % (surface_class, _obs_fmt(lo), _obs_fmt(hi)))
+
+
 def _b5_descent_entry_actions(params: B5Params) -> List[Action]:
     """The vehicle configuration handed to MechJeb at DESCENT entry.
 
@@ -17426,6 +17557,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         st = replace(state, peak_apoapsis=peak, landed_stable_streak=streak,
                      landed_ever_stable=(state.landed_ever_stable
                                          or streak >= state.params.landed_debounce))
+        if state.params.landed_surface_class_mark:
+            st = replace(st, landed_speed_window=landed_speed_window_push(
+                st.landed_speed_window, snapshot.ut,
+                landed_surface_speed(snapshot)))
         dwelled = (_is_finite(snapshot.ut)
                    and (snapshot.ut - st.phase_entry_ut) >= state.params.landed_dwell)
         if streak >= state.params.landed_debounce and dwelled:
@@ -17437,8 +17572,21 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # landed_debounce settled frames" also satisfies it. Inherited
             # verbatim from the LIVE-PROVEN PARK / forge_lko gate and
             # deliberately NOT strengthened here in isolation.
+            commit_actions = [Action(ACTION_PARSEK_COMMIT_TREE)]
+            if st.params.landed_surface_class_mark:
+                # The mark goes out BEFORE the commit (the runner performs a
+                # frame's actions in order, each seam command blocking until it
+                # answers), so it lands in KSP.log while the recorder is still
+                # live and AFTER every transition the recorder confirmed for
+                # this landing. Its verdict is read back in SURFACE-COMMIT.
+                cls, lo, hi = landed_surface_class(st.landed_speed_window)
+                st = replace(st, landed_surface_class=cls,
+                             landed_class_min_speed=lo,
+                             landed_class_max_speed=hi)
+                commit_actions = ([landed_surface_class_mark_action(cls, lo, hi)]
+                                  + commit_actions)
             return (_b5_enter(st, B5_SURFACE_COMMIT, snapshot.ut, peak),
-                    [Action(ACTION_PARSEK_COMMIT_TREE)])
+                    commit_actions)
         # The landed dwell IS the recorded coverage, so it runs at 1x: self-heal
         # any warp MechJeb's landing states left running, on-change only (a
         # settled 1x dwell emits nothing). NOT a coast phase, so the
@@ -17485,6 +17633,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         left = _b5_left_target_soi(state, snapshot)
         if left is not None:
             return replace(left, peak_apoapsis=peak), []
+        if (state.params.landed_surface_class_mark
+                and snapshot.seam_command_tag == B5_TAG_SURFACE_CLASS_MARK
+                and snapshot.seam_command_result):
+            # The surface-class MissionMark's verdict, carried for the
+            # surfaceClassMarked assertion (the frames cannot carry it).
+            state = replace(state,
+                            surface_class_mark_result=snapshot.seam_command_result)
         result = snapshot.seam_commit_result
         if result == "OK":
             # TERMINAL: the tree is committed while the vessel is LANDED ON
@@ -21577,8 +21732,31 @@ def evaluate_b5_assertions(frames, params: B5Params,
             {"required": B5_SURFACE_COMMITTED, "body": params.target_body,
              "terminal": "landed"})
 
+        # SURFACE-CLASS MARK (landed_surface_class_mark only). The mark is what
+        # the spec's logContract cross-checks the recorder's surface class
+        # against, so a mark that never reached KSP.log must not read as a
+        # Parsek red: this row makes it the MISSION's failure instead
+        # (driver side). Met when the MissionMark answered OK; the judged class
+        # and the window behind it ride along for the operator.
+        mark_rows: List[AssertionOutcome] = []
+        if params.landed_surface_class_mark:
+            mark_result = str(getattr(state, "surface_class_mark_result", "")
+                              or "")
+            mark_rows.append(AssertionOutcome(
+                "surfaceClassMarked",
+                (B5_SURFACE_COMMIT in phases and mark_result == "OK"),
+                (mark_result or None),
+                {"required": B5_SURFACE_COMMIT,
+                 "surfaceClass": (str(getattr(state, "landed_surface_class", "")
+                                      or "") or None),
+                 "windowMinSpeed": getattr(state, "landed_class_min_speed", None),
+                 "windowMaxSpeed": getattr(state, "landed_class_max_speed", None),
+                 "parkedMaxSpeed": LANDED_SURFACE_PARKED_MAX_MPS,
+                 "slidingMinSpeed": LANDED_SURFACE_SLIDING_MIN_MPS,
+                 "windowSeconds": LANDED_SURFACE_CLASS_WINDOW_SECONDS}))
+
         return [orbit, soi, flyby, captured, parked, on_body, settled,
-                committed] + start_rows + relay_rows + pad_rows
+                committed] + mark_rows + start_rows + relay_rows + pad_rows
 
     if params.capture_enabled:
         cap_ap = getattr(state, "capture_apoapsis", None)

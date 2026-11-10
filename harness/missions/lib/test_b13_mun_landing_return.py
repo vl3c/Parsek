@@ -74,7 +74,10 @@ SURFACE_PARAMS = {
 }
 # parkDwellSeconds stays 180 here (the B-lane specs moved to 60 on 2026-11-06): the
 # frame fixtures and the pinned trace digests below were built around a 180 s park.
-PLAIN_PARAMS = dict(B13_PARAMS, **RETURN_PARAMS, **DEPART_PARAMS, **SURFACE_PARAMS, parkDwellSeconds=180)
+# landedSurfaceClassMark is B13's alone (the return lanes leave LANDED-SETTLE for
+# EVA, not for a surface commit), so it is pinned OFF here.
+PLAIN_PARAMS = dict(B13_PARAMS, **RETURN_PARAMS, **DEPART_PARAMS, **SURFACE_PARAMS, parkDwellSeconds=180,
+                    landedSurfaceClassMark=False)
 PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 
 _SURFACE_UT = 48_200.0 + 200.0 * 6 + 130.0     # B13's landed-dwell exit frame
@@ -1207,9 +1210,14 @@ class RunnerRebindTests(unittest.TestCase):
 # Re-pinned 2026-11-06 for new fields only (B5Params transfer_node_wait_warp,
 # correction_coarse_throttle, correction_fine_dv; B5State corr_coarse): the traces with
 # those fields' default reprs removed hash to the old pins.
-B5_LANDING_TRACE_DIGEST = "2d7b786ab315f2ef98c861382e7ab403e926f7e6b5c23bcc8079b6b0a3cbde45"
-MOR_TRACE_DIGEST = "5ee53bde1c06949849284d6edc5d58b8fed1aab14f0e331dc999a01d7673c348"
-MSC_TRACE_DIGEST = "3858f43dd52e6b461baa5bbc88312350d340bf68771343ede8bdc3b54b18592f"
+# Re-pinned 2026-11-10 for new fields only (B5Params landed_surface_class_mark; B5State
+# landed_speed_window, landed_surface_class, landed_class_min_speed,
+# landed_class_max_speed, surface_class_mark_result): with those fields' default reprs
+# removed, the three traces hash to the previous pins (2d7b786a..., 5ee53bde...,
+# 3858f43d...).
+B5_LANDING_TRACE_DIGEST = "fbf99b5c990b066d9e3f68c9876f52cc52795ab05280496a1e8112895beeb65c"
+MOR_TRACE_DIGEST = "9bae0487be0594423c9ee94ae335257b6b5057275d5129614800aa6006c978e8"
+MSC_TRACE_DIGEST = "048c388f884e7355ebb02f3df6332c646ea6ad249c307172468f2991384490ae"
 MLR_RELEASE_OFF_ACTIONS_DIGEST = (
     "19c29a559fca2e2e26938935b0eb6d27d4a583846d1ad4f5a5da6609d2d82f67")
 
