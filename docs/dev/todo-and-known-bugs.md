@@ -47,7 +47,7 @@ field and the UT is its endUT. That point still calls `IndexOf`, so the cache ke
 against `List.Find` for every matcher, name and null-entry layout, and the segment index against
 `IndexOf` over 400 random lists with repeated segments.
 
-## B13-LANDER-NEVER-STATIONARY: the B13 Mun lander records Approach -> SurfaceMobile and never reaches SurfaceStationary [FILED 2026-11-08 from the wave-2 overnight flights (refactor branch `claude/project-thread-bkwmrr` at f28324df0, DLL sha256 bde5f2b3...), runs `2026-11-08_0139_B13-mun-landing` and re-fly `2026-11-08_0422`, both PARSEK-FAIL(expectations). OPEN; not yet placed (refactor or pre-existing), medium]
+## ~~B13-LANDER-NEVER-STATIONARY: the B13 Mun lander records Approach -> SurfaceMobile and never reaches SurfaceStationary~~ [SUPERSEDED 2026-11-10 by the fixed main entry of the same id below (#2535, merged from main). FILED 2026-11-08 from the wave-2 overnight flights (refactor branch `claude/project-thread-bkwmrr` at f28324df0, DLL sha256 bde5f2b3...), runs `2026-11-08_0139_B13-mun-landing` and re-fly `2026-11-08_0422`, both PARSEK-FAIL(expectations). OPEN; not yet placed (refactor or pre-existing), medium]
 
 **What is true.** Both flights were MISSION-OK and every verifier but expectations was PASS or
 REPORT. The one failing row is the required log contract
@@ -130,6 +130,12 @@ rate-limit key and order unchanged. `UpdateUnitMemberPlayback` no longer opens w
 class `newobj` (il_compare); the closure is allocated only inside the new method.
 `DescentHandoffHide_HidesTheTransferMemberWhileTheDescentPlays_AndPinsItsLogLine` pins both log
 lines and the key.
+
+## ~~B13-LANDER-NEVER-STATIONARY: B13 reds because the lander is still sliding when the tree commits~~ [FILED 2026-11-10 from the 1.0.1 and refactor-branch B13 reds. FIXED 2026-11-10 (owner picked "accept landed and sliding"); harness only, no Parsek defect]
+
+- Symptom: `B13-mun-landing` MISSION-OK but PARSEK-FAIL(expectations) on `\w+ -> SurfaceStationary` (run `2026-11-09_2132`). The untargeted landing put the lander on a slope where it crept at 0.55-0.65 m/s horizontal for the whole LANDED-SETTLE window, so Parsek's `Approach -> SurfaceMobile` (srfSpeed > 0.1 m/s) was the correct reading; the 3 s Mobile/Stationary debounce never saw a still lander. Before #2391 shortened the park dwell the lander usually settled first, so the old token was a coin flip on the landing site.
+- Fix: the lane no longer demands Stationary. With `landedSurfaceClassMark = true` the B5 machine measures the lander's own kRPC surface speed over the last 6 s before the commit and writes a `MISSIONMARK label=b5-landed-expect-<SurfaceStationary|SurfaceMobile|either>` (all <= 0.05 m/s parked, all >= 0.2 m/s sliding, otherwise either). The required token pairs the LAST `-> Surface*` transition before the mark with the mark, so Parsek must agree with the mission's independent speed reading: a misclassification in either clear band still reds. The `surface-stationary` D4 claim moved to RVR-21, whose required token proves it. The new `surfaceClassMarked` mission assertion fails the mission (INVALID, never PARSEK-FAIL) when the mark was not written.
+- Residual: B14 pins `-> SurfaceMobile` the same way and could red if a Minmus landing ever parks perfectly still; not seen yet.
 
 ## RESIDUALS-OF-ENTRIES-ARCHIVED-2026-11-07: small follow-ups left inside 20 finished entries moved to the archive [FILED 2026-11-07 (owner: mark the finished entries done). OPEN; each line names its archived entry in `done/todo-and-known-bugs-v11.md` ("Moved out 2026-11-07 (finished entries still listed)"); none is a known player-hit bug]
 
@@ -1586,6 +1592,13 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   the no-segment arm (future-segment scan, retention line) and the result apply. Pinned first by
   `FlightMapPassCharacterizationTests`. Left in place, not reachable headless: the created-ghost
   bookkeeping, the loiter-gap clamp and `UpdateGhostOrbitFromStateVectors` (needs a live vessel).
+- Wave 2 W5d1 (2026-11-10, this branch, extract-method): `RefreshTrackingStationGhosts` (484
+  -> 25 lines) loops over the index-keyed ghosts and calls `RefreshTrackingStationGhost` (one
+  ghost, returns the teardown reason or null), which calls nine units in the same file: the
+  teardown gates, the segment lookup UT, the covering segment, the checkpoint point, the
+  removal reason, the gap-points glide, the state-vector and segment arms with the endpoint tail
+  override; the removals apply last. Pinned first by `TrackingStationRefreshCharacterizationTests`
+  (37 cases). Not reachable headless: the active Re-Fly teardown (needs a live orbit driver).
 - Wave 2 W9a (2026-11-08, this branch, extract-method; each PR characterized against the
   original code first): #2467 splits `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` into gate
   groups and `ComputeSpanLoopFrame` into pieces; #2475 splits out `UpdatePlayback`'s
@@ -1603,7 +1616,13 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   `FinishPartEventWalk` (cursor, audio cap, aggregate and per-family lines) and
   `RefreshGhostAfterPartVisibilityChange`. Pinned first by `PartEventApplyCharacterizationTests`,
   which runs the original past its ghost guard on a GameObject Unity's managed null check reads
-  as alive; the arms that reach a native call are recorded as refusals.
+  as alive; the arms that reach a native call are recorded as refusals. Second PR:
+  `ComputeSpanLoopFrame` (410 -> 236 lines) calls `ResolveSpanLoopLaunchAdvances` (raw, capped
+  and boundary-overlap advance, once for cycle N and once for N+1), `ResolveSpanLoopHoldsAndSlack`
+  (cut, compressed span, per-loop hold, slack and hold clamp) and `LogSpanLoopLaunchAdvance` (the
+  launch-hold diagnostics, still behind the host's `launchHoldEngaged` gate). A new golden pins a
+  region-B flip with the boundary overlap engaged; the capped WARN is not reachable through the
+  frame (the boundary-overlap advance returns the raw delta whenever it is positive).
 - Wave 2 W9b (2026-11-08, this branch, S1 extract-method): the 200-line
   `FlightRecorder.RestoreTrackSectionAfterFalseAlarm` calls four extracted units: the
   resume-anchor validation, the Relative-to-Absolute boundary repair, the start-UT alignment
