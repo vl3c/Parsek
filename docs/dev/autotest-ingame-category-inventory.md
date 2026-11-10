@@ -1,4 +1,4 @@
-# In-game test category inventory (all 139 categories)
+# In-game test category inventory (all 140 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -222,6 +222,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `TrackingStation` | 10 | 0 | 0 | 9 | 1 | 3 | H23 | A |
 | `TrajectoryMath` | 8 | 8 | 8 | 8 | 0 | 0 | H7 | A |
 | `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | H49 (flown 2026-08-28, executes 4 of 4) | A |
+| `TreeRestoreCoroutine` | 3 | 3 | 0 | 0 | 0 | 3 | NOT DRIVEN (wave-2 refactor W8b-2, 2026-11-10, branch `refactor-w8b2-restore-pending`). Three FLIGHT cells that drive the REAL `ParsekFlight.RestoreActiveTreeFromPending` coroutine over a synthetic pending tree and put the pending slot back afterwards: the no-pending-tree skip, the unresolvable active recording (tree left in Limbo) and the 3 s give-up over a recording that shares the active vessel's pid but carries another launch guid (each guid reject logged once across the polled frames). The characterization for the coroutine's extraction into decision units; the success and fresh-rollout paths change the live session and are left to the quickload lanes. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips with a real pending tree, a running restore, a pending rewind invocation or a live Re-Fly session. NEVER FLOWN. Bucket **B** until a lane drives it | B |
 | `UiComplexityMode` | 4 | 4 | 0 | 0 | 0 | 4 | H22 | A |
 | `UiScale` | 3 | 3 | 3 | 3 | 0 | 2 | UIS-1-ui-scale (LIVE-PROVEN 2026-11-04, `2026-11-04_1925`, whole pin `passed=3 skipped=0`). The live check for todo S10, Parsek windows following KSP's UI Scale: a probe window drawn in a 1.5x scope draws under the 1.5x matrix and GUIToScreenPoint / the popup-anchor conversion report its origin in the rect's own units; the scaled path's own input lock follows the window as drawn (OS pointer parked where only the scaled window is, then off it, then the sweep); the applied scale is the live stock setting. Two cells self-skip when no IMGUI repaint is seen or the OS pointer cannot be parked | A |
 | `Unity` | 4 | 4 | 4 | 4 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 4 of 4 - the whole category at FLIGHT with zero skips) | A |
@@ -233,8 +234,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **139 categories / 693 declarations**. Buckets **A 103 categories
-(393 declarations)**, **B 34 categories (295 declarations)**, **C 2 categories (5
+Totals, re-derived: **140 categories / 696 declarations**. Buckets **A 103 categories
+(393 declarations)**, **B 35 categories (298 declarations)**, **C 2 categories (5
 declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes), and
 `MoonArrivalHold`, opened 2026-11-07 by the lone-moon arrival hold, which waits for the
