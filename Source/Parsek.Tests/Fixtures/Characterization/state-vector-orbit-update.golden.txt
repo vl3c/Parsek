@@ -1,0 +1,155 @@
+== no-ghost-at-index
+seed ghosts=[] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+returned false
+after ghosts=[] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== dead-vessel-no-driver-skips-rebind
+seed ghosts=[0:9000 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=d0 idx=0 vessel="Char d0" source=StateVector branch=(n/a) body=Kerbin ghostPid=9000 ut=500.0 scene=TRACKSTATION reason=no-orbit-driver
+returned false
+after ghosts=[0:9000 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== no-orbit-driver
+seed ghosts=[0:9001 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9001 (none) -> n0
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=n0 idx=0 vessel="Char n0" source=StateVector branch=(n/a) body=Kerbin ghostPid=9001 ut=500.0 scene=TRACKSTATION reason=no-orbit-driver
+returned false
+after ghosts=[0:9001 ] vesselPidToRecordingId=[9001:n0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== no-orbit-driver-null-traj
+seed ghosts=[2:9002 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=(null) idx=2 vessel="(null)" source=StateVector branch=(n/a) body=Kerbin ghostPid=9002 ut=500.0 scene=TRACKSTATION reason=no-orbit-driver
+returned false
+after ghosts=[2:9002 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== rebind-same-id-quiet
+seed ghosts=[0:9003 ] vesselPidToRecordingId=[9003:q0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=q0 idx=0 vessel="Char q0" source=StateVector branch=(n/a) body=Kerbin ghostPid=9003 ut=500.0 scene=TRACKSTATION reason=no-orbit-driver
+returned false
+after ghosts=[0:9003 ] vesselPidToRecordingId=[9003:q0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== body-not-found
+seed ghosts=[0:9004 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9004 (none) -> b0
+log [Parsek][ERROR][GhostMap] update-state-vector-miss: rec=b0 idx=0 vessel="Char b0" source=StateVector branch=(n/a) body=Nowhere ghostPid=9004 ut=500.0 scene=TRACKSTATION reason=body-not-found
+returned false
+after ghosts=[0:9004 ] vesselPidToRecordingId=[9004:b0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== skip-relative-anchor-not-found
+seed ghosts=[0:9005 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9005 (none) -> r0
+log [Parsek][WARN][GhostMap] update-state-vector-skip: rec=r0 idx=0 vessel="Char r0" source=StateVector branch=Relative body=Kerbin ghostPid=9005 stateVecAlt=4 stateVecSpeed=2200.0 ut=500.0 scene=TRACKSTATION reason=anchor-not-found
+returned false
+after ghosts=[0:9005 ] vesselPidToRecordingId=[9005:r0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== skip-orbital-checkpoint-refused
+seed ghosts=[0:9006 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9006 (none) -> c0
+log [Parsek][WARN][GhostMap] update-state-vector-skip: rec=c0 idx=0 vessel="Char c0" source=StateVector branch=OrbitalCheckpoint body=Kerbin ghostPid=9006 stateVecAlt=90000 stateVecSpeed=2200.0 ut=500.0 scene=TRACKSTATION reason=state-vector-from-orbital-checkpoint
+returned false
+after ghosts=[0:9006 ] vesselPidToRecordingId=[9006:c0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== skip-body-fixed-primary-unavailable
+seed ghosts=[0:9007 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9007 (none) -> f0
+log [Parsek][WARN][GhostMap] update-state-vector-skip: rec=f0 idx=0 vessel="Char f0" source=StateVector branch=BodyFixedPrimary body=Kerbin ghostPid=9007 stateVecAlt=90000 stateVecSpeed=2200.0 ut=500.0 scene=TRACKSTATION reason=relative-only-without-body-fixed-primary
+returned false
+after ghosts=[0:9007 ] vesselPidToRecordingId=[9007:f0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== suppressed-active-refly-body-fixed-primary
+seed ghosts=[3:9008 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9008 (none) -> sv-debris
+log [Parsek][VERBOSE][ReFlySession] SessionSuppressedSubtree: 1 recording(s) closed from root=sv-booster (childrenAdded=0 siblingsAdded=0 pidPeersAdded=0 debrisAdded=0 debrisAnchorOnlySkips=0 mixedParentHalts=0 sideOffSkips=0 stretchSeeds=0 evaKerbalsAdded=0 sameVesselBoards=0 placedPartsAdded=0 sessionOwnedExcluded=0)
+log [Parsek][INFO][ReFlySession] Start. sess=sess-sv SuppressedSubtree=[1 ids: sv-booster]
+log [Parsek][INFO][GhostMap] update-state-vector-suppressed: rec=sv-debris idx=3 vessel="Char sv-debris" source=StateVector branch=BodyFixedPrimary body=Kerbin worldPos=(0.0,0.0,0.0) ghostPid=9008 stateVecAlt=90000 stateVecSpeed=2200.0 anchorPid=7770 ut=500.0 scene=TRACKSTATION reason=active-refly-relative-anchor-update refly-relative-anchor=active relationship=parent activePidSource=marker-tree:sv-tree walkTrace=(found-victim-in-parent-chain activeId=sv-booster treeId=sv-tree victim=sv-debris visitedBPs=1 parentsEncountered=1 chainHops=0 bps=[sv-bp:parents=1] parents=[sv-debris]) sess=sess-sv removeReason=active-refly-relative-anchor-update
+returned true
+after ghosts=[3:9008 ] vesselPidToRecordingId=[9008:sv-debris] activeReFlyDeferredStateVectorGhostSessions=[3:sess-sv] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== body-fixed-primary-no-marker-reaches-orbit-driver-update
+seed ghosts=[0:9009 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9009 (none) -> sv-debris
+log [Parsek][INFO][ReFlySession] End reason=<cleared> sess=sess-sv
+log [Parsek][INFO][GhostMap] update-state-vector-soi-change: rec=sv-debris idx=0 vessel="Char sv-debris" source=StateVector branch=BodyFixedPrimary body=Kerbin ghostPid=9009 ut=500.0 scene=TRACKSTATION
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=sv-debris body=Kerbin sampleUT=500.00 prevUT=NaN alt=90000.0 source=recorded-unresolved decline=pair-relative-section velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=body-fixed-primary
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=500.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9009 ] vesselPidToRecordingId=[9009:sv-debris] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== absolute-gap-glide-no-rotation-reaches-orbit-driver-update
+seed ghosts=[0:9010 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9010 (none) -> a0
+log [Parsek][INFO][GhostMap] update-state-vector-soi-change: rec=a0 idx=0 vessel="Char a0" source=StateVector branch=Absolute body=Kerbin ghostPid=9010 ut=500.0 scene=TRACKSTATION reason=orbit-raise-gap-points
+log [Parsek][WARN][GhostMap] Gap-glide inertial seed declined for ghost pid=9010 recIndex=0 body=Kerbin recordedUT=500.00 shift=0.0 reason=historical-rotation-unavailable: falling back to body-fixed seed (icon may rotate off the inertial orbit lines this frame)
+log [Parsek][VERBOSE][GhostMap] Gap-glide seed summary: inertial=0 bodyFixed=1 (orbit-raise gaps reconstructed in inertial frame)
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=a0 body=Kerbin sampleUT=500.00 prevUT=NaN alt=90000.0 source=recorded-unresolved decline=gap-pair-point-not-found velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=absolute
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=500.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9010 ] vesselPidToRecordingId=[9010:a0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/1/0/0/0
+== orbital-checkpoint-allowed-reaches-orbit-driver-update
+seed ghosts=[0:9011 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9011 (none) -> c1
+log [Parsek][INFO][GhostMap] update-state-vector-soi-change: rec=c1 idx=0 vessel="Char c1" source=StateVector branch=OrbitalCheckpoint body=Kerbin ghostPid=9011 ut=500.0 scene=TRACKSTATION
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=c1 body=Kerbin sampleUT=500.00 prevUT=NaN alt=90000.0 source=recorded-unresolved decline=gap-pair-point-not-found velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=orbital-checkpoint
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=500.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9011 ] vesselPidToRecordingId=[9011:c1] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== no-section-null-traj-reaches-orbit-driver-update
+seed ghosts=[0:9012 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][INFO][GhostMap] update-state-vector-soi-change: rec=(null) idx=0 vessel="(null)" source=StateVector branch=no-section body=Kerbin ghostPid=9012 ut=500.0 scene=TRACKSTATION
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=(null) body=Kerbin sampleUT=500.00 prevUT=NaN alt=90000.0 source=recorded-unresolved decline=gap-pair-point-not-found velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=no-section
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=500.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9012 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== same-body-as-last-applied-no-soi-line
+seed ghosts=[0:9013 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[9013:Kerbin] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9013 (none) -> s0
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=s0 body=Kerbin sampleUT=500.00 prevUT=NaN alt=90000.0 source=recorded-unresolved decline=gap-pair-point-not-found velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=absolute
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=500.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9013 ] vesselPidToRecordingId=[9013:s0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[9013:Kerbin] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== stale-segment-drive-cleared-before-reseed
+seed ghosts=[0:9014 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[1:1-2 9014:400-600] ghostBodyFrameOrbitBounds=[9014:400-600] ghostOrbitLoopShiftedPids=[9014] ghostOrbitEpochShift=[9014:2000] ghostIconDrivePropagation=[9014:2500@7] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9014 (none) -> t0
+log [Parsek][INFO][GhostMap] update-state-vector-soi-change: rec=t0 idx=0 vessel="Char t0" source=StateVector branch=Absolute body=Kerbin ghostPid=9014 ut=500.0 scene=TRACKSTATION
+log [Parsek][VERBOSE][GhostMap] State-vector reseed cleared stale segment-drive state for ghost pid=9014 recIndex=0 (segment->state-vector transition, shift=2000.0, scene=TRACKSTATION): icon now stock-propagated at live UT off the effUT drive path
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=t0 body=Kerbin sampleUT=500.00 prevUT=NaN alt=90000.0 source=recorded-unresolved decline=gap-pair-point-not-found velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=absolute
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=2500.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9014 ] vesselPidToRecordingId=[9014:t0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[1:1-2] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== icon-drive-record-only-dropped-quietly
+seed ghosts=[0:9015 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[9015:2500@7] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9015 (none) -> t1
+log [Parsek][INFO][GhostMap] update-state-vector-soi-change: rec=t1 idx=0 vessel="Char t1" source=StateVector branch=Absolute body=Kerbin ghostPid=9015 ut=500.0 scene=TRACKSTATION
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=t1 body=Kerbin sampleUT=500.00 prevUT=NaN alt=90000.0 source=recorded-unresolved decline=gap-pair-point-not-found velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=absolute
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=500.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9015 ] vesselPidToRecordingId=[9015:t1] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+== gap-glide-point-not-a-sample
+seed ghosts=[0:9016 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9016 (none) -> g0
+log [Parsek][INFO][GhostMap] update-state-vector-soi-change: rec=g0 idx=0 vessel="Char g0" source=StateVector branch=Absolute body=Kerbin ghostPid=9016 ut=500.0 scene=TRACKSTATION reason=orbit-raise-gap-points
+log [Parsek][WARN][GhostMap] Gap-glide inertial seed declined for ghost pid=9016 recIndex=0 body=Kerbin recordedUT=500.00 shift=1000.0 reason=gap-pair-point-not-found: falling back to body-fixed seed (icon may rotate off the inertial orbit lines this frame)
+log [Parsek][VERBOSE][GhostMap] Gap-glide seed summary: inertial=0 bodyFixed=1 (orbit-raise gaps reconstructed in inertial frame)
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=g0 body=Kerbin sampleUT=500.00 prevUT=NaN alt=90000.0 source=recorded-unresolved decline=gap-pair-point-not-found velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=absolute
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=1500.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9016 ] vesselPidToRecordingId=[9016:g0] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/1/0/0/0
+== gap-glide-pair-found
+seed ghosts=[0:9017 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9017 (none) -> g1
+log [Parsek][INFO][GhostMap] update-state-vector-soi-change: rec=g1 idx=0 vessel="Char g1" source=StateVector branch=Absolute body=Kerbin ghostPid=9017 ut=900.0 scene=TRACKSTATION reason=orbit-raise-gap-points
+log [Parsek][VERBOSE][OrbitReseed] TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch declined: body=Kerbin recordedUT=900.00 epochUT=900.00 loopShift=0.00 lat=1.0000 lon=2.0000 inertialLon=107.0352 alt=95000.0 |vel|=2200.00 prevUT=100.00 resolved=False decline=tail-pair-gap-out-of-range velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |inertialVel|=NaN sma=NaN ecc=NaN inc=NaN
+log [Parsek][WARN][GhostMap] Gap-glide inertial seed declined for ghost pid=9017 recIndex=0 body=Kerbin recordedUT=900.00 shift=0.0 reason=tail-pair-gap-out-of-range: falling back to body-fixed seed (icon may rotate off the inertial orbit lines this frame)
+log [Parsek][VERBOSE][GhostMap] Gap-glide seed summary: inertial=0 bodyFixed=1 (orbit-raise gaps reconstructed in inertial frame)
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=g1 body=Kerbin sampleUT=900.00 prevUT=100.00 alt=95000.0 source=recorded-unresolved decline=tail-pair-gap-out-of-range velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=absolute
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=900.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9017 ] vesselPidToRecordingId=[9017:g1] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/1/0/0/0
+== gap-glide-close-pair
+seed ghosts=[0:9019 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9019 (none) -> g2
+log [Parsek][INFO][GhostMap] update-state-vector-soi-change: rec=g2 idx=0 vessel="Char g2" source=StateVector branch=Absolute body=Kerbin ghostPid=9019 ut=900.0 scene=TRACKSTATION reason=orbit-raise-gap-points
+log [Parsek][VERBOSE][OrbitReseed] TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch declined: body=Kerbin recordedUT=900.00 epochUT=1400.00 loopShift=500.00 lat=1.0000 lon=3.0000 inertialLon=108.0352 alt=95000.0 |vel|=2200.00 prevUT=880.00 resolved=False decline=tail-velocity-azimuth-undefined velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |inertialVel|=NaN sma=NaN ecc=NaN inc=NaN
+log [Parsek][WARN][GhostMap] Gap-glide inertial seed declined for ghost pid=9019 recIndex=0 body=Kerbin recordedUT=900.00 shift=500.0 reason=tail-velocity-azimuth-undefined: falling back to body-fixed seed (icon may rotate off the inertial orbit lines this frame)
+log [Parsek][VERBOSE][GhostMap] Gap-glide seed summary: inertial=0 bodyFixed=1 (orbit-raise gaps reconstructed in inertial frame)
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=g2 body=Kerbin sampleUT=900.00 prevUT=880.00 alt=95000.0 source=recorded-unresolved decline=tail-velocity-azimuth-undefined velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=absolute
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=1400.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9019 ] vesselPidToRecordingId=[9019:g2] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/1/0/0/0
+== gap-reason-on-relative-branch-not-glided
+seed ghosts=[0:9018 ] vesselPidToRecordingId=[] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0
+log [Parsek][VERBOSE][GhostMap] ghost recId rebind: pid=9018 (none) -> f1
+log [Parsek][INFO][GhostMap] update-state-vector-soi-change: rec=f1 idx=0 vessel="Char f1" source=StateVector branch=BodyFixedPrimary body=Kerbin ghostPid=9018 ut=500.0 scene=TRACKSTATION reason=orbit-raise-gap-points
+log [Parsek][VERBOSE][GhostMap] State-vector seed velocity: site=update rec=f1 body=Kerbin sampleUT=500.00 prevUT=NaN alt=90000.0 source=recorded-unresolved decline=pair-relative-section velFrame=(unresolved) altitudeRule=inertial yaw=NaNdeg residual=NaN otherResidual=NaN |recordedVel|=2200.00 |seedVel|=2200.00 recIndex=0 branch=body-fixed-primary
+log [Parsek][VERBOSE][OrbitReseed] FromWorldPosAndRecordedVelocity: body=Kerbin ut=500.00 |worldPos|=0.0 |bodyRelPos|=0.0 |bodyPos|=0.0 |vel|=2200.00
+threw NullReferenceException in GhostMapPresence.UpdateGhostOrbitFromStateVectors top Planetarium.GetUniversalTime
+after ghosts=[0:9018 ] vesselPidToRecordingId=[9018:f1] activeReFlyDeferredStateVectorGhostSessions=[] ghostLastAppliedOrbitBody=[] ghostLastAppliedOrbitElements=[] ghostOrbitBounds=[] ghostBodyFrameOrbitBounds=[] ghostOrbitLoopShiftedPids=[] ghostOrbitEpochShift=[] ghostIconDrivePropagation=[] lastKnownByRecordingIndex=[] counters=0/0/0/0/0/0

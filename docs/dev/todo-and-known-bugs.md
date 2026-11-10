@@ -1599,6 +1599,14 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   removal reason, the gap-points glide, the state-vector and segment arms with the endpoint tail
   override; the removals apply last. Pinned first by `TrackingStationRefreshCharacterizationTests`
   (37 cases). Not reachable headless: the active Re-Fly teardown (needs a live orbit driver).
+- Wave 2 W5d2 (2026-11-10, this branch, extract-method): `UpdateGhostOrbitFromStateVectors`
+  (410 -> 87 lines) calls ten units in the same file: the miss and skip lines, the active Re-Fly
+  suppression, the SOI-change check, the gap-glide inertial seed, the stale segment-drive clear,
+  the body-fixed reseed, the seam CoMD refresh, the renderer rebuild with the applied body, and
+  the update line with the last-known stash. Pinned first by
+  `StateVectorOrbitUpdateCharacterizationTests` (21 cases). Not reachable headless: everything
+  from `OrbitDriver.updateFromParameters` on and the seeded gap-glide arm; those units have
+  direct tests in `StateVectorOrbitUpdatePhaseTests`.
 - Wave 2 W9a (2026-11-08, this branch, extract-method; each PR characterized against the
   original code first): #2467 splits `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` into gate
   groups and `ComputeSpanLoopFrame` into pieces; #2475 splits out `UpdatePlayback`'s
