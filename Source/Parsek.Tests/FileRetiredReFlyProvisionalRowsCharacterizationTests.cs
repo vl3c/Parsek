@@ -14,8 +14,9 @@ namespace Parsek.Tests
     /// unchanged through it. Scenarios: an empty id, nothing tagged, tagged events only with a
     /// pre-existing reputation seed, tagged science only (one subject converts, one carries no
     /// science), events and science with a ledger row the dedup drops, a deferred seed the
-    /// method captures off the live pool, a deferred seed with no live pool, and a provisional
-    /// id that is also a committed recording id. For each it records the returned count, every
+    /// method captures off the live pool, a deferred seed with no live pool, a provisional
+    /// id that is also a committed recording id, a tag differing from the id only in case, and
+    /// a live-pool seed naming the id with rows before and after its capture. For each it records the returned count, every
     /// ledger row (action ids masked: they are fresh GUIDs), the store events, the pending
     /// science subjects, the committed science and every log line.
     /// </summary>
@@ -280,6 +281,21 @@ namespace Parsek.Tests
             AddMilestone("RecordsDistance", 700.0, 300.0, 1f, 0.0, Prov);
             AddSubject("crewReport@KerbinSrfLanded", 2f, 710.0, Prov, "cap-0030");
             Case(sb, "R08 id is also a committed recording", Prov, ReputationSeedOrigin.PreExisting);
+
+            Reset();
+            Ledger.SeedInitialReputation(10f);
+            AddMilestone("RecordsAltitude", 383.0, 9600.0, 3f, 0.0, "REC-PROV");
+            AddMilestone("RecordsSpeed", 390.0, 1200.0, 1f, 0.0, Prov);
+            AddSubject("crewReport@KerbinSrfLanded", 1.5f, 400.0, "REC-PROV", "cap-0040");
+            AddSubject("evaReport@KerbinSrfLanded", 2.5f, 401.0, Prov, "cap-0041");
+            Case(sb, "R09 a tag differing only in case is not the id", Prov, ReputationSeedOrigin.PreExisting);
+
+            Reset();
+            Ledger.SeedInitialReputation(40f, new List<string> { Prov }, 500.0);
+            AddMilestone("RecordsAltitude", 383.0, 9600.0, 3f, 0.0, Prov);
+            AddMilestone("RecordsSpeed", 600.0, 1200.0, 1f, 0.0, Prov);
+            Case(sb, "R10 live-pool seed names the id, rows before and after its capture", Prov,
+                ReputationSeedOrigin.PreExisting);
 
             AssertGolden("FileRetiredReFlyProvisionalRows", Golden, sb.ToString());
         }
@@ -683,6 +699,134 @@ namespace Parsek.Tests
             "log [Parsek][INFO][GameStateStore] CommitScienceActions: 1 added, 0 updated, skipped=0 (total=1)",
             "log [Parsek][VERBOSE][GameStateStore] RetagEventsForRecording: 'rec-prov' -> '' retagged=1 total=1",
             "log [Parsek][INFO][LedgerOrchestrator] Re-Fly award handoff: outcome=filed-retired-provisional-rows provisional=rec-prov reason=test-retire rows=2 events=1 science=1 deduped=0 subjectsRemoved=0 eventsUntagged=1 - the attempt was merged, so what it earned before its recorder bound stays",
+            "== R09 a tag differing only in case is not the id",
+            "return=2",
+            "row[0] ROOT",
+            "row[0] {",
+            "row[0] \tGAME_ACTION",
+            "row[0] \t{",
+            "row[0] \t\tut = 0",
+            "row[0] \t\ttype = 22",
+            "row[0] \t\tactionId = <masked>",
+            "row[0] \t\tinitialReputation = 10",
+            "row[0] \t}",
+            "row[0] }",
+            "row[1] ROOT",
+            "row[1] {",
+            "row[1] \tGAME_ACTION",
+            "row[1] \t{",
+            "row[1] \t\tut = 390",
+            "row[1] \t\ttype = 4",
+            "row[1] \t\tactionId = <masked>",
+            "row[1] \t\tseq = 1",
+            "row[1] \t\tcseq = 2",
+            "row[1] \t\tmilestoneId = RecordsSpeed",
+            "row[1] \t\tmilestoneFundsAwarded = 1200",
+            "row[1] \t\tmilestoneRepAwarded = 1",
+            "row[1] \t\tmilestoneSciAwarded = 0",
+            "row[1] \t}",
+            "row[1] }",
+            "row[2] ROOT",
+            "row[2] {",
+            "row[2] \tGAME_ACTION",
+            "row[2] \t{",
+            "row[2] \t\tut = 401",
+            "row[2] \t\ttype = 0",
+            "row[2] \t\tactionId = <masked>",
+            "row[2] \t\tseq = 2",
+            "row[2] \t\tcseq = 3",
+            "row[2] \t\tsubjectId = evaReport@KerbinSrfLanded",
+            "row[2] \t\tscienceAwarded = 2.5",
+            "row[2] \t\tmethod = 0",
+            "row[2] \t\ttransmitScalar = 0",
+            "row[2] \t\tsubjectMaxValue = 10",
+            "row[2] \t\tstartUT = 401",
+            "row[2] \t\tendUT = 402",
+            "row[2] \t}",
+            "row[2] }",
+            "event MilestoneAchieved RecordsAltitude tag=REC-PROV seq=1",
+            "event MilestoneAchieved RecordsSpeed tag= seq=2",
+            "pending crewReport@KerbinSrfLanded tag=REC-PROV",
+            "committedScience evaReport@KerbinSrfLanded=2.5",
+            "log [Parsek][VERBOSE][RecalcEngine] ClearModules: removed=0",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: MilestonesModule, total=1",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: ContractsModule, total=2",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: ScienceModule, total=3",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: KerbalsModule, total=4",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered strategy transform module: StrategiesModule",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered second-tier module: FundsModule, total=1",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered second-tier module: ReputationModule, total=2",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered facilities module: FacilitiesModule",
+            "log [Parsek][INFO][LedgerOrchestrator] Initialized: 8 modules registered",
+            "log [Parsek][INFO][GameStateEventConverter] ConvertEvents: converted=1, skipped=0, outOfRange=0, total=1, recordingId=(none), skippedByType=(none)",
+            "log [Parsek][INFO][GameStateEventConverter] ConvertScienceSubjects: converted=1 from 1 subjects, recordingId=(none), tagged=0, untaggedInWindow=1, skippedCrossRecording=0, skippedOutsideWindow=0, captureIdentified=1, captureDated=1, endAnchored=0, afterWindowDated=0",
+            "log [Parsek][VERBOSE][Ledger] AddActions batch: added=2, writer=StockApplied, total=3",
+            "log [Parsek][INFO][GameStateStore] CommitScienceActions: 1 added, 0 updated, skipped=0 (total=1)",
+            "log [Parsek][VERBOSE][LedgerOrchestrator] RemovePendingScienceSubjectsForRecordings (test-retire): removed 1 scoped pending subject(s), 1 unrelated retained",
+            "log [Parsek][VERBOSE][GameStateStore] RetagEventsForRecording: 'rec-prov' -> '' retagged=1 total=2",
+            "log [Parsek][INFO][LedgerOrchestrator] Re-Fly award handoff: outcome=filed-retired-provisional-rows provisional=rec-prov reason=test-retire rows=2 events=1 science=1 deduped=0 subjectsRemoved=1 eventsUntagged=1 - the attempt was merged, so what it earned before its recorder bound stays",
+            "== R10 live-pool seed names the id, rows before and after its capture",
+            "return=2",
+            "row[0] ROOT",
+            "row[0] {",
+            "row[0] \tGAME_ACTION",
+            "row[0] \t{",
+            "row[0] \t\tut = 0",
+            "row[0] \t\ttype = 22",
+            "row[0] \t\tactionId = <masked>",
+            "row[0] \t\tinitialReputation = 40",
+            "row[0] \t\tseedCaptureUT = 500",
+            "row[0] \t\tseedPendingRec = rec-prov",
+            "row[0] \t}",
+            "row[0] }",
+            "row[1] ROOT",
+            "row[1] {",
+            "row[1] \tGAME_ACTION",
+            "row[1] \t{",
+            "row[1] \t\tut = 383",
+            "row[1] \t\ttype = 4",
+            "row[1] \t\tactionId = <masked>",
+            "row[1] \t\tseq = 1",
+            "row[1] \t\tcseq = 1",
+            "row[1] \t\tinsideRepSeed = True",
+            "row[1] \t\tmilestoneId = RecordsAltitude",
+            "row[1] \t\tmilestoneFundsAwarded = 9600",
+            "row[1] \t\tmilestoneRepAwarded = 3",
+            "row[1] \t\tmilestoneSciAwarded = 0",
+            "row[1] \t}",
+            "row[1] }",
+            "row[2] ROOT",
+            "row[2] {",
+            "row[2] \tGAME_ACTION",
+            "row[2] \t{",
+            "row[2] \t\tut = 600",
+            "row[2] \t\ttype = 4",
+            "row[2] \t\tactionId = <masked>",
+            "row[2] \t\tseq = 2",
+            "row[2] \t\tcseq = 2",
+            "row[2] \t\tmilestoneId = RecordsSpeed",
+            "row[2] \t\tmilestoneFundsAwarded = 1200",
+            "row[2] \t\tmilestoneRepAwarded = 1",
+            "row[2] \t\tmilestoneSciAwarded = 0",
+            "row[2] \t}",
+            "row[2] }",
+            "event MilestoneAchieved RecordsAltitude tag= seq=1",
+            "event MilestoneAchieved RecordsSpeed tag= seq=2",
+            "log [Parsek][VERBOSE][RecalcEngine] ClearModules: removed=0",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: MilestonesModule, total=1",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: ContractsModule, total=2",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: ScienceModule, total=3",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: KerbalsModule, total=4",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered strategy transform module: StrategiesModule",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered second-tier module: FundsModule, total=1",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered second-tier module: ReputationModule, total=2",
+            "log [Parsek][VERBOSE][RecalcEngine] Registered facilities module: FacilitiesModule",
+            "log [Parsek][INFO][LedgerOrchestrator] Initialized: 8 modules registered",
+            "log [Parsek][INFO][GameStateEventConverter] ConvertEvents: converted=2, skipped=0, outOfRange=0, total=2, recordingId=(none), skippedByType=(none)",
+            "log [Parsek][INFO][LedgerOrchestrator] Reputation seed stamp: 1 row(s) stamped insideRepSeed=True for retired-refly-provisional=rec-prov - recorded before the live-pool seed was read at UT 500 while uncommitted (1 later row(s) stay outside)",
+            "log [Parsek][VERBOSE][Ledger] AddActions batch: added=2, writer=StockApplied, total=3",
+            "log [Parsek][VERBOSE][GameStateStore] RetagEventsForRecording: 'rec-prov' -> '' retagged=2 total=2",
+            "log [Parsek][INFO][LedgerOrchestrator] Re-Fly award handoff: outcome=filed-retired-provisional-rows provisional=rec-prov reason=test-retire rows=2 events=2 science=0 deduped=0 subjectsRemoved=0 eventsUntagged=2 - the attempt was merged, so what it earned before its recorder bound stays",
         }) + "\n";
     }
 }
