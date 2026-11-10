@@ -28,6 +28,9 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekScenario.SetOnLoadInProgressForTesting(false);
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            PendingTreeSlot.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             Ledger.ResetForTesting();
         }
@@ -37,6 +40,9 @@ namespace Parsek.Tests
             ParsekScenario.SetOnLoadInProgressForTesting(false);
             LedgerOrchestrator.ResetForTesting();
             Ledger.ResetForTesting();
+            PendingTreeSlot.ResetForTesting();
+            RecordingStore.ResetForTesting();
+            RecordingStore.SuppressLogging = false;
             Thread.CurrentThread.CurrentCulture = savedCulture;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -89,6 +95,8 @@ namespace Parsek.Tests
         [Fact]
         public void LivePool_NoUncommittedRecordings_SeedsThePlainValue()
         {
+            LedgerOrchestrator.NowUtProviderForTesting = () => 352.75;
+
             LedgerOrchestrator.SeedInitialReputationFromLivePool(Rep(true, 7.25f));
 
             var seed = OnlySeed();

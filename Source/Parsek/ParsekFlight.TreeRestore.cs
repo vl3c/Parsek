@@ -491,6 +491,218 @@ namespace Parsek
             {
             // NOTE: body intentionally not re-indented to minimize diff
             RecorderStateLog.RecState("Restore:start", CaptureRecorderState());
+            if (!ShouldRestorePendingTreeOnFlightReady())
+                yield break;
+
+            var tree = PendingTreeSlot.PendingTree;
+            string activeRecId = tree.ActiveRecordingId;
+
+            // Bug #585 follow-up (PR #558 P1 review): gate marker read on
+            // RewindInvokeContext consumption. In the async-FLIGHT-load path,
+            // ParsekScenario.OnLoad schedules our restore for OnFlightReady
+            // BEFORE RewindInvoker.RunStripActivateMarker has had a chance to
+            // run AtomicMarkerWrite -- RunStripActivateMarker is itself
+            // deferred via WaitForFlightReadyAndInvoke until
+            // FlightGlobals.ready flips, which races with the
+            // GameEvents.onFlightReady fire that triggers us. If we read the
+            // marker before AtomicMarkerWrite completes we see it as null,
+            // fall through to no-swap, and the wait loop targets the stale
+            // pre-rewind ActiveRecordingId -- exactly the bug #585 race.
+            // Yield until the pending invocation context clears (or a bounded
+            // timeout) so the marker write is guaranteed to have completed.
+            if (RewindInvokeContext.Pending)
+            {
+                int markerWaitFrame = 0;
+                const int MaxMarkerWaitFrames = 300;
+                while (RewindInvokeContext.Pending && markerWaitFrame < MaxMarkerWaitFrames)
+                {
+                    markerWaitFrame++;
+                    yield return null;
+                }
+                LogRewindInvokeContextWaitOutcome(markerWaitFrame, MaxMarkerWaitFrames);
+            }
+
+            activeRecId = ApplyInPlaceContinuationMarkerSwap(tree, activeRecId);
+
+            if (!TryResolvePendingRestoreActiveRecording(tree, activeRecId, out Recording activeRec))
+                yield break;
+
+            string targetName = activeRec.VesselName;
+            uint targetPid = activeRec.VesselPersistentId;
+            ParsekLog.Info("Flight",
+                $"RestoreActiveTreeFromPending: waiting for vessel '{targetName}' (pid={targetPid}) to load " +
+                $"(activeRecId={activeRecId})");
+
+            // Wait up to 3 seconds for the current active vessel to match.
+            // Primary match = PID (locale-proof, available immediately even when
+            // vesselName is still a raw #autoLOC key). Bug #290b.
+            // Secondary match = vessel name, only for identity-less legacy recordings (no PID
+            // and no launch guid; QuickloadResumeMatchGuard.MayMatchByNameFallback).
+            // Tertiary (edge case 3): if the active recording was an EVA kerbal who got
+            // boarded between quicksave and quickload, match against the parent recording's
+            // vessel by walking ParentRecordingId up the EVA chain.
+            //
+            // BDOCK-1 flight-16 guard (INV4-PARTEVENT-PID red): every acceptance is
+            // gated through QuickloadResumeMatchGuard. A same-session launch_vessel
+            // FLIGHT->FLIGHT reload can be misclassified as a quickload (stale
+            // vesselSwitchPending flag); the new scene's active vessel is then a FRESH
+            // ROLLOUT of (typically) the same craft file, and the name fallback happily
+            // matches it — remapping the stashed tree's recording onto a different
+            // physical launch and corrupting it with foreign-pid part events. A fresh
+            // rollout is rejected outright (recording-independent, break immediately);
+            // a conclusive RecordedVesselGuid-vs-Vessel.id mismatch skips the pid/name
+            // match for that recording while still allowing the EVA-parent walk to
+            // match a parent whose guid agrees.
+            Recording matchedRec = activeRec;
+            string matchedRecId = activeRecId;
+            float deadline = UnityEngine.Time.time + 3f;
+            Vessel matched = null;
+            bool loggedGuidReject = false;
+            var loggedParentGuidRejects = new HashSet<string>();
+            uint refusedFreshRolloutPid = 0;
+            while (UnityEngine.Time.time < deadline)
+            {
+                var v = FlightGlobals.ActiveVessel;
+                if (v != null)
+                {
+                    PendingRestoreTargetMatch match = MatchPendingRestoreTarget(
+                        tree,
+                        activeRec,
+                        activeRecId,
+                        targetName,
+                        targetPid,
+                        v.persistentId,
+                        v.vesselName,
+                        v.id,
+                        ref loggedGuidReject,
+                        loggedParentGuidRejects,
+                        ref matchedRec,
+                        ref matchedRecId);
+                    if (match == PendingRestoreTargetMatch.RefusedFreshRollout)
+                    {
+                        refusedFreshRolloutPid = v.persistentId;
+                        break;
+                    }
+                    if (match == PendingRestoreTargetMatch.Matched)
+                    {
+                        matched = v;
+                        break;
+                    }
+                }
+                yield return null;
+            }
+
+            // FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME / -KEPT-TREE-PENDING: a tree refused
+            // for the fresh rollout is resolved here so nothing parked lingers for a later
+            // stash to overwrite or a merge dialog to offer over committed recordings: an
+            // idle resumed copy of a committed tree (BDOCK-1's re-adopted station) is
+            // discarded, every other tree is committed. A Re-Fly-owned tree, one under an
+            // active merge journal or a replaced slot falls through to the Limbo give-up.
+            if (matched == null
+                && refusedFreshRolloutPid != 0
+                && IsFreshRolloutRefusedTreeResolved(DisposeFreshRolloutRefusedPendingTree(
+                        "quickload-restore", tree, refusedFreshRolloutPid)))
+            {
+                yield break;
+            }
+
+            if (matched == null)
+            {
+                ReportPendingRestoreGiveUp(tree, activeRecId, targetName, targetPid);
+                yield break;
+            }
+
+            // After a parent-fallback match, the rest of the coroutine uses matchedRec/matchedRecId
+            activeRec = matchedRec;
+            activeRecId = matchedRecId;
+            RecorderStateLog.RecState("Restore:matched", CaptureRecorderState());
+
+            // PID remap: KSP may have regenerated the persistentId across quickload.
+            // Tree.BackgroundMap is keyed by PID, so update any old-PID entries too.
+            uint oldPid = activeRec.VesselPersistentId;
+            uint newPid = matched.persistentId;
+            RemapRestoredRecordingPid(tree, activeRec, activeRecId, oldPid, newPid, targetName);
+
+            // Pop the tree out of pending-Limbo (non-destructive — preserves sidecar files)
+            // and re-install as the live active tree.
+            activeTree = PendingTreeSlot.PopPendingTree();
+            if (activeTree == null)
+            {
+                ParsekLog.Warn("Flight",
+                    "RestoreActiveTreeFromPending: PopPendingTree returned null after we verified the tree exists");
+                yield break;
+            }
+            // PopPendingTree just emptied the main pending slot; a saved pending
+            // tree from the same save can now move back unless another path filled it.
+            PendingTreeSlot.PromoteSavedPendingTreeAfterActiveRestore(
+                "RestoreActiveTreeFromPending");
+
+            // Construct a fresh FlightRecorder pointed at the restored tree.
+            recorder = new FlightRecorder();
+            recorder.ActiveTree = activeTree;
+
+            // Restore recorder state persisted in the PARSEK_ACTIVE_TREE node
+            ApplyPendingActiveTreeResumeRewindSave(recorder);
+
+            // Bug fix: clear any stale Destroyed terminal verdict on the
+            // recording we're about to resume. A transient NullSolver event
+            // earlier in the recording (e.g. stage decouple) may have made
+            // TryFinalizeRecording fall back to live-orbit and stamp Destroyed
+            // via the sub-surface path. Without this clear, FinalizerCache's
+            // already-classified-destroyed short-circuit declines every refresh
+            // for the rest of the session, and the vessel stays labelled
+            // "Destroyed" in the STASH UI even though the player is flying it
+            // again post-rewind. The stamp lives on the Recording, so resetting
+            // the in-memory FinalizationCache via StartRecording is not enough.
+            IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(
+                activeRec,
+                "RestoreActiveTreeFromPending");
+
+            // Start recording as a promotion (isPromotion: true) so the Bug A seed-event
+            // skip kicks in — no duplicate DeployableExtended / LightOn / etc. events at
+            // the quickload UT. The new recorder's buffers start empty and will append
+            // to activeTree.Recordings[activeRecId] on the next chain boundary or
+            // scene exit flush.
+            recorder.StartRecording(isPromotion: true);
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("Flight",
+                    $"RestoreActiveTreeFromPending: StartRecording returned IsRecording=false for " +
+                    $"'{targetName}' — restore incomplete");
+                yield break;
+            }
+
+            PrepareSessionStateForRecorderStart("RestoreActiveTreeFromPending");
+
+            // Re-attach the BackgroundRecorder for the tree.
+            EnsureBackgroundRecorderAttached("RestoreActiveTreeFromPending");
+
+            ParsekLog.Info("Flight",
+                $"RestoreActiveTreeFromPending: resumed recording tree '{activeTree.TreeName}' " +
+                $"activeRec='{activeRecId}' vessel='{targetName}' pid={newPid} at UT={Planetarium.GetUniversalTime():F1}");
+            RecorderStateLog.RecState("Restore:after-start", CaptureRecorderState());
+            } // try
+            finally
+            {
+                restoringActiveTree = false;
+            }
+
+            // M1 (PR #876 final review): dispatch any deferred consume now that
+            // the restored tree is live. DispatchConsumeIntentIfArmed at the
+            // top of OnFlightReady skips when ScheduleActiveTreeRestoreOnFlightReady
+            // is non-None to avoid racing the restore. Re-invoking here picks
+            // up an intent that survived the F5 -> reload round-trip and
+            // attaches the new switch segment to the just-restored tree.
+            DispatchConsumeIntentIfArmed();
+        }
+
+        /// <summary>
+        /// Entry gate of <see cref="RestoreActiveTreeFromPending"/>: true when a pending tree is
+        /// parked in Limbo, or is Finalized while an in-place Re-Fly continuation is active (the
+        /// acceptance is logged). False, with the skip logged, ends the coroutine.
+        /// </summary>
+        internal static bool ShouldRestorePendingTreeOnFlightReady()
+        {
             // Re-Fly retry carve-out: when the previous Re-Fly attempt was
             // post-destruction finalized before the player clicked Esc >
             // Revert > Retry from Rewind Point, the in-memory pending tree
@@ -525,7 +737,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("Flight",
                     "RestoreActiveTreeFromPending: no pending-Limbo tree, skipping");
-                yield break;
+                return false;
             }
             if (acceptFinalizedForReFly)
             {
@@ -534,47 +746,44 @@ namespace Parsek
                     $"'{PendingTreeSlot.PendingTree?.TreeName}' — active Re-Fly session " +
                     "needs a recorder bound to the freshly-attached fork");
             }
+            return true;
+        }
 
-            var tree = PendingTreeSlot.PendingTree;
-            string activeRecId = tree.ActiveRecordingId;
-
-            // Bug #585 follow-up (PR #558 P1 review): gate marker read on
-            // RewindInvokeContext consumption. In the async-FLIGHT-load path,
-            // ParsekScenario.OnLoad schedules our restore for OnFlightReady
-            // BEFORE RewindInvoker.RunStripActivateMarker has had a chance to
-            // run AtomicMarkerWrite -- RunStripActivateMarker is itself
-            // deferred via WaitForFlightReadyAndInvoke until
-            // FlightGlobals.ready flips, which races with the
-            // GameEvents.onFlightReady fire that triggers us. If we read the
-            // marker before AtomicMarkerWrite completes we see it as null,
-            // fall through to no-swap, and the wait loop targets the stale
-            // pre-rewind ActiveRecordingId -- exactly the bug #585 race.
-            // Yield until the pending invocation context clears (or a bounded
-            // timeout) so the marker write is guaranteed to have completed.
+        /// <summary>
+        /// Logs how the restore coroutine's wait for <see cref="RewindInvokeContext"/> to clear
+        /// ended: a warn when it is still pending after the frame budget, otherwise the number
+        /// of frames waited.
+        /// </summary>
+        internal static void LogRewindInvokeContextWaitOutcome(
+            int markerWaitFrame,
+            int maxMarkerWaitFrames)
+        {
             if (RewindInvokeContext.Pending)
             {
-                int markerWaitFrame = 0;
-                const int MaxMarkerWaitFrames = 300;
-                while (RewindInvokeContext.Pending && markerWaitFrame < MaxMarkerWaitFrames)
-                {
-                    markerWaitFrame++;
-                    yield return null;
-                }
-                if (RewindInvokeContext.Pending)
-                {
-                    ParsekLog.Warn("Flight",
-                        $"RestoreActiveTreeFromPending: timed out waiting for RewindInvokeContext " +
-                        $"to clear after {MaxMarkerWaitFrames} frame(s); proceeding without marker swap " +
-                        $"(bug #585 follow-up: marker write race)");
-                }
-                else
-                {
-                    ParsekLog.Verbose("Flight",
-                        $"RestoreActiveTreeFromPending: waited {markerWaitFrame} frame(s) for " +
-                        $"RewindInvokeContext to clear before reading ActiveReFlySessionMarker");
-                }
+                ParsekLog.Warn("Flight",
+                    $"RestoreActiveTreeFromPending: timed out waiting for RewindInvokeContext " +
+                    $"to clear after {maxMarkerWaitFrames} frame(s); proceeding without marker swap " +
+                    $"(bug #585 follow-up: marker write race)");
             }
+            else
+            {
+                ParsekLog.Verbose("Flight",
+                    $"RestoreActiveTreeFromPending: waited {markerWaitFrame} frame(s) for " +
+                    $"RewindInvokeContext to clear before reading ActiveReFlySessionMarker");
+            }
+        }
 
+        /// <summary>
+        /// Bug #585 in-place continuation carve-out of the restore coroutine: reconciles the
+        /// in-place fork into the pending tree and, when the live Re-Fly marker names a
+        /// recording of this tree, points the tree (and its background map) at it. Returns the
+        /// active recording id the coroutine waits on: the marker's recording after a swap, the
+        /// given id otherwise.
+        /// </summary>
+        internal static string ApplyInPlaceContinuationMarkerSwap(
+            RecordingTree tree,
+            string activeRecId)
+        {
             // Bug #585: in-place continuation Re-Fly carve-out. The rewind
             // quicksave's ActiveRecordingId still points at the pre-rewind
             // active vessel (just killed by PostLoadStripper). The live
@@ -647,219 +856,221 @@ namespace Parsek
                     $"RestoreActiveTreeFromPending: marker present but no swap " +
                     $"(reason={markerSwap.Reason ?? "<none>"} sess={marker.SessionId ?? "<no-id>"})");
             }
+            return activeRecId;
+        }
 
+        /// <summary>
+        /// Resolves the pending tree's active recording for the restore coroutine. False, with a
+        /// warn, when the id is empty or not in the tree: the tree stays in Limbo.
+        /// </summary>
+        internal static bool TryResolvePendingRestoreActiveRecording(
+            RecordingTree tree,
+            string activeRecId,
+            out Recording activeRec)
+        {
             if (string.IsNullOrEmpty(activeRecId)
-                || !tree.Recordings.TryGetValue(activeRecId, out var activeRec))
+                || !tree.Recordings.TryGetValue(activeRecId, out activeRec))
             {
+                activeRec = null;
                 ParsekLog.Warn("Flight",
                     $"RestoreActiveTreeFromPending: pending tree '{tree.TreeName}' has no resolvable " +
                     $"activeRecordingId — leaving in Limbo");
-                yield break;
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>What one polled frame of the restore coroutine's vessel match found.</summary>
+        internal enum PendingRestoreTargetMatch
+        {
+            /// <summary>No match this frame; the coroutine polls again next frame.</summary>
+            None = 0,
+            /// <summary>The live vessel is the recording (or an EVA parent of it): adopt it.</summary>
+            Matched = 1,
+            /// <summary>The live vessel is the scene-entry fresh rollout: never adopt it.</summary>
+            RefusedFreshRollout = 2,
+        }
+
+        /// <summary>
+        /// One polled frame of the restore coroutine's vessel match against the live active
+        /// vessel (pid, launch guid and name passed in): refuses the scene-entry fresh rollout,
+        /// then matches the active recording by pid, by name for an identity-less recording, and
+        /// by walking its EVA parent chain, every acceptance gated on the launch guid. A parent
+        /// match points <paramref name="matchedRec"/> / <paramref name="matchedRecId"/> and the
+        /// tree's active recording at the parent. The two latches keep each guid reject logged
+        /// once across frames.
+        /// </summary>
+        internal static PendingRestoreTargetMatch MatchPendingRestoreTarget(
+            RecordingTree tree,
+            Recording activeRec,
+            string activeRecId,
+            string targetName,
+            uint targetPid,
+            uint livePid,
+            string liveVesselName,
+            Guid liveVesselId,
+            ref bool loggedGuidReject,
+            HashSet<string> loggedParentGuidRejects,
+            ref Recording matchedRec,
+            ref string matchedRecId)
+        {
+            string liveGuid = liveVesselId != Guid.Empty ? liveVesselId.ToString("N") : null;
+
+            if (QuickloadResumeMatchGuard.IsFreshRolloutCandidate(
+                    livePid, SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid))
+            {
+                ParsekLog.Info("Flight",
+                    $"RestoreActiveTreeFromPending: refusing to adopt fresh-rollout vessel " +
+                    $"'{liveVesselName}' pid={livePid} liveGuid={liveGuid ?? "<none>"} " +
+                    $"for recording '{activeRecId}' (recordedPid={targetPid}, " +
+                    $"recordedGuid={activeRec.RecordedVesselGuid ?? "<none>"}) — a fresh " +
+                    "launch is a different physical launch; not adopting");
+                return PendingRestoreTargetMatch.RefusedFreshRollout;
             }
 
-            string targetName = activeRec.VesselName;
-            uint targetPid = activeRec.VesselPersistentId;
-            ParsekLog.Info("Flight",
-                $"RestoreActiveTreeFromPending: waiting for vessel '{targetName}' (pid={targetPid}) to load " +
-                $"(activeRecId={activeRecId})");
-
-            // Wait up to 3 seconds for the current active vessel to match.
-            // Primary match = PID (locale-proof, available immediately even when
-            // vesselName is still a raw #autoLOC key). Bug #290b.
-            // Secondary match = vessel name, only for identity-less legacy recordings (no PID
-            // and no launch guid; QuickloadResumeMatchGuard.MayMatchByNameFallback).
-            // Tertiary (edge case 3): if the active recording was an EVA kerbal who got
-            // boarded between quicksave and quickload, match against the parent recording's
-            // vessel by walking ParentRecordingId up the EVA chain.
-            //
-            // BDOCK-1 flight-16 guard (INV4-PARTEVENT-PID red): every acceptance is
-            // gated through QuickloadResumeMatchGuard. A same-session launch_vessel
-            // FLIGHT->FLIGHT reload can be misclassified as a quickload (stale
-            // vesselSwitchPending flag); the new scene's active vessel is then a FRESH
-            // ROLLOUT of (typically) the same craft file, and the name fallback happily
-            // matches it — remapping the stashed tree's recording onto a different
-            // physical launch and corrupting it with foreign-pid part events. A fresh
-            // rollout is rejected outright (recording-independent, break immediately);
-            // a conclusive RecordedVesselGuid-vs-Vessel.id mismatch skips the pid/name
-            // match for that recording while still allowing the EVA-parent walk to
-            // match a parent whose guid agrees.
-            Recording matchedRec = activeRec;
-            string matchedRecId = activeRecId;
-            float deadline = UnityEngine.Time.time + 3f;
-            Vessel matched = null;
-            bool loggedGuidReject = false;
-            var loggedParentGuidRejects = new HashSet<string>();
-            uint refusedFreshRolloutPid = 0;
-            while (UnityEngine.Time.time < deadline)
+            bool activeRecGuidRejected = QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers(
+                activeRec.RecordedVesselGuid, liveGuid);
+            if (activeRecGuidRejected && !loggedGuidReject)
             {
-                var v = FlightGlobals.ActiveVessel;
-                if (v != null)
+                loggedGuidReject = true;
+                ParsekLog.Info("Flight",
+                    $"RestoreActiveTreeFromPending: active vessel '{liveVesselName}' " +
+                    $"pid={livePid} liveGuid={liveGuid ?? "<none>"} conclusively " +
+                    $"differs from recording '{activeRecId}' recordedGuid=" +
+                    $"{activeRec.RecordedVesselGuid ?? "<none>"} — skipping pid/name match " +
+                    "(EVA-parent fallback still evaluated)");
+            }
+
+            // Primary: PID match (locale-proof, available immediately)
+            if (!activeRecGuidRejected && targetPid != 0 && livePid == targetPid)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"RestoreActiveTreeFromPending: PID match pid={targetPid}");
+                return PendingRestoreTargetMatch.Matched;
+            }
+            // Secondary: name match, ONLY for an identity-less legacy recording (no
+            // pid and no launch guid). A recording with a pid or guid is matched by
+            // identity alone: a renamed vessel keeps both, and a same-named vessel of
+            // another launch must never be adopted.
+            if (!activeRecGuidRejected
+                && QuickloadResumeMatchGuard.MayMatchByNameFallback(
+                    targetPid, activeRec.RecordedVesselGuid)
+                && liveVesselName == targetName)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"RestoreActiveTreeFromPending: name match '{targetName}'");
+                return PendingRestoreTargetMatch.Matched;
+            }
+            // Tertiary: walk ParentRecordingId chain and try each parent's PID/name
+            Recording probe = activeRec;
+            int walkDepth = 0;
+            while (walkDepth < 5 && !string.IsNullOrEmpty(probe?.ParentRecordingId))
+            {
+                if (!tree.Recordings.TryGetValue(probe.ParentRecordingId, out probe))
+                    break;
+                if (probe != null &&
+                    QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers(
+                        probe.RecordedVesselGuid, liveGuid))
                 {
-                    string liveGuid = v.id != Guid.Empty ? v.id.ToString("N") : null;
-
-                    if (QuickloadResumeMatchGuard.IsFreshRolloutCandidate(
-                            v.persistentId, SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid))
-                    {
+                    // Guard skip must be logged (review of PR #1345): a
+                    // guid-rejected parent otherwise declines silently and
+                    // the coroutine ends in the generic not-active Warn
+                    // with no trace this gate fired. Once per parent, not
+                    // per polling frame (review of PR #1371) - this walk
+                    // re-runs every frame of the 3 s wait, mirroring the
+                    // loggedGuidReject latch on the active-rec reject above.
+                    if (loggedParentGuidRejects.Add(probe.RecordingId ?? string.Empty))
                         ParsekLog.Info("Flight",
-                            $"RestoreActiveTreeFromPending: refusing to adopt fresh-rollout vessel " +
-                            $"'{v.vesselName}' pid={v.persistentId} liveGuid={liveGuid ?? "<none>"} " +
-                            $"for recording '{activeRecId}' (recordedPid={targetPid}, " +
-                            $"recordedGuid={activeRec.RecordedVesselGuid ?? "<none>"}) — a fresh " +
-                            "launch is a different physical launch; not adopting");
-                        refusedFreshRolloutPid = v.persistentId;
-                        break;
-                    }
-
-                    bool activeRecGuidRejected = QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers(
-                        activeRec.RecordedVesselGuid, liveGuid);
-                    if (activeRecGuidRejected && !loggedGuidReject)
-                    {
-                        loggedGuidReject = true;
-                        ParsekLog.Info("Flight",
-                            $"RestoreActiveTreeFromPending: active vessel '{v.vesselName}' " +
-                            $"pid={v.persistentId} liveGuid={liveGuid ?? "<none>"} conclusively " +
-                            $"differs from recording '{activeRecId}' recordedGuid=" +
-                            $"{activeRec.RecordedVesselGuid ?? "<none>"} — skipping pid/name match " +
-                            "(EVA-parent fallback still evaluated)");
-                    }
-
-                    // Primary: PID match (locale-proof, available immediately)
-                    if (!activeRecGuidRejected && targetPid != 0 && v.persistentId == targetPid)
-                    {
-                        matched = v;
-                        ParsekLog.Verbose("Flight",
-                            $"RestoreActiveTreeFromPending: PID match pid={targetPid}");
-                        break;
-                    }
-                    // Secondary: name match, ONLY for an identity-less legacy recording (no
-                    // pid and no launch guid). A recording with a pid or guid is matched by
-                    // identity alone: a renamed vessel keeps both, and a same-named vessel of
-                    // another launch must never be adopted.
-                    if (!activeRecGuidRejected
-                        && QuickloadResumeMatchGuard.MayMatchByNameFallback(
-                            targetPid, activeRec.RecordedVesselGuid)
-                        && v.vesselName == targetName)
-                    {
-                        matched = v;
-                        ParsekLog.Verbose("Flight",
-                            $"RestoreActiveTreeFromPending: name match '{targetName}'");
-                        break;
-                    }
-                    // Tertiary: walk ParentRecordingId chain and try each parent's PID/name
-                    Recording probe = activeRec;
-                    int walkDepth = 0;
-                    while (walkDepth < 5 && !string.IsNullOrEmpty(probe?.ParentRecordingId))
-                    {
-                        if (!tree.Recordings.TryGetValue(probe.ParentRecordingId, out probe))
-                            break;
-                        if (probe != null &&
-                            QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers(
-                                probe.RecordedVesselGuid, liveGuid))
-                        {
-                            // Guard skip must be logged (review of PR #1345): a
-                            // guid-rejected parent otherwise declines silently and
-                            // the coroutine ends in the generic not-active Warn
-                            // with no trace this gate fired. Once per parent, not
-                            // per polling frame (review of PR #1371) - this walk
-                            // re-runs every frame of the 3 s wait, mirroring the
-                            // loggedGuidReject latch on the active-rec reject above.
-                            if (loggedParentGuidRejects.Add(probe.RecordingId ?? string.Empty))
-                                ParsekLog.Info("Flight",
-                                    $"RestoreActiveTreeFromPending: parent-walk guid gate " +
-                                    $"rejected rec={ParsekFlightGhostPositioner.ShortRecordingId(probe.RecordingId)} " +
-                                    $"(recordedGuid differs conclusively from live vessel)");
-                            walkDepth++;
-                            continue;
-                        }
-                        if (probe != null && (
-                            (probe.VesselPersistentId != 0 && v.persistentId == probe.VesselPersistentId) ||
-                            (QuickloadResumeMatchGuard.MayMatchByNameFallback(
-                                probe.VesselPersistentId, probe.RecordedVesselGuid)
-                             && v.vesselName == probe.VesselName)))
-                        {
-                            matched = v;
-                            matchedRec = probe;
-                            matchedRecId = probe.RecordingId;
-                            ParsekLog.Info("Flight",
-                                $"RestoreActiveTreeFromPending: fallback match — active vessel pid={v.persistentId} " +
-                                $"matches parent recording '{matchedRecId}' (original active was '{targetName}', " +
-                                $"EVA kerbal likely boarded between F5 and F9)");
-                            // Flip the tree's active-recording pointer to the parent
-                            tree.ActiveRecordingId = matchedRecId;
-                            break;
-                        }
-                        walkDepth++;
-                    }
-                    if (matched != null) break;
+                            $"RestoreActiveTreeFromPending: parent-walk guid gate " +
+                            $"rejected rec={ParsekFlightGhostPositioner.ShortRecordingId(probe.RecordingId)} " +
+                            $"(recordedGuid differs conclusively from live vessel)");
+                    walkDepth++;
+                    continue;
                 }
-                yield return null;
-            }
-
-            // FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME / -KEPT-TREE-PENDING: a tree refused
-            // for the fresh rollout is resolved here so nothing parked lingers for a later
-            // stash to overwrite or a merge dialog to offer over committed recordings: an
-            // idle resumed copy of a committed tree (BDOCK-1's re-adopted station) is
-            // discarded, every other tree is committed. A Re-Fly-owned tree, one under an
-            // active merge journal or a replaced slot falls through to the Limbo give-up.
-            if (matched == null
-                && refusedFreshRolloutPid != 0
-                && IsFreshRolloutRefusedTreeResolved(DisposeFreshRolloutRefusedPendingTree(
-                        "quickload-restore", tree, refusedFreshRolloutPid)))
-            {
-                yield break;
-            }
-
-            if (matched == null)
-            {
-                ParsekLog.Warn("Flight",
-                    $"RestoreActiveTreeFromPending: vessel '{targetName}' (and no EVA parent fallback) " +
-                    "not active within 3s — leaving tree in Limbo (user can trigger merge dialog via scene exit)");
-
-                // R1-EMPTY-PROVISIONAL detection point 1. The generic Limbo warn
-                // above says nothing about the Re-Fly session, so a give-up here
-                // has always been indistinguishable from an ordinary failed
-                // quickload resume. If a session IS live, no recorder is bound to
-                // its provisional at this moment, and unless something binds one
-                // later the merge will have nothing to supersede the origin with.
-                // Observation only: raise loudly, do not change control flow.
-                var giveUpMarker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-                UnboundProvisionalRaise giveUp =
-                    ReFlyProvisionalBinding.EvaluateRestoreGiveUp(giveUpMarker, tree?.Id);
-                if (giveUp.ShouldRaise)
+                if (probe != null && (
+                    (probe.VesselPersistentId != 0 && livePid == probe.VesselPersistentId) ||
+                    (QuickloadResumeMatchGuard.MayMatchByNameFallback(
+                        probe.VesselPersistentId, probe.RecordedVesselGuid)
+                     && liveVesselName == probe.VesselName)))
                 {
-                    ParsekLog.Warn("ReFlySession",
-                        $"outcome=unbound-refly-provisional reason={giveUp.Reason} " +
-                        $"sess={giveUpMarker.SessionId ?? "<no-id>"} " +
-                        $"provisional={giveUpMarker.ActiveReFlyRecordingId ?? "<none>"} " +
-                        $"markerTree={giveUpMarker.TreeId ?? "<none>"} " +
-                        $"attemptedTree={tree?.Id ?? "<none>"} " +
-                        $"attemptedRec={activeRecId ?? "<none>"} " +
-                        $"attemptedVessel='{targetName}' attemptedPid={targetPid} — the re-fly " +
-                        "restore gave up, so NOTHING is recording into this session's " +
-                        "provisional. Unless a recorder binds to it before the merge, the " +
-                        "re-fly will supersede nothing and the origin branch stays effective");
-                    try
-                    {
-                        ParsekLog.ScreenMessage(
-                            "Parsek: re-fly attempt is not recording; it will not replace "
-                            + "the original", 8f);
-                    }
-                    catch (System.NullReferenceException) { /* xUnit: no KSP UI */ }
-                    catch (System.MissingMethodException) { /* xUnit: no KSP UI */ }
-                    catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
+                    matchedRec = probe;
+                    matchedRecId = probe.RecordingId;
+                    ParsekLog.Info("Flight",
+                        $"RestoreActiveTreeFromPending: fallback match — active vessel pid={livePid} " +
+                        $"matches parent recording '{matchedRecId}' (original active was '{targetName}', " +
+                        $"EVA kerbal likely boarded between F5 and F9)");
+                    // Flip the tree's active-recording pointer to the parent
+                    tree.ActiveRecordingId = matchedRecId;
+                    return PendingRestoreTargetMatch.Matched;
                 }
-                yield break;
+                walkDepth++;
             }
+            return PendingRestoreTargetMatch.None;
+        }
 
-            // After a parent-fallback match, the rest of the coroutine uses matchedRec/matchedRecId
-            activeRec = matchedRec;
-            activeRecId = matchedRecId;
-            RecorderStateLog.RecState("Restore:matched", CaptureRecorderState());
+        /// <summary>
+        /// The restore coroutine gave up waiting for the vessel: warns that the tree stays in
+        /// Limbo and, when an in-place Re-Fly session is live, raises that nothing records into
+        /// its provisional (R1-EMPTY-PROVISIONAL detection point 1).
+        /// </summary>
+        internal static void ReportPendingRestoreGiveUp(
+            RecordingTree tree,
+            string activeRecId,
+            string targetName,
+            uint targetPid)
+        {
+            ParsekLog.Warn("Flight",
+                $"RestoreActiveTreeFromPending: vessel '{targetName}' (and no EVA parent fallback) " +
+                "not active within 3s — leaving tree in Limbo (user can trigger merge dialog via scene exit)");
 
-            // PID remap: KSP may have regenerated the persistentId across quickload.
-            // Tree.BackgroundMap is keyed by PID, so update any old-PID entries too.
-            uint oldPid = activeRec.VesselPersistentId;
-            uint newPid = matched.persistentId;
+            // R1-EMPTY-PROVISIONAL detection point 1. The generic Limbo warn
+            // above says nothing about the Re-Fly session, so a give-up here
+            // has always been indistinguishable from an ordinary failed
+            // quickload resume. If a session IS live, no recorder is bound to
+            // its provisional at this moment, and unless something binds one
+            // later the merge will have nothing to supersede the origin with.
+            // Observation only: raise loudly, do not change control flow.
+            var giveUpMarker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            UnboundProvisionalRaise giveUp =
+                ReFlyProvisionalBinding.EvaluateRestoreGiveUp(giveUpMarker, tree?.Id);
+            if (giveUp.ShouldRaise)
+            {
+                ParsekLog.Warn("ReFlySession",
+                    $"outcome=unbound-refly-provisional reason={giveUp.Reason} " +
+                    $"sess={giveUpMarker.SessionId ?? "<no-id>"} " +
+                    $"provisional={giveUpMarker.ActiveReFlyRecordingId ?? "<none>"} " +
+                    $"markerTree={giveUpMarker.TreeId ?? "<none>"} " +
+                    $"attemptedTree={tree?.Id ?? "<none>"} " +
+                    $"attemptedRec={activeRecId ?? "<none>"} " +
+                    $"attemptedVessel='{targetName}' attemptedPid={targetPid} — the re-fly " +
+                    "restore gave up, so NOTHING is recording into this session's " +
+                    "provisional. Unless a recorder binds to it before the merge, the " +
+                    "re-fly will supersede nothing and the origin branch stays effective");
+                try
+                {
+                    ParsekLog.ScreenMessage(
+                        "Parsek: re-fly attempt is not recording; it will not replace "
+                        + "the original", 8f);
+                }
+                catch (System.NullReferenceException) { /* xUnit: no KSP UI */ }
+                catch (System.MissingMethodException) { /* xUnit: no KSP UI */ }
+                catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
+            }
+        }
+
+        /// <summary>
+        /// PID remap after the restore matched its vessel: when KSP regenerated the persistentId
+        /// across the quickload, the recording takes the new pid and the background map entry
+        /// keyed by the old pid moves to it (dropped when it was the active recording's own).
+        /// </summary>
+        internal static void RemapRestoredRecordingPid(
+            RecordingTree tree,
+            Recording activeRec,
+            string activeRecId,
+            uint oldPid,
+            uint newPid,
+            string targetName)
+        {
             if (oldPid != newPid)
             {
                 activeRec.VesselPersistentId = newPid;
@@ -872,26 +1083,14 @@ namespace Parsek
                 ParsekLog.Info("Flight",
                     $"RestoreActiveTreeFromPending: PID remap {oldPid} → {newPid} for '{targetName}'");
             }
+        }
 
-            // Pop the tree out of pending-Limbo (non-destructive — preserves sidecar files)
-            // and re-install as the live active tree.
-            activeTree = PendingTreeSlot.PopPendingTree();
-            if (activeTree == null)
-            {
-                ParsekLog.Warn("Flight",
-                    "RestoreActiveTreeFromPending: PopPendingTree returned null after we verified the tree exists");
-                yield break;
-            }
-            // PopPendingTree just emptied the main pending slot; a saved pending
-            // tree from the same save can now move back unless another path filled it.
-            PendingTreeSlot.PromoteSavedPendingTreeAfterActiveRestore(
-                "RestoreActiveTreeFromPending");
-
-            // Construct a fresh FlightRecorder pointed at the restored tree.
-            recorder = new FlightRecorder();
-            recorder.ActiveTree = activeTree;
-
-            // Restore recorder state persisted in the PARSEK_ACTIVE_TREE node
+        /// <summary>
+        /// Hands the rewind save name the PARSEK_ACTIVE_TREE node carried to the restored
+        /// recorder and consumes it.
+        /// </summary>
+        internal static void ApplyPendingActiveTreeResumeRewindSave(FlightRecorder recorder)
+        {
             if (!string.IsNullOrEmpty(ParsekScenario.pendingActiveTreeResumeRewindSave))
             {
                 recorder.SetRewindSaveFileNameForRestore(
@@ -899,57 +1098,6 @@ namespace Parsek
                     "quickload-resume from PARSEK_ACTIVE_TREE");
                 ParsekScenario.pendingActiveTreeResumeRewindSave = null;
             }
-
-            // Bug fix: clear any stale Destroyed terminal verdict on the
-            // recording we're about to resume. A transient NullSolver event
-            // earlier in the recording (e.g. stage decouple) may have made
-            // TryFinalizeRecording fall back to live-orbit and stamp Destroyed
-            // via the sub-surface path. Without this clear, FinalizerCache's
-            // already-classified-destroyed short-circuit declines every refresh
-            // for the rest of the session, and the vessel stays labelled
-            // "Destroyed" in the STASH UI even though the player is flying it
-            // again post-rewind. The stamp lives on the Recording, so resetting
-            // the in-memory FinalizationCache via StartRecording is not enough.
-            IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(
-                activeRec,
-                "RestoreActiveTreeFromPending");
-
-            // Start recording as a promotion (isPromotion: true) so the Bug A seed-event
-            // skip kicks in — no duplicate DeployableExtended / LightOn / etc. events at
-            // the quickload UT. The new recorder's buffers start empty and will append
-            // to activeTree.Recordings[activeRecId] on the next chain boundary or
-            // scene exit flush.
-            recorder.StartRecording(isPromotion: true);
-            if (!recorder.IsRecording)
-            {
-                ParsekLog.Warn("Flight",
-                    $"RestoreActiveTreeFromPending: StartRecording returned IsRecording=false for " +
-                    $"'{targetName}' — restore incomplete");
-                yield break;
-            }
-
-            PrepareSessionStateForRecorderStart("RestoreActiveTreeFromPending");
-
-            // Re-attach the BackgroundRecorder for the tree.
-            EnsureBackgroundRecorderAttached("RestoreActiveTreeFromPending");
-
-            ParsekLog.Info("Flight",
-                $"RestoreActiveTreeFromPending: resumed recording tree '{activeTree.TreeName}' " +
-                $"activeRec='{activeRecId}' vessel='{targetName}' pid={newPid} at UT={Planetarium.GetUniversalTime():F1}");
-            RecorderStateLog.RecState("Restore:after-start", CaptureRecorderState());
-            } // try
-            finally
-            {
-                restoringActiveTree = false;
-            }
-
-            // M1 (PR #876 final review): dispatch any deferred consume now that
-            // the restored tree is live. DispatchConsumeIntentIfArmed at the
-            // top of OnFlightReady skips when ScheduleActiveTreeRestoreOnFlightReady
-            // is non-None to avoid racing the restore. Re-invoking here picks
-            // up an intent that survived the F5 -> reload round-trip and
-            // attaches the new switch segment to the just-restored tree.
-            DispatchConsumeIntentIfArmed();
         }
 
         /// <summary>

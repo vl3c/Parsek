@@ -1597,6 +1597,13 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   `GhostPlaybackLogic.ApplyPartEvents`. AddPartVisuals is Unity work from top to bottom, so no
   headless test can characterize it. ApplyPartEvents is already a flat dispatcher, and its one
   worthwhile cut (the switch body) is where main adds the wheel break / repair cases.
+- Wave 2 W9a-3 (2026-11-10, this branch, extract-method): with the wheel break / repair cases
+  now on this branch, `GhostPlaybackLogic.ApplyPartEvents` (392 -> 73 lines) keeps its guards,
+  the cursor walk and the frame tail and calls `ApplyOnePartEvent` (the switch),
+  `FinishPartEventWalk` (cursor, audio cap, aggregate and per-family lines) and
+  `RefreshGhostAfterPartVisibilityChange`. Pinned first by `PartEventApplyCharacterizationTests`,
+  which runs the original past its ghost guard on a GameObject Unity's managed null check reads
+  as alive; the arms that reach a native call are recorded as refusals.
 - Wave 2 W9b (2026-11-08, this branch, S1 extract-method): the 200-line
   `FlightRecorder.RestoreTrackSectionAfterFalseAlarm` calls four extracted units: the
   resume-anchor validation, the Relative-to-Absolute boundary repair, the start-UT alignment
