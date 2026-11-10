@@ -150,8 +150,10 @@ required = [
   "Milestone enriched: 'FirstLaunch' funds=480 rep=0\\.0 sci=0\\.0",
   "Milestone enriched: 'Kerbin/Science' funds=960 rep=0\\.0 sci=0\\.0",
   "Milestone enriched: 'FirstCrewToSurvive' funds=480 rep=0\\.0 sci=0\\.0",
-  "Science subject captured: crewReport@KerbinSrfLandedLaunchPad amount=1\\.8 increment=3\\.00 total=3\\.0 gainMultiplier=0\\.6 ",
-  "Science subject captured: mysteryGoo@KerbinSrfLandedLaunchPad amount=2\\.2 increment=3\\.60 total=3\\.6 gainMultiplier=0\\.6 ",
+  # The pad sits on the LaunchPad / Shores biome edge: the same run can capture either biome
+  # (run 2026-11-10_0016 read Shores for the crew report). Both pay identical values on Kerbin.
+  "Science subject captured: crewReport@KerbinSrfLanded(?:LaunchPad|Shores) amount=1\\.8 increment=3\\.00 total=3\\.0 gainMultiplier=0\\.6 ",
+  "Science subject captured: mysteryGoo@KerbinSrfLanded(?:LaunchPad|Shores) amount=2\\.2 increment=3\\.60 total=3\\.6 gainMultiplier=0\\.6 ",
   "Science subject captured: recovery@KerbinFlew amount=3\\.0 increment=5\\.00 total=5\\.0 gainMultiplier=0\\.6 ",
   "VesselRecovery funds patched: vessel='Jumping Flea' amount=4558 ",
   "PatchFunds: no change needed \\(current=523758\\.0, target=523758\\.0\\)",
