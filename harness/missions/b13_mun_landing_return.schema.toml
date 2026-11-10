@@ -884,3 +884,10 @@ required = false
 type = "number"
 min = 0.0
 max = 89.0
+
+# Declared identically to b13_mun_landing's (the schema-sync cell requires every
+# B13 key). Meaningless for this lane, which leaves LANDED-SETTLE for EVA rather
+# than for a surface commit; no spec of it sets the key.
+[params.landedSurfaceClassMark]
+required = false
+type = "bool"

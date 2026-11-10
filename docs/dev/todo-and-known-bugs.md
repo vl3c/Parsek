@@ -20,6 +20,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~B13-LANDER-NEVER-STATIONARY: B13 reds because the lander is still sliding when the tree commits~~ [FILED 2026-11-10 from the 1.0.1 and refactor-branch B13 reds. FIXED 2026-11-10 (owner picked "accept landed and sliding"); harness only, no Parsek defect]
+
+- Symptom: `B13-mun-landing` MISSION-OK but PARSEK-FAIL(expectations) on `\w+ -> SurfaceStationary` (run `2026-11-09_2132`). The untargeted landing put the lander on a slope where it crept at 0.55-0.65 m/s horizontal for the whole LANDED-SETTLE window, so Parsek's `Approach -> SurfaceMobile` (srfSpeed > 0.1 m/s) was the correct reading; the 3 s Mobile/Stationary debounce never saw a still lander. Before #2391 shortened the park dwell the lander usually settled first, so the old token was a coin flip on the landing site.
+- Fix: the lane no longer demands Stationary. With `landedSurfaceClassMark = true` the B5 machine measures the lander's own kRPC surface speed over the last 6 s before the commit and writes a `MISSIONMARK label=b5-landed-expect-<SurfaceStationary|SurfaceMobile|either>` (all <= 0.05 m/s parked, all >= 0.2 m/s sliding, otherwise either). The required token pairs the LAST `-> Surface*` transition before the mark with the mark, so Parsek must agree with the mission's independent speed reading: a misclassification in either clear band still reds. The `surface-stationary` D4 claim moved to RVR-21, whose required token proves it. The new `surfaceClassMarked` mission assertion reds when the mark was not written.
+- Residual: B14 pins `-> SurfaceMobile` the same way and could red if a Minmus landing ever parks perfectly still; not seen yet.
+
 ## RESIDUALS-OF-ENTRIES-ARCHIVED-2026-11-07: small follow-ups left inside 20 finished entries moved to the archive [FILED 2026-11-07 (owner: mark the finished entries done). OPEN; each line names its archived entry in `done/todo-and-known-bugs-v11.md` ("Moved out 2026-11-07 (finished entries still listed)"); none is a known player-hit bug]
 
 - AUTOMERGE-ON-BY-DEFAULT: four residuals at the end of that entry (frequency of the resume miss, step 1 still injected, entrance A undriven, the dangling limbo dispatch).
