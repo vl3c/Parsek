@@ -64,10 +64,11 @@ pick-up further apart in the lane's act (a dwell of a few seconds before `PickUp
 rewind mark: `Spawned flag vessel` then `took down 1 standing flag(s)`, or a replayed pick-up
 that `took down 0` followed by `Flag replay skipped: '<same flag>' ... at ut=<the pick-up's ut>`
 (regex back-references; both lines print the one double with "R", so equality is byte-equal).
-Two forbidden patterns replace the old one: a skip before any replayed pick-up (the live
-tombstone survived the rewind), and a skip after one that names another flag or another UT. A
-plant after the take-down stays forbidden. Proof: 14 synthetic logs through
-`hlib.evaluate_expectations` (both chains green, every other skip red); one re-fly confirms.
+Three forbidden patterns replace the old one: a skip before any replayed pick-up (the live
+tombstone survived the rewind), a skip after one that names another flag, body or UT, and a
+replayed plant followed by `took down 0` (the take-down missed the flag, which stays standing).
+A plant after the take-down stays forbidden. Proof: 18 synthetic logs through
+`hlib.evaluate_expectations` (both chains green, every other shape red); one re-fly confirms.
 
 ## ~~UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame~~ [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. FIXED 2026-11-08, branch `refactor-w9a-handoff-closure`; xUnit + il_compare; performance, low]
 
