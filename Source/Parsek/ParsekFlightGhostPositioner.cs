@@ -1480,11 +1480,11 @@ namespace Parsek
         // The body lookups below run per frame for every ghost. Each matcher is the predicate of
         // the List.Find lambda it replaced, with the name passed as an argument instead of
         // captured, so a lookup allocates no closure. The delegates are built once.
-        private static readonly Func<CelestialBody, string, bool> BodyNameMatches =
+        internal static readonly Func<CelestialBody, string, bool> BodyNameMatches =
             (b, name) => b.name == name;
-        private static readonly Func<CelestialBody, string, bool> LiveBodyBodyNameMatches =
+        internal static readonly Func<CelestialBody, string, bool> LiveBodyBodyNameMatches =
             (b, name) => b != null && b.bodyName == name;
-        private static readonly Func<CelestialBody, string, bool> TailLiftTerminalBodyNameMatches =
+        internal static readonly Func<CelestialBody, string, bool> TailLiftTerminalBodyNameMatches =
             (b, name) => !object.ReferenceEquals(b, null)
                 && (string.Equals(b.bodyName, name, StringComparison.Ordinal)
                     || string.Equals(b.name, name, StringComparison.Ordinal));

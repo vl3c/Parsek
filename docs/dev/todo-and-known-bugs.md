@@ -70,6 +70,18 @@ once on main and once on 088feb067 in the next PC turn: red on both means a pre-
 landing-site or settle-gate problem (harness); green on main and red on the refactor bisects to
 the refactor.
 
+## ~~HC-2-CREW-REPORT-BIOME-EDGE: HC-2 reds when the pad science reads the Shores biome~~ [FILED 2026-11-10 from the wave-2b overnight flights (refactor branch `claude/project-thread-bkwmrr` at bad9258e7), run `2026-11-10_0016_HC-2-hard-career-earn-spend` PARSEK-FAIL(expectations); 174 of 175 lanes green. FIXED 2026-11-10, branch `refactor-hc2-biome` (spec only, not re-flown); harness (spec), low; the product end state is right]
+
+**What is true.** The launch pad sits on the Kerbin LaunchPad / Shores biome edge. In the red
+flight the crew report was captured as `crewReport@KerbinSrfLandedShores` instead of
+`...LaunchPad`, with the same amount, increment, total and gain multiplier. Every other required
+token in the run matched, including the final funds, science and reputation pools, so the ledger
+end state is exactly the one the spec predicts.
+
+**Fixed.** `harness/scenarios/HC-2-hard-career-earn-spend.toml` now accepts
+`KerbinSrfLanded(?:LaunchPad|Shores)` for both pad captures (crew report and goo), and still
+pins every value. Any other biome stays red. One re-fly confirms.
+
 ## ~~FLG-1-SAME-FRAME-PLANT-AND-PICKUP: FLG-1 reds when the replayed plant and pick-up land in one frame~~ [FILED 2026-11-08 from the wave-2 overnight flights (refactor branch at f28324df0), run `2026-11-08_0248_FLG-1-pickup-rewind` PARSEK-FAIL(expectations); the re-fly `2026-11-08_0442` PASSED. FIXED 2026-11-10, branch `refactor-flg1-spec` (spec only, offline-proven, not re-flown); harness (spec), low; the product end state is right]
 
 **What is true.** The recorded plant is at ut=33.84 and the pick-up at ut=33.90, 0.06 s apart.
