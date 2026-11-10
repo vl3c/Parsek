@@ -301,14 +301,26 @@ namespace Parsek.Tests
             Recording rec = Commit(LoopRec("loop", 100.0, 160.0, LoopTimeUnit.Sec, 90.0));
             host.engine.loopPhaseOffsets[0] = 20.0;
 
-            Assert.True(host.PlaybackHost.TryComputeLoopPlaybackUT(
-                rec, 130.0, out double withIndex, out _, out _, recIdx: 0));
-            Assert.True(host.PlaybackHost.TryComputeLoopPlaybackUT(
-                rec, 130.0, out double withoutIndex, out _, out _));
+            // A comma-decimal culture proves the asserted log line is invariant
+            // (the dev machine runs ro-RO; CI's culture would hide a regression).
+            var savedCulture = System.Threading.Thread.CurrentThread.CurrentCulture;
+            System.Threading.Thread.CurrentThread.CurrentCulture =
+                new System.Globalization.CultureInfo("de-DE");
+            try
+            {
+                Assert.True(host.PlaybackHost.TryComputeLoopPlaybackUT(
+                    rec, 130.0, out double withIndex, out _, out _, recIdx: 0));
+                Assert.True(host.PlaybackHost.TryComputeLoopPlaybackUT(
+                    rec, 130.0, out double withoutIndex, out _, out _));
 
-            Assert.Equal(150.0, withIndex, 6);
-            Assert.Equal(130.0, withoutIndex, 6);
-            Assert.True(AnyLog("Engine", "applying phase offset 20.00s for recIdx=0"));
+                Assert.Equal(150.0, withIndex, 6);
+                Assert.Equal(130.0, withoutIndex, 6);
+                Assert.True(AnyLog("Engine", "applying phase offset 20.00s for recIdx=0"));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = savedCulture;
+            }
         }
 
         [Fact]

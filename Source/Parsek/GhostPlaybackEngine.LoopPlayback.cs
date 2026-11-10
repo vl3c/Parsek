@@ -1509,7 +1509,9 @@ namespace Parsek
             double phaseOffset;
             if (recIdx >= 0 && loopPhaseOffsets.TryGetValue(recIdx, out phaseOffset))
             {
-                ParsekLog.Verbose("Engine", $"TryComputeLoopPlaybackUT: applying phase offset {phaseOffset:F2}s for recIdx={recIdx}");
+                ParsekLog.Verbose("Engine", "TryComputeLoopPlaybackUT: applying phase offset " +
+                    phaseOffset.ToString("F2", CultureInfo.InvariantCulture) + "s for recIdx=" +
+                    recIdx.ToString(CultureInfo.InvariantCulture));
                 scheduleStartUT -= phaseOffset;
             }
 
