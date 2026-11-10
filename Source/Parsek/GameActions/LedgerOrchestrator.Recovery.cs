@@ -383,14 +383,7 @@ namespace Parsek
             for (int i = 0; i < owners.Count; i++)
             {
                 var owner = owners[i];
-                var row = new GameAction
-                {
-                    UT = ut,
-                    Type = GameActionType.VesselRecovered,
-                    RecordingId = owner.RecordingId,
-                    RecoveredVesselName = vesselName,
-                    RecoveredVesselPid = vesselPid,
-                };
+                var row = BuildVesselRecoveredRow(ut, owner, vesselName, vesselPid);
                 var single = DeduplicateAgainstLedger(new List<GameAction> { row });
                 if (single.Count == 0)
                 {
@@ -404,21 +397,60 @@ namespace Parsek
                 row.Sequence = AllocateKscSequence();
                 Ledger.AddAction(row, LedgerRowWriter.StockApplied);
                 written++;
-                ParsekLog.Info(Tag,
-                    $"Vessel recovered recorded: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
-                    $"recoveryUT={utText} recordingId={owner.RecordingId} " +
-                    $"terminal={(owner.TerminalStateValue.HasValue ? owner.TerminalStateValue.Value.ToString() : "<none>")} " +
-                    $"spawnedPid={owner.SpawnedVesselPersistentId.ToString(ic)}");
+                LogVesselRecoveredRecorded(vesselText, vesselPid, utText, owner, ic);
             }
 
-            ParsekLog.Info(Tag,
-                $"Vessel recovery rows: vessel='{vesselText}' pid={vesselPid.ToString(ic)} ut={utText} " +
-                $"owners={owners.Count.ToString(ic)} written={written.ToString(ic)} " +
-                $"deduped={deduped.ToString(ic)}");
+            LogVesselRecoveryRowsSummary(vesselText, vesselPid, utText, owners, written, deduped, ic);
 
             if (written > 0)
                 RecalculateAndPatchForLiveTimelineEvent(ut, "vessel-recovered");
             return written;
+        }
+
+        /// <summary>
+        /// <see cref="OnRealVesselRecovered"/>'s row: the
+        /// <see cref="GameActionType.VesselRecovered"/> action for one owner recording at the
+        /// recovery UT, naming the recovered vessel. Pure; the caller dedups, sequences and writes it.
+        /// </summary>
+        internal static GameAction BuildVesselRecoveredRow(
+            double ut, Recording owner, string vesselName, uint vesselPid)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.VesselRecovered,
+                RecordingId = owner.RecordingId,
+                RecoveredVesselName = vesselName,
+                RecoveredVesselPid = vesselPid,
+            };
+        }
+
+        /// <summary>
+        /// <see cref="OnRealVesselRecovered"/>'s per-row line: the row written for
+        /// <paramref name="owner"/>, with its terminal state and spawned pid.
+        /// </summary>
+        internal static void LogVesselRecoveredRecorded(
+            string vesselText, uint vesselPid, string utText, Recording owner, CultureInfo ic)
+        {
+            ParsekLog.Info(Tag,
+                $"Vessel recovered recorded: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
+                $"recoveryUT={utText} recordingId={owner.RecordingId} " +
+                $"terminal={(owner.TerminalStateValue.HasValue ? owner.TerminalStateValue.Value.ToString() : "<none>")} " +
+                $"spawnedPid={owner.SpawnedVesselPersistentId.ToString(ic)}");
+        }
+
+        /// <summary>
+        /// <see cref="OnRealVesselRecovered"/>'s summary line: the owners found and how many
+        /// rows were written and deduplicated.
+        /// </summary>
+        internal static void LogVesselRecoveryRowsSummary(
+            string vesselText, uint vesselPid, string utText, List<Recording> owners,
+            int written, int deduped, CultureInfo ic)
+        {
+            ParsekLog.Info(Tag,
+                $"Vessel recovery rows: vessel='{vesselText}' pid={vesselPid.ToString(ic)} ut={utText} " +
+                $"owners={owners.Count.ToString(ic)} written={written.ToString(ic)} " +
+                $"deduped={deduped.ToString(ic)}");
         }
 
         /// <summary>
