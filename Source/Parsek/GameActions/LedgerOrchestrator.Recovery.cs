@@ -102,31 +102,13 @@ namespace Parsek
             var ambiguity = RecoveryPickAmbiguity.Evaluate(picked.Survivors, picked.Tier);
             if (ambiguity.IsAmbiguous)
             {
-                ParsekLog.Info(Tag,
-                    $"Recovery kerbal XP refused: {identity.FormatForLog()} ut={utText} " +
-                    $"kerbals={countText} reason={RecoveryPickAmbiguity.AmbiguousReason} " +
-                    $"survivors={ambiguity.SurvivorCount.ToString(CultureInfo.InvariantCulture)} " +
-                    $"nameMatches={picked.NameMatchCount.ToString(CultureInfo.InvariantCulture)} " +
-                    $"guidDropped={picked.GuidDropped.ToString(CultureInfo.InvariantCulture)} " +
-                    $"tier={RecoveryPickAmbiguity.TierToken(ambiguity.Tier)} " +
-                    $"corroboration={RecoveryPickAmbiguity.CorroborationToken(ambiguity.Corroboration)} " +
-                    $"wouldHavePicked={recordingId} " +
-                    $"survivorIds={RecoveryPickAmbiguity.FormatSurvivorIds(picked.Survivors)}");
+                LogRecoveryXpAmbiguousRefusal(
+                    identity, utText, countText, ambiguity, picked, recordingId);
                 return 0;
             }
 
-            var actions = new List<GameAction>(experienceEvents.Count);
-            int noAction = 0;
-            for (int i = 0; i < experienceEvents.Count; i++)
-            {
-                var action = GameStateEventConverter.ConvertEvent(experienceEvents[i], recordingId);
-                if (action == null)
-                {
-                    noAction++;
-                    continue;
-                }
-                actions.Add(action);
-            }
+            int noAction;
+            var actions = ConvertRecoveryExperienceEvents(experienceEvents, recordingId, out noAction);
 
             if (actions.Count == 0)
             {
@@ -152,6 +134,64 @@ namespace Parsek
 
             Ledger.AddActions(actions, LedgerRowWriter.StockApplied);
 
+            LogRecoveryXpRecorded(identity, utText, recordingId, actions, beforeDedup, noAction);
+
+            RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-kerbal-xp");
+            return beforeDedup;
+        }
+
+        /// <summary>
+        /// <see cref="TryRecordRecoveryKerbalExperience"/>'s ambiguous-pick refusal line
+        /// (<c>reason=ambiguous-recovery-recording</c>), naming the survivors, the tier and
+        /// the corroboration that left the pick undetermined.
+        /// </summary>
+        internal static void LogRecoveryXpAmbiguousRefusal(
+            RecoveredVesselIdentity identity, string utText, string countText,
+            RecoveryPickAmbiguityResult ambiguity, RecoveryPickResult picked, string recordingId)
+        {
+            ParsekLog.Info(Tag,
+                $"Recovery kerbal XP refused: {identity.FormatForLog()} ut={utText} " +
+                $"kerbals={countText} reason={RecoveryPickAmbiguity.AmbiguousReason} " +
+                $"survivors={ambiguity.SurvivorCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"nameMatches={picked.NameMatchCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"guidDropped={picked.GuidDropped.ToString(CultureInfo.InvariantCulture)} " +
+                $"tier={RecoveryPickAmbiguity.TierToken(ambiguity.Tier)} " +
+                $"corroboration={RecoveryPickAmbiguity.CorroborationToken(ambiguity.Corroboration)} " +
+                $"wouldHavePicked={recordingId} " +
+                $"survivorIds={RecoveryPickAmbiguity.FormatSurvivorIds(picked.Survivors)}");
+        }
+
+        /// <summary>
+        /// <see cref="TryRecordRecoveryKerbalExperience"/>'s conversion: each experience
+        /// event converted with the picked owner, in order; an event with no row equivalent is
+        /// counted in <paramref name="noAction"/> and skipped.
+        /// </summary>
+        internal static List<GameAction> ConvertRecoveryExperienceEvents(
+            IList<GameStateEvent> experienceEvents, string recordingId, out int noAction)
+        {
+            var actions = new List<GameAction>(experienceEvents.Count);
+            noAction = 0;
+            for (int i = 0; i < experienceEvents.Count; i++)
+            {
+                var action = GameStateEventConverter.ConvertEvent(experienceEvents[i], recordingId);
+                if (action == null)
+                {
+                    noAction++;
+                    continue;
+                }
+                actions.Add(action);
+            }
+            return actions;
+        }
+
+        /// <summary>
+        /// <see cref="TryRecordRecoveryKerbalExperience"/>'s recorded line: the rows written,
+        /// the rows the dedup dropped, the events with no row and the kerbal names.
+        /// </summary>
+        internal static void LogRecoveryXpRecorded(
+            RecoveredVesselIdentity identity, string utText, string recordingId,
+            List<GameAction> actions, int beforeDedup, int noAction)
+        {
             var names = new List<string>(actions.Count);
             for (int i = 0; i < actions.Count; i++)
                 names.Add(actions[i].KerbalName ?? "");
@@ -163,9 +203,6 @@ namespace Parsek
                 $"deduped={(beforeDedup - actions.Count).ToString(CultureInfo.InvariantCulture)} " +
                 $"noAction={noAction.ToString(CultureInfo.InvariantCulture)} " +
                 $"kerbals='{string.Join(",", names.ToArray())}'");
-
-            RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-kerbal-xp");
-            return beforeDedup;
         }
 
         /// <summary>
