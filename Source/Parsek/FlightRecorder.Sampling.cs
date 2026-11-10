@@ -569,13 +569,9 @@ namespace Parsek
             double highFidelityProximityMeters = SelectNearestHighFidelityProximityMeters(
                 isRelativeMode ? currentAnchorDistanceMeters : double.NaN,
                 splitChildProximityMeters);
-            string highFidelityProximitySource =
-                IsFinite(splitChildProximityMeters)
-                && (!isRelativeMode
-                    || !IsFinite(currentAnchorDistanceMeters)
-                    || splitChildProximityMeters <= currentAnchorDistanceMeters)
-                    ? splitChildProximitySource
-                    : isRelativeMode ? "relative-anchor" : "(none)";
+            string highFidelityProximitySource = ResolveHighFidelityProximitySource(
+                splitChildProximityMeters,
+                splitChildProximitySource);
             bool highFidelityActive = IsHighFidelitySamplingActive(
                 currentUT,
                 highFidelitySamplingUntilUT,
@@ -591,39 +587,18 @@ namespace Parsek
             bool reFlyRecordingSamplingActive =
                 reFlyTreeSamplingCadence != ProximitySamplingTier.None;
             if (reFlyRecordingSamplingActive)
-            {
-                var ic = CultureInfo.InvariantCulture;
-                highFidelityActive = true;
-                ParsekLog.VerboseRateLimited("Recorder",
-                    "active-refly-sampling|" + (ActiveTree?.ActiveRecordingId ?? "<no-rec>"),
-                    $"Active Re-Fly tree sampling cadence active: " +
-                    $"recordingId={ActiveTree?.ActiveRecordingId ?? "(none)"} " +
-                    $"treeId={ActiveTree?.Id ?? "(none)"} " +
-                    $"cadence={reFlyTreeSamplingCadence} " +
-                    $"reason={reFlyRecordingSamplingReason ?? "(none)"} " +
-                    $"proximity={reFlyTreeSamplingProximityMeters.ToString("F1", ic)}m " +
-                    $"proximitySource={reFlyTreeSamplingProximitySource ?? "(none)"} " +
-                    $"fullRange={ReFlyTreeFullFidelityProximityRangeMeters.ToString("F1", ic)}m " +
-                    $"halfRange={ReFlyTreeHalfFidelityProximityRangeMeters.ToString("F1", ic)}m " +
-                    $"configuredMin={minSampleInterval.ToString("F3", ic)}s " +
-                    $"configuredMax={maxSampleInterval.ToString("F3", ic)}s",
-                    5.0);
-            }
+                NoteActiveReFlyTreeSamplingCadence(
+                    ref highFidelityActive,
+                    reFlyTreeSamplingCadence,
+                    reFlyRecordingSamplingReason);
             string highFidelityReason = reFlyRecordingSamplingActive
                     ? reFlyRecordingSamplingReason
                     : highFidelitySamplingReason;
-            float effectiveMinSampleInterval = ResolveEffectiveMinSampleInterval(
+            ResolveEffectiveSampleIntervals(
                 reFlyTreeSamplingCadence,
-                ProximitySamplingTier.None,
                 highFidelityActive,
-                minSampleInterval,
-                maxSampleInterval);
-            float effectiveMaxSampleInterval = ResolveEffectiveMaxSampleInterval(
-                reFlyTreeSamplingCadence,
-                ProximitySamplingTier.None,
-                highFidelityActive,
-                maxSampleInterval,
-                minSampleInterval);
+                out float effectiveMinSampleInterval,
+                out float effectiveMaxSampleInterval);
             bool motionTriggered = TrajectoryMath.ShouldRecordPoint(
                 currentVelocity,
                 lastRecordedVelocity,
@@ -644,21 +619,14 @@ namespace Parsek
 
             if (!motionTriggered && !attitudeTriggered && !physicsSoiSamplePending)
             {
-                // Bug #595: the previous 2.0s rate-limit window still produced
-                // ~200 lines per 30-min session during stationary intervals.
-                // Use the default 5s window — the line conveys "stationary,
-                // waiting" which is a steady state, so per-window granularity
-                // is plenty.
-                var ic = CultureInfo.InvariantCulture;
-                string proximityText = double.IsNaN(highFidelityProximityMeters)
-                    ? "(none)"
-                    : highFidelityProximityMeters.ToString("F1", ic) + "m";
-                ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
-                    $"Sample skipped at ut={currentUT.ToString("F2", ic)}; waiting for motion/attitude trigger " +
-                    $"highFidelity={highFidelityActive} reason={highFidelityReason ?? "(none)"} " +
-                    $"proximity={proximityText} proximitySource={highFidelityProximitySource} " +
-                    $"minInterval={effectiveMinSampleInterval.ToString("F3", ic)}s " +
-                    $"maxInterval={effectiveMaxSampleInterval.ToString("F3", ic)}s");
+                LogPhysicsSampleSkipped(
+                    currentUT,
+                    highFidelityActive,
+                    highFidelityReason,
+                    highFidelityProximityMeters,
+                    highFidelityProximitySource,
+                    effectiveMinSampleInterval,
+                    effectiveMaxSampleInterval);
                 return;
             }
 
@@ -677,6 +645,103 @@ namespace Parsek
 
             bool relativeApplied = ApplyRelativeOffset(ref point, v);
             CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
+        }
+
+        /// <summary>
+        /// Names the proximity source the high-fidelity sampler reads this frame: the split
+        /// child when its distance is finite and no nearer Relative anchor distance applies,
+        /// else "relative-anchor" in relative mode, else "(none)".
+        /// </summary>
+        internal string ResolveHighFidelityProximitySource(
+            double splitChildProximityMeters,
+            string splitChildProximitySource)
+        {
+            return IsFinite(splitChildProximityMeters)
+                && (!isRelativeMode
+                    || !IsFinite(currentAnchorDistanceMeters)
+                    || splitChildProximityMeters <= currentAnchorDistanceMeters)
+                    ? splitChildProximitySource
+                    : isRelativeMode ? "relative-anchor" : "(none)";
+        }
+
+        /// <summary>
+        /// An active Re-Fly tree sampling cadence forces high-fidelity sampling; logs the
+        /// cadence, its reason and the configured intervals (rate-limited per recording).
+        /// </summary>
+        internal void NoteActiveReFlyTreeSamplingCadence(
+            ref bool highFidelityActive,
+            ProximitySamplingTier reFlyTreeSamplingCadence,
+            string reFlyRecordingSamplingReason)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            highFidelityActive = true;
+            ParsekLog.VerboseRateLimited("Recorder",
+                "active-refly-sampling|" + (ActiveTree?.ActiveRecordingId ?? "<no-rec>"),
+                $"Active Re-Fly tree sampling cadence active: " +
+                $"recordingId={ActiveTree?.ActiveRecordingId ?? "(none)"} " +
+                $"treeId={ActiveTree?.Id ?? "(none)"} " +
+                $"cadence={reFlyTreeSamplingCadence} " +
+                $"reason={reFlyRecordingSamplingReason ?? "(none)"} " +
+                $"proximity={reFlyTreeSamplingProximityMeters.ToString("F1", ic)}m " +
+                $"proximitySource={reFlyTreeSamplingProximitySource ?? "(none)"} " +
+                $"fullRange={ReFlyTreeFullFidelityProximityRangeMeters.ToString("F1", ic)}m " +
+                $"halfRange={ReFlyTreeHalfFidelityProximityRangeMeters.ToString("F1", ic)}m " +
+                $"configuredMin={minSampleInterval.ToString("F3", ic)}s " +
+                $"configuredMax={maxSampleInterval.ToString("F3", ic)}s",
+                5.0);
+        }
+
+        /// <summary>
+        /// The effective min / max sample intervals for this frame's cadence and fidelity.
+        /// </summary>
+        internal static void ResolveEffectiveSampleIntervals(
+            ProximitySamplingTier reFlyTreeSamplingCadence,
+            bool highFidelityActive,
+            out float effectiveMinSampleInterval,
+            out float effectiveMaxSampleInterval)
+        {
+            effectiveMinSampleInterval = ResolveEffectiveMinSampleInterval(
+                reFlyTreeSamplingCadence,
+                ProximitySamplingTier.None,
+                highFidelityActive,
+                minSampleInterval,
+                maxSampleInterval);
+            effectiveMaxSampleInterval = ResolveEffectiveMaxSampleInterval(
+                reFlyTreeSamplingCadence,
+                ProximitySamplingTier.None,
+                highFidelityActive,
+                maxSampleInterval,
+                minSampleInterval);
+        }
+
+        /// <summary>
+        /// The rate-limited line for a physics frame that neither motion, attitude nor a
+        /// pending SOI sample triggered.
+        /// </summary>
+        internal static void LogPhysicsSampleSkipped(
+            double currentUT,
+            bool highFidelityActive,
+            string highFidelityReason,
+            double highFidelityProximityMeters,
+            string highFidelityProximitySource,
+            float effectiveMinSampleInterval,
+            float effectiveMaxSampleInterval)
+        {
+            // Bug #595: the previous 2.0s rate-limit window still produced
+            // ~200 lines per 30-min session during stationary intervals.
+            // Use the default 5s window — the line conveys "stationary,
+            // waiting" which is a steady state, so per-window granularity
+            // is plenty.
+            var ic = CultureInfo.InvariantCulture;
+            string proximityText = double.IsNaN(highFidelityProximityMeters)
+                ? "(none)"
+                : highFidelityProximityMeters.ToString("F1", ic) + "m";
+            ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
+                $"Sample skipped at ut={currentUT.ToString("F2", ic)}; waiting for motion/attitude trigger " +
+                $"highFidelity={highFidelityActive} reason={highFidelityReason ?? "(none)"} " +
+                $"proximity={proximityText} proximitySource={highFidelityProximitySource} " +
+                $"minInterval={effectiveMinSampleInterval.ToString("F3", ic)}s " +
+                $"maxInterval={effectiveMaxSampleInterval.ToString("F3", ic)}s");
         }
 
         /// <summary>
