@@ -38,345 +38,26 @@ namespace Parsek
             {
                 var evt = rec.PartEvents[evtIdx];
                 if (tally == null) tally = new GhostPartEventApplyTally();
-                switch (evt.eventType)
-                {
-                    case PartEventType.Decoupled:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Visibility,
-                            evt.partPersistentId,
-                            ApplyDecoupledPartEvent(
-                                state,
-                                ghost,
-                                logicalPartIds,
-                                tree,
-                                evt,
-                                allowTransientEffects,
-                                ref visibilityChanged,
-                                ref needsReentryMeshRebuild));
-                        break;
-                    case PartEventType.Destroyed:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Visibility,
-                            evt.partPersistentId,
-                            ApplyDestroyedPartEvent(
-                                state,
-                                ghost,
-                                logicalPartIds,
-                                evt,
-                                allowTransientEffects,
-                                ref visibilityChanged,
-                                ref needsReentryMeshRebuild));
-                        break;
-                    case PartEventType.ParachuteCut:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Parachute,
-                            evt.partPersistentId,
-                            ApplyParachuteCutEvent(state, evt.partPersistentId));
-                        break;
-                    case PartEventType.ParachuteRepacked:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Parachute,
-                            evt.partPersistentId,
-                            ApplyParachuteRepackedEvent(state, evt.partPersistentId));
-                        break;
-                    case PartEventType.ShroudJettisoned:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.JettisonPanel,
-                            evt.partPersistentId,
-                            ApplyJettisonPanelStateWithOutcome(state, evt, jettisoned: true));
-                        break;
-                    case PartEventType.ParachuteDestroyed:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Visibility,
-                            evt.partPersistentId,
-                            ApplyParachuteDestroyedEvent(
-                                state,
-                                ghost,
-                                logicalPartIds,
-                                evt.partPersistentId,
-                                ref visibilityChanged));
-                        break;
-                    case PartEventType.ParachuteSemiDeployed:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Parachute,
-                            evt.partPersistentId,
-                            ApplyParachuteSemiDeployedEvent(state, evt.partPersistentId));
-                        break;
-                    case PartEventType.ParachuteDeployed:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Parachute,
-                            evt.partPersistentId,
-                            ApplyParachuteDeployedEvent(state, ghost, evt.partPersistentId));
-                        break;
-                    case PartEventType.EngineIgnited:
-                        // Producers never emit a zero-throttle ignition (#165,
-                        // PartStateSeeder.ShouldSkipZeroThrottleEngineSeed).
-                        RecordEngineEvent(tally, state, evt, evt.value, ref audioPowerTouched);
-                        break;
-                    case PartEventType.EngineShutdown:
-                        RecordEngineEvent(tally, state, evt, 0f, ref audioPowerTouched);
-                        break;
-                    case PartEventType.EngineThrottle:
-                        RecordEngineEvent(tally, state, evt, evt.value, ref audioPowerTouched);
-                        break;
-                    // S2: the four deployable-family event pairs take the ANIMATED path
-                    // (immediate: false). Every BASELINE caller keeps the snap overload; the
-                    // distinction is "the recording says this moved now" vs "put the ghost into
-                    // the state it spawned in".
-                    case PartEventType.DeployableExtended:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Deployable,
-                            evt.partPersistentId,
-                            ApplyDeployableStateWithOutcome(
-                                state, evt, deployed: true, immediate: false));
-                        break;
-                    case PartEventType.DeployableRetracted:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Deployable,
-                            evt.partPersistentId,
-                            ApplyDeployableStateWithOutcome(
-                                state, evt, deployed: false, immediate: false));
-                        break;
-                    // S6: a break is a SNAP, never an animation. The panel is gone in the frame it
-                    // broke (stock flings the subtree off as debris), so there is no pose to
-                    // interpolate toward and no `immediate` distinction to make.
-                    case PartEventType.DeployableBroken:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Deployable,
-                            evt.partPersistentId,
-                            ApplyDeployableBrokenStateWithOutcome(
-                                state, evt.partPersistentId, broken: true));
-                        break;
-                    // A wheel break / repair is a mesh swap, a snap in the frame it happened.
-                    case PartEventType.WheelBroken:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.WheelDamage,
-                            evt.partPersistentId,
-                            ApplyWheelDamageStateWithOutcome(
-                                state, evt.partPersistentId, damaged: true));
-                        break;
-                    case PartEventType.WheelRepaired:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.WheelDamage,
-                            evt.partPersistentId,
-                            ApplyWheelDamageStateWithOutcome(
-                                state, evt.partPersistentId, damaged: false));
-                        break;
-                    // S7: evt.ut is the loop's phase origin, which is what makes a scrubbed or
-                    // looping replay land on the SAME pose for the same recorded moment.
-                    case PartEventType.ConverterActivated:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.ConverterLoop,
-                            evt.partPersistentId,
-                            ApplyConverterLoopStateWithOutcome(
-                                state, evt.partPersistentId, active: true, activeSinceUT: evt.ut));
-                        break;
-                    case PartEventType.ConverterDeactivated:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.ConverterLoop,
-                            evt.partPersistentId,
-                            ApplyConverterLoopStateWithOutcome(
-                                state, evt.partPersistentId, active: false, activeSinceUT: evt.ut));
-                        break;
-                    // S4: all six EVA members share one applier so the plume gate lives in one
-                    // place. The RAGDOLL pair is recorded and applied but renders no POSE - it
-                    // gates the plume and marks the timeline (see PartEventType.EvaRagdollStarted).
-                    case PartEventType.EvaJetpackDeployed:
-                    case PartEventType.EvaJetpackStowed:
-                    case PartEventType.EvaJetpackThrustStarted:
-                    case PartEventType.EvaJetpackThrustStopped:
-                    case PartEventType.EvaRagdollStarted:
-                    case PartEventType.EvaRagdollEnded:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Eva,
-                            evt.partPersistentId,
-                            ApplyEvaStateWithOutcome(state, evt.eventType));
-                        break;
-                    case PartEventType.ThermalAnimationHot:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Heat,
-                            evt.partPersistentId,
-                            ApplyHeatStateWithOutcome(state, evt, HeatLevel.Hot));
-                        break;
-                    case PartEventType.ThermalAnimationMedium:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Heat,
-                            evt.partPersistentId,
-                            ApplyHeatStateWithOutcome(state, evt, HeatLevel.Medium));
-                        break;
-                    case PartEventType.ThermalAnimationCold:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Heat,
-                            evt.partPersistentId,
-                            ApplyHeatStateWithOutcome(state, evt, HeatLevel.Cold));
-                        break;
-                    case PartEventType.LightOn:
-                        RecordLightPowerEvent(tally, state, evt, on: true);
-                        break;
-                    case PartEventType.LightOff:
-                        RecordLightPowerEvent(tally, state, evt, on: false);
-                        break;
-                    case PartEventType.LightBlinkEnabled:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.BlinkState,
-                            evt.partPersistentId,
-                            ApplyLightBlinkModeEventWithOutcome(
-                                state, evt.partPersistentId, enabled: true, evt.value));
-                        break;
-                    case PartEventType.LightBlinkDisabled:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.BlinkState,
-                            evt.partPersistentId,
-                            ApplyLightBlinkModeEventWithOutcome(
-                                state, evt.partPersistentId, enabled: false, evt.value));
-                        break;
-                    case PartEventType.LightBlinkRate:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.BlinkState,
-                            evt.partPersistentId,
-                            ApplyLightBlinkRateEventWithOutcome(
-                                state, evt.partPersistentId, evt.value));
-                        break;
-                    case PartEventType.GearDeployed:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Deployable,
-                            evt.partPersistentId,
-                            ApplyDeployableStateWithOutcome(
-                                state, evt, deployed: true, immediate: false));
-                        break;
-                    case PartEventType.GearRetracted:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Deployable,
-                            evt.partPersistentId,
-                            ApplyDeployableStateWithOutcome(
-                                state, evt, deployed: false, immediate: false));
-                        break;
-                    case PartEventType.CargoBayOpened:
-                        RecordCargoBayEvent(tally, state, evt, open: true);
-                        break;
-                    case PartEventType.CargoBayClosed:
-                        RecordCargoBayEvent(tally, state, evt, open: false);
-                        break;
-                    case PartEventType.FairingJettisoned:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Fairing,
-                            evt.partPersistentId,
-                            ApplyFairingJettisonedState(state, evt.partPersistentId));
-                        break;
-                    case PartEventType.RCSActivated:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.RcsFx,
-                            evt.partPersistentId,
-                            SetRcsEmissionWithOutcome(state, evt, evt.value));
-                        break;
-                    case PartEventType.RCSStopped:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.RcsFx,
-                            evt.partPersistentId,
-                            SetRcsEmissionWithOutcome(state, evt, 0f));
-                        break;
-                    case PartEventType.RCSThrottle:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.RcsFx,
-                            evt.partPersistentId,
-                            SetRcsEmissionWithOutcome(state, evt, evt.value));
-                        break;
-                    case PartEventType.RoboticMotionStarted:
-                    case PartEventType.RoboticPositionSample:
-                    case PartEventType.RoboticMotionStopped:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Robotic,
-                            evt.partPersistentId,
-                            ApplyRoboticEvent(state, evt, currentUT));
-                        break;
-                    case PartEventType.InventoryPartPlaced:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Inventory,
-                            evt.partPersistentId,
-                            ApplyInventoryPartPlacedEvent(
-                                state,
-                                logicalPartIds,
-                                evt.partPersistentId,
-                                ref placedTargetPartIds,
-                                ref visibilityChanged));
-                        break;
-                    case PartEventType.InventoryPartRemoved:
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Inventory,
-                            evt.partPersistentId,
-                            ApplyInventoryPartRemovedEvent(
-                                state,
-                                logicalPartIds,
-                                evt.partPersistentId,
-                                ref visibilityChanged));
-                        break;
-                    default:
-                        // Docked / Undocked are chain-segment boundary markers with no ghost
-                        // pose, and an older build reading a NEWER sidecar can materialise an
-                        // undefined member here (the binary reader raw-casts). Both land in
-                        // this arm; naming them in the log is the whole point of the
-                        // unhandled-event-type reason class.
-                        tally.Record(
-                            evt.eventType,
-                            GhostPartEventSurface.Visibility,
-                            evt.partPersistentId,
-                            GhostPartEventOutcome.UnhandledEventType);
-                        break;
-                }
+                ApplyOnePartEvent(
+                    tally,
+                    state,
+                    ghost,
+                    logicalPartIds,
+                    tree,
+                    evt,
+                    currentUT,
+                    allowTransientEffects,
+                    ref visibilityChanged,
+                    ref needsReentryMeshRebuild,
+                    ref audioPowerTouched,
+                    ref placedTargetPartIds);
                 evtIdx++;
             }
 
-            int appliedCount = evtIdx - state.partEventIndex;
-            state.partEventIndex = evtIdx;
-            if (audioPowerTouched)
-                EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
-            if (appliedCount > 0)
-                ParsekLog.VerboseRateLimited("Flight", $"part-events-{recIdx}",
-                    $"Applied {appliedCount} part events for ghost #{recIdx} (evtIdx now {evtIdx})");
-            // P8 step 1: the per-family breakdown the aggregate line above cannot carry.
-            // One rate-limited line per (recording, family, surface) actually touched.
-            if (tally != null) tally.Flush(recIdx);
+            FinishPartEventWalk(recIdx, state, evtIdx, audioPowerTouched, tally);
             if (visibilityChanged)
-            {
-                if (RefreshCompoundPartVisibility(state))
-                    needsReentryMeshRebuild = true;
-                if (RestoreCompoundPartsForPlacedTargets(state, placedTargetPartIds))
-                    needsReentryMeshRebuild = true;
-                if (needsReentryMeshRebuild)
-                    GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
-                RecalculateCameraPivot(state);
-            }
+                RefreshGhostAfterPartVisibilityChange(
+                    state, ghost, placedTargetPartIds, ref needsReentryMeshRebuild);
             UpdateBlinkingLights(state, currentUT);
             // Retained so every caller (flight preview, the KSC-scene ghost paths) keeps driving
             // continuous robotic motion exactly as before. The flight engine ALSO calls this from
@@ -401,6 +82,386 @@ namespace Parsek
             // in one frame is a no-op: the progress is a pure function of the event UT, so the
             // second pass recomputes the same fraction and writes the same pose.
             UpdateActiveDeployables(state, currentUT);
+        }
+
+        /// <summary>
+        /// One consumed part event: routes it to its family's applier and tallies every surface
+        /// the applier reports on. The flags and the placed-target set are the walk's own and
+        /// accumulate across the events of one frame.
+        /// </summary>
+        internal static void ApplyOnePartEvent(
+            GhostPartEventApplyTally tally,
+            GhostPlaybackState state,
+            GameObject ghost,
+            HashSet<uint> logicalPartIds,
+            Dictionary<uint, List<uint>> tree,
+            PartEvent evt,
+            double currentUT,
+            bool allowTransientEffects,
+            ref bool visibilityChanged,
+            ref bool needsReentryMeshRebuild,
+            ref bool audioPowerTouched,
+            ref HashSet<uint> placedTargetPartIds)
+        {
+            switch (evt.eventType)
+            {
+                case PartEventType.Decoupled:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Visibility,
+                        evt.partPersistentId,
+                        ApplyDecoupledPartEvent(
+                            state,
+                            ghost,
+                            logicalPartIds,
+                            tree,
+                            evt,
+                            allowTransientEffects,
+                            ref visibilityChanged,
+                            ref needsReentryMeshRebuild));
+                    break;
+                case PartEventType.Destroyed:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Visibility,
+                        evt.partPersistentId,
+                        ApplyDestroyedPartEvent(
+                            state,
+                            ghost,
+                            logicalPartIds,
+                            evt,
+                            allowTransientEffects,
+                            ref visibilityChanged,
+                            ref needsReentryMeshRebuild));
+                    break;
+                case PartEventType.ParachuteCut:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Parachute,
+                        evt.partPersistentId,
+                        ApplyParachuteCutEvent(state, evt.partPersistentId));
+                    break;
+                case PartEventType.ParachuteRepacked:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Parachute,
+                        evt.partPersistentId,
+                        ApplyParachuteRepackedEvent(state, evt.partPersistentId));
+                    break;
+                case PartEventType.ShroudJettisoned:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.JettisonPanel,
+                        evt.partPersistentId,
+                        ApplyJettisonPanelStateWithOutcome(state, evt, jettisoned: true));
+                    break;
+                case PartEventType.ParachuteDestroyed:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Visibility,
+                        evt.partPersistentId,
+                        ApplyParachuteDestroyedEvent(
+                            state,
+                            ghost,
+                            logicalPartIds,
+                            evt.partPersistentId,
+                            ref visibilityChanged));
+                    break;
+                case PartEventType.ParachuteSemiDeployed:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Parachute,
+                        evt.partPersistentId,
+                        ApplyParachuteSemiDeployedEvent(state, evt.partPersistentId));
+                    break;
+                case PartEventType.ParachuteDeployed:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Parachute,
+                        evt.partPersistentId,
+                        ApplyParachuteDeployedEvent(state, ghost, evt.partPersistentId));
+                    break;
+                case PartEventType.EngineIgnited:
+                    // Producers never emit a zero-throttle ignition (#165,
+                    // PartStateSeeder.ShouldSkipZeroThrottleEngineSeed).
+                    RecordEngineEvent(tally, state, evt, evt.value, ref audioPowerTouched);
+                    break;
+                case PartEventType.EngineShutdown:
+                    RecordEngineEvent(tally, state, evt, 0f, ref audioPowerTouched);
+                    break;
+                case PartEventType.EngineThrottle:
+                    RecordEngineEvent(tally, state, evt, evt.value, ref audioPowerTouched);
+                    break;
+                // S2: the four deployable-family event pairs take the ANIMATED path
+                // (immediate: false). Every BASELINE caller keeps the snap overload; the
+                // distinction is "the recording says this moved now" vs "put the ghost into
+                // the state it spawned in".
+                case PartEventType.DeployableExtended:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Deployable,
+                        evt.partPersistentId,
+                        ApplyDeployableStateWithOutcome(
+                            state, evt, deployed: true, immediate: false));
+                    break;
+                case PartEventType.DeployableRetracted:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Deployable,
+                        evt.partPersistentId,
+                        ApplyDeployableStateWithOutcome(
+                            state, evt, deployed: false, immediate: false));
+                    break;
+                // S6: a break is a SNAP, never an animation. The panel is gone in the frame it
+                // broke (stock flings the subtree off as debris), so there is no pose to
+                // interpolate toward and no `immediate` distinction to make.
+                case PartEventType.DeployableBroken:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Deployable,
+                        evt.partPersistentId,
+                        ApplyDeployableBrokenStateWithOutcome(
+                            state, evt.partPersistentId, broken: true));
+                    break;
+                // A wheel break / repair is a mesh swap, a snap in the frame it happened.
+                case PartEventType.WheelBroken:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.WheelDamage,
+                        evt.partPersistentId,
+                        ApplyWheelDamageStateWithOutcome(
+                            state, evt.partPersistentId, damaged: true));
+                    break;
+                case PartEventType.WheelRepaired:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.WheelDamage,
+                        evt.partPersistentId,
+                        ApplyWheelDamageStateWithOutcome(
+                            state, evt.partPersistentId, damaged: false));
+                    break;
+                // S7: evt.ut is the loop's phase origin, which is what makes a scrubbed or
+                // looping replay land on the SAME pose for the same recorded moment.
+                case PartEventType.ConverterActivated:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.ConverterLoop,
+                        evt.partPersistentId,
+                        ApplyConverterLoopStateWithOutcome(
+                            state, evt.partPersistentId, active: true, activeSinceUT: evt.ut));
+                    break;
+                case PartEventType.ConverterDeactivated:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.ConverterLoop,
+                        evt.partPersistentId,
+                        ApplyConverterLoopStateWithOutcome(
+                            state, evt.partPersistentId, active: false, activeSinceUT: evt.ut));
+                    break;
+                // S4: all six EVA members share one applier so the plume gate lives in one
+                // place. The RAGDOLL pair is recorded and applied but renders no POSE - it
+                // gates the plume and marks the timeline (see PartEventType.EvaRagdollStarted).
+                case PartEventType.EvaJetpackDeployed:
+                case PartEventType.EvaJetpackStowed:
+                case PartEventType.EvaJetpackThrustStarted:
+                case PartEventType.EvaJetpackThrustStopped:
+                case PartEventType.EvaRagdollStarted:
+                case PartEventType.EvaRagdollEnded:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Eva,
+                        evt.partPersistentId,
+                        ApplyEvaStateWithOutcome(state, evt.eventType));
+                    break;
+                case PartEventType.ThermalAnimationHot:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Heat,
+                        evt.partPersistentId,
+                        ApplyHeatStateWithOutcome(state, evt, HeatLevel.Hot));
+                    break;
+                case PartEventType.ThermalAnimationMedium:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Heat,
+                        evt.partPersistentId,
+                        ApplyHeatStateWithOutcome(state, evt, HeatLevel.Medium));
+                    break;
+                case PartEventType.ThermalAnimationCold:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Heat,
+                        evt.partPersistentId,
+                        ApplyHeatStateWithOutcome(state, evt, HeatLevel.Cold));
+                    break;
+                case PartEventType.LightOn:
+                    RecordLightPowerEvent(tally, state, evt, on: true);
+                    break;
+                case PartEventType.LightOff:
+                    RecordLightPowerEvent(tally, state, evt, on: false);
+                    break;
+                case PartEventType.LightBlinkEnabled:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.BlinkState,
+                        evt.partPersistentId,
+                        ApplyLightBlinkModeEventWithOutcome(
+                            state, evt.partPersistentId, enabled: true, evt.value));
+                    break;
+                case PartEventType.LightBlinkDisabled:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.BlinkState,
+                        evt.partPersistentId,
+                        ApplyLightBlinkModeEventWithOutcome(
+                            state, evt.partPersistentId, enabled: false, evt.value));
+                    break;
+                case PartEventType.LightBlinkRate:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.BlinkState,
+                        evt.partPersistentId,
+                        ApplyLightBlinkRateEventWithOutcome(
+                            state, evt.partPersistentId, evt.value));
+                    break;
+                case PartEventType.GearDeployed:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Deployable,
+                        evt.partPersistentId,
+                        ApplyDeployableStateWithOutcome(
+                            state, evt, deployed: true, immediate: false));
+                    break;
+                case PartEventType.GearRetracted:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Deployable,
+                        evt.partPersistentId,
+                        ApplyDeployableStateWithOutcome(
+                            state, evt, deployed: false, immediate: false));
+                    break;
+                case PartEventType.CargoBayOpened:
+                    RecordCargoBayEvent(tally, state, evt, open: true);
+                    break;
+                case PartEventType.CargoBayClosed:
+                    RecordCargoBayEvent(tally, state, evt, open: false);
+                    break;
+                case PartEventType.FairingJettisoned:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Fairing,
+                        evt.partPersistentId,
+                        ApplyFairingJettisonedState(state, evt.partPersistentId));
+                    break;
+                case PartEventType.RCSActivated:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.RcsFx,
+                        evt.partPersistentId,
+                        SetRcsEmissionWithOutcome(state, evt, evt.value));
+                    break;
+                case PartEventType.RCSStopped:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.RcsFx,
+                        evt.partPersistentId,
+                        SetRcsEmissionWithOutcome(state, evt, 0f));
+                    break;
+                case PartEventType.RCSThrottle:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.RcsFx,
+                        evt.partPersistentId,
+                        SetRcsEmissionWithOutcome(state, evt, evt.value));
+                    break;
+                case PartEventType.RoboticMotionStarted:
+                case PartEventType.RoboticPositionSample:
+                case PartEventType.RoboticMotionStopped:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Robotic,
+                        evt.partPersistentId,
+                        ApplyRoboticEvent(state, evt, currentUT));
+                    break;
+                case PartEventType.InventoryPartPlaced:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Inventory,
+                        evt.partPersistentId,
+                        ApplyInventoryPartPlacedEvent(
+                            state,
+                            logicalPartIds,
+                            evt.partPersistentId,
+                            ref placedTargetPartIds,
+                            ref visibilityChanged));
+                    break;
+                case PartEventType.InventoryPartRemoved:
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Inventory,
+                        evt.partPersistentId,
+                        ApplyInventoryPartRemovedEvent(
+                            state,
+                            logicalPartIds,
+                            evt.partPersistentId,
+                            ref visibilityChanged));
+                    break;
+                default:
+                    // Docked / Undocked are chain-segment boundary markers with no ghost
+                    // pose, and an older build reading a NEWER sidecar can materialise an
+                    // undefined member here (the binary reader raw-casts). Both land in
+                    // this arm; naming them in the log is the whole point of the
+                    // unhandled-event-type reason class.
+                    tally.Record(
+                        evt.eventType,
+                        GhostPartEventSurface.Visibility,
+                        evt.partPersistentId,
+                        GhostPartEventOutcome.UnhandledEventType);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// After the walk: advances the cursor, enforces the looped-audio cap when an engine
+        /// event touched audio power, and writes the aggregate line and the per-family lines.
+        /// </summary>
+        internal static void FinishPartEventWalk(
+            int recIdx,
+            GhostPlaybackState state,
+            int evtIdx,
+            bool audioPowerTouched,
+            GhostPartEventApplyTally tally)
+        {
+            int appliedCount = evtIdx - state.partEventIndex;
+            state.partEventIndex = evtIdx;
+            if (audioPowerTouched)
+                EnforceLoopedAudioPlaybackCapWithTestingOverride(state);
+            if (appliedCount > 0)
+                ParsekLog.VerboseRateLimited("Flight", $"part-events-{recIdx}",
+                    $"Applied {appliedCount} part events for ghost #{recIdx} (evtIdx now {evtIdx})");
+            // P8 step 1: the per-family breakdown the aggregate line above cannot carry.
+            // One rate-limited line per (recording, family, surface) actually touched.
+            if (tally != null) tally.Flush(recIdx);
+        }
+
+        /// <summary>
+        /// After a walk that hid or showed a part: re-derives compound-part visibility, restores
+        /// the compound parts of placed targets, rebuilds the reentry meshes when anything moved,
+        /// and recentres the camera pivot on the parts still shown.
+        /// </summary>
+        internal static void RefreshGhostAfterPartVisibilityChange(
+            GhostPlaybackState state,
+            GameObject ghost,
+            HashSet<uint> placedTargetPartIds,
+            ref bool needsReentryMeshRebuild)
+        {
+            if (RefreshCompoundPartVisibility(state))
+                needsReentryMeshRebuild = true;
+            if (RestoreCompoundPartsForPlacedTargets(state, placedTargetPartIds))
+                needsReentryMeshRebuild = true;
+            if (needsReentryMeshRebuild)
+                GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
+            RecalculateCameraPivot(state);
         }
 
         /// <summary>

@@ -339,5 +339,152 @@ namespace Parsek.Tests
 
             AssertGolden("A029E20F5F71854C", 436);
         }
+        // ------------------------------------------------------------------
+        // The extracted units, driven directly
+        // ------------------------------------------------------------------
+
+        private static List<string> Rendered(GhostPartEventApplyTally tally, int recIdx)
+        {
+            List<string> lines = tally.RenderLines(recIdx);
+            lines.Sort(StringComparer.Ordinal);
+            return lines;
+        }
+
+        [Fact]
+        public void ApplyOnePartEvent_UnhandledType_TalliesTheVisibilitySurface_AndLeavesTheFlags()
+        {
+            var tally = new GhostPartEventApplyTally();
+            var state = new GhostPlaybackState();
+            bool visibilityChanged = true, needsReentryMeshRebuild = false, audioPowerTouched = false;
+            HashSet<uint> placed = null;
+
+            foreach (PartEventType type in new[] { PartEventType.Docked, PartEventType.Undocked, (PartEventType)9977 })
+            {
+                GhostPlaybackLogic.ApplyOnePartEvent(
+                    tally, state, null, null, null, Evt(10.0, type, 100000u), 10.0, true,
+                    ref visibilityChanged, ref needsReentryMeshRebuild, ref audioPowerTouched, ref placed);
+            }
+
+            Assert.True(visibilityChanged);
+            Assert.False(needsReentryMeshRebuild);
+            Assert.False(audioPowerTouched);
+            Assert.Null(placed);
+            Assert.Equal(new List<string>
+            {
+                "apply family=9977 surface=visibility rec=4 pid=100000 applied=0 skipped=1 reason=unhandled-event-type",
+                "apply family=Docked surface=visibility rec=4 pid=100000 applied=0 skipped=1 reason=unhandled-event-type",
+                "apply family=Undocked surface=visibility rec=4 pid=100000 applied=0 skipped=1 reason=unhandled-event-type",
+            }, Rendered(tally, 4));
+            Assert.Empty(transcript);
+        }
+
+        [UnityEntryFact]
+        public void ApplyOnePartEvent_InventoryPlaced_AllocatesThePlacedSetOnce_AndMarksVisibility()
+        {
+            var tally = new GhostPartEventApplyTally();
+            var state = new GhostPlaybackState();
+            var logical = new HashSet<uint>();
+            bool visibilityChanged = false, needsReentryMeshRebuild = false, audioPowerTouched = false;
+            HashSet<uint> placed = null;
+
+            GhostPlaybackLogic.ApplyOnePartEvent(
+                tally, state, null, logical, null, Evt(10.0, PartEventType.InventoryPartPlaced, 101111u),
+                10.0, true, ref visibilityChanged, ref needsReentryMeshRebuild, ref audioPowerTouched, ref placed);
+            HashSet<uint> first = placed;
+            GhostPlaybackLogic.ApplyOnePartEvent(
+                tally, state, null, logical, null, Evt(11.0, PartEventType.InventoryPartPlaced, 102222u),
+                11.0, true, ref visibilityChanged, ref needsReentryMeshRebuild, ref audioPowerTouched, ref placed);
+
+            Assert.Same(first, placed);
+            Assert.Equal(new[] { 101111u, 102222u }, new List<uint>(placed));
+            Assert.Equal(new[] { 101111u, 102222u }, new List<uint>(logical));
+            Assert.True(visibilityChanged);
+            Assert.False(needsReentryMeshRebuild);
+            Assert.False(audioPowerTouched);
+            Assert.Equal(new List<string>
+            {
+                "apply family=InventoryPartPlaced surface=inventory rec=1 pid=101111 applied=0 skipped=2 reason=no-info-for-part",
+            }, Rendered(tally, 1));
+        }
+
+        [UnityEntryFact]
+        public void ApplyOnePartEvent_EngineWithTrackedAudio_SetsAudioPowerTouched_AndTalliesBothSurfaces()
+        {
+            const uint pid = 100000u;
+            var tally = new GhostPartEventApplyTally();
+            var state = new GhostPlaybackState
+            {
+                audioMuted = true,
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    { FlightRecorder.EncodeEngineKey(pid, 0), new AudioGhostInfo { partPersistentId = pid } },
+                },
+            };
+            bool visibilityChanged = false, needsReentryMeshRebuild = false, audioPowerTouched = false;
+            HashSet<uint> placed = null;
+
+            GhostPlaybackLogic.ApplyOnePartEvent(
+                tally, state, null, null, null, Evt(10.0, PartEventType.EngineIgnited, pid, 0.75f),
+                10.0, true, ref visibilityChanged, ref needsReentryMeshRebuild, ref audioPowerTouched, ref placed);
+
+            Assert.True(audioPowerTouched);
+            Assert.False(visibilityChanged);
+            Assert.Equal(0.75f, state.audioInfos[FlightRecorder.EncodeEngineKey(pid, 0)].currentPower);
+            Assert.Equal(new List<string>
+            {
+                "apply family=EngineIgnited surface=engine-audio rec=0 pid=100000 applied=1 skipped=0 reason=applied",
+                "apply family=EngineIgnited surface=engine-fx rec=0 pid=100000 applied=0 skipped=1 reason=no-family-state",
+            }, Rendered(tally, 0));
+            // The cap is the walk's job (FinishPartEventWalk), never the arm's.
+            Assert.DoesNotContain("CAP enforce", transcript);
+        }
+
+        [Fact]
+        public void FinishPartEventWalk_AdvancesTheCursor_CapsAudio_ThenLogsTheAggregateAndEachFamily()
+        {
+            var state = new GhostPlaybackState { partEventIndex = 2 };
+            var tally = new GhostPartEventApplyTally();
+            tally.Record(PartEventType.Docked, GhostPartEventSurface.Visibility, 100000u,
+                GhostPartEventOutcome.UnhandledEventType);
+
+            GhostPlaybackLogic.FinishPartEventWalk(6, state, 5, true, tally);
+
+            Assert.Equal(5, state.partEventIndex);
+            AssertTranscript(
+                "CAP enforce",
+                "LOG [Parsek][VERBOSE][Flight] Applied 3 part events for ghost #6 (evtIdx now 5)",
+                "LOG [Parsek][VERBOSE][GhostPartEvents] apply family=Docked surface=visibility rec=6 pid=100000 applied=0 skipped=1 reason=unhandled-event-type");
+            Assert.Equal(new List<string> { "Flight|part-events-6" }, RateLimitKeys());
+        }
+
+        [Fact]
+        public void FinishPartEventWalk_NothingConsumed_WritesNoLine_AndNoCap()
+        {
+            var state = new GhostPlaybackState { partEventIndex = 4 };
+
+            GhostPlaybackLogic.FinishPartEventWalk(6, state, 4, false, null);
+
+            Assert.Equal(4, state.partEventIndex);
+            Assert.Empty(transcript);
+            Assert.Empty(RateLimitKeys());
+        }
+
+        [Fact]
+        public void RefreshGhostAfterPartVisibilityChange_KeepsAnEarlierRebuildRequest_AndAddsNoneOfItsOwn()
+        {
+            // No compound parts and no live ghost: neither compound pass reports a change, so the
+            // request comes only from the walk, and the pivot pass returns on the null ghost.
+            var state = new GhostPlaybackState();
+            var placed = new HashSet<uint> { 100000u };
+
+            bool rebuild = false;
+            GhostPlaybackLogic.RefreshGhostAfterPartVisibilityChange(state, null, placed, ref rebuild);
+            Assert.False(rebuild);
+
+            rebuild = true;
+            GhostPlaybackLogic.RefreshGhostAfterPartVisibilityChange(state, null, null, ref rebuild);
+            Assert.True(rebuild);
+            Assert.Empty(transcript);
+        }
     }
 }
