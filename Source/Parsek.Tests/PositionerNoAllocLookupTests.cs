@@ -300,5 +300,60 @@ namespace Parsek.Tests
             Assert.True(checkedHits > 1000, "checked " + checkedHits);
             Assert.True(edgeHits > 0, "the random lists never reached the IndexOf edge");
         }
+
+        // --- the positioner's own three matchers, through FindFirstMatching ---
+        // A list of null entries is the one input that tells the matchers apart without a real
+        // CelestialBody: the null-guarded two must skip every entry and find nothing, while the
+        // unguarded name matcher must dereference the first entry and throw, exactly as the
+        // List.Find lambda it replaced did. A null receiver fails the managed null check before
+        // any native code runs, so these cells are safe on the Windows test host.
+
+        [Fact]
+        public void BodyNameMatches_NullEntryThrowsLikeTheReplacedLambda()
+        {
+            var bodies = new List<CelestialBody> { null, null };
+            Assert.Throws<NullReferenceException>(() =>
+                ParsekFlightGhostPositioner.FindFirstMatching(
+                    bodies, "Kerbin", ParsekFlightGhostPositioner.BodyNameMatches));
+        }
+
+        [Fact]
+        public void BodyNameMatches_EmptyListFindsNothing()
+        {
+            Assert.Null(ParsekFlightGhostPositioner.FindFirstMatching(
+                new List<CelestialBody>(), "Kerbin", ParsekFlightGhostPositioner.BodyNameMatches));
+        }
+
+        [Fact]
+        public void LiveBodyBodyNameMatches_SkipsNullEntries()
+        {
+            var bodies = new List<CelestialBody> { null, null, null };
+            Assert.Null(ParsekFlightGhostPositioner.FindFirstMatching(
+                bodies, "Kerbin", ParsekFlightGhostPositioner.LiveBodyBodyNameMatches));
+            Assert.Null(ParsekFlightGhostPositioner.FindFirstMatching(
+                bodies, null, ParsekFlightGhostPositioner.LiveBodyBodyNameMatches));
+        }
+
+        [Fact]
+        public void TailLiftTerminalBodyNameMatches_SkipsNullEntries()
+        {
+            var bodies = new List<CelestialBody> { null, null, null };
+            Assert.Null(ParsekFlightGhostPositioner.FindFirstMatching(
+                bodies, "Kerbin", ParsekFlightGhostPositioner.TailLiftTerminalBodyNameMatches));
+            Assert.Null(ParsekFlightGhostPositioner.FindFirstMatching(
+                bodies, null, ParsekFlightGhostPositioner.TailLiftTerminalBodyNameMatches));
+        }
+
+        [Fact]
+        public void MatcherDelegates_AreThreeDistinctDelegates()
+        {
+            Assert.NotNull(ParsekFlightGhostPositioner.BodyNameMatches);
+            Assert.NotNull(ParsekFlightGhostPositioner.LiveBodyBodyNameMatches);
+            Assert.NotNull(ParsekFlightGhostPositioner.TailLiftTerminalBodyNameMatches);
+            Assert.NotSame(ParsekFlightGhostPositioner.BodyNameMatches,
+                ParsekFlightGhostPositioner.LiveBodyBodyNameMatches);
+            Assert.NotSame(ParsekFlightGhostPositioner.LiveBodyBodyNameMatches,
+                ParsekFlightGhostPositioner.TailLiftTerminalBodyNameMatches);
+        }
     }
 }
