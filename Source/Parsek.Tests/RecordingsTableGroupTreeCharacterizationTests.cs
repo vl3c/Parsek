@@ -490,10 +490,11 @@ namespace Parsek.Tests
                     click("afterDouble", true, 10.3f);
                     // Outside the threshold: a plain toggle.
                     click("slow", false, 10.7f);
-                    // Exactly at the threshold: not a double-click.
+                    // Exactly at the threshold: not a double-click. 0.8f - 0.5f is exactly 0.3f
+                    // in float (20.3f - 20f would be 0.2999992f, under the threshold).
                     Set(ui, "lastClickedGroup", "G");
-                    Set(ui, "lastGroupClickTime", 20f);
-                    click("atThreshold", true, 20.3f);
+                    Set(ui, "lastGroupClickTime", 0.5f);
+                    click("atThreshold", true, 0.8f);
                     // A click on another folder's header is never a double-click.
                     Set(ui, "lastClickedGroup", "H");
                     Set(ui, "lastGroupClickTime", 30f);
@@ -724,7 +725,8 @@ namespace Parsek.Tests
                 + "  log [Parsek][VERBOSE][UI] Group 'G' collapsed (7 recordings)\n"
                 + "slow -> T renamingGroup=G text=G focused=F renamingRec=<null> rect=0,0,0,0 lastClicked=G lastTime=10.7 expanded=[G] groups=a:Other\n"
                 + "  log [Parsek][VERBOSE][UI] Group 'G' expanded (7 recordings)\n"
-                + "atThreshold -> T renamingGroup=G text=G focused=F renamingRec=<null> rect=0,0,0,0 lastClicked=<null> lastTime=20 expanded=[G] groups=a:Other\n"
+                + "atThreshold -> F renamingGroup=G text=G focused=F renamingRec=<null> rect=0,0,0,0 lastClicked=G lastTime=0.8 expanded=[] groups=a:Other\n"
+                + "  log [Parsek][VERBOSE][UI] Group 'G' collapsed (7 recordings)\n"
                 + "otherGroup -> T renamingGroup=G text=G focused=F renamingRec=<null> rect=0,0,0,0 lastClicked=G lastTime=30.1 expanded=[G] groups=a:Other\n"
                 + "  log [Parsek][VERBOSE][UI] Group 'G' expanded (7 recordings)\n"
                 + "doubleWithLiveRenames -> T renamingGroup=G text=G focused=F renamingRec=<null> rect=0,0,0,0 lastClicked=<null> lastTime=40 expanded=[G] groups=a:Renamed\n"

@@ -154,6 +154,23 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[UI]") && l.Contains("Group 'G' collapsed (1 recordings)"));
         }
 
+        // The double-click window is open below the threshold: a click exactly 0.3f after the
+        // last one is a plain toggle. 0.8f - 0.5f is exactly 0.3f in float.
+        [Fact]
+        public void HeaderClick_ClickExactlyAtTheThresholdIsNotADoubleClick()
+        {
+            Assert.Equal(0.3f, 0.8f - 0.5f);
+            C.Commit(C.MakeRec("a", "A"));
+            var ui = C.MakeTable();
+
+            bool expanded = false;
+            ui.HandleGroupHeaderClick("G", C.Committed, ref expanded, 1, 0.5f);
+            ui.HandleGroupHeaderClick("G", C.Committed, ref expanded, 1, 0.8f);
+
+            Assert.False(expanded);
+            Assert.Null(ui.RenamingGroupForTesting);
+        }
+
         [Fact]
         public void RenameKeys_EscapeCancelsWithoutRenaming()
         {
