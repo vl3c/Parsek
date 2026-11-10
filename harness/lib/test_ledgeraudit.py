@@ -1630,7 +1630,7 @@ class SourceSyncTests(unittest.TestCase):
 
     def test_guid_unknown_and_owned(self):
         self.assertIn('reason={(identity.HasLaunchGuid ? "no-recording-carries-launch-guid" : '
-                      '"live-launch-guid-unknown")}', _src(la.SRC_ORCHESTRATOR))
+                      '"live-launch-guid-unknown")}', _src(la.SRC_RECOVERY_PICKER))
         self.assertIn('$"is already owned at ut={action.UT.ToString("R", IC)} " +',
                       _src(la.SRC_FUNDS))
 
