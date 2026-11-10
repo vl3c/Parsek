@@ -116,44 +116,24 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 Recording other = recordings[i];
-                if (other == null || ReferenceEquals(other, holder))
-                    continue;
-                if (!string.IsNullOrEmpty(holder.RecordingId)
-                    && string.Equals(other.RecordingId, holder.RecordingId, StringComparison.Ordinal))
+                if (IsHolderOrNoCandidate(holder, other))
                     continue;
 
                 bool fliesAdoptedVessel = FliesTransferAdoptedVessel(other, recordings, transferMemberIds);
-                string reason = null;
-                if (!string.IsNullOrEmpty(supersededBy)
-                    && string.Equals(other.RecordingId, supersededBy, StringComparison.Ordinal))
+                string reason = ClassifyReproductionRoute(
+                    holder, other, pid, uniqueSpawnPid, supersededBy, fliesAdoptedVessel,
+                    out bool adoptedContinuation);
+                if (adoptedContinuation)
                 {
-                    if (fliesAdoptedVessel)
-                    {
-                        if (!RecordingStore.SuppressLogging)
-                            ParsekLog.Verbose("Rewind",
-                                string.Format(CultureInfo.InvariantCulture,
-                                    "Rewind strip scope: spawned pid={0} of '{1}' (id={2}) is not re-produced by " +
-                                    "its superseding continuation '{3}': it flies the vessel its tree adopted by " +
-                                    "inventory transfer, so its replay ghosts the real vessel",
-                                    pid, holder.VesselName ?? "<unnamed>",
-                                    holder.RecordingId ?? "<no-id>", other.RecordingId ?? "<no-id>"));
-                        continue;
-                    }
-                    reason = "superseding-continuation-replays";
-                }
-                else if (!string.IsNullOrEmpty(holder.ChainId)
-                    && string.Equals(other.ChainId, holder.ChainId, StringComparison.Ordinal)
-                    && string.Equals(other.TreeId, holder.TreeId, StringComparison.Ordinal))
-                {
-                    reason = "chain-member-replays";
-                }
-                else if (other.VesselPersistentId == pid
-                    && !fliesAdoptedVessel
-                    && (uniqueSpawnPid
-                        || !VesselLaunchIdentity.GuidsConclusivelyDiffer(
-                            other.RecordedVesselGuid, holder.RecordedVesselGuid)))
-                {
-                    reason = "same-vessel-recording-replays";
+                    if (!RecordingStore.SuppressLogging)
+                        ParsekLog.Verbose("Rewind",
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Rewind strip scope: spawned pid={0} of '{1}' (id={2}) is not re-produced by " +
+                                "its superseding continuation '{3}': it flies the vessel its tree adopted by " +
+                                "inventory transfer, so its replay ghosts the real vessel",
+                                pid, holder.VesselName ?? "<unnamed>",
+                                holder.RecordingId ?? "<no-id>", other.RecordingId ?? "<no-id>"));
+                    continue;
                 }
 
                 if (reason == null)
@@ -166,6 +146,61 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="other"/> is no reproduction candidate for
+        /// <paramref name="holder"/>: null, the holder itself, or a recording carrying the
+        /// holder's (non-empty) id.
+        /// </summary>
+        internal static bool IsHolderOrNoCandidate(Recording holder, Recording other)
+        {
+            if (other == null || ReferenceEquals(other, holder))
+                return true;
+            return !string.IsNullOrEmpty(holder.RecordingId)
+                && string.Equals(other.RecordingId, holder.RecordingId, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The route by which <paramref name="other"/>, if it replays, would re-produce the
+        /// vessel <paramref name="holder"/> spawned (pid <paramref name="pid"/>): the holder's
+        /// superseding continuation, a member of its chain in the same tree, or a recording
+        /// flying the same vessel (by pid alone for a unique spawn pid, else unless the launch
+        /// guids conclusively differ; never one flying a transfer-adopted vessel). Null when no
+        /// route applies. <paramref name="adoptedContinuation"/> is true (and the route null)
+        /// when <paramref name="other"/> is the superseding continuation but flies a
+        /// transfer-adopted vessel.
+        /// </summary>
+        internal static string ClassifyReproductionRoute(
+            Recording holder, Recording other, uint pid, bool uniqueSpawnPid,
+            string supersededBy, bool fliesAdoptedVessel, out bool adoptedContinuation)
+        {
+            adoptedContinuation = false;
+            if (!string.IsNullOrEmpty(supersededBy)
+                && string.Equals(other.RecordingId, supersededBy, StringComparison.Ordinal))
+            {
+                if (fliesAdoptedVessel)
+                {
+                    adoptedContinuation = true;
+                    return null;
+                }
+                return "superseding-continuation-replays";
+            }
+            if (!string.IsNullOrEmpty(holder.ChainId)
+                && string.Equals(other.ChainId, holder.ChainId, StringComparison.Ordinal)
+                && string.Equals(other.TreeId, holder.TreeId, StringComparison.Ordinal))
+            {
+                return "chain-member-replays";
+            }
+            if (other.VesselPersistentId == pid
+                && !fliesAdoptedVessel
+                && (uniqueSpawnPid
+                    || !VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                        other.RecordedVesselGuid, holder.RecordedVesselGuid)))
+            {
+                return "same-vessel-recording-replays";
+            }
+            return null;
         }
 
         /// <summary>
@@ -225,6 +260,25 @@ namespace Parsek
                 }
             }
 
+            RecordKeptHolders(scope, keptHolders, adjustedUT);
+
+            if (!RecordingStore.SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Rewind strip scope: adjustedUT={0} stripPids={1} keptHistoryPids={2} keptHolders={3} foreignAdoptedPids={4}",
+                        adjustedUT.ToString("F1", CultureInfo.InvariantCulture),
+                        scope.StripPids.Count, scope.KeptPids.Count, scope.KeptHolderRecordingIds.Count,
+                        scope.ForeignAdoptedPids.Count));
+            return scope;
+        }
+
+        /// <summary>
+        /// Records the holders no replay re-produces as committed history: their pids (unless
+        /// another holder of the same pid is stripped) and their ids, one log line each.
+        /// </summary>
+        internal static void RecordKeptHolders(
+            RewindSpawnStripScope scope, List<Recording> keptHolders, double adjustedUT)
+        {
             for (int i = 0; i < keptHolders.Count; i++)
             {
                 Recording holder = keptHolders[i];
@@ -245,18 +299,9 @@ namespace Parsek
                             holder.RecordingId ?? "<no-id>",
                             adjustedUT.ToString("F1", CultureInfo.InvariantCulture)));
             }
-
-            if (!RecordingStore.SuppressLogging)
-                ParsekLog.Info("Rewind",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Rewind strip scope: adjustedUT={0} stripPids={1} keptHistoryPids={2} keptHolders={3} foreignAdoptedPids={4}",
-                        adjustedUT.ToString("F1", CultureInfo.InvariantCulture),
-                        scope.StripPids.Count, scope.KeptPids.Count, scope.KeptHolderRecordingIds.Count,
-                        scope.ForeignAdoptedPids.Count));
-            return scope;
         }
 
-        private static bool IsTransferMemberId(Recording rec, ICollection<string> transferMemberIds)
+        internal static bool IsTransferMemberId(Recording rec, ICollection<string> transferMemberIds)
         {
             return rec != null && transferMemberIds != null
                 && !string.IsNullOrEmpty(rec.RecordingId)

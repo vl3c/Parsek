@@ -1,0 +1,92 @@
+C:RecorderStateLog.RecState
+S:"HandleRewindOnLoad:entry"
+C:CaptureScenarioRecorderState
+C:ParsekLog.Info
+S:"Rewind"
+S:$"OnLoad: rewind detected, skipping .sfs recording/crew load "
+S:$"(using {recordings.Count} in-memory recordings)"
+C:ClearActiveReFlyMarkerForPlainRewind
+C:MilestoneStore.RestoreMutableState
+C:RewindLauncher.CollectSpawnedVesselInfo
+A:RewindLauncher.PendingCleanupPids
+A:allRecordingNames
+C:RecordingStore.CollectAllRecordingVesselNames
+A:RewindLauncher.PendingCleanupNames
+C:ParsekLog.Info
+S:"Rewind"
+S:$"OnLoad: rewind cleanup data set — "
+S:$"{rewindSpawnedPids.Count} pid(s), {allRecordingNames.Count} name(s)"
+C:RewindLauncher.ResetAllPlaybackState
+C:ParsekLog.Info
+S:"Rewind"
+S:$"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees"
+A:protectedCount
+C:MarkRewoundTreeRecordingsAsGhostOnly
+C:ParsekLog.Info
+S:"Rewind"
+S:$"OnLoad: SpawnSuppressedByRewind scope evaluated — "
+S:$"protectedActiveSource={protectedCount}; same-tree future recordings remain spawn-eligible (#573/#589)"
+A:flightState
+A:allCommitted
+C:RecordingStore.CollectAllCommittedRecordings
+A:stripCandidates
+C:ForeignInventoryTransfer.ExcludeForeignAdoptions
+C:ForeignInventoryTransfer.CollectForeignAdoptedVesselMemberRecordingIds
+C:ParsekLog.Info
+S:"Rewind"
+S:$"OnLoad strip: {foreignAdoptionsExcluded} recording(s) of foreign vessels adopted "
+S:"by inventory transfer or a board / dock left out of the launch-identity match"
+C:StripOrphanedSpawnedVessels
+C:RewindLauncher.ClearPendingCleanupAfterRewindStrip
+A:quicksavePids
+A:fs
+A:prelaunchStripped
+C:StripFuturePrelaunchVessels
+C:ParsekLog.Info
+S:"Rewind"
+S:$"Stripped {prelaunchStripped} future vessel(s) not in quicksave whitelist"
+C:RewindContext.SetQuicksaveVesselPids
+C:ApplyRewindVesselHolds
+C:LedgerHeldWindow.SetAtRewind
+A:fsReconcile
+C:ReconcileSpawnStateAfterStrip
+C:CollectSurvivingVesselIdentities
+C:CrewReservationManager.RescueOrphanedCrew
+A:RecordingStore.RewindUTAdjustmentPending
+A:RecordingStore.RewindUTAdjustmentTargetUT
+C:RewindContext.BeginRewindResourceAdjustment
+C:StartCoroutine
+C:ApplyRewindResourceAdjustment
+C:ParsekLog.Info
+S:"Rewind"
+S:"OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)"
+C:Logistics.RouteLoadReconcile.ReconcileAtGoBackRewind
+C:Logistics.RouteEventLog.LogWalkSummary
+A:rewindCareerCutoffUT
+C:LedgerHeldWindow.ResolveRewindCutoffUT
+C:ParsekLog.Info
+S:"Rewind"
+S:"OnLoad: career cutoff UT "
+C:rewindCareerCutoffUT.ToString
+S:"R"
+S:" (woundBackClock="
+C:RewindContext.RewindAdjustedUT.ToString
+S:"R"
+S:" rewindSaveUT="
+C:RewindContext.RewindSaveOwnClockUT.ToString
+S:"R"
+S:") for the baseline prune and the career walk"
+C:GameStateStore.PruneBaselinesAfterUT
+C:LedgerOrchestrator.RecalculateAndPatch
+C:ParsekLog.Info
+S:"Rewind"
+S:$"OnLoad: rewind complete at UT {RewindContext.RewindUT}. "
+S:$"Timeline: {recordings.Count} recordings"
+C:LedgerOrchestrator.FlushStalePendingRecoveryFunds
+S:"rewind end"
+C:RecoveryPayoutContextStore.Clear
+S:"rewind end"
+C:RewindContext.EndRewind
+C:RecorderStateLog.RecState
+S:"HandleRewindOnLoad:exit"
+C:CaptureScenarioRecorderState
