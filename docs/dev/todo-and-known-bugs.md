@@ -1603,7 +1603,13 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   `FinishPartEventWalk` (cursor, audio cap, aggregate and per-family lines) and
   `RefreshGhostAfterPartVisibilityChange`. Pinned first by `PartEventApplyCharacterizationTests`,
   which runs the original past its ghost guard on a GameObject Unity's managed null check reads
-  as alive; the arms that reach a native call are recorded as refusals.
+  as alive; the arms that reach a native call are recorded as refusals. Second PR:
+  `ComputeSpanLoopFrame` (410 -> 236 lines) calls `ResolveSpanLoopLaunchAdvances` (raw, capped
+  and boundary-overlap advance, once for cycle N and once for N+1), `ResolveSpanLoopHoldsAndSlack`
+  (cut, compressed span, per-loop hold, slack and hold clamp) and `LogSpanLoopLaunchAdvance` (the
+  launch-hold diagnostics, still behind the host's `launchHoldEngaged` gate). A new golden pins a
+  region-B flip with the boundary overlap engaged; the capped WARN is not reachable through the
+  frame (the boundary-overlap advance returns the raw delta whenever it is positive).
 - Wave 2 W9b (2026-11-08, this branch, S1 extract-method): the 200-line
   `FlightRecorder.RestoreTrackSectionAfterFalseAlarm` calls four extracted units: the
   resume-anchor validation, the Relative-to-Absolute boundary repair, the start-UT alignment
