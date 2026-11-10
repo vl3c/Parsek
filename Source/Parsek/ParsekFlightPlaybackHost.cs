@@ -1609,7 +1609,7 @@ namespace Parsek
                 $"activeVessel={(FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.vesselName : "(none)")}");
         }
 
-        private bool IsChainSeamSuccessorAtFrame(Recording rec, double currentUT)
+        internal bool IsChainSeamSuccessorAtFrame(Recording rec, double currentUT)
         {
             // Cheap call-site early-outs for the standalone-recording majority. GetChainPredecessorIndex
             // performs the same checks before its O(N) scan, but the function call itself is the cost
@@ -2637,7 +2637,7 @@ namespace Parsek
         private bool ShouldLoopPlayback(Recording rec) => GhostPlaybackEngine.ShouldLoopPlayback(rec);
 
         // IsActiveTreeRecording stays in ParsekFlight (reads RecordingStore.CommittedTrees)
-        private bool IsActiveTreeRecording(Recording rec)
+        internal bool IsActiveTreeRecording(Recording rec)
         {
             if (!rec.IsTreeRecording) return false;
             var trees = RecordingStore.CommittedTrees;
@@ -2730,7 +2730,9 @@ namespace Parsek
             double phaseOffset;
             if (recIdx >= 0 && host.engine.loopPhaseOffsets.TryGetValue(recIdx, out phaseOffset))
             {
-                ParsekLog.Verbose("Engine", $"TryComputeLoopPlaybackUT: applying phase offset {phaseOffset:F2}s for recIdx={recIdx}");
+                ParsekLog.Verbose("Engine", "TryComputeLoopPlaybackUT: applying phase offset " +
+                    phaseOffset.ToString("F2", CultureInfo.InvariantCulture) + "s for recIdx=" +
+                    recIdx.ToString(CultureInfo.InvariantCulture));
                 scheduleStartUT -= phaseOffset;
             }
 
@@ -2808,7 +2810,7 @@ namespace Parsek
             host.watchMode.OnOverlapGhostsDestroyed(recIdx);
         }
 
-        private readonly Dictionary<uint, ParsekFlight.ClaimedVesselHoldGhostState> claimedVesselHoldGhosts =
+        internal readonly Dictionary<uint, ParsekFlight.ClaimedVesselHoldGhostState> claimedVesselHoldGhosts =
             new Dictionary<uint, ParsekFlight.ClaimedVesselHoldGhostState>();
 
         private readonly List<uint> claimedVesselHoldGhostReleaseScratch = new List<uint>();
@@ -3028,7 +3030,7 @@ namespace Parsek
         }
 
         /// <summary>The FLIGHTSTATE of the rewind point's quicksave, or null when it cannot be read.</summary>
-        private static ConfigNode ReadRewindPointFlightState(ParsekScenario scenario, string rewindPointId)
+        internal static ConfigNode ReadRewindPointFlightState(ParsekScenario scenario, string rewindPointId)
         {
             if (scenario.RewindPoints == null || string.IsNullOrEmpty(rewindPointId)) return null;
             RewindPoint rp = null;
@@ -3081,7 +3083,7 @@ namespace Parsek
         /// the vessel takes over), when a recording of the same launch is already drawing it,
         /// or when the chain goes away.
         /// </summary>
-        private void UpdateClaimedVesselHoldGhosts(double currentUT)
+        internal void UpdateClaimedVesselHoldGhosts(double currentUT)
         {
             if (claimedVesselHoldGhosts.Count == 0
                 && host.reFlyInvokeHolds.Count == 0
@@ -3175,7 +3177,7 @@ namespace Parsek
         }
 
         /// <summary>Names why a shown hold ghost is no longer wanted (for its release line).</summary>
-        private string ResolveHoldReleaseReason(uint pid, double currentUT)
+        internal string ResolveHoldReleaseReason(uint pid, double currentUT)
         {
             if (host.activeGhostChains != null)
             {
@@ -3203,7 +3205,7 @@ namespace Parsek
             return "chain-inactive";
         }
 
-        private static string DecideReFlyInvokeHoldHideReason(
+        internal static string DecideReFlyInvokeHoldHideReason(
             ChainClaimedVessel claim, double currentUT, IReadOnlyList<Recording> ers)
         {
             return ClaimedVesselHoldGhost.DecideHideReason(
@@ -3377,7 +3379,7 @@ namespace Parsek
 
         private const float BlockedChainTipGhostPositionLogIntervalSeconds = 5f;
 
-        private readonly Dictionary<uint, ParsekFlight.BlockedChainTipGhostState> blockedChainTipGhosts =
+        internal readonly Dictionary<uint, ParsekFlight.BlockedChainTipGhostState> blockedChainTipGhosts =
             new Dictionary<uint, ParsekFlight.BlockedChainTipGhostState>();
 
         private readonly List<uint> blockedChainTipGhostReleaseScratch = new List<uint>();
@@ -3434,7 +3436,7 @@ namespace Parsek
                 PositionBlockedChainTipGhost(kvp.Value, currentUT);
         }
 
-        private void ReleaseStaleBlockedChainTipGhosts(IReadOnlyList<Recording> committed, double currentUT)
+        internal void ReleaseStaleBlockedChainTipGhosts(IReadOnlyList<Recording> committed, double currentUT)
         {
             if (blockedChainTipGhosts.Count == 0)
                 return;
@@ -3483,7 +3485,7 @@ namespace Parsek
             blockedChainTipGhostReleaseScratch.Clear();
         }
 
-        private void CaptureBlockedChainTipGhosts(IReadOnlyList<Recording> committed, double currentUT)
+        internal void CaptureBlockedChainTipGhosts(IReadOnlyList<Recording> committed, double currentUT)
         {
             if (committed == null || host.activeGhostChains == null || host.activeGhostChains.Count == 0
                 || host.engine == null)
