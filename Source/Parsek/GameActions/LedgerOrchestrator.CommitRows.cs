@@ -634,32 +634,8 @@ namespace Parsek
                         out GameStateEvent pairedRecoveryEvent,
                         out string pairedDedupKey))
                 {
-                    double pairedRecoveryAmount =
-                        pairedRecoveryEvent.valueAfter - pairedRecoveryEvent.valueBefore;
-                    if (pairedRecoveryAmount > 0)
-                    {
-                        result.Add(new GameAction
-                        {
-                            UT = pairedRecoveryEvent.ut,
-                            Type = GameActionType.FundsEarning,
-                            RecordingId = recordingId,
-                            FundsAwarded = (float)pairedRecoveryAmount,
-                            FundsSource = FundsEarningSource.Recovery,
-                            DedupKey = pairedDedupKey
-                        });
-
-                        ParsekLog.Verbose(Tag,
-                            $"CreateVesselCostActions: paired recovery funds={pairedRecoveryAmount:F0} " +
-                            $"(before={pairedRecoveryEvent.valueBefore:F0}, after={pairedRecoveryEvent.valueAfter:F0}) " +
-                            $"for '{recordingId}'");
-                    }
-                    else
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"CreateVesselCostActions: paired recovery event for '{recordingId}' " +
-                            $"at ut={pairedRecoveryEvent.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                            $"has non-positive delta {pairedRecoveryAmount.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
-                    }
+                    AddPairedRecoveryFundsAction(
+                        result, recordingId, pairedRecoveryEvent, pairedDedupKey);
                 }
                 else if (InFlightRecoveryRequest.IsAwaitingStockPayout(recordingId))
                 {
@@ -675,28 +651,78 @@ namespace Parsek
                 }
                 else if (rec.Points.Count >= 2)
                 {
-                    double lastFunds = rec.Points[rec.Points.Count - 1].funds;
-                    double penultimateFunds = rec.Points[rec.Points.Count - 2].funds;
-                    double recoveryAmount = lastFunds - penultimateFunds;
-
-                    if (recoveryAmount > 0)
-                    {
-                        result.Add(new GameAction
-                        {
-                            UT = endUT,
-                            Type = GameActionType.FundsEarning,
-                            RecordingId = recordingId,
-                            FundsAwarded = (float)recoveryAmount,
-                            FundsSource = FundsEarningSource.Recovery
-                        });
-
-                        ParsekLog.Verbose(Tag,
-                            $"CreateVesselCostActions: recovery funds={recoveryAmount:F0} " +
-                            $"(last={lastFunds:F0}, penultimate={penultimateFunds:F0}) for '{recordingId}'");
-                    }
+                    AddHeuristicRecoveryFundsAction(result, recordingId, endUT, rec);
                 }
             }
             return readsAwaitingPayout;
+        }
+
+        /// <summary>
+        /// <see cref="AddVesselRecoveryCostActions"/>'s paired-event branch: a positive
+        /// funds delta on the paired <c>FundsChanged(VesselRecovery)</c> event adds a
+        /// Recovery <see cref="GameActionType.FundsEarning"/> row at the event's UT, keyed
+        /// by its dedup key; a non-positive one is logged and skipped.
+        /// </summary>
+        internal static void AddPairedRecoveryFundsAction(
+            List<GameAction> result, string recordingId,
+            GameStateEvent pairedRecoveryEvent, string pairedDedupKey)
+        {
+            double pairedRecoveryAmount =
+                pairedRecoveryEvent.valueAfter - pairedRecoveryEvent.valueBefore;
+            if (pairedRecoveryAmount > 0)
+            {
+                result.Add(new GameAction
+                {
+                    UT = pairedRecoveryEvent.ut,
+                    Type = GameActionType.FundsEarning,
+                    RecordingId = recordingId,
+                    FundsAwarded = (float)pairedRecoveryAmount,
+                    FundsSource = FundsEarningSource.Recovery,
+                    DedupKey = pairedDedupKey
+                });
+
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: paired recovery funds={pairedRecoveryAmount:F0} " +
+                    $"(before={pairedRecoveryEvent.valueBefore:F0}, after={pairedRecoveryEvent.valueAfter:F0}) " +
+                    $"for '{recordingId}'");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: paired recovery event for '{recordingId}' " +
+                    $"at ut={pairedRecoveryEvent.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"has non-positive delta {pairedRecoveryAmount.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
+            }
+        }
+
+        /// <summary>
+        /// <see cref="AddVesselRecoveryCostActions"/>'s fallback: with no paired event and
+        /// no in-flight payout pending, a positive change between the recording's last two
+        /// points' funds adds a Recovery <see cref="GameActionType.FundsEarning"/> row at
+        /// <paramref name="endUT"/>. The caller has checked there are at least two points.
+        /// </summary>
+        internal static void AddHeuristicRecoveryFundsAction(
+            List<GameAction> result, string recordingId, double endUT, Recording rec)
+        {
+            double lastFunds = rec.Points[rec.Points.Count - 1].funds;
+            double penultimateFunds = rec.Points[rec.Points.Count - 2].funds;
+            double recoveryAmount = lastFunds - penultimateFunds;
+
+            if (recoveryAmount > 0)
+            {
+                result.Add(new GameAction
+                {
+                    UT = endUT,
+                    Type = GameActionType.FundsEarning,
+                    RecordingId = recordingId,
+                    FundsAwarded = (float)recoveryAmount,
+                    FundsSource = FundsEarningSource.Recovery
+                });
+
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: recovery funds={recoveryAmount:F0} " +
+                    $"(last={lastFunds:F0}, penultimate={penultimateFunds:F0}) for '{recordingId}'");
+            }
         }
 
         /// <summary>

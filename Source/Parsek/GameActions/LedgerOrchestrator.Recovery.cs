@@ -102,31 +102,13 @@ namespace Parsek
             var ambiguity = RecoveryPickAmbiguity.Evaluate(picked.Survivors, picked.Tier);
             if (ambiguity.IsAmbiguous)
             {
-                ParsekLog.Info(Tag,
-                    $"Recovery kerbal XP refused: {identity.FormatForLog()} ut={utText} " +
-                    $"kerbals={countText} reason={RecoveryPickAmbiguity.AmbiguousReason} " +
-                    $"survivors={ambiguity.SurvivorCount.ToString(CultureInfo.InvariantCulture)} " +
-                    $"nameMatches={picked.NameMatchCount.ToString(CultureInfo.InvariantCulture)} " +
-                    $"guidDropped={picked.GuidDropped.ToString(CultureInfo.InvariantCulture)} " +
-                    $"tier={RecoveryPickAmbiguity.TierToken(ambiguity.Tier)} " +
-                    $"corroboration={RecoveryPickAmbiguity.CorroborationToken(ambiguity.Corroboration)} " +
-                    $"wouldHavePicked={recordingId} " +
-                    $"survivorIds={RecoveryPickAmbiguity.FormatSurvivorIds(picked.Survivors)}");
+                LogRecoveryXpAmbiguousRefusal(
+                    identity, utText, countText, ambiguity, picked, recordingId);
                 return 0;
             }
 
-            var actions = new List<GameAction>(experienceEvents.Count);
-            int noAction = 0;
-            for (int i = 0; i < experienceEvents.Count; i++)
-            {
-                var action = GameStateEventConverter.ConvertEvent(experienceEvents[i], recordingId);
-                if (action == null)
-                {
-                    noAction++;
-                    continue;
-                }
-                actions.Add(action);
-            }
+            int noAction;
+            var actions = ConvertRecoveryExperienceEvents(experienceEvents, recordingId, out noAction);
 
             if (actions.Count == 0)
             {
@@ -152,6 +134,64 @@ namespace Parsek
 
             Ledger.AddActions(actions, LedgerRowWriter.StockApplied);
 
+            LogRecoveryXpRecorded(identity, utText, recordingId, actions, beforeDedup, noAction);
+
+            RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-kerbal-xp");
+            return beforeDedup;
+        }
+
+        /// <summary>
+        /// <see cref="TryRecordRecoveryKerbalExperience"/>'s ambiguous-pick refusal line
+        /// (<c>reason=ambiguous-recovery-recording</c>), naming the survivors, the tier and
+        /// the corroboration that left the pick undetermined.
+        /// </summary>
+        internal static void LogRecoveryXpAmbiguousRefusal(
+            RecoveredVesselIdentity identity, string utText, string countText,
+            RecoveryPickAmbiguityResult ambiguity, RecoveryPickResult picked, string recordingId)
+        {
+            ParsekLog.Info(Tag,
+                $"Recovery kerbal XP refused: {identity.FormatForLog()} ut={utText} " +
+                $"kerbals={countText} reason={RecoveryPickAmbiguity.AmbiguousReason} " +
+                $"survivors={ambiguity.SurvivorCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"nameMatches={picked.NameMatchCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"guidDropped={picked.GuidDropped.ToString(CultureInfo.InvariantCulture)} " +
+                $"tier={RecoveryPickAmbiguity.TierToken(ambiguity.Tier)} " +
+                $"corroboration={RecoveryPickAmbiguity.CorroborationToken(ambiguity.Corroboration)} " +
+                $"wouldHavePicked={recordingId} " +
+                $"survivorIds={RecoveryPickAmbiguity.FormatSurvivorIds(picked.Survivors)}");
+        }
+
+        /// <summary>
+        /// <see cref="TryRecordRecoveryKerbalExperience"/>'s conversion: each experience
+        /// event converted with the picked owner, in order; an event with no row equivalent is
+        /// counted in <paramref name="noAction"/> and skipped.
+        /// </summary>
+        internal static List<GameAction> ConvertRecoveryExperienceEvents(
+            IList<GameStateEvent> experienceEvents, string recordingId, out int noAction)
+        {
+            var actions = new List<GameAction>(experienceEvents.Count);
+            noAction = 0;
+            for (int i = 0; i < experienceEvents.Count; i++)
+            {
+                var action = GameStateEventConverter.ConvertEvent(experienceEvents[i], recordingId);
+                if (action == null)
+                {
+                    noAction++;
+                    continue;
+                }
+                actions.Add(action);
+            }
+            return actions;
+        }
+
+        /// <summary>
+        /// <see cref="TryRecordRecoveryKerbalExperience"/>'s recorded line: the rows written,
+        /// the rows the dedup dropped, the events with no row and the kerbal names.
+        /// </summary>
+        internal static void LogRecoveryXpRecorded(
+            RecoveredVesselIdentity identity, string utText, string recordingId,
+            List<GameAction> actions, int beforeDedup, int noAction)
+        {
             var names = new List<string>(actions.Count);
             for (int i = 0; i < actions.Count; i++)
                 names.Add(actions[i].KerbalName ?? "");
@@ -163,9 +203,6 @@ namespace Parsek
                 $"deduped={(beforeDedup - actions.Count).ToString(CultureInfo.InvariantCulture)} " +
                 $"noAction={noAction.ToString(CultureInfo.InvariantCulture)} " +
                 $"kerbals='{string.Join(",", names.ToArray())}'");
-
-            RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-kerbal-xp");
-            return beforeDedup;
         }
 
         /// <summary>
@@ -346,14 +383,7 @@ namespace Parsek
             for (int i = 0; i < owners.Count; i++)
             {
                 var owner = owners[i];
-                var row = new GameAction
-                {
-                    UT = ut,
-                    Type = GameActionType.VesselRecovered,
-                    RecordingId = owner.RecordingId,
-                    RecoveredVesselName = vesselName,
-                    RecoveredVesselPid = vesselPid,
-                };
+                var row = BuildVesselRecoveredRow(ut, owner, vesselName, vesselPid);
                 var single = DeduplicateAgainstLedger(new List<GameAction> { row });
                 if (single.Count == 0)
                 {
@@ -367,21 +397,60 @@ namespace Parsek
                 row.Sequence = AllocateKscSequence();
                 Ledger.AddAction(row, LedgerRowWriter.StockApplied);
                 written++;
-                ParsekLog.Info(Tag,
-                    $"Vessel recovered recorded: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
-                    $"recoveryUT={utText} recordingId={owner.RecordingId} " +
-                    $"terminal={(owner.TerminalStateValue.HasValue ? owner.TerminalStateValue.Value.ToString() : "<none>")} " +
-                    $"spawnedPid={owner.SpawnedVesselPersistentId.ToString(ic)}");
+                LogVesselRecoveredRecorded(vesselText, vesselPid, utText, owner, ic);
             }
 
-            ParsekLog.Info(Tag,
-                $"Vessel recovery rows: vessel='{vesselText}' pid={vesselPid.ToString(ic)} ut={utText} " +
-                $"owners={owners.Count.ToString(ic)} written={written.ToString(ic)} " +
-                $"deduped={deduped.ToString(ic)}");
+            LogVesselRecoveryRowsSummary(vesselText, vesselPid, utText, owners, written, deduped, ic);
 
             if (written > 0)
                 RecalculateAndPatchForLiveTimelineEvent(ut, "vessel-recovered");
             return written;
+        }
+
+        /// <summary>
+        /// <see cref="OnRealVesselRecovered"/>'s row: the
+        /// <see cref="GameActionType.VesselRecovered"/> action for one owner recording at the
+        /// recovery UT, naming the recovered vessel. Pure; the caller dedups, sequences and writes it.
+        /// </summary>
+        internal static GameAction BuildVesselRecoveredRow(
+            double ut, Recording owner, string vesselName, uint vesselPid)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.VesselRecovered,
+                RecordingId = owner.RecordingId,
+                RecoveredVesselName = vesselName,
+                RecoveredVesselPid = vesselPid,
+            };
+        }
+
+        /// <summary>
+        /// <see cref="OnRealVesselRecovered"/>'s per-row line: the row written for
+        /// <paramref name="owner"/>, with its terminal state and spawned pid.
+        /// </summary>
+        internal static void LogVesselRecoveredRecorded(
+            string vesselText, uint vesselPid, string utText, Recording owner, CultureInfo ic)
+        {
+            ParsekLog.Info(Tag,
+                $"Vessel recovered recorded: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
+                $"recoveryUT={utText} recordingId={owner.RecordingId} " +
+                $"terminal={(owner.TerminalStateValue.HasValue ? owner.TerminalStateValue.Value.ToString() : "<none>")} " +
+                $"spawnedPid={owner.SpawnedVesselPersistentId.ToString(ic)}");
+        }
+
+        /// <summary>
+        /// <see cref="OnRealVesselRecovered"/>'s summary line: the owners found and how many
+        /// rows were written and deduplicated.
+        /// </summary>
+        internal static void LogVesselRecoveryRowsSummary(
+            string vesselText, uint vesselPid, string utText, List<Recording> owners,
+            int written, int deduped, CultureInfo ic)
+        {
+            ParsekLog.Info(Tag,
+                $"Vessel recovery rows: vessel='{vesselText}' pid={vesselPid.ToString(ic)} ut={utText} " +
+                $"owners={owners.Count.ToString(ic)} written={written.ToString(ic)} " +
+                $"deduped={deduped.ToString(ic)}");
         }
 
         /// <summary>
