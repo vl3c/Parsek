@@ -92,6 +92,9 @@ namespace Parsek.Tests
         {
             AddRowAt(800.0);
             Assert.False(LedgerOrchestrator.DecideOnKspLoadCurrentUtCutoff(500.5, false, true));
+            Assert.Contains(logLines, l => l.EndsWith(
+                "useCurrentUtCutoff=False maxUT=500.5 featureSupportsCutoff=False currentUtReady=True " +
+                "hasFutureActions=True", StringComparison.Ordinal));
             Assert.False(LedgerOrchestrator.DecideOnKspLoadCurrentUtCutoff(0.0, true, false));
 
             Ledger.ResetForTesting();
