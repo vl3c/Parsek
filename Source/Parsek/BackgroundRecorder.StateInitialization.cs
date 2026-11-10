@@ -216,27 +216,7 @@ namespace Parsek
             bool hasInitialTrajectoryPoint = TryConsumePendingInitialTrajectoryPoint(vesselPid, out initialTrajectoryPoint);
             if (hasInitialTrajectoryPoint && initialTrajectoryPoint.ut > ut)
                 initialTrajectoryPoint.ut = ut;
-            SegmentEnvironment overrideEnv;
-            SegmentEnvironment initialEnv;
-            if (TryConsumePendingInitialEnvironmentOverride(vesselPid, out overrideEnv))
-            {
-                initialEnv = overrideEnv;
-                ParsekLog.Verbose("BgRecorder",
-                    $"InitializeLoadedState: consumed initial environment override for pid={vesselPid}: {initialEnv}");
-            }
-            else
-            {
-                bool hasAtmo = v.mainBody != null && v.mainBody.atmosphere;
-                double atmoDepth = hasAtmo ? v.mainBody.atmosphereDepth : 0;
-                double approachAlt = (!hasAtmo && v.mainBody != null)
-                    ? FlightRecorder.ComputeApproachAltitude(v.mainBody) : 0;
-                initialEnv = ClassifyBackgroundEnvironment(
-                    hasAtmo, v.altitude, atmoDepth,
-                    (int)v.situation, v.srfSpeed, state.cachedEngines, approachAlt,
-                    v.isEVA, v.heightFromTerrain,
-                    EnvironmentDetector.IsHeightFromTerrainValid(v.heightFromTerrain),
-                    v.mainBody != null && v.mainBody.ocean);
-            }
+            SegmentEnvironment initialEnv = ResolveLoadedInitialEnvironment(v, vesselPid, state);
             state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
 
             // PR 3b §"Initial seed point coordinate transform": when the recording
@@ -250,9 +230,7 @@ namespace Parsek
             // Resolve the recording: TrySeedLoadedPartEvents already provides
             // `treeRecForSeed` when `hasTreeRecording == true`; fall back to a tree
             // lookup when seeding was skipped (e.g. recording already had part events).
-            Recording treeRecForDebris = hasTreeRecording ? treeRecForSeed : null;
-            if (treeRecForDebris == null && tree?.Recordings != null && !string.IsNullOrEmpty(recordingId))
-                tree.Recordings.TryGetValue(recordingId, out treeRecForDebris);
+            Recording treeRecForDebris = ResolveDebrisSeedRecording(hasTreeRecording, treeRecForSeed, recordingId);
             bool debrisContractApplies = treeRecForDebris != null
                 && !string.IsNullOrEmpty(treeRecForDebris.ParentAnchorRecordingId)
                 && hasInitialTrajectoryPoint;
@@ -267,40 +245,23 @@ namespace Parsek
                     out Vessel parentVessel);
                 bool seedWithinRelativeRange = IsFinite(seedParentDistance)
                     && seedParentDistance <= DebrisHalfFidelityProximityRangeMeters;
-                state.debrisProximityDistanceMeters = seedParentDistance;
-                state.debrisProximityTier = ProximitySamplingCadence.Resolve(
-                    seedParentDistance,
-                    DebrisFullFidelityProximityRangeMeters,
-                    DebrisHalfFidelityProximityRangeMeters,
-                    out state.debrisProximityReason);
-                LogDebrisProximityTierTransition(
-                    state.vesselPid,
-                    treeRecForDebris,
-                    ProximitySamplingTier.None,
-                    state.debrisProximityTier,
-                    seedParentDistance,
-                    state.debrisProximityReason,
-                    "InitializeLoadedState");
+                SeedDebrisProximityTier(state, treeRecForDebris, seedParentDistance);
                 if (parentRec == null
                     || parentVessel == null
                     || !parentVessel.loaded
                     || parentVessel.packed
                     || !seedWithinRelativeRange)
                 {
-                    pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
-                    ParsekLog.Warn("BgRecorder",
-                        $"InitializeLoadedState: debris contract uses Absolute seed, " +
-                        $"falling back to Absolute seed: pid={vesselPid} recId={recordingId} " +
-                        $"parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
-                        $"parentRecResolved={parentRec != null} " +
-                        $"parentVesselResolved={parentVessel != null} " +
-                        $"parentVesselLoaded={parentVessel != null && parentVessel.loaded} " +
-                        $"parentVesselPacked={parentVessel != null && parentVessel.packed} " +
-                        $"parentDistance={seedParentDistance.ToString("F1", CultureInfo.InvariantCulture)}m " +
-                        $"relativeEntryRange={DebrisHalfFidelityProximityRangeMeters.ToString("F1", CultureInfo.InvariantCulture)}m " +
-                        $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)} " +
-                        $"seed={DescribeTrajectoryPointForDiagnostics(initialTrajectoryPoint)} " +
-                        $"{DescribeVesselRootForDiagnostics("child", v)}");
+                    FallBackToAbsoluteDebrisSeed(
+                        v,
+                        vesselPid,
+                        recordingId,
+                        treeRecForDebris,
+                        parentRec,
+                        parentVessel,
+                        seedParentDistance,
+                        ut,
+                        initialTrajectoryPoint);
                 }
                 else
                 {
@@ -329,53 +290,19 @@ namespace Parsek
                         isSameVesselLineage: false);
                     SetBackgroundCurrentAnchor(state, liveCandidate);
 
-                    AnchorPose seedAnchorPose = liveAnchorPose;
-                    string seedAnchorSource = "live-warn-fallback";
-                    string queuedSeedAnchorReason;
-                    RelativeAnchorResolveFailure recordedSeedAnchorFailure = default;
-                    string seedRecordedFallbackFrameContract = "unresolved";
-                    if (TryConsumePendingDebrisSeedParentAnchorPose(
-                            vesselPid,
-                            treeRecForDebris.ParentAnchorRecordingId,
-                            initialTrajectoryPoint.ut,
-                            out AnchorPose queuedSeedAnchorPose,
-                            out queuedSeedAnchorReason))
-                    {
-                        seedAnchorPose = queuedSeedAnchorPose;
-                        seedAnchorSource = "queued-parent-seed";
-                        ParsekLog.Verbose("BgRecorder",
-                            $"InitializeLoadedState: consumed queued debris seed parent anchor: " +
-                            $"pid={vesselPid} recId={recordingId} " +
-                            $"parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
-                            $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)}");
-                    }
-                    else if (TryResolveBackgroundRecordedAnchorPose(
-                            treeRecForDebris.ParentAnchorRecordingId,
-                            initialTrajectoryPoint.ut,
-                            out AnchorPose recordedSeedAnchorPose,
-                            out recordedSeedAnchorFailure))
-                    {
-                        seedAnchorPose = recordedSeedAnchorPose;
-                        seedAnchorSource = "recorded";
-                        seedRecordedFallbackFrameContract = ClassifyBackgroundRelativeFrameContract(
-                            treeRecForDebris.ParentAnchorRecordingId,
-                            seedAnchorSource,
-                            AnchorCandidateSource.Ghost,
-                            hasCurrentAnchorCandidate: false,
-                            hasPreReFlyAnchorSnapshot: HasActiveReFlyPreReFlyAnchorSnapshot(
-                                treeRecForDebris.ParentAnchorRecordingId));
-                    }
-                    else
-                    {
-                        ParsekLog.Warn("BgRecorder",
-                            $"InitializeLoadedState: debris seed recorded parent pose unavailable, " +
-                            $"falling back to live parent pose: pid={vesselPid} recId={recordingId} " +
-                            $"parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
-                            $"reason={RelativeAnchorResolveFailure.ReasonOrFallback(recordedSeedAnchorFailure, "unknown")} " +
-                            $"queuedReason={queuedSeedAnchorReason ?? "unknown"} " +
-                            $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
-                            $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)}");
-                    }
+                    AnchorPose seedAnchorPose;
+                    string seedAnchorSource;
+                    string seedRecordedFallbackFrameContract;
+                    ResolveDebrisSeedAnchorPose(
+                        vesselPid,
+                        recordingId,
+                        treeRecForDebris,
+                        initialTrajectoryPoint,
+                        ut,
+                        liveAnchorPose,
+                        out seedAnchorPose,
+                        out seedAnchorSource,
+                        out seedRecordedFallbackFrameContract);
 
                     StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Relative,
                         initialTrajectoryPoint.ut);
@@ -456,34 +383,30 @@ namespace Parsek
                             state, initialTrajectoryPoint, absoluteSeedPoint);
                     debrisSeedOpened = true;
 
-                    ParsekLog.Info("BgRecorder",
-                        $"Debris parent-anchor contract applied at seed: pid={vesselPid} " +
-                        $"recId={recordingId} parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
-                        $"parentPid={parentVessel.persistentId} " +
-                        $"frameContract={seedFrameContract} " +
-                        seedParentDriftField +
-                        $"seedAnchorSource={seedAnchorSource} seedFocusRecordingId={seedFocusRecordingId} " +
-                        $"seedRecordedFallbackFrameContract={seedRecordedFallbackFrameContract} " +
-                        $"seedUT={initialTrajectoryPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
-                        $"|offset|=(dx={initialTrajectoryPoint.latitude:F2},dy={initialTrajectoryPoint.longitude:F2},dz={initialTrajectoryPoint.altitude:F2})");
+                    LogDebrisSeedContractApplied(
+                        vesselPid,
+                        recordingId,
+                        treeRecForDebris,
+                        parentVessel,
+                        seedFrameContract,
+                        seedParentDriftField,
+                        seedAnchorSource,
+                        seedFocusRecordingId,
+                        seedRecordedFallbackFrameContract,
+                        initialTrajectoryPoint);
                 }
             }
 
             if (!debrisSeedOpened)
             {
-                StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute,
-                    hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut);
-                if (hasInitialTrajectoryPoint)
-                {
-                    ActivateBackgroundHighFidelitySampling(
-                        state,
-                        initialTrajectoryPoint.ut,
-                        "initial-trajectory-point");
-                    if (hasTreeRecording)
-                        ApplyInitialTrajectoryPoint(state, treeRecForSeed, initialTrajectoryPoint);
-                    else
-                        AppendFrameToCurrentTrackSection(state, initialTrajectoryPoint);
-                }
+                OpenAbsoluteInitialTrackSection(
+                    state,
+                    initialEnv,
+                    hasInitialTrajectoryPoint,
+                    initialTrajectoryPoint,
+                    ut,
+                    hasTreeRecording,
+                    treeRecForSeed);
             }
 
             ParsekLog.Verbose("BgRecorder", $"Loaded state initialized: pid={vesselPid} " +
@@ -491,6 +414,228 @@ namespace Parsek
                 $"robotics={state.cachedRoboticModules?.Count ?? 0} initialEnv={initialEnv}");
 
             loadedStates[vesselPid] = state;
+        }
+
+        /// <summary>
+        /// The environment a loaded background vessel's first section opens in: a queued
+        /// override (consumed) when one is pending, otherwise the live classification.
+        /// </summary>
+        private SegmentEnvironment ResolveLoadedInitialEnvironment(
+            Vessel v,
+            uint vesselPid,
+            BackgroundVesselState state)
+        {
+            SegmentEnvironment overrideEnv;
+            SegmentEnvironment initialEnv;
+            if (TryConsumePendingInitialEnvironmentOverride(vesselPid, out overrideEnv))
+            {
+                initialEnv = overrideEnv;
+                ParsekLog.Verbose("BgRecorder",
+                    $"InitializeLoadedState: consumed initial environment override for pid={vesselPid}: {initialEnv}");
+            }
+            else
+            {
+                bool hasAtmo = v.mainBody != null && v.mainBody.atmosphere;
+                double atmoDepth = hasAtmo ? v.mainBody.atmosphereDepth : 0;
+                double approachAlt = (!hasAtmo && v.mainBody != null)
+                    ? FlightRecorder.ComputeApproachAltitude(v.mainBody) : 0;
+                initialEnv = ClassifyBackgroundEnvironment(
+                    hasAtmo, v.altitude, atmoDepth,
+                    (int)v.situation, v.srfSpeed, state.cachedEngines, approachAlt,
+                    v.isEVA, v.heightFromTerrain,
+                    EnvironmentDetector.IsHeightFromTerrainValid(v.heightFromTerrain),
+                    v.mainBody != null && v.mainBody.ocean);
+            }
+            return initialEnv;
+        }
+
+        /// <summary>
+        /// The recording the debris parent-anchor contract reads: the part-event seed's
+        /// recording when seeding found it, else a tree lookup by id.
+        /// </summary>
+        private Recording ResolveDebrisSeedRecording(
+            bool hasTreeRecording,
+            Recording treeRecForSeed,
+            string recordingId)
+        {
+            Recording treeRecForDebris = hasTreeRecording ? treeRecForSeed : null;
+            if (treeRecForDebris == null && tree?.Recordings != null && !string.IsNullOrEmpty(recordingId))
+                tree.Recordings.TryGetValue(recordingId, out treeRecForDebris);
+            return treeRecForDebris;
+        }
+
+        /// <summary>
+        /// Seeds the debris proximity tier from the seed-time parent distance and logs the
+        /// transition from no tier.
+        /// </summary>
+        private static void SeedDebrisProximityTier(
+            BackgroundVesselState state,
+            Recording treeRecForDebris,
+            double seedParentDistance)
+        {
+            state.debrisProximityDistanceMeters = seedParentDistance;
+            state.debrisProximityTier = ProximitySamplingCadence.Resolve(
+                seedParentDistance,
+                DebrisFullFidelityProximityRangeMeters,
+                DebrisHalfFidelityProximityRangeMeters,
+                out state.debrisProximityReason);
+            LogDebrisProximityTierTransition(
+                state.vesselPid,
+                treeRecForDebris,
+                ProximitySamplingTier.None,
+                state.debrisProximityTier,
+                seedParentDistance,
+                state.debrisProximityReason,
+                "InitializeLoadedState");
+        }
+
+        /// <summary>
+        /// The debris contract cannot open Relative (no loaded, unpacked parent in relative
+        /// range): drops the queued parent seed pose and warns with the seed diagnostics.
+        /// </summary>
+        private void FallBackToAbsoluteDebrisSeed(
+            Vessel v,
+            uint vesselPid,
+            string recordingId,
+            Recording treeRecForDebris,
+            Recording parentRec,
+            Vessel parentVessel,
+            double seedParentDistance,
+            double ut,
+            TrajectoryPoint initialTrajectoryPoint)
+        {
+            pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
+            ParsekLog.Warn("BgRecorder",
+                $"InitializeLoadedState: debris contract uses Absolute seed, " +
+                $"falling back to Absolute seed: pid={vesselPid} recId={recordingId} " +
+                $"parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
+                $"parentRecResolved={parentRec != null} " +
+                $"parentVesselResolved={parentVessel != null} " +
+                $"parentVesselLoaded={parentVessel != null && parentVessel.loaded} " +
+                $"parentVesselPacked={parentVessel != null && parentVessel.packed} " +
+                $"parentDistance={seedParentDistance.ToString("F1", CultureInfo.InvariantCulture)}m " +
+                $"relativeEntryRange={DebrisHalfFidelityProximityRangeMeters.ToString("F1", CultureInfo.InvariantCulture)}m " +
+                $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"seed={DescribeTrajectoryPointForDiagnostics(initialTrajectoryPoint)} " +
+                $"{DescribeVesselRootForDiagnostics("child", v)}");
+        }
+
+        /// <summary>
+        /// The parent pose a debris seed is converted against: the queued split-time parent
+        /// pose, else the parent's recorded pose at the seed UT, else the live parent pose
+        /// (warned).
+        /// </summary>
+        private void ResolveDebrisSeedAnchorPose(
+            uint vesselPid,
+            string recordingId,
+            Recording treeRecForDebris,
+            TrajectoryPoint initialTrajectoryPoint,
+            double ut,
+            AnchorPose liveAnchorPose,
+            out AnchorPose seedAnchorPose,
+            out string seedAnchorSource,
+            out string seedRecordedFallbackFrameContract)
+        {
+            seedAnchorPose = liveAnchorPose;
+            seedAnchorSource = "live-warn-fallback";
+            string queuedSeedAnchorReason;
+            RelativeAnchorResolveFailure recordedSeedAnchorFailure = default;
+            seedRecordedFallbackFrameContract = "unresolved";
+            if (TryConsumePendingDebrisSeedParentAnchorPose(
+                    vesselPid,
+                    treeRecForDebris.ParentAnchorRecordingId,
+                    initialTrajectoryPoint.ut,
+                    out AnchorPose queuedSeedAnchorPose,
+                    out queuedSeedAnchorReason))
+            {
+                seedAnchorPose = queuedSeedAnchorPose;
+                seedAnchorSource = "queued-parent-seed";
+                ParsekLog.Verbose("BgRecorder",
+                    $"InitializeLoadedState: consumed queued debris seed parent anchor: " +
+                    $"pid={vesselPid} recId={recordingId} " +
+                    $"parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
+                    $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)}");
+            }
+            else if (TryResolveBackgroundRecordedAnchorPose(
+                    treeRecForDebris.ParentAnchorRecordingId,
+                    initialTrajectoryPoint.ut,
+                    out AnchorPose recordedSeedAnchorPose,
+                    out recordedSeedAnchorFailure))
+            {
+                seedAnchorPose = recordedSeedAnchorPose;
+                seedAnchorSource = "recorded";
+                seedRecordedFallbackFrameContract = ClassifyBackgroundRelativeFrameContract(
+                    treeRecForDebris.ParentAnchorRecordingId,
+                    seedAnchorSource,
+                    AnchorCandidateSource.Ghost,
+                    hasCurrentAnchorCandidate: false,
+                    hasPreReFlyAnchorSnapshot: HasActiveReFlyPreReFlyAnchorSnapshot(
+                        treeRecForDebris.ParentAnchorRecordingId));
+            }
+            else
+            {
+                ParsekLog.Warn("BgRecorder",
+                    $"InitializeLoadedState: debris seed recorded parent pose unavailable, " +
+                    $"falling back to live parent pose: pid={vesselPid} recId={recordingId} " +
+                    $"parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
+                    $"reason={RelativeAnchorResolveFailure.ReasonOrFallback(recordedSeedAnchorFailure, "unknown")} " +
+                    $"queuedReason={queuedSeedAnchorReason ?? "unknown"} " +
+                    $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)}");
+            }
+        }
+
+        /// <summary>The Info line of a debris seed opened Relative to its parent.</summary>
+        private static void LogDebrisSeedContractApplied(
+            uint vesselPid,
+            string recordingId,
+            Recording treeRecForDebris,
+            Vessel parentVessel,
+            string seedFrameContract,
+            string seedParentDriftField,
+            string seedAnchorSource,
+            string seedFocusRecordingId,
+            string seedRecordedFallbackFrameContract,
+            TrajectoryPoint initialTrajectoryPoint)
+        {
+            ParsekLog.Info("BgRecorder",
+                $"Debris parent-anchor contract applied at seed: pid={vesselPid} " +
+                $"recId={recordingId} parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
+                $"parentPid={parentVessel.persistentId} " +
+                $"frameContract={seedFrameContract} " +
+                seedParentDriftField +
+                $"seedAnchorSource={seedAnchorSource} seedFocusRecordingId={seedFocusRecordingId} " +
+                $"seedRecordedFallbackFrameContract={seedRecordedFallbackFrameContract} " +
+                $"seedUT={initialTrajectoryPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"|offset|=(dx={initialTrajectoryPoint.latitude:F2},dy={initialTrajectoryPoint.longitude:F2},dz={initialTrajectoryPoint.altitude:F2})");
+        }
+
+        /// <summary>
+        /// Opens the first section Absolute (no debris Relative seed): at the seed UT when a seed
+        /// is pending (which also opens the high-fidelity window and lands the seed), else now.
+        /// </summary>
+        private void OpenAbsoluteInitialTrackSection(
+            BackgroundVesselState state,
+            SegmentEnvironment initialEnv,
+            bool hasInitialTrajectoryPoint,
+            TrajectoryPoint initialTrajectoryPoint,
+            double ut,
+            bool hasTreeRecording,
+            Recording treeRecForSeed)
+        {
+            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute,
+                hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut);
+            if (hasInitialTrajectoryPoint)
+            {
+                ActivateBackgroundHighFidelitySampling(
+                    state,
+                    initialTrajectoryPoint.ut,
+                    "initial-trajectory-point");
+                if (hasTreeRecording)
+                    ApplyInitialTrajectoryPoint(state, treeRecForSeed, initialTrajectoryPoint);
+                else
+                    AppendFrameToCurrentTrackSection(state, initialTrajectoryPoint);
+            }
         }
 
         private void MergeInheritedLoadedEngineState(

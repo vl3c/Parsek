@@ -234,17 +234,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Triggers_NoRotationBaseline_AttitudeMatchesTheSharedPredicate()
+        public void Triggers_RotationBaselineFlagClear_AttitudeHolds()
         {
+            // The same 10 degree turn outside the floor that fires in
+            // Triggers_RotationPastThresholdOutsideFloor_AttitudeFires, but the state has no
+            // rotation baseline: the unit must pass the state's flag, so attitude holds.
             BackgroundRecorder bg = Recorder();
-            bg.ResolveBackgroundSampleTriggersForTesting(Pid, 10.5, new Vector3(0, 0, 100), Quaternion.identity,
+            bg.SetLoadedSampleBaselineForTesting(Pid, 10.0, new Vector3(0, 0, 100), Quaternion.identity,
+                hasWorldRotation: false);
+            Quaternion turned = new Quaternion(0f, 0.0871557f, 0f, 0.9961947f);
+            bg.ResolveBackgroundSampleTriggersForTesting(Pid, 10.5, new Vector3(0, 0, 100), turned,
                 false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
 
-            float floor = BackgroundRecorder.ResolveBackgroundAttitudeMinSampleInterval(false, 0.2f, 0.2f);
-            Assert.Equal(
-                FlightRecorder.ShouldRecordAttitudePoint(Quaternion.identity, default(Quaternion), 10.5, -1.0,
-                    false, floor, 1.0f),
-                attitude);
+            Assert.False(motion);
+            Assert.False(attitude);
         }
     }
 }

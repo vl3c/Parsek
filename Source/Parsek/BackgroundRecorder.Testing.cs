@@ -419,7 +419,8 @@ namespace Parsek
 
         /// <summary>For testing: sets the loaded state's last-sample baseline the triggers compare against.</summary>
         internal void SetLoadedSampleBaselineForTesting(
-            uint vesselPid, double ut, Vector3 velocity, Quaternion worldRotation)
+            uint vesselPid, double ut, Vector3 velocity, Quaternion worldRotation,
+            bool hasWorldRotation = true)
         {
             BackgroundVesselState state;
             if (!loadedStates.TryGetValue(vesselPid, out state))
@@ -427,7 +428,7 @@ namespace Parsek
             state.lastRecordedUT = ut;
             state.lastRecordedVelocity = velocity;
             state.lastWorldRotation = worldRotation;
-            state.hasLastWorldRotation = true;
+            state.hasLastWorldRotation = hasWorldRotation;
         }
 
         /// <summary>For testing: the motion and attitude triggers of one loaded tick.</summary>
@@ -459,6 +460,84 @@ namespace Parsek
                 out motionTriggered,
                 out attitudeTriggered);
         }
+
+        /// <summary>For testing: the initial environment a loaded state would open in (fresh state).</summary>
+        internal SegmentEnvironment ResolveLoadedInitialEnvironmentForTesting(Vessel v, uint vesselPid)
+        {
+            return ResolveLoadedInitialEnvironment(v, vesselPid, new BackgroundVesselState
+            {
+                vesselPid = vesselPid,
+            });
+        }
+
+        internal Recording ResolveDebrisSeedRecordingForTesting(
+            bool hasTreeRecording, Recording treeRecForSeed, string recordingId)
+        {
+            return ResolveDebrisSeedRecording(hasTreeRecording, treeRecForSeed, recordingId);
+        }
+
+        /// <summary>For testing: seeds the debris proximity tier of an injected loaded state.</summary>
+        internal void SeedDebrisProximityTierForTesting(uint vesselPid, Recording treeRecForDebris, double distance)
+        {
+            SeedDebrisProximityTier(loadedStates[vesselPid], treeRecForDebris, distance);
+        }
+
+        internal void GetDebrisProximityForTesting(
+            uint vesselPid, out ProximitySamplingTier tier, out double distance, out string reason)
+        {
+            BackgroundVesselState state = loadedStates[vesselPid];
+            tier = state.debrisProximityTier;
+            distance = state.debrisProximityDistanceMeters;
+            reason = state.debrisProximityReason;
+        }
+
+        internal bool HasPendingDebrisSeedParentAnchorPointForTesting(uint vesselPid) =>
+            pendingDebrisSeedParentAnchorPoints.ContainsKey(vesselPid);
+
+        internal void FallBackToAbsoluteDebrisSeedForTesting(
+            Vessel v, uint vesselPid, string recordingId, Recording treeRecForDebris, Recording parentRec,
+            Vessel parentVessel, double seedParentDistance, double ut, TrajectoryPoint initialTrajectoryPoint)
+        {
+            FallBackToAbsoluteDebrisSeed(v, vesselPid, recordingId, treeRecForDebris, parentRec, parentVessel,
+                seedParentDistance, ut, initialTrajectoryPoint);
+        }
+
+        internal void ResolveDebrisSeedAnchorPoseForTesting(
+            uint vesselPid, string recordingId, Recording treeRecForDebris, TrajectoryPoint initialTrajectoryPoint,
+            double ut, AnchorPose liveAnchorPose, out AnchorPose seedAnchorPose, out string seedAnchorSource,
+            out string seedRecordedFallbackFrameContract)
+        {
+            ResolveDebrisSeedAnchorPose(vesselPid, recordingId, treeRecForDebris, initialTrajectoryPoint, ut,
+                liveAnchorPose, out seedAnchorPose, out seedAnchorSource, out seedRecordedFallbackFrameContract);
+        }
+
+        internal static void LogDebrisSeedContractAppliedForTesting(
+            uint vesselPid, string recordingId, Recording treeRecForDebris, Vessel parentVessel,
+            string seedFrameContract, string seedParentDriftField, string seedAnchorSource,
+            string seedFocusRecordingId, string seedRecordedFallbackFrameContract,
+            TrajectoryPoint initialTrajectoryPoint)
+        {
+            LogDebrisSeedContractApplied(vesselPid, recordingId, treeRecForDebris, parentVessel, seedFrameContract,
+                seedParentDriftField, seedAnchorSource, seedFocusRecordingId, seedRecordedFallbackFrameContract,
+                initialTrajectoryPoint);
+        }
+
+        /// <summary>For testing: opens the first section Absolute on a fresh loaded state for the pid.</summary>
+        internal void OpenAbsoluteInitialTrackSectionForTesting(
+            uint vesselPid, string recordingId, SegmentEnvironment initialEnv, bool hasInitialTrajectoryPoint,
+            TrajectoryPoint initialTrajectoryPoint, double ut, bool hasTreeRecording, Recording treeRecForSeed)
+        {
+            var state = new BackgroundVesselState { vesselPid = vesselPid, recordingId = recordingId };
+            state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
+            OpenAbsoluteInitialTrackSection(state, initialEnv, hasInitialTrajectoryPoint, initialTrajectoryPoint,
+                ut, hasTreeRecording, treeRecForSeed);
+            loadedStates[vesselPid] = state;
+        }
+
+        internal double GetHighFidelitySamplingUntilUTForTesting(uint vesselPid) =>
+            loadedStates.TryGetValue(vesselPid, out BackgroundVesselState state)
+                ? state.highFidelitySamplingUntilUT
+                : double.NaN;
 
         /// <summary>For testing: the sampler's append of one sample (flat list + open section).</summary>
         internal void AppendLoadedSampleForTesting(uint vesselPid, TrajectoryPoint point)

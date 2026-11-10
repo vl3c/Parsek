@@ -1,0 +1,2778 @@
+=== I01 flying in atmosphere, nothing queued
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I02 above the atmosphere
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=ExoBallistic
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=ExoBallistic ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=ExoBallistic
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=ExoBallistic
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=ExoBallistic
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I03 airless body
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Approach
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Approach ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Approach
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Approach
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Approach
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I04 landed
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=SurfaceStationary
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=SurfaceStationary ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=SurfaceStationary
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=SurfaceStationary
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=SurfaceStationary
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I05 splashed on an ocean body
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=SurfaceMobile
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=SurfaceMobile ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=SurfaceMobile
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=SurfaceMobile
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=SurfaceMobile
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I06 EVA kerbal on the surface
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=SurfaceMobile
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=SurfaceMobile ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=SurfaceMobile
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=SurfaceMobile
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=SurfaceMobile
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I07 no main body
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=ExoBallistic
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=ExoBallistic ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=ExoBallistic
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=ExoBallistic
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=ExoBallistic
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I08 queued environment override
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: consumed initial environment override for pid=4201: SurfaceStationary
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=SurfaceStationary
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=SurfaceStationary ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=SurfaceStationary
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=SurfaceStationary
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=SurfaceStationary
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I09 seed point applied to the recording
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=299.50
+  log [Parsek][INFO][BgRecorder] High-fidelity sampling window active: pid=4201 reason=initial-trajectory-point eventUT=299.50 untilUT=302.50 windowSeconds=3.000 proximityRange=250.0m intervalPolicy=configured-min-sample-interval
+  log [Parsek][INFO][BgRecorder] Initial trajectory point seeded: pid=4201 ut=299.50 lat=-0.1000 lon=-74.5000 alt=1200 vel=(1.00,2.00,3.00) |vel|=3.74
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=1
+        - ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+      isBoundarySeam=False
+      maxAltitude=1200
+      minAltitude=1200
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=299.5
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=initial-trajectory-point
+    highFidelitySamplingUntilUT=302.5
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=299.5
+    lastRecordedVelocity=(1,2,3)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=1
+      - False
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=299.5 points=1 partEvents=0 sections=0 orbitSegments=0 filesDirty=True
+    pt[0] ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+=== I10 seed point after now is clamped
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][INFO][BgRecorder] High-fidelity sampling window active: pid=4201 reason=initial-trajectory-point eventUT=300.00 untilUT=303.00 windowSeconds=3.000 proximityRange=250.0m intervalPolicy=configured-min-sample-interval
+  log [Parsek][INFO][BgRecorder] Initial trajectory point seeded: pid=4201 ut=300.00 lat=-0.1000 lon=-74.5000 alt=1200 vel=(1.00,2.00,3.00) |vel|=3.74
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=1
+        - ut=300 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+      isBoundarySeam=False
+      maxAltitude=1200
+      minAltitude=1200
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=initial-trajectory-point
+    highFidelitySamplingUntilUT=303
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=300
+    lastRecordedVelocity=(1,2,3)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=1
+      - False
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=300 points=1 partEvents=0 sections=0 orbitSegments=0 filesDirty=True
+    pt[0] ut=300 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+=== I11 recording already has part events
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: skipping seed events for pid=4201 recId=bg-init-rec — recording already has 1 part event(s)
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=299.50
+  log [Parsek][INFO][BgRecorder] High-fidelity sampling window active: pid=4201 reason=initial-trajectory-point eventUT=299.50 untilUT=302.50 windowSeconds=3.000 proximityRange=250.0m intervalPolicy=configured-min-sample-interval
+  log [Parsek][INFO][BgRecorder] Initial trajectory point seeded: pid=4201 ut=299.50 lat=-0.1000 lon=-74.5000 alt=1200 vel=(1.00,2.00,3.00) |vel|=3.74
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=1
+        - ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+      isBoundarySeam=False
+      maxAltitude=1200
+      minAltitude=1200
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=299.5
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=initial-trajectory-point
+    highFidelitySamplingUntilUT=302.5
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=299.5
+    lastRecordedVelocity=(1,2,3)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=1
+      - False
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=299.5 points=1 partEvents=1 sections=0 orbitSegments=0 filesDirty=True
+    pt[0] ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+    ev[0] LightOn pid=77 ut=260
+=== I12 recording missing from the tree
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][WARN][BgRecorder] InitializeLoadedState: tree recording 'bg-init-missing' not found for pid=4201 — skipping seed events (upstream lifecycle bug)
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=299.50
+  log [Parsek][INFO][BgRecorder] High-fidelity sampling window active: pid=4201 reason=initial-trajectory-point eventUT=299.50 untilUT=302.50 windowSeconds=3.000 proximityRange=250.0m intervalPolicy=configured-min-sample-interval
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=1
+        - ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+      isBoundarySeam=False
+      maxAltitude=1200
+      minAltitude=1200
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=299.5
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=initial-trajectory-point
+    highFidelitySamplingUntilUT=302.5
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-missing
+    sectionFrameWarpFlags=count=1
+      - False
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I13 inherited engine state
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: inherited state for pid=4201: engines=1 rcs=0 childParts=0
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: 0 inherited keys merged for pid=4201 (no matching PIDs on child, or all already seeded)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I14 debris contract, parent vessel not loaded: Absolute fallback
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][WARN][BgRecorder] InitializeLoadedState: debris contract uses Absolute seed, falling back to Absolute seed: pid=4201 recId=bg-init-rec parentRecId=bg-init-parent parentRecResolved=False parentVesselResolved=False parentVesselLoaded=False parentVesselPacked=False parentDistance=NaNm relativeEntryRange=500.0m initUT=300.000 seed=ut=299.500 body=Kerbin lla=(-0.1000,-74.5000,1200.00) rot=(0.000,0.000,0.000,0.000) vel=(1.000,2.000,3.000) child=null
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=299.50
+  log [Parsek][INFO][BgRecorder] High-fidelity sampling window active: pid=4201 reason=initial-trajectory-point eventUT=299.50 untilUT=302.50 windowSeconds=3.000 proximityRange=250.0m intervalPolicy=configured-min-sample-interval
+  log [Parsek][INFO][BgRecorder] Initial trajectory point seeded: pid=4201 ut=299.50 lat=-0.1000 lon=-74.5000 alt=1200 vel=(1.00,2.00,3.00) |vel|=3.74
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=1
+        - ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+      isBoundarySeam=False
+      maxAltitude=1200
+      minAltitude=1200
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=299.5
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=distance-missing
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=initial-trajectory-point
+    highFidelitySamplingUntilUT=302.5
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=299.5
+    lastRecordedVelocity=(1,2,3)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=1
+      - False
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=299.5 points=1 partEvents=0 sections=0 orbitSegments=0 filesDirty=True
+    pt[0] ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+=== I15 debris recording without a seed
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=300.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=300
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I16 debris contract, recording already has part events
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: skipping seed events for pid=4201 recId=bg-init-rec — recording already has 1 part event(s)
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][WARN][BgRecorder] InitializeLoadedState: debris contract uses Absolute seed, falling back to Absolute seed: pid=4201 recId=bg-init-rec parentRecId=bg-init-parent parentRecResolved=False parentVesselResolved=False parentVesselLoaded=False parentVesselPacked=False parentDistance=NaNm relativeEntryRange=500.0m initUT=300.000 seed=ut=299.500 body=Kerbin lla=(-0.1000,-74.5000,1200.00) rot=(0.000,0.000,0.000,0.000) vel=(1.000,2.000,3.000) child=null
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=299.50
+  log [Parsek][INFO][BgRecorder] High-fidelity sampling window active: pid=4201 reason=initial-trajectory-point eventUT=299.50 untilUT=302.50 windowSeconds=3.000 proximityRange=250.0m intervalPolicy=configured-min-sample-interval
+  log [Parsek][INFO][BgRecorder] Initial trajectory point seeded: pid=4201 ut=299.50 lat=-0.1000 lon=-74.5000 alt=1200 vel=(1.00,2.00,3.00) |vel|=3.74
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=1
+        - ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+      isBoundarySeam=False
+      maxAltitude=1200
+      minAltitude=1200
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=299.5
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=distance-missing
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=initial-trajectory-point
+    highFidelitySamplingUntilUT=302.5
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=299.5
+    lastRecordedVelocity=(1,2,3)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=1
+      - False
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=299.5 points=1 partEvents=1 sections=0 orbitSegments=0 filesDirty=True
+    pt[0] ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+    ev[0] LightOn pid=77 ut=260
+=== I17 debris contract, recording missing from the tree
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][WARN][BgRecorder] InitializeLoadedState: tree recording 'bg-init-missing' not found for pid=4201 — skipping seed events (upstream lifecycle bug)
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=299.50
+  log [Parsek][INFO][BgRecorder] High-fidelity sampling window active: pid=4201 reason=initial-trajectory-point eventUT=299.50 untilUT=302.50 windowSeconds=3.000 proximityRange=250.0m intervalPolicy=configured-min-sample-interval
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=1
+        - ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+      isBoundarySeam=False
+      maxAltitude=1200
+      minAltitude=1200
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=299.5
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=initial-trajectory-point
+    highFidelitySamplingUntilUT=302.5
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-missing
+    sectionFrameWarpFlags=count=1
+      - False
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=280 points=0 partEvents=0 sections=0 orbitSegments=0 filesDirty=False
+=== I18 second init replaces the loaded state
+-- init a ut=300 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=300.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=Atmospheric
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=Atmospheric ref=Absolute source=Background pid=4201 at UT=299.50
+  log [Parsek][INFO][BgRecorder] High-fidelity sampling window active: pid=4201 reason=initial-trajectory-point eventUT=299.50 untilUT=302.50 windowSeconds=3.000 proximityRange=250.0m intervalPolicy=configured-min-sample-interval
+  log [Parsek][INFO][BgRecorder] Initial trajectory point seeded: pid=4201 ut=299.50 lat=-0.1000 lon=-74.5000 alt=1200 vel=(1.00,2.00,3.00) |vel|=3.74
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=Atmospheric
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=Atmospheric
+      frames=count=1
+        - ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+      isBoundarySeam=False
+      maxAltitude=1200
+      minAltitude=1200
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=299.5
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=Atmospheric
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=initial-trajectory-point
+    highFidelitySamplingUntilUT=302.5
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=299.5
+    lastRecordedVelocity=(1,2,3)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=1
+      - False
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=299.5 points=1 partEvents=0 sections=0 orbitSegments=0 filesDirty=True
+    pt[0] ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
+-- init b ut=310 threw=none
+  log [Parsek][VERBOSE][BgRecorder] InitializeLoadedState: no inherited state for pid=4201 (inherited=null)
+  log [Parsek][INFO][BgRecorder] Seed events emitted: 0 events at UT=310.00
+  log [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=ExoBallistic
+  log [Parsek][INFO][BgRecorder] TrackSection started: env=ExoBallistic ref=Absolute source=Background pid=4201 at UT=310.00
+  log [Parsek][VERBOSE][BgRecorder] Loaded state initialized: pid=4201 engines=0 rcs=0 robotics=0 initialEnv=ExoBallistic
+  loadedStates:
+    activeConverterParts=count=0
+    activeEngineKeys=count=0
+    activeRcsKeys=count=0
+    activeRoboticKeys=count=0
+    allEngineKeys=count=0
+    animateHeatLevels=count=0
+    blinkingLights=count=0
+    brokenDeployables=count=0
+    cachedEngines=count=0
+    cachedRcsModules=count=0
+    cachedRoboticModules=count=0
+    currentAnchorCandidate=
+      DiagnosticPid=0
+      GhostIndex=0
+      IsSameReplayPoint=False
+      IsSameVesselLineage=False
+      IsSealed=False
+      RecordingId=null
+      Source=Live
+      WorldPos=(0,0,0)
+      WorldRotation=(0,0,0,0)
+    currentAnchorRecordingId=null
+    currentSampleInterval=1.7976931348623157E+308
+    currentTrackSection=
+      anchorRecordingId=null
+      anchorVesselId=0
+      bodyFixedFrames=null
+      boundaryDiscontinuityMeters=0
+      checkpoints=count=0
+      endUT=0
+      environment=ExoBallistic
+      frames=count=0
+      isBoundarySeam=False
+      maxAltitude=NaN
+      minAltitude=NaN
+      referenceFrame=Absolute
+      sampleRateHz=0
+      source=Background
+      startUT=310
+    damagedWheelParts=count=0
+    debrisProximityDistanceMeters=NaN
+    debrisProximityReason=null
+    debrisProximityTier=None
+    decoupledPartIds=count=0
+    deployedAeroSurfaceModules=count=0
+    deployedAnimateGenericModules=count=0
+    deployedAnimationGroups=count=0
+    deployedControlSurfaceModules=count=0
+    deployedFairings=count=0
+    deployedGear=count=0
+    deployedLadders=count=0
+    deployedRobotArmScannerModules=count=0
+    environmentHysteresis=
+      hasPending=False
+      lastConfirmedEnvironment=ExoBallistic
+      pendingEnvironment=Atmospheric
+      pendingStartUT=0
+    extendedDeployables=count=0
+    hasCurrentAnchorCandidate=False
+    hasLastWorldRotation=False
+    highFidelitySamplingReason=null
+    highFidelitySamplingUntilUT=NaN
+    isRelativeMode=False
+    jetpackDeployedParts=count=0
+    jettisonNameRawCache=count=0
+    jettisonedShrouds=count=0
+    lastRcsThrottle=count=0
+    lastRecordedUT=-1
+    lastRecordedVelocity=(0,0,0)
+    lastRoboticPosition=count=0
+    lastRoboticSampleUT=count=0
+    lastThrottle=count=0
+    lastWorldRotation=(0,0,0,0)
+    lightBlinkRates=count=0
+    lightsOn=count=0
+    loggedAeroSurfaceClassificationMisses=count=0
+    loggedAnimateGenericClassificationMisses=count=0
+    loggedAnimateHeatClassificationMisses=count=0
+    loggedAnimationGroupClassificationMisses=count=0
+    loggedCargoBayAnimationIssues=count=0
+    loggedCargoBayClosedPositionIssues=count=0
+    loggedCargoBayDeployIndexIssues=count=0
+    loggedControlSurfaceClassificationMisses=count=0
+    loggedEngineModuleKeys=count=0
+    loggedFairingReadFailures=count=0
+    loggedFirstDebrisOrdinarySample=False
+    loggedForeignCachedModuleKeys=count=0
+    loggedLadderClassificationMisses=count=0
+    loggedRcsModuleKeys=count=0
+    loggedRobotArmScannerClassificationMisses=count=0
+    loggedRoboticModuleKeys=count=0
+    openCargoBays=count=0
+    parachuteStates=count=0
+    parsedJettisonNamesCache=count=0
+    physicsSoiSamplePending=False
+    proximitySilenceStartUT=NaN
+    ragdollParts=count=0
+    rcsActiveFrameCount=count=0
+    recordingId=bg-init-rec
+    sectionFrameWarpFlags=count=0
+    sectionProximitySilences=count=0
+    surfaceMobileClearanceSumThisSection=0
+    surfaceMobileMaxClearanceThisSection=NaN
+    surfaceMobileMinClearanceThisSection=NaN
+    surfaceMobileSamplesThisSection=0
+    trackSectionActive=True
+    trackSections=count=0
+    vesselPid=4201
+  onRailsStates:
+    currentOrbitSegment=
+      angularVelocity=(0,0,0)
+      argumentOfPeriapsis=0
+      bodyName=null
+      eccentricity=0
+      endUT=0
+      epoch=0
+      inclination=0
+      isPredicted=False
+      longitudeOfAscendingNode=0
+      meanAnomalyAtEpoch=0
+      orbitalFrameRotation=(0,0,0,0)
+      semiMajorAxis=0
+      startUT=0
+    hasOpenOrbitSegment=False
+    isLanded=False
+    lastExplicitEndUpdate=-1
+    recordingId=bg-init-rec
+    vesselPid=4201
+  pendingInitialTrajectoryPoints: -
+  pendingInitialEnvironmentOverrides: -
+  debrisTTLExpiry: -
+  finalizationCaches: -
+  pendingDebrisSeedParentAnchorPoints: -
+  railsSpanPartStates: -
+  fixedStepSampleSkipCount=0
+  recording bg-init-rec explicitEnd=299.5 points=1 partEvents=0 sections=0 orbitSegments=0 filesDirty=True
+    pt[0] ut=299.5 lat=-0.1 lon=-74.5 alt=1200 body=Kerbin clr=NaN
