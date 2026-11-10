@@ -190,6 +190,185 @@ namespace Parsek
                 && attemptArmedForTree;
         }
 
+        /// <summary>
+        /// Step of <see cref="TryRestoreActiveTreeNode"/>: the rewind-in-progress skip. Drops the resume rewind-save hint and consumes a
+        /// pending active-tree restore suppression (the rewind already skips the restore).
+        /// </summary>
+        internal static void TryRestoreActiveTreeNodePhaseSkipForRewind()
+        {
+            pendingActiveTreeResumeRewindSave = null;
+            if (PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression(
+                "TryRestoreActiveTreeNode:rewind-in-progress",
+                out string rewindSuppressReason))
+            {
+                ParsekLog.Warn("Scenario",
+                    "TryRestoreActiveTreeNode: consumed active-tree restore " +
+                    $"suppression while rewind was already skipping restore reason='{rewindSuppressReason}'");
+            }
+            ParsekLog.Verbose("Scenario",
+                "TryRestoreActiveTreeNode: skipped (rewind in progress — active tree deliberately discarded)");
+        }
+
+        /// <summary>
+        /// Step of <see cref="TryRestoreActiveTreeNode"/>: the saved active tree lost every recording to the schema gate. Drops the resume
+        /// rewind-save hint and the quickload-resume context.
+        /// </summary>
+        internal static void TryRestoreActiveTreeNodePhaseAbandonSchemaRejectedTree(RecordingTree tree)
+        {
+            pendingActiveTreeResumeRewindSave = null;
+            ClearPendingQuickloadResumeContext();
+            ParsekLog.Warn("Scenario",
+                $"TryRestoreActiveTreeNode: skipped active tree '{tree.TreeName}' id={tree.Id} " +
+                "because all recordings were rejected by the schema gate");
+        }
+
+        /// <summary>
+        /// Step of <see cref="TryRestoreActiveTreeNode"/>: logs the quicksave facts just captured for <paramref name="tree"/>.
+        /// </summary>
+        internal static void TryRestoreActiveTreeNodePhaseLogCapturedQuicksaveFacts(RecordingTree tree)
+        {
+            ParsekLog.Verbose("Scenario",
+                $"TryRestoreActiveTreeNode: captured quicksave facts tree='{tree.TreeName}' id={tree.Id} " +
+                $"members={lastRestoredQuicksaveTreeFacts?.Members.Count ?? 0} " +
+                $"treeCommittedInQuicksave={(lastRestoredQuicksaveTreeFacts != null && lastRestoredQuicksaveTreeFacts.TreeCommittedInQuicksave ? "true" : "false")}");
+        }
+
+        /// <summary>
+        /// Step of <see cref="TryRestoreActiveTreeNode"/>: a consumed restore suppression declines the saved active tree. Drops the resume
+        /// rewind-save hint and leaves the committed tree as it is.
+        /// </summary>
+        internal static void TryRestoreActiveTreeNodePhaseAbandonSuppressedTree(RecordingTree tree, string suppressReason)
+        {
+            pendingActiveTreeResumeRewindSave = null;
+            ParsekLog.Info("Scenario",
+                "TryRestoreActiveTreeNode: suppressed saved active tree restore " +
+                $"tree='{tree.TreeName}' id={tree.Id} recordings={tree.Recordings.Count} " +
+                $"activeRecId={tree.ActiveRecordingId ?? "<null>"} reason='{suppressReason}' - " +
+                "leaving committed mission tree intact and not stashing pending-Limbo");
+        }
+
+        /// <summary>
+        /// Step of <see cref="TryRestoreActiveTreeNode"/>: the sidecar-hydration drop emptied the saved active tree. Drops the resume
+        /// rewind-save hint and the quickload-resume context.
+        /// </summary>
+        internal static void TryRestoreActiveTreeNodePhaseAbandonEmptiedTree(RecordingTree tree, int droppedHydrationFailures)
+        {
+            pendingActiveTreeResumeRewindSave = null;
+            ClearPendingQuickloadResumeContext();
+            ParsekLog.Warn("Scenario",
+                $"TryRestoreActiveTreeNode: skipped active tree '{tree.TreeName}' id={tree.Id} " +
+                $"after dropping {droppedHydrationFailures} recording(s) with incompatible sidecars");
+        }
+
+        /// <summary>
+        /// Step of <see cref="TryRestoreActiveTreeNode"/>: repairs a missing contiguous chain predecessor (rebuilding the background map
+        /// when one was repaired) and the stale split parent links.
+        /// </summary>
+        internal static void TryRestoreActiveTreeNodePhaseRepairChainLinks(RecordingTree tree)
+        {
+            if (RepairMissingContiguousChainPredecessors(tree, "TryRestoreActiveTreeNode") > 0)
+                tree.RebuildBackgroundMap();
+            // A tree written before a split moved its parent links names the head for
+            // events on a later segment; point them at the segment that holds them.
+            SplitParentLinks.RepairStaleParents(tree, "TryRestoreActiveTreeNode");
+        }
+
+        /// <summary>
+        /// Step of <see cref="TryRestoreActiveTreeNode"/>: logs why the committed copy of the tree stayed committed (a resumed Re-Fly
+        /// session, a re-armed or a live restore attempt), or that there was none to detach.
+        /// </summary>
+        internal static void TryRestoreActiveTreeNodePhaseLogCommittedCopyDisposition(RecordingTree tree, bool reFlySessionResumed, bool saveAttemptRearmed,
+            bool liveAttemptKeepsCommittedCopy, bool committedCopyDetached)
+        {
+            if (reFlySessionResumed && !saveAttemptRearmed)
+            {
+                ParsekLog.Info("Scenario",
+                    $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
+                    $"(id={tree.Id}) committed: the restored tree is the live Re-Fly session " +
+                    $"sess={Instance?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}");
+            }
+            if (saveAttemptRearmed)
+            {
+                ParsekLog.Info("Scenario",
+                    $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
+                    $"(id={tree.Id}) committed and skipped the splice: the restored tree is the " +
+                    "re-armed restore attempt's clone");
+            }
+            else if (liveAttemptKeepsCommittedCopy)
+            {
+                ParsekLog.Info("Scenario",
+                    $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
+                    $"(id={tree.Id}) committed: the restored tree is the live restore attempt's clone");
+            }
+            else if (!committedCopyDetached && !reFlySessionResumed)
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
+                    $"(id={tree.Id}) needed detaching");
+            }
+        }
+
+        /// <summary>
+        /// Step of <see cref="TryRestoreActiveTreeNode"/>: replaces the pending tree with the restored one (Limbo, or LimboVesselSwitch
+        /// when it has no active recording), reads the resume rewind-save hint from
+        /// <c>treeNodes[t]</c> and logs the stash.
+        /// </summary>
+        internal static void TryRestoreActiveTreeNodePhaseStashAsPendingLimbo(RecordingTree tree, ConfigNode[] treeNodes, int t,
+            int sidecarHydrationFailures, int salvagedHydrationFailures, int splicedFromCommitted)
+        {
+            // Pop any existing pending tree silently — StashActiveTreeAsPendingLimbo
+            // stashed the in-memory (future-timeline) version at OnSceneChangeRequested
+            // time; we want the freshly-loaded disk version (matches the quicksave UT
+            // the user is rewinding to). PopPendingTree is non-destructive (doesn't
+            // delete sidecar files), and avoids the "overwriting existing pending tree"
+            // warning on the expected-overwrite quickload path.
+            PendingTreeSlot.PopPendingTree();
+
+            // Bug #266: pick the stash state based on whether the saved tree had a
+            // live active recording. If ActiveRecordingId is null, the tree was in
+            // outsider state at OnSave time (the player switched to a vessel with
+            // no recording context). The vessel-switch restore coroutine handles
+            // this case; the quickload restore would bail on the null active rec.
+            var stashState = string.IsNullOrEmpty(tree.ActiveRecordingId)
+                ? PendingTreeState.LimboVesselSwitch
+                : PendingTreeState.Limbo;
+            PendingTreeSlot.StashPendingTree(tree, stashState);
+
+            // Read resume hints for the restore coroutine (rewind save filename only).
+            pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
+
+            ParsekLog.Info("Scenario",
+                $"TryRestoreActiveTreeNode: stashed active tree '{tree.TreeName}' " +
+                $"({tree.Recordings.Count} recording(s), activeRecId={tree.ActiveRecordingId ?? "<null>"}) " +
+                $"into pending-{stashState} slot for revert-detection dispatch" +
+                (sidecarHydrationFailures > 0
+                    ? $" with {sidecarHydrationFailures} sidecar hydration failure(s)" +
+                      (salvagedHydrationFailures > 0
+                          ? $", salvaged {salvagedHydrationFailures} from pending"
+                          : "")
+                    : "") +
+                (splicedFromCommitted > 0
+                    ? $", spliced {splicedFromCommitted} post-RP recording(s) from committed tree"
+                    : ""));
+            RecorderStateLog.RecState("TryRestoreActiveTreeNode:stashed", CaptureScenarioRecorderState());
+        }
+
+        /// <summary>
+        /// Step of <see cref="TryRestoreActiveTreeNode"/>: no active tree node was found; consumes a pending active-tree restore
+        /// suppression that had nothing to suppress.
+        /// </summary>
+        internal static void TryRestoreActiveTreeNodePhaseConsumeUnusedSuppression()
+        {
+            if (PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression(
+                "TryRestoreActiveTreeNode:no-active-tree",
+                out string noActiveSuppressReason))
+            {
+                ParsekLog.Warn("Scenario",
+                    "TryRestoreActiveTreeNode: consumed active-tree restore " +
+                    $"suppression but no active tree node was present reason='{noActiveSuppressReason}'");
+            }
+        }
+
         internal static bool TryRestoreActiveTreeNode(
             ConfigNode node,
             EarlyLoadKind earlyLoadKind = EarlyLoadKind.InSession,
@@ -200,17 +379,7 @@ namespace Parsek
             if (node == null) return false;
             if (RewindContext.IsRewinding)
             {
-                pendingActiveTreeResumeRewindSave = null;
-                if (PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression(
-                    "TryRestoreActiveTreeNode:rewind-in-progress",
-                    out string rewindSuppressReason))
-                {
-                    ParsekLog.Warn("Scenario",
-                        "TryRestoreActiveTreeNode: consumed active-tree restore " +
-                        $"suppression while rewind was already skipping restore reason='{rewindSuppressReason}'");
-                }
-                ParsekLog.Verbose("Scenario",
-                    "TryRestoreActiveTreeNode: skipped (rewind in progress — active tree deliberately discarded)");
+                TryRestoreActiveTreeNodePhaseSkipForRewind();
                 return false;
             }
 
@@ -222,11 +391,7 @@ namespace Parsek
                 var tree = RecordingTree.Load(treeNodes[t]);
                 if (tree.Recordings == null || tree.Recordings.Count == 0)
                 {
-                    pendingActiveTreeResumeRewindSave = null;
-                    ClearPendingQuickloadResumeContext();
-                    ParsekLog.Warn("Scenario",
-                        $"TryRestoreActiveTreeNode: skipped active tree '{tree.TreeName}' id={tree.Id} " +
-                        "because all recordings were rejected by the schema gate");
+                    TryRestoreActiveTreeNodePhaseAbandonSchemaRejectedTree(tree);
                     return false;
                 }
 
@@ -236,20 +401,12 @@ namespace Parsek
                 // member that was already committed history when the quicksave was taken.
                 lastRestoredQuicksaveTreeFacts = CaptureQuicksaveTreeFacts(
                     tree, CollectQuicksaveCommittedRecordingIds(node), CollectQuicksaveCommittedTreeIds(node));
-                ParsekLog.Verbose("Scenario",
-                    $"TryRestoreActiveTreeNode: captured quicksave facts tree='{tree.TreeName}' id={tree.Id} " +
-                    $"members={lastRestoredQuicksaveTreeFacts?.Members.Count ?? 0} " +
-                    $"treeCommittedInQuicksave={(lastRestoredQuicksaveTreeFacts != null && lastRestoredQuicksaveTreeFacts.TreeCommittedInQuicksave ? "true" : "false")}");
+                TryRestoreActiveTreeNodePhaseLogCapturedQuicksaveFacts(tree);
                 if (PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression(
                     "TryRestoreActiveTreeNode:active-tree",
                     out string suppressReason))
                 {
-                    pendingActiveTreeResumeRewindSave = null;
-                    ParsekLog.Info("Scenario",
-                        "TryRestoreActiveTreeNode: suppressed saved active tree restore " +
-                        $"tree='{tree.TreeName}' id={tree.Id} recordings={tree.Recordings.Count} " +
-                        $"activeRecId={tree.ActiveRecordingId ?? "<null>"} reason='{suppressReason}' - " +
-                        "leaving committed mission tree intact and not stashing pending-Limbo");
+                    TryRestoreActiveTreeNodePhaseAbandonSuppressedTree(tree, suppressReason);
                     return false;
                 }
 
@@ -286,11 +443,7 @@ namespace Parsek
                     "TryRestoreActiveTreeNode");
                 if (tree.Recordings == null || tree.Recordings.Count == 0)
                 {
-                    pendingActiveTreeResumeRewindSave = null;
-                    ClearPendingQuickloadResumeContext();
-                    ParsekLog.Warn("Scenario",
-                        $"TryRestoreActiveTreeNode: skipped active tree '{tree.TreeName}' id={tree.Id} " +
-                        $"after dropping {droppedHydrationFailures} recording(s) with incompatible sidecars");
+                    TryRestoreActiveTreeNodePhaseAbandonEmptiedTree(tree, droppedHydrationFailures);
                     return false;
                 }
 
@@ -345,11 +498,7 @@ namespace Parsek
                 int splicedFromCommitted = saveAttemptRearmed || liveAttemptKeepsCommittedCopy
                     ? 0
                     : SpliceMissingCommittedRecordingsIntoLoadedTree(tree, tree.ActiveRecordingId);
-                if (RepairMissingContiguousChainPredecessors(tree, "TryRestoreActiveTreeNode") > 0)
-                    tree.RebuildBackgroundMap();
-                // A tree written before a split moved its parent links names the head for
-                // events on a later segment; point them at the segment that holds them.
-                SplitParentLinks.RepairStaleParents(tree, "TryRestoreActiveTreeNode");
+                TryRestoreActiveTreeNodePhaseRepairChainLinks(tree);
 
                 // If the same tree id is already in committedTrees (e.g. the player
                 // quicksaved in flight, then exited to TS which committed the tree, then
@@ -370,32 +519,8 @@ namespace Parsek
                     && RecordingStore.RemoveCommittedTreeById(
                         tree.Id,
                         logContext: "TryRestoreActiveTreeNode");
-                if (reFlySessionResumed && !saveAttemptRearmed)
-                {
-                    ParsekLog.Info("Scenario",
-                        $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
-                        $"(id={tree.Id}) committed: the restored tree is the live Re-Fly session " +
-                        $"sess={Instance?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}");
-                }
-                if (saveAttemptRearmed)
-                {
-                    ParsekLog.Info("Scenario",
-                        $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
-                        $"(id={tree.Id}) committed and skipped the splice: the restored tree is the " +
-                        "re-armed restore attempt's clone");
-                }
-                else if (liveAttemptKeepsCommittedCopy)
-                {
-                    ParsekLog.Info("Scenario",
-                        $"TryRestoreActiveTreeNode: kept the committed copy of tree '{tree.TreeName}' " +
-                        $"(id={tree.Id}) committed: the restored tree is the live restore attempt's clone");
-                }
-                else if (!committedCopyDetached && !reFlySessionResumed)
-                {
-                    ParsekLog.Verbose("Scenario",
-                        $"TryRestoreActiveTreeNode: no committed copy of tree '{tree.TreeName}' " +
-                        $"(id={tree.Id}) needed detaching");
-                }
+                TryRestoreActiveTreeNodePhaseLogCommittedCopyDisposition(
+                    tree, reFlySessionResumed, saveAttemptRearmed, liveAttemptKeepsCommittedCopy, committedCopyDetached);
 
                 // Bug #290d: if the pending tree is already Finalized (set by
                 // CommitTreeSceneExit during the same scene transition), it has
@@ -412,51 +537,11 @@ namespace Parsek
                     return true;
                 }
 
-                // Pop any existing pending tree silently — StashActiveTreeAsPendingLimbo
-                // stashed the in-memory (future-timeline) version at OnSceneChangeRequested
-                // time; we want the freshly-loaded disk version (matches the quicksave UT
-                // the user is rewinding to). PopPendingTree is non-destructive (doesn't
-                // delete sidecar files), and avoids the "overwriting existing pending tree"
-                // warning on the expected-overwrite quickload path.
-                PendingTreeSlot.PopPendingTree();
-
-                // Bug #266: pick the stash state based on whether the saved tree had a
-                // live active recording. If ActiveRecordingId is null, the tree was in
-                // outsider state at OnSave time (the player switched to a vessel with
-                // no recording context). The vessel-switch restore coroutine handles
-                // this case; the quickload restore would bail on the null active rec.
-                var stashState = string.IsNullOrEmpty(tree.ActiveRecordingId)
-                    ? PendingTreeState.LimboVesselSwitch
-                    : PendingTreeState.Limbo;
-                PendingTreeSlot.StashPendingTree(tree, stashState);
-
-                // Read resume hints for the restore coroutine (rewind save filename only).
-                pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
-
-                ParsekLog.Info("Scenario",
-                    $"TryRestoreActiveTreeNode: stashed active tree '{tree.TreeName}' " +
-                    $"({tree.Recordings.Count} recording(s), activeRecId={tree.ActiveRecordingId ?? "<null>"}) " +
-                    $"into pending-{stashState} slot for revert-detection dispatch" +
-                    (sidecarHydrationFailures > 0
-                        ? $" with {sidecarHydrationFailures} sidecar hydration failure(s)" +
-                          (salvagedHydrationFailures > 0
-                              ? $", salvaged {salvagedHydrationFailures} from pending"
-                              : "")
-                        : "") +
-                    (splicedFromCommitted > 0
-                        ? $", spliced {splicedFromCommitted} post-RP recording(s) from committed tree"
-                        : ""));
-                RecorderStateLog.RecState("TryRestoreActiveTreeNode:stashed", CaptureScenarioRecorderState());
+                TryRestoreActiveTreeNodePhaseStashAsPendingLimbo(
+                    tree, treeNodes, t, sidecarHydrationFailures, salvagedHydrationFailures, splicedFromCommitted);
                 return true;
             }
-            if (PendingTreeSlot.TryConsumeNextActiveTreeRestoreSuppression(
-                "TryRestoreActiveTreeNode:no-active-tree",
-                out string noActiveSuppressReason))
-            {
-                ParsekLog.Warn("Scenario",
-                    "TryRestoreActiveTreeNode: consumed active-tree restore " +
-                    $"suppression but no active tree node was present reason='{noActiveSuppressReason}'");
-            }
+            TryRestoreActiveTreeNodePhaseConsumeUnusedSuppression();
             return false;
         }
 
