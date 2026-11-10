@@ -428,7 +428,7 @@ namespace Parsek
                 lerpAlpha = TraceSeparation.ComputeLerpAlpha(
                     beforeFrame.Value.ut, afterFrame.Value.ut, playbackUT);
                 CelestialBody body = !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
-                    ? FlightGlobals.Bodies?.Find(b => b.name == beforeFrame.Value.bodyName)
+                    ? FindBodyByNameOrNull(FlightGlobals.Bodies, beforeFrame.Value.bodyName)
                     : null;
                 if (body != null && !double.IsNaN(lerpAlpha))
                 {
@@ -508,8 +508,7 @@ namespace Parsek
             if (beforeFrame.HasValue && !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
                 && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
             {
-                CelestialBody body = FlightGlobals.Bodies?.Find(
-                    b => b.name == beforeFrame.Value.bodyName);
+                CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, beforeFrame.Value.bodyName);
                 Recording parentRec = RecordingStore.TryFindCommittedRecordingById(
                     traj.ParentAnchorRecordingId);
                 if (body != null
@@ -734,7 +733,7 @@ namespace Parsek
             if (string.IsNullOrEmpty(bodyName))
                 return true;
 
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, bodyName);
             if (body == null || body.pqsController == null)
                 return true;
 
@@ -789,7 +788,7 @@ namespace Parsek
             int index, string vesselName,
             string bodyName, double latitude, double longitude, double altitude)
         {
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, bodyName);
             bool hasBody = body != null;
             bool hasActiveVessel = FlightGlobals.ActiveVessel != null;
             string fallbackReason = ParsekFlight.ResolveImmediateLandedGhostClearanceFallbackReason(
@@ -977,8 +976,7 @@ namespace Parsek
                     && last.segIdx != segmentIndex)
                 {
                     double jump = (ghostPos - last.pos).magnitude;
-                    CelestialBody segBody = FlightGlobals.Bodies?.Find(
-                        b => b != null && b.bodyName == seg.bodyName);
+                    CelestialBody segBody = FindLiveBodyByBodyNameOrNull(FlightGlobals.Bodies, seg.bodyName);
                     double bodySpeed = segBody != null && segBody.orbit != null
                         ? segBody.orbit.orbitalSpeed
                         : 0.0;
@@ -1021,13 +1019,13 @@ namespace Parsek
             {
                 var ic = CultureInfo.InvariantCulture;
                 double currentUT = Planetarium.GetUniversalTime();
-                CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == seg.bodyName);
+                CelestialBody segBody = FindLiveBodyByBodyNameOrNull(FlightGlobals.Bodies, seg.bodyName);
                 CelestialBody target = null, launch = null;
                 if (host.cachedLoopUnits != null && host.cachedLoopUnits.TryGetUnitForMember(memberIndex, out GhostPlaybackLogic.LoopUnit unit)
                     && unit.ReaimPlan.HasValue)
                 {
-                    target = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == unit.ReaimPlan.Value.TargetBody);
-                    launch = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == unit.ReaimPlan.Value.LaunchBody);
+                    target = FindLiveBodyByBodyNameOrNull(FlightGlobals.Bodies, unit.ReaimPlan.Value.TargetBody);
+                    launch = FindLiveBodyByBodyNameOrNull(FlightGlobals.Bodies, unit.ReaimPlan.Value.LaunchBody);
                 }
                 double dSeg = segBody != null ? (ghostPos - (Vector3)segBody.position).magnitude : double.NaN;
                 double dLaunch = launch != null ? (ghostPos - (Vector3)launch.position).magnitude : double.NaN;
@@ -1144,8 +1142,8 @@ namespace Parsek
                 return;
             }
 
-            CelestialBody bodyBefore = FlightGlobals.Bodies.Find(b => b.name == before.bodyName);
-            CelestialBody bodyAfter = FlightGlobals.Bodies.Find(b => b.name == after.bodyName);
+            CelestialBody bodyBefore = FindBodyByName(FlightGlobals.Bodies, before.bodyName);
+            CelestialBody bodyAfter = FindBodyByName(FlightGlobals.Bodies, after.bodyName);
             if (bodyBefore == null || bodyAfter == null)
             {
                 host.Log($"Could not find body: {(bodyBefore == null ? before.bodyName : after.bodyName)}");
@@ -1398,26 +1396,28 @@ namespace Parsek
             // Check orbit segments first (unless suppressed for surface vehicles)
             if (!skipOrbitSegments && segments != null && segments.Count > 0)
             {
-                OrbitSegment? seg = ParsekFlight.FindOrbitSegment(segments, targetUT);
-                if (seg.HasValue)
+                int foundSegIdx = TrajectoryMath.FindOrbitSegmentIndex(segments, targetUT);
+                if (foundSegIdx >= 0)
                 {
-                    if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg.Value))
+                    OrbitSegment seg = segments[foundSegIdx];
+                    if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
                     {
                         int smaKey = ~orbitCacheBase; // bitwise complement — guaranteed no collision with positive cache keys
                         if (host.loggedOrbitSegments.Add(smaKey))
-                            host.Log($"Orbit segment rejected (unusable elements): sma={seg.Value.semiMajorAxis:F0}, " +
+                            host.Log($"Orbit segment rejected (unusable elements): sma={seg.semiMajorAxis:F0}, " +
                                 "falling through to point interpolation");
                     }
                     else
                     {
-                        CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
+                        CelestialBody segBody = FindBodyByNameOrNull(FlightGlobals.Bodies, seg.bodyName);
                         // Use segment index as cache key offset
-                        int segIdx = segments.IndexOf(seg.Value);
+                        int segIdx = TrajectoryMath.ResolveOrbitSegmentIndexOfFound(
+                            segments, foundSegIdx, targetUT);
                         int cacheKey = orbitCacheBase + segIdx;
                         if (host.loggedOrbitSegments.Add(cacheKey))
-                            host.Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
-                                $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
-                        PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey, recordingId);
+                            host.Log($"Orbit segment activated: cache={cacheKey}, body={seg.bodyName}, " +
+                                $"sma={seg.semiMajorAxis:F0}, UT {seg.startUT:F0}-{seg.endUT:F0}");
+                        PositionGhostFromOrbit(ghost, seg, targetUT, cacheKey, recordingId);
                         Vector3 vel = Vector3.zero;
                         Orbit orbit;
                         bool hasOrbit = host.orbitCache.TryGetValue(cacheKey, out orbit);
@@ -1426,7 +1426,7 @@ namespace Parsek
                             vel = zupVelocity;
                         Vector3d ghostWorldPos = ghost.transform.position;
                         double segAlt = segBody != null ? segBody.GetAltitude(ghostWorldPos) : 0;
-                        interpResult = new InterpolationResult(vel, seg.Value.bodyName, segAlt);
+                        interpResult = new InterpolationResult(vel, seg.bodyName, segAlt);
                         if (hasOrbit && segBody != null)
                         {
                             interpResult = interpResult.WithSurfaceVelocity(
@@ -1475,6 +1475,54 @@ namespace Parsek
                     posBefore, posAfter, after.ut - before.ut, out Vector3 surfaceVelocity))
                 return result;
             return result.WithSurfaceVelocity(surfaceVelocity, GhostSurfaceVelocitySource.Positions);
+        }
+
+        // The body lookups below run per frame for every ghost. Each matcher is the predicate of
+        // the List.Find lambda it replaced, with the name passed as an argument instead of
+        // captured, so a lookup allocates no closure. The delegates are built once.
+        private static readonly Func<CelestialBody, string, bool> BodyNameMatches =
+            (b, name) => b.name == name;
+        private static readonly Func<CelestialBody, string, bool> LiveBodyBodyNameMatches =
+            (b, name) => b != null && b.bodyName == name;
+        private static readonly Func<CelestialBody, string, bool> TailLiftTerminalBodyNameMatches =
+            (b, name) => !object.ReferenceEquals(b, null)
+                && (string.Equals(b.bodyName, name, StringComparison.Ordinal)
+                    || string.Equals(b.name, name, StringComparison.Ordinal));
+
+        /// <summary>
+        /// <c>List.Find</c> semantics without a capturing predicate: the first item, in list
+        /// order, for which <paramref name="matches"/> returns true, or <c>default</c> when none
+        /// does. The matcher sees every item up to the first match, a null entry included (so a
+        /// matcher that dereferences it throws there, as the replaced lambda did), and a null
+        /// list throws <see cref="NullReferenceException"/> like a call on a null receiver.
+        /// </summary>
+        internal static T FindFirstMatching<T>(IList<T> items, string name, Func<T, string, bool> matches)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                T item = items[i];
+                if (matches(item, name))
+                    return item;
+            }
+            return default(T);
+        }
+
+        // FlightGlobals.Bodies.Find(b => b.name == name)
+        private static CelestialBody FindBodyByName(List<CelestialBody> bodies, string name)
+        {
+            return FindFirstMatching(bodies, name, BodyNameMatches);
+        }
+
+        // FlightGlobals.Bodies?.Find(b => b.name == name)
+        private static CelestialBody FindBodyByNameOrNull(List<CelestialBody> bodies, string name)
+        {
+            return bodies == null ? null : FindFirstMatching(bodies, name, BodyNameMatches);
+        }
+
+        // FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == name)
+        private static CelestialBody FindLiveBodyByBodyNameOrNull(List<CelestialBody> bodies, string name)
+        {
+            return bodies == null ? null : FindFirstMatching(bodies, name, LiveBodyBodyNameMatches);
         }
 
         // Runs per frame for every RELATIVE-section ghost: a plain loop, no predicate closure.
@@ -1699,7 +1747,7 @@ namespace Parsek
         internal void PositionGhostAt(GameObject ghost, TrajectoryPoint point, string recordingId = null,
             bool altitudeAuthoritative = false)
         {
-            CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == point.bodyName);
+            CelestialBody body = FindBodyByName(FlightGlobals.Bodies, point.bodyName);
             if (body == null)
             {
                 ParsekLog.VerboseRateLimited("Flight", "position-ghost-no-body",
@@ -1847,7 +1895,7 @@ namespace Parsek
                 return;
             }
 
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
+            CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, segment.bodyName);
             if (body == null)
             {
                 host.Log($"Could not find body '{segment.bodyName}' for orbit playback");
@@ -2369,7 +2417,7 @@ namespace Parsek
         internal void PositionGhostAtSurface(GameObject ghost, SurfacePosition surfPos, bool allowActivation,
             string recordingId = null, double pointUT = double.NaN)
         {
-            CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == surfPos.body);
+            CelestialBody body = FindBodyByName(FlightGlobals.Bodies, surfPos.body);
             if (body == null)
             {
                 ParsekLog.Warn("Flight", $"PositionGhostAtSurface: body '{surfPos.body}' not found");
@@ -2653,8 +2701,8 @@ namespace Parsek
                 t = 0f;
             }
 
-            CelestialBody bodyBefore = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
-            CelestialBody bodyAfter = FlightGlobals.Bodies?.Find(b => b.name == after.bodyName);
+            CelestialBody bodyBefore = FindBodyByNameOrNull(FlightGlobals.Bodies, before.bodyName);
+            CelestialBody bodyAfter = FindBodyByNameOrNull(FlightGlobals.Bodies, after.bodyName);
             if (bodyBefore == null || bodyAfter == null)
                 return false;
 
@@ -2789,7 +2837,7 @@ namespace Parsek
             if (!TrajectoryMath.HasUsableOrbitSegmentElements(segment))
                 return false;
 
-            body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
+            body = FindBodyByNameOrNull(FlightGlobals.Bodies, segment.bodyName);
             if (body == null)
                 return false;
 
@@ -3551,8 +3599,8 @@ namespace Parsek
             if (t == 0f && before.ut == after.ut)
                 return TryResolveTrajectoryPointWorldPosition(before, out worldPos);
 
-            CelestialBody bodyBefore = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
-            CelestialBody bodyAfter = FlightGlobals.Bodies?.Find(b => b.name == after.bodyName);
+            CelestialBody bodyBefore = FindBodyByNameOrNull(FlightGlobals.Bodies, before.bodyName);
+            CelestialBody bodyAfter = FindBodyByNameOrNull(FlightGlobals.Bodies, after.bodyName);
             if (bodyBefore == null || bodyAfter == null)
                 return false;
 
@@ -3570,7 +3618,7 @@ namespace Parsek
         bool TryResolveTrajectoryPointWorldPosition(TrajectoryPoint point, out Vector3d worldPos)
         {
             worldPos = Vector3d.zero;
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == point.bodyName);
+            CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, point.bodyName);
             if (body == null)
                 return false;
 
@@ -3592,7 +3640,7 @@ namespace Parsek
                 if (targetUT < seg.startUT || targetUT > seg.endUT)
                     continue;
 
-                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == seg.bodyName);
+                CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, seg.bodyName);
                 if (body == null)
                     return false;
 
@@ -4304,8 +4352,8 @@ namespace Parsek
                     ? false
                     : TryBuildRecordedAnchorPoseFromPoint(before, out pose);
 
-            CelestialBody bodyBefore = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
-            CelestialBody bodyAfter = FlightGlobals.Bodies?.Find(b => b.name == after.bodyName);
+            CelestialBody bodyBefore = FindBodyByNameOrNull(FlightGlobals.Bodies, before.bodyName);
+            CelestialBody bodyAfter = FindBodyByNameOrNull(FlightGlobals.Bodies, after.bodyName);
             if (bodyBefore == null || bodyAfter == null)
                 return false;
 
@@ -4337,7 +4385,7 @@ namespace Parsek
             TrajectoryPoint point, out ParsekFlight.RelativeAnchorPose pose)
         {
             pose = default(ParsekFlight.RelativeAnchorPose);
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == point.bodyName);
+            CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, point.bodyName);
             if (body == null || body.bodyTransform == null)
                 return false;
 
@@ -4363,7 +4411,7 @@ namespace Parsek
         bool TryResolveSurfaceWorldPosition(SurfacePosition surfacePos, out Vector3d worldPos)
         {
             worldPos = Vector3d.zero;
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == surfacePos.body);
+            CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, surfacePos.body);
             if (body == null)
                 return false;
 
@@ -4764,7 +4812,7 @@ namespace Parsek
                 2.0);
 
             string bodyName = before.bodyName ?? "Kerbin";
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, bodyName);
             double alt = body != null ? body.GetAltitude(ghostPos) : 0;
 
             host.AddOrReplaceGhostPosEntry(new ParsekFlight.GhostPosEntry
@@ -4904,7 +4952,7 @@ namespace Parsek
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
             }
 
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, bodyName);
             altitude = body != null ? body.GetAltitude(ghostPos) : 0.0;
             host.AddOrReplaceGhostPosEntry(new ParsekFlight.GhostPosEntry
             {
@@ -5414,7 +5462,7 @@ namespace Parsek
                     2.0);
 
                 // Compute altitude for InterpolationResult
-                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, bodyName);
                 double alt = body != null ? body.GetAltitude(ghostPos) : 0;
 
                 host.AddOrReplaceGhostPosEntry(new ParsekFlight.GhostPosEntry
@@ -5545,7 +5593,7 @@ namespace Parsek
                         + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
                 }
 
-                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, bodyName);
                 host.AddOrReplaceGhostPosEntry(new ParsekFlight.GhostPosEntry
                 {
                     ghost = ghost,
@@ -5773,7 +5821,7 @@ namespace Parsek
             bool spinning = TrajectoryMath.IsSpinning(segment);
             rotRef = refPrefix + (spinning ? "orbit-spin" : hasOfr ? "orbit-ofr" : "orbit-prograde");
 
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
+            CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, segment.bodyName);
             if (body == null)
             {
                 rotRef = refPrefix + "orbit-no-body";
@@ -5828,7 +5876,7 @@ namespace Parsek
                 ? TrajectoryMath.SanitizeQuaternion(Quaternion.Slerp(before.rotation, after.rotation, t))
                 : TrajectoryMath.SanitizeQuaternion(before.rotation);
 
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
+            CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, before.bodyName);
             if (body == null)
             {
                 rotRef = refToken + "-no-body";
@@ -6034,10 +6082,8 @@ namespace Parsek
 
             if (!string.IsNullOrEmpty(terminalBodyName) && FlightGlobals.Bodies != null)
             {
-                CelestialBody resolved = FlightGlobals.Bodies.Find(b =>
-                    !object.ReferenceEquals(b, null)
-                    && (string.Equals(b.bodyName, terminalBodyName, StringComparison.Ordinal)
-                        || string.Equals(b.name, terminalBodyName, StringComparison.Ordinal)));
+                CelestialBody resolved = FindFirstMatching(
+                    FlightGlobals.Bodies, terminalBodyName, TailLiftTerminalBodyNameMatches);
                 if (!object.ReferenceEquals(resolved, null))
                     return resolved;
             }
