@@ -15,8 +15,9 @@ namespace Parsek.Tests
     /// method as it stood before the wave-2 W7b extraction and kept unchanged through it.
     /// Scenarios: an empty ledger on an unready clock; past and future KSC rows with and
     /// without the current-UT cutoff feature, on a ready and an unready clock; the ledger
-    /// held-through UT above and below the load clock; a recording that failed to load; and
-    /// a tagged row of a recording missing from the loaded set. For each it records every
+    /// held-through UT above and below a ready load clock and beside a clock not ready; a
+    /// recording that failed to load beside a tagged row of a recording missing from the
+    /// loaded set. For each it records every
     /// ledger row after the load (action ids masked) and the log lines the load itself owns:
     /// the OnKspLoad lines, the ledger's reconcile / repair lines and the first line of the
     /// recalc path it chose. The rest of the recalc's transcript is left out on purpose, so
@@ -214,6 +215,11 @@ namespace Parsek.Tests
             Case(sb, "O08 a recording that failed to load, one missing", Ids(), 500.0, false,
                 new List<string> { "rec-dropped" });
 
+            Reset();
+            PastAndFutureRows();
+            LedgerHeldWindow.SetForTesting(600.0);
+            Case(sb, "O09 held-through UT on a clock not ready", Ids(), 0.0, true, null);
+
             AssertGolden("OnKspLoad", Golden, sb.ToString());
         }
 
@@ -389,6 +395,36 @@ namespace Parsek.Tests
             "log [Parsek][INFO][Ledger] Reconcile complete: before=2, kept=1, prunedEarnings=1, prunedSpendings=0, prunedSpendingsByRecordingId=0, prunedContractLifecycle=0, prunedOther=0, maxUT=500, preserveFutureTimelineActions=False, validRecordingIds=0",
             "log [Parsek][INFO][LedgerOrchestrator] OnKspLoad recalc decision: useCurrentUtCutoff=False maxUT=500 featureSupportsCutoff=False currentUtReady=True hasFutureActions=False",
             "log [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: actionsTotal=1, actionsAfterCutoff=1, cutoffUT=null",
+            "== O09 held-through UT on a clock not ready",
+            "row[0] ROOT",
+            "row[0] {",
+            "row[0] \tGAME_ACTION",
+            "row[0] \t{",
+            "row[0] \t\tut = 100",
+            "row[0] \t\ttype = 3",
+            "row[0] \t\tactionId = seed-past",
+            "row[0] \t\tseq = 1",
+            "row[0] \t\tcseq = 1",
+            "row[0] \t\tfundsSpent = 40",
+            "row[0] \t\tfundsSpendingSource = 6",
+            "row[0] \t}",
+            "row[0] }",
+            "row[1] ROOT",
+            "row[1] {",
+            "row[1] \tGAME_ACTION",
+            "row[1] \t{",
+            "row[1] \t\tut = 800",
+            "row[1] \t\ttype = 3",
+            "row[1] \t\tactionId = seed-future",
+            "row[1] \t\tseq = 1",
+            "row[1] \t\tcseq = 2",
+            "row[1] \t\tfundsSpent = 60",
+            "row[1] \t\tfundsSpendingSource = 6",
+            "row[1] \t}",
+            "row[1] }",
+            "log [Parsek][INFO][Ledger] Reconcile complete: before=2, kept=2, prunedEarnings=0, prunedSpendings=0, prunedSpendingsByRecordingId=0, prunedContractLifecycle=0, prunedOther=0, maxUT=0, preserveFutureTimelineActions=True, validRecordingIds=0",
+            "log [Parsek][INFO][LedgerOrchestrator] OnKspLoad recalc decision: useCurrentUtCutoff=False maxUT=0 featureSupportsCutoff=True currentUtReady=False hasFutureActions=True",
+            "log [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: actionsTotal=2, actionsAfterCutoff=2, cutoffUT=null",
         }) + "\n";
     }
 }
