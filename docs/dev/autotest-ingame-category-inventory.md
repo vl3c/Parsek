@@ -1,4 +1,4 @@
-# In-game test category inventory (all 140 categories)
+# In-game test category inventory (all 141 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -134,6 +134,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `HarvestCapScanLedger` | 3 | 0 | 3 | 0 | 0 | 3 | HV-2-scan-ledger-drill-rates (authored 2026-10-16, branch `claude/harvest-cap-scan-ledger-oo5vxg`, LIVE-PROVEN the same day: run `2026-10-16_0607` PASS attempt 1, `total=3 passed=3 failed=0 skipped=0` pinned whole) on `fresh-career` at the Space Center. Three SPACECENTER cells for the two mining rulings of 2026-10-15: a stock `ResourceMap.UnlockBiome` and a stock `UnlockPlanet` on Minmus each land one ownerless `ResourceScanUnlocked` ledger row and one event, stay locked under a recalc cut off before their UT after a rewind-style relock, and are re-applied by `PatchResourceScans` at the live clock with no second row (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED); and `FlightRecorder.ReadHarvestConverterRate` models every stock drill and ISRU prefab converter with a bounded rate, the drills' own `ModuleAsteroidDrill` reading as no output with no asteroid aboard (HARVEST-ROUTE-PLAUSIBILITY-CAP). Each self-skips without Minmus, `ResourceMap` or a locked target and reverts the row, the event and the scan state. Its OWN category for the standing reason (a cell in `LedgerGroundTruth` would move HC-1's pinned tally) | A |
 | `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `IncompleteBallistic` | 11 | 11 | 0 | 0 | 0 | 0 | H9 | A |
+| `JointBreakCheckCoroutine` | 3 | 3 | 0 | 0 | 0 | 3 | NOT DRIVEN (W8b-2 characterization of the `ParsekFlight.DeferredJointBreakCheck` coroutine, 2026-11-10, branch `refactor-w8b2-joint-break`). Three FLIGHT cells that drive the real coroutine over a synthetic parked split recorder marked destroyed, never the live one: the no-recorder skip with every split-state field cleared by the finally block, a decouple-only check with no new vessel (WithinSegment, one PartDestroyed segment event per Decoupled event among the last five part events, newest first), and a decouple-only check over a destroyed decouple-captured child (DebrisSplit, fed to the crash coalescer as a DECOUPLE seeded from the callback point; the coalescer is reset in the same frame). Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips without a ParsekFlight instance or an active vessel, or while a real split check, decouple capture or breakup window is live. NEVER FLOWN. Bucket **B** until a lane drives it | B |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KerbalInventorySpawn` | 2 | 2 | 0 | 0 | 0 | 2 | H72-kerbal-inventory-spawn (authored 2026-09-27, branch `lane-inventory-spawn`, NOT YET FLOWN: `total=2` literal with the split regexed, predicted `passed=2 skipped=0`, and both cells already required through the runner's `PASSED:` lines, over `b1-pad-craft`'s seated Jeb, whose roster entry carries a two-part inventory so neither self-skip can fire; A1, `H36`'s standing, like CN-2 / CN-3 before their reading runs; the end-to-end capture -> commit -> spawn-at-end restore is `EVA-7-crew-inventory-spawn-after-rewind`, a seam lane with no batch). Opened by KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN (2026-09-27, branch `kss2-inventory`). Two FLIGHT cells over the ACTIVE vessel: a `TryBackupSnapshot` captures one `INVENTORY` per crew member with a stored inventory (roster backing field, a live `KerbalInventoryScenario` instance or a loaded EVA kerbal's own module) without writing a default onto anyone who had none, and the spawn restore's roster applier replaces a kerbal's roster inventory and drops the live instance, then the spawn-failure rollback writer puts the prior back. Both self-skip without a crewed active vessel (the first also when no crew member has a stored inventory). Its OWN category for the standing reason - a cell added to a pinned category moves a committed `BATCH_COMPLETE` tally. NEVER FLOWN | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
@@ -234,8 +235,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **140 categories / 696 declarations**. Buckets **A 103 categories
-(393 declarations)**, **B 35 categories (298 declarations)**, **C 2 categories (5
+Totals, re-derived: **141 categories / 699 declarations**. Buckets **A 103 categories
+(393 declarations)**, **B 36 categories (301 declarations)**, **C 2 categories (5
 declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes), and
 `MoonArrivalHold`, opened 2026-11-07 by the lone-moon arrival hold, which waits for the
