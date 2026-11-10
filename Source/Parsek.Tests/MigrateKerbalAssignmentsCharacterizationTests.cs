@@ -17,7 +17,8 @@ namespace Parsek.Tests
     /// suites do). Scenarios: no committed recording; a fresh derivation, then a second pass
     /// that finds the rows matching; a stand-in row rewritten to its owner; a stored row whose
     /// end state changed (its action id inherited); a stored tourist row whose role is carried;
-    /// and several recordings at once beside rows of an uncommitted id and an untagged row.
+    /// several recordings at once beside rows of an uncommitted id and an untagged row; and a
+    /// recording whose rows match beside a non-assignment row tagged to it.
     /// For each it records every ledger row (seeded action ids printed, fresh ones masked),
     /// every log line and the load-repair diagnostics summary the method feeds.
     /// </summary>
@@ -200,6 +201,19 @@ namespace Parsek.Tests
             AddRow("seed-orphan", "rec-uncommitted", "Bob Kerman", "Scientist", 10, 20, KerbalEndState.Recovered);
             AddRow("seed-untagged", null, "Bill Kerman", "Engineer", 5, 6, KerbalEndState.Recovered);
             Case(sb, "K06 several recordings, orphan and untagged rows");
+
+            Reset();
+            CrewRec("rec-mixed", 200, 210, TerminalState.Landed, "Jebediah Kerman");
+            AddRow("seed-jeb", "rec-mixed", "Jebediah Kerman", "Pilot", 200, 210, KerbalEndState.Unknown);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "seed-funds",
+                UT = 205,
+                Type = GameActionType.FundsEarning,
+                RecordingId = "rec-mixed",
+                Sequence = 2,
+            });
+            Case(sb, "K07 a non-assignment row tagged to the recording");
 
             AssertGolden("MigrateKerbalAssignments", Golden, sb.ToString());
         }
@@ -517,6 +531,40 @@ namespace Parsek.Tests
             "log [Parsek][VERBOSE][Ledger] ReplaceActionsForRecording: type=KerbalAssignment, recordingId='rec-two', removed=2, inserted=2, total=5",
             "log [Parsek][INFO][LedgerOrchestrator] MigrateKerbalAssignments: repaired 2 recording(s) (oldRows=2, newRows=3, inheritedActionIds=1, freshActionIds=2)",
             "log [Parsek][INFO][KerbalLoad] repair summary: slotSource=none slots=0 chainEntries=0 ignored=0 chainExtensions=0 repairedRecordings=2 oldRows=2 newRows=3 remappedRows=0 endStateRewrites=0 touristRowsSkipped=0 retiredRecreated=0 retiredKept=0 deletedUnused=0",
+            "== K07 a non-assignment row tagged to the recording",
+            "row[0] ROOT",
+            "row[0] {",
+            "row[0] \tGAME_ACTION",
+            "row[0] \t{",
+            "row[0] \t\tut = 200",
+            "row[0] \t\ttype = 11",
+            "row[0] \t\tactionId = seed-jeb",
+            "row[0] \t\trecordingId = rec-mixed",
+            "row[0] \t\tseq = 1",
+            "row[0] \t\tcseq = 1",
+            "row[0] \t\tkerbalName = Jebediah Kerman",
+            "row[0] \t\tkerbalRole = Pilot",
+            "row[0] \t\tstartUT = 200",
+            "row[0] \t\tendUT = 210",
+            "row[0] \t\tendState = 3",
+            "row[0] \t\txpGained = 0",
+            "row[0] \t}",
+            "row[0] }",
+            "row[1] ROOT",
+            "row[1] {",
+            "row[1] \tGAME_ACTION",
+            "row[1] \t{",
+            "row[1] \t\tut = 205",
+            "row[1] \t\ttype = 2",
+            "row[1] \t\tactionId = seed-funds",
+            "row[1] \t\trecordingId = rec-mixed",
+            "row[1] \t\tseq = 2",
+            "row[1] \t\tcseq = 2",
+            "row[1] \t\tfundsAwarded = 0",
+            "row[1] \t\tfundsSource = 0",
+            "row[1] \t}",
+            "row[1] }",
+            "log [Parsek][INFO][LedgerOrchestrator] CreateKerbalAssignmentActions: 1 crew members from 'rec-mixed'",
         }) + "\n";
     }
 }
