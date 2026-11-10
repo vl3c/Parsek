@@ -20,9 +20,13 @@ namespace Parsek.Tests
     /// set to a non-zero value: Unity's managed null check reads that pointer and nothing else, so the
     /// method runs past its guard and every arm whose handler stays on managed code for an empty state
     /// runs exactly as it does in game. An arm whose handler reaches a native call ends the call on mono's
-    /// refusal, which the transcript records. The fake ghost is only ever compared against null; every
-    /// cell that holds one is a <see cref="UnityEntryFactAttribute"/> (the Windows .NET Framework host
-    /// refuses Unity's own null-check helper on entry), and the null-ghost cells are plain facts.
+    /// refusal, which the transcript records. The fake ghost is only ever compared against null. Unity's
+    /// managed null check itself runs on every host; what the Windows .NET Framework host refuses on entry
+    /// is a method whose body makes an internal call (<c>SetActive</c>, <c>get_gameObject</c>,
+    /// <c>get_transform</c>), and the arm handlers and the visibility refresh hold such calls, as can any
+    /// caller the Release JIT inlines one of them into. So every cell that runs those bodies is a
+    /// <see cref="UnityEntryFactAttribute"/> (mono, which CI runs, carries it); only the cells that stop at
+    /// the early returns, and the walk-finish cells, are plain facts.
     ///
     /// The transcript holds every log line, the rate-limit keys each call touched, the cursor, the
     /// looped-audio cap calls and the deployable transition list after each call.
@@ -350,7 +354,7 @@ namespace Parsek.Tests
             return lines;
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void ApplyOnePartEvent_UnhandledType_TalliesTheVisibilitySurface_AndLeavesTheFlags()
         {
             var tally = new GhostPartEventApplyTally();
@@ -469,7 +473,7 @@ namespace Parsek.Tests
             Assert.Empty(RateLimitKeys());
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void RefreshGhostAfterPartVisibilityChange_KeepsAnEarlierRebuildRequest_AndAddsNoneOfItsOwn()
         {
             // No compound parts and no live ghost: neither compound pass reports a change, so the
