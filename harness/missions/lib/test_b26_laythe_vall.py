@@ -732,6 +732,15 @@ class V17SeedTests(unittest.TestCase):
     RELAUNCH_1 = 28_900_841.28749961        # startloopplayback relaunchUt=
     MAX_OVERLAP_INSTANCES = 20              # ParsekConfig.cs MaxOverlapMissionInstances
 
+    # --- THE PREDICTED MOON-ROOTED PHASE-LOCK CLOCK (2026-11-10, bbdcf920) ---
+    # Rule 4a makes this tree Supported: Solve picks P = P_Vall
+    # (dominant-intercept) and the zero-drift schedule builds, so the loop no
+    # longer self-overlaps and every relaunch sits on a Vall window. PREDICTED
+    # by driving the real builder over this fixture, NOT yet read out of a log:
+    # the next V17M flight is the reading run.
+    P_VALL_LIVE = 105_962.08889392366       # Vall period, scaled from live Laythe
+    PHASE_L0 = 28_922_988.685945            # first scheduled launch (phaseAnchor)
+
     TREE = "9aa3c87c95a147388e6220bd36796fd9"
     RECORDING = "625d63e022c449d6a44b5269c8b54a21"
     # ALL FOUR READ FROM `fixtures/saves/vall-transfer-recorded`.
@@ -780,6 +789,10 @@ class V17SeedTests(unittest.TestCase):
 
     def _relaunch(self, instance):
         return self.ANCHOR_UT + instance * self.OVERLAP_CADENCE
+
+    def _phase_launch(self, cycle):
+        """The predicted phase-lock train: L0 + cycle * P_Vall."""
+        return self.PHASE_L0 + cycle * self.P_VALL_LIVE
 
     def _p_vall(self):
         return 2.0 * math.pi * math.sqrt(A_VALL ** 3 / MU_JOOL)
@@ -888,15 +901,30 @@ class V17SeedTests(unittest.TestCase):
         self.assertAlmostEqual(self.MAX_OVERLAP_INSTANCES * self.OVERLAP_CADENCE,
                                self.UNIT_SPAN, delta=1e-6)
 
-    def test_the_jump_table_is_derived_from_the_MEASURED_H3_clock(self):
+    def test_the_predicted_first_launch_is_one_vall_period_past_the_span_start(self):
+        """L0 is the first Vall window after the reference UT, counted from the
+        unit's span start (Solve's UT0), and the live Vall period agrees with the
+        Kepler period from this file's constants."""
+        self.assertAlmostEqual(self.PHASE_L0,
+                               self.UNIT_SPAN_START + self.P_VALL_LIVE, delta=1e-3)
+        self.assertAlmostEqual(self.P_VALL_LIVE, self._p_vall(), delta=0.01)
+        # one window per launch: the phase-lock cadence exceeds the span, so the
+        # loop no longer self-overlaps (the H3 train did, at span/20).
+        self.assertGreater(self.P_VALL_LIVE, self.UNIT_SPAN)
+        self.assertGreater(self.PHASE_L0, self.ANCHOR_UT)
+
+    def test_the_jump_table_is_derived_from_the_PREDICTED_phase_lock_clock(self):
+        """Re-pinned 2026-11-10 off the moon-rooted phase-lock clock (the H3
+        derivation it replaces stepped by `ANCHOR_UT + instance * span/20` over
+        instances 1 and 21)."""
         uts = self._jump_uts(self.m)
         self.assertEqual(8, len(uts))
-        for cycle, instance in enumerate((1, 21)):
-            relaunch = self._relaunch(instance)
+        for cycle in (0, 1):
+            relaunch = self._phase_launch(cycle)
             arrival = relaunch + self.SEAM_OFF
             want = [round(arrival - 180.0), round(arrival - 60.0),
                     round(arrival + 140.0), round(relaunch + self.PARK_OFF)]
-            self.assertEqual(want, uts[cycle * 4:cycle * 4 + 4], instance)
+            self.assertEqual(want, uts[cycle * 4:cycle * 4 + 4], cycle)
 
     def test_the_previous_H1_table_overshot_the_real_arrival(self):
         """THE EVIDENCE THAT THE NEW TABLE IS WORTH TRUSTING, kept as a cell
@@ -970,18 +998,18 @@ class V17SeedTests(unittest.TestCase):
         self.assertAlmostEqual(escape_off, 6359.613, delta=0.01)
         self.assertLess(escape_off, 0.2 * 53_470.0)
 
-    def test_the_cycle_two_bracket_is_one_UNIT_SPAN_past_cycle_one(self):
-        """Under H1 the cadence is the moon-moon synodic, NOT a moon period - the
-        thing that most distinguishes this pair's arithmetic from V14/V15/V16's.
-        The cell pins the shape so a well-meaning edit cannot quietly re-base it
-        on a period."""
+    def test_the_cycle_two_bracket_is_one_VALL_PERIOD_past_cycle_one(self):
+        """Under the moon-rooted phase-lock clock (2026-11-10) cycle 2 is the
+        next Vall window, one P_Vall after cycle 1, NOT one unit span (the H3
+        self-overlap identity). P_Vall and the Laythe-Vall synodic sit 0.66 s
+        apart at this resonance, so the cell pins the period and rejects the
+        span; it cannot tell the period from the synodic and does not try."""
         uts = self._jump_uts(self.m)
         self.assertEqual(8, len(uts))
         for c1, c2 in zip(uts[:4], uts[4:]):
-            self.assertAlmostEqual(c2 - c1, self.UNIT_SPAN, delta=1.5)
-        # ... and NOT the synodic the pre-flight seeds used: the planner that
-        # would have produced a synodic cadence DECLINED (H3).
-        self.assertNotAlmostEqual(uts[4] - uts[0], self._synodic(), delta=1000.0)
+            self.assertAlmostEqual(c2 - c1, self.P_VALL_LIVE, delta=1.5)
+        # ... and NOT the H3 span cadence the previous table stepped by.
+        self.assertNotAlmostEqual(uts[4] - uts[0], self.UNIT_SPAN, delta=1000.0)
 
     def test_the_printed_cycle_two_seam_matches_the_cadence_it_claims(self):
         # Retained verbatim from the seed era: the header still prints both
@@ -1006,7 +1034,7 @@ class V17SeedTests(unittest.TestCase):
 
         c1_seam = printed("cycle-1 arrival seam")
         c2_seam = printed("cycle-2 arrival seam")
-        self.assertAlmostEqual(c2_seam - c1_seam, self.UNIT_SPAN, delta=0.05)
+        self.assertAlmostEqual(c2_seam - c1_seam, self.P_VALL_LIVE, delta=0.05)
         # and the printed figure must agree with the jumps derived from it
         uts = self._jump_uts(self.m)
         self.assertAlmostEqual(round(c2_seam - 180.0), uts[4], delta=0.5)
@@ -1027,15 +1055,16 @@ class V17SeedTests(unittest.TestCase):
         self.assertEqual(3, len(self.m["expectations"]["logContracts"]["forbidden"]))
         self.assertEqual(3, len(self.t["expectations"]["logContracts"]["forbidden"]))
 
-    def test_v17t_anti_vacuity_rides_the_dynamic_overlap_path(self):
+    def test_v17t_anti_vacuity_rides_the_dynamic_ghost_path(self):
         """Run 1's re-pin: the init-walk pin (`initialized: created [1-9]`) is
         unsatisfiable on a loop-armed segment-less-tail subject, so the TS
-        anti-vacuity is the dynamic path materializing instances in-scene, plus
-        the Vall-frame GhostCreated pin that needs cycle 1 (spawned LAST,
-        newest-first at MaxSpawnsPerFrame=2 - the reason the TS phase carries the
-        forty-tick dwell)."""
+        anti-vacuity is the dynamic path materializing the ghost in-scene, plus
+        the Vall-frame GhostCreated pin. 2026-11-10 (predicted): the
+        phase-lock clock stops the self-overlap, so the one loop-mapped ghost is
+        created from its visible segment rather than an overlap instance."""
         req = self.t["expectations"]["logContracts"]["required"]
-        self.assertIn("GhostMap\\] Created ghost vessel .*orbitSource=overlap-instance-segment .*scene=TRACKSTATION", req)
+        self.assertIn("GhostMap\\] Created ghost vessel .*orbitSource=visible-segment .*scene=TRACKSTATION", req)
+        self.assertFalse(any("overlap-instance-segment" in t for t in req))
         self.assertIn("phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Vall scene=TRACKSTATION", req)
         self.assertFalse(any("initialized: created [1-9]" in t for t in req))
 

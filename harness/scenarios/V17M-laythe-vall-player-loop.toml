@@ -1,5 +1,49 @@
 schema = 1
 id = "V17M-laythe-vall-player-loop"
+# =====================================================================================
+# 2026-11-10 RE-PIN BY PREDICTION TO THE MOON-ROOTED PHASE-LOCK CLOCK (commit bbdcf920,
+# todo MOON-TO-MOON-LOOP-NOT-RETIMED). THE NEXT FLIGHT OF THIS LANE IS THE READING RUN.
+# Rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`) makes this Laythe-rooted
+# tree that never leaves Jool's SOI SUPPORTED: constraints {Orbital(Vall) P=105,962.089,
+# Orbital(Laythe) P=52,980.879}, Solve `method=dominant-intercept` P = P_Vall, and the
+# zero-drift schedule builds (`scheduleWorstResidual` ~2.98 s). So `PhaseLock APPLIED`
+# replaces `PhaseLock SKIPPED ... support=UnsupportedCrossParent`, ApplyReaim is no
+# longer reached, and the H3 clock described in sections 0-3 below is HISTORY.
+# HOW IT WAS PREDICTED: the real `MissionLoopUnitBuilder.TryBuildLoopUnitForSelection`
+# -> `MissionsWindowUI.ComputeNextRelaunchUT` driven in a scratch xUnit cell over THIS
+# fixture's own RECORDING_TREE and `.prec.txt` sidecar, with stock body values (the
+# live Laythe period 52,980.879059379578 every Laythe lane logs, Vall scaled from it,
+# Mun/Minmus as logged). The cell reproduced the measured span to the last digit.
+#   span       [28,817,026.597051531, 28,896,847.102240246] (unchanged)
+#   L0         28,922,988.685945 = ut0 + 1 * P_Vall (`phaseAnchor`, cycle-1 relaunchUt)
+#   L1         29,028,950.774839 = L0 + P_Vall (the second StartLoopPlayback)
+#   cadence = overlapCadence = 105,962.089 s >= span: the loop NO LONGER SELF-OVERLAPS
+#   (one instance per window), so cycle 2 is the next window, not instance 21.
+# `A` no longer moves anything: L0 is the first Vall window after A, 26,138 s away,
+# so A's ~0.3 s run-to-run jitter cannot reach it. The byte-fact offsets of section 3
+# are unchanged; the table re-cuts as (rounded, the V17SeedTests convention):
+#   cycle-1 arrival seam L0 + 75,439.623 = 28,998,428.309 -> 28998248 / 28998368 / 28998568
+#   cycle-1 park         L0 + 79,575.979 = 29,002,564.665 -> 29002565
+#   cycle-2 arrival seam L1 + 75,439.623 = 29,104,390.398 -> 29104210 / 29104330 / 29104530
+#   cycle-2 park         L1 + 79,575.979 = 29,108,526.754 -> 29108527
+# Each +12 s WarpToUT dwell moved with its jump. The cycle-1 bracket is the SAME three
+# UTs the pre-flight seed table flew on `_1841` (P_Vall and the Laythe-Vall synodic
+# differ by 0.66 s), so the phase-lock road lands where that seed did. No required or
+# forbidden token names the routing, so none changed: the lane still gates on neither
+# road. Error term: the live body periods (sub-millisecond); the model risk is the road
+# itself, which the reading run confirms off `PhaseLock APPLIED ... ->28922988.68...`
+# and the two `relaunchUt=` echoes differing by P_Vall rather than by the span.
+# WATCH STEPS, PRE-REGISTERED RISK: both stay pinned REJECTED. The ghost now replays
+# the observer's own parked tail shifted by exactly P_Vall (cycle 1) or 2 P_Vall
+# (cycle 2); against the observer's ~4,427 s park period that is a ~24 deg phase
+# lag (chord ~196 km) at cycle 1 and ~48 deg (~383 km) at cycle 2. The cycle-1 chord
+# is inside the 300 km `WatchEnterCutoffMeters`, so the range term alone no longer
+# guarantees the refusal. The H3 clock's cycle-1 lag was ~25 deg (~202 km) and that
+# step came back REJECTED at the selector, so REJECTED is still the prediction; an OK
+# at the cycle-1 watch on the reading run is this re-pin's most likely red, and it
+# would be a reading (the watch entry finally reaching a Jool-system ghost), not a
+# clock miss.
+# =====================================================================================
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
@@ -557,12 +601,12 @@ steps = [
   # ONE number the re-pin recipe needs, and it is emitted whichever road the unit
   # took.
   { cmd = "StartLoopPlayback", args = { tree = "9aa3c87c95a147388e6220bd36796fd9" }, expect = "OK", budget = 300 },
-  # CYCLE-1 ARRIVAL BRACKET, strictly forward, straddling the SEEDED Jool->Vall SOI
-  # seam 29,015,437.328 at -180 / -60 / +140 s. CALIBRATION SEEDS UNDER H1 - see
-  # header section 3, and expect them to move.
-  { cmd = "TimeJump", args = { ut = "28976101" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28976221" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28976421" }, expect = "OK", budget = 300 },
+  # CYCLE-1 ARRIVAL BRACKET, strictly forward, straddling the PREDICTED phase-lock
+  # Jool->Vall SOI seam L0 + 75,439.623 = 28,998,428.309 at -180 / -60 / +140 s
+  # (2026-11-10 header note; the H3-era text below this marker is history).
+  { cmd = "TimeJump", args = { ut = "28998248" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28998368" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28998568" }, expect = "OK", budget = 300 },
   # ============================================================================
   # +140 DWELL BLOCK - added after run 2 on a rate-limit hypothesis, and KEPT
   # because run 3 used it to REFUTE that hypothesis: through a 10.3-wall-second
@@ -573,10 +617,11 @@ steps = [
   # standing guard that a no-change reading at this epoch is dwell-backed truth,
   # not a shut census window.
   # ============================================================================
-  # 1x FLIGHT time to UT 28976433: the +140 dwell, 12 s after the jump (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # 1x FLIGHT time to UT 28998580: the +140 dwell, 12 s after the jump (40 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-  { cmd = "WarpToUT", args = { ut = "28976433", maxRate = "1" }, expect = "OK", budget = 120 },
-  # CYCLE-1 PARK EPOCH: anchor + 95,578.4, i.e. 70.7% into the predicted ~4,425 s
+  { cmd = "WarpToUT", args = { ut = "28998580", maxRate = "1" }, expect = "OK", budget = 120 },
+  # CYCLE-1 PARK EPOCH (2026-11-10: L0 + 79,575.979 = 29,002,564.665, 244.5 s of tail
+  # left; the H3-era text follows): anchor + 95,578.4, i.e. 70.7% into the predicted ~4,425 s
   # destination phase, leaving ~1,296 s of recorded tail - 60x the dwell block.
   # RUN-2/RUN-3 READING AT THIS EPOCH, recorded not gated: after this jump -
   # which crosses the instance-20 re-arm at 28,976,670.9 - ALL 19 live protos
@@ -584,7 +629,7 @@ steps = [
   # fail-closed ROOT frame Jool) and hold it through the park dwell,
   # self-correcting by the cycle-2 -180 epoch. Deterministic across both runs.
   # Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP.
-  { cmd = "TimeJump", args = { ut = "28980417" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29002565" }, expect = "OK", budget = 300 },
   # STEP 3: "Watch", auto-select over all committed recordings. PINNED REJECTED,
   # re-pointed 2026-08-28. The margin is restated against the REAL gate rather than
   # the retired ~120 km bracket: header section 5's chord arithmetic gives
@@ -607,27 +652,29 @@ steps = [
   # rather than V5's measured 0.54 s/tick (~21.6 s). Costs ~22 GAME seconds of 1x
   # at the cycle-1 park epoch against a predicted ~1,296 s of recorded tail.
   # ============================================================================
-  # 1x FLIGHT time to UT 28980429: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # 1x FLIGHT time to UT 29002577: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-  { cmd = "WarpToUT", args = { ut = "28980429", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT", args = { ut = "29002577", maxRate = "1" }, expect = "OK", budget = 120 },
   # STEP 4: "Warp to..." AGAIN - the desync hunt's second half. Under H1 this
+  # 2026-11-10: under the phase-lock road this resolves the next scheduled window
+  # L1 = L0 + P_Vall = 29,028,950.775 (predicted). H3-era text follows.
   # should land one SYNODIC past cycle 1 (29,028,948.856), which is itself a
   # reading: a re-aimed unit spaces on the moon-moon synodic, a faithful one does
   # not.
   { cmd = "StartLoopPlayback", args = { tree = "9aa3c87c95a147388e6220bd36796fd9" }, expect = "OK", budget = 300 },
-  # CYCLE-2 ARRIVAL BRACKET, the same -180 / -60 / +140 offsets about the seeded
-  # cycle-2 seam 29,121,399.328.
-  { cmd = "TimeJump", args = { ut = "29055921" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "29056041" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "29056241" }, expect = "OK", budget = 300 },
+  # CYCLE-2 ARRIVAL BRACKET, the same -180 / -60 / +140 offsets about the predicted
+  # cycle-2 seam L1 + 75,439.623 = 29,104,390.398.
+  { cmd = "TimeJump", args = { ut = "29104210" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29104330" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "29104530" }, expect = "OK", budget = 300 },
   # The same +140 dwell block for cycle 2 - the instance-21 = instance-1 + span
   # identity makes this epoch the second sample of the SAME leg, so both cycles
   # carry the same instrument.
-  # 1x FLIGHT time to UT 29056253: the cycle-2 +140 dwell, 12 s after the jump (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # 1x FLIGHT time to UT 29104542: the cycle-2 +140 dwell, 12 s after the jump (40 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-  { cmd = "WarpToUT", args = { ut = "29056253", maxRate = "1" }, expect = "OK", budget = 120 },
-  # CYCLE-2 PARK EPOCH: the same +95,578.4 offset off the cycle-2 anchor.
-  { cmd = "TimeJump", args = { ut = "29060238" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "29104542", maxRate = "1" }, expect = "OK", budget = 120 },
+  # CYCLE-2 PARK EPOCH: the same +79,575.979 offset off L1 (29,108,526.754).
+  { cmd = "TimeJump", args = { ut = "29108527" }, expect = "OK", budget = 300 },
   # STEP 5: "Watch" again, same pinned verdict, same caveat: on V16M's precedent the
   # refusal is expected at the SELECTOR level (`no-watchable-ghost`), not on the
   # chord. A DIFFERENT verdict between the two would itself be the reading.

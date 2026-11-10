@@ -404,6 +404,213 @@ namespace Parsek.Tests
             Assert.Contains("Duna", ex.UnsupportedReason);
         }
 
+        // === Moon-rooted frame (rule 4a, todo MOON-TO-MOON-LOOP-NOT-RETIMED) ===
+
+        private const double LaythePeriod = 52980.88;
+        private const double VallPeriod = 105962.09;
+
+        // StockFake plus Jool with Laythe and Vall (the 1:2 resonance) and Duna's moon Ike.
+        private static FakeBodyInfo JoolFake()
+        {
+            var f = StockFake();
+            f.Orbit["Jool"] = 104661432.0;
+            f.Parent["Jool"] = "Sun";
+            f.Orbit["Laythe"] = LaythePeriod;
+            f.Parent["Laythe"] = "Jool";
+            f.Rotation["Laythe"] = LaythePeriod;
+            f.Soi["Laythe"] = 3723645.8;
+            f.Velocity["Laythe"] = 3224.0;
+            f.Orbit["Vall"] = VallPeriod;
+            f.Parent["Vall"] = "Jool";
+            f.Rotation["Vall"] = VallPeriod;
+            f.Soi["Vall"] = 2406401.4;
+            f.Velocity["Vall"] = 2558.0;
+            return f;
+        }
+
+        [Fact]
+        public void Extract_MunToMinmus_MoonRootedFrame_SupportedWithBothMoons()
+        {
+            // Guards: a hop that starts parked at the Mun and ends at Minmus stays inside Kerbin's
+            // SOI, so the Mun's and Minmus's phases around Kerbin are the whole constraint set and
+            // the mission phase-locks instead of falling to the fixed cross-parent cadence.
+            var hop = OrbitLeg("o", 1000, 3000, "Mun");
+            WithSoiEntry(hop, 3000, 50000, "Kerbin");
+            WithSoiEntry(hop, 50000, 60000, "Minmus");
+            var tree = TreeOf("t", hop);
+
+            var ex = Extract(tree, StockFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Equal("Mun", ex.LaunchBodyName);
+            Assert.Null(ex.UnsupportedReason);
+            Assert.Equal(2, ex.Constraints.Count);
+            PhaseConstraint minmus = ex.Constraints.Single(c => c.BodyName == "Minmus");
+            PhaseConstraint mun = ex.Constraints.Single(c => c.BodyName == "Mun");
+            Assert.Equal(ConstraintKind.Orbital, minmus.Kind);
+            Assert.Equal(MinmusOrbit, minmus.PeriodSeconds);
+            Assert.False(minmus.RelativeToParent);
+            Assert.Equal(49000.0, minmus.PhaseOffsetSeconds);
+            Assert.Equal(ConstraintKind.Orbital, mun.Kind);
+            Assert.Equal(MunOrbit, mun.PeriodSeconds);
+            Assert.Equal(2000.0, mun.PhaseOffsetSeconds);      // the Mun SOI exit (3000 - 1000)
+            Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
+                && l.Contains("moon-rooted frame launchMoon=Mun planet=Kerbin"));
+        }
+
+        [Fact]
+        public void Schedule_MunParkThenMinmus_LaunchMoonPinnedAtSoiExit_UnderPhasingKnob()
+        {
+            // Guards the review finding on rule 4a: the launch moon's phase must be pinned at the
+            // moment the mission LEAVES it, not at its parking-orbit entry. A recording that parks
+            // around the Mun before leaving gives the phasing knob a loiter run there; when the knob
+            // adds or drops revs the Mun SOI exit moves by d * T_park, so Orbital(Mun) must sit in
+            // the shifted group and every launch must still meet the Mun at the exit.
+            const double TPark = 2716.0;
+            const long Revs = 5;
+            var ascent = SurfaceLeg("s", 1000, 1100, "Mun");
+            var park = OrbitLeg("o", 1100, 15000, "Mun");
+            WithSoiEntry(park, 15000, 60000, "Kerbin");
+            WithSoiEntry(park, 60000, 70000, "Minmus");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            park.ChainId = "C"; park.ChainIndex = 1;
+            var fake = StockFake();
+            var ex = Extract(TreeOf("t", ascent, park), fake);
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint munOrbital = ex.Constraints.Single(
+                c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Mun");
+            Assert.Equal(14000.0, munOrbital.PhaseOffsetSeconds);  // SOI exit 15000 - ut0 1000
+
+            var knob = new PhasingKnobInput
+            {
+                RunStartUT = 1300.0,
+                RunEndUT = 1300.0 + Revs * TPark,
+                PeriodSeconds = TPark,
+                RecordedRevs = Revs,
+                StaticCuts = new List<GhostPlaybackLogic.LoopCut>(),
+                SpanSeconds = 69000.0,
+            };
+            bool ok = MissionPeriodicity.TryBuildRelaunchSchedule(
+                ex.Constraints, ex.Support, ex.UT0, ex.UT0, fake,
+                out MissionRelaunchSchedule sched, 0.0, ex.LaunchBodyName,
+                TransitedBodyRotationMode.Loose, knob);
+            Assert.True(ok);
+
+            double munTol = MissionPeriodicity.ToleranceSecondsFor(munOrbital, fake);
+            double launch = sched.FirstLaunchUT;
+            for (long n = 0; n < 4; n++)
+            {
+                long d = 0;
+                if (sched.HasPhasingKnob)
+                {
+                    Assert.True(sched.TryGetLaunchTiming(n, out LaunchTimingEntry timing));
+                    d = timing.KeptRevs - Revs;
+                }
+                // The Mun's phase at the shifted SOI exit, relative to the recorded exit.
+                double drift = Math.Abs(Math.IEEERemainder(launch - ex.UT0 + d * TPark, MunOrbit));
+                Assert.True(drift <= munTol,
+                    $"launch {n} at {launch} with d={d} meets the Mun {drift}s off (tol {munTol}s)");
+                launch = sched.NextLaunchAfter(launch + 1.0);
+            }
+        }
+
+        [Fact]
+        public void Solve_MunToMinmus_MoonRootedFrame_PhaseLocksOnBothMoons()
+        {
+            var hop = OrbitLeg("o", 1000, 3000, "Mun");
+            WithSoiEntry(hop, 3000, 50000, "Kerbin");
+            WithSoiEntry(hop, 50000, 60000, "Minmus");
+            var fake = StockFake();
+            var ex = Extract(TreeOf("t", hop), fake);
+
+            PeriodicitySolution sol = MissionPeriodicity.Solve(
+                ex.Constraints, ex.Support, ex.UT0, 1.0e6, fake);
+
+            Assert.True(sol.ShouldPhaseLock);
+            // Minmus (the longer orbit) dominates, so every relaunch is a whole Minmus period.
+            double m = sol.P / MinmusOrbit;
+            Assert.True(Math.Abs(m - Math.Round(m)) < 1e-9, $"P={sol.P} is not a whole Minmus multiple");
+        }
+
+        [Fact]
+        public void Extract_LaytheToVall_MoonRootedFrame_ResonantPairLocksEveryVallPeriod()
+        {
+            var hop = OrbitLeg("o", 1000, 2000, "Laythe");
+            WithSoiEntry(hop, 2000, 20000, "Jool");
+            WithSoiEntry(hop, 20000, 30000, "Vall");
+            var fake = JoolFake();
+            var ex = Extract(TreeOf("t", hop), fake);
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Equal(new[] { "Laythe", "Vall" },
+                ex.Constraints.Select(c => c.BodyName).OrderBy(b => b, StringComparer.Ordinal).ToArray());
+
+            PeriodicitySolution sol = MissionPeriodicity.Solve(
+                ex.Constraints, ex.Support, ex.UT0, 1.0e6, fake);
+            Assert.True(sol.ShouldPhaseLock);
+            Assert.Equal(VallPeriod, sol.P, 6);
+            Assert.True(sol.WithinTolerance);
+        }
+
+        [Fact]
+        public void Extract_LaytheToJoolOrbit_MoonRootedFrame_OnlyTheLaunchMoonConstrains()
+        {
+            // Moon -> planet: the planet-relative legs only need the launch moon back in place.
+            var hop = OrbitLeg("o", 1000, 2000, "Laythe");
+            WithSoiEntry(hop, 2000, 90000, "Jool");
+            var ex = Extract(TreeOf("t", hop), JoolFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint only = Assert.Single(ex.Constraints);
+            Assert.Equal("Laythe", only.BodyName);
+            Assert.Equal(LaythePeriod, only.PeriodSeconds);
+        }
+
+        [Fact]
+        public void Extract_MoonLaunchLeavingThePlanet_KeepsTheCrossParentPath()
+        {
+            // A Laythe start that leaves Jool's SOI for the Sun is interplanetary: unchanged, and
+            // no launch-moon constraint is added.
+            var hop = OrbitLeg("o", 1000, 2000, "Laythe");
+            WithSoiEntry(hop, 2000, 9000, "Jool");
+            WithSoiEntry(hop, 9000, 90000, "Sun");
+            var ex = Extract(TreeOf("t", hop), JoolFake());
+
+            Assert.Equal(Support.UnsupportedCrossParent, ex.Support);
+            Assert.DoesNotContain(ex.Constraints, c => c.BodyName == "Laythe");
+            Assert.DoesNotContain(logLines, l => l.Contains("moon-rooted frame"));
+        }
+
+        [Fact]
+        public void Extract_MoonOrbitOnly_NoConstraint()
+        {
+            var ex = Extract(TreeOf("t", OrbitLeg("o", 1000, 9000, "Mun")), StockFake());
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Empty(ex.Constraints);
+        }
+
+        [Theory]
+        [InlineData("Mun", new[] { "Kerbin", "Minmus" }, "Kerbin")]
+        [InlineData("Mun", new[] { "Kerbin" }, "Kerbin")]
+        [InlineData("Mun", new string[0], null)]                   // never leaves the moon
+        [InlineData("Mun", new[] { "Kerbin", "Duna" }, null)]      // leaves the planet's SOI
+        [InlineData("Mun", new[] { "Kerbin", "Sun" }, null)]
+        [InlineData("Kerbin", new[] { "Mun" }, null)]              // launch body is a planet
+        [InlineData("Kerbin", new[] { "Duna" }, null)]
+        [InlineData("Sun", new[] { "Kerbin" }, null)]
+        [InlineData(null, new[] { "Kerbin" }, null)]
+        public void ResolveMoonRootedFrameParent_TruthTable(string launch, string[] others, string expected)
+        {
+            var bodies = new List<KeyValuePair<string, double>>();
+            if (launch != null)
+                bodies.Add(new KeyValuePair<string, double>(launch, 0.0));
+            for (int i = 0; i < others.Length; i++)
+                bodies.Add(new KeyValuePair<string, double>(others[i], i + 1.0));
+            Assert.Equal(expected,
+                MissionPeriodicity.ResolveMoonRootedFrameParent(launch, bodies, StockFake()));
+        }
+
         [Fact]
         public void Extract_TransientFlyby_OrbitalConstraintPresent()
         {
@@ -3051,15 +3258,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Extract_MunLaunchKerbinReturn_CrossParentUnsupported_ScheduleDeclines()
+        public void Extract_MunLaunchKerbinReturn_MoonRootedFrame_LocksOnMunAndKerbinRotation()
         {
-            // Guards the Mun-launch + Kerbin-return shape: launching from the MUN pad and
-            // returning to a Kerbin landing makes Kerbin an SOI-entry Orbital target whose parent
-            // (Sun... via Kerbin's reference body) is NOT the launch body Mun, so the extraction
-            // classifies UnsupportedCrossParent (synodic, Phase 4 territory) and the zero-drift
-            // scheduler declines cleanly - it never mis-anchors the Mun pad to Kerbin's clock.
-            // Both rotation constraints (Mun pad + transited Kerbin landing) still extract with
-            // their own bodies' periods.
+            // Guards the Mun-launch + Kerbin-return shape under the moon-rooted frame (rule 4a):
+            // the whole trip happens inside Kerbin's SOI, so Kerbin's orbit around the Sun does
+            // not matter. Kerbin (the launch moon's planet) emits no Orbital constraint; the
+            // launch moon emits Orbital(Mun) because the mission left it, and both rotation
+            // constraints (Mun pad + transited Kerbin landing) still extract with their own
+            // bodies' periods. The extraction is Supported, so the loop is phase-locked instead
+            // of falling back to fixed spacing.
             var ascent = SurfaceLeg("s", 1000, 1100, "Mun");
             var transfer = OrbitLeg("o", 1100, 1600, "Mun");
             WithSoiEntry(transfer, 1600, 2000, "Kerbin");
@@ -3073,14 +3280,11 @@ namespace Parsek.Tests
             var ex = Extract(tree, fake);
 
             Assert.Equal("Mun", ex.LaunchBodyName);
-            Assert.Equal(Support.UnsupportedCrossParent, ex.Support);
-            Assert.Contains("Kerbin", ex.UnsupportedReason);
-            Assert.Contains("Mun", ex.UnsupportedReason);
+            Assert.Equal(Support.Supported, ex.Support);
 
             PhaseConstraint orb = ex.Constraints.Single(c => c.Kind == ConstraintKind.Orbital);
-            Assert.Equal("Kerbin", orb.BodyName);
-            Assert.Equal(KerbinOrbit, orb.PeriodSeconds);
-            Assert.True(orb.RelativeToParent);                  // cross-parent SOI entry
+            Assert.Equal("Mun", orb.BodyName);
+            Assert.False(orb.RelativeToParent);
 
             var rotations = ex.Constraints.Where(c => c.Kind == ConstraintKind.Rotation).ToList();
             Assert.Equal(2, rotations.Count);
@@ -3093,8 +3297,8 @@ namespace Parsek.Tests
                 ex.Constraints, ex.Support, ex.UT0, ex.UT0, fake,
                 out MissionRelaunchSchedule schedule,
                 launchBodyName: ex.LaunchBodyName);
-            Assert.False(ok);
-            Assert.Null(schedule);
+            Assert.True(ok);
+            Assert.NotNull(schedule);
         }
 
         // ===================== Extraction answer pins (wave 2 W1c) =====================

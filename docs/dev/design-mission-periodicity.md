@@ -1088,6 +1088,20 @@ Each INCLUDED segment contributes only the phase constraint its own frame impose
    - **Anything deeper** (C is a moon of a sibling, multi-hop / gravity-assist chains
      stacking several transited bodies): each transited body adds its own constraint;
      see the phased plan for when these land.
+   - **The launch body is a moon and the trip stays inside its planet's SOI** (the
+     moon-rooted frame, rule 4a in `MissionPeriodicity.ExtractConstraints`; Laythe ->
+     Vall, Mun -> Minmus, Laythe -> Jool orbit, Mun -> Kerbin landing): every leg is
+     planet-relative or moon-relative, so the planet's own orbit around the star never
+     matters. Each sibling moon C emits a Supported `Orbital(C)` (`C.orbit.period`,
+     `RelativeToParent = false`), the planet itself emits nothing, and once the mission
+     leaves the launch moon it emits `Orbital(launch moon)` too, because the launch
+     position in the planet's frame recurs only with the launch moon's orbit. The joint
+     solve then spaces the loops so both moons are back in place: Laythe:Vall is a 1:2
+     resonance and locks every Vall period; Mun:Minmus is incommensurate and goes
+     through the joint best-fit / zero-drift schedule. A moon launch that leaves the
+     planet's SOI (Laythe -> Jool -> Sun) keeps the cross-parent path unchanged. No new
+     paths are drawn: the hop replays exactly as recorded, only the loop spacing changes
+     (owner pick 2026-11-07, todo MOON-TO-MOON-LOOP-NOT-RETIMED).
    The **launch body** is the body of the earliest INCLUDED surface/atmospheric
    segment (or, if none, the `bodyName` of the earliest included `OrbitSegment`). The
    transited bodies are read from the SOI changes (the `bodyName` field across the

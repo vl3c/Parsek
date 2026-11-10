@@ -1,5 +1,38 @@
 schema = 1
 id = "V19M-laythe-jool-player-loop"
+# =====================================================================================
+# 2026-11-10 RE-PIN BY PREDICTION TO THE MOON-ROOTED PHASE-LOCK CLOCK (commit bbdcf920,
+# todo MOON-TO-MOON-LOOP-NOT-RETIMED). THE NEXT FLIGHT OF THIS LANE IS THE READING RUN.
+# Rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`) makes this Laythe-rooted
+# return to Jool orbit SUPPORTED: Jool (the shared planet) emits nothing, the launch
+# moon emits Orbital(Laythe) P=52,980.879, so `constraints=1`, Solve
+# `method=single-orbital`, `zeroDrift=no`. `PhaseLock APPLIED` replaces the R3 verdict
+# (`PhaseLock SKIPPED ... support=UnsupportedCrossParent`), and the R3 clock in
+# sections 2-3 below is HISTORY.
+# HOW IT WAS PREDICTED: the real `MissionLoopUnitBuilder.TryBuildLoopUnitForSelection`
+# -> `MissionsWindowUI.ComputeNextRelaunchUT` driven in a scratch xUnit cell over THIS
+# fixture's own RECORDING_TREE and `.prec.txt` sidecar, with the live Laythe period
+# 52,980.879059379578 (V16M's logged value). The cell reproduced the measured span.
+#   span       [28,817,026.557051532, 28,829,018.373923279] (unchanged)
+#   R1         28,870,007.436111 = ut0 + 1 * P_Laythe (`phaseAnchor`, cycle-1 relaunchUt)
+#   R2         28,922,988.315170 = R1 + P_Laythe (the second StartLoopPlayback)
+#   cadence = overlapCadence = 52,980.879 s >= span: the loop NO LONGER SELF-OVERLAPS,
+#   so one ghost replays per window and cycle 2 is the next window, not instance 21.
+# `A` no longer moves anything: R1 is the first Laythe window after A, 40,986 s away.
+# The section-3 offsets are unchanged (seam 6,359.641, coast 9,757.215, tail 11,899.215
+# from ut0); the table re-cuts as (floored):
+#   cycle-1 seam  R1 + 6,359.641 = 28,876,367.077 -> 28876187 / 28876307 / 28876507
+#   cycle-1 coast R1 + 9,757.215 -> 28879764 (dwell 28879776); tail R1 + 11,899.215 -> 28881906
+#   cycle-2 seam  R2 + 6,359.641 = 28,929,347.956 -> 28929167 / 28929287 / 28929487
+#   cycle-2 coast R2 + 9,757.215 -> 28932745 (dwell 28932757); tail R2 + 11,899.215 -> 28934887
+# Both cycles now use the SAME coast and tail offsets (the old table carried the
+# cycle-2 seeds 9,755.398 / 11,898.398). No required or forbidden token names the
+# routing, so none changed. With one instance alive the `body=Jool` proto-line pin is
+# met by that instance's own Jool legs (the 44/41 Jool/Laythe split below came from
+# twenty instances). Error term: the live Laythe period (sub-millisecond); the model
+# risk is the road itself, which the reading run confirms off `PhaseLock APPLIED ...
+# ->28870007.43...` and the two `relaunchUt=` echoes differing by P_Laythe.
+# =====================================================================================
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
@@ -854,14 +887,14 @@ steps = [
   # CYCLE-1 SEAM BRACKET, strictly forward, straddling the Laythe->Jool SOI seam at
   # R1 + 6,359.641 = 28,835,980.425 (MEASURED clock) at -180 / -60 / +140 s. The ONE
   # cross-body seam this recording has. Flown: each lands 0.425 s early of intent.
-  { cmd = "TimeJump", args = { ut = "28835800" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28835920" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28836120" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28876187" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28876307" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28876507" }, expect = "OK", budget = 300 },
   # CYCLE-1 COAST EPOCH: MEASURED at 69.999% through the replayed 4,799.86 s Jool coast
   # (seg#6, replayed [28,836,018.140, 28,840,818.003]), 1,440.00 s clear of its end.
   # This is where the forty-tick block runs - see header section 4 for why the coast
   # rather than the tail, and for the corrected mechanism.
-  { cmd = "TimeJump", args = { ut = "28839378" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28879764" }, expect = "OK", budget = 300 },
   # ============================================================================
   # THE CENSUS-PACING DWELL BLOCK - 40 x RecordingState, V16M's verbatim and PROVEN
   # machinery: its reading run emitted the census MEASURING line at BOTH arrivals,
@@ -874,16 +907,16 @@ steps = [
   # instrument the seam has, and inventing one for this would be a product change for
   # a pacing problem.
   # ============================================================================
-  # 1x FLIGHT time to UT 28839390: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # 1x FLIGHT time to UT 28879776: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-  { cmd = "WarpToUT", args = { ut = "28839390", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT", args = { ut = "28879776", maxRate = "1" }, expect = "OK", budget = 120 },
   # CYCLE-1 TAIL READ: MEASURED replay offset 11,899.215 off R1, replaying recorded UT
   # 28,828,925.772 - i.e. 104.878 s past the segment-less tail start (28,828,820.894,
   # the last ORBIT_SEGMENT's end), 91.242 s short of the last POINT and 86.938 s past
   # the capture burn's cut - so the ghost of instance 1 is on the FINAL circular park,
   # which is the orbit the observer is sitting in. This is the epoch section 7's comb is
   # evaluated at.
-  { cmd = "TimeJump", args = { ut = "28841520" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28881906" }, expect = "OK", budget = 300 },
   # STEP 3: "Watch", auto-select over all committed recordings. PINNED REJECTED on the
   # comb arithmetic in header section 7 (minimum separation 37.306 Mm = 124.4x the
   # 300 km `WatchEnterCutoffMeters`, with the Laythe-park family floored at 867 km =
@@ -900,18 +933,18 @@ steps = [
   # CYCLE-2 SEAM BRACKET, the same -180 / -60 / +140 offsets about the cycle-2 seam at
   # R2 + 6,359.641 = 28,847,972.242 (MEASURED). Flown: each lands 2.242 s early of
   # intent, the largest deviation in the table and still inside a 120 s bracket.
-  { cmd = "TimeJump", args = { ut = "28847790" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28847910" }, expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28848110" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28929167" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28929287" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28929487" }, expect = "OK", budget = 300 },
   # CYCLE-2 COAST EPOCH: the same +9,757.240 offset off the cycle-2 relaunch. The
   # instance-21 = instance-1 + span identity makes this the SECOND SAMPLE OF THE SAME
   # LEG, so both cycles carry the identical instrument.
-  { cmd = "TimeJump", args = { ut = "28851368" }, expect = "OK", budget = 300 },
-  # 1x FLIGHT time to UT 28851380: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  { cmd = "TimeJump", args = { ut = "28932745" }, expect = "OK", budget = 300 },
+  # 1x FLIGHT time to UT 28932757: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-  { cmd = "WarpToUT", args = { ut = "28851380", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT", args = { ut = "28932757", maxRate = "1" }, expect = "OK", budget = 120 },
   # CYCLE-2 TAIL READ: the same +11,900 offset off the cycle-2 relaunch.
-  { cmd = "TimeJump", args = { ut = "28853511" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28934887" }, expect = "OK", budget = 300 },
   # STEP 5: "Watch" again, same pinned verdict on a WORSE separation (48.202 Mm, and the
   # escape sub-family excluded on both branches at this cycle). A DIFFERENT verdict
   # between the two attempts would itself be the reading.

@@ -391,7 +391,10 @@ namespace Parsek
         ///    OrbitalCheckpoint checkpoints other than the launch body) -> Orbital(C): direct
         ///    child (C.referenceBody == launchBody) keeps period = C.OrbitPeriod and is Supported;
         ///    sibling (C.referenceBody == launchBody.referenceBody) or deeper is
-        ///    UnsupportedCrossParent (Phase 4).
+        ///    UnsupportedCrossParent (Phase 4), EXCEPT rule 4a: when the launch body is a moon and
+        ///    every other included orbit body is its planet or a sibling moon, each sibling emits a
+        ///    Supported Orbital(C) and the launch moon emits Orbital(launch moon) once the mission
+        ///    leaves it (see <see cref="ResolveMoonRootedFrameParent"/>).
         /// </summary>
         internal static ConstraintExtraction ExtractConstraints(
             MissionThroughLineView view,
@@ -535,6 +538,23 @@ namespace Parsek
                 int cmp = a.Value.CompareTo(b.Value);
                 return cmp != 0 ? cmp : string.CompareOrdinal(a.Key, b.Key);
             });
+
+            // 4a. Moon-rooted frame (todo MOON-TO-MOON-LOOP-NOT-RETIMED): a mission that starts at
+            //     a MOON and never leaves its planet's SOI (Laythe -> Vall, Mun -> Minmus, Laythe ->
+            //     Jool orbit) replays faithfully when the launch moon AND every sibling moon it enters
+            //     are back at their recorded phases around the shared planet. The planet's own place
+            //     around the star does not matter (every leg is planet-relative or moon-relative), so
+            //     the set is Orbital(launch moon) + Orbital(each sibling), all Supported, and the
+            //     shipped joint solve + zero-drift schedule space the loops. Any body outside the
+            //     planet's SOI keeps the cross-parent path below unchanged.
+            string moonFrameParent = ResolveMoonRootedFrameParent(
+                launchBody, orbitBodiesSorted, bodyInfo);
+            bool leftLaunchMoon = false;
+            // The UT the mission first reaches the planet's frame or a sibling moon (the launch-moon
+            // SOI exit): the launch moon's phase is pinned THERE, not at its parking-orbit entry, so a
+            // phasing loiter around the launch moon moves the check with the exit (review of 4a).
+            double leftLaunchMoonUT = double.PositiveInfinity;
+
             foreach (var ob in orbitBodiesSorted)
             {
                 string body = ob.Key;
@@ -543,8 +563,24 @@ namespace Parsek
                 if (launchBody != null && body == launchBody)
                     continue; // the launch body's own orbit segments are not an SOI entry
 
+                if (moonFrameParent != null && body == moonFrameParent)
+                {
+                    // The shared planet's frame itself: its legs replay relative to it, so only the
+                    // launch moon's phase (4a, below) constrains them.
+                    leftLaunchMoon = true;
+                    leftLaunchMoonUT = Math.Min(leftLaunchMoonUT, ob.Value);
+                    continue;
+                }
+
                 double orbitPeriod = bodyInfo.OrbitPeriod(body);
-                bool crossParent = !IsSameParentTarget(body, launchBody, bodyInfo);
+                bool crossParent = moonFrameParent != null
+                    ? false
+                    : !IsSameParentTarget(body, launchBody, bodyInfo);
+                if (moonFrameParent != null)
+                {
+                    leftLaunchMoon = true;
+                    leftLaunchMoonUT = Math.Min(leftLaunchMoonUT, ob.Value);
+                }
 
                 if (double.IsNaN(orbitPeriod) || double.IsInfinity(orbitPeriod) || orbitPeriod <= 0.0)
                 {
@@ -569,6 +605,34 @@ namespace Parsek
                         $"orbital target '{body}' is not a direct child of launch body " +
                         $"'{launchBody ?? "?"}' (synodic, Phase 4)";
                 }
+            }
+
+            // 4a (cont). The launch moon's own phase around the shared planet, once the mission
+            //    leaves it: every planet-relative or sibling-moon leg is placed against it.
+            if (moonFrameParent != null && leftLaunchMoon)
+            {
+                double launchMoonPeriod = bodyInfo.OrbitPeriod(launchBody);
+                if (!double.IsNaN(launchMoonPeriod) && !double.IsInfinity(launchMoonPeriod)
+                    && launchMoonPeriod > 0.0)
+                {
+                    double launchOffset = double.IsInfinity(leftLaunchMoonUT)
+                        ? 0.0
+                        : Math.Max(0.0, leftLaunchMoonUT - ut0);
+                    result.Constraints.Add(new PhaseConstraint
+                    {
+                        Kind = ConstraintKind.Orbital,
+                        BodyName = launchBody,
+                        PeriodSeconds = launchMoonPeriod,
+                        PhaseOffsetSeconds = launchOffset,
+                        RelativeToParent = false
+                    });
+                }
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("MissionPeriodicity",
+                        $"ExtractConstraints: moon-rooted frame launchMoon={launchBody} " +
+                        $"planet={moonFrameParent} launchMoonPeriod=" +
+                        $"{launchMoonPeriod.ToString("R", CultureInfo.InvariantCulture)}s " +
+                        "(loops spaced so the launch moon and every sibling moon recur)");
             }
 
             // 5. Vessel rendezvous (M4a + M4c): the supported shape (exactly ONE foreign
@@ -1803,6 +1867,37 @@ namespace Parsek
             if (!string.IsNullOrEmpty(rec.StartBodyName))
                 return rec.StartBodyName;
             return null;
+        }
+
+        /// <summary>
+        /// The shared planet of a moon-rooted mission (rule 4a), or null. Non-null only when the
+        /// launch body is a MOON (its parent itself has a parent, so the parent is not the star) and
+        /// EVERY other included orbit body is that parent planet or a direct child of it (a sibling
+        /// moon). A mission that also enters a body outside the planet's SOI, or that never leaves
+        /// the launch moon, returns null and keeps the shipped extraction. Pure.
+        /// </summary>
+        internal static string ResolveMoonRootedFrameParent(
+            string launchBody, IReadOnlyList<KeyValuePair<string, double>> orbitBodies, IBodyInfo bodyInfo)
+        {
+            if (string.IsNullOrEmpty(launchBody) || bodyInfo == null || orbitBodies == null)
+                return null;
+            string parent = bodyInfo.ReferenceBodyName(launchBody);
+            if (string.IsNullOrEmpty(parent) || parent == launchBody)
+                return null;
+            string grandParent = bodyInfo.ReferenceBodyName(parent);
+            if (string.IsNullOrEmpty(grandParent) || grandParent == parent)
+                return null; // the launch body is a planet (its parent is the star)
+            bool any = false;
+            for (int i = 0; i < orbitBodies.Count; i++)
+            {
+                string body = orbitBodies[i].Key;
+                if (string.IsNullOrEmpty(body) || body == launchBody)
+                    continue;
+                if (body != parent && bodyInfo.ReferenceBodyName(body) != parent)
+                    return null;
+                any = true;
+            }
+            return any ? parent : null;
         }
 
         /// <summary>
