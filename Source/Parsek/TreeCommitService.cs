@@ -625,15 +625,15 @@ namespace Parsek
         /// Adds tree recordings to committed list, flushes to disk, rebuilds background map,
         /// captures baseline, and creates a milestone.
         /// </summary>
-        private static void FinalizeTreeCommit(RecordingTree tree, int replaceCommittedTreeIndex = -1)
+        internal static void FinalizeTreeCommit(RecordingTree tree, int replaceCommittedTreeIndex = -1)
         {
             // Add all tree recordings to committedRecordings (enables ghost playback).
             // Skip recordings already present (chain segments committed mid-flight
             // by CommitRecordingDirect).
-            int addedFromTree = 0;
-            int replacedFromTree = 0;
-            int preservedRewindSaves = 0;
-            int preservedRuntimeFields = 0;
+            int addedFromTree;
+            int replacedFromTree;
+            int preservedRewindSaves;
+            int preservedRuntimeFields;
             // Live-vessel PID set for the stale-spawn-stamp guard in
             // PreserveLiveRuntimeFieldsOnReplace. Built once per commit (the set
             // is the same for every recording in the tree). null when no
@@ -641,31 +641,9 @@ namespace Parsek
             // inert and preserves spawn state as before (drop only on evidence).
             Dictionary<uint, string> liveVesselGuidsByPid;
             ICollection<uint> liveVesselPids = CollectLiveVesselPidsForReplaceGate(out liveVesselGuidsByPid);
-            foreach (var rec in tree.Recordings.Values)
-            {
-                rec.FilesDirty = true;
-                int existingIndex = FindCommittedRecordingIndex(rec);
-                if (existingIndex >= 0)
-                {
-                    if (!ReferenceEquals(RecordingStore.CommittedRecordings[existingIndex], rec))
-                    {
-                        var existing = RecordingStore.CommittedRecordings[existingIndex];
-                        bool savePreserved;
-                        int otherPreserved;
-                        PreserveLiveRuntimeFieldsOnReplace(
-                            existing, rec, out savePreserved, out otherPreserved,
-                            liveVesselPids, liveVesselGuidsByPid);
-                        if (savePreserved) preservedRewindSaves++;
-                        preservedRuntimeFields += otherPreserved;
-                        RecordingStore.ReplaceCommittedAt(existingIndex, rec);
-                        replacedFromTree++;
-                    }
-                    continue;
-                }
-
-                RecordingStore.AppendCommittedUnbumped(rec);
-                addedFromTree++;
-            }
+            MergeTreeRecordingsIntoCommitted(
+                tree, liveVesselPids, liveVesselGuidsByPid,
+                out addedFromTree, out replacedFromTree, out preservedRewindSaves, out preservedRuntimeFields);
             if (addedFromTree > 0 || replacedFromTree > 0)
                 RecordingStore.BumpStateVersion();
 
@@ -678,8 +656,8 @@ namespace Parsek
             // that never went through RecordingTree.Load)
             tree.RebuildBackgroundMap();
 
-            bool updatedCommittedTree = replaceCommittedTreeIndex >= 0
-                && replaceCommittedTreeIndex < RecordingStore.CommittedTrees.Count;
+            bool updatedCommittedTree = IsCommittedTreeIndex(
+                replaceCommittedTreeIndex, RecordingStore.CommittedTrees.Count);
             if (updatedCommittedTree)
             {
                 RecordingStore.ReplaceCommittedTreeAt(replaceCommittedTreeIndex, tree);
@@ -706,13 +684,73 @@ namespace Parsek
             GameStateStore.CaptureBaselineIfNeeded();
 
             // Create a milestone bundling game state events since the previous milestone
+            double endUT = ComputeTreeEndUT(tree);
+            MilestoneStore.CreateMilestone(tree.Id, endUT);
+        }
+
+        /// <summary>
+        /// Puts every recording of <paramref name="tree"/> into the committed list, marked
+        /// dirty: one already committed under its id (or as the same instance) is replaced in
+        /// place when it is another instance, carrying the live runtime fields over from the
+        /// committed copy; any other is appended unbumped. Counts what it added, replaced and
+        /// carried.
+        /// </summary>
+        internal static void MergeTreeRecordingsIntoCommitted(
+            RecordingTree tree,
+            ICollection<uint> liveVesselPids,
+            Dictionary<uint, string> liveVesselGuidsByPid,
+            out int addedFromTree,
+            out int replacedFromTree,
+            out int preservedRewindSaves,
+            out int preservedRuntimeFields)
+        {
+            addedFromTree = 0;
+            replacedFromTree = 0;
+            preservedRewindSaves = 0;
+            preservedRuntimeFields = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                rec.FilesDirty = true;
+                int existingIndex = FindCommittedRecordingIndex(rec);
+                if (existingIndex >= 0)
+                {
+                    if (!ReferenceEquals(RecordingStore.CommittedRecordings[existingIndex], rec))
+                    {
+                        var existing = RecordingStore.CommittedRecordings[existingIndex];
+                        bool savePreserved;
+                        int otherPreserved;
+                        PreserveLiveRuntimeFieldsOnReplace(
+                            existing, rec, out savePreserved, out otherPreserved,
+                            liveVesselPids, liveVesselGuidsByPid);
+                        if (savePreserved) preservedRewindSaves++;
+                        preservedRuntimeFields += otherPreserved;
+                        RecordingStore.ReplaceCommittedAt(existingIndex, rec);
+                        replacedFromTree++;
+                    }
+                    continue;
+                }
+
+                RecordingStore.AppendCommittedUnbumped(rec);
+                addedFromTree++;
+            }
+        }
+
+        /// <summary>True when <paramref name="index"/> names an existing committed tree slot.</summary>
+        internal static bool IsCommittedTreeIndex(int index, int count)
+        {
+            return index >= 0 && index < count;
+        }
+
+        /// <summary>The latest recording end UT of the tree; 0 when none ends after 0.</summary>
+        internal static double ComputeTreeEndUT(RecordingTree tree)
+        {
             double endUT = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 double recEnd = rec.EndUT;
                 if (recEnd > endUT) endUT = recEnd;
             }
-            MilestoneStore.CreateMilestone(tree.Id, endUT);
+            return endUT;
         }
 
         internal static int FindCommittedRecordingIndex(Recording rec)
@@ -1293,7 +1331,7 @@ namespace Parsek
         /// inconsistent — the strict-replace fallback below handles
         /// duplicate-skip semantics in that case.
         /// </summary>
-        private static bool TryUnionActiveReFlyTreeIntoCommitted(
+        internal static bool TryUnionActiveReFlyTreeIntoCommitted(
             RecordingTree existing,
             RecordingTree incoming,
             ReFlySessionMarker marker,
@@ -1307,6 +1345,24 @@ namespace Parsek
             if (existing == null || incoming == null || marker == null) return false;
             if (existing.Recordings == null || incoming.Recordings == null) return false;
 
+            addedRecs = UnionRecordingsInto(existing, incoming);
+            addedBps = UnionBranchPointsInto(existing, incoming);
+            AdoptMissingRootRecordingId(existing, incoming);
+            activeIdSwapped = AdoptIncomingActiveRecordingId(existing, incoming);
+
+            // RebuildBackgroundMap: the recordings dict just changed.
+            existing.RebuildBackgroundMap();
+            return true;
+        }
+
+        /// <summary>
+        /// Union of the recordings: adds incoming-only ids, overwrites a shared id with the
+        /// incoming instance, keeps existing-only ids. Skips empty keys and null values.
+        /// Returns how many ids were added.
+        /// </summary>
+        internal static int UnionRecordingsInto(RecordingTree existing, RecordingTree incoming)
+        {
+            int addedRecs = 0;
             // Union recordings: add incoming-only, overwrite shared, keep
             // existing-only.
             foreach (var kvp in incoming.Recordings)
@@ -1323,7 +1379,17 @@ namespace Parsek
                     addedRecs++;
                 }
             }
+            return addedRecs;
+        }
 
+        /// <summary>
+        /// Union of the branch points by id: appends each incoming branch point whose id the
+        /// existing list does not hold (creating the list when it is null). Returns how many
+        /// were appended.
+        /// </summary>
+        internal static int UnionBranchPointsInto(RecordingTree existing, RecordingTree incoming)
+        {
+            int addedBps = 0;
             // Union branch points (by Id).
             if (incoming.BranchPoints != null)
             {
@@ -1347,14 +1413,26 @@ namespace Parsek
                     }
                 }
             }
+            return addedBps;
+        }
 
+        /// <summary>Keeps the existing root id when set; else adopts a set incoming one.</summary>
+        internal static void AdoptMissingRootRecordingId(RecordingTree existing, RecordingTree incoming)
+        {
             // Root id: keep existing if set; else adopt incoming.
             if (string.IsNullOrEmpty(existing.RootRecordingId)
                 && !string.IsNullOrEmpty(incoming.RootRecordingId))
             {
                 existing.RootRecordingId = incoming.RootRecordingId;
             }
+        }
 
+        /// <summary>
+        /// Adopts a set incoming active id that differs from the existing one; returns whether
+        /// it did.
+        /// </summary>
+        internal static bool AdoptIncomingActiveRecordingId(RecordingTree existing, RecordingTree incoming)
+        {
             // Active id: prefer incoming when an active marker exists. The
             // marker is the authority on "what the user is doing now". The
             // splitter's Step 2.12 promotion may have already promoted
@@ -1367,17 +1445,14 @@ namespace Parsek
                                   StringComparison.Ordinal))
             {
                 existing.ActiveRecordingId = incoming.ActiveRecordingId;
-                activeIdSwapped = true;
+                return true;
             }
-
-            // RebuildBackgroundMap: the recordings dict just changed.
-            existing.RebuildBackgroundMap();
-            return true;
+            return false;
         }
 
         /// <summary>
         /// Internal shim that lets <c>MergeJournalOrchestrator.
-        /// MigrateActiveReFlyForkIntoCommittedTree</c> call the private
+        /// MigrateActiveReFlyForkIntoCommittedTree</c> call the
         /// union helper. The same union logic is used by
         /// <see cref="CommitTree"/>'s active-Re-Fly path and by the
         /// merge journal's new <c>TreeMerge</c> phase; centralizing the
@@ -1393,7 +1468,7 @@ namespace Parsek
         /// at the <c>TreeMerge</c> phase. If you're adding a third caller
         /// or generalizing the union semantics, audit both call sites for
         /// the "marker present + tree id matches" precondition this
-        /// helper inherits from the private callee.</para>
+        /// helper inherits from the callee.</para>
         /// </summary>
         internal static bool UnionActiveReFlyTreeIntoCommittedForMerge(
             RecordingTree existing, RecordingTree incoming, ReFlySessionMarker marker,
