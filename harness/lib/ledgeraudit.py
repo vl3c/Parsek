@@ -100,6 +100,8 @@ SRC_TAKE_BACK = "Source/Parsek/GameActions/StockShadowTakeBack.cs"
 SRC_PATCHER = "Source/Parsek/GameActions/KspStatePatcher.cs"
 SRC_LEDGER = "Source/Parsek/GameActions/Ledger.cs"
 SRC_ORCHESTRATOR = "Source/Parsek/GameActions/LedgerOrchestrator*.cs"
+# The candidate half of the orchestrator's recovery-owner pick (the path and guid filter lines).
+SRC_RECOVERY_PICKER = "Source/Parsek/GameActions/RecoveryRecordingPicker.cs"
 SRC_LOAD_POLICY = "Source/Parsek/LoadReconcilePolicy.cs"
 # A partial class: the text that was ParsekScenario.cs is this main file plus the files
 # scripts/refactor/split_parsekscenario.py split out of it (SRC_SCENARIO_SPLIT), read by the
@@ -252,7 +254,7 @@ SOURCE_ANCHORS: Tuple[Tuple[str, str, str], ...] = (
     ("merge-refused", SRC_DOMINANCE, LIT_DOMINANCE),
     ("already-owned", SRC_FUNDS, LIT_OWNED),
     ("same-craft", SRC_CHAIN_WALKER, LIT_PID_ONLY),
-    ("same-craft", SRC_ORCHESTRATOR, LIT_GUID_UNKNOWN),
+    ("same-craft", SRC_RECOVERY_PICKER, LIT_GUID_UNKNOWN),
     ("finalizer-oddity", SRC_FINALIZER_CACHE, LIT_SUBSURFACE),
     ("finalizer-oddity", SRC_FINALIZER_CACHE, LIT_SUBSURFACE_DECLINE),
     ("finalizer-oddity", SRC_EXTRAPOLATOR, LIT_FALLBACK),

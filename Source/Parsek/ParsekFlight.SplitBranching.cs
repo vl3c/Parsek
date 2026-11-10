@@ -1731,30 +1731,21 @@ namespace Parsek
                     for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
                     {
                         Vessel v = FlightGlobals.Vessels[i];
-                        if (v == null || v.persistentId == recordedPid) continue;
-                        if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
-
-                        // Only consider vessels that didn't exist before the break
-                        if (preBreakVesselPids != null && preBreakVesselPids.Contains(v.persistentId))
-                            continue;
-
-                        // Skip vessels we're already tracking in the tree
-                        if (activeTree != null && activeTree.BackgroundMap.ContainsKey(v.persistentId))
-                            continue;
-
-                        // Skip if already captured by onVesselCreate
-                        if (newVesselPids.Contains(v.persistentId))
-                            continue;
-
-                        // Skip a fragment that came off ANOTHER vessel in this window (e.g. a
-                        // spawned copy breaking on its first unpacked frame): it is not a
-                        // child of the recording.
-                        if (SegmentBoundaryLogic.IsForeignDecoupleOrigin(
-                                v.persistentId, recordedPid, decoupleOriginByNewPid))
+                        if (v == null) continue;
+                        DeferredScanCandidate candidate = ClassifyDeferredScanCandidate(
+                            v.persistentId,
+                            recordedPid,
+                            preBreakVesselPids,
+                            activeTree,
+                            newVesselPids,
+                            decoupleOriginByNewPid);
+                        if (candidate == DeferredScanCandidate.ForeignOrigin)
                         {
                             foreignOriginSkipped++;
                             continue;
                         }
+                        if (candidate == DeferredScanCandidate.Skip)
+                            continue;
 
                         if (!ShouldIncludeVesselInDeferredBreakupScan(v, out string rejectReason))
                         {
@@ -1774,18 +1765,9 @@ namespace Parsek
                         }
                     }
                 }
-                if (foreignOriginSkipped > 0)
-                {
-                    ParsekLog.Info("Flight",
-                        $"DeferredJointBreakCheck: skipped {foreignOriginSkipped} new vessel(s) " +
-                        $"that came off another vessel (decouple origin chain never reaches " +
-                        $"recordedPid={recordedPid})");
-                }
+                ReportDeferredScanForeignOriginSkips(foreignOriginSkipped, recordedPid);
 
-                string splitCheckSource =
-                    pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel
-                        ? "decouple-only"
-                        : "joint-break";
+                string splitCheckSource = DescribeDeferredSplitCheckSource(pendingDeferredSplitCheckTrigger);
 
                 // Classify the split result
                 var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
@@ -1810,25 +1792,7 @@ namespace Parsek
                     ParsekLog.Info("Coalescer",
                         "Within-segment breakage — emitting SegmentEvents and resuming recording");
 
-                    // Emit SegmentEvent.PartDestroyed for parts that broke off but didn't split
-                    // the vessel. Scan recent Decoupled PartEvents to find the broken parts.
-                    if (pendingSplitRecorder != null)
-                    {
-                        var recentDecoupled = pendingSplitRecorder.PartEvents;
-                        for (int i = recentDecoupled.Count - 1; i >= 0 && i >= recentDecoupled.Count - 5; i--)
-                        {
-                            if (recentDecoupled[i].eventType == PartEventType.Decoupled)
-                            {
-                                SegmentBoundaryLogic.EmitBreakageSegmentEvents(
-                                    pendingSplitRecorder.SegmentEvents,
-                                    branchUT,
-                                    recentDecoupled[i].partName,
-                                    recentDecoupled[i].partPersistentId,
-                                    false, // wasController — full controller monitoring is Phase 1 low-priority
-                                    null);
-                            }
-                        }
-                    }
+                    EmitWithinSegmentBreakageSegmentEvents(pendingSplitRecorder, branchUT);
 
                     SplitBrancher.ResumeSplitRecorder(pendingSplitRecorder, "joint break was within-segment (no vessel split)");
                 }
@@ -1872,24 +1836,15 @@ namespace Parsek
                             trajectoryPointSource = "destroyed-before-capture";
                         }
 
-                        // Classify decoupler-initiated (intentional staging / decoupler fire)
-                        // vs force-driven structural break. A child caught by
-                        // onPartDeCoupleNewVesselComplete (present in decoupleControllerStatus)
-                        // came off through Part.decouple(); a decouple-only trigger means the
-                        // whole split was detected via that callback. Everything else stays a
-                        // breakup so a genuine crash is never relabelled a decouple.
-                        bool childWasDecoupleCreated = decoupleControllerStatus != null
-                            && decoupleControllerStatus.ContainsKey(newPid);
-                        bool triggerWasDecoupleOnly =
-                            pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel;
                         uint childRootPartPid = childVessel?.rootPart?.persistentId ?? 0u;
-                        string childSplitCause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
-                            childWasDecoupleCreated, triggerWasDecoupleOnly,
-                            childBrokeUnderForce: pendingSplitRecorder != null
-                                && pendingSplitRecorder.JointChildBrokeUnderForce(childRootPartPid),
-                            childWasPreAttachedUndock: pendingSplitRecorder != null
-                                && pendingSplitRecorder.PartLeftThroughPreAttachedUndock(childRootPartPid),
-                            childRootPartPid: childRootPartPid);
+                        string childSplitCause = ResolveForegroundSplitChildCause(
+                            newPid,
+                            decoupleControllerStatus,
+                            pendingDeferredSplitCheckTrigger,
+                            pendingSplitRecorder,
+                            childRootPartPid,
+                            out bool childWasDecoupleCreated,
+                            out bool triggerWasDecoupleOnly);
                         // Best-available proxy for BranchPoint.DecouplerPartId: the separated
                         // child's root part (the part that came off through the decoupler). KSP's
                         // decouple callback does not hand us the parent-side decoupler module, and
@@ -1900,16 +1855,17 @@ namespace Parsek
                             ? (childVessel?.rootPart?.persistentId ?? 0u)
                             : 0u;
 
-                        ParsekLog.Info("Coalescer",
-                            $"Feeding split to coalescer: childPid={newPid}, childHasController={hasController}" +
-                            $", cause={childSplitCause}, decoupleCreated={childWasDecoupleCreated}" +
-                            $", triggerDecoupleOnly={triggerWasDecoupleOnly}, decouplerPartId={childDecouplerPartId}" +
-                            $", preSnapshot={preSnapshot != null}, preTrajectoryPoint={preTrajectoryPoint.HasValue} " +
-                            $"pointSource={trajectoryPointSource} " +
-                            $"branchUT={branchUT.ToString("F2", CultureInfo.InvariantCulture)}" +
-                            (preTrajectoryPoint.HasValue
-                                ? $" seedUT={preTrajectoryPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}"
-                                : string.Empty));
+                        ParsekLog.Info("Coalescer", FormatCoalescerSplitFeedLine(
+                            newPid,
+                            hasController,
+                            childSplitCause,
+                            childWasDecoupleCreated,
+                            triggerWasDecoupleOnly,
+                            childDecouplerPartId,
+                            preSnapshot,
+                            preTrajectoryPoint,
+                            trajectoryPointSource,
+                            branchUT));
                         crashCoalescer.OnSplitEvent(
                             branchUT, newPid, hasController,
                             splitCause: childSplitCause,
@@ -2003,6 +1959,175 @@ namespace Parsek
                 decoupleCreatedTrajectoryPoints?.Clear();
                 decoupleOriginByNewPid.Clear();
             }
+        }
+
+        /// <summary>
+        /// How the deferred joint-break scan treats one live vessel: <see cref="DeferredScanCandidate.Skip"/>
+        /// for the recorded vessel, a ghost map vessel, a vessel that existed before the break, a
+        /// background member or a pid already captured; <see cref="DeferredScanCandidate.ForeignOrigin"/>
+        /// for a fragment whose decouple origin chain never reaches the recorded vessel (the caller
+        /// counts it); <see cref="DeferredScanCandidate.Consider"/> otherwise.
+        /// </summary>
+        internal enum DeferredScanCandidate
+        {
+            Consider = 0,
+            Skip = 1,
+            ForeignOrigin = 2,
+        }
+
+        /// <summary>
+        /// The per-vessel prefilter of <see cref="DeferredJointBreakCheck"/>'s joint-break scan,
+        /// over the vessel's persistent id. The live vessel checks (null, the breakup-scan type
+        /// filter, the controller test) stay in the coroutine.
+        /// </summary>
+        internal static DeferredScanCandidate ClassifyDeferredScanCandidate(
+            uint pid,
+            uint recordedPid,
+            HashSet<uint> preBreakVesselPids,
+            RecordingTree activeTree,
+            List<uint> newVesselPids,
+            Dictionary<uint, uint> decoupleOriginByNewPid)
+        {
+            if (pid == recordedPid) return DeferredScanCandidate.Skip;
+            if (GhostMapPresence.IsGhostMapVessel(pid)) return DeferredScanCandidate.Skip;
+
+            // Only consider vessels that didn't exist before the break
+            if (preBreakVesselPids != null && preBreakVesselPids.Contains(pid))
+                return DeferredScanCandidate.Skip;
+
+            // Skip vessels we're already tracking in the tree
+            if (activeTree != null && activeTree.BackgroundMap.ContainsKey(pid))
+                return DeferredScanCandidate.Skip;
+
+            // Skip if already captured by onVesselCreate
+            if (newVesselPids.Contains(pid))
+                return DeferredScanCandidate.Skip;
+
+            // Skip a fragment that came off ANOTHER vessel in this window (e.g. a
+            // spawned copy breaking on its first unpacked frame): it is not a
+            // child of the recording.
+            if (SegmentBoundaryLogic.IsForeignDecoupleOrigin(
+                    pid, recordedPid, decoupleOriginByNewPid))
+            {
+                return DeferredScanCandidate.ForeignOrigin;
+            }
+
+            return DeferredScanCandidate.Consider;
+        }
+
+        /// <summary>
+        /// The one summary line of the joint-break scan's foreign-origin skips; silent at zero.
+        /// </summary>
+        internal static void ReportDeferredScanForeignOriginSkips(int foreignOriginSkipped, uint recordedPid)
+        {
+            if (foreignOriginSkipped > 0)
+            {
+                ParsekLog.Info("Flight",
+                    $"DeferredJointBreakCheck: skipped {foreignOriginSkipped} new vessel(s) " +
+                    $"that came off another vessel (decouple origin chain never reaches " +
+                    $"recordedPid={recordedPid})");
+            }
+        }
+
+        /// <summary>
+        /// The source label of a deferred split check: "decouple-only" when the decouple callback
+        /// alone triggered it, "joint-break" otherwise.
+        /// </summary>
+        internal static string DescribeDeferredSplitCheckSource(
+            DeferredSplitCheckTrigger pendingDeferredSplitCheckTrigger)
+        {
+            return
+                pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel
+                    ? "decouple-only"
+                    : "joint-break";
+        }
+
+        /// <summary>
+        /// The within-segment breakage events of a deferred split check that found no new vessel.
+        /// </summary>
+        internal static void EmitWithinSegmentBreakageSegmentEvents(
+            FlightRecorder pendingSplitRecorder,
+            double branchUT)
+        {
+            // Emit SegmentEvent.PartDestroyed for parts that broke off but didn't split
+            // the vessel. Scan recent Decoupled PartEvents to find the broken parts.
+            if (pendingSplitRecorder != null)
+            {
+                var recentDecoupled = pendingSplitRecorder.PartEvents;
+                for (int i = recentDecoupled.Count - 1; i >= 0 && i >= recentDecoupled.Count - 5; i--)
+                {
+                    if (recentDecoupled[i].eventType == PartEventType.Decoupled)
+                    {
+                        SegmentBoundaryLogic.EmitBreakageSegmentEvents(
+                            pendingSplitRecorder.SegmentEvents,
+                            branchUT,
+                            recentDecoupled[i].partName,
+                            recentDecoupled[i].partPersistentId,
+                            false, // wasController — full controller monitoring is Phase 1 low-priority
+                            null);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The split cause of one foreground split child fed to the crash coalescer, with the two
+        /// decouple signals it was decided from. The child's root part pid is read from the live
+        /// vessel by the caller.
+        /// </summary>
+        internal static string ResolveForegroundSplitChildCause(
+            uint newPid,
+            Dictionary<uint, bool> decoupleControllerStatus,
+            DeferredSplitCheckTrigger pendingDeferredSplitCheckTrigger,
+            FlightRecorder pendingSplitRecorder,
+            uint childRootPartPid,
+            out bool childWasDecoupleCreated,
+            out bool triggerWasDecoupleOnly)
+        {
+            // Classify decoupler-initiated (intentional staging / decoupler fire)
+            // vs force-driven structural break. A child caught by
+            // onPartDeCoupleNewVesselComplete (present in decoupleControllerStatus)
+            // came off through Part.decouple(); a decouple-only trigger means the
+            // whole split was detected via that callback. Everything else stays a
+            // breakup so a genuine crash is never relabelled a decouple.
+            childWasDecoupleCreated = decoupleControllerStatus != null
+                && decoupleControllerStatus.ContainsKey(newPid);
+            triggerWasDecoupleOnly =
+                pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel;
+            return SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
+                childWasDecoupleCreated, triggerWasDecoupleOnly,
+                childBrokeUnderForce: pendingSplitRecorder != null
+                    && pendingSplitRecorder.JointChildBrokeUnderForce(childRootPartPid),
+                childWasPreAttachedUndock: pendingSplitRecorder != null
+                    && pendingSplitRecorder.PartLeftThroughPreAttachedUndock(childRootPartPid),
+                childRootPartPid: childRootPartPid);
+        }
+
+        /// <summary>
+        /// The "Feeding split to coalescer" line of one split child.
+        /// </summary>
+        internal static string FormatCoalescerSplitFeedLine(
+            uint newPid,
+            bool hasController,
+            string childSplitCause,
+            bool childWasDecoupleCreated,
+            bool triggerWasDecoupleOnly,
+            uint childDecouplerPartId,
+            ConfigNode preSnapshot,
+            TrajectoryPoint? preTrajectoryPoint,
+            string trajectoryPointSource,
+            double branchUT)
+        {
+            return
+                $"Feeding split to coalescer: childPid={newPid}, childHasController={hasController}" +
+                $", cause={childSplitCause}, decoupleCreated={childWasDecoupleCreated}" +
+                $", triggerDecoupleOnly={triggerWasDecoupleOnly}, decouplerPartId={childDecouplerPartId}" +
+                $", preSnapshot={preSnapshot != null}, preTrajectoryPoint={preTrajectoryPoint.HasValue} " +
+                $"pointSource={trajectoryPointSource} " +
+                $"branchUT={branchUT.ToString("F2", CultureInfo.InvariantCulture)}" +
+                (preTrajectoryPoint.HasValue
+                    ? $" seedUT={preTrajectoryPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}"
+                    : string.Empty);
         }
 
         /// <summary>

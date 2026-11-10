@@ -406,6 +406,60 @@ namespace Parsek
             return TrySplitBackgroundSectionAtPhysicsBodyChange(state, treeRec, sample, closingPoint);
         }
 
+        /// <summary>For testing: the proximity interval bookkeeping of one loaded tick.</summary>
+        internal void UpdateBackgroundSampleIntervalForTesting(
+            uint vesselPid, double distance, double rawProximityInterval, double proximityInterval)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                UpdateBackgroundSampleInterval(state, vesselPid, distance, rawProximityInterval, proximityInterval);
+        }
+
+        internal int FixedStepSampleSkipCountForTesting => fixedStepSampleSkipCount;
+
+        /// <summary>For testing: sets the loaded state's last-sample baseline the triggers compare against.</summary>
+        internal void SetLoadedSampleBaselineForTesting(
+            uint vesselPid, double ut, Vector3 velocity, Quaternion worldRotation)
+        {
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state))
+                return;
+            state.lastRecordedUT = ut;
+            state.lastRecordedVelocity = velocity;
+            state.lastWorldRotation = worldRotation;
+            state.hasLastWorldRotation = true;
+        }
+
+        /// <summary>For testing: the motion and attitude triggers of one loaded tick.</summary>
+        internal void ResolveBackgroundSampleTriggersForTesting(
+            uint vesselPid,
+            double ut,
+            Vector3 currentVelocity,
+            Quaternion currentWorldRotation,
+            bool highFidelityActive,
+            float effectiveMinSampleInterval,
+            float effectiveMaxSampleInterval,
+            float minSampleInterval,
+            float velocityDirThreshold,
+            float speedChangeThreshold,
+            out bool motionTriggered,
+            out bool attitudeTriggered)
+        {
+            ResolveBackgroundSampleTriggers(
+                loadedStates[vesselPid],
+                ut,
+                currentVelocity,
+                currentWorldRotation,
+                highFidelityActive,
+                effectiveMinSampleInterval,
+                effectiveMaxSampleInterval,
+                minSampleInterval,
+                velocityDirThreshold,
+                speedChangeThreshold,
+                out motionTriggered,
+                out attitudeTriggered);
+        }
+
         /// <summary>For testing: the sampler's append of one sample (flat list + open section).</summary>
         internal void AppendLoadedSampleForTesting(uint vesselPid, TrajectoryPoint point)
         {

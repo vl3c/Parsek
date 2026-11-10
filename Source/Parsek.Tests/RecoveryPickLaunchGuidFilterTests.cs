@@ -128,23 +128,23 @@ namespace Parsek.Tests
             var recA = Rec("rec-a", "Hopper", 100.0, 900.0, GuidA);
 
             // Both known, different launches: the only conclusive case.
-            Assert.True(LedgerOrchestrator.IsConclusiveLaunchGuidMismatch(recA, GuidB));
+            Assert.True(RecoveryRecordingPicker.IsConclusiveLaunchGuidMismatch(recA, GuidB));
 
             // Both known, same launch.
-            Assert.False(LedgerOrchestrator.IsConclusiveLaunchGuidMismatch(recA, GuidA));
+            Assert.False(RecoveryRecordingPicker.IsConclusiveLaunchGuidMismatch(recA, GuidA));
 
             // Live guid unknown (the seam could not supply one) - NOT conclusive. This is
             // the whole reason IsPositivelySameLaunch (which needs a positive guid on both
             // sides) is the wrong shape here: it would drop this candidate.
-            Assert.False(LedgerOrchestrator.IsConclusiveLaunchGuidMismatch(recA, null));
-            Assert.False(LedgerOrchestrator.IsConclusiveLaunchGuidMismatch(recA, ""));
+            Assert.False(RecoveryRecordingPicker.IsConclusiveLaunchGuidMismatch(recA, null));
+            Assert.False(RecoveryRecordingPicker.IsConclusiveLaunchGuidMismatch(recA, ""));
 
             // Recorded guid unknown (a legacy / pre-guid recording) - NOT conclusive.
             var legacy = Rec("rec-legacy", "Hopper", 100.0, 900.0, null);
-            Assert.False(LedgerOrchestrator.IsConclusiveLaunchGuidMismatch(legacy, GuidB));
+            Assert.False(RecoveryRecordingPicker.IsConclusiveLaunchGuidMismatch(legacy, GuidB));
 
             // Null recording is never a mismatch (defensive, mirrors the picker's null skip).
-            Assert.False(LedgerOrchestrator.IsConclusiveLaunchGuidMismatch(null, GuidB));
+            Assert.False(RecoveryRecordingPicker.IsConclusiveLaunchGuidMismatch(null, GuidB));
         }
 
         [Fact]
@@ -156,8 +156,8 @@ namespace Parsek.Tests
             string dashed = new Guid(GuidA).ToString("D").ToUpperInvariant();
             var recA = Rec("rec-a", "Hopper", 100.0, 900.0, GuidA);
 
-            Assert.False(LedgerOrchestrator.IsConclusiveLaunchGuidMismatch(recA, dashed));
-            Assert.True(LedgerOrchestrator.IsConclusiveLaunchGuidMismatch(
+            Assert.False(RecoveryRecordingPicker.IsConclusiveLaunchGuidMismatch(recA, dashed));
+            Assert.True(RecoveryRecordingPicker.IsConclusiveLaunchGuidMismatch(
                 recA, new Guid(GuidB).ToString("D")));
         }
 
@@ -181,7 +181,7 @@ namespace Parsek.Tests
                 Rec("r4", "Hopper", 900.0, 1000.0, GuidB),  // kept
             };
 
-            var survivors = LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid(
+            var survivors = RecoveryRecordingPicker.FilterRecoveryCandidatesByLaunchGuid(
                 input, GuidB, out int dropped);
 
             Assert.Equal(2, dropped);
@@ -214,7 +214,7 @@ namespace Parsek.Tests
 
             foreach (string liveGuid in new[] { null, "" })
             {
-                var survivors = LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid(
+                var survivors = RecoveryRecordingPicker.FilterRecoveryCandidatesByLaunchGuid(
                     input, liveGuid, out int dropped);
                 Assert.Equal(0, dropped);
                 Assert.Equal(
@@ -226,7 +226,7 @@ namespace Parsek.Tests
         [Fact]
         public void Filter_NullInput_YieldsEmptySetAndNoDrops()
         {
-            var survivors = LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid(
+            var survivors = RecoveryRecordingPicker.FilterRecoveryCandidatesByLaunchGuid(
                 null, GuidA, out int dropped);
             Assert.Empty(survivors);
             Assert.Equal(0, dropped);
@@ -245,7 +245,7 @@ namespace Parsek.Tests
             var inheritedProvisional = Rec("rec-prov-2", "Reusable", 1000.0, 5000.0, GuidA);
             inheritedProvisional.MergeState = MergeState.NotCommitted;
 
-            var survivors = LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid(
+            var survivors = RecoveryRecordingPicker.FilterRecoveryCandidatesByLaunchGuid(
                 new List<Recording> { freshProvisional, inheritedProvisional },
                 GuidA,
                 out int dropped);
@@ -270,7 +270,7 @@ namespace Parsek.Tests
             var other = Rec("rec-other", "Reusable", 100.0, 900.0, GuidB);
 
             var nameMatches = new List<Recording> { other, provisional };
-            var survivors = LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid(
+            var survivors = RecoveryRecordingPicker.FilterRecoveryCandidatesByLaunchGuid(
                 nameMatches, GuidB, out int dropped);
 
             // The filter removed the provisional here. This is a deliberately HOSTILE
@@ -283,14 +283,14 @@ namespace Parsek.Tests
             // Pre-filter set: found. Post-filter set: NOT found. Passing the pre-filter set
             // is exactly the mistake the helper's contract forbids.
             Assert.Same(provisional,
-                LedgerOrchestrator.FindSessionProvisionalAmong(nameMatches, "rec-prov"));
+                RecoveryRecordingPicker.FindSessionProvisionalAmong(nameMatches, "rec-prov"));
             Assert.Null(
-                LedgerOrchestrator.FindSessionProvisionalAmong(survivors, "rec-prov"));
+                RecoveryRecordingPicker.FindSessionProvisionalAmong(survivors, "rec-prov"));
 
             // Degenerate inputs.
-            Assert.Null(LedgerOrchestrator.FindSessionProvisionalAmong(null, "rec-prov"));
-            Assert.Null(LedgerOrchestrator.FindSessionProvisionalAmong(nameMatches, null));
-            Assert.Null(LedgerOrchestrator.FindSessionProvisionalAmong(nameMatches, ""));
+            Assert.Null(RecoveryRecordingPicker.FindSessionProvisionalAmong(null, "rec-prov"));
+            Assert.Null(RecoveryRecordingPicker.FindSessionProvisionalAmong(nameMatches, null));
+            Assert.Null(RecoveryRecordingPicker.FindSessionProvisionalAmong(nameMatches, ""));
         }
 
         // ----------------------------------------------------------------
