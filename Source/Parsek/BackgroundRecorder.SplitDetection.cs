@@ -154,85 +154,16 @@ namespace Parsek
             // closed segment's stored guid. Read once so the log line below can show
             // both inputs. Read only when the parent is alive, matching the gate the
             // helper applies to the continuation itself.
-            string liveParentGuid = parentVessel != null
-                ? AnchorDetector.TryReadLiveVesselGuid(parentVessel)
-                : null;
-            parentContRec = TryBuildAndAttachParentContinuation(
-                tree, bp, parentRec, parentPid, branchUT,
-                parentVesselAlive: parentVessel != null,
-                continuationRecordingId: parentVessel != null
-                    ? System.Guid.NewGuid().ToString("N")
-                    : null,
-                liveParentGuid: liveParentGuid,
-                // Pin start-of-recording controller identity for the parent continuation
-                // from the live post-split parent vessel. Captures the parts that
-                // stayed with the parent after the split, so a later destructive
-                // crash on the continuation can be detected via identity loss.
-                controllers: parentVessel != null
-                    ? ControllerInfo.CaptureFromVessel(parentVessel)
-                    : null,
-                // The continuation records the live post-split parent vessel, so it captures
-                // that vessel's current name (not a copy of the closed parent leg's name).
-                liveParentName: parentVessel != null
-                    ? Recording.ResolveLocalizedName(parentVessel.vesselName)
-                    : null);
+            string liveParentGuid;
+            parentContRec = BuildBackgroundSplitParentContinuation(
+                bp, parentRec, parentPid, branchUT, parentVessel, out liveParentGuid);
 
             if (parentContRec != null)
             {
-                string parentContRecId = parentContRec.RecordingId;
+                LogParentContinuationIdentity(parentContRec, parentRec, parentRecordingId, liveParentGuid);
 
-                // The guid decision is a state fact the correlator later reads, so it is
-                // logged with BOTH inputs. A conclusive divergence (the pid now carries a
-                // DIFFERENT launch than the segment being continued) is rare and worth a
-                // plain Info: the continuation follows the live vessel, and the chain then
-                // correctly reads as more than one launch.
-                if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
-                        liveParentGuid, parentRec.RecordedVesselGuid))
-                {
-                    ParsekLog.Info("BgRecorder",
-                        $"Parent continuation launch guid diverges from the continued segment: " +
-                        $"recId={parentContRecId} parentRecId={parentRecordingId} " +
-                        $"live={liveParentGuid} parentRecGuid={parentRec.RecordedVesselGuid} " +
-                        $"stamped={parentContRec.RecordedVesselGuid} (live vessel wins)");
-                }
-                else
-                {
-                    ParsekLog.Verbose("BgRecorder",
-                        $"Parent continuation launch guid stamped: recId={parentContRecId} " +
-                        $"guid={parentContRec.RecordedVesselGuid ?? "(none)"} " +
-                        $"live={liveParentGuid ?? "(none)"} " +
-                        $"parentRecGuid={parentRec.RecordedVesselGuid ?? "(none)"}");
-                }
-
-                if (!string.Equals(parentContRec.VesselName, parentRec.VesselName, StringComparison.Ordinal))
-                {
-                    ParsekLog.Info("BgRecorder",
-                        $"Parent continuation captured the live vessel name: recId={parentContRecId} " +
-                        $"name='{parentContRec.VesselName}' (closed parent leg '{parentRecordingId}' " +
-                        $"keeps '{parentRec.VesselName}')");
-                }
-
-                // Re-initialize tracking state for the parent continuation.
-                // Seed the continuation with the exact split-time pose so playback can
-                // start from the branch boundary instead of waiting for the next sample.
-                TrajectoryPoint? parentInitialPoint = parentBoundaryPoint;
-                if (!parentInitialPoint.HasValue && parentVessel != null)
-                {
-                    double sampleUT = Planetarium.GetUniversalTime();
-                    parentInitialPoint = CreateAbsoluteTrajectoryPointFromVessel(
-                        parentVessel, sampleUT, preferRootPartSurfacePose: true);
-                }
-                OnVesselBackgrounded(parentPid, parentEngineState,
-                    initialTrajectoryPoint: parentInitialPoint);
-
-                // Set TTL for parent continuation if it's debris
-                if (parentRec.IsDebris)
-                {
-                    debrisTTLExpiry[parentPid] = branchUT + DebrisTTLSeconds;
-                    ParsekLog.Info("BgRecorder",
-                        $"Parent continuation is debris, TTL set: parentPid={parentPid} " +
-                        $"expiry={branchUT + DebrisTTLSeconds:F1}");
-                }
+                ReseedParentContinuationAfterSplit(
+                    parentRec, parentPid, branchUT, parentBoundaryPoint, parentVessel, parentEngineState);
 
                 continuationCount = 1;
             }
@@ -275,6 +206,125 @@ namespace Parsek
             // the active-vessel path in ParsekFlight.TryAuthorRewindPointForSplit.
             TryAuthorRewindPointForBackgroundSplit(
                 bp, parentVessel, parentContRec, newVesselInfos, childRecordings);
+        }
+
+        /// <summary>
+        /// Builds and attaches the parent continuation of a background split (null when the
+        /// parent vessel is gone), stamped with the live parent's launch guid, controllers and
+        /// name. <paramref name="liveParentGuid"/> is the live guid read, for the caller's log.
+        /// </summary>
+        private Recording BuildBackgroundSplitParentContinuation(
+            BranchPoint bp,
+            Recording parentRec,
+            uint parentPid,
+            double branchUT,
+            Vessel parentVessel,
+            out string liveParentGuid)
+        {
+            liveParentGuid = parentVessel != null
+                ? AnchorDetector.TryReadLiveVesselGuid(parentVessel)
+                : null;
+            Recording parentContRec = TryBuildAndAttachParentContinuation(
+                tree, bp, parentRec, parentPid, branchUT,
+                parentVesselAlive: parentVessel != null,
+                continuationRecordingId: parentVessel != null
+                    ? System.Guid.NewGuid().ToString("N")
+                    : null,
+                liveParentGuid: liveParentGuid,
+                // Pin start-of-recording controller identity for the parent continuation
+                // from the live post-split parent vessel. Captures the parts that
+                // stayed with the parent after the split, so a later destructive
+                // crash on the continuation can be detected via identity loss.
+                controllers: parentVessel != null
+                    ? ControllerInfo.CaptureFromVessel(parentVessel)
+                    : null,
+                // The continuation records the live post-split parent vessel, so it captures
+                // that vessel's current name (not a copy of the closed parent leg's name).
+                liveParentName: parentVessel != null
+                    ? Recording.ResolveLocalizedName(parentVessel.vesselName)
+                    : null);
+            return parentContRec;
+        }
+
+        /// <summary>
+        /// Logs the parent continuation's launch guid decision (Info when the live guid
+        /// conclusively differs from the continued segment's) and, when the names differ, the
+        /// live vessel name it captured.
+        /// </summary>
+        internal static void LogParentContinuationIdentity(
+            Recording parentContRec,
+            Recording parentRec,
+            string parentRecordingId,
+            string liveParentGuid)
+        {
+            string parentContRecId = parentContRec.RecordingId;
+
+            // The guid decision is a state fact the correlator later reads, so it is
+            // logged with BOTH inputs. A conclusive divergence (the pid now carries a
+            // DIFFERENT launch than the segment being continued) is rare and worth a
+            // plain Info: the continuation follows the live vessel, and the chain then
+            // correctly reads as more than one launch.
+            if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    liveParentGuid, parentRec.RecordedVesselGuid))
+            {
+                ParsekLog.Info("BgRecorder",
+                    $"Parent continuation launch guid diverges from the continued segment: " +
+                    $"recId={parentContRecId} parentRecId={parentRecordingId} " +
+                    $"live={liveParentGuid} parentRecGuid={parentRec.RecordedVesselGuid} " +
+                    $"stamped={parentContRec.RecordedVesselGuid} (live vessel wins)");
+            }
+            else
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"Parent continuation launch guid stamped: recId={parentContRecId} " +
+                    $"guid={parentContRec.RecordedVesselGuid ?? "(none)"} " +
+                    $"live={liveParentGuid ?? "(none)"} " +
+                    $"parentRecGuid={parentRec.RecordedVesselGuid ?? "(none)"}");
+            }
+
+            if (!string.Equals(parentContRec.VesselName, parentRec.VesselName, StringComparison.Ordinal))
+            {
+                ParsekLog.Info("BgRecorder",
+                    $"Parent continuation captured the live vessel name: recId={parentContRecId} " +
+                    $"name='{parentContRec.VesselName}' (closed parent leg '{parentRecordingId}' " +
+                    $"keeps '{parentRec.VesselName}')");
+            }
+        }
+
+        /// <summary>
+        /// Re-initializes background tracking for the parent continuation from the split-time
+        /// pose (the boundary point, else a live sample) and arms the debris TTL when the
+        /// parent is debris.
+        /// </summary>
+        private void ReseedParentContinuationAfterSplit(
+            Recording parentRec,
+            uint parentPid,
+            double branchUT,
+            TrajectoryPoint? parentBoundaryPoint,
+            Vessel parentVessel,
+            InheritedEngineState? parentEngineState)
+        {
+            // Re-initialize tracking state for the parent continuation.
+            // Seed the continuation with the exact split-time pose so playback can
+            // start from the branch boundary instead of waiting for the next sample.
+            TrajectoryPoint? parentInitialPoint = parentBoundaryPoint;
+            if (!parentInitialPoint.HasValue && parentVessel != null)
+            {
+                double sampleUT = Planetarium.GetUniversalTime();
+                parentInitialPoint = CreateAbsoluteTrajectoryPointFromVessel(
+                    parentVessel, sampleUT, preferRootPartSurfacePose: true);
+            }
+            OnVesselBackgrounded(parentPid, parentEngineState,
+                initialTrajectoryPoint: parentInitialPoint);
+
+            // Set TTL for parent continuation if it's debris
+            if (parentRec.IsDebris)
+            {
+                debrisTTLExpiry[parentPid] = branchUT + DebrisTTLSeconds;
+                ParsekLog.Info("BgRecorder",
+                    $"Parent continuation is debris, TTL set: parentPid={parentPid} " +
+                    $"expiry={branchUT + DebrisTTLSeconds:F1}");
+            }
         }
 
         private List<(uint pid, string name, bool hasController)> CollectNewBackgroundSplitVessels(

@@ -539,6 +539,22 @@ namespace Parsek
                 ? state.highFidelitySamplingUntilUT
                 : double.NaN;
 
+        internal Recording BuildBackgroundSplitParentContinuationForTesting(
+            BranchPoint bp, Recording parentRec, uint parentPid, double branchUT, Vessel parentVessel,
+            out string liveParentGuid)
+        {
+            return BuildBackgroundSplitParentContinuation(bp, parentRec, parentPid, branchUT, parentVessel,
+                out liveParentGuid);
+        }
+
+        internal void ReseedParentContinuationAfterSplitForTesting(
+            Recording parentRec, uint parentPid, double branchUT, TrajectoryPoint? parentBoundaryPoint,
+            Vessel parentVessel, InheritedEngineState? parentEngineState)
+        {
+            ReseedParentContinuationAfterSplit(parentRec, parentPid, branchUT, parentBoundaryPoint, parentVessel,
+                parentEngineState);
+        }
+
         /// <summary>For testing: the sampler's append of one sample (flat list + open section).</summary>
         internal void AppendLoadedSampleForTesting(uint vesselPid, TrajectoryPoint point)
         {
