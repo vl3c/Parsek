@@ -1586,6 +1586,13 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   the no-segment arm (future-segment scan, retention line) and the result apply. Pinned first by
   `FlightMapPassCharacterizationTests`. Left in place, not reachable headless: the created-ghost
   bookkeeping, the loiter-gap clamp and `UpdateGhostOrbitFromStateVectors` (needs a live vessel).
+- Wave 2 W5d1 (2026-11-10, this branch, extract-method): `RefreshTrackingStationGhosts` (484
+  -> 25 lines) loops over the index-keyed ghosts and calls `RefreshTrackingStationGhost` (one
+  ghost, returns the teardown reason or null), which calls nine units in the same file: the
+  teardown gates, the segment lookup UT, the covering segment, the checkpoint point, the
+  removal reason, the gap-points glide, the state-vector and segment arms with the endpoint tail
+  override; the removals apply last. Pinned first by `TrackingStationRefreshCharacterizationTests`
+  (37 cases). Not reachable headless: the active Re-Fly teardown (needs a live orbit driver).
 - Wave 2 W9a (2026-11-08, this branch, extract-method; each PR characterized against the
   original code first): #2467 splits `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` into gate
   groups and `ComputeSpanLoopFrame` into pieces; #2475 splits out `UpdatePlayback`'s
