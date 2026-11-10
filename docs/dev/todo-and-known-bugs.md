@@ -43,7 +43,7 @@ once on main and once on 088feb067 in the next PC turn: red on both means a pre-
 landing-site or settle-gate problem (harness); green on main and red on the refactor bisects to
 the refactor.
 
-## FLG-1-SAME-FRAME-PLANT-AND-PICKUP: FLG-1 reds when the replayed plant and pick-up land in one frame [FILED 2026-11-08 from the wave-2 overnight flights (refactor branch at f28324df0), run `2026-11-08_0248_FLG-1-pickup-rewind` PARSEK-FAIL(expectations); the re-fly `2026-11-08_0442` PASSED. OPEN; harness (spec), low; the product end state is right]
+## ~~FLG-1-SAME-FRAME-PLANT-AND-PICKUP: FLG-1 reds when the replayed plant and pick-up land in one frame~~ [FILED 2026-11-08 from the wave-2 overnight flights (refactor branch at f28324df0), run `2026-11-08_0248_FLG-1-pickup-rewind` PARSEK-FAIL(expectations); the re-fly `2026-11-08_0442` PASSED. FIXED 2026-11-10, branch `refactor-flg1-spec` (spec only, offline-proven, not re-flown); harness (spec), low; the product end state is right]
 
 **What is true.** The recorded plant is at ut=33.84 and the pick-up at ut=33.90, 0.06 s apart.
 `GhostPlaybackLogic.ApplyFlagEvents` applies recorded pick-ups BEFORE plants by design (its
@@ -59,6 +59,16 @@ or a pick-up line naming the same flag followed by a skip whose `removed ... at 
 recorded pick-up UT, and keep forbidding a skip with an earlier removal UT and any second
 `Spawned flag vessel` after the take-down. A cheaper alternative is to space the plant and the
 pick-up further apart in the lane's act (a dwell of a few seconds before `PickUpFlag`).
+
+**Fixed.** `harness/scenarios/FLG-1-pickup-rewind.toml` now accepts either chain after the
+rewind mark: `Spawned flag vessel` then `took down 1 standing flag(s)`, or a replayed pick-up
+that `took down 0` followed by `Flag replay skipped: '<same flag>' ... at ut=<the pick-up's ut>`
+(regex back-references; both lines print the one double with "R", so equality is byte-equal).
+Three forbidden patterns replace the old one: a skip before any replayed pick-up (the live
+tombstone survived the rewind), a skip after one that names another flag, body or UT, and a
+replayed plant followed by `took down 0` (the take-down missed the flag, which stays standing).
+A plant after the take-down stays forbidden. Proof: 18 synthetic logs through
+`hlib.evaluate_expectations` (both chains green, every other shape red); one re-fly confirms.
 
 ## ~~UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame~~ [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. FIXED 2026-11-08, branch `refactor-w9a-handoff-closure`; xUnit + il_compare; performance, low]
 

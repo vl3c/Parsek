@@ -26,7 +26,9 @@ id = "FLG-1-pickup-rewind"
 #   (2) InvokeRewindToLaunch tree=latest: the Space Center at start - 15 s (~6.5).
 #   (3) 1x Space Center time to UT 50. Jeb's KSC ghost (an EVA kerbal's recording is never
 #       launch-site hidden, PADG-1) replays the plant ("Spawned flag vessel", Verbose) and
-#       then the pick-up ("Flag pick-up replayed ... took down 1 standing flag(s)").
+#       then the pick-up ("Flag pick-up replayed ... took down 1 standing flag(s)"), or,
+#       when one replay frame passes both UTs, the pick-up first ("took down 0") and then
+#       the plant's skip on the pick-up's own tombstone (see THE SAME-FRAME CHAIN).
 #
 # THE REWIND MECHANISM, and the guess in it. InvokeRewindToLaunch (RecordingStore.
 # InitiateRewind) reloads the parsek_rw_ save StartRecording captured, 15 s before the
@@ -39,12 +41,25 @@ id = "FLG-1-pickup-rewind"
 # pick-up first, whose tombstone then blocks the plant (no "Spawned flag vessel"). The
 # measured run replayed the plant and the take-down 0.15 s of wall time apart.
 #
+# THE SAME-FRAME CHAIN (todo FLG-1-SAME-FRAME-PLANT-AND-PICKUP). Even at 1x one frame can
+# pass both UTs: run 2026-11-08_0248 had the plant at ut=33.84 and the pick-up at
+# ut=33.90. GhostPlaybackLogic.ApplyFlagEvents applies recorded pick-ups BEFORE plants on
+# purpose, so that walk logs "Flag pick-up replayed ... took down 0 standing flag(s)" and
+# then "Flag replay skipped: '<flag>' ... was removed by the player at ut=<pick-up ut>".
+# No flag stands afterwards either way, which is the ruled end state (owner ruling
+# 2026-11-04). The claim below therefore accepts EITHER chain: plant then take-down 1, or
+# take-down 0 then a skip of the SAME flag whose removal UT is byte-equal to the replayed
+# pick-up's UT (both print the one double with "R"). Every other skip stays forbidden, and
+# so does a take-down 0 after a replayed plant spawned (the flag would be left standing).
+#
 # PRE-REGISTERED READINGS (first flight):
-#   - no "Spawned flag vessel" after the rewind mark, with "Flag replay skipped" instead:
-#     the live pick-up's tombstone survived the rewind load (a product defect: file it), or
-#     one KSC walk crossed both events (re-read the two UTs).
-#   - "took down 0 standing flag(s)": the replay planted the flag somewhere the take-down
-#     did not find it (the 3 m match), or the plant never landed at the Space Center.
+#   - "Flag replay skipped" after the rewind mark with no "Flag pick-up replayed" before
+#     it: the live pick-up's tombstone survived the rewind load (a product defect: file
+#     it). A skip right after the replayed pick-up, of the same flag at the pick-up's own
+#     UT, is the accepted same-frame chain, not this reading.
+#   - "Spawned flag vessel" then "took down 0 standing flag(s)": the replay planted the flag
+#     somewhere the take-down did not find it (the 3 m match). "took down 0" with no plant
+#     and no same-frame skip after it: the plant never landed at the Space Center.
 #   - pickupflag-not-near-flag: the kerbal walked off the flag after the plant; read
 #     `nearest=` (the seam's bound is 5 m).
 #
@@ -122,8 +137,11 @@ required = [
   "committree committed=true",
   "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest",
   "Rewind-to-Launch initiated to UT",
-  # THE CLAIM: after the rewind the replay plants the flag once and then takes it down.
-  "MISSIONMARK label=flg1-rewound [\\s\\S]*Spawned flag vessel: '[^'\\r\\n]*' by '[^'\\r\\n]*' [\\s\\S]*Flag pick-up replayed: '[^'\\r\\n]*' on Kerbin ut=[0-9.Ee+-]+ rec=[0-9a-f]+ took down 1 standing flag\\(s\\)[\\s\\S]*MISSIONMARK label=flg1-replayed ",
+  # THE CLAIM: after the rewind the replay plants the flag once and then takes it down, OR
+  # one frame passed both UTs (THE SAME-FRAME CHAIN): the pick-up took down 0 and the plant
+  # of the SAME flag was skipped on a removal at the pick-up's own UT (\1 / \2 are
+  # byte-equal back-references; the trailing lookahead stops 33.9 matching 33.95).
+  "MISSIONMARK label=flg1-rewound [\\s\\S]*(?:Spawned flag vessel: '[^'\\r\\n]*' by '[^'\\r\\n]*' [\\s\\S]*Flag pick-up replayed: '[^'\\r\\n]*' on Kerbin ut=[0-9.Ee+-]+ rec=[0-9a-f]+ took down 1 standing flag\\(s\\)|Flag pick-up replayed: '([^'\\r\\n]*)' on Kerbin ut=([0-9.Ee+-]+) rec=[0-9a-f]+ took down 0 standing flag\\(s\\)(?:(?!Spawned flag vessel)[\\s\\S])*?Flag replay skipped: '\\1' on Kerbin \\(event ut=[0-9.Ee+-]+\\) was removed by the player at ut=\\2(?![0-9.Ee+-]))[\\s\\S]*MISSIONMARK label=flg1-replayed ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -139,8 +157,16 @@ forbidden = [
   # The live pick-up went unrecorded (no recording owned the kerbal).
   "picked up by pid=[0-9]+ but no foreground or background recording owns the kerbal",
   "Flag pick-up not replayed",
-  # A plant blocked after the rewind before any replayed plant (PRE-REGISTERED READINGS).
-  "MISSIONMARK label=flg1-rewound (?:(?!Spawned flag vessel)[\\s\\S])*Flag replay skipped",
+  # A plant blocked after the rewind before any replayed pick-up: the live pick-up's
+  # tombstone survived the rewind load (PRE-REGISTERED READINGS).
+  "MISSIONMARK label=flg1-rewound (?:(?!Flag pick-up replayed)[\\s\\S])*Flag replay skipped",
+  # Any other skip after a replayed pick-up: one that does not name the pick-up's flag on
+  # its body at the pick-up's own UT (the only skip THE SAME-FRAME CHAIN allows).
+  "MISSIONMARK label=flg1-rewound [\\s\\S]*?Flag pick-up replayed: '([^'\\r\\n]*)' on ([^\\s']+) ut=([0-9.Ee+-]+) rec=(?:(?!Flag pick-up replayed)[\\s\\S])*Flag replay skipped: '(?!\\1' on \\2 \\(event ut=[0-9.Ee+-]+\\) was removed by the player at ut=\\3(?![0-9.Ee+-]))",
+  # A replayed plant stood and the replayed pick-up then took down 0: the take-down missed
+  # it and a flag is left standing (PRE-REGISTERED READINGS). Take-down 0 is only the
+  # same-frame chain's, where no plant spawned first.
+  "MISSIONMARK label=flg1-rewound [\\s\\S]*Spawned flag vessel: [\\s\\S]*Flag pick-up replayed: [^\\r\\n]* took down 0 standing flag\\(s\\)",
   # A second replayed plant after the take-down: the flag came back.
   "Flag pick-up replayed: [\\s\\S]*Spawned flag vessel",
 ]
