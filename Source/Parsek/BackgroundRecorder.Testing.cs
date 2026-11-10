@@ -419,7 +419,8 @@ namespace Parsek
 
         /// <summary>For testing: sets the loaded state's last-sample baseline the triggers compare against.</summary>
         internal void SetLoadedSampleBaselineForTesting(
-            uint vesselPid, double ut, Vector3 velocity, Quaternion worldRotation)
+            uint vesselPid, double ut, Vector3 velocity, Quaternion worldRotation,
+            bool hasWorldRotation = true)
         {
             BackgroundVesselState state;
             if (!loadedStates.TryGetValue(vesselPid, out state))
@@ -427,7 +428,7 @@ namespace Parsek
             state.lastRecordedUT = ut;
             state.lastRecordedVelocity = velocity;
             state.lastWorldRotation = worldRotation;
-            state.hasLastWorldRotation = true;
+            state.hasLastWorldRotation = hasWorldRotation;
         }
 
         /// <summary>For testing: the motion and attitude triggers of one loaded tick.</summary>
