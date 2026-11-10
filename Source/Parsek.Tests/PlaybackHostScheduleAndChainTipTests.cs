@@ -759,6 +759,9 @@ namespace Parsek.Tests
             TipFixture f = HeldTip();
             f.Tip.VesselSpawned = true;
             Assert.True(RecordingStore.RemoveCommittedById("r0"));
+            // The recording that slid into the stale slot is spawned too: neither its flag nor
+            // the moved tip's may read as this hold's tip having spawned.
+            RecordingStore.CommittedRecordings[f.TipIndex].VesselSpawned = true;
             ReleasePass(f);
             // The spawned flag is read only through a still-valid index.
             AssertReleased(f, ChainTipBlockedGhost.ReleaseIndexShifted);
