@@ -410,20 +410,20 @@ namespace Parsek
             bool childAttachMatchesJoint,
             bool childAttachJointPresent)
         {
-        ParsekLog.VerboseRateLimited("Recorder",
-            $"joint-break-diag-{joint.Child.persistentId}",
-            $"OnPartJointBreak diagnostics: ut={jointBreakUT.ToString("F3", CultureInfo.InvariantCulture)} " +
-            $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} " +
-            $"structural={(structuralJointBreak ? "T" : "F")} " +
-            $"childAttachMatchesJoint={(childAttachMatchesJoint ? "T" : "F")} " +
-            $"childAttachJointPresent={(childAttachJointPresent ? "T" : "F")} " +
-            $"{DescribeJointPartForDiagnostics("child", joint.Child)} " +
-            $"{DescribeJointPartForDiagnostics("parent", joint.Parent)} " +
-            $"{DescribeJointPartForDiagnostics("host", joint.Host)} " +
-            $"{DescribeJointPartForDiagnostics("target", joint.Target)} " +
-            $"hostAnchor={DiagnosticFormatters.FormatVector3(joint.HostAnchor)} " +
-            $"targetAnchor={DiagnosticFormatters.FormatVector3(joint.TgtAnchor)}",
-            2.0);
+            ParsekLog.VerboseRateLimited("Recorder",
+                $"joint-break-diag-{joint.Child.persistentId}",
+                $"OnPartJointBreak diagnostics: ut={jointBreakUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"structural={(structuralJointBreak ? "T" : "F")} " +
+                $"childAttachMatchesJoint={(childAttachMatchesJoint ? "T" : "F")} " +
+                $"childAttachJointPresent={(childAttachJointPresent ? "T" : "F")} " +
+                $"{DescribeJointPartForDiagnostics("child", joint.Child)} " +
+                $"{DescribeJointPartForDiagnostics("parent", joint.Parent)} " +
+                $"{DescribeJointPartForDiagnostics("host", joint.Host)} " +
+                $"{DescribeJointPartForDiagnostics("target", joint.Target)} " +
+                $"hostAnchor={DiagnosticFormatters.FormatVector3(joint.HostAnchor)} " +
+                $"targetAnchor={DiagnosticFormatters.FormatVector3(joint.TgtAnchor)}",
+                2.0);
         }
 
         /// <summary>
@@ -432,14 +432,14 @@ namespace Parsek
         /// </summary>
         internal void MarkJointChildDecoupled(PartJoint joint, float breakForce)
         {
-        decoupledPartIds.Add(joint.Child.persistentId);
-        if (breakForce > 0f)
-        {
-            forceBrokenJointChildPartIds.Add(joint.Child.persistentId);
-            ParsekLog.Verbose("Recorder",
-                $"OnPartJointBreak: joint broke under force pid={joint.Child.persistentId} " +
-                $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} => split cause BROKE_OFF");
-        }
+            decoupledPartIds.Add(joint.Child.persistentId);
+            if (breakForce > 0f)
+            {
+                forceBrokenJointChildPartIds.Add(joint.Child.persistentId);
+                ParsekLog.Verbose("Recorder",
+                    $"OnPartJointBreak: joint broke under force pid={joint.Child.persistentId} " +
+                    $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} => split cause BROKE_OFF");
+            }
         }
 
         /// <summary>
@@ -448,24 +448,24 @@ namespace Parsek
         /// </summary>
         private void CaptureJointChildPartOriginSeed(PartJoint joint, double jointBreakUT)
         {
-        if (TryCreateAbsoluteTrajectoryPointFromPartOrigin(
-                joint.Child,
-                jointBreakUT,
-                out TrajectoryPoint childPartOriginSeed))
-        {
-            pendingJointChildPartOriginSeeds[joint.Child.persistentId] = childPartOriginSeed;
-            ParsekLog.Verbose("Recorder",
-                $"Joint child part-origin seed captured: part='{joint.Child.partInfo?.name}' " +
-                $"pid={joint.Child.persistentId} ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
-        }
-        else
-        {
-            ParsekLog.VerboseRateLimited("Recorder",
-                $"joint-break-part-origin-seed-miss-{joint.Child.persistentId}",
-                $"Joint child part-origin seed unavailable: part='{joint.Child.partInfo?.name}' " +
-                $"pid={joint.Child.persistentId} vesselPacked={(joint.Child.vessel?.packed == true ? "T" : "F")} " +
-                $"ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
-        }
+            if (TryCreateAbsoluteTrajectoryPointFromPartOrigin(
+                    joint.Child,
+                    jointBreakUT,
+                    out TrajectoryPoint childPartOriginSeed))
+            {
+                pendingJointChildPartOriginSeeds[joint.Child.persistentId] = childPartOriginSeed;
+                ParsekLog.Verbose("Recorder",
+                    $"Joint child part-origin seed captured: part='{joint.Child.partInfo?.name}' " +
+                    $"pid={joint.Child.persistentId} ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Recorder",
+                    $"joint-break-part-origin-seed-miss-{joint.Child.persistentId}",
+                    $"Joint child part-origin seed unavailable: part='{joint.Child.partInfo?.name}' " +
+                    $"pid={joint.Child.persistentId} vesselPacked={(joint.Child.vessel?.packed == true ? "T" : "F")} " +
+                    $"ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
         }
 
         /// <summary>
@@ -474,15 +474,15 @@ namespace Parsek
         /// </summary>
         internal void RecordJointBreakDecoupledEvent(PartJoint joint, double jointBreakUT)
         {
-        PartEvents.Add(new PartEvent
-        {
-            ut = jointBreakUT,
-            partPersistentId = joint.Child.persistentId,
-            eventType = PartEventType.Decoupled,
-            partName = joint.Child.partInfo?.name ?? "unknown"
-        });
-        ActivateHighFidelitySampling(jointBreakUT, "joint-break");
-        ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
+            PartEvents.Add(new PartEvent
+            {
+                ut = jointBreakUT,
+                partPersistentId = joint.Child.persistentId,
+                eventType = PartEventType.Decoupled,
+                partName = joint.Child.partInfo?.name ?? "unknown"
+            });
+            ActivateHighFidelitySampling(jointBreakUT, "joint-break");
+            ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
         }
 
         /// <summary>
@@ -490,20 +490,20 @@ namespace Parsek
         /// </summary>
         internal void AppendJointBreakStructuralSnapshot(PartJoint joint, double jointBreakUT)
         {
-        // Phase 9 (design doc §12, §18 Phase 9): synthesize a structural-event
-        // snapshot for the recorded vessel at the exact joint-break UT so
-        // AnchorCandidateBuilder gets a physics-precision sample for the
-        // resulting BranchPointType.JointBreak ε. Both the joint host and the
-        // (pre-split) child still share v.persistentId == RecordingVesselId
-        // here; only the recording vessel matches and gets a snapshot.
-        // joint.Host.vessel and joint.Child.vessel typically reference the
-        // same Vessel pre-split, so we pass both — AppendStructuralEventSnapshot
-        // dedups by RecordingVesselId.
-        var jointBreakInvolved = new List<Vessel>(2);
-        if (joint.Child.vessel != null) jointBreakInvolved.Add(joint.Child.vessel);
-        if (joint.Host?.vessel != null && (joint.Host.vessel != joint.Child.vessel))
-            jointBreakInvolved.Add(joint.Host.vessel);
-        AppendStructuralEventSnapshot(jointBreakUT, jointBreakInvolved, "JointBreak");
+            // Phase 9 (design doc §12, §18 Phase 9): synthesize a structural-event
+            // snapshot for the recorded vessel at the exact joint-break UT so
+            // AnchorCandidateBuilder gets a physics-precision sample for the
+            // resulting BranchPointType.JointBreak ε. Both the joint host and the
+            // (pre-split) child still share v.persistentId == RecordingVesselId
+            // here; only the recording vessel matches and gets a snapshot.
+            // joint.Host.vessel and joint.Child.vessel typically reference the
+            // same Vessel pre-split, so we pass both — AppendStructuralEventSnapshot
+            // dedups by RecordingVesselId.
+            var jointBreakInvolved = new List<Vessel>(2);
+            if (joint.Child.vessel != null) jointBreakInvolved.Add(joint.Child.vessel);
+            if (joint.Host?.vessel != null && (joint.Host.vessel != joint.Child.vessel))
+                jointBreakInvolved.Add(joint.Host.vessel);
+            AppendStructuralEventSnapshot(jointBreakUT, jointBreakInvolved, "JointBreak");
         }
 
         /// <summary>
@@ -512,10 +512,10 @@ namespace Parsek
         /// </summary>
         internal void NotePendingJointBreakCheck(double jointBreakUT)
         {
-        // Signal potential vessel split for deferred check by ParsekFlight
-        if (!HasPendingJointBreakCheck || double.IsNaN(PendingJointBreakUT) || jointBreakUT < PendingJointBreakUT)
-            PendingJointBreakUT = jointBreakUT;
-        HasPendingJointBreakCheck = true;
+            // Signal potential vessel split for deferred check by ParsekFlight
+            if (!HasPendingJointBreakCheck || double.IsNaN(PendingJointBreakUT) || jointBreakUT < PendingJointBreakUT)
+                PendingJointBreakUT = jointBreakUT;
+            HasPendingJointBreakCheck = true;
         }
 
         /// <summary>
