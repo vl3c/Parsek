@@ -237,8 +237,8 @@ namespace Parsek.InGameTests
                 "the active-recording guid reject is logged once across every polled frame");
             InGameAssert.IsTrue(CountContaining(lines, "parent-walk guid gate rejected rec=") == 1,
                 "the parent guid reject is logged once across every polled frame");
-            InGameAssert.IsTrue(CountContaining(lines, "PID match") == 0, "no pid match");
-            InGameAssert.IsTrue(CountContaining(lines, "fallback match") == 0, "no parent fallback match");
+            InGameAssert.IsTrue(CountContaining(lines, "RestoreActiveTreeFromPending: PID match") == 0, "no pid match");
+            InGameAssert.IsTrue(CountContaining(lines, "RestoreActiveTreeFromPending: fallback match") == 0, "no parent fallback match");
             InGameAssert.IsTrue(
                 CountContaining(lines, "RestoreActiveTreeFromPending: vessel 'Restore Char Child' (and no EVA parent "
                     + "fallback) not active within 3s") == 1,
