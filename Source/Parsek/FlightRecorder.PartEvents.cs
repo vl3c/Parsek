@@ -270,80 +270,7 @@ namespace Parsek
 
             // ---- Trace-Sep: open recording window + log break state ----
             if (ParsekSettings.Current?.ghostRenderTracing == true)
-            {
-                Vessel parentVessel = joint.Child.vessel;
-                double evUT = Planetarium.GetUniversalTime();
-                TraceSeparation.OpenRecordingWindow(evUT,
-                    "OnPartJointBreak childPid=" + joint.Child.persistentId);
-                if (parentVessel != null && parentVessel.mainBody != null)
-                {
-                    CelestialBody body = parentVessel.mainBody;
-                    Vector3d livePos = body.GetWorldSurfacePosition(
-                        parentVessel.latitude, parentVessel.longitude, parentVessel.altitude);
-                    Vector3 inertialVel = parentVessel.packed
-                        ? (Vector3)parentVessel.obt_velocity
-                        : (Vector3)(parentVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
-                    Vector3 surfaceVel = parentVessel.srf_velocity;
-                    Vector3d transformPos = parentVessel.transform != null
-                        ? parentVessel.transform.position : Vector3d.zero;
-                    // Predicted one-tick back-step magnitudes for the two
-                    // candidate velocity frames. If the reverted fix's
-                    // inertial-velocity hypothesis is right, |predictedInertialStep|
-                    // should match |worldDeltaTransformVsLLA| at the joint-break
-                    // instant. If body-rotation contamination is the culprit
-                    // (per the critical-analysis path) |predictedSrfStep| matches
-                    // and inertial overshoots by `omega_body x position * dt`
-                    // (~3.5 m at Kerbin equator). Logging both lets the log
-                    // reader pick the winning frame without rerunning.
-                    float dt = Time.fixedDeltaTime;
-                    double predictedSrfStep = surfaceVel.magnitude * dt;
-                    double predictedInertialStep = inertialVel.magnitude * dt;
-                    double observedDelta = (transformPos - livePos).magnitude;
-                    TraceSeparation.RecordLog("JointBreak",
-                        "PARENT_AT_BREAK pid=" + parentVessel.persistentId +
-                        " name='" + parentVessel.vesselName + "' breakForce=" + breakForce.ToString("F2", CultureInfo.InvariantCulture) +
-                        " latLonAlt=(" + parentVessel.latitude.ToString("R", CultureInfo.InvariantCulture) +
-                        ", " + parentVessel.longitude.ToString("R", CultureInfo.InvariantCulture) +
-                        ", " + parentVessel.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
-                        " livePos=" + TraceSeparation.FormatVector3d(livePos) +
-                        " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
-                        " worldDeltaTransformVsLLA=" + TraceSeparation.FormatVector3d(transformPos - livePos) +
-                        " |observedDelta|=" + observedDelta.ToString("F3", CultureInfo.InvariantCulture) +
-                        " inertialVel=" + TraceSeparation.FormatVector3(inertialVel) + " |v|=" + inertialVel.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
-                        " surfaceVel=" + TraceSeparation.FormatVector3(surfaceVel) + " |vs|=" + surfaceVel.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
-                        " predictedSrfStep=" + predictedSrfStep.ToString("F3", CultureInfo.InvariantCulture) +
-                        " predictedInertialStep=" + predictedInertialStep.ToString("F3", CultureInfo.InvariantCulture) +
-                        " packed=" + parentVessel.packed);
-                }
-                if (joint.Child != null && joint.Child.transform != null)
-                {
-                    // Compare the child part's PhysX transform.position
-                    // (end-of-tick state) to the parent vessel's
-                    // body.GetWorldSurfacePosition(LLA) (stale pre-PhysX LLA
-                    // updated by VesselPrecalculate.CalculatePhysicsStats in
-                    // this same FixedUpdate). The signed delta in the parent's
-                    // velocity direction is the smoking-gun debris-side offset:
-                    // if it is positive and matches |srfVel|*dt at the parent's
-                    // surface velocity, the joint-child part-origin seed needs
-                    // a back-step; if it is near zero, the seed is in-phase.
-                    Vector3d childPos = joint.Child.transform.position;
-                    Vector3d childVsParentLla = parentVessel != null && parentVessel.mainBody != null
-                        ? (childPos - parentVessel.mainBody.GetWorldSurfacePosition(
-                            parentVessel.latitude, parentVessel.longitude, parentVessel.altitude))
-                        : Vector3d.zero;
-                    Vector3 parentSrfVel = parentVessel != null ? parentVessel.srf_velocity : Vector3.zero;
-                    double childVsParentAlongVel = parentSrfVel.sqrMagnitude > 0f
-                        ? Vector3d.Dot(childVsParentLla, (Vector3d)parentSrfVel.normalized)
-                        : 0.0;
-                    TraceSeparation.RecordLog("JointBreak",
-                        "CHILD_PART_AT_BREAK pid=" + joint.Child.persistentId +
-                        " name='" + (joint.Child.partInfo?.name ?? joint.Child.name) + "'" +
-                        " transformPos=" + TraceSeparation.FormatVector3d(childPos) +
-                        " childVsParentLLA=" + TraceSeparation.FormatVector3d(childVsParentLla) +
-                        " |delta|=" + childVsParentLla.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
-                        " alongParentSrfVel=" + childVsParentAlongVel.ToString("F3", CultureInfo.InvariantCulture));
-                }
-            }
+                TraceJointBreakSeparation(joint, breakForce);
             // ---- /Trace-Sep ----
 
             // Skip non-structural joint breaks (e.g., wheel suspension stress)
@@ -355,20 +282,13 @@ namespace Parsek
                 childAttachMatchesJoint,
                 childAttachJointPresent);
             double jointBreakUT = Planetarium.GetUniversalTime();
-            ParsekLog.VerboseRateLimited("Recorder",
-                $"joint-break-diag-{joint.Child.persistentId}",
-                $"OnPartJointBreak diagnostics: ut={jointBreakUT.ToString("F3", CultureInfo.InvariantCulture)} " +
-                $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"structural={(structuralJointBreak ? "T" : "F")} " +
-                $"childAttachMatchesJoint={(childAttachMatchesJoint ? "T" : "F")} " +
-                $"childAttachJointPresent={(childAttachJointPresent ? "T" : "F")} " +
-                $"{DescribeJointPartForDiagnostics("child", joint.Child)} " +
-                $"{DescribeJointPartForDiagnostics("parent", joint.Parent)} " +
-                $"{DescribeJointPartForDiagnostics("host", joint.Host)} " +
-                $"{DescribeJointPartForDiagnostics("target", joint.Target)} " +
-                $"hostAnchor={DiagnosticFormatters.FormatVector3(joint.HostAnchor)} " +
-                $"targetAnchor={DiagnosticFormatters.FormatVector3(joint.TgtAnchor)}",
-                2.0);
+            LogJointBreakDiagnostics(
+                joint,
+                breakForce,
+                jointBreakUT,
+                structuralJointBreak,
+                childAttachMatchesJoint,
+                childAttachJointPresent);
             if (!structuralJointBreak)
             {
                 ParsekLog.VerboseRateLimited("Recorder", $"joint-break-nonstructural-{joint.Child.persistentId}",
@@ -386,6 +306,132 @@ namespace Parsek
                     $"OnPartJointBreak: duplicate for already-decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}, skipping");
                 return;
             }
+            MarkJointChildDecoupled(joint, breakForce);
+
+            CaptureJointChildPartOriginSeed(joint, jointBreakUT);
+
+            RecordJointBreakDecoupledEvent(joint, jointBreakUT);
+            RefreshFinalizationCache(joint.Child.vessel, "joint_break", force: true);
+
+            AppendJointBreakStructuralSnapshot(joint, jointBreakUT);
+
+            NotePendingJointBreakCheck(jointBreakUT);
+        }
+
+        /// <summary>
+        /// The Trace-Sep break-state lines (gated by ghostRenderTracing at the call site):
+        /// opens the recording window and logs the parent vessel and the child part at the
+        /// joint-break instant. Every read is a live Unity / KSP read.
+        /// </summary>
+        private static void TraceJointBreakSeparation(PartJoint joint, float breakForce)
+        {
+            Vessel parentVessel = joint.Child.vessel;
+            double evUT = Planetarium.GetUniversalTime();
+            TraceSeparation.OpenRecordingWindow(evUT,
+                "OnPartJointBreak childPid=" + joint.Child.persistentId);
+            if (parentVessel != null && parentVessel.mainBody != null)
+            {
+                CelestialBody body = parentVessel.mainBody;
+                Vector3d livePos = body.GetWorldSurfacePosition(
+                    parentVessel.latitude, parentVessel.longitude, parentVessel.altitude);
+                Vector3 inertialVel = parentVessel.packed
+                    ? (Vector3)parentVessel.obt_velocity
+                    : (Vector3)(parentVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
+                Vector3 surfaceVel = parentVessel.srf_velocity;
+                Vector3d transformPos = parentVessel.transform != null
+                    ? parentVessel.transform.position : Vector3d.zero;
+                // Predicted one-tick back-step magnitudes for the two
+                // candidate velocity frames. If the reverted fix's
+                // inertial-velocity hypothesis is right, |predictedInertialStep|
+                // should match |worldDeltaTransformVsLLA| at the joint-break
+                // instant. If body-rotation contamination is the culprit
+                // (per the critical-analysis path) |predictedSrfStep| matches
+                // and inertial overshoots by `omega_body x position * dt`
+                // (~3.5 m at Kerbin equator). Logging both lets the log
+                // reader pick the winning frame without rerunning.
+                float dt = Time.fixedDeltaTime;
+                double predictedSrfStep = surfaceVel.magnitude * dt;
+                double predictedInertialStep = inertialVel.magnitude * dt;
+                double observedDelta = (transformPos - livePos).magnitude;
+                TraceSeparation.RecordLog("JointBreak",
+                    "PARENT_AT_BREAK pid=" + parentVessel.persistentId +
+                    " name='" + parentVessel.vesselName + "' breakForce=" + breakForce.ToString("F2", CultureInfo.InvariantCulture) +
+                    " latLonAlt=(" + parentVessel.latitude.ToString("R", CultureInfo.InvariantCulture) +
+                    ", " + parentVessel.longitude.ToString("R", CultureInfo.InvariantCulture) +
+                    ", " + parentVessel.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
+                    " livePos=" + TraceSeparation.FormatVector3d(livePos) +
+                    " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
+                    " worldDeltaTransformVsLLA=" + TraceSeparation.FormatVector3d(transformPos - livePos) +
+                    " |observedDelta|=" + observedDelta.ToString("F3", CultureInfo.InvariantCulture) +
+                    " inertialVel=" + TraceSeparation.FormatVector3(inertialVel) + " |v|=" + inertialVel.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                    " surfaceVel=" + TraceSeparation.FormatVector3(surfaceVel) + " |vs|=" + surfaceVel.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                    " predictedSrfStep=" + predictedSrfStep.ToString("F3", CultureInfo.InvariantCulture) +
+                    " predictedInertialStep=" + predictedInertialStep.ToString("F3", CultureInfo.InvariantCulture) +
+                    " packed=" + parentVessel.packed);
+            }
+            if (joint.Child != null && joint.Child.transform != null)
+            {
+                // Compare the child part's PhysX transform.position
+                // (end-of-tick state) to the parent vessel's
+                // body.GetWorldSurfacePosition(LLA) (stale pre-PhysX LLA
+                // updated by VesselPrecalculate.CalculatePhysicsStats in
+                // this same FixedUpdate). The signed delta in the parent's
+                // velocity direction is the smoking-gun debris-side offset:
+                // if it is positive and matches |srfVel|*dt at the parent's
+                // surface velocity, the joint-child part-origin seed needs
+                // a back-step; if it is near zero, the seed is in-phase.
+                Vector3d childPos = joint.Child.transform.position;
+                Vector3d childVsParentLla = parentVessel != null && parentVessel.mainBody != null
+                    ? (childPos - parentVessel.mainBody.GetWorldSurfacePosition(
+                        parentVessel.latitude, parentVessel.longitude, parentVessel.altitude))
+                    : Vector3d.zero;
+                Vector3 parentSrfVel = parentVessel != null ? parentVessel.srf_velocity : Vector3.zero;
+                double childVsParentAlongVel = parentSrfVel.sqrMagnitude > 0f
+                    ? Vector3d.Dot(childVsParentLla, (Vector3d)parentSrfVel.normalized)
+                    : 0.0;
+                TraceSeparation.RecordLog("JointBreak",
+                    "CHILD_PART_AT_BREAK pid=" + joint.Child.persistentId +
+                    " name='" + (joint.Child.partInfo?.name ?? joint.Child.name) + "'" +
+                    " transformPos=" + TraceSeparation.FormatVector3d(childPos) +
+                    " childVsParentLLA=" + TraceSeparation.FormatVector3d(childVsParentLla) +
+                    " |delta|=" + childVsParentLla.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                    " alongParentSrfVel=" + childVsParentAlongVel.ToString("F3", CultureInfo.InvariantCulture));
+            }
+        }
+
+        /// <summary>
+        /// The rate-limited per-child diagnostics line for a joint break, structural or not.
+        /// </summary>
+        private static void LogJointBreakDiagnostics(
+            PartJoint joint,
+            float breakForce,
+            double jointBreakUT,
+            bool structuralJointBreak,
+            bool childAttachMatchesJoint,
+            bool childAttachJointPresent)
+        {
+            ParsekLog.VerboseRateLimited("Recorder",
+                $"joint-break-diag-{joint.Child.persistentId}",
+                $"OnPartJointBreak diagnostics: ut={jointBreakUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"structural={(structuralJointBreak ? "T" : "F")} " +
+                $"childAttachMatchesJoint={(childAttachMatchesJoint ? "T" : "F")} " +
+                $"childAttachJointPresent={(childAttachJointPresent ? "T" : "F")} " +
+                $"{DescribeJointPartForDiagnostics("child", joint.Child)} " +
+                $"{DescribeJointPartForDiagnostics("parent", joint.Parent)} " +
+                $"{DescribeJointPartForDiagnostics("host", joint.Host)} " +
+                $"{DescribeJointPartForDiagnostics("target", joint.Target)} " +
+                $"hostAnchor={DiagnosticFormatters.FormatVector3(joint.HostAnchor)} " +
+                $"targetAnchor={DiagnosticFormatters.FormatVector3(joint.TgtAnchor)}",
+                2.0);
+        }
+
+        /// <summary>
+        /// Marks the joint child as decoupled, and as broken off under force when the joint
+        /// broke with a positive force.
+        /// </summary>
+        internal void MarkJointChildDecoupled(PartJoint joint, float breakForce)
+        {
             decoupledPartIds.Add(joint.Child.persistentId);
             if (breakForce > 0f)
             {
@@ -394,7 +440,14 @@ namespace Parsek
                     $"OnPartJointBreak: joint broke under force pid={joint.Child.persistentId} " +
                     $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} => split cause BROKE_OFF");
             }
+        }
 
+        /// <summary>
+        /// Captures the joint child's part-origin seed at the break UT, or logs (rate-limited)
+        /// why none is available. The seed read is a live part-transform read.
+        /// </summary>
+        private void CaptureJointChildPartOriginSeed(PartJoint joint, double jointBreakUT)
+        {
             if (TryCreateAbsoluteTrajectoryPointFromPartOrigin(
                     joint.Child,
                     jointBreakUT,
@@ -413,7 +466,14 @@ namespace Parsek
                     $"pid={joint.Child.persistentId} vesselPacked={(joint.Child.vessel?.packed == true ? "T" : "F")} " +
                     $"ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
             }
+        }
 
+        /// <summary>
+        /// Records the Decoupled part event for the joint child and opens the high-fidelity
+        /// sampling window at the break UT.
+        /// </summary>
+        internal void RecordJointBreakDecoupledEvent(PartJoint joint, double jointBreakUT)
+        {
             PartEvents.Add(new PartEvent
             {
                 ut = jointBreakUT,
@@ -423,8 +483,13 @@ namespace Parsek
             });
             ActivateHighFidelitySampling(jointBreakUT, "joint-break");
             ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
-            RefreshFinalizationCache(joint.Child.vessel, "joint_break", force: true);
+        }
 
+        /// <summary>
+        /// Appends the structural-event snapshot for the vessels a joint break involves.
+        /// </summary>
+        internal void AppendJointBreakStructuralSnapshot(PartJoint joint, double jointBreakUT)
+        {
             // Phase 9 (design doc §12, §18 Phase 9): synthesize a structural-event
             // snapshot for the recorded vessel at the exact joint-break UT so
             // AnchorCandidateBuilder gets a physics-precision sample for the
@@ -439,7 +504,14 @@ namespace Parsek
             if (joint.Host?.vessel != null && (joint.Host.vessel != joint.Child.vessel))
                 jointBreakInvolved.Add(joint.Host.vessel);
             AppendStructuralEventSnapshot(jointBreakUT, jointBreakInvolved, "JointBreak");
+        }
 
+        /// <summary>
+        /// Arms (or moves earlier) the deferred vessel-split check ParsekFlight runs after a
+        /// joint break.
+        /// </summary>
+        internal void NotePendingJointBreakCheck(double jointBreakUT)
+        {
             // Signal potential vessel split for deferred check by ParsekFlight
             if (!HasPendingJointBreakCheck || double.IsNaN(PendingJointBreakUT) || jointBreakUT < PendingJointBreakUT)
                 PendingJointBreakUT = jointBreakUT;

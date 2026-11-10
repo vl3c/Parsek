@@ -1647,6 +1647,12 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   body is the block removed from the old host, and the new host is the old one with each block
   replaced by its call), direct tests of every unit, and the two reachable entry gates
   characterized first (`OnPhysicsFrameCharacterizationTests`).
+  `FlightRecorder.OnPartJointBreak` (188 lines) followed the same way: seven units (the
+  Trace-Sep lines, the diagnostics line, the decouple bookkeeping, the part-origin seed
+  capture, the Decoupled event, the structural snapshot hand-off, the split-check arm). The
+  three that are live Unity reads throughout (Trace-Sep, diagnostics, seed capture) rest on
+  the IL block equality alone; the other four have direct tests, and the guard prologue is
+  characterized first (`OnPartJointBreakCharacterizationTests`).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
