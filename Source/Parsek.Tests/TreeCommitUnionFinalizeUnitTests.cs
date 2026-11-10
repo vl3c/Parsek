@@ -352,6 +352,27 @@ namespace Parsek.Tests
                 "replacedRecordings=1 preservedRewindSaves=1"));
         }
 
+        [Fact]
+        public void Finalize_ReplaceWithNoRecordingChange_StillBumpsOnceForTheTree()
+        {
+            // Every recording of the replacement tree is already committed as the same
+            // instance, so nothing is added or replaced and the recording-level bump stays
+            // off: the one bump left is the tree replace's own.
+            var root = Rec("root", endUT: 100);
+            var first = Tree("root", "root", root);
+            TreeCommitService.FinalizeTreeCommit(first);
+            var second = Tree("root", "root", root);
+            int version = RecordingStore.StateVersion;
+
+            TreeCommitService.FinalizeTreeCommit(second, replaceCommittedTreeIndex: 0);
+
+            Assert.Same(second, RecordingStore.CommittedTrees[0]);
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Equal(version + 1, RecordingStore.StateVersion);
+            Assert.Contains(logLines, l => l.Contains("CommitTree: replaced committed tree index=0 addedRecordings=0 " +
+                "replacedRecordings=0 preservedRewindSaves=0 preservedRuntimeFields=0"));
+        }
+
         [Theory]
         [InlineData(1)]
         [InlineData(7)]
@@ -467,6 +488,7 @@ namespace Parsek.Tests
             var same = Rec("same", endUT: 10);
             var oldCopy = Rec("swap", endUT: 10);
             oldCopy.RewindSaveFileName = "parsek_rw_swap";
+            oldCopy.LastAppliedResourceIndex = 5;
             RecordingStore.AddRecordingWithTreeForTesting(same);
             RecordingStore.AddRecordingWithTreeForTesting(oldCopy);
             var newCopy = Rec("swap", endUT: 20);
@@ -481,7 +503,9 @@ namespace Parsek.Tests
             Assert.Equal(1, added);
             Assert.Equal(1, replaced);
             Assert.Equal(1, saves);
-            Assert.True(runtime >= 0);
+            // The resource cursor is the one runtime field carried (the save is counted apart).
+            Assert.Equal(1, runtime);
+            Assert.Equal(5, newCopy.LastAppliedResourceIndex);
             Assert.Equal(new[] { "same", "swap", "fresh" },
                 RecordingStore.CommittedRecordings.Select(r => r.RecordingId).ToArray());
             Assert.Same(newCopy, RecordingStore.CommittedRecordings[1]);
