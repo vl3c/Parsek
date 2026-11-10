@@ -1280,30 +1280,10 @@ namespace Parsek
 
             Initialize();
 
-            var tagged = new List<GameStateEvent>();
-            var storeEvents = GameStateStore.Events;
-            for (int i = 0; i < storeEvents.Count; i++)
-            {
-                var e = storeEvents[i];
-                if (!string.Equals(e.recordingId ?? "", recordingId, StringComparison.Ordinal))
-                    continue;
-                e.recordingId = "";
-                tagged.Add(e);
-            }
+            var tagged = CollectRetiredProvisionalTaggedEvents(recordingId);
 
-            var subjects = new List<PendingScienceSubject>();
-            double minUT = double.MaxValue, maxUT = double.MinValue;
-            var pending = GameStateRecorder.PendingScienceSubjects;
-            for (int i = 0; i < pending.Count; i++)
-            {
-                var s = pending[i];
-                if (!string.Equals(s.recordingId ?? "", recordingId, StringComparison.Ordinal))
-                    continue;
-                s.recordingId = "";
-                subjects.Add(s);
-                if (s.captureUT < minUT) minUT = s.captureUT;
-                if (s.captureUT > maxUT) maxUT = s.captureUT;
-            }
+            double minUT, maxUT;
+            var subjects = CollectRetiredProvisionalScienceSubjects(recordingId, out minUT, out maxUT);
 
             if (tagged.Count == 0 && subjects.Count == 0)
             {
@@ -1313,22 +1293,11 @@ namespace Parsek
                 return 0;
             }
 
-            var actions = GameStateEventConverter.ConvertEvents(
-                tagged, null, double.NegativeInfinity, double.PositiveInfinity);
-            List<GameAction> scienceActions = null;
-            if (subjects.Count > 0)
-            {
-                scienceActions = GameStateEventConverter.ConvertScienceSubjects(
-                    subjects, null, minUT - 1.0, maxUT + 1.0);
-                actions.AddRange(scienceActions);
-            }
+            List<GameAction> scienceActions;
+            var actions = ConvertRetiredProvisionalRows(
+                tagged, subjects, minUT, maxUT, out scienceActions);
 
-            ReputationSeedOrigin origin = repSeedOrigin != ReputationSeedOrigin.NotYetCaptured
-                ? repSeedOrigin
-                : EnsureReputationSeedForCommit();
-            StampReputationRowsAgainstSeed(actions, origin, "retired-refly-provisional=" + recordingId);
-            StampRowsRecordedBeforeSeedCapture(
-                actions, recordingId, Ledger.Actions, "retired-refly-provisional=" + recordingId);
+            StampRetiredProvisionalRowsAgainstSeed(actions, recordingId, repSeedOrigin);
 
             int converted = actions.Count;
             actions = DeduplicateAgainstLedger(actions);
@@ -1337,14 +1306,7 @@ namespace Parsek
             Ledger.AddActions(actions, LedgerRowWriter.StockApplied);
 
             if (scienceActions != null)
-            {
-                var survivingScience = new List<GameAction>();
-                for (int i = 0; i < actions.Count; i++)
-                    if (actions[i].Type == GameActionType.ScienceEarning)
-                        survivingScience.Add(actions[i]);
-                if (survivingScience.Count > 0)
-                    GameStateStore.CommitScienceActions(survivingScience);
-            }
+                CommitSurvivingRetiredProvisionalScience(actions);
 
             int subjectsRemoved = RemovePendingScienceSubjectsForRecordings(
                 new[] { recordingId }, reason);
@@ -1361,6 +1323,107 @@ namespace Parsek
                 $"eventsUntagged={eventsUntagged.ToString(CultureInfo.InvariantCulture)} " +
                 "- the attempt was merged, so what it earned before its recorder bound stays");
             return actions.Count;
+        }
+
+        /// <summary>
+        /// <see cref="FileRetiredReFlyProvisionalRows"/>'s event collect: a copy of every
+        /// store event tagged to <paramref name="recordingId"/>, with the copy's tag cleared.
+        /// The store's own events are not touched here.
+        /// </summary>
+        internal static List<GameStateEvent> CollectRetiredProvisionalTaggedEvents(string recordingId)
+        {
+            var tagged = new List<GameStateEvent>();
+            var storeEvents = GameStateStore.Events;
+            for (int i = 0; i < storeEvents.Count; i++)
+            {
+                var e = storeEvents[i];
+                if (!string.Equals(e.recordingId ?? "", recordingId, StringComparison.Ordinal))
+                    continue;
+                e.recordingId = "";
+                tagged.Add(e);
+            }
+            return tagged;
+        }
+
+        /// <summary>
+        /// <see cref="FileRetiredReFlyProvisionalRows"/>'s science collect: a copy of every
+        /// pending science subject tagged to <paramref name="recordingId"/>, with the copy's
+        /// tag cleared, and the earliest and latest capture UT among them
+        /// (<see cref="double.MaxValue"/> / <see cref="double.MinValue"/> when none). The
+        /// pending list is not touched here.
+        /// </summary>
+        internal static List<PendingScienceSubject> CollectRetiredProvisionalScienceSubjects(
+            string recordingId, out double minUT, out double maxUT)
+        {
+            var subjects = new List<PendingScienceSubject>();
+            minUT = double.MaxValue; maxUT = double.MinValue;
+            var pending = GameStateRecorder.PendingScienceSubjects;
+            for (int i = 0; i < pending.Count; i++)
+            {
+                var s = pending[i];
+                if (!string.Equals(s.recordingId ?? "", recordingId, StringComparison.Ordinal))
+                    continue;
+                s.recordingId = "";
+                subjects.Add(s);
+                if (s.captureUT < minUT) minUT = s.captureUT;
+                if (s.captureUT > maxUT) maxUT = s.captureUT;
+            }
+            return subjects;
+        }
+
+        /// <summary>
+        /// <see cref="FileRetiredReFlyProvisionalRows"/>'s conversion: the collected events
+        /// as untagged rows over an unbounded window, then the collected subjects over the
+        /// capture span widened by one second each side. <paramref name="scienceActions"/> is
+        /// the science part, or null when no subject was collected.
+        /// </summary>
+        internal static List<GameAction> ConvertRetiredProvisionalRows(
+            List<GameStateEvent> tagged, List<PendingScienceSubject> subjects,
+            double minUT, double maxUT, out List<GameAction> scienceActions)
+        {
+            var actions = GameStateEventConverter.ConvertEvents(
+                tagged, null, double.NegativeInfinity, double.PositiveInfinity);
+            scienceActions = null;
+            if (subjects.Count > 0)
+            {
+                scienceActions = GameStateEventConverter.ConvertScienceSubjects(
+                    subjects, null, minUT - 1.0, maxUT + 1.0);
+                actions.AddRange(scienceActions);
+            }
+            return actions;
+        }
+
+        /// <summary>
+        /// <see cref="FileRetiredReFlyProvisionalRows"/>'s seed stamp: resolves the
+        /// reputation seed origin (ensuring the seed when the caller's origin is
+        /// <see cref="ReputationSeedOrigin.NotYetCaptured"/>), then stamps
+        /// <paramref name="actions"/> against it and against a live-pool seed's
+        /// recorded-before set.
+        /// </summary>
+        internal static void StampRetiredProvisionalRowsAgainstSeed(
+            List<GameAction> actions, string recordingId, ReputationSeedOrigin repSeedOrigin)
+        {
+            ReputationSeedOrigin origin = repSeedOrigin != ReputationSeedOrigin.NotYetCaptured
+                ? repSeedOrigin
+                : EnsureReputationSeedForCommit();
+            StampReputationRowsAgainstSeed(actions, origin, "retired-refly-provisional=" + recordingId);
+            StampRowsRecordedBeforeSeedCapture(
+                actions, recordingId, Ledger.Actions, "retired-refly-provisional=" + recordingId);
+        }
+
+        /// <summary>
+        /// <see cref="FileRetiredReFlyProvisionalRows"/>'s science commit: records every
+        /// <see cref="GameActionType.ScienceEarning"/> row that survived the dedup as
+        /// committed subject science.
+        /// </summary>
+        internal static void CommitSurvivingRetiredProvisionalScience(List<GameAction> actions)
+        {
+            var survivingScience = new List<GameAction>();
+            for (int i = 0; i < actions.Count; i++)
+                if (actions[i].Type == GameActionType.ScienceEarning)
+                    survivingScience.Add(actions[i]);
+            if (survivingScience.Count > 0)
+                GameStateStore.CommitScienceActions(survivingScience);
         }
     }
 }
