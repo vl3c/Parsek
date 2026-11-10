@@ -970,63 +970,15 @@ namespace Parsek
             // 1. Tagged irreversible terminal events from the discarded recordings ->
             //    direct ledger actions (ConvertEvent with recordingId=null clears the tag).
             var rehomed = new List<GameAction>();
-            int contractEvents = 0, milestoneEvents = 0, strategyExchangeEvents = 0, buildingEvents = 0, labEvents = 0, freeTechEvents = 0;
-            var storeEvents = GameStateStore.Events;
-            for (int i = 0; i < storeEvents.Count; i++)
-            {
-                var e = storeEvents[i];
-                if (string.IsNullOrEmpty(e.recordingId) || !idSet.Contains(e.recordingId))
-                    continue;
-                // Never re-home committed history: a committed recording's terminal events
-                // are already ledger actions. (DiscardPendingTree pre-excludes committed
-                // ids; AutoDiscardActiveTreeCore's committed-restore-clone callers can pass
-                // committed ids, so guard here too — dedup would also catch it, but this
-                // keeps committed history out of the re-home input entirely.)
-                if (RecordingStore.IsCommittedRecordingId(e.recordingId))
-                    continue;
-                if (!IsIrreversibleLiveGameplayEvent(e))
-                    continue;
-
-                var action = GameStateEventConverter.ConvertEvent(e, recordingId: null);
-                if (action == null)
-                    continue;
-                rehomed.Add(action);
-                if (e.eventType == GameStateEventType.MilestoneAchieved) milestoneEvents++;
-                else if (e.eventType == GameStateEventType.ScienceChanged) strategyExchangeEvents++;
-                else if (e.eventType == GameStateEventType.BuildingDestroyed) buildingEvents++;
-                else if (e.eventType == GameStateEventType.ScienceLabCredited) labEvents++;
-                else if (e.eventType == GameStateEventType.TechResearched) freeTechEvents++;
-                else contractEvents++;
-            }
+            CollectDiscardedIrreversibleEventActions(idSet, rehomed,
+                out int contractEvents, out int milestoneEvents, out int strategyExchangeEvents,
+                out int buildingEvents, out int labEvents, out int freeTechEvents);
 
             // 2. Collected science subjects from the discarded recordings -> direct
             //    ScienceEarning actions (cleared recordingId + null owner => untagged-in-
             //    window conversion). Science is irreversible too (banked in the R&D archive).
-            int scienceSubjectCount = 0;
-            double minUT = double.MaxValue, maxUT = double.MinValue;
-            var clearedSubjects = new List<PendingScienceSubject>();
-            var pending = GameStateRecorder.PendingScienceSubjects;
-            for (int i = 0; i < pending.Count; i++)
-            {
-                var s = pending[i];
-                if (string.IsNullOrEmpty(s.recordingId) || !idSet.Contains(s.recordingId))
-                    continue;
-                if (RecordingStore.IsCommittedRecordingId(s.recordingId))
-                    continue; // committed science is already a ledger action
-                var cleared = s;
-                cleared.recordingId = "";
-                clearedSubjects.Add(cleared);
-                scienceSubjectCount++;
-                if (s.captureUT < minUT) minUT = s.captureUT;
-                if (s.captureUT > maxUT) maxUT = s.captureUT;
-            }
-            List<GameAction> scienceActions = null;
-            if (clearedSubjects.Count > 0)
-            {
-                scienceActions = GameStateEventConverter.ConvertScienceSubjects(
-                    clearedSubjects, recordingId: null, minUT - 1.0, maxUT + 1.0);
-                rehomed.AddRange(scienceActions);
-            }
+            List<GameAction> scienceActions = ConvertDiscardedScienceSubjects(
+                idSet, rehomed, out int scienceSubjectCount);
 
             // 2b. Strategy conversion rows the discarded flights wrote live, tagged to them.
             //     They are already ledger rows, and KSP applied them as irreversibly as the
@@ -1067,6 +1019,87 @@ namespace Parsek
                 $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}, " +
                 $"strategyConversionRowsUntagged={conversionRowsUntagged.ToString(CultureInfo.InvariantCulture)}) " +
                 $"for {idSet.Count.ToString(CultureInfo.InvariantCulture)} discarded id(s)");
+        }
+
+        /// <summary>
+        /// Step 1 of <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>: converts each
+        /// store event tagged to a discarded, never-committed id that is irreversible
+        /// (<see cref="IsIrreversibleLiveGameplayEvent(GameStateEvent)"/>) into a direct row
+        /// (recording tag cleared) appended to <paramref name="rehomed"/>, counting the rows
+        /// per event kind. An event that converts to no row is skipped uncounted.
+        /// </summary>
+        internal static void CollectDiscardedIrreversibleEventActions(
+            HashSet<string> idSet, List<GameAction> rehomed,
+            out int contractEvents, out int milestoneEvents, out int strategyExchangeEvents,
+            out int buildingEvents, out int labEvents, out int freeTechEvents)
+        {
+            contractEvents = 0; milestoneEvents = 0; strategyExchangeEvents = 0; buildingEvents = 0; labEvents = 0; freeTechEvents = 0;
+            var storeEvents = GameStateStore.Events;
+            for (int i = 0; i < storeEvents.Count; i++)
+            {
+                var e = storeEvents[i];
+                if (string.IsNullOrEmpty(e.recordingId) || !idSet.Contains(e.recordingId))
+                    continue;
+                // Never re-home committed history: a committed recording's terminal events
+                // are already ledger actions. (DiscardPendingTree pre-excludes committed
+                // ids; AutoDiscardActiveTreeCore's committed-restore-clone callers can pass
+                // committed ids, so guard here too — dedup would also catch it, but this
+                // keeps committed history out of the re-home input entirely.)
+                if (RecordingStore.IsCommittedRecordingId(e.recordingId))
+                    continue;
+                if (!IsIrreversibleLiveGameplayEvent(e))
+                    continue;
+
+                var action = GameStateEventConverter.ConvertEvent(e, recordingId: null);
+                if (action == null)
+                    continue;
+                rehomed.Add(action);
+                if (e.eventType == GameStateEventType.MilestoneAchieved) milestoneEvents++;
+                else if (e.eventType == GameStateEventType.ScienceChanged) strategyExchangeEvents++;
+                else if (e.eventType == GameStateEventType.BuildingDestroyed) buildingEvents++;
+                else if (e.eventType == GameStateEventType.ScienceLabCredited) labEvents++;
+                else if (e.eventType == GameStateEventType.TechResearched) freeTechEvents++;
+                else contractEvents++;
+            }
+        }
+
+        /// <summary>
+        /// Step 2 of <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>: converts the
+        /// pending science subjects tagged to a discarded, never-committed id (copies with the
+        /// tag cleared) into direct ScienceEarning rows over their capture span widened by one
+        /// second each side, appends them to <paramref name="rehomed"/> and returns them; null
+        /// when no subject matched. <paramref name="scienceSubjectCount"/> counts the matched
+        /// subjects. The pending list itself is left unchanged.
+        /// </summary>
+        internal static List<GameAction> ConvertDiscardedScienceSubjects(
+            HashSet<string> idSet, List<GameAction> rehomed, out int scienceSubjectCount)
+        {
+            scienceSubjectCount = 0;
+            double minUT = double.MaxValue, maxUT = double.MinValue;
+            var clearedSubjects = new List<PendingScienceSubject>();
+            var pending = GameStateRecorder.PendingScienceSubjects;
+            for (int i = 0; i < pending.Count; i++)
+            {
+                var s = pending[i];
+                if (string.IsNullOrEmpty(s.recordingId) || !idSet.Contains(s.recordingId))
+                    continue;
+                if (RecordingStore.IsCommittedRecordingId(s.recordingId))
+                    continue; // committed science is already a ledger action
+                var cleared = s;
+                cleared.recordingId = "";
+                clearedSubjects.Add(cleared);
+                scienceSubjectCount++;
+                if (s.captureUT < minUT) minUT = s.captureUT;
+                if (s.captureUT > maxUT) maxUT = s.captureUT;
+            }
+            List<GameAction> scienceActions = null;
+            if (clearedSubjects.Count > 0)
+            {
+                scienceActions = GameStateEventConverter.ConvertScienceSubjects(
+                    clearedSubjects, recordingId: null, minUT - 1.0, maxUT + 1.0);
+                rehomed.AddRange(scienceActions);
+            }
+            return scienceActions;
         }
 
         /// <summary>
