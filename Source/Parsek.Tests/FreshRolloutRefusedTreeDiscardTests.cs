@@ -850,18 +850,35 @@ namespace Parsek.Tests
         [Fact]
         public void SourceGate_QuickloadRefusal_DisposesBeforeTheLimboGiveUpAndPop()
         {
-            string body = MethodBody(ReadSource("ParsekFlight.cs"),
-                "IEnumerator RestoreActiveTreeFromPending()");
-            int fresh = IndexOrFail(body, "QuickloadResumeMatchGuard.IsFreshRolloutCandidate(");
-            int record = IndexOrFail(body, "refusedFreshRolloutPid = v.persistentId;", fresh);
+            string source = ReadSource("ParsekFlight.cs");
+
+            // The per-frame match unit refuses the fresh rollout before any adoption.
+            string match = MethodBody(source,
+                "internal static PendingRestoreTargetMatch MatchPendingRestoreTarget(");
+            int fresh = IndexOrFail(match, "QuickloadResumeMatchGuard.IsFreshRolloutCandidate(");
+            int refused = IndexOrFail(match, "return PendingRestoreTargetMatch.RefusedFreshRollout;", fresh);
+            int firstMatch = IndexOrFail(match, "return PendingRestoreTargetMatch.Matched;");
+            Assert.True(refused < firstMatch,
+                "the fresh-rollout refusal must return before any match is accepted");
+
+            // The coroutine records the refused pid, leaves the match loop, and disposes the
+            // tree after the loop and before the Limbo give-up and the pop.
+            string body = MethodBody(source, "IEnumerator RestoreActiveTreeFromPending()");
+            int call = IndexOrFail(body, "MatchPendingRestoreTarget(");
+            int onRefused = IndexOrFail(body, "PendingRestoreTargetMatch.RefusedFreshRollout", call);
+            int record = IndexOrFail(body, "refusedFreshRolloutPid = v.persistentId;", onRefused);
             IndexOrFail(body, "break;", record);
             int resolved = IndexOrFail(body, "IsFreshRolloutRefusedTreeResolved(", record);
             int dispose = IndexOrFail(body, "DisposeFreshRolloutRefusedPendingTree(", resolved);
             int yieldBreak = IndexOrFail(body, "yield break;", dispose);
-            int giveUp = IndexOrFail(body, "EvaluateRestoreGiveUp(", dispose);
+            int giveUp = IndexOrFail(body, "ReportPendingRestoreGiveUp(", dispose);
             int pop = IndexOrFail(body, "PendingTreeSlot.PopPendingTree()");
             Assert.True(yieldBreak < giveUp && giveUp < pop,
                 "the discard / commit must run after the match loop and before the Limbo give-up and the pop");
+
+            // The Limbo give-up is the unit that evaluates the Re-Fly raise.
+            string giveUpBody = MethodBody(source, "internal static void ReportPendingRestoreGiveUp(");
+            IndexOrFail(giveUpBody, "EvaluateRestoreGiveUp(");
         }
     }
 }
