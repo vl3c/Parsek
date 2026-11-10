@@ -419,6 +419,23 @@ landedDebounceFrames       = 3
 # always fires before the 5000 s mission wall budget could reap the run
 # generically.
 landedTimeoutSeconds       = 600
+# SURFACE-CLASS MARK (2026-11-10, todo B13-LANDER-NEVER-STATIONARY, owner pick:
+# accept a landed-and-sliding lander as well as a parked one). The landing is
+# UNTARGETED, so where it ends is terrain luck, and since the park dwell went
+# 180 -> 60 s (#2391) the lander comes down on a crater wall that it then creeps
+# down at a steady 0.55-0.65 m/s for the whole 565 s from touchdown to commit
+# (runs `2026-11-08_0139`, `2026-11-08_0422` on the refactor branch and
+# `2026-11-09_2132` on main 47a71083c, all MISSION-OK). The settle gate's 0.5 m/s
+# horizontal floor passes only at the very end of that slide, while Parsek's
+# recorder, whose surface-class threshold is 0.1 m/s, rightly reads SurfaceMobile
+# to the commit. So the old `-> SurfaceStationary` token was a coin flip on the
+# landing site. With this on, the machine stamps the class the recorder MUST be
+# reading, judged from its own kRPC speed reads (mlib.landed_surface_class: the
+# last 6 s all <= 0.05 m/s -> SurfaceStationary, all >= 0.2 m/s -> SurfaceMobile,
+# else either), and the logContract below requires the recorder's last confirmed
+# transition to agree. The surfaceClassMarked assertion keeps a mark that never
+# reached the log a driver failure, never a Parsek red.
+landedSurfaceClassMark     = true
 
 # Coverage. The ascent / transfer / capture cells are B11's; the NEW cells are
 # D1 commit-landed-foreign-body (added to harness/coverage/registry.toml in this
@@ -442,13 +459,15 @@ landedTimeoutSeconds       = 600
 #                                  checkpoint sections, as in B11.
 #   D4 atmospheric / exo-*         the Kerbin ascent and the cross-SOI coast, as
 #                                  in B11.
-#   D4 surface-stationary          TWO required tokens: the class-agnostic
-#                                  Approach|Exo* -> Surface* one proves an
-#                                  AIRLESS-body touchdown by construction, and a
-#                                  second `-> SurfaceStationary` one gates THIS
-#                                  spec's claimed class specifically (see the
-#                                  logContract note). landedStable proves the
-#                                  craft then held still through the dwell.
+#   D4 surface-stationary          NO LONGER CLAIMED HERE (2026-11-10). Which
+#                                  class an untargeted landing ends in is
+#                                  terrain luck (see landedSurfaceClassMark), so
+#                                  this lane can no longer prove one class on
+#                                  every flight. The claim moved to
+#                                  RVR-21-rover-drive-surface-hysteresis, whose
+#                                  required `SurfaceStationary -> SurfaceMobile`
+#                                  token proves the recorder read a parked
+#                                  rover as SurfaceStationary on every flight.
 #   D14 kerbin / mun / warp-rails  as in B11.
 #
 # DELIBERATELY NOT CLAIMED, though the recording will carry them: D7 gear (the
@@ -460,8 +479,7 @@ landedTimeoutSeconds       = 600
 [dimensionsCovered]
 D1  = ["auto-record-launch", "commit-in-foreign-soi", "commit-landed-foreign-body"]
 D3  = ["orbital-checkpoint"]
-D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast",
-       "surface-stationary"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
 D14 = ["kerbin", "mun", "warp-rails"]
 
 [expectations]
@@ -640,6 +658,29 @@ count = { min = 11, max = 11 }
 #       line satisfies both tokens at once, so this adds a gate without adding an
 #       unverified requirement. If a future flight flips the class and this reds,
 #       move the D4 claim with it - do NOT loosen the token back.
+#
+#       REPLACED 2026-11-10 (todo B13-LANDER-NEVER-STATIONARY) by the AGREEMENT
+#       token below, and the D4 claim moved to RVR-21 as the note above asked:
+#       three flights in a row (two on the refactor branch, one on main) landed
+#       on a slope and slid at 0.55-0.65 m/s until the commit, so the recorder
+#       correctly never read SurfaceStationary.
+#
+#   The AGREEMENT token - the recorder's surface class matches the lander's
+#       measured motion. `MISSIONMARK label=b5-landed-expect-<class>` is stamped
+#       by the mission at the settled-commit frame (landedSurfaceClassMark, the
+#       MissionMark verb's line, TestCommandMissionMark.FormatMarkMessage) with
+#       the class judged from its OWN kRPC speed reads. The token requires the
+#       LAST `Environment transition:` line before that mark to name the same
+#       class (group 1 back-referenced into the label), or the mark to say
+#       `either` (a lander still settling through the recorder's 0.1 m/s
+#       threshold, where the two reads may legitimately differ). What it still
+#       catches, and the old token did not on a sliding flight: a recorder stuck
+#       on SurfaceMobile under a parked lander, and a recorder reading
+#       SurfaceStationary under a sliding one. The negative `[^\n]*Environment
+#       transition: ` lookahead walks line by line, so a later transition
+#       between the class line and the mark breaks the match. The emitter has no
+#       vessel id, so a background vessel's transition there would also break
+#       it, failing closed; B13 is one vessel at the commit (`vessels=1`).
 required = [
   "Recording started",
   "Recording stopped",
@@ -648,7 +689,7 @@ required = [
   "committree committed=true",
   "CommitTreeFlight terminal: rec=\\w+ terminalState=Landed terminalOrbitBody=Mun",
   "Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface(Stationary|Mobile) at UT=",
-  "Environment transition: \\w+ -> SurfaceStationary at UT=",
+  "Environment transition: \\w+ -> (Surface(?:Stationary|Mobile)) at UT=[^\\n]*\\n(?:(?![^\\n]*Environment transition: )[^\\n]*\\n)*[^\\n]*MISSIONMARK label=b5-landed-expect-(?:\\1|either) ",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

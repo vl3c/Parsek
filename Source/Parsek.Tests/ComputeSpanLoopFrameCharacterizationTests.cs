@@ -201,6 +201,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Golden_LaunchHoldAlignedRegionBFlip()
+        {
+            // Slack 300 s: the aligned loop's early launch of N+1 flips the single output in region B.
+            AssertGolden(new Config
+            {
+                Anchor = 300, S0 = 0, S1 = 1000, Cadence = 1300,
+                RotationPeriod = 700, LaunchHold = true, SoiExit = 600,
+            }, "78F680AF5B762B58", 1577, 144, 2697);
+        }
+
+        [Fact]
         public void Golden_LaunchHoldWithArrivalHoldAndCuts()
         {
             AssertGolden(new Config
@@ -289,6 +300,75 @@ namespace Parsek.Tests
                     MissionPeriodicity.ScheduleLookaheadMultiples, 2500.0),
             }, "4221A661AF383157", 1521, 0, 1641);
         }
+        /// <summary>
+        /// Which launch-advance diagnostic branches the launch-hold goldens reach: the line kinds written and the
+        /// region / boundary-overlap / secondary / capped tokens of the per-loop line, collected over every
+        /// launch-hold configuration above plus a cadence whose region B flips the primary on an aligned loop.
+        /// A golden digest proves a branch unchanged only when some configuration reaches it. The fourth
+        /// configuration (cadence 1300, Golden_LaunchHoldAlignedRegionBFlip) adds the aligned loop's region-B flip.
+        /// </summary>
+        [Fact]
+        public void LaunchAdvanceDiagnostics_BranchesReachedByTheGoldens()
+        {
+            var configs = new[]
+            {
+                new Config { Anchor = 300, S0 = 0, S1 = 1000, Cadence = 2000, RotationPeriod = 700, LaunchHold = true, SoiExit = 600 },
+                new Config { Anchor = 300, S0 = 0, S1 = 1000, Cadence = 1000, RotationPeriod = 700, LaunchHold = true, SoiExit = 600 },
+                new Config
+                {
+                    Anchor = 300, S0 = 0, S1 = 1000, Cadence = 1500,
+                    RotationPeriod = 700, LaunchHold = true, SoiExit = 450,
+                    Cuts = Cuts(150, 100), HoldSeconds = 60, HoldAtUT = 800, HoldAlign = 100,
+                },
+                new Config { Anchor = 300, S0 = 0, S1 = 1000, Cadence = 1300, RotationPeriod = 700, LaunchHold = true, SoiExit = 600 },
+            };
+            var reached = new SortedSet<string>(StringComparer.Ordinal);
+            var tokenPattern = new Regex(
+                @"(region=\S+|boundaryOverlap=\S+|secondaryActive=\S+|capped=\S+)", RegexOptions.CultureInvariant);
+            foreach (Config c in configs)
+            {
+                for (double ut = -500.0; ut <= 20000.0; ut += 12.5)
+                {
+                    ParsekLog.ResetRateLimitsForTesting();
+                    logLines.Clear();
+                    GhostPlaybackLogic.ComputeSpanLoopFrame(
+                        ut, c.Anchor, c.S0, c.S1, c.Cadence,
+                        null, c.Cuts, c.HoldSeconds, c.HoldAtUT, c.HoldAlign,
+                        c.RotationPeriod, c.LaunchHold, c.SoiExit);
+                    foreach (string line in logLines)
+                    {
+                        int colon = line.IndexOf(':', line.IndexOf("[Reaim]", StringComparison.Ordinal) + 1);
+                        string kind = line.Substring(0, colon < 0 ? line.Length : colon);
+                        reached.Add("line " + kind);
+                        if (line.Contains("per-loop launch advance:"))
+                            foreach (Match m in tokenPattern.Matches(line))
+                                reached.Add("token " + m.Value);
+                    }
+                }
+            }
+            // Not reachable through the frame: the CAPPED warning and capped=True. The frame's advance is the full
+            // raw delta whenever that is positive (ComputeBoundaryOverlapAdvanceSeconds), and an aligned flip's
+            // advNext equals its raw delta, so the rendered raw delta never exceeds the advance used. The direct
+            // test of the diagnostic unit drives that branch instead.
+            string actual = string.Join("\n", reached);
+            string expected = string.Join("\n", new[]
+            {
+                "line [Parsek][VERBOSE][Reaim] boundary-overlap engaged",
+                "line [Parsek][VERBOSE][Reaim] boundary-overlap secondary clock-launch",
+                "line [Parsek][VERBOSE][Reaim] launch instant",
+                "line [Parsek][VERBOSE][Reaim] per-loop arrival hold",
+                "line [Parsek][VERBOSE][Reaim] per-loop launch advance",
+                "token boundaryOverlap=False",
+                "token boundaryOverlap=True",
+                "token capped=False",
+                "token region=A-current",
+                "token region=B-earlyNext",
+                "token secondaryActive=False",
+                "token secondaryActive=True",
+            });
+            Assert.True(actual == expected, "reached:\n" + actual);
+        }
+
         // ------------------------------------------------------------------
         // The three extracted pieces, called directly.
         // ------------------------------------------------------------------
@@ -416,6 +496,192 @@ namespace Parsek.Tests
                 checkedCount++;
             }
             Assert.True(checkedCount > 10, "the zero-slack fixture must exercise the secondary");
+        }
+
+        // ------------------------------------------------------------------
+        // The W9a-3 units, called directly.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void LaunchAdvances_NotEngaged_AreAllZero_AndSilent()
+        {
+            double adv = GhostPlaybackLogic.ResolveSpanLoopLaunchAdvances(
+                false, 300.0, 0.0, 1000.0, 1000.0, 4, 700.0, null, 0.0, double.NaN, double.NaN,
+                double.NaN, double.NaN, 0, out double raw, out double capped);
+            Assert.Equal(0.0, adv);
+            Assert.Equal(0.0, raw);
+            Assert.Equal(0.0, capped);
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void LaunchAdvances_Engaged_AreTheThreeAdvanceHelpersForTheWindow()
+        {
+            // Zero-slack loop (cadence == span) and a slack loop with cuts and an arrival hold.
+            var cuts = Cuts(150, 100);
+            foreach (double cadence in new[] { 1000.0, 1500.0 })
+            {
+                for (long window = 0; window < 12; window++)
+                {
+                    double adv = GhostPlaybackLogic.ResolveSpanLoopLaunchAdvances(
+                        true, 300.0, 0.0, 1000.0, cadence, window, 700.0, cuts, 60.0, 100.0, 800.0,
+                        double.NaN, double.NaN, 0, out double raw, out double capped);
+                    Assert.Equal(GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(
+                        300.0, 0.0, window, cadence, 700.0), raw);
+                    Assert.Equal(GhostPlaybackLogic.ComputeCappedLaunchAdvanceSeconds(
+                        300.0, 0.0, 1000.0, cadence, window, 700.0, cuts, 60.0, 100.0, 800.0,
+                        double.NaN, double.NaN, 0), capped);
+                    Assert.Equal(GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds(
+                        300.0, 0.0, 1000.0, cadence, window, 700.0, cuts, 60.0, 100.0, 800.0,
+                        double.NaN, double.NaN, 0), adv);
+                }
+            }
+        }
+
+        [Fact]
+        public void HoldsAndSlack_NoCutNoHold_SlackIsTheIdleGap_FlooredAtZero()
+        {
+            double slack = GhostPlaybackLogic.ResolveSpanLoopHoldsAndSlack(
+                1000.0, 1300.0, 3, 0.0, 0.0, null, 0.0, double.NaN, double.NaN,
+                double.NaN, double.NaN, 0, out double compressed, out double hold);
+            Assert.Equal(1000.0, compressed);
+            Assert.Equal(0.0, hold);
+            Assert.Equal(300.0, slack);
+
+            slack = GhostPlaybackLogic.ResolveSpanLoopHoldsAndSlack(
+                1000.0, 800.0, 3, 0.0, 0.0, null, 0.0, double.NaN, double.NaN,
+                double.NaN, double.NaN, 0, out compressed, out hold);
+            Assert.Equal(0.0, slack);
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void HoldsAndSlack_CutsCompressTheSpan_UnlessTheyCoverIt()
+        {
+            GhostPlaybackLogic.ResolveSpanLoopHoldsAndSlack(
+                1000.0, 2000.0, 0, 0.0, 0.0, Cuts(150, 100, 400, 50), 0.0, double.NaN, double.NaN,
+                double.NaN, double.NaN, 0, out double compressed, out double hold);
+            Assert.Equal(850.0, compressed);
+            GhostPlaybackLogic.ResolveSpanLoopHoldsAndSlack(
+                100.0, 2000.0, 0, 0.0, 0.0, Cuts(10, 100), 0.0, double.NaN, double.NaN,
+                double.NaN, double.NaN, 0, out compressed, out hold);
+            Assert.Equal(100.0, compressed);
+        }
+
+        [Fact]
+        public void HoldsAndSlack_HoldIsTheResolvedPerLoopHold_AndAnInfiniteHoldIsNone()
+        {
+            for (long cycle = 0; cycle < 6; cycle++)
+            {
+                double slack = GhostPlaybackLogic.ResolveSpanLoopHoldsAndSlack(
+                    1000.0, 3000.0, cycle, 55.0, 0.0, Cuts(200, 100), 45.0, 800.0, 100.0,
+                    double.NaN, double.NaN, 0, out double compressed, out double hold);
+                double expectedHold = GhostPlaybackLogic.ResolveSpanLoopFrameArrivalHold(
+                    45.0, cycle, 3000.0, 100.0, 55.0, 0.0, Cuts(200, 100), 800.0, double.NaN, double.NaN, 0);
+                Assert.Equal(900.0, compressed);
+                Assert.Equal(expectedHold, hold);
+                Assert.Equal(3000.0 - 900.0 - expectedHold, slack);
+            }
+            logLines.Clear();
+            GhostPlaybackLogic.ResolveSpanLoopHoldsAndSlack(
+                1000.0, 3000.0, 0, 55.0, 0.0, null, double.PositiveInfinity, 800.0, 100.0,
+                double.NaN, double.NaN, 0, out double c2, out double h2);
+            Assert.Equal(0.0, h2);
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void HoldsAndSlack_HoldPastTheCadence_IsClampedAfterTheSlackFloor()
+        {
+            // span 1000, cadence 1020, no align period: W_N stays the base 45 s, which overflows by 25 s.
+            double slack = GhostPlaybackLogic.ResolveSpanLoopHoldsAndSlack(
+                1000.0, 1020.0, 2, 55.0, 0.0, null, 45.0, 800.0, double.NaN,
+                double.NaN, double.NaN, 0, out double compressed, out double hold);
+            Assert.Equal(1000.0, compressed);
+            Assert.Equal(20.0, hold);
+            Assert.Equal(0.0, slack);
+        }
+
+        private static List<string> RawRateLimitKeys()
+        {
+            var prop = typeof(ParsekLog).GetProperty(
+                "rateLimitStateByKey", BindingFlags.Static | BindingFlags.NonPublic);
+            var dict = (IDictionary)prop.GetValue(null);
+            var keys = new List<string>();
+            foreach (object k in dict.Keys)
+                keys.Add((string)k);
+            keys.Sort(StringComparer.Ordinal);
+            return keys;
+        }
+
+        private static List<string> LaunchAdvanceLines(
+            bool earlyNextFlip, double rawLaunchAdvance, double cappedLaunchAdvance, double effectiveLaunchAdvance,
+            bool engagedA, double rawAdvNext, double cappedAdvNext, double advNext, bool engagedNext,
+            bool hasSecondary, double tSid = 700.0, List<string> sink = null)
+        {
+            GhostPlaybackLogic.LogSpanLoopLaunchAdvance(
+                4321.5, 300.0, 0.0, tSid, 4, 1000.0, 900.0, 40.0, 0.0, double.NaN, earlyNextFlip,
+                rawLaunchAdvance, cappedLaunchAdvance, effectiveLaunchAdvance, engagedA,
+                rawAdvNext, cappedAdvNext, advNext, engagedNext,
+                hasSecondary, 125.0, 5);
+            return sink;
+        }
+
+        [Fact]
+        public void LaunchAdvanceLog_DegenerateRotationPeriod_WritesNothing()
+        {
+            foreach (double tSid in new[] { double.NaN, 0.0, double.PositiveInfinity })
+                LaunchAdvanceLines(false, 10, 10, 10, false, 20, 20, 20, false, false, tSid);
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void LaunchAdvanceLog_RegionA_WritesOnlyThePerLoopLine_WithTheLaunchingCycleSlack()
+        {
+            // Region A, aligned: no hold, so slack_{N-1} = cadence - compressedSpan = 100.
+            LaunchAdvanceLines(false, 10, 10, 10, false, 20, 20, 20, false, false);
+            Assert.Equal(new List<string>
+            {
+                "[Parsek][VERBOSE][Reaim] per-loop launch advance: cycleIndex=4 Tsid=700s cadence=1000s deltaN=10s "
+                    + "slack=100s cappedAdv=10s boundaryOverlap=False region=A-current secondaryActive=False "
+                    + "secondaryLoopUT=(none) capped=False rawDeltaN=10s residualDeg=0",
+            }, logLines);
+            Assert.Equal(new[] { "Reaim|perloop-launch-advance.300.0" }, RawRateLimitKeys());
+        }
+
+        [Fact]
+        public void LaunchAdvanceLog_RegionBFlip_ReportsTheNextInstance_WithThisCycleSlack()
+        {
+            // The flip renders N+1 with advNext as its advance; its launching cycle is this one (slack_N = 40).
+            LaunchAdvanceLines(true, 10, 10, 20, false, 20, 20, 20, false, false);
+            Assert.Single(logLines);
+            Assert.Contains("deltaN=20s slack=40s cappedAdv=20s boundaryOverlap=False region=B-earlyNext", logLines[0]);
+            Assert.EndsWith("capped=False rawDeltaN=20s residualDeg=0", logLines[0]);
+        }
+
+        [Fact]
+        public void LaunchAdvanceLog_CappedEngagedAndSecondary_WriteTheirLinesInOrder()
+        {
+            LaunchAdvanceLines(false, 30, 10, 10, true, 20, 5, 20, true, true);
+            Assert.Equal(5, logLines.Count);
+            Assert.StartsWith("[Parsek][VERBOSE][Reaim] per-loop launch advance: cycleIndex=4", logLines[0]);
+            Assert.Contains("boundaryOverlap=True region=A-current secondaryActive=True secondaryLoopUT=125 capped=True", logLines[0]);
+            Assert.Equal("[Parsek][WARN][Reaim] per-loop launch advance still CAPPED (boundary overlap could not use the "
+                + "full raw delta - genuinely uncloseable seam); cycleIndex=4 cadence=1000s rawDeltaN=30s "
+                + "residualDeg=" + (20.0 / 700.0 * 360.0).ToString("R", CultureInfo.InvariantCulture), logLines[1]);
+            Assert.StartsWith("[Parsek][VERBOSE][Reaim] boundary-overlap engaged: ", logLines[2]);
+            Assert.Equal("[Parsek][VERBOSE][Reaim] launch instant: secondary instance N=5 launches at UT=5280 "
+                + "(nominal L_N=5300 advance=20s)", logLines[3]);
+            Assert.Equal("[Parsek][VERBOSE][Reaim] boundary-overlap secondary clock-launch: secondaryCycle=5 "
+                + "currentUT=4321.5 secondaryLoopUT=125 spanStart=0", logLines[4]);
+            Assert.Equal(new[]
+            {
+                "Reaim|boundary-overlap-engaged.300.0",
+                "Reaim|boundary-overlap-secondary-clock-launch.300.0",
+                "Reaim|launch-instant.300.0",
+                "Reaim|perloop-launch-advance.300.0",
+                "W|Reaim|launch-advance-capped.300.0",
+            }, RawRateLimitKeys());
         }
     }
 }
