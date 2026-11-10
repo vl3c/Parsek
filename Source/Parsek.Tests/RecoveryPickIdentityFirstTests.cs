@@ -589,22 +589,22 @@ namespace Parsek.Tests
                 VesselPersistentId = 100u,
                 SpawnedVesselPersistentId = 200u
             };
-            Assert.True(LedgerOrchestrator.IsPositiveLaunchGuidMatch(rec, GuidA));
-            Assert.True(LedgerOrchestrator.IsPositiveLaunchGuidMatch(
+            Assert.True(RecoveryRecordingPicker.IsPositiveLaunchGuidMatch(rec, GuidA));
+            Assert.True(RecoveryRecordingPicker.IsPositiveLaunchGuidMatch(
                 rec, "AAAAAAAA-AAAA-4AAA-AAAA-AAAAAAAAAAAA"));
-            Assert.False(LedgerOrchestrator.IsPositiveLaunchGuidMatch(rec, GuidB));
-            Assert.False(LedgerOrchestrator.IsPositiveLaunchGuidMatch(rec, null));
-            Assert.False(LedgerOrchestrator.IsPositiveLaunchGuidMatch(
+            Assert.False(RecoveryRecordingPicker.IsPositiveLaunchGuidMatch(rec, GuidB));
+            Assert.False(RecoveryRecordingPicker.IsPositiveLaunchGuidMatch(rec, null));
+            Assert.False(RecoveryRecordingPicker.IsPositiveLaunchGuidMatch(
                 new Recording { RecordedVesselGuid = null }, GuidA));
-            Assert.False(LedgerOrchestrator.IsPositiveLaunchGuidMatch(null, GuidA));
+            Assert.False(RecoveryRecordingPicker.IsPositiveLaunchGuidMatch(null, GuidA));
 
-            Assert.True(LedgerOrchestrator.IsGenuineSpawnPidMatch(rec, 200u));
-            Assert.False(LedgerOrchestrator.IsGenuineSpawnPidMatch(rec, 100u));
-            Assert.False(LedgerOrchestrator.IsGenuineSpawnPidMatch(rec, 0u));
+            Assert.True(RecoveryRecordingPicker.IsGenuineSpawnPidMatch(rec, 200u));
+            Assert.False(RecoveryRecordingPicker.IsGenuineSpawnPidMatch(rec, 100u));
+            Assert.False(RecoveryRecordingPicker.IsGenuineSpawnPidMatch(rec, 0u));
             rec.SpawnedVesselPersistentId = 100u; // adoption stamp
-            Assert.False(LedgerOrchestrator.IsGenuineSpawnPidMatch(rec, 100u));
+            Assert.False(RecoveryRecordingPicker.IsGenuineSpawnPidMatch(rec, 100u));
             rec.SpawnedVesselPersistentId = 0u;
-            Assert.False(LedgerOrchestrator.IsGenuineSpawnPidMatch(rec, 0u));
+            Assert.False(RecoveryRecordingPicker.IsGenuineSpawnPidMatch(rec, 0u));
         }
 
         [Fact]

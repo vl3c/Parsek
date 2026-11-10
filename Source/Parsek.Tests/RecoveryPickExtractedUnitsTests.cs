@@ -70,7 +70,7 @@ namespace Parsek.Tests
         public void Tiers_EmptyCandidates_AllNull()
         {
             Recording b, bsp, mre, gl;
-            LedgerOrchestrator.WalkRecoveryPickTiers(
+            RecoveryRecordingPicker.WalkRecoveryPickTiers(
                 new List<Recording>(), 500.0, null, out b, out bsp, out mre, out gl);
             Assert.Null(b);
             Assert.Null(bsp);
@@ -86,7 +86,7 @@ namespace Parsek.Tests
             var c = Rec("c", "V", 300, 900);
             var ended = Rec("ended", "V", 10, 50);
             Recording br, bsp, mre, gl;
-            LedgerOrchestrator.WalkRecoveryPickTiers(
+            RecoveryRecordingPicker.WalkRecoveryPickTiers(
                 new List<Recording> { a, b, c, ended }, 500.0, null,
                 out br, out bsp, out mre, out gl);
             Assert.Same(b, br);
@@ -102,7 +102,7 @@ namespace Parsek.Tests
             var b = Rec("b", "V", 150, 400);
             var c = Rec("c", "V", 160, 400);
             Recording br, bsp, mre, gl;
-            LedgerOrchestrator.WalkRecoveryPickTiers(
+            RecoveryRecordingPicker.WalkRecoveryPickTiers(
                 new List<Recording> { a, b, c }, 1000.0, null, out br, out bsp, out mre, out gl);
             Assert.Null(br);
             Assert.Same(b, mre);
@@ -114,7 +114,7 @@ namespace Parsek.Tests
         {
             var a = Rec("a", "V", 100, 500);
             Recording br, bsp, mre, gl;
-            LedgerOrchestrator.WalkRecoveryPickTiers(
+            RecoveryRecordingPicker.WalkRecoveryPickTiers(
                 new List<Recording> { a }, 500.0, null, out br, out bsp, out mre, out gl);
             Assert.Same(a, br);
             Assert.Same(a, mre);
@@ -129,13 +129,13 @@ namespace Parsek.Tests
             var sameIdOtherInstance = Rec("prov", "V", 500, 700);
             Recording br, bsp, mre, gl;
 
-            LedgerOrchestrator.WalkRecoveryPickTiers(
+            RecoveryRecordingPicker.WalkRecoveryPickTiers(
                 new List<Recording> { origin, prov }, 600.0, prov,
                 out br, out bsp, out mre, out gl);
             Assert.Same(origin, br);
             Assert.Same(prov, bsp);
 
-            LedgerOrchestrator.WalkRecoveryPickTiers(
+            RecoveryRecordingPicker.WalkRecoveryPickTiers(
                 new List<Recording> { origin, prov }, 600.0, sameIdOtherInstance,
                 out br, out bsp, out mre, out gl);
             Assert.Same(origin, br);
@@ -148,7 +148,7 @@ namespace Parsek.Tests
             var origin = Rec("origin", "V", 100, 900);
             var prov = Rec("prov", "V", 700, 800);
             Recording br, bsp, mre, gl;
-            LedgerOrchestrator.WalkRecoveryPickTiers(
+            RecoveryRecordingPicker.WalkRecoveryPickTiers(
                 new List<Recording> { origin, prov }, 600.0, prov,
                 out br, out bsp, out mre, out gl);
             Assert.Same(origin, br);
@@ -161,7 +161,7 @@ namespace Parsek.Tests
             var a = Rec("a", "V", 600, 700);
             var b = Rec("b", "V", 650, 800);
             Recording br, bsp, mre, gl;
-            LedgerOrchestrator.WalkRecoveryPickTiers(
+            RecoveryRecordingPicker.WalkRecoveryPickTiers(
                 new List<Recording> { a, b }, 10.0, null, out br, out bsp, out mre, out gl);
             Assert.Null(br);
             Assert.Null(mre);
@@ -180,7 +180,7 @@ namespace Parsek.Tests
             var nameMatches = new List<Recording> { n, prov };
             List<Recording> candidates;
             int dropped, zombies;
-            var path = LedgerOrchestrator.SelectRecoveryCandidatePath(
+            var path = RecoveryRecordingPicker.SelectRecoveryCandidatePath(
                 RecoveredVesselIdentity.FromRawName("Hopper", GuidA, BakedPid), "500.0",
                 nameMatches, guidMatches, new List<Recording>(), prov,
                 7, 3, 5, out candidates, out dropped, out zombies);
@@ -203,7 +203,7 @@ namespace Parsek.Tests
             var spawnMatches = new List<Recording> { s };
             List<Recording> candidates;
             int dropped, zombies;
-            var path = LedgerOrchestrator.SelectRecoveryCandidatePath(
+            var path = RecoveryRecordingPicker.SelectRecoveryCandidatePath(
                 RecoveredVesselIdentity.FromRawName("Hopper", null, 777u), "500.0",
                 new List<Recording>(), new List<Recording>(), spawnMatches, null,
                 7, 3, 5, out candidates, out dropped, out zombies);
@@ -223,7 +223,7 @@ namespace Parsek.Tests
             var unknown = Rec("unknown", "Hopper", 100, 400);
             List<Recording> candidates;
             int dropped, zombies;
-            var path = LedgerOrchestrator.SelectRecoveryCandidatePath(
+            var path = RecoveryRecordingPicker.SelectRecoveryCandidatePath(
                 RecoveredVesselIdentity.FromRawName("Hopper", GuidA, BakedPid), "500.0",
                 new List<Recording> { diff, unknown }, new List<Recording>(),
                 new List<Recording>(), null, 7, 3, 5,
@@ -242,7 +242,7 @@ namespace Parsek.Tests
         {
             List<Recording> candidates;
             int dropped, zombies;
-            var path = LedgerOrchestrator.SelectRecoveryCandidatePath(
+            var path = RecoveryRecordingPicker.SelectRecoveryCandidatePath(
                 RecoveredVesselIdentity.FromRawName("Hopper"), "500.0",
                 new List<Recording>(), new List<Recording>(), new List<Recording>(), null,
                 0, 0, 0, out candidates, out dropped, out zombies);
@@ -258,9 +258,9 @@ namespace Parsek.Tests
         public void GuidFilterLine_IdentityPaths_WriteNothing()
         {
             var id = RecoveredVesselIdentity.FromRawName("Hopper", GuidA, BakedPid);
-            LedgerOrchestrator.LogRecoveryGuidFilterOutcome(
+            RecoveryRecordingPicker.LogRecoveryGuidFilterOutcome(
                 id, "1.0", RecoveryPickPath.LaunchGuid, 2, 1, 3);
-            LedgerOrchestrator.LogRecoveryGuidFilterOutcome(
+            RecoveryRecordingPicker.LogRecoveryGuidFilterOutcome(
                 id, "1.0", RecoveryPickPath.SpawnPid, 2, 1, 3);
             Assert.Empty(logLines);
         }
@@ -269,7 +269,7 @@ namespace Parsek.Tests
         public void GuidFilterLine_NameFallback_DroppedIsInfo_NoDropIsVerbose_NoMatchesIsSilent()
         {
             var withGuid = RecoveredVesselIdentity.FromRawName("Hopper", GuidA, BakedPid);
-            LedgerOrchestrator.LogRecoveryGuidFilterOutcome(
+            RecoveryRecordingPicker.LogRecoveryGuidFilterOutcome(
                 withGuid, "1.0", RecoveryPickPath.NameFallback, 2, 1, 3);
             Assert.Single(logLines);
             Assert.Equal("[Parsek][INFO][LedgerOrchestrator] PickRecoveryRecordingId guid filter: "
@@ -277,20 +277,20 @@ namespace Parsek.Tests
                 logLines[0]);
 
             logLines.Clear();
-            LedgerOrchestrator.LogRecoveryGuidFilterOutcome(
+            RecoveryRecordingPicker.LogRecoveryGuidFilterOutcome(
                 withGuid, "1.0", RecoveryPickPath.NameFallback, 0, 3, 3);
             Assert.Equal("[Parsek][VERBOSE][LedgerOrchestrator] PickRecoveryRecordingId guid filter: "
                 + "vessel='Hopper' ut=1.0 dropped=0 remaining=3 reason=no-conclusive-mismatch",
                 Assert.Single(logLines));
 
             logLines.Clear();
-            LedgerOrchestrator.LogRecoveryGuidFilterOutcome(
+            RecoveryRecordingPicker.LogRecoveryGuidFilterOutcome(
                 RecoveredVesselIdentity.FromRawName("Hopper"), "1.0",
                 RecoveryPickPath.NameFallback, 0, 3, 3);
             Assert.Contains("reason=live-launch-guid-unknown", Assert.Single(logLines));
 
             logLines.Clear();
-            LedgerOrchestrator.LogRecoveryGuidFilterOutcome(
+            RecoveryRecordingPicker.LogRecoveryGuidFilterOutcome(
                 withGuid, "1.0", RecoveryPickPath.NameFallback, 0, 0, 0);
             Assert.Empty(logLines);
         }
@@ -313,9 +313,10 @@ namespace Parsek.Tests
             List<Recording> nameMatches, guidMatches, spawnMatches;
             Recording unknownProv;
             int zName, zGuid, zSpawn;
-            LedgerOrchestrator.ScanRecoveryCandidates(
+            RecoveryRecordingPicker.ScanRecoveryCandidates(
                 RecordingStore.CommittedRecordings,
                 RecoveredVesselIdentity.FromRawName("Hopper", GuidA, 777u), 500.0, "prov",
+                LedgerOrchestrator.ResolveRecoveryAdmissibleRecordingIds(),
                 out nameMatches, out guidMatches, out spawnMatches, out unknownProv,
                 out zName, out zGuid, out zSpawn);
 
@@ -352,9 +353,10 @@ namespace Parsek.Tests
             List<Recording> nameMatches, guidMatches, spawnMatches;
             Recording unknownProv;
             int zName, zGuid, zSpawn;
-            LedgerOrchestrator.ScanRecoveryCandidates(
+            RecoveryRecordingPicker.ScanRecoveryCandidates(
                 RecordingStore.CommittedRecordings,
                 RecoveredVesselIdentity.FromRawName("Hopper", GuidA, BakedPid), 1000.0, null,
+                LedgerOrchestrator.ResolveRecoveryAdmissibleRecordingIds(),
                 out nameMatches, out guidMatches, out spawnMatches, out unknownProv,
                 out zName, out zGuid, out zSpawn);
 

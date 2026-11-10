@@ -152,7 +152,7 @@ namespace Parsek.Tests
                 Rec("rec-launch-2", "Hopper", 600.0, 900.0, GuidB),
             };
 
-            var survivors = LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid(
+            var survivors = RecoveryRecordingPicker.FilterRecoveryCandidatesByLaunchGuid(
                 nameMatches, GuidB, out int dropped);
             Assert.Equal(1, dropped);
 
@@ -414,7 +414,7 @@ namespace Parsek.Tests
                 Rec("rec-foreign", "Hopper", 100.0, 500.0, GuidA),
                 Rec("rec-mine", "Hopper", 600.0, 900.0, GuidB),
             };
-            var survivors = LedgerOrchestrator.FilterRecoveryCandidatesByLaunchGuid(
+            var survivors = RecoveryRecordingPicker.FilterRecoveryCandidatesByLaunchGuid(
                 nameMatches, GuidB, out _);
 
             Assert.True(RecoveryPickAmbiguity
