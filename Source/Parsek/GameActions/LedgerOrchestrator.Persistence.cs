@@ -193,24 +193,7 @@ namespace Parsek
             var recordings = RecordingStore.CommittedRecordings;
             if (recordings == null || recordings.Count == 0) return;
 
-            var existingByRecording = new Dictionary<string, List<GameAction>>();
-            var ledgerActions = Ledger.Actions;
-            for (int i = 0; i < ledgerActions.Count; i++)
-            {
-                var action = ledgerActions[i];
-                if (action.Type != GameActionType.KerbalAssignment
-                    || string.IsNullOrEmpty(action.RecordingId))
-                    continue;
-
-                List<GameAction> existing;
-                if (!existingByRecording.TryGetValue(action.RecordingId, out existing))
-                {
-                    existing = new List<GameAction>();
-                    existingByRecording[action.RecordingId] = existing;
-                }
-
-                existing.Add(action);
-            }
+            var existingByRecording = IndexKerbalAssignmentRowsByRecording();
 
             int repairedRecordings = 0;
             int oldRows = 0;
@@ -251,26 +234,7 @@ namespace Parsek
                 repairedRecordings++;
                 oldRows += existing != null ? existing.Count : 0;
                 newRows += kerbalActions.Count;
-                KerbalLoadRepairDiagnostics.RecordMigrationRepair(
-                    1,
-                    existing != null ? existing.Count : 0,
-                    kerbalActions.Count);
-                KerbalLoadRepairDiagnostics.RecordTouristRowsSkipped(
-                    rec.RecordingId, repairStats.TouristRowsSkipped);
-
-                for (int s = 0; s < repairStats.RemappedRows.Count; s++)
-                {
-                    var remap = repairStats.RemappedRows[s];
-                    KerbalLoadRepairDiagnostics.RecordRemappedRow(
-                        rec.RecordingId, remap.FromName, remap.ToName);
-                }
-
-                for (int s = 0; s < repairStats.EndStateRewrites.Count; s++)
-                {
-                    var rewrite = repairStats.EndStateRewrites[s];
-                    KerbalLoadRepairDiagnostics.RecordEndStateRewrite(
-                        rec.RecordingId, rewrite.KerbalName, rewrite.FromState, rewrite.ToState);
-                }
+                RecordKerbalAssignmentRepairDiagnostics(rec, existing, kerbalActions, repairStats);
             }
 
             if (repairedRecordings > 0)
@@ -278,6 +242,64 @@ namespace Parsek
                     $"MigrateKerbalAssignments: repaired {repairedRecordings} recording(s) " +
                     $"(oldRows={oldRows}, newRows={newRows}, " +
                     $"inheritedActionIds={inheritedRows}, freshActionIds={freshIdRows})");
+        }
+
+        /// <summary>
+        /// <see cref="MigrateKerbalAssignments"/>'s index of the stored KerbalAssignment rows,
+        /// grouped by their recording id in ledger order. Untagged rows are left out.
+        /// </summary>
+        internal static Dictionary<string, List<GameAction>> IndexKerbalAssignmentRowsByRecording()
+        {
+            var existingByRecording = new Dictionary<string, List<GameAction>>();
+            var ledgerActions = Ledger.Actions;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (action.Type != GameActionType.KerbalAssignment
+                    || string.IsNullOrEmpty(action.RecordingId))
+                    continue;
+
+                List<GameAction> existing;
+                if (!existingByRecording.TryGetValue(action.RecordingId, out existing))
+                {
+                    existing = new List<GameAction>();
+                    existingByRecording[action.RecordingId] = existing;
+                }
+
+                existing.Add(action);
+            }
+            return existingByRecording;
+        }
+
+        /// <summary>
+        /// <see cref="MigrateKerbalAssignments"/>'s report of one repaired recording to
+        /// <see cref="KerbalLoadRepairDiagnostics"/>: the row counts, the tourist rows the
+        /// classification skipped, and each remapped row and end-state rewrite.
+        /// </summary>
+        internal static void RecordKerbalAssignmentRepairDiagnostics(
+            Recording rec, List<GameAction> existing, List<GameAction> kerbalActions,
+            KerbalAssignmentRepairStats repairStats)
+        {
+            KerbalLoadRepairDiagnostics.RecordMigrationRepair(
+                1,
+                existing != null ? existing.Count : 0,
+                kerbalActions.Count);
+            KerbalLoadRepairDiagnostics.RecordTouristRowsSkipped(
+                rec.RecordingId, repairStats.TouristRowsSkipped);
+
+            for (int s = 0; s < repairStats.RemappedRows.Count; s++)
+            {
+                var remap = repairStats.RemappedRows[s];
+                KerbalLoadRepairDiagnostics.RecordRemappedRow(
+                    rec.RecordingId, remap.FromName, remap.ToName);
+            }
+
+            for (int s = 0; s < repairStats.EndStateRewrites.Count; s++)
+            {
+                var rewrite = repairStats.EndStateRewrites[s];
+                KerbalLoadRepairDiagnostics.RecordEndStateRewrite(
+                    rec.RecordingId, rewrite.KerbalName, rewrite.FromState, rewrite.ToState);
+            }
         }
 
         /// <summary>
