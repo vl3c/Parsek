@@ -392,5 +392,121 @@ namespace Parsek.Tests
 
             AssertGolden("B41CE793CD6EC6B7", 33);
         }
+
+        // ------------------------------------------------------------------
+        // The extracted pieces, called directly.
+        // ------------------------------------------------------------------
+
+        private static int SkipCount(GhostPlaybackEngine engine, string field)
+            => (int)typeof(GhostPlaybackEngine).GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(engine);
+
+        [UnityEntryFact]
+        public void HideLoopGhostAtWarp_NoLoadedGhost_TracesAndCountsWithoutACameraEvent()
+        {
+            var e = NewEngine(true);
+            e.HideLoopGhostAtWarp(0, LoopTraj("w"), Flags("w"), Ctx(150, 1000f), PendingState(0), ghostActive: false);
+
+            Assert.Contains(transcript, l => l.Contains("reason=loop-warp-hidden"));
+            Assert.DoesNotContain(transcript, l => l.StartsWith("EVT LoopCamera", StringComparison.Ordinal));
+            Assert.Equal(1, SkipCount(e, "frameSkipWarpHidden"));
+        }
+
+        [UnityEntryFact]
+        public void HandleLoopCycleBoundary_PendingGhost_AdvancesTheCycleWithoutRestartEvents()
+        {
+            var e = NewEngine(true);
+            var state = PendingState(0);
+            e.ghostStates[0] = state;
+
+            e.HandleLoopCycleBoundary(0, LoopTraj("c"), Flags("c"), Ctx(650, 1f), state, 150.0, 1);
+
+            Assert.Equal(1, state.loopCycleIndex);
+            Assert.DoesNotContain(transcript, l => l.StartsWith("EVT LoopRestarted", StringComparison.Ordinal));
+            Assert.DoesNotContain(transcript, l => l.StartsWith("EVT LoopCamera", StringComparison.Ordinal));
+            Assert.DoesNotContain(transcript, l => l.StartsWith("POS ", StringComparison.Ordinal));
+        }
+
+        [UnityEntryFact]
+        public void TrySpawnLoopFirstGhost_SpawnBudgetSpent_DefersWithoutAState()
+        {
+            var e = NewEngine(true);
+            GhostPlaybackState state = null;
+            bool ghostActive = false;
+
+            Assert.False(e.TrySpawnLoopFirstGhost(0, LoopTraj("s"), Flags("s"), 150.0, 0, ref state, ref ghostActive));
+
+            Assert.Null(state);
+            Assert.False(ghostActive);
+            Assert.Empty(e.ghostStates);
+            Assert.Equal(1, e.FrameSpawnDeferredForTesting);
+            Assert.Contains(transcript, l => l.Contains("Spawn throttled (loop-first-spawn): #0 deferred to next frame"));
+        }
+
+        [UnityEntryFact]
+        public void TrySpawnLoopFirstGhost_BuildFails_DropsTheRegisteredState()
+        {
+            var e = NewEngine(false);
+            var debris = LoopTraj("d");
+            debris.IsDebris = true;
+            GhostPlaybackState state = null;
+            bool ghostActive = true;
+
+            Assert.False(e.TrySpawnLoopFirstGhost(0, debris, Flags("d"), 150.0, 3, ref state, ref ghostActive));
+
+            Assert.NotNull(state);
+            Assert.Equal(3, state.loopCycleIndex);
+            Assert.Equal(PendingSpawnLifecycle.LoopEnter, state.pendingSpawnLifecycle);
+            Assert.True(ghostActive);
+            Assert.Empty(e.ghostStates);
+            Assert.Equal(1, SkipCount(e, "frameSkipVisualLoadFailed"));
+            Assert.DoesNotContain(transcript, l => l.StartsWith("EVT SpawnPending", StringComparison.Ordinal));
+        }
+
+        [UnityEntryFact]
+        public void TryRehydrateLoopGhostVisuals_ThrottledOrFailed_ReturnsFalse()
+        {
+            var e = NewEngine(true);
+            var state = PendingState(0);
+            e.ghostStates[0] = state;
+            Assert.False(e.TryRehydrateLoopGhostVisuals(0, LoopTraj("r"), state, 150.0));
+            Assert.Contains(transcript, l => l.Contains("Spawn throttled (loop-distance-tier-rehydrate)"));
+
+            state.pendingSpawnLifecycle = PendingSpawnLifecycle.LoopEnter;
+            ParsekLog.ResetRateLimitsForTesting();
+            Assert.False(e.TryRehydrateLoopGhostVisuals(0, LoopTraj("r"), state, 150.0));
+            Assert.Contains(transcript, l => l.Contains("Spawn throttled (loop-first-spawn-continue)"));
+
+            var f = NewEngine(false);
+            var debris = LoopTraj("rd");
+            debris.IsDebris = true;
+            var failing = PendingState(0);
+            f.ghostStates[0] = failing;
+            Assert.False(f.TryRehydrateLoopGhostVisuals(0, debris, failing, 150.0));
+            Assert.Equal(1, SkipCount(f, "frameSkipVisualLoadFailed"));
+            Assert.Single(f.ghostStates);
+        }
+
+        [UnityEntryFact]
+        public void RenderLoopPrimaryFrame_ClearsTheRetireSignalBeforePositioning()
+        {
+            var e = NewEngine(true);
+            var state = LoadedState(0);
+            state.anchorRetiredThisFrame = true;
+            e.ghostStates[0] = state;
+            try
+            {
+                e.RenderLoopPrimaryFrame(0, LoopTraj("q"), Ctx(150, 1f), state, 150.0,
+                    skipLoopPartEvents: false, effectiveSuppressVisualFx: false);
+            }
+            catch (Exception ex) when (IsHeadlessUnityRefusal(ex))
+            {
+            }
+
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.Contains(transcript, l => l.StartsWith("POS PositionLoop #0 ut=150", StringComparison.Ordinal)
+                || l.StartsWith("POS InterpolateAndPosition #0 ut=150", StringComparison.Ordinal)
+                || l.StartsWith("POS TryPositionFromBodyFixedPrimary #0 ut=150", StringComparison.Ordinal));
+        }
     }
 }
