@@ -1009,8 +1009,7 @@ namespace Parsek
 
             var meshRenderers = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
             var skinnedRenderers = modelRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-            if ((meshRenderers == null || meshRenderers.Length == 0) &&
-                (skinnedRenderers == null || skinnedRenderers.Length == 0))
+            if (HasNoRendererComponents(meshRenderers, skinnedRenderers))
                 return false;
 
             int totalMR = meshRenderers != null ? meshRenderers.Length : 0;
@@ -1048,7 +1047,8 @@ namespace Parsek
                         activeSMR++;
                 }
             }
-            bool filterInactiveVariantRenderers = hasPartVariants && (activeMR > 0 || activeSMR > 0);
+            bool filterInactiveVariantRenderers = ShouldFilterInactiveVariantRenderers(
+                hasPartVariants, activeMR, activeSMR);
             // One line per part per window. The modelRoot local pos/rot used to be a SECOND per-part
             // "[DIAG] part ..." line emitted further down (todo entry 160's "per-part cloning details");
             // it says nothing this line cannot carry, so it is folded in here instead of doubling the volume.
@@ -1058,24 +1058,10 @@ namespace Parsek
                 $"modelRot={modelRoot.localRotation}, " +
                 $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers" +
                 (hasPartVariants ? " (has ModulePartVariants)" : ""), 60.0);
-            if (hasPartVariants && hasVariantGameObjectRules)
-            {
-                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_sel_{partName}",
-                    $"  Variant selection: '{selectedVariantName}' via {variantResolutionPath} with " +
-                    $"{selectedVariantGameObjects.Count} GAMEOBJECT rules", 60.0);
-            }
-            if (hasPartVariants && !filterInactiveVariantRenderers && !hasVariantGameObjectRules)
-            {
-                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_fb_{partName}",
-                    $"  Variant fallback: no active variant renderers and no GAMEOBJECT rules " +
-                    $"— including all renderers (active MR={activeMR}, active SMR={activeSMR})", 60.0);
-            }
-            if (hasPartVariants && variantResolutionPath == "base-implicit")
-            {
-                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_base_{partName}",
-                    $"  Variant '{selectedVariantName}' not in VARIANT nodes " +
-                    $"— using base variant (prefab default materials)", 60.0);
-            }
+            LogPartVariantResolution(
+                hasPartVariants, hasVariantGameObjectRules, partName,
+                selectedVariantName, variantResolutionPath, selectedVariantGameObjects,
+                filterInactiveVariantRenderers, activeMR, activeSMR);
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name
             string partLabel = persistentId != 0
@@ -1128,9 +1114,8 @@ namespace Parsek
             HashSet<string> undamagedWheelNames = GetUndamagedWheelTransformNames(partConfig);
             bool wheelDamageSwappable = damagedWheelNames.Count > 0
                 && !IsRendererOnDamagedTransform(modelRoot, damagedWheelNames);
-            HashSet<string> damagedFilterNames = damagedWheelNames.Count > 0 && !wheelDamageSwappable
-                ? damagedWheelNames
-                : null;
+            HashSet<string> damagedFilterNames = ResolveDamagedRendererFilterNames(
+                damagedWheelNames, wheelDamageSwappable);
 
             // Collect depth-mask transform names (ReStock's ModuleRestockDepthMask and
             // the community ModuleDepthMask pattern). A depth-mask mesh writes DEPTH
@@ -1139,18 +1124,7 @@ namespace Parsek
             // it instead, punching a see-through hole to the sky/ocean (the round-6
             // "blueish missing texture" on ReStock claws and jet exhausts). Skip them.
             HashSet<string> depthMaskNames = GetDepthMaskTransformNames(partConfig);
-            if (depthMaskNames.Count > 0)
-            {
-                ParsekLog.VerboseRateLimited("GhostVisual", $"depth_mask_{partName}",
-                    $"  Part '{partName}' pid={persistentId}: found {depthMaskNames.Count} " +
-                    $"depth-mask transform(s): [{string.Join(", ", depthMaskNames)}]; ghost skips them", 60.0);
-            }
-            if (damagedWheelNames.Count > 0)
-            {
-                ParsekLog.VerboseRateLimited("GhostVisual", $"wheel_damage_{partName}",
-                    $"  Part '{partName}' pid={persistentId}: found {damagedWheelNames.Count} " +
-                    $"ModuleWheelDamage damagedTransformName(s): [{string.Join(", ", damagedWheelNames)}]", 60.0);
-            }
+            LogPartRendererExclusionNames(depthMaskNames, partName, persistentId, damagedWheelNames);
 
             int variantSkipped = 0;
             int variantRuleSkipped = 0;
@@ -1197,12 +1171,7 @@ namespace Parsek
                 meshCount++;
                 added = true;
             }
-            if (variantSkipped > 0)
-                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_skip_{partName}",
-                    $"  Skipped {variantSkipped} MeshRenderers on inactive variant objects", 60.0);
-            if (variantRuleSkipped > 0)
-                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_ruleskip_{partName}",
-                    $"  Skipped {variantRuleSkipped} MeshRenderers by selected variant GAMEOBJECT rules", 60.0);
+            LogVariantRendererSkips(variantSkipped, partName, variantRuleSkipped);
 
             skinnedCloned = CloneSkinnedMeshRenderers(
                 skinnedRenderers, modelRoot, modelNode.transform, partRoot.transform,
@@ -1213,13 +1182,8 @@ namespace Parsek
             if (skinnedCloned > 0)
                 added = true;
 
-            // Summary log for renderer cloning results — helps diagnose missing ghost parts
-            int meshCloned = meshCount - skinnedCloned;
-            ParsekLog.VerboseRateLimited("GhostVisual", $"clone_summary_{partName}",
-                $"  Part '{partName}' pid={persistentId}: cloned {meshCloned} MeshRenderers, " +
-                $"{skinnedCloned} SkinnedMeshRenderers, skipped {nullMeshSkipped} null-mesh SMRs, " +
-                $"skipped {damagedSkipped} damaged-wheel renderers, " +
-                $"skipped {depthMaskSkipped} depth-mask renderers", 60.0);
+            LogPartCloneSummary(meshCount, skinnedCloned, partName, persistentId,
+                nullMeshSkipped, damagedSkipped, depthMaskSkipped);
 
             if (hasPartVariants)
             {
@@ -1255,8 +1219,7 @@ namespace Parsek
             // promotions) skip seed events to avoid poisoning FindLastInterestingUT,
             // so the ghost would otherwise display the shroud until the first
             // playback event — which never comes for continuations (#290).
-            if (jettisonInfo != null && partNode != null
-                && IsJettisonedInSnapshot(partNode))
+            if (ShouldHideJettisonTransformsAtBuild(jettisonInfo, partNode))
             {
                 for (int ji = 0; ji < jettisonInfo.jettisonTransforms.Count; ji++)
                 {
@@ -1307,10 +1270,11 @@ namespace Parsek
             {
                 hasAnimateRcs = TryGetAnimateRcsAnimation(prefab, out animateRcsAnimName);
             }
-            bool hasAnyHeatAnim = hasAnimateHeat || hasAnimateThrottle || hasAnimateRcs;
-            string heatAnimName = hasAnimateHeat ? animateHeatAnimName
-                : hasAnimateThrottle ? animateThrottleAnimName
-                : animateRcsAnimName;
+            bool hasAnyHeatAnim = HasAnyHeatAnimation(hasAnimateHeat, hasAnimateThrottle, hasAnimateRcs);
+            string heatAnimName = SelectHeatAnimationName(
+                hasAnimateHeat, animateHeatAnimName,
+                hasAnimateThrottle, animateThrottleAnimName,
+                animateRcsAnimName);
             string aeroSurfaceTransformName;
             float aeroSurfaceDeployAngle;
             bool hasAeroSurfaceDeploy = TryGetAeroSurfaceDeployInfo(
@@ -1333,14 +1297,15 @@ namespace Parsek
                 prefab.FindModuleImplementing<ModuleDeployablePart>() != null ||
                 prefab.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null ||
                 prefab.FindModuleImplementing<ModuleCargoBay>() != null ||
-                hasRetractableLadder ||
-                hasAnimationGroupDeploy ||
-                hasStandaloneAnimateGenericDeploy ||
-                hasAnyHeatAnim ||
-                hasAeroSurfaceDeploy ||
-                hasControlSurfaceDeploy ||
-                hasRobotArmScannerDeploy ||
-                hasRoboticModules;
+                AnimatedModulesNeedFullModelHierarchy(
+                    hasRetractableLadder,
+                    hasAnimationGroupDeploy,
+                    hasStandaloneAnimateGenericDeploy,
+                    hasAnyHeatAnim,
+                    hasAeroSurfaceDeploy,
+                    hasControlSurfaceDeploy,
+                    hasRobotArmScannerDeploy,
+                    hasRoboticModules);
 
             if (needsFullHierarchy)
                 EnsureFullModelHierarchy(modelRoot, modelNode.transform, cloneMap, partName);
@@ -1368,9 +1333,7 @@ namespace Parsek
             // Detect ModuleAnimateHeat / FXModuleAnimateThrottle / FXModuleAnimateRCS visual states
             if (hasAnyHeatAnim)
             {
-                string heatSource = hasAnimateHeat ? "ModuleAnimateHeat"
-                    : hasAnimateThrottle ? "FXModuleAnimateThrottle"
-                    : "FXModuleAnimateRCS";
+                string heatSource = SelectHeatAnimationSourceModule(hasAnimateHeat, hasAnimateThrottle);
                 heatInfo = TryBuildHeatInfo(prefab, heatAnimName, heatSource,
                     modelNode.transform, partName, persistentId);
             }
@@ -1394,7 +1357,7 @@ namespace Parsek
 
             // Wheel damage swap: resolved LAST, against the fully populated cloneMap, so every
             // cloned busted transform is found and hidden before the ghost is ever shown.
-            if (damagedWheelNames.Count > 0 || undamagedWheelNames.Count > 0)
+            if (ShouldResolveWheelDamageInfo(damagedWheelNames, undamagedWheelNames))
             {
                 wheelDamageInfo = TryBuildWheelDamageInfo(
                     persistentId, partName, wheelDamageSwappable,
