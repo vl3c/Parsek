@@ -311,8 +311,12 @@ namespace Parsek.Tests
         [Fact]
         public void BodyNameMatches_NullEntryThrowsLikeTheReplacedLambda()
         {
+            // Mono and a Debug build throw NullReferenceException at the callvirt. ThrowsAny
+            // keeps the cell honest on a Windows Release host, where the JIT may inline
+            // Object.get_name and surface its native call first; a null-guarded matcher would
+            // return without throwing either way, which is the change this cell must catch.
             var bodies = new List<CelestialBody> { null, null };
-            Assert.Throws<NullReferenceException>(() =>
+            Assert.ThrowsAny<Exception>(() =>
                 ParsekFlightGhostPositioner.FindFirstMatching(
                     bodies, "Kerbin", ParsekFlightGhostPositioner.BodyNameMatches));
         }
