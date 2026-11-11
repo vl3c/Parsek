@@ -20,46 +20,52 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## NEXT-TESTS-TO-BUILD-2026-11-11: the one ranked list of tests, flights and missions still to build [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0). OPEN; test program, no known defect]
+## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
 Merges the two lists the owner had: the moon flight-test matrix (MOON-FLIGHT-TEST-PROGRAM below,
 project file `missions/moon-flight-test-matrix-2026-11-07.md`) and the 2026-10-31 test gap audit
 (TEST-GAP-AUDIT-2026-10-31-RESIDUE below, project file `roadmap/test-gap-audit-2026-10-31.md`).
-Nothing committed is waiting to fly: every lane added since the 2026-11-06 full run (537 lanes)
-is live-proven, and the refactor batch (254 lanes, 2026-11-10 / 11) re-flew the re-aim
-regression slice and the six moon-to-moon lanes on the new 1.1.0 clock.
+No committed spec is still waiting for its first flight: every lane added since the 2026-11-06
+full run is live-proven, and the refactor batch (254 lanes, 2026-11-10 / 11, per the PR #2561
+body) re-flew the re-aim regression slice and the six moon-to-moon lanes on the new 1.1.0 clock
+(the six `autotest-status.md` rows still lead with their 2026-10-07 flights). Not repeated here:
+fixes awaiting a re-flight of an existing lane (BDOCK-2), and the other programs in
+`docs/dev/autotest-roadmap.md` (IR-8 and IC-1 .. IC-4 route interaction lanes, Tier 4 / 5 perf,
+soak and the journal crash matrix) and M-MIS-10's archetypes.
 
 Done since those lists were written: moon Group A (B36 / B37 / B38 forges, V31M / V31T / V32M /
-V32T / V33M, all green 2026-11-07), the moon-to-moon spacing fix (#2554, V17 / V19 / V21 re-pinned
-and green), A1 Recordings-tab loops on the map (SLM lanes), Revert to VAB / save switch / CommNet
-across a rewind and a load (REV-1, SWS-1, CN-4, CN-5), routes under a Re-Fly and real warp (IR-3,
-IR-6), route conservation (RCN-1), the Re-Fly value fuzzer and the save round-trip gate.
+V32T / V33M, all green 2026-11-07), the moon-to-moon spacing fix (#2554, V17 / V19 / V21 re-pinned),
+A1 Recordings-tab loops on the map (SLM lanes), Revert to VAB / save switch / CommNet across a
+rewind and a load (REV-1, SWS-1, CN-4, CN-5), routes under a Re-Fly and real warp (IR-3, IR-6),
+route conservation (RCN-1), the Re-Fly value fuzzer and the save round-trip gate.
 
-Still to build, most valuable to a player first:
+Still to build, most valuable to a player first (items 8 and 10 need no PC flight time and can run
+in parallel in the cloud):
 
-1. [ ] Moon-to-moon pairs on the new 1.1.0 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
-   B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
-   decline), each a forge plus a loop lane. Only Laythe -> Vall, Mun -> Minmus and Laythe -> Jool
-   have flown on the new rule.
-2. [ ] The Jool multi-moon tour (Group C, M-MIS-6): built, never seen in game. One forge
+1. [ ] The Jool multi-moon tour (Group C, M-MIS-6): built, never seen in game. One forge
    (Laythe, Vall, Tylo in one tree from `jool-orbit-recorded`) and a loop lane reading
    `ARRIVAL HOLD dest=Jool kind=config moons=3`; a Bop variant must decline with the amber.
    The most expensive flight.
-3. [ ] Jool park -> one moon continuations: B39 Vall, B40 Tylo, B41 Bop, B42 Pol with loop lanes
+2. [ ] Moon-to-moon pairs on the new 1.1.0 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
+   B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
+   decline), each a forge plus a loop lane. Only Laythe -> Vall, Mun -> Minmus and Laythe -> Jool
+   have flown on the new rule.
+3. [ ] Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
+   landing, then its ghost replays at the Space Center.
+4. [ ] Jool park -> one moon continuations: B39 Vall, B40 Tylo, B41 Bop, B42 Pol with loop lanes
    V34M .. V37M (Vall has no park lane at all), plus the missing Laythe Tracking Station lane
    (V33T). Later: Mun / Minmus continuations and the optional Ike / Gilly landing continuations.
    The three Group A fixtures carry the stray root tail of COMMITTED-RESTORE-APPENDS-TO-ROOT and
    are re-harvested when that bug is fixed.
-4. [ ] Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
-   landing, then its ghost replays at the Space Center.
 5. [ ] Supply-route ghosts checked by position: route render lanes (H59, V26M, V26T, V27M, V18T)
    still pin counts and log lines, so a route ghost drawn in the wrong place passes (audit B3).
-6. [ ] Loops meeting a Re-Fly, a career save and a scene change in watch mode (audit B7; LF-2
-   covers only a plain Rewind-to-Launch with a loop armed).
+6. [ ] Loops meeting a Re-Fly, a career save and a scene change in watch mode (audit B7; LF-1 and
+   LF-2 cover only a plain Rewind-to-Launch with a loop armed).
 7. [ ] Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
    T48, has never been re-run).
-8. [ ] Optimizer pass over a store holding a committed route (audit C8, xUnit): a load-time
-   rewrite could flip a route to SourceChanged, which never recovers.
+8. [ ] A load-time optimizer pass over a route WITH source recording refs, asserting the route
+   does not flip to SourceChanged (audit C8, xUnit; `ChainTipRouteCargoTests` runs the pass beside
+   a route that has no source refs and asserts nothing about the route's status).
 9. [ ] Missing mission shapes (audit B9): a live atmospheric landing off Kerbin (Eve or Laythe),
    a Minmus or orbital miner, a boat, and the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT formation
    flight through an SOI edge with a background wingman.
@@ -69,6 +75,39 @@ Still to build, most valuable to a player first:
    ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER, the two rescue marker fixes, the drop path of
    TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS and the RW-9R reading variant. The three
    2026-10-31 mod-only ledger fixes stay unit-test only by owner rule.
+
+New ideas from the 2026-11-11 review, not yet ranked against the list above (each grep-checked as
+uncovered by the reviewer; the four cheap ones first):
+
+- [ ] Plain-stock smoke: every lane runs with KSPCommunityFixes, CommunityTechTree,
+  ProbesBeforeCrew and CommunityDeltaVMaps installed (`harness/provision/profiles/stock-minimal.toml`),
+  so a stock bug those mods hide is invisible. A profile with only Parsek's real dependencies,
+  re-running a few seam-only daily lanes.
+- [ ] Produced save is stock-clean: a `saveparse.py` report-only check that the produced save
+  holds no ghost ProtoVessel or Parsek-only module in FLIGHTSTATE, so removing Parsek (the user
+  guide says this is safe) cannot break the save. Pure Python, no flight.
+- [ ] New game under an old save name: `DetectSaveFolderChange` keys on the folder name, so a
+  fresh game created where an old Parsek save lived may pick up its sidecars. `NewGame` over a
+  folder pre-seeded with `Parsek/Recordings`.
+- [ ] Difficulty sliders changed mid-career, then a rewind: no lane changes a reward multiplier
+  and then rewinds (owner ruling: Parsek rewinds keep the current sliders, #2374). Career fixture
+  plus the ledger oracle.
+- [ ] Parsek removed for a session, then put back: stock play moves vessels, kerbals and funds
+  without Parsek watching. A fixture variant with drifted FLIGHTSTATE / funds, loaded with the
+  ledger audit and saveParse rows.
+- [ ] Linked round-trip routes and the "every N loops" cadence, live (user guide advertises
+  both; overlaps the roadmap's IC-3).
+- [ ] Long-career scale: a generated save with ~500 recordings (largest fixture today: 45),
+  pinning load time and frame time from KSP.log.
+- [ ] A crash mid-recording and mid-merge: the reserved `CrashAfterJournalPhase` verb is used by
+  no spec; the journal's drive-forward is xUnit-only.
+- [ ] An Apollo-style Mun mission as a loop (undock, land, return, redock, go home): today only
+  the synthetic `land-dock-dual-constraint` shape.
+- [ ] Constellation deploy: 4+ satellites released in one frame (CHILD-BRANCH-SINGLE-SLOT-OVERWRITE
+  says simultaneous children can share one branch slot).
+- [ ] A live claw grab of a derelict, and a route through it (only the synthetic H41 / H42 cells).
+- [ ] A launch abort: escape system fired on ascent, capsule lands, booster destroyed, merge.
+- [ ] Cheat menu Set Orbit / Set Position while recording (xUnit only today).
 
 ---
 
@@ -321,11 +360,13 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   `OnBackgroundVesselSOIChanged` only by the source gate of
   `BackgroundPhysicsSoiSectionSplitTests` (the loaded-state arming order); neither has a decision
   test.
-- [ ] C8: no test runs `RunOptimizationPass` over a store holding a committed route, so a load-time
+- [ ] C8: no test runs `RunOptimizationPass` over a committed route WITH source recording refs and
+  checks its status (`ChainTipRouteCargoTests` runs the pass beside a ref-less route), so a load-time
   rewrite that flips a route to SourceChanged would go unseen.
 - [ ] C9: `GhostCommNetManager` is named by no xUnit file (see GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST).
 - [ ] C6: `RouteHarvestAnalysis.ComputeHarvestedTotals`, `ComputeFullRunGains` and
-  `FindGainAnchorIndex` have no test; `HarvestCapture_CatchUpOnLoad` still skips on every host.
+  `FindGainAnchorIndex` have no test (`HarvestCapture_CatchUpOnLoad` no longer skips: its body runs
+  on a drill on ore in the `MiningHarvest` category, lane MINE-5a).
 - [ ] C5: `EffectiveState.ResolveRewindPointSlotIndexForRecording` still takes the first match
   silently when two slots resolve to one recording.
 - [ ] C1 remainder: no per-resource conservation check (origin debit = delivered + by-design loss)
@@ -341,9 +382,10 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
 - [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode.
 - [ ] B8: ghost FX across a Re-Fly or a revert has no lane.
 - [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost,
-  GhostReapplyFrame and GuiMock: no committed spec names any of the four).
+  GhostReapplyFrame, GuiMock, JointBreakCheckCoroutine and TreeRestoreCoroutine: no committed spec
+  names any of them).
 - [ ] B9: no lane flies an aircraft, a boat, a live atmospheric landing off Kerbin or a Minmus /
-  orbital miner (the claw has only the synthetic H42 cell).
+  orbital miner (the claw has only the synthetic H41 / H42 cells).
 - [ ] Fixes proven by xUnit only, never seen in game: ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER,
   RESCUE-PLACED-MARKER-SESSION-ONLY,
   RESCUE-PLACED-MARKER-NEVER-RETIRES, the drop path of
@@ -5246,7 +5288,7 @@ Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-a
 
 - Owner: "we will need flight tests for all combinations of moons", building on the existing recordings. Plan doc: project file `missions/moon-flight-test-matrix-2026-11-07.md`. Already live: park -> one moon for Mun, Minmus, Ike, Gilly, Laythe, Tylo, Bop, Pol (V6M/V7M/V14M/V15M/V16M/V28M/V29M/V30M), moon -> moon Laythe -> Vall (V17M) and Mun -> Minmus (V21M). Missing: interplanetary trip carrying on to a moon (the lone-moon hold), Jool-park -> Vall, a Jool multi-moon tour (M-MIS-6), and more moon-to-moon pairs.
 - **Group A GREEN (2026-11-07, branch `claude/project-thread-ni23y9`):** forges B36 Duna->Ike (`2026-11-07_2214`), B37 Eve->Gilly (`_2220`), B38 Jool->Laythe (`_2230`) appended each moon hop to the committed Kerbin->planet tree and were harvested as `duna-ike-recorded`, `eve-gilly-recorded`, `jool-laythe-recorded`; loop lanes V31M / V31T / V32M / V32T / V33M all PASS attempt 1 (see LOOP-LONE-MOON-ARRIVAL-NOT-ALIGNED). Harness fix on the way: `harvest_bdock_station.py --keep-parsek` now keeps the `_versions` sidecar bodies the save names (a committed tree beside its resumed in-flight copy names an older root `.prec`; pruning it made the cold load drop the committed tree). Still open: Mun, Minmus, Vall, Tylo, Bop and Pol as continuation forges, a multi-moon Jool tree, and a Laythe Tracking Station lane (no V33T draft).
-- **Re-checked 2026-11-11 on main b5877e51f (1.1.0):** Group A is done (above). The moon-to-moon spacing (MOON-TO-MOON-LOOP-NOT-RETIMED, #2554) shipped in 1.1.0 and its six lanes V17M / V17T / V19M / V19T / V21M / V21T flew green on the new clock in the refactor batch, which also re-flew the matrix's re-aim regression slice (V3R, V8 .. V13A, V20M, V24W, V25M, GUI-18, M1). No B39 .. B46 or V34M+ spec exists. Still to build, in this order (ranked with the rest in NEXT-TESTS-TO-BUILD-2026-11-11): (1) Group B, new moon-to-moon pairs now that the code exists: B43 Vall -> Tylo, B44 Laythe -> Tylo, B46 Minmus -> Mun, B45 Tylo -> Bop (expected decline), each with a loop lane reading the moon-rooted phase lock; (2) Group C, the Jool multi-moon tour (M-MIS-6, never flown); (3) B39 .. B42 Jool -> Vall / Tylo / Bop / Pol continuations with V34M .. V37M, and V33T; then the Mun / Minmus continuations and the optional Ike / Gilly landings.
+- **Re-checked 2026-11-11 on main b5877e51f (1.1.0):** Group A is done (above). The moon-to-moon spacing (MOON-TO-MOON-LOOP-NOT-RETIMED, #2554) shipped in 1.1.0 and its six lanes V17M / V17T / V19M / V19T / V21M / V21T flew green on the new clock in the refactor batch (per the PR #2561 body; their `autotest-status.md` rows are not yet updated), which also re-flew the matrix's re-aim regression slice (V3R, V8 .. V13A, V20M, V24W, V25M, GUI-18, M1). No B39 .. B46 or V34M+ spec exists. Still to build, in this order (ranked with the rest in NEXT-TESTS-TO-BUILD-2026-11-11): (1) Group B, new moon-to-moon pairs now that the code exists: B43 Vall -> Tylo, B44 Laythe -> Tylo, B46 Minmus -> Mun, B45 Tylo -> Bop (expected decline), each with a loop lane reading the moon-rooted phase lock; (2) Group C, the Jool multi-moon tour (M-MIS-6, never flown); (3) B39 .. B42 Jool -> Vall / Tylo / Bop / Pol continuations with V34M .. V37M, and V33T; then the Mun / Minmus continuations and the optional Ike / Gilly landings.
 
 ### COMMITTED-RESTORE-APPENDS-TO-ROOT - a resumed committed tree records onto its root recording [OPEN, found 2026-11-07]
 
