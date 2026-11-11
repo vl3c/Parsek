@@ -8,12 +8,15 @@ facts model keyed by member:
 - types by full IL path: namespace plus nesting, quotes and generic arity
   dropped (`Parsek.Logistics.RouteEndpointTransfer/VesselIdentity`), so two
   types that share a short name stay apart. Each carries its kind, header
-  flags, base type, custom attributes and the module modules.toml assigns its
-  source file (`module: null` when the source scan cannot say).
+  flags, base type, interfaces, custom attributes, how many other types name
+  it in IL (`namedByOthers`) and the module modules.toml assigns its source
+  file (`module: null` when the source scan cannot say).
 - fields by `Type::name`: static, initonly, literal, compiler-generated, the
   property it backs (`<X>k__BackingField`), event backing, attributes, and
   for static fields the methods that read, write (`stsfld`) and take the
-  address of (`ldsflda`) them.
+  address of (`ldsflda`) them, plus `receiverCalls` (`method|member`: an
+  outside-assembly call, or `[]` for an element store, shortly after a read;
+  the evidence for "mutates its contents").
 - methods by `Type::Name(param types)`, ``Name``N`` for a generic method, the
   parameter types normalized so a declaration and a call site print the same
   text (`Parsek.Foo::Short(string)`; a conversion operator also carries its
@@ -22,8 +25,12 @@ facts model keyed by member:
   and filter handlers), the in-assembly members it calls (`call`,
   `callvirt`, `newobj`, `ldftn`, `ldvirtftn`), static field reads / writes /
   address-takes, the external types its body, locals and signature name
-  (`assembly|type`, the BCL left out), and calls into another assembly's
-  root-namespace types (`Parsek|Parsek.Foo::Bar(int32)` from the test DLL).
+  (`assembly|type`, the BCL left out), the external members it names
+  (`externalMembers`, `assembly|Type::Name`), its identifier-shaped string
+  literals (`strings`: reflection by name and `nameof`), and calls into
+  another assembly's root-namespace types (`Parsek|Parsek.Foo::Bar(int32)`
+  from the test DLL). Code generated but owned by no single method credits its
+  calls and static access to `Type::(generated)`.
 
 Compiler-generated code (lambda bodies in `<>c`, closure classes, local
 functions, iterator and async state machines) is folded into the source
@@ -68,7 +75,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import archview  # noqa: E402
 import ilgraph  # noqa: E402
 
-SCHEMA = "parsek-ilfacts/1"
+SCHEMA = "parsek-ilfacts/2"
 CALL_OPCODES = frozenset("call callvirt newobj ldftn ldvirtftn".split())
 STATIC_FIELD_OPCODES = {"ldsfld": "staticReads", "stsfld": "staticWrites", "ldsflda": "staticAddress"}
 BACKING_FIELD_RE = re.compile(r"^<(.+)>k__BackingField$")
@@ -135,12 +142,24 @@ def type_kind(header):
     return "class"
 
 
+def _declared(text):
+    text = re.sub(r"^\s*(?:class|valuetype)\s+", "", text.strip())
+    assembly, path, _generic = ilgraph.split_declaring(text)
+    return path if assembly is None else assembly + "|" + path
+
+
 def _base_type(header):
     if " extends " not in header:
         return None
-    rest = header.split(" extends ", 1)[1].split(" implements ", 1)[0].strip()
-    assembly, path, _generic = ilgraph.split_declaring(rest)
-    return path if assembly is None else assembly + "|" + path
+    return _declared(header.split(" extends ", 1)[1].split(" implements ", 1)[0])
+
+
+def _interfaces(header):
+    """The interfaces a type header lists (an interface's own header lists its parents)."""
+    if " implements " not in header:
+        return []
+    rest = header.split(" implements ", 1)[1]
+    return sorted({_declared(item) for item in ilgraph._split_top_level(rest, ",") if item.strip()})
 
 
 # --- module map from the source tree ----------------------------------------
@@ -354,9 +373,19 @@ def build(parsed, type_modules=None):
             "base": _base_type(header),
             "generic": bool(type_entry["generics"]),
             "attributes": sorted(set(type_entry["attributes"])),
+            "interfaces": _interfaces(header),
             "module": module_of(path),
-            "unattributed": {"methods": 0, "instructions": 0, "decisions": 0},
+            "namedByOthers": 0,
+            "unattributed": {"methods": 0, "instructions": 0, "decisions": 0, "calls": []},
         }
+    for owner, owner_uses in parsed.get("uses", {}).items():
+        named = set()
+        for use in owner_uses:
+            target = use[1]
+            if target != owner and target in types:
+                named.add(target)
+        for target in named:
+            types[target]["namedByOthers"] += 1
 
     # Methods: each source method with the generated code folded into it.
     out_methods = {}
@@ -390,6 +419,42 @@ def build(parsed, type_modules=None):
         return None
 
     field_access = defaultdict(lambda: defaultdict(set))
+    field_mutations = defaultdict(set)
+
+    def note_statics(body, key, statics):
+        for position, (opcode, assembly, path, name, _garity, params, _ret) in enumerate(body["refs"]):
+            if assembly is None and opcode in STATIC_FIELD_OPCODES and params is None:
+                if is_root_path(outermost(path)) and not is_generated_path(path):
+                    field_key = path + "::" + name
+                    if statics is not None:
+                        statics[STATIC_FIELD_OPCODES[opcode]].add(field_key)
+                    field_access[field_key][STATIC_FIELD_OPCODES[opcode]].add(key)
+        for field_key, member in body.get("staticCalls", ()):
+            if not is_generated_path(_type_of_key(field_key)):
+                field_mutations[field_key].add((key, member))
+
+    # Generated code no single source method owns still calls, reads and
+    # writes: credit it to its source type's `Type::(generated)` key, so no
+    # caller or writer is lost.
+    for g in generated:
+        owner, _how = attribution[g]
+        if owner is not None and owner in key_of:
+            continue
+        source_type = ilgraph.source_owner(methods[g]["type"])
+        if source_type not in types:
+            continue
+        pseudo = source_type + "::" + UNATTRIBUTED
+        bucket = types[source_type]["unattributed"]
+        targets = set(bucket["calls"])
+        for position in range(len(methods[g]["refs"])):
+            target = resolved.get((g, position))
+            if target is not None:
+                target_key = owner_key(target)
+                if target_key is not None and target_key != pseudo:
+                    targets.add(target_key)
+        bucket["calls"] = sorted(targets)
+        note_statics(methods[g], pseudo, None)
+
     for i in source:
         if i not in key_of:
             continue
@@ -400,8 +465,12 @@ def build(parsed, type_modules=None):
         statics = {"staticReads": set(), "staticWrites": set(), "staticAddress": set()}
         external = {"body": set(), "locals": set(), "signature": set()}
         cross = set()
+        outside = set()
+        strings = set()
         for m in members:
             body = methods[m]
+            strings |= body.get("strings", set())
+            note_statics(body, key, statics)
             for scope in external:
                 if m == i or scope != "signature":
                     external[scope] |= body["external"][scope]
@@ -409,12 +478,10 @@ def build(parsed, type_modules=None):
                 if assembly is not None:
                     if params is not None and opcode in CALL_OPCODES and is_root_path(outermost(path)):
                         cross.add(assembly + "|" + member_key(path, name, garity, params, ret))
+                    elif not ilgraph.BCL_ASSEMBLY_RE.match(assembly):
+                        outside.add("%s|%s::%s" % (assembly, path, name))
                     continue
                 if opcode in STATIC_FIELD_OPCODES and params is None:
-                    if is_root_path(outermost(path)) and not is_generated_path(path):
-                        field_key = path + "::" + name
-                        statics[STATIC_FIELD_OPCODES[opcode]].add(field_key)
-                        field_access[field_key][STATIC_FIELD_OPCODES[opcode]].add(key)
                     continue
                 target = resolved.get((m, position))
                 if target is None:
@@ -438,6 +505,8 @@ def build(parsed, type_modules=None):
             "staticAddress": sorted(statics["staticAddress"]),
             "external": {scope: sorted(values) for scope, values in external.items()},
             "crossAssemblyCalls": sorted(cross),
+            "externalMembers": sorted(outside),
+            "strings": sorted(strings),
         }
         if folded_from.get(i):
             each = [decisions(methods[g]) for g in folded_from[i]]
@@ -475,6 +544,9 @@ def build(parsed, type_modules=None):
             entry["readers"] = sorted(access.get("staticReads", ()))
             entry["writers"] = sorted(access.get("staticWrites", ()))
             entry["addressTakenBy"] = sorted(access.get("staticAddress", ()))
+            # Outside-assembly calls (or `[]` element stores) on the value
+            # shortly after a read: a heuristic for "mutates its contents".
+            entry["receiverCalls"] = sorted("%s|%s" % pair for pair in field_mutations.get(key, ()))
         out_fields[key] = entry
 
     counts.update({

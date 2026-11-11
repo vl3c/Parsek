@@ -33,6 +33,21 @@ def fixture_parse():
     return ilgraph.parse_il(FIXTURE.read_text(encoding="utf-8"))
 
 
+_REAL_FACTS = {}
+
+
+def real_tree_facts(il_path):
+    """(facts, tooling) for the real tree, built once per process: the facts
+    cells here and test_ilanalysis' ratchets read the same model."""
+    key = str(Path(il_path).resolve())
+    if key not in _REAL_FACTS:
+        rules, tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
+        facts = ilfacts.build(ilgraph.load_parsed(il_path), ilfacts.source_type_modules(test_semantic.REAL_SOURCE, rules))
+        _REAL_FACTS.clear()
+        _REAL_FACTS[key] = (facts, tooling)
+    return _REAL_FACTS[key]
+
+
 def il_method(parsed, type_path, name):
     found = [m for m in parsed["methods"] if m["type"] == type_path and m["name"] == name]
     if len(found) != 1:
@@ -305,9 +320,8 @@ class RealTreeFactsTests(unittest.TestCase):
         il_path = Path(os.environ[IL_ENV])
         if not il_path.is_file():
             raise AssertionError("%s=%s does not exist (build Parsek first)" % (IL_ENV, il_path))
-        rules, cls.tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
         cls.parsed = ilgraph.load_parsed(il_path)
-        cls.facts = ilfacts.build(cls.parsed, ilfacts.source_type_modules(test_semantic.REAL_SOURCE, rules))
+        cls.facts, cls.tooling = real_tree_facts(il_path)
         report = io.StringIO()
         with contextlib.redirect_stdout(report):
             print(ilfacts.format_summary(ilfacts.summary(cls.facts, cls.tooling)))

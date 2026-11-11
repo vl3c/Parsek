@@ -138,8 +138,8 @@ and the semantic residue stayed 250, which never counted that edge.
 
 `scripts/arch/ilfacts.py` turns the same parse (`ilgraph.parse_il` records
 the member facts in the pass that builds the type uses; there is one IL
-parser) into a facts model keyed by member, for reports and for gates a later
-PR may add. It gates no property of the code today. Its real-tree cells (`RealTreeFactsTests`,
+parser) into a facts model keyed by member, the input of "Code facts" below.
+The facts layer itself gates no property of the code. Its real-tree cells (`RealTreeFactsTests`,
 run by the compiled-IL CI step) check the extractor itself: every source type is a
 facts type, member keys are unique, every in-assembly call resolves to a key, and
 all compiler-generated code folds into a source method. A red there means the
@@ -169,7 +169,14 @@ not failed.
   left out), custom attributes (the roots an uncalled-code report needs:
   `HarmonyPrefix`, `InGameTestAttribute`; the type's own, such as
   `HarmonyPatch` and `KSPAddon`, are on its type entry), and calls into
-  another assembly's `Parsek` types (from the test DLL, for test reach).
+  another assembly's `Parsek` types (from the test DLL, for test reach), the
+  outside members it names (`externalMembers`), and its identifier-shaped
+  `ldstr` literals (`strings`, what reflection by name and `nameof` leave).
+  A type also carries its interfaces and `namedByOthers` (how many other
+  types name it in IL); a static field carries `receiverCalls`, the outside
+  calls (or `[]` element stores) within 8 instructions after a read of it.
+  Generated code no single method owns credits its calls and static access
+  to `Type::(generated)`, so no caller or writer is lost.
 - **Compiler-generated code** (lambdas in `<>c`, closures, local functions,
   iterator and async state machines) is folded into the source method that
   creates it, found through IL references (the `newobj`, `ldftn` or call
@@ -217,6 +224,108 @@ cells with `test_semantic.py` (structure only: every source type keyed and
 mapped to a module, unique keys, every call resolved, no generated key,
 entry-point attributes read) over the one parse `ilgraph.load_parsed` caches.
 
+## Code facts (compiled IL)
+
+`scripts/arch/ilanalysis.py` derives five reports from the facts model, pure
+functions with unit cells (`test_ilanalysis.py`); every list a rule reads
+lives in `scripts/arch/facts.toml`, beside `modules.toml`. Production means a
+type whose source file maps to a non-tooling module.
+
+- **Static state**, per module and per outer type: reassignable statics
+  (static auto-property backing fields included, other compiler-generated
+  and literal fields out), static readonly collections whose contents a
+  method other than a static constructor changes (an outside call from
+  `[statics] mutating_members`, or an element store, within 8 instructions
+  after a read: a floor, the stack is not simulated), and statics written by
+  another production outer type (`stsfld`, `ldsflda`, or a call to its static
+  auto-property setter; tooling writers such as InGameTests do not count).
+- **Complexity**: decisions + 1 with the method's lambdas, local functions and
+  iterator bodies folded in, ranked, counted at 20 / 50 / 100.
+- **Game coupling** ("can reach the game"): a method names a type of
+  `[coupling] game_assemblies` that is not in `inert_types` (vector,
+  quaternion and colour structs, Mathf, ConfigNode, game enums, attributes),
+  or a member in `live_members` (the `extern` members of those inert types,
+  such as `Quaternion.Euler`), in its body or signature (locals are left out:
+  Release drops them), or it calls a method that does. A call to an interface
+  or virtual member reaches every implementation and override in the
+  assembly; calls into `not_followed` types (`ParsekLog`, which writes
+  through a test sink) are not followed. Per module, the share of
+  instructions in such methods. It means can reach on some path, not needs.
+- **Uncalled code**: production methods with no caller in Parsek.dll
+  (tooling callers count; recursion does not) that no root rule keeps. The
+  rules, tried in order, each counted with how many methods it alone keeps:
+  static constructor; member of a delegate type; any method attribute not in
+  `ignored_attributes` (Harmony, InGameTest, KSPEvent ...); a Harmony patch
+  method by name on a `[HarmonyPatch]` type, or on a type another type names
+  (`typeof` handed to Harmony) that declares a static `Prefix` / `Postfix` /
+  `Transpiler` / `Finalizer`; a Unity message by name on a type whose base
+  chain leaves the assembly for a non-BCL type; `ToString` / `Equals` /
+  `GetHashCode` / `Finalize` and operators; an override of an outside method;
+  an implementation of an outside interface (implicit or explicit); an
+  override or implementation whose slot has a caller or is rooted; an
+  abstract or interface member with a used implementation; an accessor whose
+  sibling accessor is used; a constructor of a type that is named by another
+  type, has a used member, has an engine base, is an attribute or carries a
+  type attribute; a name (or property name) equal to an identifier string in
+  its own outer type, or anywhere; compiler-generated. When unsure a rule
+  roots, so the "no caller at all" list is meant to hold no false positive.
+  With the test facts it splits into no caller at all and called only from
+  the test assembly (test hooks by name, `test_hook_suffixes`, against the
+  rest). Direct only: code called only by uncalled code appears one layer at
+  a time.
+- **Test reach**: per module, the share of production methods and of their
+  instructions a test method calls directly (a call on an interface or
+  virtual member credits its implementations), and the methods with 30 or
+  more decisions (folded) no test calls. Not coverage. It needs the test DLL's
+  facts, which CI does not parse (about a minute: 19 s `ikdasm`, 31 s parse).
+
+```bash
+python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll
+python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll \
+    --tests Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll --json report.json
+```
+
+An input is an assembly, an `.il` dump or an `ilfacts.py --json` file. On
+4629fbfcf (2026-11-11, Debug, main's code): 865 reassignable statics, 217 of
+307 readonly collections mutated, 59 statics written by another production
+type; complexity 615 / 32 / 5; 46% of production instructions can reach the
+game (highest Patches 83%, Config 66%, Controllers 64%; lowest Core 6%,
+Trajectory 25%, Missions 26%); 830 methods with no caller in Parsek.dll after the roots: 170
+with no caller at all (4,241 instructions), 660 called only from tests (255
+hooks by name); 84 methods with 30+ decisions no unit test calls. The root
+rules kept 1,261 more (Harmony 310, `.cctor` 279, dispatch 276, strings 110,
+delegates 88 ...).
+
+### The ratchets
+
+CI's compiled-IL step runs `test_ilanalysis.RealTreeRatchetTests` over the
+built Debug DLL (the step's `test_[si]*.py` pattern; `WorkflowTests` reds if
+it stops matching). The pins are `scripts/arch/facts_pins.toml`, the one place
+the bounds live; each ratchet binds only facts the Debug-against-Release
+measurement found stable (static write sets, call sets, per-method decisions),
+never instruction counts or shares:
+
+- `crossTypeStaticWrites`: the statics written by another production type
+  may not outnumber `bound` (59). A rename keeps the count and passes; a red
+  names the new keys and their writers.
+- `complexity50`: no method (by `Type::Name`, so overloads and a parameter
+  change do not move it) may newly reach complexity 50 (32 pinned). Leaving
+  the list needs no re-pin; a rename or a move into another type does.
+- `uncalledInAssembly`: methods with no caller in Parsek.dll after the roots,
+  test hooks by name left out, may not outnumber `bound` (546). It reads
+  Parsek.dll alone, so a production method only a test calls counts too:
+  that is code the game never runs (B7).
+
+A red prints what moved, by how much, which members, and the re-pin
+command. Re-pin after a Debug build of the tree, never from a Release build:
+
+```bash
+python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll --write-pins
+```
+
+Re-pin in the PR that lowers a bound (the step log prints the slack), and to
+raise one only for a deliberate change the PR explains.
+
 ## Regenerating
 
 Nothing under `docs/dev/arch/` except this README is tracked. Run the script
@@ -243,6 +352,11 @@ Options:
 - `--min-edge N` (default 8): edges lighter than N references are hidden from
   the dot view; the explorer slider starts at N but can go down to 1.
 - `--modules FILE` (default `scripts/arch/modules.toml`)
+- `--facts PATH` (default off): Parsek.dll, an `.il` dump or an
+  `ilfacts.py --json` file; draws the atlas's "Code facts" section, which
+  otherwise says "not measured" (the text scan needs no DLL).
+- `--test-facts PATH`: the test assembly (or its dump or facts JSON), for
+  test reach and the test-only split in that section.
 - `--place` (default off): print the placement evidence for the files in the
   module the last rule names (the Core kernel list now; the old catch-all in
   the historical report) and write `core-placement.md`, the before-phase
@@ -579,7 +693,8 @@ available, the highest module co-change ratio and the share of commits that
 touch the most-churned type), the "Main findings" list, the map inline, the
 module directory grouped by layer, the top hub vocabulary, the largest knot
 with its cut table, the weighted upward edges, co-change, the largest files
-and types, "Opportunities, ranked", and a reading order. Everything numeric,
+and types, "Code facts" (the compiled-IL analyses above, drawn when
+`--facts` is given), "Opportunities, ranked", and a reading order. Everything numeric,
 tabular and visual is rendered from the live model by `render_atlas_html`; the
 narrative prose, the findings and the opportunities come from
 `scripts/arch/atlas.toml`, while the structural strings (headings, tile

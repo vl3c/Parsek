@@ -308,6 +308,12 @@ CONDITIONAL_BRANCH_RE = re.compile(
 SWITCH_TARGET_RE = re.compile(r"\bIL_[0-9a-fA-F]+\b")
 # A switch target continuation line: `IL_02a1,` or the last one, `IL_0268)`.
 SWITCH_CONTINUATION_RE = re.compile(r"^IL_[0-9a-fA-F]+\s*[,)]")
+# An identifier-shaped string literal: what reflection by name (`GetMethod`,
+# `Invoke`, `StartCoroutine`, a Harmony method name) and `nameof` compile to.
+IDENTIFIER_LDSTR_RE = re.compile(r"\bldstr\s+\"([A-Za-z_][A-Za-z0-9_]*)\"\s*$")
+# How many instructions after an `ldsfld` a call on the loaded value is taken
+# to use it as the receiver (a heuristic: the stack is not simulated).
+STATIC_RECEIVER_WINDOW = 8
 # An external type reference: `[asm]Ns.Type/Nested`, the assembly name quoted
 # when it is not an identifier (`['Assembly-CSharp']Part`).
 EXTERNAL_TYPE_RE = re.compile(
@@ -550,7 +556,11 @@ def parse_il(text):
     "switchTargets" (distinct targets per switch, summed), "switchArms",
     "catches", "refs" [(opcode, assembly or None, exact declaring path, name,
     generic arity, params or None for a field, normalized return type)] and
-    "external" {"body", "locals", "signature": {"assembly|type"}}.
+    "external" {"body", "locals", "signature": {"assembly|type"}},
+    "strings" (identifier-shaped `ldstr` literals) and "staticCalls" {(static
+    field key, member name)}: an outside-assembly call (or `[]` for an array
+    element store) within STATIC_RECEIVER_WINDOW instructions after an `ldsfld`
+    of an in-assembly static, so possibly on it.
     The facts layer also gets "fields" [field record], "typeInfo" {path:
     {"header", "generics", "attributes", "events"}} and "assembly" (the
     assembly's own name).
@@ -575,6 +585,7 @@ def parse_il(text):
     custom_slot = None
     directive_slot = None
     lines = text.splitlines()
+    recent_statics = []  # (op index, field key) of the current method's recent ldsfld
 
     def current_path():
         return class_stack[-1][1] if class_stack else None
@@ -671,6 +682,10 @@ def parse_il(text):
                         normalize_type_text(re.sub(r"^\s*(?:instance\s+)?(?:explicit\s+)?", "", ret))
                         if name in ("op_Implicit", "op_Explicit") else None,
                     ))
+                    if opcode == "ldsfld" and assembly is None and exact.startswith(ROOT_NAMESPACE):
+                        recent_statics.append((len(method["ops"]), exact + "::" + name))
+                    elif opcode in ("call", "callvirt") and assembly is not None:
+                        _note_static_receiver(name)
                 decl_owner = None
                 head = declaring.split("<", 1)[0]
                 generic_text = declaring[len(head) :]
@@ -689,7 +704,19 @@ def parse_il(text):
             for target in type_tokens(operand):
                 uses[owner].append(("type", target, "operand"))
         if method is not None:
+            if opcode.startswith("stelem"):
+                _note_static_receiver("[]")
             method["ops"].append((opcode, use))
+
+    def _note_static_receiver(member):
+        here = len(method["ops"])
+        while recent_statics and here - recent_statics[0][0] > STATIC_RECEIVER_WINDOW:
+            recent_statics.pop(0)
+        for index, field in recent_statics:
+            # An element store's array is loaded before its index and value;
+            # a static one or two instructions back is the stored value.
+            if member != "[]" or here - index >= 3:
+                method["staticCalls"].add((field, member))
 
     for raw in lines:
         line = strip_strings_and_comments(raw)
@@ -700,6 +727,10 @@ def parse_il(text):
         if instruction:
             flush_instruction()
             directive = ("instr", instruction.group(1), instruction.group(2))
+            if instruction.group(1) == "ldstr" and method is not None:
+                literal = IDENTIFIER_LDSTR_RE.search(raw)
+                if literal:
+                    method["strings"].add(literal.group(1))
             continue
         if directive is not None and directive[0] in ("instr", "locals", "decl") and not (
             stripped.startswith(".") or stripped in ("{", "}")
@@ -773,6 +804,8 @@ def parse_il(text):
                     "switchArms": 0,
                     "catches": 0,
                     "refs": [],
+                    "strings": set(),
+                    "staticCalls": set(),
                     "external": {
                         "body": set(),
                         "locals": set(),
@@ -780,6 +813,7 @@ def parse_il(text):
                     },
                 }
                 custom_slot = ("method", method)
+                recent_statics.clear()
                 methods.append(method)
                 method_depth = depth
                 pending_method = None

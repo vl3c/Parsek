@@ -176,9 +176,10 @@ jobs:
       # skip only when PARSEK_ARCH_IL is unset, so here they always run; the
       # report (residue next to the text scan's, every disagreement
       # classified) goes to the step log. The pattern also picks up
-      # test_ilfacts.py (the per-member facts layer, report-only), which reads
-      # the same parse through ilgraph.load_parsed, so the DLL is disassembled
-      # and parsed once for both. About a minute and a half.
+      # test_ilfacts.py (the per-member facts layer) and test_ilanalysis.py
+      # (the three code-facts ratchets pinned in scripts/arch/facts_pins.toml),
+      # which read the same parse through ilgraph.load_parsed, so the DLL is
+      # disassembled and parsed once for all. About a minute and a half.
       - name: Architecture semantic graph (compiled IL)
         env:
           PARSEK_ARCH_IL: ${{ github.workspace }}/Source/Parsek/bin/Debug/Parsek.dll
