@@ -1,0 +1,1892 @@
+{
+ "captureCount": 85,
+ "generatedUtc": "2026-11-11T22:52:42Z",
+ "lanes": [
+  {
+   "captures": [
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c1-transfer-sys-top",
+     "label": "tp1-c1-transfer-sys-top",
+     "lines": 8,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 845,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 289187.22
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c1-transfer-kerbin-top",
+     "label": "tp1-c1-transfer-kerbin-top",
+     "lines": 8,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 845,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 289193.42
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c1-transfer-kerbin-edge",
+     "label": "tp1-c1-transfer-kerbin-edge",
+     "lines": 8,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 845,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 289198.34
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c1-arrival-kerbin-top",
+     "label": "tp1-c1-arrival-kerbin-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 200,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 296699.74
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c1-arrival-mun-top",
+     "label": "tp1-c1-arrival-mun-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 380,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 296705.42
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c1-arrival-mun-edge",
+     "label": "tp1-c1-arrival-mun-edge",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 380,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 296710.36
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c1-park-mun-low-top",
+     "label": "tp1-c1-park-mun-low-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 381,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 301802.48
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c1-park-mun-low-edge",
+     "label": "tp1-c1-park-mun-low-edge",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 381,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 301807.4
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c1-park-kerbin-top",
+     "label": "tp1-c1-park-kerbin-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 381,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 301812.84
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c2-arrival-kerbin-top",
+     "label": "tp1-c2-arrival-kerbin-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 200,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 576839.5
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c2-arrival-mun-top",
+     "label": "tp1-c2-arrival-mun-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 380,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 576845.16
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2236_TP-1-mun-loop-map-pictures/tp1-c2-arrival-mun-edge",
+     "label": "tp1-c2-arrival-mun-edge",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 380,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2236_TP-1-mun-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 576850.1
+    }
+   ],
+   "lane": "TP-1-mun-loop-map-pictures"
+  },
+  {
+   "captures": [
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2244_TP-2-mun-loop-ts-pictures/tp2-c1-transfer-sys-top",
+     "label": "tp2-c1-transfer-sys-top",
+     "lines": 8,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 845,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2244_TP-2-mun-loop-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 289182.64
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2244_TP-2-mun-loop-ts-pictures/tp2-c1-transfer-kerbin-top",
+     "label": "tp2-c1-transfer-kerbin-top",
+     "lines": 8,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 845,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2244_TP-2-mun-loop-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 289188.84
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2244_TP-2-mun-loop-ts-pictures/tp2-c1-transfer-kerbin-edge",
+     "label": "tp2-c1-transfer-kerbin-edge",
+     "lines": 8,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 845,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2244_TP-2-mun-loop-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 289193.78
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2244_TP-2-mun-loop-ts-pictures/tp2-c1-arrival-kerbin-top",
+     "label": "tp2-c1-arrival-kerbin-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 200,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2244_TP-2-mun-loop-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 296695.12
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2244_TP-2-mun-loop-ts-pictures/tp2-c1-arrival-mun-top",
+     "label": "tp2-c1-arrival-mun-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 380,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2244_TP-2-mun-loop-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 296700.82
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2244_TP-2-mun-loop-ts-pictures/tp2-c1-arrival-mun-edge",
+     "label": "tp2-c1-arrival-mun-edge",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 380,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2244_TP-2-mun-loop-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 296705.76
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2244_TP-2-mun-loop-ts-pictures/tp2-c1-park-mun-low-top",
+     "label": "tp2-c1-park-mun-low-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 381,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2244_TP-2-mun-loop-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 301797.86
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2244_TP-2-mun-loop-ts-pictures/tp2-c1-park-mun-low-edge",
+     "label": "tp2-c1-park-mun-low-edge",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 381,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2244_TP-2-mun-loop-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 301802.56
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2244_TP-2-mun-loop-ts-pictures/tp2-c1-park-kerbin-top",
+     "label": "tp2-c1-park-kerbin-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 381,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2244_TP-2-mun-loop-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 301807.94
+    }
+   ],
+   "lane": "TP-2-mun-loop-ts-pictures"
+  },
+  {
+   "captures": [
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c1-transfer-sys-top",
+     "label": "tp3-c1-transfer-sys-top",
+     "lines": 7,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 649,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1227516.22
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c1-transfer-kerbin-top",
+     "label": "tp3-c1-transfer-kerbin-top",
+     "lines": 7,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 829,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1227522.14
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c1-transfer-kerbin-edge",
+     "label": "tp3-c1-transfer-kerbin-edge",
+     "lines": 7,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 829,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1227526.82
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Minmus"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c1-arrival-kerbin-top",
+     "label": "tp3-c1-arrival-kerbin-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 91,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1345364.74
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Minmus"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c1-arrival-minmus-top",
+     "label": "tp3-c1-arrival-minmus-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 91,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1345370.42
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Minmus"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c1-arrival-minmus-edge",
+     "label": "tp3-c1-arrival-minmus-edge",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 91,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1345375.34
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Minmus"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c1-park-minmus-top",
+     "label": "tp3-c1-park-minmus-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 271,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1354580.74
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Minmus"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c1-park-minmus-edge",
+     "label": "tp3-c1-park-minmus-edge",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 271,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1354585.68
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Minmus"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c1-park-kerbin-edge",
+     "label": "tp3-c1-park-kerbin-edge",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 271,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1354591.12
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Minmus"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c2-arrival-kerbin-top",
+     "label": "tp3-c2-arrival-kerbin-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 91,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 2422834.74
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Minmus"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c2-arrival-minmus-top",
+     "label": "tp3-c2-arrival-minmus-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 91,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 2422840.4
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Minmus"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2240_TP-3-minmus-loop-map-pictures/tp3-c2-arrival-minmus-edge",
+     "label": "tp3-c2-arrival-minmus-edge",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 91,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 2422845.32
+    }
+   ],
+   "lane": "TP-3-minmus-loop-map-pictures"
+  },
+  {
+   "captures": [
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 2,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-transfer-sys-top",
+     "label": "tp4-c1-transfer-sys-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 299,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5355451937.0
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 2,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-transfer-sys-edge",
+     "label": "tp4-c1-transfer-sys-edge",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 299,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5355451942.0
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 2,
+     "ghosts": 2,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-transfer-duna-soi-top",
+     "label": "tp4-c1-transfer-duna-soi-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 119,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5355451948.0
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Duna"
+     ],
+     "fadedLines": 2,
+     "ghosts": 2,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-arrival-sys-top",
+     "label": "tp4-c1-arrival-sys-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 0,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5360144095.0
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Duna"
+     ],
+     "fadedLines": 2,
+     "ghosts": 2,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-arrival-duna-soi-top",
+     "label": "tp4-c1-arrival-duna-soi-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 0,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5360144101.0
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Duna"
+     ],
+     "fadedLines": 2,
+     "ghosts": 2,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-arrival-duna-soi-edge",
+     "label": "tp4-c1-arrival-duna-soi-edge",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 0,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5360144106.0
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-descent-duna-low-top",
+     "label": "tp4-c1-descent-duna-low-top",
+     "lines": 1,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 0,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5360227445.0
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-descent-duna-low-edge",
+     "label": "tp4-c1-descent-duna-low-edge",
+     "lines": 1,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 0,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5360227450.0
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-descent-duna-top",
+     "label": "tp4-c1-descent-duna-top",
+     "lines": 1,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 0,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5360227455.0
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-landing-duna-low-top",
+     "label": "tp4-c1-landing-duna-low-top",
+     "lines": 1,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 0,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5360227544.0
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-landing-duna-low-edge",
+     "label": "tp4-c1-landing-duna-low-edge",
+     "lines": 1,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 0,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5360227549.0
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures/tp4-c1-landing-duna-low-oblique",
+     "label": "tp4-c1-landing-duna-low-oblique",
+     "lines": 1,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 0,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 5360227555.0
+    }
+   ],
+   "lane": "TP-4-duna-reaim-landing-map-pictures"
+  },
+  {
+   "captures": [
+    {
+     "closeups": [
+      "Jool"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c1-transfer-sys-top",
+     "label": "tp5-c1-transfer-sys-top",
+     "lines": 7,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 857,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 28962999.26
+    },
+    {
+     "closeups": [
+      "Jool"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c1-transfer-jool-top",
+     "label": "tp5-c1-transfer-jool-top",
+     "lines": 7,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1037,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 28963005.46
+    },
+    {
+     "closeups": [
+      "Jool"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c1-transfer-jool-edge",
+     "label": "tp5-c1-transfer-jool-edge",
+     "lines": 7,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1037,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 28963010.38
+    },
+    {
+     "closeups": [
+      "Jool",
+      "Vall"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c1-arrival-jool-top",
+     "label": "tp5-c1-arrival-jool-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 200,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 28998577.76
+    },
+    {
+     "closeups": [
+      "Jool",
+      "Vall"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c1-arrival-vall-top",
+     "label": "tp5-c1-arrival-vall-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 380,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 28998583.44
+    },
+    {
+     "closeups": [
+      "Jool",
+      "Vall"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c1-arrival-vall-edge",
+     "label": "tp5-c1-arrival-vall-edge",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 380,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 28998588.38
+    },
+    {
+     "closeups": [
+      "Jool",
+      "Vall"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c1-park-vall-top",
+     "label": "tp5-c1-park-vall-top",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 441,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 29002574.74
+    },
+    {
+     "closeups": [
+      "Jool",
+      "Vall"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c1-park-vall-edge",
+     "label": "tp5-c1-park-vall-edge",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 441,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 29002579.64
+    },
+    {
+     "closeups": [
+      "Jool",
+      "Vall"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c1-park-jool-edge",
+     "label": "tp5-c1-park-jool-edge",
+     "lines": 3,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 441,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 29002585.08
+    },
+    {
+     "closeups": [
+      "Jool",
+      "Vall"
+     ],
+     "fadedLines": 1,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c2-arrival-jool-top",
+     "label": "tp5-c2-arrival-jool-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 200,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 29104539.74
+    },
+    {
+     "closeups": [
+      "Jool",
+      "Vall"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c2-arrival-vall-top",
+     "label": "tp5-c2-arrival-vall-top",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 380,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 29104545.42
+    },
+    {
+     "closeups": [
+      "Jool",
+      "Vall"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2246_TP-5-laythe-vall-map-pictures/tp5-c2-arrival-vall-edge",
+     "label": "tp5-c2-arrival-vall-edge",
+     "lines": 2,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 380,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2246_TP-5-laythe-vall-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 29104550.36
+    }
+   ],
+   "lane": "TP-5-laythe-vall-map-pictures"
+  },
+  {
+   "captures": [
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-transfer-kerbin-top",
+     "label": "tp6-c1-transfer-kerbin-top",
+     "lines": 8,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 845,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1258911.26
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-transfer-kerbin-edge",
+     "label": "tp6-c1-transfer-kerbin-edge",
+     "lines": 8,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 845,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1258916.2
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-transfer-mun-top",
+     "label": "tp6-c1-transfer-mun-top",
+     "lines": 8,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 845,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1258921.88
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 1,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-approach-kerbin-top",
+     "label": "tp6-c1-approach-kerbin-top",
+     "lines": 4,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 400,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1268411.24
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-approach-mun-top",
+     "label": "tp6-c1-approach-mun-top",
+     "lines": 4,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 580,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1268416.92
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-approach-mun-edge",
+     "label": "tp6-c1-approach-mun-edge",
+     "lines": 4,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 580,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1268421.82
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-descent-mun-low-top",
+     "label": "tp6-c1-descent-mun-low-top",
+     "lines": 4,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 580,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1271911.5
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-descent-mun-low-edge",
+     "label": "tp6-c1-descent-mun-low-edge",
+     "lines": 4,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 580,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1271916.42
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-descent-mun-top",
+     "label": "tp6-c1-descent-mun-top",
+     "lines": 4,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 580,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1271921.84
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-landing-mun-low-top",
+     "label": "tp6-c1-landing-mun-low-top",
+     "lines": 6,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 641,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1272943.5
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-landing-mun-low-edge",
+     "label": "tp6-c1-landing-mun-low-edge",
+     "lines": 6,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 641,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1272948.2
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c1-landing-mun-low-oblique",
+     "label": "tp6-c1-landing-mun-low-oblique",
+     "lines": 6,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 641,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1272953.6
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c2-landing-mun-low-top",
+     "label": "tp6-c2-landing-mun-low-top",
+     "lines": 6,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 581,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1553085.02
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun"
+     ],
+     "fadedLines": 0,
+     "ghosts": 3,
+     "id": "2026-11-11_2248_TP-6-mun-landing-map-pictures/tp6-c2-landing-mun-low-edge",
+     "label": "tp6-c2-landing-mun-low-edge",
+     "lines": 6,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 581,
+     "routeLegs": 0,
+     "routeLines": 0,
+     "runId": "2026-11-11_2248_TP-6-mun-landing-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 1553089.96
+    }
+   ],
+   "lane": "TP-6-mun-landing-map-pictures"
+  },
+  {
+   "captures": [
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2250_TP-7-depot-route-ts-pictures/tp7-c1-neardock-kerbin-low-top",
+     "label": "tp7-c1-neardock-kerbin-low-top",
+     "lines": 15,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1408,
+     "routeLegs": 14,
+     "routeLines": 1,
+     "runId": "2026-11-11_2250_TP-7-depot-route-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 38605.66
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2250_TP-7-depot-route-ts-pictures/tp7-c1-neardock-kerbin-low-edge",
+     "label": "tp7-c1-neardock-kerbin-low-edge",
+     "lines": 15,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1408,
+     "routeLegs": 14,
+     "routeLines": 1,
+     "runId": "2026-11-11_2250_TP-7-depot-route-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 38610.62
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2250_TP-7-depot-route-ts-pictures/tp7-c1-neardock-kerbin-low-oblique",
+     "label": "tp7-c1-neardock-kerbin-low-oblique",
+     "lines": 15,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1408,
+     "routeLegs": 14,
+     "routeLines": 1,
+     "runId": "2026-11-11_2250_TP-7-depot-route-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 38616.04
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2250_TP-7-depot-route-ts-pictures/tp7-c2-midleg-kerbin-low-top",
+     "label": "tp7-c2-midleg-kerbin-low-top",
+     "lines": 15,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1408,
+     "routeLegs": 14,
+     "routeLines": 1,
+     "runId": "2026-11-11_2250_TP-7-depot-route-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 50205.4
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2250_TP-7-depot-route-ts-pictures/tp7-c2-midleg-kerbin-low-edge",
+     "label": "tp7-c2-midleg-kerbin-low-edge",
+     "lines": 15,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1408,
+     "routeLegs": 14,
+     "routeLines": 1,
+     "runId": "2026-11-11_2250_TP-7-depot-route-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 50210.32
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2250_TP-7-depot-route-ts-pictures/tp7-c2-midleg-kerbin-low-oblique",
+     "label": "tp7-c2-midleg-kerbin-low-oblique",
+     "lines": 15,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1408,
+     "routeLegs": 14,
+     "routeLines": 1,
+     "runId": "2026-11-11_2250_TP-7-depot-route-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 50215.76
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2250_TP-7-depot-route-ts-pictures/tp7-c2-neardock-kerbin-low-top",
+     "label": "tp7-c2-neardock-kerbin-low-top",
+     "lines": 15,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1408,
+     "routeLegs": 14,
+     "routeLines": 1,
+     "runId": "2026-11-11_2250_TP-7-depot-route-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 60154.68
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2250_TP-7-depot-route-ts-pictures/tp7-c2-neardock-kerbin-low-edge",
+     "label": "tp7-c2-neardock-kerbin-low-edge",
+     "lines": 15,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1408,
+     "routeLegs": 14,
+     "routeLines": 1,
+     "runId": "2026-11-11_2250_TP-7-depot-route-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 60159.62
+    },
+    {
+     "closeups": [
+      "Kerbin"
+     ],
+     "fadedLines": 0,
+     "ghosts": 1,
+     "id": "2026-11-11_2250_TP-7-depot-route-ts-pictures/tp7-c2-neardock-kerbin-low-oblique",
+     "label": "tp7-c2-neardock-kerbin-low-oblique",
+     "lines": 15,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1408,
+     "routeLegs": 14,
+     "routeLines": 1,
+     "runId": "2026-11-11_2250_TP-7-depot-route-ts-pictures",
+     "scene": "TRACKSTATION",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 60165.0
+    }
+   ],
+   "lane": "TP-7-depot-route-ts-pictures"
+  },
+  {
+   "captures": [
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun",
+      "Duna"
+     ],
+     "fadedLines": 1,
+     "ghosts": 2,
+     "id": "2026-11-11_2243_TP-8-interbody-route-map-pictures/tp8-save-clock-sys-top",
+     "label": "tp8-save-clock-sys-top",
+     "lines": 37,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 2143,
+     "routeLegs": 33,
+     "routeLines": 2,
+     "runId": "2026-11-11_2243_TP-8-interbody-route-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 87625328.35
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun",
+      "Duna"
+     ],
+     "fadedLines": 1,
+     "ghosts": 2,
+     "id": "2026-11-11_2243_TP-8-interbody-route-map-pictures/tp8-save-clock-sys-edge",
+     "label": "tp8-save-clock-sys-edge",
+     "lines": 37,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 2143,
+     "routeLegs": 33,
+     "routeLines": 2,
+     "runId": "2026-11-11_2243_TP-8-interbody-route-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 87625333.27
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun",
+      "Duna"
+     ],
+     "fadedLines": 2,
+     "ghosts": 2,
+     "id": "2026-11-11_2243_TP-8-interbody-route-map-pictures/tp8-save-clock-kerbin-top",
+     "label": "tp8-save-clock-kerbin-top",
+     "lines": 37,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1963,
+     "routeLegs": 33,
+     "routeLines": 2,
+     "runId": "2026-11-11_2243_TP-8-interbody-route-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 87625339.43
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun",
+      "Duna"
+     ],
+     "fadedLines": 1,
+     "ghosts": 2,
+     "id": "2026-11-11_2243_TP-8-interbody-route-map-pictures/tp8-save-clock-mun-top",
+     "label": "tp8-save-clock-mun-top",
+     "lines": 37,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 2144,
+     "routeLegs": 33,
+     "routeLines": 2,
+     "runId": "2026-11-11_2243_TP-8-interbody-route-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 87625345.13
+    },
+    {
+     "closeups": [
+      "Kerbin",
+      "Mun",
+      "Duna"
+     ],
+     "fadedLines": 2,
+     "ghosts": 2,
+     "id": "2026-11-11_2243_TP-8-interbody-route-map-pictures/tp8-save-clock-duna-top",
+     "label": "tp8-save-clock-duna-top",
+     "lines": 37,
+     "notes": [],
+     "offConicLines": 0,
+     "points": 1963,
+     "routeLegs": 33,
+     "routeLines": 2,
+     "runId": "2026-11-11_2243_TP-8-interbody-route-map-pictures",
+     "scene": "FLIGHT",
+     "screenshot": true,
+     "screenshotInlined": true,
+     "truncated": false,
+     "ut": 87625350.57
+    }
+   ],
+   "lane": "TP-8-interbody-route-map-pictures"
+  }
+ ],
+ "photoBytes": 4559816,
+ "schema": "parsek-map-mirror-index/1",
+ "unreadable": [],
+ "unreadableCount": 0
+}

@@ -1,0 +1,1195 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 24,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-11_2240_TP-3-minmus-loop-map-pictures_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 127,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "minmus-orbit-recorded",
+          "scene": "FLIGHT",
+          "ut": "277206.19410161243"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "277206.43410161266"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "discarded": "true",
+          "ut": "277206.45410161268"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "277206.49410161271",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "ghostRenderTracing",
+          "ut": "277206.51410161273",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "mapRenderTracing",
+          "ut": "277206.53410161275",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "277206.57410161279",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "alreadyOpen": "false",
+          "mapOpen": "true",
+          "ut": "277206.59410161281"
+        },
+        "cmd": "EnterMapView",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "anchorUt": "277206.61410161282",
+          "autoLoopIntervalSeconds": "30",
+          "cadenceSeconds": "1077471.2591544893",
+          "compressedSpanSeconds": "277169.93410161074",
+          "intervalSeconds": "10",
+          "loiterCutCount": "0",
+          "loiterCuts": "",
+          "loop": "true",
+          "mission": "Kerbal X",
+          "overlapCadenceSeconds": "1077471.2591544893",
+          "phaseAnchorUt": "1077505.6991544911",
+          "spanSeconds": "277169.93410161074",
+          "spanStartUt": "34.439999999999785",
+          "tree": "aa435745816e46b381cadb4fdcef7038",
+          "unit": "sec",
+          "unitBuilt": "true",
+          "ut": "277206.61410161282"
+        },
+        "cmd": "MissionConfig",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "mission": "Kerbal X",
+          "reachedUt": "1077490.7591544911",
+          "relaunchUt": "1077505.6991544911",
+          "tree": "aa435745816e46b381cadb4fdcef7038",
+          "ut": "1077490.7591544911"
+        },
+        "cmd": "StartLoopPlayback",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "150015.22084550885",
+          "target": "1227506",
+          "ut": "1227506.08"
+        },
+        "cmd": "TimeJump",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "4.9199999999254942",
+          "maxRate": "1",
+          "target": "1227511",
+          "ut": "1227510.7800000045"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "35000001000",
+          "distanceClamped": "false",
+          "focus": "Sun",
+          "frames": "304",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "90.000002504478161",
+          "pitchClamped": "false",
+          "ut": "1227515.9800000093"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "533450",
+          "label": "tp3-c1-transfer-sys-top",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c1-transfer-sys-top.png",
+          "superSize": "1",
+          "ut": "1227516.1600000095"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "107574",
+          "frame": "8367",
+          "ghosts": "1",
+          "label": "tp3-c1-transfer-sys-top",
+          "lines": "7",
+          "path": "Screenshots/tp3-c1-transfer-sys-top.map.json",
+          "points": "649",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "1227516.2400000095"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "105000000",
+          "distanceClamped": "false",
+          "focus": "Kerbin",
+          "frames": "337",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "90.000002504478161",
+          "pitchClamped": "false",
+          "ut": "1227521.9200000148"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "728262",
+          "label": "tp3-c1-transfer-kerbin-top",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c1-transfer-kerbin-top.png",
+          "superSize": "1",
+          "ut": "1227522.080000015"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "136327",
+          "frame": "8719",
+          "ghosts": "1",
+          "label": "tp3-c1-transfer-kerbin-top",
+          "lines": "7",
+          "path": "Screenshots/tp3-c1-transfer-kerbin-top.map.json",
+          "points": "829",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "1227522.1600000151"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "105000000",
+          "distanceClamped": "false",
+          "focus": "Kerbin",
+          "frames": "270",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "0",
+          "pitchClamped": "false",
+          "ut": "1227526.7000000193"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "920190",
+          "label": "tp3-c1-transfer-kerbin-edge",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c1-transfer-kerbin-edge.png",
+          "superSize": "1",
+          "ut": "1227526.7800000194"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "135184",
+          "frame": "8999",
+          "ghosts": "1",
+          "label": "tp3-c1-transfer-kerbin-edge",
+          "lines": "7",
+          "path": "Screenshots/tp3-c1-transfer-kerbin-edge.map.json",
+          "points": "829",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "1227526.8400000194"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "117828.13999998057",
+          "target": "1345355",
+          "ut": "1345355.06"
+        },
+        "cmd": "TimeJump",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "4.9399999999441206",
+          "maxRate": "1",
+          "target": "1345360",
+          "ut": "1345359.7800000045"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "105000000",
+          "distanceClamped": "false",
+          "focus": "Kerbin",
+          "frames": "270",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "90.000002504478161",
+          "pitchClamped": "false",
+          "ut": "1345364.3800000087"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "723260",
+          "label": "tp3-c1-arrival-kerbin-top",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c1-arrival-kerbin-top.png",
+          "superSize": "1",
+          "ut": "1345364.700000009"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0025",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "70239",
+          "frame": "9583",
+          "ghosts": "1",
+          "label": "tp3-c1-arrival-kerbin-top",
+          "lines": "3",
+          "path": "Screenshots/tp3-c1-arrival-kerbin-top.map.json",
+          "points": "91",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "1345364.7600000091"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0026",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "4999999.8779296875",
+          "distanceClamped": "false",
+          "focus": "Minmus",
+          "frames": "324",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "90.000002504478161",
+          "pitchClamped": "false",
+          "ut": "1345370.2000000142"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0027",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "713050",
+          "label": "tp3-c1-arrival-minmus-top",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c1-arrival-minmus-top.png",
+          "superSize": "1",
+          "ut": "1345370.3800000143"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0028",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "71593",
+          "frame": "9922",
+          "ghosts": "1",
+          "label": "tp3-c1-arrival-minmus-top",
+          "lines": "3",
+          "path": "Screenshots/tp3-c1-arrival-minmus-top.map.json",
+          "points": "91",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "1345370.4400000144"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0029",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "4999999.8779296875",
+          "distanceClamped": "false",
+          "focus": "Minmus",
+          "frames": "271",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "0",
+          "pitchClamped": "false",
+          "ut": "1345374.9800000186"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0030",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "918453",
+          "label": "tp3-c1-arrival-minmus-edge",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c1-arrival-minmus-edge.png",
+          "superSize": "1",
+          "ut": "1345375.2800000189"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0031",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "71529",
+          "frame": "10216",
+          "ghosts": "1",
+          "label": "tp3-c1-arrival-minmus-edge",
+          "lines": "3",
+          "path": "Screenshots/tp3-c1-arrival-minmus-edge.map.json",
+          "points": "91",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "1345375.360000019"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0032",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "9195.61999998102",
+          "target": "1354571",
+          "ut": "1354571.06"
+        },
+        "cmd": "TimeJump",
+        "expect": "OK",
+        "id": "0033",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "4.8999999999068677",
+          "maxRate": "1",
+          "target": "1354576",
+          "ut": "1354575.7800000045"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0034",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "4999999.8779296875",
+          "distanceClamped": "false",
+          "focus": "Minmus",
+          "frames": "271",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "90.000002504478161",
+          "pitchClamped": "false",
+          "ut": "1354580.3800000087"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0035",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "718157",
+          "label": "tp3-c1-park-minmus-top",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c1-park-minmus-top.png",
+          "superSize": "1",
+          "ut": "1354580.700000009"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0036",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "92650",
+          "frame": "10799",
+          "ghosts": "1",
+          "label": "tp3-c1-park-minmus-top",
+          "lines": "3",
+          "path": "Screenshots/tp3-c1-park-minmus-top.map.json",
+          "points": "271",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "1354580.7600000091"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0037",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "4999999.8779296875",
+          "distanceClamped": "false",
+          "focus": "Minmus",
+          "frames": "270",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "0",
+          "pitchClamped": "false",
+          "ut": "1354585.3000000133"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0038",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "915526",
+          "label": "tp3-c1-park-minmus-edge",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c1-park-minmus-edge.png",
+          "superSize": "1",
+          "ut": "1354585.6200000136"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0039",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "92577",
+          "frame": "11093",
+          "ghosts": "1",
+          "label": "tp3-c1-park-minmus-edge",
+          "lines": "3",
+          "path": "Screenshots/tp3-c1-park-minmus-edge.map.json",
+          "points": "271",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "1354585.6800000137"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0040",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "105000000",
+          "distanceClamped": "false",
+          "focus": "Kerbin",
+          "frames": "307",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "0",
+          "pitchClamped": "false",
+          "ut": "1354590.8400000185"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0041",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "907266",
+          "label": "tp3-c1-park-kerbin-edge",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c1-park-kerbin-edge.png",
+          "superSize": "1",
+          "ut": "1354591.0600000187"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0042",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "90727",
+          "frame": "11418",
+          "ghosts": "1",
+          "label": "tp3-c1-park-kerbin-edge",
+          "lines": "3",
+          "path": "Screenshots/tp3-c1-park-kerbin-edge.map.json",
+          "points": "271",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "1354591.1200000187"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0043",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "mission": "Kerbal X",
+          "reachedUt": "2154962.0183089823",
+          "relaunchUt": "2154976.9583089822",
+          "tree": "aa435745816e46b381cadb4fdcef7038",
+          "ut": "2154962.0183089823"
+        },
+        "cmd": "StartLoopPlayback",
+        "expect": "OK",
+        "id": "0044",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "267862.96169101773",
+          "target": "2422825",
+          "ut": "2422825.06"
+        },
+        "cmd": "TimeJump",
+        "expect": "OK",
+        "id": "0045",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "4.9399999999441206",
+          "maxRate": "1",
+          "target": "2422830",
+          "ut": "2422829.8000000045"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0046",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "105000000",
+          "distanceClamped": "false",
+          "focus": "Kerbin",
+          "frames": "270",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "90.000002504478161",
+          "pitchClamped": "false",
+          "ut": "2422834.3800000087"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0047",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "726037",
+          "label": "tp3-c2-arrival-kerbin-top",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c2-arrival-kerbin-top.png",
+          "superSize": "1",
+          "ut": "2422834.700000009"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0048",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "70273",
+          "frame": "12006",
+          "ghosts": "1",
+          "label": "tp3-c2-arrival-kerbin-top",
+          "lines": "3",
+          "path": "Screenshots/tp3-c2-arrival-kerbin-top.map.json",
+          "points": "91",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "2422834.7600000091"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0049",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "4999999.8779296875",
+          "distanceClamped": "false",
+          "focus": "Minmus",
+          "frames": "324",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "90.000002504478161",
+          "pitchClamped": "false",
+          "ut": "2422840.2000000142"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0050",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "715890",
+          "label": "tp3-c2-arrival-minmus-top",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c2-arrival-minmus-top.png",
+          "superSize": "1",
+          "ut": "2422840.3600000143"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0051",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "71524",
+          "frame": "12344",
+          "ghosts": "1",
+          "label": "tp3-c2-arrival-minmus-top",
+          "lines": "3",
+          "path": "Screenshots/tp3-c2-arrival-minmus-top.map.json",
+          "points": "91",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "2422840.4200000144"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0052",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distance": "4999999.8779296875",
+          "distanceClamped": "false",
+          "focus": "Minmus",
+          "frames": "271",
+          "heading": "0",
+          "hold": "4.5",
+          "pitch": "0",
+          "pitchClamped": "false",
+          "ut": "2422844.9600000186"
+        },
+        "cmd": "MapCamera",
+        "expect": "OK",
+        "id": "0053",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "743198",
+          "label": "tp3-c2-arrival-minmus-edge",
+          "overwrote": "true",
+          "path": "Screenshots/tp3-c2-arrival-minmus-edge.png",
+          "superSize": "1",
+          "ut": "2422845.2600000189"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0054",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "71633",
+          "frame": "12638",
+          "ghosts": "1",
+          "label": "tp3-c2-arrival-minmus-edge",
+          "lines": "3",
+          "path": "Screenshots/tp3-c2-arrival-minmus-edge.map.json",
+          "points": "91",
+          "scene": "FLIGHT",
+          "truncated": "false",
+          "ut": "2422845.3400000189"
+        },
+        "cmd": "DumpMapGeometry",
+        "expect": "OK",
+        "id": "0055",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "2422845.3400000189"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0056",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-11T22:43:05Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-11_2240_TP-3-minmus-loop-map-pictures",
+  "scenarioId": "TP-3-minmus-loop-map-pictures",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 1717618,
+    "files": 62,
+    "path": "2026-11-11_2240_TP-3-minmus-loop-map-pictures_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-11T22:40:58Z",
+  "subkind": "",
+  "tier": "operator",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\minmus-orbit-recorded\\analysis\\minmus-orbit-recorded.analysis.json",
+      "reportTxt": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\minmus-orbit-recorded\\analysis\\minmus-orbit-recorded.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 9
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 1197,
+            "legacyLines": 0,
+            "maxRotDeg": 0.0,
+            "maxRotDegAt": {
+              "path": "non-loop",
+              "playbackUT": "277099.841",
+              "rec": "261a86c7",
+              "rotRef": "surface"
+            },
+            "perRef": {
+              "surface": {
+                "maxRotDeg": 0.0,
+                "maxRotDegAt": {
+                  "path": "non-loop",
+                  "playbackUT": "277099.841",
+                  "rec": "261a86c7",
+                  "rotRef": "surface"
+                },
+                "resolvedLines": 1197,
+                "sweepDeg": 0.0,
+                "sweepRec": ""
+              }
+            },
+            "resolvedLines": 1197,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 2,
+          "destroyedReasons": {
+            "chain-loop unit member outside its window": 1,
+            "engine teardown": 1
+          },
+          "destroyedRecordings": 1,
+          "malformed": 0,
+          "peakLive": 1,
+          "peakLiveFrame": 10223,
+          "peakLiveRecording": "261a86c78a31497c98895c000b62ac5b",
+          "perVessel": {
+            "Kerbal X": {
+              "destroyLines": 2,
+              "spawnLines": 1,
+              "spawned": 1
+            }
+          },
+          "spawnLines": 1,
+          "spawnReasons": {
+            "ghost-created": 1
+          },
+          "spawned": 1,
+          "spawnedRecordingIds": [
+            "261a86c78a31497c98895c000b62ac5b"
+          ],
+          "unbalanced": [],
+          "vessels": [
+            "Kerbal X"
+          ]
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": true,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 302,
+            "recordings": 9,
+            "smallest": 23,
+            "total": 846,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "JointBreak": 5
+            },
+            "committedTrees": 1,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "Kerbal X": 2,
+              "Kerbal X Debris": 7
+            },
+            "recordings": 9,
+            "spawnedVessels": 2,
+            "terminalStates": {
+              "Destroyed": 6,
+              "Orbiting": 2
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "#autoLOC_501232": 1,
+              "Kerbal X Debris": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 127
+}
