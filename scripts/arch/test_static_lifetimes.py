@@ -444,10 +444,22 @@ class ColdClearTests(unittest.TestCase):
         # No such method.
         entry = {"method": "Parsek.Store::Gone()", "reason": "r"}
         self.assertTrue(any("is no method" in p for p in store_misses(append, {"Parsek.Store::Items": entry})[1]))
-        # In the closure, but never touches the static nor is called by a reader of it.
+        # In the closure, but never touches the static.
         entry = {"method": "Parsek.Scenario::OnLoad()", "reason": "r"}
-        problems = store_misses(append, {"Parsek.Store::Items": entry})[1]
-        self.assertTrue(any("neither touches the static" in p for p in problems), problems)
+        misses, problems = store_misses(append, {"Parsek.Store::Items": entry})
+        self.assertEqual(misses, ["Parsek.Store::Items"])
+        self.assertTrue(any("does not read, write or take the address" in p for p in problems), problems)
+        # In the closure and called by a reader of the static, but it does not
+        # touch the static itself (a logger a loader calls): refused, so an
+        # entry cannot go stale behind any helper the reader happens to call.
+        note = ["ldarg.0", "pop", "ret"]
+        load = [self.ITEMS, "call       void Parsek.Store::Wipe(%s)" % LIST, "ret"]
+        entry = {"method": "Parsek.Store::Wipe(System.Collections.Generic.List`1<string>)", "reason": "r"}
+        misses, problems = store_misses(load, {"Parsek.Store::Items": entry}, helper=note)
+        self.assertEqual(misses, ["Parsek.Store::Items"])
+        self.assertTrue(any("does not read, write or take the address" in p for p in problems), problems)
+        entry = {"method": "Parsek.Store::Load()", "reason": "r"}
+        self.assertEqual(store_misses(load, {"Parsek.Store::Items": entry}, helper=note), ([], []))
         # A static that is not tagged save / load-transition.
         problems = store_misses(append, {"Parsek.Store::Items": {"method": "Parsek.Store::Load()", "reason": "r"},
                                          "Parsek.Other::Nope": {"method": "Parsek.Store::Load()", "reason": "r"}})[1]

@@ -428,8 +428,11 @@ step's pattern stops matching the file):
   `Remove(key)` or a read is no clear (`ColdClearTests`). A
   `[cold_load.cleared_by]` entry names the closure method that clears a
   static by a route the rule cannot read, with its reason; every entry is
-  checked: the method exists, is in the closure, and reads, writes or takes
-  the address of the static, or is called by a method that reads it.
+  checked: the method exists, is in the closure, and itself reads, writes or
+  takes the address of the static (a helper handed the static as an argument
+  does not qualify; name the caller that passes it). The check shows the
+  method touches the static on the Cold path, not that it empties it: the
+  reason is the claim a person reads.
   `RecordingStore.committedRecordings` has one: the Cold branch's
   `ClearCommittedInternal` empties it with a `RemoveAt` loop.
 - **testHookWrittenByProduction**: a `test-hook` static that another production

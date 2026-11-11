@@ -31,7 +31,7 @@ The chain, read in the source (line numbers as of the static lifetimes branch):
    (`RewindLauncher.cs:421-428`) and when a re-fly merge journal is unfinished (`:443-451`;
    `CanRewind`, `:239`, which `StartRewind` checks first, does not look at the journal). When
    `ExecuteRewindSaveLoad` fails (LoadGame returned null, `:614`, or threw, `:683`) it returns
-   false and `InitiateRewind` only undoes the live-tree drop (`:464-467`). None of these paths
+   false and `InitiateRewind` only undoes the live-tree drop (`:469-470`). None of these paths
    clears the request; `ResetRewindFlags` (`:403`) does not touch it. The career-start branch
    does clear on a refused launch (`WarpToTimeController.cs:318-322`).
 3. Nothing else clears it: its only writers are `Set`, `Clear` and `ResetForTesting`, and `Clear`

@@ -406,12 +406,14 @@ def cleared_by_problems(index, key, entry, closure):
     if method not in closure:
         return ["[cold_load.cleared_by] %s: %s is not in the Cold closure" % (key, method)]
     touching = set(field.get("readers", ())) | set(field.get("writers", ())) | set(field.get("addressTakenBy", ()))
+    # The named method itself must touch the static. "Called by a reader" would
+    # accept any helper a reader happens to call (a logger), so an entry could
+    # go stale unseen; when the clear is a helper handed the static, name the
+    # caller that passes it.
     if method in touching:
         return []
-    if any(caller in touching for caller in index.callers.get(method, ())):
-        return []
-    return ["[cold_load.cleared_by] %s: %s neither touches the static nor is called by a method that reads it"
-            % (key, method)]
+    return ["[cold_load.cleared_by] %s: %s does not read, write or take the address of the static"
+            " (name the closure method that touches it)" % (key, method)]
 
 
 def writes_of(index, key, mutating, setters):

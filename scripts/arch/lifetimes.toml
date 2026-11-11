@@ -51,9 +51,10 @@ Clear = "List / Dictionary / HashSet / Queue / Stack / StringBuilder: empties th
 
 # A Cold clear the IL rule cannot see, one entry per static: the method in the
 # Cold closure that clears it, and how. The gate checks every entry, needed or
-# not: the method exists, is in the closure, and reads, writes or takes the
-# address of the static (or is called by a closure method that reads it, the
-# static passed as an argument). The reason is the claim; a person reads it.
+# not: the method exists, is in the closure, and itself reads, writes or takes
+# the address of the static (when the clear is a helper handed the static as an
+# argument, name the caller that passes it). The reason is the claim; a person
+# reads it.
 [cold_load.cleared_by]
 "Parsek.RecordingStore::committedRecordings" = { method = "Parsek.RecordingStore::ClearCommittedInternal()", reason = "OnLoad's Cold branch calls it; it removes every recording top-down through RemoveCommittedAtWithNotifications until the list is empty, so each removal raises the committed-list seam (a RemoveAt loop, which the rule does not read as a clear; the only Clear the closure reaches is the test-batch crash reconcile's ResetForTestingInternal)" }
 
