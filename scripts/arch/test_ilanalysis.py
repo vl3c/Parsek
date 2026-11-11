@@ -69,6 +69,20 @@ def analyse(il, tests_il=None, tooling_types=()):
     return ilanalysis.report(facts, ("Tools",), CONFIG, tests)
 
 
+_REAL_REPORT = {}
+
+
+def real_tree_report(il_path):
+    """ilanalysis.report over the real tree's facts, built once per process: the
+    ratchet cells here and test_metrics' row read the same result (read-only)."""
+    key = str(Path(il_path).resolve())
+    if key not in _REAL_REPORT:
+        facts, tooling = test_ilfacts.real_tree_facts(il_path)
+        _REAL_REPORT.clear()
+        _REAL_REPORT[key] = ilanalysis.report(facts, tooling, CONFIG)
+    return _REAL_REPORT[key]
+
+
 def rule_of(result, key):
     for rule, keys in result["uncalled"]["rootedBy"].items():
         if key in keys:
@@ -591,7 +605,7 @@ class RealTreeRatchetTests(unittest.TestCase):
             raise AssertionError("%s=%s does not exist (build Parsek first)" % (IL_ENV, il_path))
         facts, tooling = test_ilfacts.real_tree_facts(il_path)
         cls.facts = (facts, tooling)
-        cls.result = ilanalysis.report(facts, tooling, CONFIG)
+        cls.result = real_tree_report(il_path)
         cls.pins = ilanalysis.load_pins()
         cls.details = ilanalysis.gate_details(cls.result)
         report = io.StringIO()

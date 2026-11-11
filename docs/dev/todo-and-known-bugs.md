@@ -2474,6 +2474,26 @@ compare).
   none; a spec naming no module reds too). `archview.py --check` and the Atlas show the
   declared view of the text scan beside the instability list, and the metrics row gains
   `text.layers` / `semantic.layers`.
+- 2026-11-11 (static lifetimes): `scripts/arch/lifetimes.toml` declares a lifetime for the
+  mutable statics (process, save, load-transition, scene, scoped, test-hook; a field entry, a
+  name pattern or a type default, each with a reason) and the Cold load roots
+  (`ParsekScenario.OnAwake` / `OnLoad` / `ResetSaveScopedSessionState`, `ParsekSettings.OnLoad`).
+  `scripts/arch/lifetimes.py` checks it; `test_static_lifetimes.py` (CI's compiled-IL step, about
+  3 s over the shared facts) pins the untagged set (512 of 1,082) and ratchets four findings in
+  `scripts/arch/lifetime_pins.toml`: a save / load-transition static the Cold closure never
+  writes (9), a test hook another production type writes (0), an untagged static the test DLL
+  writes (0; `scripts/arch/clrmeta.py` reads the test DLL's metadata, no ikdasm), a static the
+  reset helper resets that is not tagged as cleared (0). The DLL-free suite checks the
+  declaration's shape and its agreement with `SaveScopedSessionResetTests` and its allowlist.
+  The facts gain `defaultedBy` (`ldsflda` + `initobj`, how C# writes `x = default`). Found while
+  tagging, not fixed (reports only): the nine misses are `WarpToTimeRequest`'s pending and
+  deferred warp, which no load clears: SUSPECTED, not reproduced, a request survives into another
+  save of the same process (the session stamp only rejects another process; the consumer leaves
+  it armed when it reaches the Space Center of a mode-inert game, so a later Space Center load
+  of another save would consume it); the
+  allowlist calls `RecordingStore.SuppressLogging` a test switch, but
+  `RecordingSidecarStore.TrySummarizeExistingTrajectorySidecar` also sets and restores it
+  (tagged scoped). README -> "Static lifetimes".
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

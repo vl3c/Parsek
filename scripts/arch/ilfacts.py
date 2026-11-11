@@ -14,9 +14,10 @@ facts model keyed by member:
 - fields by `Type::name`: static, initonly, literal, compiler-generated, the
   property it backs (`<X>k__BackingField`), event backing, attributes, and
   for static fields the methods that read, write (`stsfld`) and take the
-  address of (`ldsflda`) them, plus `receiverCalls` (`method|member`: an
-  outside-assembly call, or `[]` for an element store, shortly after a read;
-  the evidence for "mutates its contents").
+  address of (`ldsflda`) them, the address-takers that assign `default`
+  through it (`defaultedBy`: `ldsflda` then `initobj`), plus `receiverCalls`
+  (`method|member`: an outside-assembly call, or `[]` for an element store,
+  shortly after a read; the evidence for "mutates its contents").
 - methods by `Type::Name(param types)`, ``Name``N`` for a generic method, the
   parameter types normalized so a declaration and a call site print the same
   text (`Parsek.Foo::Short(string)`; a conversion operator also carries its
@@ -432,6 +433,9 @@ def build(parsed, type_modules=None):
         for field_key, member in body.get("staticCalls", ()):
             if not is_generated_path(_type_of_key(field_key)):
                 field_mutations[field_key].add((key, member))
+        for field_key in body.get("staticDefaults", ()):
+            if not is_generated_path(_type_of_key(field_key)):
+                field_access[field_key]["staticDefaults"].add(key)
 
     # Generated code no single source method owns still calls, reads and
     # writes: credit it to its source type's `Type::(generated)` key, so no
@@ -544,6 +548,9 @@ def build(parsed, type_modules=None):
             entry["readers"] = sorted(access.get("staticReads", ()))
             entry["writers"] = sorted(access.get("staticWrites", ()))
             entry["addressTakenBy"] = sorted(access.get("staticAddress", ()))
+            # The `ldsflda` + `initobj` pairs among them: `x = default` / `x = null`
+            # on a value-type or nullable static, a write with no `stsfld`.
+            entry["defaultedBy"] = sorted(access.get("staticDefaults", ()))
             # Outside-assembly calls (or `[]` element stores) on the value
             # shortly after a read: a heuristic for "mutates its contents".
             entry["receiverCalls"] = sorted("%s|%s" % pair for pair in field_mutations.get(key, ()))

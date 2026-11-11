@@ -557,10 +557,13 @@ def parse_il(text):
     "catches", "refs" [(opcode, assembly or None, exact declaring path, name,
     generic arity, params or None for a field, normalized return type)] and
     "external" {"body", "locals", "signature": {"assembly|type"}},
-    "strings" (identifier-shaped `ldstr` literals) and "staticCalls" {(static
+    "strings" (identifier-shaped `ldstr` literals), "staticCalls" {(static
     field key, member name)}: an outside-assembly call (or `[]` for an array
     element store) within STATIC_RECEIVER_WINDOW instructions after an `ldsfld`
-    of an in-assembly static, so possibly on it.
+    of an in-assembly static, so possibly on it, and "staticDefaults" {static
+    field key}: an `ldsflda` of an in-assembly static directly followed by
+    `initobj`, which is how C# assigns `default` or `null` to a value-type or
+    nullable static (no `stsfld` is emitted).
     The facts layer also gets "fields" [field record], "typeInfo" {path:
     {"header", "generics", "attributes", "events"}} and "assembly" (the
     assembly's own name).
@@ -586,6 +589,7 @@ def parse_il(text):
     directive_slot = None
     lines = text.splitlines()
     recent_statics = []  # (op index, field key) of the current method's recent ldsfld
+    last_address = [None]  # (op index, field key) of the current method's last in-assembly ldsflda
 
     def current_path():
         return class_stack[-1][1] if class_stack else None
@@ -684,6 +688,8 @@ def parse_il(text):
                     ))
                     if opcode == "ldsfld" and assembly is None and exact.startswith(ROOT_NAMESPACE):
                         recent_statics.append((len(method["ops"]), exact + "::" + name))
+                    elif opcode == "ldsflda" and assembly is None and exact.startswith(ROOT_NAMESPACE):
+                        last_address[0] = (len(method["ops"]), exact + "::" + name)
                     elif opcode in ("call", "callvirt") and assembly is not None:
                         _note_static_receiver(name)
                 decl_owner = None
@@ -706,6 +712,9 @@ def parse_il(text):
         if method is not None:
             if opcode.startswith("stelem"):
                 _note_static_receiver("[]")
+            elif opcode == "initobj" and last_address[0] is not None \
+                    and last_address[0][0] == len(method["ops"]) - 1:
+                method["staticDefaults"].add(last_address[0][1])
             method["ops"].append((opcode, use))
 
     def _note_static_receiver(member):
@@ -806,6 +815,7 @@ def parse_il(text):
                     "refs": [],
                     "strings": set(),
                     "staticCalls": set(),
+                    "staticDefaults": set(),
                     "external": {
                         "body": set(),
                         "locals": set(),
@@ -814,6 +824,7 @@ def parse_il(text):
                 }
                 custom_slot = ("method", method)
                 recent_statics.clear()
+                last_address[0] = None
                 methods.append(method)
                 method_depth = depth
                 pending_method = None
