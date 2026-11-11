@@ -120,11 +120,29 @@ jobs:
             echo "apt-get update attempt $i stalled or failed; retrying"
             sleep 10
           done
-          for i in 1 2 3; do
-            sudo timeout 420 apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=15 mono-devel && break
-            echo "apt-get install attempt $i stalled or failed; retrying"
-            sleep 10
-          done
+          install_mono() {
+            sudo timeout "$1" apt-get install -y -o Acquire::Retries="$2" -o Acquire::http::Timeout=15 mono-devel
+          }
+          # A healthy install takes well under a minute. The runner's default
+          # mirror (azure.archive.ubuntu.com) can stall 20 s on every package,
+          # and apt reaches the next mirror in /etc/apt/apt-mirrors.txt only
+          # after all its retries on the first, which outlasts the job. So the
+          # first attempt is short, and a failure drops that mirror before the
+          # retries.
+          if ! install_mono 90 0; then
+            echo "apt-get install stalled or failed on the default mirror; dropping it from the mirror list"
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+              grep -q '[^[:space:]]' /etc/apt/apt-mirrors.txt || echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+              cat /etc/apt/apt-mirrors.txt
+            fi
+            sudo timeout 120 apt-get update -o Acquire::Retries=1 -o Acquire::http::Timeout=15 || echo "apt-get update on the remaining mirrors failed; trying the install anyway"
+            for i in 1 2; do
+              install_mono 300 1 && break
+              echo "apt-get install fallback attempt $i stalled or failed; retrying"
+              sleep 10
+            done
+          fi
           command -v mono >/dev/null || { echo "::error::mono install failed after retries"; exit 1; }
           command -v ikdasm >/dev/null || { echo "::error::ikdasm (mono-devel) missing after install"; exit 1; }
 
