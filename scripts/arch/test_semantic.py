@@ -548,6 +548,24 @@ STORE_FORWARDERS = {
 }
 
 
+_REAL_SEMANTIC = {}
+
+
+def real_tree_semantic(il_path):
+    """(text model, semantic.build result) for the real tree, built once per
+    process: these cells and test_metrics' real row read the same pair. The
+    parse comes from load_parsed, shared with test_ilfacts' real-tree cells, so
+    the CI step that runs them all disassembles and parses the DLL once."""
+    key = str(Path(il_path).resolve())
+    if key not in _REAL_SEMANTIC:
+        rules, tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
+        model = archview.build_model(REAL_SOURCE, rules, tooling, measure_sizes=False)
+        result = semantic.build(model, None, REAL_SOURCE, parsed=ilgraph.load_parsed(il_path))
+        _REAL_SEMANTIC.clear()
+        _REAL_SEMANTIC[key] = (model, result)
+    return _REAL_SEMANTIC[key]
+
+
 @unittest.skipUnless(os.environ.get(IL_ENV), "%s is not set (CI sets it after the build)" % IL_ENV)
 class RealTreeSemanticTests(unittest.TestCase):
     @classmethod
@@ -555,11 +573,7 @@ class RealTreeSemanticTests(unittest.TestCase):
         il_path = Path(os.environ[IL_ENV])
         if not il_path.is_file():
             raise AssertionError("%s=%s does not exist (build Parsek first)" % (IL_ENV, il_path))
-        rules, tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
-        cls.model = archview.build_model(REAL_SOURCE, rules, tooling, measure_sizes=False)
-        # load_parsed is shared with test_ilfacts' real-tree cells, so the CI
-        # step that runs both disassembles and parses the DLL once.
-        cls.result = semantic.build(cls.model, None, REAL_SOURCE, parsed=ilgraph.load_parsed(il_path))
+        cls.model, cls.result = real_tree_semantic(il_path)
         report = io.StringIO()
         with contextlib.redirect_stdout(report):
             semantic.print_report(cls.result)

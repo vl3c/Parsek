@@ -176,11 +176,82 @@ jobs:
       # skip only when PARSEK_ARCH_IL is unset, so here they always run; the
       # report (residue next to the text scan's, every disagreement
       # classified) goes to the step log. The pattern also picks up
-      # test_ilfacts.py (the per-member facts layer) and test_ilanalysis.py
-      # (the three code-facts ratchets pinned in scripts/arch/facts_pins.toml),
-      # which read the same parse through ilgraph.load_parsed, so the DLL is
-      # disassembled and parsed once for all. About a minute and a half.
+      # test_ilfacts.py (the per-member facts layer), test_ilanalysis.py
+      # (the three code-facts ratchets pinned in scripts/arch/facts_pins.toml)
+      # and test_metrics.py (a metrics history row built from the model,
+      # semantic result and facts the other cells already hold: a pull
+      # request's proof that the row can still be built), which read the
+      # same parse through ilgraph.load_parsed, so the DLL is disassembled and
+      # parsed once for all. About two and a half minutes.
       - name: Architecture semantic graph (compiled IL)
         env:
           PARSEK_ARCH_IL: ${{ github.workspace }}/Source/Parsek/bin/Debug/Parsek.dll
-        run: python3 -m unittest discover -s scripts/arch -p 'test_[si]*.py' -q
+        run: python3 -m unittest discover -s scripts/arch -p 'test_[ims]*.py' -q
+
+      # The metrics history row for this main commit (scripts/arch/metrics.py,
+      # README "Metrics history"): the text scan, the semantic graph, the code
+      # facts with test reach, and the size counts, in one process over the
+      # DLLs the build step made (about 170 s). Main pushes only: a pull
+      # request keeps no row, and the compiled-IL step above already proves
+      # one can be built. The history gates nothing, so this step and the
+      # upload are continue-on-error and can never turn the required `tests`
+      # check red; when they fail there is no artifact, and the `metrics` job
+      # below fails visibly at its download instead.
+      - name: Metrics history row
+        id: metrics_row
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/metrics-row"
+          python3 scripts/arch/metrics.py --sha "$GITHUB_SHA" --date "$(git show -s --format=%cI "$GITHUB_SHA")" \
+            --dll Source/Parsek/bin/Debug/Parsek.dll \
+            --tests-dll Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll \
+            --out "$RUNNER_TEMP/metrics-row/row.json"
+
+      - name: Upload metrics row
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.metrics_row.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics-row
+          path: ${{ runner.temp }}/metrics-row/row.json
+          if-no-files-found: error
+          retention-days: 14
+
+  # Appends main's row to metrics.jsonl on the `metrics` branch
+  # (scripts/arch/metrics_append.py; it creates the branch as an orphan when
+  # it is missing, and a push rejected by a concurrent append is retried on
+  # the new tip). The only job with write access, and it runs only for a
+  # push to main, after `tests` passed, on code already merged: no pull
+  # request reaches it, and nothing here can fail a PR. A missing row (the
+  # row step failed) fails this job at the download. GitHub keeps at most one
+  # pending run per concurrency group, so when merges land back to back a
+  # queued run can be cancelled and that commit gets no row. The job is
+  # continue-on-error: its failure shows on the job itself and leaves the
+  # run's conclusion, and so the README badge, to `tests`.
+  metrics:
+    needs: tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      contents: write
+    concurrency:
+      group: metrics-history
+      cancel-in-progress: false
+    steps:
+      # The default persist-credentials keeps the job token in this checkout's
+      # git config; the metrics worktree below shares it for the push.
+      - uses: actions/checkout@v4
+
+      - name: Download metrics row
+        uses: actions/download-artifact@v4
+        with:
+          name: metrics-row
+          path: ${{ runner.temp }}/metrics-row
+
+      - name: Append the row to the metrics branch
+        run: |
+          python3 scripts/arch/metrics_append.py publish --row "$RUNNER_TEMP/metrics-row/row.json" \
+            --repo . --remote origin --branch metrics --workdir "$RUNNER_TEMP/metrics-branch"
