@@ -9,7 +9,7 @@ namespace Parsek.TestCommands
     /// <summary>
     /// Map-geometry partial: the thin applier for the TWO-PHASE <c>DumpMapGeometry</c> verb.
     /// Every decision is delegated to the pure sibling <see cref="TestCommandDumpMapGeometry"/>;
-    /// this file arms the marker tap, runs the end-of-frame capture coroutine
+    /// this file arms the two read taps (marker positions, orbit arc clips), runs the end-of-frame capture coroutine
     /// (<see cref="MapGeometryRecorder.Capture"/>) and polls its outcome.
     ///
     /// <para>WHY A COROUTINE ON THIS ADDON. The capture must read after every map draw of one
@@ -64,7 +64,7 @@ namespace Parsek.TestCommands
             mapGeometryCounts = null;
             mapGeometryFrame = 0;
 
-            MapMarkerRenderer.SetDrawnMarkerTapArmed(true);
+            SetMapGeometryTapsArmed(true);
             ParsekLog.Info(Tag, $"dumpmapgeometry armed label={label} scene={mapGeometrySceneToken} "
                 + $"path={TestCommandDumpMapGeometry.RelativePathFor(label)} armFrame={Time.frameCount}");
             StartCoroutine(MapGeometryCaptureRoutine(mapGeometryArmId, scene));
@@ -114,7 +114,7 @@ namespace Parsek.TestCommands
             }
             finally
             {
-                MapMarkerRenderer.SetDrawnMarkerTapArmed(false);
+                SetMapGeometryTapsArmed(false);
             }
         }
 
@@ -150,7 +150,7 @@ namespace Parsek.TestCommands
             {
                 // Fence the coroutine: a late capture must not settle a later arm.
                 mapGeometryArmId++;
-                MapMarkerRenderer.SetDrawnMarkerTapArmed(false);
+                SetMapGeometryTapsArmed(false);
                 ParsekLog.Error(Tag, $"dumpmapgeometry timed out label={label} "
                     + $"elapsed={elapsedText}s budget={budget.ToString("F0", ic)}s");
                 EmitExecutedTerminal(id, seq, verb, "ERROR", null,
@@ -167,6 +167,14 @@ namespace Parsek.TestCommands
                     label, mapGeometrySceneToken, bytes, mapGeometryFrame, counts.Ghosts,
                     counts.Lines, counts.Points, counts.Truncated),
                 null, dequeueHead: true);
+        }
+
+        // The two read taps the capture needs, armed and disarmed together: the marker
+        // positions and the orbit arc-clip windows of the captured frame.
+        private static void SetMapGeometryTapsArmed(bool armed)
+        {
+            MapMarkerRenderer.SetDrawnMarkerTapArmed(armed);
+            Patches.GhostOrbitArcPatch.SetDrawnArcTapArmed(armed);
         }
 
         private static long ReadMapGeometryBytes(string path)

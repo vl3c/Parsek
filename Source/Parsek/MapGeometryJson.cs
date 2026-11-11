@@ -48,6 +48,11 @@ namespace Parsek
         /// <summary>Additive key <c>source</c>: <c>proto</c> (the stock map icon of the ghost's
         /// proto vessel), <c>marker</c> (Parsek's IMGUI marker) or null (nothing drawn).</summary>
         internal string Source;
+
+        /// <summary>NOT WRITTEN. The icon's WORLD position as captured, kept until the ghost's
+        /// body is known (a pid-0 entry learns its body only after every line and marker is
+        /// read); <see cref="Pos"/> is resolved from it relative to that body.</summary>
+        internal double[] World;
     }
 
     /// <summary>The additive <c>markerDecision</c> block: the Parsek marker decision for a
@@ -84,6 +89,12 @@ namespace Parsek
         internal MapGeometryConic Conic;
         internal List<double[]> Reference;
         internal string ReferenceKind;
+
+        /// <summary>Additive key <c>clipped</c>, orbit lines only: true when Parsek's arc clip
+        /// (<c>GhostOrbitArcPatch</c>) cut this frame's line to the <c>ut</c> window, false when
+        /// stock drew its own line (a full period or more, no window, a degenerate conic).
+        /// Null (omitted) for an inactive line and for every other kind.</summary>
+        internal bool? Clipped;
     }
 
     /// <summary>One <c>ghosts[]</c> entry.</summary>
@@ -180,6 +191,199 @@ namespace Parsek
         internal const string KindPolyline = "polyline";
         internal const string KindTail = "tail";
 
+        /// <summary>A seam bridge: the short filler line Parsek draws from a body-fixed polyline
+        /// leg's end to the adjacent inertial conic (<c>GhostTrajectoryPolylineRenderer</c>'s
+        /// <c>TryDrawSeamBridge</c>). When one draws, the forward arc it joins is clipped back by
+        /// the bridge's length, so without it the dump shows a hole at the seam.</summary>
+        internal const string KindBridge = "bridge";
+
+        /// <summary>How the dump reports one cached Parsek line (a polyline leg, a forward arc,
+        /// a seam bridge).</summary>
+        internal enum CachedLineReport
+        {
+            /// <summary>Not reported: inactive and not drawn this frame or the previous one.</summary>
+            Skip,
+            /// <summary>Reported with <c>active: false</c> and NO points: the mesh is hidden this
+            /// frame (the deactivation sweep's window: drawn last frame, not this one).</summary>
+            Inactive,
+            /// <summary>Reported with <c>active: true</c> and the drawn vertices: the mesh is
+            /// active, so Vectrosity renders it this frame.</summary>
+            Drawn,
+        }
+
+        /// <summary>The report for a cached Parsek line: <see cref="CachedLineReport.Drawn"/>
+        /// when its mesh is active; else <see cref="CachedLineReport.Inactive"/> when it drew
+        /// this frame or the previous one; else <see cref="CachedLineReport.Skip"/>. Only a
+        /// Drawn line carries points, so an inactive line never shows a picture it did not
+        /// draw.</summary>
+        internal static CachedLineReport ClassifyCachedLine(bool active, int lastDrawnFrame, int frame)
+        {
+            if (active) return CachedLineReport.Drawn;
+            return lastDrawnFrame >= frame - 1 ? CachedLineReport.Inactive : CachedLineReport.Skip;
+        }
+
+        /// <summary>
+        /// The live-frame window an orbit line's <c>ut</c> is derived from, mirroring what
+        /// <c>GhostOrbitArcPatch</c> drew: the window the arc clip cut the line to THIS frame
+        /// when it clipped (<paramref name="clipped"/> true), else the visible window
+        /// <c>GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel</c> returns (the same
+        /// call the clip makes; stock then drew its own line, e.g. a full period or more).
+        /// False when neither exists. <paramref name="fromClip"/> says which one was used.
+        /// </summary>
+        internal static bool TrySelectOrbitLineWindow(
+            bool clipped, double clipStartUT, double clipEndUT,
+            bool hasVisible, double visibleStartUT, double visibleEndUT,
+            out double liveStartUT, out double liveEndUT, out bool fromClip)
+        {
+            fromClip = false;
+            liveStartUT = 0;
+            liveEndUT = 0;
+            if (clipped)
+            {
+                fromClip = true;
+                liveStartUT = clipStartUT;
+                liveEndUT = clipEndUT;
+                return true;
+            }
+            if (!hasVisible) return false;
+            liveStartUT = visibleStartUT;
+            liveEndUT = visibleEndUT;
+            return true;
+        }
+
+        /// <summary>One body as the containing-SOI rule sees it: its name, its WORLD centre and
+        /// its sphere of influence (non-finite for the root, whose SOI is unbounded).</summary>
+        internal struct SoiCandidate
+        {
+            internal string Name;
+            internal double[] Centre;
+            internal double Soi;
+        }
+
+        /// <summary>
+        /// The body a world point belongs to by sphere of influence: of the bodies whose finite,
+        /// positive SOI contains the point (distance from centre &lt;= SOI), the one with the
+        /// SMALLEST SOI (a moon inside its planet's SOI wins over the planet); when no finite SOI
+        /// contains it, the first body with an unbounded SOI (the root). Ties keep list order.
+        /// Null for a non-finite point or when nothing qualifies. This is KSP's own patched-conic
+        /// rule (a vessel orbits the innermost SOI it is inside), applied to the drawn point.
+        /// </summary>
+        internal static string ContainingSoiBody(double[] worldPoint, IList<SoiCandidate> bodies)
+        {
+            if (bodies == null || !MapGeometryJson.IsFiniteTriple(worldPoint)) return null;
+            string best = null;
+            double bestSoi = double.PositiveInfinity;
+            string unbounded = null;
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                SoiCandidate b = bodies[i];
+                if (b.Name == null) continue;
+                if (double.IsPositiveInfinity(b.Soi) || double.IsNaN(b.Soi))
+                {
+                    if (unbounded == null) unbounded = b.Name;
+                    continue;
+                }
+                if (!(b.Soi > 0.0) || !MapGeometryJson.IsFiniteTriple(b.Centre)) continue;
+                double dx = worldPoint[0] - b.Centre[0];
+                double dy = worldPoint[1] - b.Centre[1];
+                double dz = worldPoint[2] - b.Centre[2];
+                double d = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                if (d <= b.Soi && b.Soi < bestSoi)
+                {
+                    best = b.Name;
+                    bestSoi = b.Soi;
+                }
+            }
+            return best ?? unbounded;
+        }
+
+        /// <summary>
+        /// The distance from <paramref name="point"/> to the nearest point of the polyline
+        /// through <paramref name="points"/> (each segment between consecutive points, so a
+        /// coarse line is measured on its segments, not only its vertices). Non-finite points
+        /// are skipped; a lone finite point measures to itself. Null when nothing finite is
+        /// left or the query point is not finite.
+        /// </summary>
+        internal static double? MinDistanceToPolyline(double[] point, IList<double[]> points)
+        {
+            if (points == null || !MapGeometryJson.IsFiniteTriple(point)) return null;
+            double best = double.PositiveInfinity;
+            double[] prev = null;
+            for (int i = 0; i < points.Count; i++)
+            {
+                double[] p = points[i];
+                if (!MapGeometryJson.IsFiniteTriple(p)) continue;
+                double d = prev == null ? Distance(point, p) : DistanceToSegment(point, prev, p);
+                if (d < best) best = d;
+                prev = p;
+            }
+            return double.IsPositiveInfinity(best) ? (double?)null : best;
+        }
+
+        private static double Distance(double[] a, double[] b)
+        {
+            double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        private static double DistanceToSegment(double[] p, double[] a, double[] b)
+        {
+            double abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
+            double len2 = abx * abx + aby * aby + abz * abz;
+            if (!(len2 > 0.0)) return Distance(p, a);
+            double t = ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby + (p[2] - a[2]) * abz) / len2;
+            if (t < 0.0) t = 0.0;
+            else if (t > 1.0) t = 1.0;
+            var c = new[] { a[0] + t * abx, a[1] + t * aby, a[2] + t * abz };
+            return Distance(p, c);
+        }
+
+        /// <summary>The figures of the one Info line a capture logs.</summary>
+        internal sealed class CaptureSummary
+        {
+            internal int Frame;
+            internal string Scene;
+            internal int Bodies, Ghosts, ProtoGhosts, Legs, LegRefs, Arcs, Bridges, MarkersDrawn;
+            internal int MarkerBodiesBySoi, Routes, RouteLegs;
+            /// <summary><c>ScaledSpace</c>'s floating offset at the capture (scaled units):
+            /// <c>-LocalToScaledSpace(0)</c>, i.e. its private <c>totalOffset</c>.</summary>
+            internal double[] ScaledOffset;
+            /// <summary>Max over bodies, in metres, of the gap between the scaled body's
+            /// transform (the centre every drawn vertex is mapped against) and
+            /// <c>LocalToScaledSpace(body.position)</c>. Non-zero means the two disagree.</summary>
+            internal double? MaxScaledCentreSkewM;
+            /// <summary>Proto ghosts whose icon and active orbit line were both measured.</summary>
+            internal int IconLineMeasured;
+            /// <summary>Max over those ghosts of the icon-to-orbit-line distance, metres.</summary>
+            internal double? MaxIconToLineM;
+            internal uint MaxIconToLinePid;
+        }
+
+        /// <summary>The capture's one Info line, invariant culture. A frame-offset error under
+        /// warp shows as a large <c>maxIconToOrbitLineM</c> (the proto icon is not on its own
+        /// drawn orbit) or a non-zero <c>maxScaledCentreSkewM</c>.</summary>
+        internal static string FormatCaptureSummary(CaptureSummary s)
+        {
+            if (s == null) return "capture (no summary)";
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            string offset = MapGeometryJson.IsFiniteTriple(s.ScaledOffset)
+                ? string.Format(ic, "({0:R},{1:R},{2:R})", s.ScaledOffset[0], s.ScaledOffset[1], s.ScaledOffset[2])
+                : "unknown";
+            string skew = s.MaxScaledCentreSkewM.HasValue
+                ? s.MaxScaledCentreSkewM.Value.ToString("F3", ic) : "unknown";
+            string icon = s.MaxIconToLineM.HasValue
+                ? s.MaxIconToLineM.Value.ToString("F1", ic) + " pid=" + s.MaxIconToLinePid.ToString(ic)
+                : "none";
+            return string.Format(ic,
+                "capture frame={0} scene={1} bodies={2} ghosts={3} protoGhosts={4} legs={5} " +
+                "legRefs={6} arcs={7} bridges={8} markersDrawn={9} markerBodiesBySoi={10} " +
+                "routes={11} routeLegs={12} scaledOffset={13} maxScaledCentreSkewM={14} " +
+                "iconLineMeasured={15} maxIconToOrbitLineM={16}",
+                s.Frame, s.Scene ?? "?", s.Bodies, s.Ghosts, s.ProtoGhosts, s.Legs,
+                s.LegRefs, s.Arcs, s.Bridges, s.MarkersDrawn, s.MarkerBodiesBySoi,
+                s.Routes, s.RouteLegs, offset, skew, s.IconLineMeasured, icon);
+        }
+
         internal const string ReferenceRecorded = "recorded";
         internal const string ReferenceIntended = "intended";
 
@@ -247,11 +451,6 @@ namespace Parsek
             end = drawEnd > count - 1 ? count - 1 : drawEnd;
             return count > 0 && end >= start;
         }
-
-        /// <summary>A cached Parsek line is reported when its mesh is active or it drew this
-        /// frame or the frame before (the deactivation sweep's own window).</summary>
-        internal static bool IsCachedLineReported(bool active, int lastDrawnFrame, int frame)
-            => active || lastDrawnFrame >= frame - 1;
 
         /// <summary>
         /// The recording-time range of a proto ghost's orbit line: the live-frame arc bounds
@@ -755,6 +954,11 @@ namespace Parsek
                     Sep(sb, ref lf);
                     sb.Append("\"ut\": [").Append(Num(line.Ut0.Value)).Append(',')
                       .Append(Num(line.Ut1.Value)).Append(']');
+                }
+                if (line.Clipped.HasValue)
+                {
+                    Sep(sb, ref lf);
+                    sb.Append("\"clipped\": ").Append(line.Clipped.Value ? "true" : "false");
                 }
                 if (line.Conic != null)
                 {

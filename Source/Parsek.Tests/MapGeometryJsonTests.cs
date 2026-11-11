@@ -349,6 +349,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Write_BridgeKindClippedFlagAndNoIconWorld()
+        {
+            Assert.Equal("bridge", MapGeometryDecisions.KindBridge);
+            var doc = new MapGeometryDocument { Label = "b" };
+            doc.Bodies.Add(new MapGeometryBody { Name = "Kerbin" });
+            var ghost = new MapGeometryGhost
+            {
+                RecordingId = "r", Body = "Kerbin",
+                Icon = new MapGeometryIcon { Drawn = true, Source = "marker", Pos = P(1, 2, 3), World = P(9, 9, 9) },
+            };
+            ghost.Lines.Add(new MapGeometryLine
+            {
+                Kind = MapGeometryDecisions.KindOrbit, Body = "Kerbin", Active = true, Points = Line(3),
+                Ut0 = 1, Ut1 = 2, Clipped = true,
+            });
+            ghost.Lines.Add(new MapGeometryLine
+            {
+                Kind = MapGeometryDecisions.KindOrbit, Body = "Kerbin", Active = false,
+            });
+            ghost.Lines.Add(new MapGeometryLine
+            {
+                Kind = MapGeometryDecisions.KindBridge, Body = "Kerbin", Active = true, Points = Line(61),
+            });
+            doc.Ghosts.Add(ghost);
+
+            string json = MapGeometryJson.Write(doc, out MapGeometryCounts counts);
+            var root = (Dictionary<string, object>)MiniJson.ParseValue(json);
+            var g = (Dictionary<string, object>)((List<object>)root["ghosts"])[0];
+            var icon = (Dictionary<string, object>)g["icon"];
+            Assert.Equal(new[] { "drawn", "pos", "source" }, new SortedSet<string>(icon.Keys));
+            Assert.Equal(new List<object> { 1.0, 2.0, 3.0 }, (List<object>)icon["pos"]);
+            var lines = (List<object>)g["lines"];
+            var clipped = (Dictionary<string, object>)lines[0];
+            Assert.Equal(true, clipped["clipped"]);
+            Assert.False(((Dictionary<string, object>)lines[1]).ContainsKey("clipped"));
+            Assert.Equal("bridge", ((Dictionary<string, object>)lines[2])["kind"]);
+            Assert.Equal(61, ((List<object>)((Dictionary<string, object>)lines[2])["points"]).Count);
+            Assert.Equal(3, counts.Lines);
+            Assert.Equal(64, counts.Points);
+        }
+
+        [Fact]
         public void Write_NeverEmitsNaNOrInfinity_TheFieldOrPointIsOmitted()
         {
             var doc = new MapGeometryDocument
@@ -584,14 +626,138 @@ namespace Parsek.Tests
             Assert.Equal(e, end);
         }
 
+        // An inactive line is reported (the sweep's window) but NEVER as drawn: only an active
+        // mesh carries points (review finding 3: an inactive line was written with its stale
+        // vertices).
         [Theory]
-        [InlineData(true, 0, 100, true)]
-        [InlineData(false, 100, 100, true)]
-        [InlineData(false, 99, 100, true)]
-        [InlineData(false, 98, 100, false)]
-        public void IsCachedLineReported(bool active, int last, int frame, bool expected)
+        [InlineData(true, 0, 100, "Drawn")]
+        [InlineData(true, 100, 100, "Drawn")]
+        [InlineData(false, 100, 100, "Inactive")]
+        [InlineData(false, 99, 100, "Inactive")]
+        [InlineData(false, 98, 100, "Skip")]
+        public void ClassifyCachedLine(bool active, int last, int frame, string expected)
         {
-            Assert.Equal(expected, MapGeometryDecisions.IsCachedLineReported(active, last, frame));
+            Assert.Equal(expected, MapGeometryDecisions.ClassifyCachedLine(active, last, frame).ToString());
+        }
+
+        [Fact]
+        public void TrySelectOrbitLineWindow_PrefersTheClipDrawnThisFrame()
+        {
+            Assert.True(MapGeometryDecisions.TrySelectOrbitLineWindow(
+                true, 10, 20, true, 5, 50, out double s, out double e, out bool fromClip));
+            Assert.Equal(10, s);
+            Assert.Equal(20, e);
+            Assert.True(fromClip);
+
+            // Stock drew the line (a full period or more): the visible window, not a clip.
+            Assert.True(MapGeometryDecisions.TrySelectOrbitLineWindow(
+                false, 10, 20, true, 5, 50, out s, out e, out fromClip));
+            Assert.Equal(5, s);
+            Assert.Equal(50, e);
+            Assert.False(fromClip);
+
+            Assert.False(MapGeometryDecisions.TrySelectOrbitLineWindow(
+                false, 10, 20, false, 5, 50, out _, out _, out fromClip));
+            Assert.False(fromClip);
+        }
+
+        [Fact]
+        public void OrbitLineUt_IsTheDrawnWindowMinusTheShift()
+        {
+            // The live-frame window the arc clip drew, mapped back to recording time the way the
+            // clip maps it (effUT = liveUT - shift), whichever drive mode the clip used.
+            Assert.True(MapGeometryDecisions.TrySelectOrbitLineWindow(
+                true, 5000, 5600, true, 4000, 9000, out double s, out double e, out _));
+            Assert.True(MapGeometryDecisions.TryRecordingTimeRange(s, e, 3000, out double ut0, out double ut1));
+            Assert.Equal(2000, ut0);
+            Assert.Equal(2600, ut1);
+        }
+
+        private static MapGeometryDecisions.SoiCandidate Soi(string name, double x, double soi)
+            => new MapGeometryDecisions.SoiCandidate { Name = name, Centre = new[] { x, 0, 0 }, Soi = soi };
+
+        [Fact]
+        public void ContainingSoiBody_PicksTheInnermostSoiThatContainsThePoint()
+        {
+            var bodies = new List<MapGeometryDecisions.SoiCandidate>
+            {
+                Soi("Sun", 0, double.PositiveInfinity),
+                Soi("Kerbin", 1e10, 8.4e7),
+                Soi("Mun", 1e10 + 1.2e7, 2.4e6),
+            };
+            Assert.Equal("Mun", MapGeometryDecisions.ContainingSoiBody(new[] { 1e10 + 1.2e7 + 1e5, 0, 0 }, bodies));
+            Assert.Equal("Kerbin", MapGeometryDecisions.ContainingSoiBody(new[] { 1e10 + 1e6, 0, 0 }, bodies));
+            // Outside every finite SOI: the root (unbounded SOI).
+            Assert.Equal("Sun", MapGeometryDecisions.ContainingSoiBody(new[] { 5e9, 0, 0 }, bodies));
+            // On the boundary counts as inside.
+            Assert.Equal("Kerbin", MapGeometryDecisions.ContainingSoiBody(new[] { 1e10 - 8.4e7, 0, 0 }, bodies));
+        }
+
+        [Fact]
+        public void ContainingSoiBody_RefusesWhatItCannotPlace()
+        {
+            var bodies = new List<MapGeometryDecisions.SoiCandidate> { Soi("Kerbin", 0, 100) };
+            Assert.Null(MapGeometryDecisions.ContainingSoiBody(new[] { double.NaN, 0, 0 }, bodies));
+            Assert.Null(MapGeometryDecisions.ContainingSoiBody(new[] { 1000.0, 0, 0 }, bodies)); // no root listed
+            Assert.Null(MapGeometryDecisions.ContainingSoiBody(new[] { 0.0, 0, 0 }, null));
+            // A zero / negative / non-finite-centre candidate is ignored.
+            var odd = new List<MapGeometryDecisions.SoiCandidate>
+            {
+                Soi("Zero", 0, 0),
+                new MapGeometryDecisions.SoiCandidate { Name = "NoCentre", Centre = null, Soi = 1e9 },
+                Soi("Root", 0, double.PositiveInfinity),
+            };
+            Assert.Equal("Root", MapGeometryDecisions.ContainingSoiBody(new[] { 0.0, 0, 0 }, odd));
+        }
+
+        [Fact]
+        public void MinDistanceToPolyline_MeasuresSegmentsNotOnlyVertices()
+        {
+            var line = new List<double[]> { new double[] { 0, 0, 0 }, new double[] { 100, 0, 0 } };
+            // Above the middle of the segment: 10 from the segment, ~51 from either vertex.
+            Assert.Equal(10.0, MapGeometryDecisions.MinDistanceToPolyline(new double[] { 50, 10, 0 }, line).Value, 9);
+            // Past the end: distance to the end vertex.
+            Assert.Equal(5.0, MapGeometryDecisions.MinDistanceToPolyline(new double[] { 105, 0, 0 }, line).Value, 9);
+            // A lone finite point measures to itself; non-finite points are skipped.
+            var lone = new List<double[]> { new[] { double.NaN, 0, 0 }, new double[] { 3, 4, 0 } };
+            Assert.Equal(5.0, MapGeometryDecisions.MinDistanceToPolyline(new double[] { 0, 0, 0 }, lone).Value, 9);
+            Assert.Null(MapGeometryDecisions.MinDistanceToPolyline(new double[] { 0, 0, 0 }, new List<double[]>()));
+            Assert.Null(MapGeometryDecisions.MinDistanceToPolyline(new[] { double.NaN, 0, 0 }, line));
+        }
+
+        [Fact]
+        public void FormatCaptureSummary_IsInvariantAndNamesTheOffsetAndIconDistance()
+        {
+            CultureInfo saved = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+                string line = MapGeometryDecisions.FormatCaptureSummary(new MapGeometryDecisions.CaptureSummary
+                {
+                    Frame = 42, Scene = "FLIGHT", Bodies = 17, Ghosts = 3, ProtoGhosts = 2, Legs = 4,
+                    LegRefs = 1, Arcs = 2, Bridges = 1, MarkersDrawn = 1, MarkerBodiesBySoi = 1,
+                    Routes = 0, RouteLegs = 0,
+                    ScaledOffset = new[] { 1.5, -2.25, 0.0 },
+                    MaxScaledCentreSkewM = 0.125,
+                    IconLineMeasured = 2, MaxIconToLineM = 1234.56, MaxIconToLinePid = 77,
+                });
+                Assert.Contains("frame=42 scene=FLIGHT", line);
+                Assert.Contains("bridges=1", line);
+                Assert.Contains("markerBodiesBySoi=1", line);
+                Assert.Contains("scaledOffset=(1.5,-2.25,0)", line);
+                Assert.Contains("maxScaledCentreSkewM=0.125", line);
+                Assert.Contains("iconLineMeasured=2 maxIconToOrbitLineM=1234.6 pid=77", line);
+                Assert.DoesNotContain("1234,6", line);
+
+                string empty = MapGeometryDecisions.FormatCaptureSummary(new MapGeometryDecisions.CaptureSummary());
+                Assert.Contains("scaledOffset=unknown", empty);
+                Assert.Contains("maxScaledCentreSkewM=unknown", empty);
+                Assert.Contains("maxIconToOrbitLineM=none", empty);
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = saved;
+            }
         }
 
         [Fact]

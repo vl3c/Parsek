@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using HarmonyLib;
 using UnityEngine;
@@ -1307,6 +1308,43 @@ namespace Parsek.Patches
     {
         private const string Tag = "GhostOrbitArc";
 
+        // Map-geometry dump tap (automation-only; the DumpMapGeometry seam verb arms it for one
+        // capture and disarms it after). While armed, each clip this Prefix applies records the
+        // LIVE-frame window it clipped to and the frame, so the dump's orbit-line `ut` is the
+        // window of the arc actually drawn, not a re-derivation. Unarmed it costs one bool read.
+        private static bool drawnArcTapArmed;
+        private static readonly Dictionary<uint, DrawnArcClip> drawnArcClips =
+            new Dictionary<uint, DrawnArcClip>();
+
+        private struct DrawnArcClip
+        {
+            internal int Frame;
+            internal double StartUT;
+            internal double EndUT;
+        }
+
+        /// <summary>Arms or disarms the arc-clip tap; disarming forgets every note.</summary>
+        internal static void SetDrawnArcTapArmed(bool armed)
+        {
+            drawnArcTapArmed = armed;
+            if (!armed)
+                drawnArcClips.Clear();
+        }
+
+        /// <summary>The live-frame window this Prefix clipped <paramref name="pid"/>'s line to
+        /// in <paramref name="frame"/>; false when it did not clip that frame (stock drew the
+        /// line: no bounds, a full period or more, parabolic, degenerate) or the tap is off.</summary>
+        internal static bool TryGetDrawnArcClip(uint pid, int frame, out double startUT, out double endUT)
+        {
+            startUT = 0;
+            endUT = 0;
+            if (!drawnArcClips.TryGetValue(pid, out DrawnArcClip c) || c.Frame != frame)
+                return false;
+            startUT = c.StartUT;
+            endUT = c.EndUT;
+            return true;
+        }
+
         static bool Prefix(OrbitRendererBase __instance)
         {
             if (__instance.vessel == null) return true;
@@ -1408,6 +1446,9 @@ namespace Parsek.Patches
                     orbit.eccentricity, orbit.semiMajorAxis,
                     line.drawEnd, count,
                     HighLogic.LoadedScene));
+
+            if (drawnArcTapArmed)
+                drawnArcClips[pid] = new DrawnArcClip { Frame = Time.frameCount, StartUT = startUT, EndUT = endUT };
 
             return false; // skip original UpdateSpline
         }

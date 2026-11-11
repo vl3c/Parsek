@@ -19,11 +19,13 @@ namespace Parsek
     /// <see cref="MapGeometryDocument"/>, and writes it with the pure <see cref="MapGeometryJson"/>.
     ///
     /// <para>READ-ONLY. Every source is read through a read accessor that copies
-    /// (<c>VisitCachedLegs</c>, <c>VisitCachedForwardArcs</c>, <c>VisitCachedRouteLegs</c>,
-    /// <c>ShadowRenderDriver.TryGetLastIntent</c>, the marker tap); nothing drawn is touched and
-    /// no setting is read, so the dump works with <c>mapRenderTracing</c> off. The one state it
-    /// arms is the marker tap (<see cref="MapMarkerRenderer.SetDrawnMarkerTapArmed"/>), which
-    /// only records the positions the marker funnels already compute.</para>
+    /// (<c>VisitCachedLegs</c>, <c>VisitCachedForwardArcs</c>, <c>VisitCachedBridgeLines</c>,
+    /// <c>VisitCachedRouteLegs</c>, <c>ShadowRenderDriver.TryGetLastIntent</c>, the two taps);
+    /// nothing drawn is touched and no setting is read, so the dump works with
+    /// <c>mapRenderTracing</c> off. The only state it arms is two taps
+    /// (<see cref="MapMarkerRenderer.SetDrawnMarkerTapArmed"/>,
+    /// <c>GhostOrbitArcPatch.SetDrawnArcTapArmed</c>), which only record what the marker
+    /// funnels and the orbit arc clip already compute.</para>
     ///
     /// <para>FRAMES. Every position is a difference of WORLD positions taken in the capture
     /// frame, so all of them share one set of world axes (the <c>axes</c> block names
@@ -117,51 +119,57 @@ namespace Parsek
             var markers = new Dictionary<string, Vector3d>(StringComparer.Ordinal);
             MapMarkerRenderer.CopyDrawnMarkers(frame, markers);
             var consumedMarkers = new HashSet<string>(StringComparer.Ordinal);
+            var summary = new MapGeometryDecisions.CaptureSummary { Frame = frame, Scene = sceneToken };
 
-            int protoGhosts = CaptureProtoGhosts(
-                doc, frame, scale, bodiesByName, ghostsByRecording, primaryPidByRecording);
+            summary.ProtoGhosts = CaptureProtoGhosts(
+                doc, frame, ut, scale, bodiesByName, ghostsByRecording, primaryPidByRecording, summary);
 
-            int legs = 0, arcs = 0, legRefs = 0;
             GhostTrajectoryPolylineRenderer.VisitCachedLegs((recId, index, leg) =>
             {
-                if (!MapGeometryDecisions.IsCachedLineReported(
-                        leg.vectorLine.active, leg.lastDrawnFrame, frame))
+                MapGeometryDecisions.CachedLineReport report = MapGeometryDecisions.ClassifyCachedLine(
+                    leg.vectorLine.active, leg.lastDrawnFrame, frame);
+                if (report == MapGeometryDecisions.CachedLineReport.Skip)
                     return;
                 var line = new MapGeometryLine
                 {
                     Kind = MapGeometryDecisions.KindPolyline,
                     Body = leg.bodyName,
-                    Active = leg.vectorLine.active,
+                    Active = report == MapGeometryDecisions.CachedLineReport.Drawn,
                     Ut0 = leg.startUT,
                     Ut1 = leg.endUT,
                 };
-                FillDrawnPoints(line, leg.vectorLine, leg.bodyName, bodiesByName, scale);
+                if (line.Active)
+                    FillDrawnPoints(line, leg.vectorLine, leg.bodyName, bodiesByName, scale);
                 if (!leg.wasAnchored && leg.lastDrawnFrame == frame
                     && leg.parityDrawFrame == leg.lastDrawnFrame
                     && leg.parityRecordedRel != null && leg.parityRecordedRel.Length >= 3)
                 {
                     line.Reference = FromFlat(leg.parityRecordedRel);
                     line.ReferenceKind = MapGeometryDecisions.ReferenceRecorded;
-                    legRefs++;
+                    summary.LegRefs++;
                 }
                 GhostFor(doc, recId, ghostsByRecording, primaryPidByRecording).Lines.Add(line);
-                legs++;
+                summary.Legs++;
             });
 
             GhostTrajectoryPolylineRenderer.VisitCachedForwardArcs((recId, secondary, index, arc) =>
             {
-                if (!MapGeometryDecisions.IsCachedLineReported(
-                        arc.vectorLine.active, arc.lastDrawnFrame, frame))
+                MapGeometryDecisions.CachedLineReport report = MapGeometryDecisions.ClassifyCachedLine(
+                    arc.vectorLine.active, arc.lastDrawnFrame, frame);
+                if (report == MapGeometryDecisions.CachedLineReport.Skip)
                     return;
                 var line = new MapGeometryLine
                 {
                     Kind = MapGeometryDecisions.KindTail,
                     Body = arc.bodyName,
-                    Active = arc.vectorLine.active,
+                    Active = report == MapGeometryDecisions.CachedLineReport.Drawn,
                     Ut0 = arc.startUT,
                     Ut1 = arc.endUT,
                 };
-                FillDrawnPoints(line, arc.vectorLine, arc.bodyName, bodiesByName, scale);
+                // The arc's drawStart / drawEnd already carry the seam-bridge clip, so the
+                // points are the piece drawn; the bridge itself is read below.
+                if (line.Active)
+                    FillDrawnPoints(line, arc.vectorLine, arc.bodyName, bodiesByName, scale);
                 if (arc.bodyRelOffsets != null && arc.bodyRelOffsets.Length > 0)
                 {
                     line.Reference = new List<double[]>(arc.bodyRelOffsets.Length);
@@ -170,11 +178,32 @@ namespace Parsek
                     line.ReferenceKind = MapGeometryDecisions.ReferenceIntended;
                 }
                 GhostFor(doc, recId, ghostsByRecording, primaryPidByRecording).Lines.Add(line);
-                arcs++;
+                summary.Arcs++;
             });
 
-            int markersDrawn = AttachMarkers(
-                doc, markers, consumedMarkers, bodiesByName, ghostsByRecording, primaryPidByRecording);
+            // Seam bridges: the filler from a drawn leg's end to the adjacent conic. Attached to
+            // the leg's recording; no `ut` (a bridge blends two pieces, it covers no recorded
+            // span of its own).
+            GhostTrajectoryPolylineRenderer.VisitCachedBridgeLines(bridge =>
+            {
+                MapGeometryDecisions.CachedLineReport report = MapGeometryDecisions.ClassifyCachedLine(
+                    bridge.Line.active, bridge.LastDrawnFrame, frame);
+                if (report == MapGeometryDecisions.CachedLineReport.Skip)
+                    return;
+                var line = new MapGeometryLine
+                {
+                    Kind = MapGeometryDecisions.KindBridge,
+                    Body = bridge.BodyName,
+                    Active = report == MapGeometryDecisions.CachedLineReport.Drawn,
+                };
+                if (line.Active)
+                    FillDrawnPoints(line, bridge.Line, bridge.BodyName, bodiesByName, scale);
+                GhostFor(doc, bridge.LegRecordingId, ghostsByRecording, primaryPidByRecording).Lines.Add(line);
+                summary.Bridges++;
+            });
+
+            summary.MarkersDrawn = AttachMarkers(
+                doc, markers, consumedMarkers, ghostsByRecording, primaryPidByRecording);
 
             // Ghost "body" fallback for entries with no intent / proto orbit: the first active
             // line's body, so an icon-less pid-0 entry still names its frame.
@@ -186,13 +215,17 @@ namespace Parsek
                     if (g.Lines[l].Active && g.Lines[l].Body != null) { g.Body = g.Lines[l].Body; break; }
             }
 
-            int routeLegs = CaptureRoutes(doc, frame, scale, bodiesByName);
+            // Icon positions, now that every entry has the body it will name: a marker-only
+            // entry with no line takes the body whose SOI contains the marker.
+            summary.MarkerBodiesBySoi = ResolveIconPositions(doc, bodiesByName);
 
-            ParsekLog.Verbose(Tag, string.Format(CultureInfo.InvariantCulture,
-                "capture frame={0} scene={1} bodies={2} ghosts={3} protoGhosts={4} legs={5} " +
-                "legRefs={6} arcs={7} markersDrawn={8} routes={9} routeLegs={10}",
-                frame, sceneToken, doc.Bodies.Count, doc.Ghosts.Count, protoGhosts, legs,
-                legRefs, arcs, markersDrawn, doc.Routes.Count, routeLegs));
+            summary.RouteLegs = CaptureRoutes(doc, frame, scale, bodiesByName);
+            summary.Routes = doc.Routes.Count;
+            summary.Bodies = doc.Bodies.Count;
+            summary.Ghosts = doc.Ghosts.Count;
+            MeasureScaledSpace(bodiesByName, scale, summary);
+
+            ParsekLog.Info(Tag, MapGeometryDecisions.FormatCaptureSummary(summary));
             return doc;
         }
 
@@ -252,10 +285,11 @@ namespace Parsek
                || b.referenceBody == b;
 
         private static int CaptureProtoGhosts(
-            MapGeometryDocument doc, int frame, double scale,
+            MapGeometryDocument doc, int frame, double ut, double scale,
             Dictionary<string, CelestialBody> bodiesByName,
             Dictionary<string, List<MapGeometryGhost>> ghostsByRecording,
-            Dictionary<string, uint> primaryPidByRecording)
+            Dictionary<string, uint> primaryPidByRecording,
+            MapGeometryDecisions.CaptureSummary summary)
         {
             var pids = new List<uint>(GhostMapPresence.ghostMapVesselPids);
             pids.Sort();
@@ -340,15 +374,46 @@ namespace Parsek
                             Epoch = orbit.epoch,
                         };
                     }
-                    if (GhostMapPresence.ghostOrbitBounds.TryGetValue(pid, out var bounds)
+                    // `ut` is the window of the arc actually drawn: the one GhostOrbitArcPatch
+                    // clipped to THIS frame (its tap), else the same visible-bounds call the
+                    // clip makes (stock drew the line: a full period or more). Both are
+                    // live-frame; the clip maps live to recording time as effUT = live - shift
+                    // in either drive mode, so the same subtraction gives the recording time.
+                    bool clipped = Patches.GhostOrbitArcPatch.TryGetDrawnArcClip(
+                        pid, frame, out double clipStart, out double clipEnd);
+                    double visStart = 0, visEnd = 0;
+                    bool hasVisible = !clipped && GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                        pid, ut, out visStart, out visEnd);
+                    if (MapGeometryDecisions.TrySelectOrbitLineWindow(
+                            clipped, clipStart, clipEnd, hasVisible, visStart, visEnd,
+                            out double liveStart, out double liveEnd, out _)
                         && MapGeometryDecisions.TryRecordingTimeRange(
-                            bounds.startUT, bounds.endUT, GhostMapPresence.GetGhostOrbitEpochShift(pid),
+                            liveStart, liveEnd, GhostMapPresence.GetGhostOrbitEpochShift(pid),
                             out double ut0, out double ut1))
                     {
                         line.Ut0 = ut0;
                         line.Ut1 = ut1;
                     }
+                    if (line.Active)
+                        line.Clipped = clipped;
                     ghost.Lines.Add(line);
+
+                    // Frame-offset check for the summary line: the proto icon against its own
+                    // drawn orbit line, both relative to the orbit's body.
+                    if (vessel != null && line.Active && orbitBody != null && line.Points.Count > 0)
+                    {
+                        double? d = MapGeometryDecisions.MinDistanceToPolyline(
+                            Triple(vessel.GetWorldPos3D() - orbitBody.position), line.Points);
+                        if (d.HasValue)
+                        {
+                            summary.IconLineMeasured++;
+                            if (!summary.MaxIconToLineM.HasValue || d.Value > summary.MaxIconToLineM.Value)
+                            {
+                                summary.MaxIconToLineM = d.Value;
+                                summary.MaxIconToLinePid = pid;
+                            }
+                        }
+                    }
                 }
 
                 // The proto icon: stock draws it from the renderer's drawIcons while the
@@ -360,9 +425,8 @@ namespace Parsek
                 {
                     Drawn = protoIconDrawn,
                     Source = protoIconDrawn ? "proto" : null,
+                    World = vessel != null ? Triple(vessel.GetWorldPos3D()) : null,
                 };
-                if (vessel != null && TryBody(ghost.Body, bodiesByName, out CelestialBody frameBody))
-                    ghost.Icon.Pos = Triple(vessel.GetWorldPos3D() - frameBody.position);
 
                 doc.Ghosts.Add(ghost);
                 if (recId != null)
@@ -432,7 +496,6 @@ namespace Parsek
         // the proto hide, so both are not drawn).
         private static int AttachMarkers(
             MapGeometryDocument doc, Dictionary<string, Vector3d> markers, HashSet<string> consumed,
-            Dictionary<string, CelestialBody> bodiesByName,
             Dictionary<string, List<MapGeometryGhost>> ghostsByRecording,
             Dictionary<string, uint> primaryPidByRecording)
         {
@@ -453,7 +516,7 @@ namespace Parsek
                         continue;
                 }
                 consumed.Add(key);
-                SetMarkerIcon(g, markers[key], bodiesByName);
+                SetMarkerIcon(g, markers[key]);
                 drawn++;
             }
 
@@ -483,7 +546,7 @@ namespace Parsek
                     }
                     l2.Add(g);
                 }
-                SetMarkerIcon(g, markers[key], bodiesByName);
+                SetMarkerIcon(g, markers[key]);
                 drawn++;
             }
             return drawn;
@@ -494,12 +557,84 @@ namespace Parsek
                && primaryPidByRecording.TryGetValue(g.RecordingId, out uint primary)
                && primary == g.Pid;
 
-        private static void SetMarkerIcon(
-            MapGeometryGhost g, Vector3d world, Dictionary<string, CelestialBody> bodiesByName)
+        // The marker's WORLD position is kept; its body-relative `pos` is resolved by
+        // ResolveIconPositions once the entry's body is known (a pid-0 entry learns it from its
+        // lines or the marker itself, after this runs).
+        private static void SetMarkerIcon(MapGeometryGhost g, Vector3d world)
         {
-            g.Icon = new MapGeometryIcon { Drawn = true, Source = "marker" };
-            if (TryBody(g.Body, bodiesByName, out CelestialBody body))
-                g.Icon.Pos = Triple(world - body.position);
+            g.Icon = new MapGeometryIcon { Drawn = true, Source = "marker", World = Triple(world) };
+        }
+
+        // Every icon's `pos` relative to its ghost's body. An entry still without a body (a
+        // marker-only pid-0 entry: no intent, no proto orbit, no active line) takes the body
+        // whose sphere of influence contains the icon (MapGeometryDecisions.ContainingSoiBody,
+        // innermost SOI wins, else the root). Returns how many entries got their body that way.
+        private static int ResolveIconPositions(
+            MapGeometryDocument doc, Dictionary<string, CelestialBody> bodiesByName)
+        {
+            List<MapGeometryDecisions.SoiCandidate> candidates = null;
+            int bySoi = 0;
+            for (int i = 0; i < doc.Ghosts.Count; i++)
+            {
+                MapGeometryGhost g = doc.Ghosts[i];
+                if (g.Icon == null || g.Icon.World == null) continue;
+                if (g.Body == null)
+                {
+                    if (candidates == null) candidates = SoiCandidates();
+                    string soiBody = MapGeometryDecisions.ContainingSoiBody(g.Icon.World, candidates);
+                    if (soiBody != null)
+                    {
+                        g.Body = soiBody;
+                        bySoi++;
+                    }
+                }
+                if (TryBody(g.Body, bodiesByName, out CelestialBody body))
+                {
+                    Vector3d c = body.position;
+                    g.Icon.Pos = new[] { g.Icon.World[0] - c.x, g.Icon.World[1] - c.y, g.Icon.World[2] - c.z };
+                }
+            }
+            return bySoi;
+        }
+
+        private static List<MapGeometryDecisions.SoiCandidate> SoiCandidates()
+        {
+            var list = new List<MapGeometryDecisions.SoiCandidate>();
+            List<CelestialBody> bodies = FlightGlobals.Bodies;
+            if (bodies == null) return list;
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                CelestialBody b = bodies[i];
+                if (b == null) continue;
+                // The root's SOI is unbounded whatever stock stores for it.
+                double soi = IsRoot(b) ? double.PositiveInfinity : b.sphereOfInfluence;
+                list.Add(new MapGeometryDecisions.SoiCandidate
+                {
+                    Name = b.bodyName, Centre = Triple(b.position), Soi = soi,
+                });
+            }
+            return list;
+        }
+
+        // The summary line's scaled-space figures: ScaledSpace's floating offset (its private
+        // totalOffset, read as -LocalToScaledSpace(0)) and the max gap, in metres, between a
+        // scaled body's transform (the centre every drawn vertex is mapped against) and
+        // LocalToScaledSpace(body.position). A frame-offset error under warp shows there.
+        private static void MeasureScaledSpace(
+            Dictionary<string, CelestialBody> bodiesByName, double scale,
+            MapGeometryDecisions.CaptureSummary summary)
+        {
+            summary.ScaledOffset = Triple(Vector3d.zero - ScaledSpace.LocalToScaledSpace(Vector3d.zero));
+            foreach (var kv in bodiesByName)
+            {
+                CelestialBody b = kv.Value;
+                if (b == null || b.scaledBody == null) continue;
+                Vector3d gap = (Vector3d)b.scaledBody.transform.position - ScaledSpace.LocalToScaledSpace(b.position);
+                double m = gap.magnitude * scale;
+                if (!MapGeometryJson.IsFinite(m)) continue;
+                if (!summary.MaxScaledCentreSkewM.HasValue || m > summary.MaxScaledCentreSkewM.Value)
+                    summary.MaxScaledCentreSkewM = m;
+            }
         }
 
         private static int CaptureRoutes(

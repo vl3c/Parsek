@@ -5416,8 +5416,10 @@ its geometry pair under one label. No other arg (the pre-launch validator reject
 scene DEFERS `not-in-map-scene`. REJECTED (nothing armed): the two label tokens,
 `map-view-closed` (FLIGHT with the map closed: an `EnterMapView` step first) and
 `not-in-map-scene` (the applier's belt for a scene that changed under the dispatch). On admission
-the applier arms the marker-position tap (`MapMarkerRenderer.SetDrawnMarkerTapArmed`,
-observation-only, cleared when the capture ends) and starts a coroutine that waits for a LATER
+the applier arms two taps together, the marker-position tap
+(`MapMarkerRenderer.SetDrawnMarkerTapArmed`) and the orbit arc-clip tap
+(`GhostOrbitArcPatch.SetDrawnArcTapArmed`), both observation-only and both cleared when the
+capture ends, and starts a coroutine that waits for a LATER
 frame and then `WaitForEndOfFrame`, so stock's orbit lines (LateUpdate), Parsek's polylines
 (OnPreCull) and the markers (OnGUI) of that one frame are all drawn before it reads them. The
 capture writes `<KSP root>/Screenshots/<label>.map.json` through `FileIOUtils.SafeWriteBytes`.

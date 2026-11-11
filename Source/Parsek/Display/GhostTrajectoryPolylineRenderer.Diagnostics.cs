@@ -54,6 +54,47 @@ namespace Parsek.Display
             }
         }
 
+        /// <summary>One seam-bridge line as the map-geometry dump reads it: the leg it joins
+        /// (recording id, leg index, side), the body its scaled-space points are centred on, the
+        /// line itself and the frame it last drew.</summary>
+        internal struct BridgeLineView
+        {
+            internal string LegRecordingId;
+            internal int LegIndex;
+            internal bool AtLegStart;
+            internal string BodyName;
+            internal VectorLine Line;
+            internal int LastDrawnFrame;
+        }
+
+        /// <summary>
+        /// Read-only visitor over the SEAM-BRIDGE line cache for the map-geometry dump: hands
+        /// every cached bridge that owns a <c>VectorLine</c> and has drawn at least once to
+        /// <paramref name="onBridge"/>, in ordinal key order (the cache key is
+        /// <c>legRecordingId|legIndex|s|e</c>). Writes nothing back. The caller decides what
+        /// counts as drawn (<c>Line.active</c>, <c>LastDrawnFrame</c>).
+        /// </summary>
+        internal static void VisitCachedBridgeLines(Action<BridgeLineView> onBridge)
+        {
+            if (onBridge == null || bridgeLineByRecording.Count == 0) return;
+            var keys = new List<string>(bridgeLineByRecording.Keys);
+            keys.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < keys.Count; i++)
+            {
+                BridgeLineEntry e = bridgeLineByRecording[keys[i]];
+                if (e == null || e.line == null || e.legRecordingId == null) continue;
+                onBridge(new BridgeLineView
+                {
+                    LegRecordingId = e.legRecordingId,
+                    LegIndex = e.legIndex,
+                    AtLegStart = e.atLegStart,
+                    BodyName = e.bodyName,
+                    Line = e.line,
+                    LastDrawnFrame = e.lastDrawnFrame,
+                });
+            }
+        }
+
         /// <summary>
         /// Pure inverse of <see cref="ForwardArcDictKey"/>: true when <paramref name="dictKey"/>
         /// is a boundary-overlap secondary key, with <paramref name="recordingId"/> the id it
