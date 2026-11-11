@@ -349,7 +349,14 @@ raised the fade; the rest are still open. Read on the next run:
   still sit just under 1 (`tp1-c1-arrival-mun-top`: 0.996, a fade-in not quite finished), which
   draws; a line at 0 < opacity < 1 well below that after the hold would mean 4.5 s is not enough.
 - The proto icon's `drawn` reading (`orbitRenderer.enabled` plus `drawIcons`), which is a proxy for
-  stock's icon draw, not a read of it.
+  stock's icon draw, not a read of it. ANSWERED IN PART by TP-4's run `2026-11-11_2316`: the dump
+  wrote `drawn: true` for a proto icon the screenshot does not show (`tp4-c1-arrival-duna-top`).
+  Stock's `OrbitRendererBase.objectNode_OnUpdateIcon` sets the icon colour's alpha to
+  `lineOpacity` (IL: `XKCDColors.A(nodeColor, lineOpacity)`; the vessel subclass does not override
+  it), so an icon fades out with its orbit line. The map mirror page applies that rule itself
+  (`map_mirror.proto_icon_faded`: a proto icon whose orbit line reads opacity 0 is "not drawn
+  (stock fade)"); the dump still writes the proxy, and folding the opacity into `icon.drawn` is
+  owed (todo MAP-PICTURE-LANES-FIRST-FLIGHT).
 - The marker positions in FLIGHT come from the same world position the marker funnel projects;
   whether they agree with the PNG's marker to the pixel is unmeasured.
 - The arc-clip tap. `clipped` and the orbit `ut` window rely on `GhostOrbitArcPatch`'s Prefix

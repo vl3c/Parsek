@@ -37,20 +37,27 @@ id = "TP-4-duna-reaim-landing-map-pictures"
 # spanStart): the re-aimed Sun conic ends at Duna's SOI at 5,357,283,912 and the shifted
 # parking conic starts (the capture) at 5,357,321,232.
 #
-# THE OLD ARRIVAL SLOT IS A FINDING, NOT AN ARRIVAL. At 5,360,144,085, 31 days after the
-# landing clip ended, that run's dump and trace still show the transfer member's proto
-# icon in the Duna parking orbit (todo REAIM-PARKING-ICON-AFTER-LANDING). The `c1-after`
-# view photographs Duna close up after the landing so the page shows what is drawn there.
+# THE OLD ARRIVAL SLOT IS A FINDING, NOT AN ARRIVAL. Run 2026-11-11_2238's trace shows the
+# transfer member's proto orbit line and icon in the Duna parking orbit again over
+# [5,360,095,095.6, 5,360,144,182.0], a month after the landing clip ended (todo
+# REAIM-PARKING-ICON-AFTER-LANDING). `c1-after` photographs Duna close up just after the
+# landing (run 2026-11-11_2316: nothing of the lander left, as it should be) and `c1-late`
+# photographs it inside that later window.
+#
+# STOCK'S FADE DECIDES THE DISTANCES. Stock fades a vessel's orbit line AND its icon (the
+# icon's colour alpha is the line opacity) once the camera is 25 SMA from its target, so
+# the inbound hyperbola (SMA -188 km) is on screen only inside 4.7e6 m of Duna and the
+# parking orbit (SMA 496 km) inside 1.24e7 m. Run 2026-11-11_2316 framed the arrival at
+# 5e6 and 1.05e8 and photographed neither line nor icon; the arrival views now sit at 3e6.
 #
 # INSTANTS AND VIEWS (label tp4-<instant>-<view>; one cycle, as V25M flies one; every
 # jump is forward):
 #   c1-transfer 5,355,451,927  midpoint of D0 and the recorded-map SOI entry: the
 #                              heliocentric transfer
 #                              sys-top / sys-edge (Sun, 5e10), duna-soi-top (Duna, 1.05e8)
-#   c1-arrival  5,357,320,632  600 s before the capture: the inbound Duna hyperbola
-#                              duna-soi-top (Duna, 1.05e8), duna-top / duna-edge (Duna, 5e6:
-#                              stock fades an orbit line out once the camera is 25 SMA away,
-#                              so the SOI-scale view shows the icon and the close ones the line)
+#   c1-arrival  5,357,320,632  600 s before the capture: the inbound Duna hyperbola, the
+#                              ghost about 600 km up
+#                              duna-top / duna-edge / duna-oblique (Duna, 3e6; 30 deg)
 #   c1-descent  5,357,413,167  60 s into the descent window (recorded 2,570,542,441)
 #                              duna-low-top / duna-low-edge (Duna, 1.5e6), duna-top (7e6)
 #   c1-landing  5,357,413,297  190 s into the window; with the 5 s settle and three held
@@ -58,6 +65,9 @@ id = "TP-4-duna-reaim-landing-map-pictures"
 #                              239 s end of the atmospheric descent
 #                              duna-low-top, duna-low-edge, duna-low-oblique (30 deg, 1.2e6)
 #   c1-after    5,357,440,000  6,380 s after the window closed (the lander is down)
+#                              duna-low-top (Duna, 1.5e6)
+#   c1-late     5,360,120,000  inside [5,360,095,095.6, 5,360,144,182.0], where run
+#                              2026-11-11_2238 traced the parking conic drawn again
 #                              duna-low-top (Duna, 1.5e6)
 #
 # THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
@@ -98,7 +108,7 @@ id = "TP-4-duna-reaim-landing-map-pictures"
 #     still owed. The tier is `operator` because the lane is run on request for pictures.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2154; again with the MapCamera hold, run 2026-11-11_2238). V25M's re-aimed Kerbin->Duna loop (heliocentric parking departure) on duna-park-recorded, with the flight map opened (V25M never opens it): at the heliocentric transfer, the inbound Duna hyperbola, the Duna atmospheric descent, just before touchdown and after the landing it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 13 views in all. The Duna instants were re-pinned on 2026-11-11 off the descent window run 2026-11-11_2238 printed (the first two flights photographed the recorded loop-clock slots, where a re-aimed landing does not play); the re-pinned instants and the after-landing view are not flown yet. Expectations are only that every view was taken and none was refused."
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2154; again with the MapCamera hold, run 2026-11-11_2238; with the re-pinned Duna instants, run 2026-11-11_2316). V25M's re-aimed Kerbin->Duna loop (heliocentric parking departure) on duna-park-recorded, with the flight map opened (V25M never opens it): at the heliocentric transfer, the inbound Duna hyperbola, the Duna atmospheric descent, just before touchdown, just after the landing and a month later it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 14 views in all. The Duna instants were re-pinned on 2026-11-11 off the descent window run 2026-11-11_2238 printed (the first two flights photographed the recorded loop-clock slots, where a re-aimed landing does not play) and run 2026-11-11_2316 photographed the lander in all six descent and landing views; the closer arrival views (3e6, inside stock's fade distance) and the late-slot view are not flown yet. Expectations are only that every view was taken and none was refused."
 instanceProfile = "stock-minimal"
 tags = ["TP", "TP-4", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "flown", "duna", "reaim", "landing", "cross-parent"]
 
@@ -138,18 +148,18 @@ steps = [
   # INSTANT c1-arrival at UT 5357320632: 600 s before the re-aimed capture 5,357,321,232 (the shifted parking conic's start): the inbound Duna hyperbola
   { cmd = "TimeJump", args = { ut = "5357320632" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "5357320637", maxRate = "1" }, expect = "OK", budget = 120 },
-  # view tp4-c1-arrival-duna-soi-top: Duna pitch=90 heading=0 distance=105000000 m
-  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "105000000", hold = "4.5" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-arrival-duna-soi-top" }, expect = "OK" },
-  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-arrival-duna-soi-top" }, expect = "OK" },
-  # view tp4-c1-arrival-duna-top: Duna pitch=90 heading=0 distance=5000000 m
-  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "5000000", hold = "4.5" }, expect = "OK" },
+  # view tp4-c1-arrival-duna-top: Duna pitch=90 heading=0 distance=3000000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "3000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp4-c1-arrival-duna-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp4-c1-arrival-duna-top" }, expect = "OK" },
-  # view tp4-c1-arrival-duna-edge: Duna pitch=0 heading=0 distance=5000000 m
-  { cmd = "MapCamera", args = { focus = "Duna", pitch = "0", heading = "0", distance = "5000000", hold = "4.5" }, expect = "OK" },
+  # view tp4-c1-arrival-duna-edge: Duna pitch=0 heading=0 distance=3000000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "0", heading = "0", distance = "3000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp4-c1-arrival-duna-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp4-c1-arrival-duna-edge" }, expect = "OK" },
+  # view tp4-c1-arrival-duna-oblique: Duna pitch=30 heading=0 distance=3000000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "30", heading = "0", distance = "3000000", hold = "4.5" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-arrival-duna-oblique" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-arrival-duna-oblique" }, expect = "OK" },
   # INSTANT c1-descent at UT 5357413167: 60 s into the descent window [5,357,413,107.30, 5,357,433,620.62] run 2026-11-11_2238 printed: the Duna atmospheric descent, recorded 2,570,542,441 (acf1435a, 49 km -> 4.5 km over the window's first 239.25 s)
   { cmd = "TimeJump", args = { ut = "5357413167" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "5357413172", maxRate = "1" }, expect = "OK", budget = 120 },
@@ -187,6 +197,13 @@ steps = [
   { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "1500000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp4-c1-after-duna-low-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp4-c1-after-duna-low-top" }, expect = "OK" },
+  # INSTANT c1-late at UT 5360120000: inside [5,360,095,095.6, 5,360,144,182.0], the recorded loop-clock slot of the Duna parking orbit, a month after the landing (todo REAIM-PARKING-ICON-AFTER-LANDING)
+  { cmd = "TimeJump", args = { ut = "5360120000" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "5360120005", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp4-c1-late-duna-low-top: Duna pitch=90 heading=0 distance=1500000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "1500000", hold = "4.5" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-late-duna-low-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-late-duna-low-top" }, expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -215,12 +232,12 @@ required  = [
   "dumpmapgeometry ok label=tp4-c1-transfer-sys-edge scene=FLIGHT ",
   "capturescreenshot ok label=tp4-c1-transfer-duna-soi-top bytes=",
   "dumpmapgeometry ok label=tp4-c1-transfer-duna-soi-top scene=FLIGHT ",
-  "capturescreenshot ok label=tp4-c1-arrival-duna-soi-top bytes=",
-  "dumpmapgeometry ok label=tp4-c1-arrival-duna-soi-top scene=FLIGHT ",
   "capturescreenshot ok label=tp4-c1-arrival-duna-top bytes=",
   "dumpmapgeometry ok label=tp4-c1-arrival-duna-top scene=FLIGHT ",
   "capturescreenshot ok label=tp4-c1-arrival-duna-edge bytes=",
   "dumpmapgeometry ok label=tp4-c1-arrival-duna-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-arrival-duna-oblique bytes=",
+  "dumpmapgeometry ok label=tp4-c1-arrival-duna-oblique scene=FLIGHT ",
   "capturescreenshot ok label=tp4-c1-descent-duna-low-top bytes=",
   "dumpmapgeometry ok label=tp4-c1-descent-duna-low-top scene=FLIGHT ",
   "capturescreenshot ok label=tp4-c1-descent-duna-low-edge bytes=",
@@ -235,6 +252,8 @@ required  = [
   "dumpmapgeometry ok label=tp4-c1-landing-duna-low-oblique scene=FLIGHT ",
   "capturescreenshot ok label=tp4-c1-after-duna-low-top bytes=",
   "dumpmapgeometry ok label=tp4-c1-after-duna-low-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-late-duna-low-top bytes=",
+  "dumpmapgeometry ok label=tp4-c1-late-duna-low-top scene=FLIGHT ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

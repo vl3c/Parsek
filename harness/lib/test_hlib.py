@@ -10945,11 +10945,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # committed fixture to take MapCamera + CaptureScreenshot + DumpMapGeometry views
         # for a human and the map mirror page, run on request. Their model lanes keep every
         # behavioural claim. All eight flew green on their first flight (2026-11-11) and
-        # again with the MapCamera hold; TP-4's re-pinned Duna instants are not flown yet.
+        # again with the MapCamera hold; TP-4 flew a third time with re-pinned Duna instants, and
+        # its closer arrival views and late-slot view are not flown yet.
         "TP-1-mun-loop-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         "TP-2-mun-loop-ts-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         "TP-3-minmus-loop-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
-        "TP-4-duna-reaim-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold; its Duna instants were re-pinned off that flight's log and the re-pin is not flown yet",
+        "TP-4-duna-reaim-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11, again with the MapCamera hold and again with its Duna instants re-pinned off that flight's log; the closer arrival views and the late-slot view added after that are not flown yet",
         "TP-5-laythe-vall-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         "TP-6-mun-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         "TP-7-depot-route-ts-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",

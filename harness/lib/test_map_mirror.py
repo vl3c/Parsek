@@ -476,6 +476,32 @@ class SampleMeasurementTests(unittest.TestCase):
         self.assertIsNone(m["lines"][0]["gapToNext"])
         self.assertIsNone(m["lines"][0]["conicFit"])
 
+    def test_a_proto_icon_fades_with_its_orbit_line(self):
+        # Stock tints the proto icon with the orbit line's fade opacity, so an icon
+        # whose only orbit line reads 0 is not on screen whatever `drawn` says.
+        line = lambda kind, op: {"kind": kind, "opacity": op}
+        self.assertTrue(mm.proto_icon_faded(True, "proto", [line("orbit", 0.0)]))
+        self.assertTrue(mm.proto_icon_faded(
+            True, "proto", [line("polyline", None), line("orbit", 0.0)]))
+        self.assertFalse(mm.proto_icon_faded(True, "proto", [line("orbit", 0.4)]))
+        # No opacity key (an older dump), no orbit line, a marker icon or an icon the
+        # dump already calls not drawn: the dump's own reading stands.
+        self.assertFalse(mm.proto_icon_faded(True, "proto", [line("orbit", None)]))
+        self.assertFalse(mm.proto_icon_faded(True, "proto", [line("polyline", None)]))
+        self.assertFalse(mm.proto_icon_faded(True, "marker", [line("orbit", 0.0)]))
+        self.assertFalse(mm.proto_icon_faded(False, "proto", [line("orbit", 0.0)]))
+        # Through the validator: the icon is reported not drawn, and flagged as faded.
+        obj = load_json(SAMPLE)
+        ghost = next(g for g in obj["ghosts"] if g["icon"].get("source") == "proto")
+        ghost["icon"]["drawn"] = True
+        ghost["lines"] = [{"kind": "orbit", "body": ghost["body"], "active": False,
+                           "opacity": 0, "points": []}]
+        dump, _ = mm.validate_dump(obj)
+        icon = next(g for g in dump["ghosts"] if g["recordingId"] == ghost["recordingId"])["icon"]
+        self.assertEqual((icon["drawn"], icon["faded"]), (False, True))
+        untouched = [g["icon"] for g in mm.load_dump(SAMPLE)[0]["ghosts"]]
+        self.assertFalse(any(i["faded"] for i in untouched))
+
     def test_an_opacity_outside_zero_to_one_is_a_note(self):
         obj = load_json(SAMPLE)
         obj["ghosts"][1]["lines"][0]["opacity"] = 1.5
