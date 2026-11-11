@@ -1,0 +1,172 @@
+[LOG 23:54:57.328] [Parsek][VERBOSE][CommittedFutureIndex] Invalidated committed-future index: reason=save-scoped-reset
+[LOG 23:55:01.652] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:55:01.652] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:55:01.719] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:55:01.719] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:55:06.675] [Parsek][INFO][TestCommands] recv id=0013 cmd=MapCamera args=4
+[LOG 23:55:06.675] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=MapCamera | suppressed=10
+[LOG 23:55:06.676] [Parsek][INFO][TestCommands] exec id=0013 cmd=MapCamera start
+[LOG 23:55:06.687] [Parsek][INFO][TestCommands] mapcamera applied focus=Sun pitch=90 heading=0 distance=50000000000 frame=7388
+[LOG 23:55:07.304] [Parsek][INFO][TestCommands] mapcamera ok focus=Sun pitch=90.000002504478161 heading=0 distance=50000001000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=37
+[LOG 23:55:07.324] [Parsek][INFO][TestCommands] recv id=0014 cmd=CaptureScreenshot args=1
+[LOG 23:55:07.324] [Parsek][INFO][TestCommands] exec id=0014 cmd=CaptureScreenshot start
+[LOG 23:55:07.325] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-transfer-sys-top superSize=1 overwrote=false path=Screenshots/tp4-c1-transfer-sys-top.png
+[LOG 23:55:07.388] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-transfer-sys-top bytes=594014 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:07.426] [Parsek][INFO][TestCommands] recv id=0015 cmd=DumpMapGeometry args=1
+[LOG 23:55:07.426] [Parsek][INFO][TestCommands] exec id=0015 cmd=DumpMapGeometry start
+[LOG 23:55:07.428] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-transfer-sys-top scene=FLIGHT path=Screenshots/tp4-c1-transfer-sys-top.map.json armFrame=7432
+[LOG 23:55:07.451] [Parsek][INFO][MapGeometry] capture frame=7433 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=1 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(844185.344223346,8331810.1552826576,-2103635.3422861593) maxScaledCentreSkewM=3654.219 iconLineMeasured=2 maxIconToOrbitLineM=294246.2 pid=2762532434
+[LOG 23:55:07.458] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-transfer-sys-top scene=FLIGHT path=Screenshots/tp4-c1-transfer-sys-top.map.json bytes=81174 frame=7433 ghosts=2 lines=3 points=480 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:07.477] [Parsek][INFO][TestCommands] recv id=0016 cmd=MapCamera args=4
+[LOG 23:55:07.477] [Parsek][INFO][TestCommands] exec id=0016 cmd=MapCamera start
+[LOG 23:55:07.481] [Parsek][INFO][TestCommands] mapcamera applied focus=Sun pitch=0 heading=0 distance=50000000000 frame=7435
+[LOG 23:55:07.492] [Parsek][INFO][TestCommands] mapcamera ok focus=Sun pitch=0 heading=0 distance=50000001000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:55:07.512] [Parsek][INFO][TestCommands] recv id=0017 cmd=CaptureScreenshot args=1
+[LOG 23:55:07.512] [Parsek][INFO][TestCommands] exec id=0017 cmd=CaptureScreenshot start
+[LOG 23:55:07.512] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-transfer-sys-edge superSize=1 overwrote=false path=Screenshots/tp4-c1-transfer-sys-edge.png
+[LOG 23:55:07.574] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-transfer-sys-edge bytes=755088 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:07.613] [Parsek][INFO][TestCommands] recv id=0018 cmd=DumpMapGeometry args=1
+[LOG 23:55:07.613] [Parsek][INFO][TestCommands] exec id=0018 cmd=DumpMapGeometry start
+[LOG 23:55:07.613] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-transfer-sys-edge scene=FLIGHT path=Screenshots/tp4-c1-transfer-sys-edge.map.json armFrame=7443
+[LOG 23:55:07.631] [Parsek][INFO][MapGeometry] capture frame=7444 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=1 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-3132290.0055324179,0.16968138903113328,-9426911.7521367557) maxScaledCentreSkewM=10874.635 iconLineMeasured=2 maxIconToOrbitLineM=293505.2 pid=2762532434
+[LOG 23:55:07.643] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-transfer-sys-edge scene=FLIGHT path=Screenshots/tp4-c1-transfer-sys-edge.map.json bytes=82581 frame=7444 ghosts=2 lines=3 points=480 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:07.663] [Parsek][INFO][TestCommands] recv id=0019 cmd=MapCamera args=4
+[LOG 23:55:07.664] [Parsek][INFO][TestCommands] exec id=0019 cmd=MapCamera start
+[LOG 23:55:07.668] [Parsek][INFO][TestCommands] mapcamera applied focus=Duna pitch=90 heading=0 distance=105000000 frame=7446
+[LOG 23:55:08.853] [Parsek][INFO][TestCommands] mapcamera ok focus=Duna pitch=90.000002504478161 heading=0 distance=105000000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=71
+[LOG 23:55:08.875] [Parsek][INFO][TestCommands] recv id=0020 cmd=CaptureScreenshot args=1
+[LOG 23:55:08.875] [Parsek][INFO][TestCommands] exec id=0020 cmd=CaptureScreenshot start
+[LOG 23:55:08.876] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-transfer-duna-soi-top superSize=1 overwrote=false path=Screenshots/tp4-c1-transfer-duna-soi-top.png
+[LOG 23:55:08.938] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-transfer-duna-soi-top bytes=685752 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:08.975] [Parsek][INFO][TestCommands] recv id=0021 cmd=DumpMapGeometry args=1
+[LOG 23:55:08.976] [Parsek][INFO][TestCommands] exec id=0021 cmd=DumpMapGeometry start
+[LOG 23:55:08.976] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-transfer-duna-soi-top scene=FLIGHT path=Screenshots/tp4-c1-transfer-duna-soi-top.map.json armFrame=7524
+[LOG 23:55:08.996] [Parsek][INFO][MapGeometry] capture frame=7525 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=1 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(3945295.7197469575,13955.431400150061,-661174.511845393) maxScaledCentreSkewM=3781.355 iconLineMeasured=2 maxIconToOrbitLineM=1188012.4 pid=2762532434
+[LOG 23:55:09.005] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-transfer-duna-soi-top scene=FLIGHT path=Screenshots/tp4-c1-transfer-duna-soi-top.map.json bytes=79971 frame=7525 ghosts=2 lines=3 points=480 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:09.030] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:55:09.030] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:55:13.864] [Parsek][INFO][TestCommands] recv id=0024 cmd=MapCamera args=4
+[LOG 23:55:13.864] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=MapCamera | suppressed=10
+[LOG 23:55:13.866] [Parsek][INFO][TestCommands] exec id=0024 cmd=MapCamera start
+[LOG 23:55:13.870] [Parsek][INFO][TestCommands] mapcamera applied focus=Sun pitch=90 heading=0 distance=50000000000 frame=7815
+[LOG 23:55:14.499] [Parsek][INFO][TestCommands] mapcamera ok focus=Sun pitch=90.000002504478161 heading=0 distance=50000001000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=38
+[LOG 23:55:14.518] [Parsek][INFO][TestCommands] recv id=0025 cmd=CaptureScreenshot args=1
+[LOG 23:55:14.518] [Parsek][INFO][TestCommands] exec id=0025 cmd=CaptureScreenshot start
+[LOG 23:55:14.518] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-arrival-sys-top superSize=1 overwrote=false path=Screenshots/tp4-c1-arrival-sys-top.png
+[LOG 23:55:14.569] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-arrival-sys-top bytes=594222 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:14.589] [Parsek][INFO][TestCommands] recv id=0026 cmd=DumpMapGeometry args=1
+[LOG 23:55:14.590] [Parsek][INFO][TestCommands] exec id=0026 cmd=DumpMapGeometry start
+[LOG 23:55:14.590] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-arrival-sys-top scene=FLIGHT path=Screenshots/tp4-c1-arrival-sys-top.map.json armFrame=7858
+[LOG 23:55:14.607] [Parsek][INFO][MapGeometry] capture frame=7859 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-1977904.9727279246,8331247.1130407751,-1106940.3453198667) maxScaledCentreSkewM=3947.062 iconLineMeasured=2 maxIconToOrbitLineM=53642351063.3 pid=1477728962
+[LOG 23:55:14.619] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-arrival-sys-top scene=FLIGHT path=Screenshots/tp4-c1-arrival-sys-top.map.json bytes=77459 frame=7859 ghosts=2 lines=2 points=361 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:14.637] [Parsek][INFO][TestCommands] recv id=0027 cmd=MapCamera args=4
+[LOG 23:55:14.638] [Parsek][INFO][TestCommands] exec id=0027 cmd=MapCamera start
+[LOG 23:55:14.641] [Parsek][INFO][TestCommands] mapcamera applied focus=Duna pitch=90 heading=0 distance=105000000 frame=7861
+[LOG 23:55:15.846] [Parsek][INFO][TestCommands] mapcamera ok focus=Duna pitch=90.000002504478161 heading=0 distance=105000000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=72
+[LOG 23:55:15.867] [Parsek][INFO][TestCommands] recv id=0028 cmd=CaptureScreenshot args=1
+[LOG 23:55:15.867] [Parsek][INFO][TestCommands] exec id=0028 cmd=CaptureScreenshot start
+[LOG 23:55:15.867] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-arrival-duna-soi-top superSize=1 overwrote=false path=Screenshots/tp4-c1-arrival-duna-soi-top.png
+[LOG 23:55:15.930] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-arrival-duna-soi-top bytes=685716 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:15.967] [Parsek][INFO][TestCommands] recv id=0029 cmd=DumpMapGeometry args=1
+[LOG 23:55:15.967] [Parsek][INFO][TestCommands] exec id=0029 cmd=DumpMapGeometry start
+[LOG 23:55:15.967] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-arrival-duna-soi-top scene=FLIGHT path=Screenshots/tp4-c1-arrival-duna-soi-top.map.json armFrame=7940
+[LOG 23:55:15.983] [Parsek][INFO][MapGeometry] capture frame=7941 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-4332356.2493663374,18879.044681400061,-3406648.9556981665) maxScaledCentreSkewM=3495.219 iconLineMeasured=2 maxIconToOrbitLineM=618748057.1 pid=2762532434
+[LOG 23:55:15.996] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-arrival-duna-soi-top scene=FLIGHT path=Screenshots/tp4-c1-arrival-duna-soi-top.map.json bytes=77555 frame=7941 ghosts=2 lines=2 points=361 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:16.017] [Parsek][INFO][TestCommands] recv id=0030 cmd=MapCamera args=4
+[LOG 23:55:16.017] [Parsek][INFO][TestCommands] exec id=0030 cmd=MapCamera start
+[LOG 23:55:16.021] [Parsek][INFO][TestCommands] mapcamera applied focus=Duna pitch=0 heading=0 distance=105000000 frame=7943
+[LOG 23:55:16.030] [Parsek][INFO][TestCommands] mapcamera ok focus=Duna pitch=0 heading=0 distance=105000000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:55:16.066] [Parsek][INFO][TestCommands] recv id=0031 cmd=CaptureScreenshot args=1
+[LOG 23:55:16.067] [Parsek][INFO][TestCommands] exec id=0031 cmd=CaptureScreenshot start
+[LOG 23:55:16.067] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-arrival-duna-soi-edge superSize=1 overwrote=false path=Screenshots/tp4-c1-arrival-duna-soi-edge.png
+[LOG 23:55:16.131] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-arrival-duna-soi-edge bytes=887448 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:16.170] [Parsek][INFO][TestCommands] recv id=0032 cmd=DumpMapGeometry args=1
+[LOG 23:55:16.170] [Parsek][INFO][TestCommands] exec id=0032 cmd=DumpMapGeometry start
+[LOG 23:55:16.170] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-arrival-duna-soi-edge scene=FLIGHT path=Screenshots/tp4-c1-arrival-duna-soi-edge.map.json armFrame=7952
+[LOG 23:55:16.188] [Parsek][INFO][MapGeometry] capture frame=7953 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-4316654.3896741578,1376.2412305280159,-3413707.3355839509) maxScaledCentreSkewM=2499.916 iconLineMeasured=2 maxIconToOrbitLineM=558984751.6 pid=2762532434
+[LOG 23:55:16.200] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-arrival-duna-soi-edge scene=FLIGHT path=Screenshots/tp4-c1-arrival-duna-soi-edge.map.json bytes=79544 frame=7953 ghosts=2 lines=2 points=361 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:16.224] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:55:16.224] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:55:21.046] [Parsek][INFO][TestCommands] recv id=0035 cmd=MapCamera args=4
+[LOG 23:55:21.046] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=MapCamera | suppressed=10
+[LOG 23:55:21.047] [Parsek][INFO][TestCommands] exec id=0035 cmd=MapCamera start
+[LOG 23:55:21.051] [Parsek][INFO][TestCommands] mapcamera applied focus=Duna pitch=90 heading=0 distance=1500000 frame=8241
+[LOG 23:55:22.070] [Parsek][INFO][TestCommands] mapcamera ok focus=Duna pitch=90.000002504478161 heading=0 distance=1500000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=61
+[LOG 23:55:22.091] [Parsek][INFO][TestCommands] recv id=0036 cmd=CaptureScreenshot args=1
+[LOG 23:55:22.091] [Parsek][INFO][TestCommands] exec id=0036 cmd=CaptureScreenshot start
+[LOG 23:55:22.091] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-descent-duna-low-top superSize=1 overwrote=false path=Screenshots/tp4-c1-descent-duna-low-top.png
+[LOG 23:55:22.155] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-descent-duna-low-top bytes=731865 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:22.191] [Parsek][INFO][TestCommands] recv id=0037 cmd=DumpMapGeometry args=1
+[LOG 23:55:22.192] [Parsek][INFO][TestCommands] exec id=0037 cmd=DumpMapGeometry start
+[LOG 23:55:22.192] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-descent-duna-low-top scene=FLIGHT path=Screenshots/tp4-c1-descent-duna-low-top.map.json armFrame=8309
+[LOG 23:55:22.209] [Parsek][INFO][MapGeometry] capture frame=8310 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-169321.88427795071,1731.5639025559249,-5518987.3594192853) maxScaledCentreSkewM=1722.203 iconLineMeasured=1 maxIconToOrbitLineM=27963365762.3 pid=1477728962
+[LOG 23:55:22.221] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-descent-duna-low-top scene=FLIGHT path=Screenshots/tp4-c1-descent-duna-low-top.map.json bytes=70028 frame=8310 ghosts=1 lines=1 points=181 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:22.241] [Parsek][INFO][TestCommands] recv id=0038 cmd=MapCamera args=4
+[LOG 23:55:22.242] [Parsek][INFO][TestCommands] exec id=0038 cmd=MapCamera start
+[LOG 23:55:22.245] [Parsek][INFO][TestCommands] mapcamera applied focus=Duna pitch=0 heading=0 distance=1500000 frame=8312
+[LOG 23:55:22.254] [Parsek][INFO][TestCommands] mapcamera ok focus=Duna pitch=0 heading=0 distance=1500000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:55:22.275] [Parsek][INFO][TestCommands] recv id=0039 cmd=CaptureScreenshot args=1
+[LOG 23:55:22.276] [Parsek][INFO][TestCommands] exec id=0039 cmd=CaptureScreenshot start
+[LOG 23:55:22.276] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-descent-duna-low-edge superSize=1 overwrote=false path=Screenshots/tp4-c1-descent-duna-low-edge.png
+[LOG 23:55:22.340] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-descent-duna-low-edge bytes=902630 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:22.377] [Parsek][INFO][TestCommands] recv id=0040 cmd=DumpMapGeometry args=1
+[LOG 23:55:22.377] [Parsek][INFO][TestCommands] exec id=0040 cmd=DumpMapGeometry start
+[LOG 23:55:22.377] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-descent-duna-low-edge scene=FLIGHT path=Screenshots/tp4-c1-descent-duna-low-edge.map.json armFrame=8320
+[LOG 23:55:22.394] [Parsek][INFO][MapGeometry] capture frame=8321 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-169380.7531591763,1481.5216779551131,-5518881.1572352638) maxScaledCentreSkewM=1910.809 iconLineMeasured=1 maxIconToOrbitLineM=27962768891.6 pid=1477728962
+[LOG 23:55:22.407] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-descent-duna-low-edge scene=FLIGHT path=Screenshots/tp4-c1-descent-duna-low-edge.map.json bytes=69392 frame=8321 ghosts=1 lines=1 points=181 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:22.427] [Parsek][INFO][TestCommands] recv id=0041 cmd=MapCamera args=4
+[LOG 23:55:22.428] [Parsek][INFO][TestCommands] exec id=0041 cmd=MapCamera start
+[LOG 23:55:22.431] [Parsek][INFO][TestCommands] mapcamera applied focus=Duna pitch=90 heading=0 distance=7000000 frame=8323
+[LOG 23:55:23.046] [Parsek][INFO][TestCommands] mapcamera ok focus=Duna pitch=90.000002504478161 heading=0 distance=6999999.755859375 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=37
+[LOG 23:55:23.083] [Parsek][INFO][TestCommands] recv id=0042 cmd=CaptureScreenshot args=1
+[LOG 23:55:23.083] [Parsek][INFO][TestCommands] exec id=0042 cmd=CaptureScreenshot start
+[LOG 23:55:23.083] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-descent-duna-top superSize=1 overwrote=false path=Screenshots/tp4-c1-descent-duna-top.png
+[LOG 23:55:23.147] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-descent-duna-top bytes=715052 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:23.183] [Parsek][INFO][TestCommands] recv id=0043 cmd=DumpMapGeometry args=1
+[LOG 23:55:23.184] [Parsek][INFO][TestCommands] exec id=0043 cmd=DumpMapGeometry start
+[LOG 23:55:23.184] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-descent-duna-top scene=FLIGHT path=Screenshots/tp4-c1-descent-duna-top.map.json armFrame=8368
+[LOG 23:55:23.199] [Parsek][INFO][MapGeometry] capture frame=8369 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-170896.11677026021,2648.0274403399862,-5518938.9271201156) maxScaledCentreSkewM=1513.768 iconLineMeasured=1 maxIconToOrbitLineM=27954788370.4 pid=1477728962
+[LOG 23:55:23.214] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-descent-duna-top scene=FLIGHT path=Screenshots/tp4-c1-descent-duna-top.map.json bytes=69135 frame=8369 ghosts=1 lines=1 points=181 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:23.239] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:55:23.239] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:55:28.083] [Parsek][INFO][TestCommands] recv id=0046 cmd=MapCamera args=4
+[LOG 23:55:28.083] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=MapCamera | suppressed=10
+[LOG 23:55:28.083] [Parsek][INFO][TestCommands] exec id=0046 cmd=MapCamera start
+[LOG 23:55:28.087] [Parsek][INFO][TestCommands] mapcamera applied focus=Duna pitch=90 heading=0 distance=1500000 frame=8658
+[LOG 23:55:28.837] [Parsek][INFO][TestCommands] mapcamera ok focus=Duna pitch=90.000002504478161 heading=0 distance=1500000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=45
+[LOG 23:55:28.875] [Parsek][INFO][TestCommands] recv id=0047 cmd=CaptureScreenshot args=1
+[LOG 23:55:28.876] [Parsek][INFO][TestCommands] exec id=0047 cmd=CaptureScreenshot start
+[LOG 23:55:28.876] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-landing-duna-low-top superSize=1 overwrote=false path=Screenshots/tp4-c1-landing-duna-low-top.png
+[LOG 23:55:28.940] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-landing-duna-low-top bytes=733139 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:28.976] [Parsek][INFO][TestCommands] recv id=0048 cmd=DumpMapGeometry args=1
+[LOG 23:55:28.976] [Parsek][INFO][TestCommands] exec id=0048 cmd=DumpMapGeometry start
+[LOG 23:55:28.976] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-landing-duna-low-top scene=FLIGHT path=Screenshots/tp4-c1-landing-duna-low-top.map.json armFrame=8711
+[LOG 23:55:28.993] [Parsek][INFO][MapGeometry] capture frame=8712 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-329475.7648261342,1731.6820423907675,-5511754.479966118) maxScaledCentreSkewM=2014.122 iconLineMeasured=1 maxIconToOrbitLineM=27089363090.8 pid=1477728962
+[LOG 23:55:29.007] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-landing-duna-low-top scene=FLIGHT path=Screenshots/tp4-c1-landing-duna-low-top.map.json bytes=69849 frame=8712 ghosts=1 lines=1 points=181 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:29.028] [Parsek][INFO][TestCommands] recv id=0049 cmd=MapCamera args=4
+[LOG 23:55:29.028] [Parsek][INFO][TestCommands] exec id=0049 cmd=MapCamera start
+[LOG 23:55:29.032] [Parsek][INFO][TestCommands] mapcamera applied focus=Duna pitch=0 heading=0 distance=1500000 frame=8714
+[LOG 23:55:29.041] [Parsek][INFO][TestCommands] mapcamera ok focus=Duna pitch=0 heading=0 distance=1500000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:55:29.078] [Parsek][INFO][TestCommands] recv id=0050 cmd=CaptureScreenshot args=1
+[LOG 23:55:29.078] [Parsek][INFO][TestCommands] exec id=0050 cmd=CaptureScreenshot start
+[LOG 23:55:29.078] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-landing-duna-low-edge superSize=1 overwrote=false path=Screenshots/tp4-c1-landing-duna-low-edge.png
+[LOG 23:55:29.142] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-landing-duna-low-edge bytes=902876 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:29.179] [Parsek][INFO][TestCommands] recv id=0051 cmd=DumpMapGeometry args=1
+[LOG 23:55:29.179] [Parsek][INFO][TestCommands] exec id=0051 cmd=DumpMapGeometry start
+[LOG 23:55:29.179] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-landing-duna-low-edge scene=FLIGHT path=Screenshots/tp4-c1-landing-duna-low-edge.map.json armFrame=8723
+[LOG 23:55:29.201] [Parsek][INFO][MapGeometry] capture frame=8724 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-329563.6070349965,1481.6467990159629,-5511644.7095024129) maxScaledCentreSkewM=2810.282 iconLineMeasured=1 maxIconToOrbitLineM=27088596709.9 pid=1477728962
+[LOG 23:55:29.211] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-landing-duna-low-edge scene=FLIGHT path=Screenshots/tp4-c1-landing-duna-low-edge.map.json bytes=69233 frame=8724 ghosts=1 lines=1 points=181 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:55:29.230] [Parsek][INFO][TestCommands] recv id=0052 cmd=MapCamera args=4
+[LOG 23:55:29.231] [Parsek][INFO][TestCommands] exec id=0052 cmd=MapCamera start
+[LOG 23:55:29.237] [Parsek][INFO][TestCommands] mapcamera applied focus=Duna pitch=30 heading=0 distance=1200000 frame=8726
+[LOG 23:55:29.734] [Parsek][INFO][TestCommands] mapcamera ok focus=Duna pitch=30.000000834826057 heading=0 distance=1200000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=30
+[LOG 23:55:29.754] [Parsek][INFO][TestCommands] recv id=0053 cmd=CaptureScreenshot args=1
+[LOG 23:55:29.755] [Parsek][INFO][TestCommands] exec id=0053 cmd=CaptureScreenshot start
+[LOG 23:55:29.755] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp4-c1-landing-duna-low-oblique superSize=1 overwrote=false path=Screenshots/tp4-c1-landing-duna-low-oblique.png
+[LOG 23:55:29.819] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp4-c1-landing-duna-low-oblique bytes=919284 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:55:29.856] [Parsek][INFO][TestCommands] recv id=0054 cmd=DumpMapGeometry args=1
+[LOG 23:55:29.857] [Parsek][INFO][TestCommands] exec id=0054 cmd=DumpMapGeometry start
+[LOG 23:55:29.857] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp4-c1-landing-duna-low-oblique scene=FLIGHT path=Screenshots/tp4-c1-landing-duna-low-oblique.map.json armFrame=8763
+[LOG 23:55:29.872] [Parsek][INFO][MapGeometry] capture frame=8764 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-330726.03376229142,1581.6659967641565,-5511607.2410842916) maxScaledCentreSkewM=1878.691 iconLineMeasured=1 maxIconToOrbitLineM=27082314323.3 pid=1477728962
+[LOG 23:55:29.886] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp4-c1-landing-duna-low-oblique scene=FLIGHT path=Screenshots/tp4-c1-landing-duna-low-oblique.map.json bytes=69858 frame=8764 ghosts=1 lines=1 points=181 truncated=false unknownBodyItems=0 elapsed=0.0s
+[Harness][Info][Classify] verdict=PASS scenario=TP-4-duna-reaim-landing-map-pictures attempt=1 reason=driver valid, every verifier PASS/SKIPPED

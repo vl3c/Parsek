@@ -1,0 +1,176 @@
+[LOG 23:52:21.770] [Parsek][VERBOSE][CommittedFutureIndex] Invalidated committed-future index: reason=save-scoped-reset
+[LOG 23:52:23.984] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:52:23.984] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:52:24.234] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:52:24.234] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:52:24.301] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:52:24.301] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:52:29.237] [Parsek][INFO][TestCommands] recv id=0013 cmd=MapCamera args=4
+[LOG 23:52:29.237] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=MapCamera | suppressed=10
+[LOG 23:52:29.237] [Parsek][INFO][TestCommands] exec id=0013 cmd=MapCamera start
+[LOG 23:52:29.248] [Parsek][INFO][TestCommands] mapcamera applied focus=Sun pitch=90 heading=0 distance=160000000000 frame=7333
+[LOG 23:52:29.868] [Parsek][INFO][TestCommands] mapcamera ok focus=Sun pitch=90.000002504478161 heading=0 distance=159999996000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=37
+[LOG 23:52:29.890] [Parsek][INFO][TestCommands] recv id=0014 cmd=CaptureScreenshot args=1
+[LOG 23:52:29.890] [Parsek][INFO][TestCommands] exec id=0014 cmd=CaptureScreenshot start
+[LOG 23:52:29.891] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c1-transfer-sys-top superSize=1 overwrote=false path=Screenshots/tp5-c1-transfer-sys-top.png
+[LOG 23:52:29.954] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c1-transfer-sys-top bytes=597622 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:29.992] [Parsek][INFO][TestCommands] recv id=0015 cmd=DumpMapGeometry args=1
+[LOG 23:52:29.992] [Parsek][INFO][TestCommands] exec id=0015 cmd=DumpMapGeometry start
+[LOG 23:52:29.994] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c1-transfer-sys-top scene=FLIGHT path=Screenshots/tp5-c1-transfer-sys-top.map.json armFrame=7377
+[LOG 23:52:30.017] [Parsek][INFO][MapGeometry] capture frame=7378 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=3 legRefs=0 arcs=3 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-4510617.44460175,26414398.155070782,10735437.524554925) maxScaledCentreSkewM=6395.393 iconLineMeasured=1 maxIconToOrbitLineM=2815.8 pid=277567654
+[LOG 23:52:30.026] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c1-transfer-sys-top scene=FLIGHT path=Screenshots/tp5-c1-transfer-sys-top.map.json bytes=122411 frame=7378 ghosts=1 lines=7 points=1037 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:30.063] [Parsek][INFO][TestCommands] recv id=0016 cmd=MapCamera args=4
+[LOG 23:52:30.063] [Parsek][INFO][TestCommands] exec id=0016 cmd=MapCamera start
+[LOG 23:52:30.067] [Parsek][INFO][TestCommands] mapcamera applied focus=Jool pitch=90 heading=0 distance=95000000 frame=7381
+[LOG 23:52:31.367] [Parsek][INFO][TestCommands] mapcamera ok focus=Jool pitch=90.000002504478161 heading=0 distance=94999998.046875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=78
+[LOG 23:52:31.390] [Parsek][INFO][TestCommands] recv id=0017 cmd=CaptureScreenshot args=1
+[LOG 23:52:31.390] [Parsek][INFO][TestCommands] exec id=0017 cmd=CaptureScreenshot start
+[LOG 23:52:31.390] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c1-transfer-jool-top superSize=1 overwrote=false path=Screenshots/tp5-c1-transfer-jool-top.png
+[LOG 23:52:31.453] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c1-transfer-jool-top bytes=769851 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:31.491] [Parsek][INFO][TestCommands] recv id=0018 cmd=DumpMapGeometry args=1
+[LOG 23:52:31.491] [Parsek][INFO][TestCommands] exec id=0018 cmd=DumpMapGeometry start
+[LOG 23:52:31.491] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c1-transfer-jool-top scene=FLIGHT path=Screenshots/tp5-c1-transfer-jool-top.map.json armFrame=7466
+[LOG 23:52:31.507] [Parsek][INFO][MapGeometry] capture frame=7467 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=3 legRefs=0 arcs=3 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-3848.481433278881,15850.805461406708,6103.0324941673025) maxScaledCentreSkewM=2540.303 iconLineMeasured=1 maxIconToOrbitLineM=2605.3 pid=277567654
+[LOG 23:52:31.522] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c1-transfer-jool-top scene=FLIGHT path=Screenshots/tp5-c1-transfer-jool-top.map.json bytes=147450 frame=7467 ghosts=1 lines=7 points=1037 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:31.542] [Parsek][INFO][TestCommands] recv id=0019 cmd=MapCamera args=4
+[LOG 23:52:31.542] [Parsek][INFO][TestCommands] exec id=0019 cmd=MapCamera start
+[LOG 23:52:31.546] [Parsek][INFO][TestCommands] mapcamera applied focus=Jool pitch=0 heading=0 distance=95000000 frame=7469
+[LOG 23:52:31.556] [Parsek][INFO][TestCommands] mapcamera ok focus=Jool pitch=0 heading=0 distance=94999998.046875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:52:31.592] [Parsek][INFO][TestCommands] recv id=0020 cmd=CaptureScreenshot args=1
+[LOG 23:52:31.593] [Parsek][INFO][TestCommands] exec id=0020 cmd=CaptureScreenshot start
+[LOG 23:52:31.593] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c1-transfer-jool-edge superSize=1 overwrote=false path=Screenshots/tp5-c1-transfer-jool-edge.png
+[LOG 23:52:31.657] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c1-transfer-jool-edge bytes=907353 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:31.692] [Parsek][INFO][TestCommands] recv id=0021 cmd=DumpMapGeometry args=1
+[LOG 23:52:31.692] [Parsek][INFO][TestCommands] exec id=0021 cmd=DumpMapGeometry start
+[LOG 23:52:31.692] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c1-transfer-jool-edge scene=FLIGHT path=Screenshots/tp5-c1-transfer-jool-edge.map.json armFrame=7478
+[LOG 23:52:31.711] [Parsek][INFO][MapGeometry] capture frame=7479 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=3 legRefs=0 arcs=3 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(8280.73506176006,14.467683287557293,16280.638354581286) maxScaledCentreSkewM=3018.403 iconLineMeasured=1 maxIconToOrbitLineM=2602.1 pid=277567654
+[LOG 23:52:31.723] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c1-transfer-jool-edge scene=FLIGHT path=Screenshots/tp5-c1-transfer-jool-edge.map.json bytes=147002 frame=7479 ghosts=1 lines=7 points=1037 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:31.748] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:52:31.748] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:52:36.597] [Parsek][INFO][TestCommands] recv id=0024 cmd=MapCamera args=4
+[LOG 23:52:36.597] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=MapCamera | suppressed=10
+[LOG 23:52:36.598] [Parsek][INFO][TestCommands] exec id=0024 cmd=MapCamera start
+[LOG 23:52:36.602] [Parsek][INFO][TestCommands] mapcamera applied focus=Jool pitch=90 heading=0 distance=95000000 frame=7769
+[LOG 23:52:36.608] [Parsek][INFO][TestCommands] mapcamera ok focus=Jool pitch=90.000002504478161 heading=0 distance=94999998.046875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:52:36.631] [Parsek][INFO][TestCommands] recv id=0025 cmd=CaptureScreenshot args=1
+[LOG 23:52:36.631] [Parsek][INFO][TestCommands] exec id=0025 cmd=CaptureScreenshot start
+[LOG 23:52:36.631] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c1-arrival-jool-top superSize=1 overwrote=false path=Screenshots/tp5-c1-arrival-jool-top.png
+[LOG 23:52:36.694] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c1-arrival-jool-top bytes=757652 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:36.731] [Parsek][INFO][TestCommands] recv id=0026 cmd=DumpMapGeometry args=1
+[LOG 23:52:36.731] [Parsek][INFO][TestCommands] exec id=0026 cmd=DumpMapGeometry start
+[LOG 23:52:36.731] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c1-arrival-jool-top scene=FLIGHT path=Screenshots/tp5-c1-arrival-jool-top.map.json armFrame=7777
+[LOG 23:52:36.748] [Parsek][INFO][MapGeometry] capture frame=7778 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=1 legRefs=1 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-3392.7163482001051,15847.91109890778,-6400.3855906194367) maxScaledCentreSkewM=3127.707 iconLineMeasured=1 maxIconToOrbitLineM=132552121.0 pid=277567654
+[LOG 23:52:36.761] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c1-arrival-jool-top scene=FLIGHT path=Screenshots/tp5-c1-arrival-jool-top.map.json bytes=91702 frame=7778 ghosts=1 lines=2 points=380 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:36.782] [Parsek][INFO][TestCommands] recv id=0027 cmd=MapCamera args=4
+[LOG 23:52:36.782] [Parsek][INFO][TestCommands] exec id=0027 cmd=MapCamera start
+[LOG 23:52:36.785] [Parsek][INFO][TestCommands] mapcamera applied focus=Vall pitch=90 heading=0 distance=5300000 frame=7780
+[LOG 23:52:37.669] [Parsek][INFO][TestCommands] mapcamera ok focus=Vall pitch=90.000002504478161 heading=0 distance=5299999.8779296875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=53
+[LOG 23:52:37.689] [Parsek][INFO][TestCommands] recv id=0028 cmd=CaptureScreenshot args=1
+[LOG 23:52:37.689] [Parsek][INFO][TestCommands] exec id=0028 cmd=CaptureScreenshot start
+[LOG 23:52:37.689] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c1-arrival-vall-top superSize=1 overwrote=false path=Screenshots/tp5-c1-arrival-vall-top.png
+[LOG 23:52:37.753] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c1-arrival-vall-top bytes=734258 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:37.790] [Parsek][INFO][TestCommands] recv id=0029 cmd=DumpMapGeometry args=1
+[LOG 23:52:37.790] [Parsek][INFO][TestCommands] exec id=0029 cmd=DumpMapGeometry start
+[LOG 23:52:37.790] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c1-arrival-vall-top scene=FLIGHT path=Screenshots/tp5-c1-arrival-vall-top.map.json armFrame=7840
+[LOG 23:52:37.807] [Parsek][INFO][MapGeometry] capture frame=7841 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=1 legRefs=1 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-74.240502527682111,898.09829373199864,-19.833397845504805) maxScaledCentreSkewM=2575.201 iconLineMeasured=1 maxIconToOrbitLineM=1.3 pid=277567654
+[LOG 23:52:37.820] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c1-arrival-vall-top scene=FLIGHT path=Screenshots/tp5-c1-arrival-vall-top.map.json bytes=94954 frame=7841 ghosts=1 lines=2 points=380 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:37.840] [Parsek][INFO][TestCommands] recv id=0030 cmd=MapCamera args=4
+[LOG 23:52:37.840] [Parsek][INFO][TestCommands] exec id=0030 cmd=MapCamera start
+[LOG 23:52:37.844] [Parsek][INFO][TestCommands] mapcamera applied focus=Vall pitch=0 heading=0 distance=5300000 frame=7843
+[LOG 23:52:37.853] [Parsek][INFO][TestCommands] mapcamera ok focus=Vall pitch=0 heading=0 distance=5299999.8779296875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:52:37.890] [Parsek][INFO][TestCommands] recv id=0031 cmd=CaptureScreenshot args=1
+[LOG 23:52:37.891] [Parsek][INFO][TestCommands] exec id=0031 cmd=CaptureScreenshot start
+[LOG 23:52:37.891] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c1-arrival-vall-edge superSize=1 overwrote=false path=Screenshots/tp5-c1-arrival-vall-edge.png
+[LOG 23:52:37.956] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c1-arrival-vall-edge bytes=918857 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:37.991] [Parsek][INFO][TestCommands] recv id=0032 cmd=DumpMapGeometry args=1
+[LOG 23:52:37.991] [Parsek][INFO][TestCommands] exec id=0032 cmd=DumpMapGeometry start
+[LOG 23:52:37.991] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c1-arrival-vall-edge scene=FLIGHT path=Screenshots/tp5-c1-arrival-vall-edge.map.json armFrame=7852
+[LOG 23:52:38.015] [Parsek][INFO][MapGeometry] capture frame=7853 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=1 legRefs=1 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(602.45212664076826,14.605044395853023,547.9530733784195) maxScaledCentreSkewM=3371.183 iconLineMeasured=1 maxIconToOrbitLineM=1.3 pid=277567654
+[LOG 23:52:38.023] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c1-arrival-vall-edge scene=FLIGHT path=Screenshots/tp5-c1-arrival-vall-edge.map.json bytes=94427 frame=7853 ghosts=1 lines=2 points=380 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:38.047] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:52:38.047] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:52:42.903] [Parsek][INFO][TestCommands] recv id=0035 cmd=MapCamera args=4
+[LOG 23:52:42.903] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=MapCamera | suppressed=10
+[LOG 23:52:42.903] [Parsek][INFO][TestCommands] exec id=0035 cmd=MapCamera start
+[LOG 23:52:42.907] [Parsek][INFO][TestCommands] mapcamera applied focus=Vall pitch=90 heading=0 distance=5300000 frame=8143
+[LOG 23:52:42.917] [Parsek][INFO][TestCommands] mapcamera ok focus=Vall pitch=90.000002504478161 heading=0 distance=5299999.8779296875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:52:42.953] [Parsek][INFO][TestCommands] recv id=0036 cmd=CaptureScreenshot args=1
+[LOG 23:52:42.953] [Parsek][INFO][TestCommands] exec id=0036 cmd=CaptureScreenshot start
+[LOG 23:52:42.953] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c1-park-vall-top superSize=1 overwrote=false path=Screenshots/tp5-c1-park-vall-top.png
+[LOG 23:52:43.018] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c1-park-vall-top bytes=732721 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:43.054] [Parsek][INFO][TestCommands] recv id=0037 cmd=DumpMapGeometry args=1
+[LOG 23:52:43.054] [Parsek][INFO][TestCommands] exec id=0037 cmd=DumpMapGeometry start
+[LOG 23:52:43.054] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c1-park-vall-top scene=FLIGHT path=Screenshots/tp5-c1-park-vall-top.map.json armFrame=8152
+[LOG 23:52:43.074] [Parsek][INFO][MapGeometry] capture frame=8153 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=0 legs=1 legRefs=1 arcs=1 bridges=1 markersDrawn=1 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-74.071903180734807,898.04762059964264,-20.379401741229231) maxScaledCentreSkewM=2584.615 iconLineMeasured=0 maxIconToOrbitLineM=none
+[LOG 23:52:43.085] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c1-park-vall-top scene=FLIGHT path=Screenshots/tp5-c1-park-vall-top.map.json bytes=108892 frame=8153 ghosts=1 lines=3 points=441 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:43.105] [Parsek][INFO][TestCommands] recv id=0038 cmd=MapCamera args=4
+[LOG 23:52:43.105] [Parsek][INFO][TestCommands] exec id=0038 cmd=MapCamera start
+[LOG 23:52:43.108] [Parsek][INFO][TestCommands] mapcamera applied focus=Vall pitch=0 heading=0 distance=5300000 frame=8155
+[LOG 23:52:43.119] [Parsek][INFO][TestCommands] mapcamera ok focus=Vall pitch=0 heading=0 distance=5299999.8779296875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:52:43.155] [Parsek][INFO][TestCommands] recv id=0039 cmd=CaptureScreenshot args=1
+[LOG 23:52:43.156] [Parsek][INFO][TestCommands] exec id=0039 cmd=CaptureScreenshot start
+[LOG 23:52:43.156] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c1-park-vall-edge superSize=1 overwrote=false path=Screenshots/tp5-c1-park-vall-edge.png
+[LOG 23:52:43.219] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c1-park-vall-edge bytes=916698 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:43.257] [Parsek][INFO][TestCommands] recv id=0040 cmd=DumpMapGeometry args=1
+[LOG 23:52:43.257] [Parsek][INFO][TestCommands] exec id=0040 cmd=DumpMapGeometry start
+[LOG 23:52:43.257] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c1-park-vall-edge scene=FLIGHT path=Screenshots/tp5-c1-park-vall-edge.map.json armFrame=8164
+[LOG 23:52:43.271] [Parsek][INFO][MapGeometry] capture frame=8165 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=0 legs=1 legRefs=1 arcs=1 bridges=1 markersDrawn=1 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(602.60701358912411,14.718839098235465,547.39550287541351) maxScaledCentreSkewM=2209.862 iconLineMeasured=0 maxIconToOrbitLineM=none
+[LOG 23:52:43.287] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c1-park-vall-edge scene=FLIGHT path=Screenshots/tp5-c1-park-vall-edge.map.json bytes=108240 frame=8165 ghosts=1 lines=3 points=441 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:43.307] [Parsek][INFO][TestCommands] recv id=0041 cmd=MapCamera args=4
+[LOG 23:52:43.307] [Parsek][INFO][TestCommands] exec id=0041 cmd=MapCamera start
+[LOG 23:52:43.312] [Parsek][INFO][TestCommands] mapcamera applied focus=Jool pitch=0 heading=0 distance=95000000 frame=8167
+[LOG 23:52:43.940] [Parsek][INFO][TestCommands] mapcamera ok focus=Jool pitch=0 heading=0 distance=94999998.046875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=38
+[LOG 23:52:43.961] [Parsek][INFO][TestCommands] recv id=0042 cmd=CaptureScreenshot args=1
+[LOG 23:52:43.961] [Parsek][INFO][TestCommands] exec id=0042 cmd=CaptureScreenshot start
+[LOG 23:52:43.961] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c1-park-jool-edge superSize=1 overwrote=false path=Screenshots/tp5-c1-park-jool-edge.png
+[LOG 23:52:44.024] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c1-park-jool-edge bytes=905971 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:44.062] [Parsek][INFO][TestCommands] recv id=0043 cmd=DumpMapGeometry args=1
+[LOG 23:52:44.062] [Parsek][INFO][TestCommands] exec id=0043 cmd=DumpMapGeometry start
+[LOG 23:52:44.062] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c1-park-jool-edge scene=FLIGHT path=Screenshots/tp5-c1-park-jool-edge.map.json armFrame=8212
+[LOG 23:52:44.079] [Parsek][INFO][MapGeometry] capture frame=8213 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=0 legs=1 legRefs=1 arcs=1 bridges=1 markersDrawn=1 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(10325.857684975843,14.736505479028287,3173.7343090277573) maxScaledCentreSkewM=4084.341 iconLineMeasured=0 maxIconToOrbitLineM=none
+[LOG 23:52:44.090] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c1-park-jool-edge scene=FLIGHT path=Screenshots/tp5-c1-park-jool-edge.map.json bytes=105510 frame=8213 ghosts=1 lines=3 points=441 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:44.117] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:52:44.117] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:52:44.197] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:52:44.197] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:52:49.072] [Parsek][INFO][TestCommands] recv id=0047 cmd=MapCamera args=4
+[LOG 23:52:49.072] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=MapCamera | suppressed=11
+[LOG 23:52:49.073] [Parsek][INFO][TestCommands] exec id=0047 cmd=MapCamera start
+[LOG 23:52:49.076] [Parsek][INFO][TestCommands] mapcamera applied focus=Jool pitch=90 heading=0 distance=95000000 frame=8509
+[LOG 23:52:49.087] [Parsek][INFO][TestCommands] mapcamera ok focus=Jool pitch=90.000002504478161 heading=0 distance=94999998.046875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:52:49.123] [Parsek][INFO][TestCommands] recv id=0048 cmd=CaptureScreenshot args=1
+[LOG 23:52:49.124] [Parsek][INFO][TestCommands] exec id=0048 cmd=CaptureScreenshot start
+[LOG 23:52:49.124] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c2-arrival-jool-top superSize=1 overwrote=false path=Screenshots/tp5-c2-arrival-jool-top.png
+[LOG 23:52:49.188] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c2-arrival-jool-top bytes=757994 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:49.224] [Parsek][INFO][TestCommands] recv id=0049 cmd=DumpMapGeometry args=1
+[LOG 23:52:49.225] [Parsek][INFO][TestCommands] exec id=0049 cmd=DumpMapGeometry start
+[LOG 23:52:49.225] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c2-arrival-jool-top scene=FLIGHT path=Screenshots/tp5-c2-arrival-jool-top.map.json armFrame=8518
+[LOG 23:52:49.241] [Parsek][INFO][MapGeometry] capture frame=8519 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=1 legRefs=1 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-3392.3215876450959,15848.174423076025,-6401.6727937667456) maxScaledCentreSkewM=3059.489 iconLineMeasured=1 maxIconToOrbitLineM=132551997.9 pid=254253937
+[LOG 23:52:49.254] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c2-arrival-jool-top scene=FLIGHT path=Screenshots/tp5-c2-arrival-jool-top.map.json bytes=91721 frame=8519 ghosts=1 lines=2 points=380 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:49.272] [Parsek][INFO][TestCommands] recv id=0050 cmd=MapCamera args=4
+[LOG 23:52:49.273] [Parsek][INFO][TestCommands] exec id=0050 cmd=MapCamera start
+[LOG 23:52:49.276] [Parsek][INFO][TestCommands] mapcamera applied focus=Vall pitch=90 heading=0 distance=5300000 frame=8521
+[LOG 23:52:50.163] [Parsek][INFO][TestCommands] mapcamera ok focus=Vall pitch=90.000002504478161 heading=0 distance=5299999.8779296875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=53
+[LOG 23:52:50.183] [Parsek][INFO][TestCommands] recv id=0051 cmd=CaptureScreenshot args=1
+[LOG 23:52:50.183] [Parsek][INFO][TestCommands] exec id=0051 cmd=CaptureScreenshot start
+[LOG 23:52:50.183] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c2-arrival-vall-top superSize=1 overwrote=false path=Screenshots/tp5-c2-arrival-vall-top.png
+[LOG 23:52:50.246] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c2-arrival-vall-top bytes=734633 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:50.283] [Parsek][INFO][TestCommands] recv id=0052 cmd=DumpMapGeometry args=1
+[LOG 23:52:50.284] [Parsek][INFO][TestCommands] exec id=0052 cmd=DumpMapGeometry start
+[LOG 23:52:50.284] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c2-arrival-vall-top scene=FLIGHT path=Screenshots/tp5-c2-arrival-vall-top.map.json armFrame=8581
+[LOG 23:52:50.302] [Parsek][INFO][MapGeometry] capture frame=8582 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=1 legRefs=1 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(-73.833372141289146,898.3667448533688,-21.128886243212037) maxScaledCentreSkewM=2598.300 iconLineMeasured=1 maxIconToOrbitLineM=1.2 pid=254253937
+[LOG 23:52:50.314] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c2-arrival-vall-top scene=FLIGHT path=Screenshots/tp5-c2-arrival-vall-top.map.json bytes=95005 frame=8582 ghosts=1 lines=2 points=380 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:52:50.334] [Parsek][INFO][TestCommands] recv id=0053 cmd=MapCamera args=4
+[LOG 23:52:50.334] [Parsek][INFO][TestCommands] exec id=0053 cmd=MapCamera start
+[LOG 23:52:50.337] [Parsek][INFO][TestCommands] mapcamera applied focus=Vall pitch=0 heading=0 distance=5300000 frame=8584
+[LOG 23:52:50.349] [Parsek][INFO][TestCommands] mapcamera ok focus=Vall pitch=0 heading=0 distance=5299999.8779296875 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:52:50.369] [Parsek][INFO][TestCommands] recv id=0054 cmd=CaptureScreenshot args=1
+[LOG 23:52:50.369] [Parsek][INFO][TestCommands] exec id=0054 cmd=CaptureScreenshot start
+[LOG 23:52:50.369] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp5-c2-arrival-vall-edge superSize=1 overwrote=false path=Screenshots/tp5-c2-arrival-vall-edge.png
+[LOG 23:52:50.429] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp5-c2-arrival-vall-edge bytes=918440 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:52:50.469] [Parsek][INFO][TestCommands] recv id=0055 cmd=DumpMapGeometry args=1
+[LOG 23:52:50.469] [Parsek][INFO][TestCommands] exec id=0055 cmd=DumpMapGeometry start
+[LOG 23:52:50.469] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp5-c2-arrival-vall-edge scene=FLIGHT path=Screenshots/tp5-c2-arrival-vall-edge.map.json armFrame=8592
+[LOG 23:52:50.486] [Parsek][INFO][MapGeometry] capture frame=8593 scene=FLIGHT bodies=17 ghosts=1 protoGhosts=1 legs=1 legRefs=1 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=0 routeLegs=0 scaledOffset=(602.86199825792937,14.873704216433062,546.66209156962577) maxScaledCentreSkewM=3003.210 iconLineMeasured=1 maxIconToOrbitLineM=1.3 pid=254253937
+[LOG 23:52:50.499] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp5-c2-arrival-vall-edge scene=FLIGHT path=Screenshots/tp5-c2-arrival-vall-edge.map.json bytes=94428 frame=8593 ghosts=1 lines=2 points=380 truncated=false unknownBodyItems=0 elapsed=0.0s
+[Harness][Info][Classify] verdict=PASS scenario=TP-5-laythe-vall-map-pictures attempt=1 reason=driver valid, every verifier PASS/SKIPPED

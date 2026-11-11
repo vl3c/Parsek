@@ -1,0 +1,127 @@
+[LOG 23:56:14.382] [Parsek][VERBOSE][CommittedFutureIndex] Invalidated committed-future index: reason=save-scoped-reset
+[LOG 23:56:17.582] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:56:17.582] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:56:17.762] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:56:17.762] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:56:18.139] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:56:18.139] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:56:18.495] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:56:18.495] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:56:20.241] [Parsek][INFO][TestCommands] recv id=0026 cmd=MapCamera args=4
+[LOG 23:56:20.241] [Parsek][INFO][TestCommands] exec id=0026 cmd=MapCamera start
+[LOG 23:56:20.246] [Parsek][INFO][TestCommands] mapcamera applied focus=Kerbin pitch=90 heading=0 distance=1800000 frame=7013
+[LOG 23:56:20.873] [Parsek][INFO][TestCommands] mapcamera ok focus=Kerbin pitch=90.000002504478161 heading=0 distance=1800000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=38
+[LOG 23:56:20.894] [Parsek][INFO][TestCommands] recv id=0027 cmd=CaptureScreenshot args=1
+[LOG 23:56:20.894] [Parsek][INFO][TestCommands] exec id=0027 cmd=CaptureScreenshot start
+[LOG 23:56:20.895] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp7-c1-neardock-kerbin-low-top superSize=1 overwrote=false path=Screenshots/tp7-c1-neardock-kerbin-low-top.png
+[LOG 23:56:20.958] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp7-c1-neardock-kerbin-low-top bytes=724411 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:56:20.995] [Parsek][INFO][TestCommands] recv id=0028 cmd=DumpMapGeometry args=1
+[LOG 23:56:20.996] [Parsek][INFO][TestCommands] exec id=0028 cmd=DumpMapGeometry start
+[LOG 23:56:20.997] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp7-c1-neardock-kerbin-low-top scene=TRACKSTATION path=Screenshots/tp7-c1-neardock-kerbin-low-top.map.json armFrame=7058
+[LOG 23:56:21.021] [Parsek][INFO][MapGeometry] capture frame=7059 scene=TRACKSTATION bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=1 routeLegs=14 scaledOffset=(-24875.17424303295,300.22217941609051,-22336.148423721526) maxScaledCentreSkewM=4099.453 iconLineMeasured=1 maxIconToOrbitLineM=58.4 pid=1649408394
+[LOG 23:56:21.030] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp7-c1-neardock-kerbin-low-top scene=TRACKSTATION path=Screenshots/tp7-c1-neardock-kerbin-low-top.map.json bytes=142601 frame=7059 ghosts=1 lines=15 points=1408 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:56:21.047] [Parsek][INFO][TestCommands] recv id=0029 cmd=MapCamera args=4
+[LOG 23:56:21.047] [Parsek][INFO][TestCommands] exec id=0029 cmd=MapCamera start
+[LOG 23:56:21.051] [Parsek][INFO][TestCommands] mapcamera applied focus=Kerbin pitch=0 heading=0 distance=1800000 frame=7061
+[LOG 23:56:21.063] [Parsek][INFO][TestCommands] mapcamera ok focus=Kerbin pitch=0 heading=0 distance=1800000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:56:21.101] [Parsek][INFO][TestCommands] recv id=0030 cmd=CaptureScreenshot args=1
+[LOG 23:56:21.101] [Parsek][INFO][TestCommands] exec id=0030 cmd=CaptureScreenshot start
+[LOG 23:56:21.101] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp7-c1-neardock-kerbin-low-edge superSize=1 overwrote=false path=Screenshots/tp7-c1-neardock-kerbin-low-edge.png
+[LOG 23:56:21.164] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp7-c1-neardock-kerbin-low-edge bytes=809810 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:56:21.202] [Parsek][INFO][TestCommands] recv id=0031 cmd=DumpMapGeometry args=1
+[LOG 23:56:21.202] [Parsek][INFO][TestCommands] exec id=0031 cmd=DumpMapGeometry start
+[LOG 23:56:21.202] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp7-c1-neardock-kerbin-low-edge scene=TRACKSTATION path=Screenshots/tp7-c1-neardock-kerbin-low-edge.map.json armFrame=7070
+[LOG 23:56:21.220] [Parsek][INFO][MapGeometry] capture frame=7071 scene=TRACKSTATION bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=1 routeLegs=14 scaledOffset=(-24645.124608511123,0.16915165759034143,-22143.103839350377) maxScaledCentreSkewM=2925.893 iconLineMeasured=1 maxIconToOrbitLineM=63.6 pid=1649408394
+[LOG 23:56:21.233] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp7-c1-neardock-kerbin-low-edge scene=TRACKSTATION path=Screenshots/tp7-c1-neardock-kerbin-low-edge.map.json bytes=145485 frame=7071 ghosts=1 lines=15 points=1408 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:56:21.252] [Parsek][INFO][TestCommands] recv id=0032 cmd=MapCamera args=4
+[LOG 23:56:21.252] [Parsek][INFO][TestCommands] exec id=0032 cmd=MapCamera start
+[LOG 23:56:21.256] [Parsek][INFO][TestCommands] mapcamera applied focus=Kerbin pitch=45 heading=90 distance=2600000 frame=7073
+[LOG 23:56:21.786] [Parsek][INFO][TestCommands] mapcamera ok focus=Kerbin pitch=45.00000125223908 heading=90.000002504478161 distance=2600000.0610351563 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=32
+[LOG 23:56:21.807] [Parsek][INFO][TestCommands] recv id=0033 cmd=CaptureScreenshot args=1
+[LOG 23:56:21.807] [Parsek][INFO][TestCommands] exec id=0033 cmd=CaptureScreenshot start
+[LOG 23:56:21.808] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp7-c1-neardock-kerbin-low-oblique superSize=1 overwrote=false path=Screenshots/tp7-c1-neardock-kerbin-low-oblique.png
+[LOG 23:56:21.871] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp7-c1-neardock-kerbin-low-oblique bytes=751232 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:56:21.908] [Parsek][INFO][TestCommands] recv id=0034 cmd=DumpMapGeometry args=1
+[LOG 23:56:21.909] [Parsek][INFO][TestCommands] exec id=0034 cmd=DumpMapGeometry start
+[LOG 23:56:21.909] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp7-c1-neardock-kerbin-low-oblique scene=TRACKSTATION path=Screenshots/tp7-c1-neardock-kerbin-low-oblique.map.json armFrame=7112
+[LOG 23:56:21.926] [Parsek][INFO][MapGeometry] capture frame=7113 scene=TRACKSTATION bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=1 routeLegs=14 scaledOffset=(-24677.203343862686,306.53258549548093,-22569.915210199986) maxScaledCentreSkewM=2541.397 iconLineMeasured=1 maxIconToOrbitLineM=80.0 pid=1649408394
+[LOG 23:56:21.938] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp7-c1-neardock-kerbin-low-oblique scene=TRACKSTATION path=Screenshots/tp7-c1-neardock-kerbin-low-oblique.map.json bytes=140581 frame=7113 ghosts=1 lines=15 points=1408 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:56:22.609] [Parsek][INFO][TestCommands] recv id=0038 cmd=MapCamera args=4
+[LOG 23:56:22.610] [Parsek][INFO][TestCommands] exec id=0038 cmd=MapCamera start
+[LOG 23:56:22.613] [Parsek][INFO][TestCommands] mapcamera applied focus=Kerbin pitch=90 heading=0 distance=1800000 frame=7123
+[LOG 23:56:22.959] [Parsek][INFO][TestCommands] mapcamera ok focus=Kerbin pitch=90.000002504478161 heading=0 distance=1800000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=21
+[LOG 23:56:22.979] [Parsek][INFO][TestCommands] recv id=0039 cmd=CaptureScreenshot args=1
+[LOG 23:56:22.980] [Parsek][INFO][TestCommands] exec id=0039 cmd=CaptureScreenshot start
+[LOG 23:56:22.980] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp7-c2-midleg-kerbin-low-top superSize=1 overwrote=false path=Screenshots/tp7-c2-midleg-kerbin-low-top.png
+[LOG 23:56:23.043] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp7-c2-midleg-kerbin-low-top bytes=734890 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:56:23.080] [Parsek][INFO][TestCommands] recv id=0040 cmd=DumpMapGeometry args=1
+[LOG 23:56:23.081] [Parsek][INFO][TestCommands] exec id=0040 cmd=DumpMapGeometry start
+[LOG 23:56:23.081] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp7-c2-midleg-kerbin-low-top scene=TRACKSTATION path=Screenshots/tp7-c2-midleg-kerbin-low-top.map.json armFrame=7151
+[LOG 23:56:23.099] [Parsek][INFO][MapGeometry] capture frame=7152 scene=TRACKSTATION bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=1 routeLegs=14 scaledOffset=(13378.347765468043,300.21730839587156,11832.712625336389) maxScaledCentreSkewM=6046.784 iconLineMeasured=1 maxIconToOrbitLineM=118.7 pid=3652467497
+[LOG 23:56:23.111] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp7-c2-midleg-kerbin-low-top scene=TRACKSTATION path=Screenshots/tp7-c2-midleg-kerbin-low-top.map.json bytes=142633 frame=7152 ghosts=1 lines=15 points=1408 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:56:23.130] [Parsek][INFO][TestCommands] recv id=0041 cmd=MapCamera args=4
+[LOG 23:56:23.130] [Parsek][INFO][TestCommands] exec id=0041 cmd=MapCamera start
+[LOG 23:56:23.133] [Parsek][INFO][TestCommands] mapcamera applied focus=Kerbin pitch=0 heading=0 distance=1800000 frame=7154
+[LOG 23:56:23.144] [Parsek][INFO][TestCommands] mapcamera ok focus=Kerbin pitch=0 heading=0 distance=1800000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:56:23.164] [Parsek][INFO][TestCommands] recv id=0042 cmd=CaptureScreenshot args=1
+[LOG 23:56:23.164] [Parsek][INFO][TestCommands] exec id=0042 cmd=CaptureScreenshot start
+[LOG 23:56:23.164] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp7-c2-midleg-kerbin-low-edge superSize=1 overwrote=false path=Screenshots/tp7-c2-midleg-kerbin-low-edge.png
+[LOG 23:56:23.227] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp7-c2-midleg-kerbin-low-edge bytes=833640 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:56:23.265] [Parsek][INFO][TestCommands] recv id=0043 cmd=DumpMapGeometry args=1
+[LOG 23:56:23.265] [Parsek][INFO][TestCommands] exec id=0043 cmd=DumpMapGeometry start
+[LOG 23:56:23.265] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp7-c2-midleg-kerbin-low-edge scene=TRACKSTATION path=Screenshots/tp7-c2-midleg-kerbin-low-edge.map.json armFrame=7162
+[LOG 23:56:23.284] [Parsek][INFO][MapGeometry] capture frame=7163 scene=TRACKSTATION bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=1 routeLegs=14 scaledOffset=(13608.340823508781,0.16915164741781549,12025.777585950236) maxScaledCentreSkewM=2643.070 iconLineMeasured=1 maxIconToOrbitLineM=116.5 pid=3652467497
+[LOG 23:56:23.296] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp7-c2-midleg-kerbin-low-edge scene=TRACKSTATION path=Screenshots/tp7-c2-midleg-kerbin-low-edge.map.json bytes=145986 frame=7163 ghosts=1 lines=15 points=1408 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:56:23.317] [Parsek][INFO][TestCommands] recv id=0044 cmd=MapCamera args=4
+[LOG 23:56:23.317] [Parsek][INFO][TestCommands] exec id=0044 cmd=MapCamera start
+[LOG 23:56:23.320] [Parsek][INFO][TestCommands] mapcamera applied focus=Kerbin pitch=45 heading=90 distance=2600000 frame=7165
+[LOG 23:56:23.850] [Parsek][INFO][TestCommands] mapcamera ok focus=Kerbin pitch=45.00000125223908 heading=90.000002504478161 distance=2600000.0610351563 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=32
+[LOG 23:56:23.868] [Parsek][INFO][TestCommands] recv id=0045 cmd=CaptureScreenshot args=1
+[LOG 23:56:23.869] [Parsek][INFO][TestCommands] exec id=0045 cmd=CaptureScreenshot start
+[LOG 23:56:23.869] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp7-c2-midleg-kerbin-low-oblique superSize=1 overwrote=false path=Screenshots/tp7-c2-midleg-kerbin-low-oblique.png
+[LOG 23:56:23.935] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp7-c2-midleg-kerbin-low-oblique bytes=746967 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:56:23.970] [Parsek][INFO][TestCommands] recv id=0046 cmd=DumpMapGeometry args=1
+[LOG 23:56:23.970] [Parsek][INFO][TestCommands] exec id=0046 cmd=DumpMapGeometry start
+[LOG 23:56:23.970] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp7-c2-midleg-kerbin-low-oblique scene=TRACKSTATION path=Screenshots/tp7-c2-midleg-kerbin-low-oblique.map.json armFrame=7204
+[LOG 23:56:23.990] [Parsek][INFO][MapGeometry] capture frame=7205 scene=TRACKSTATION bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=1 routeLegs=14 scaledOffset=(13576.268267966789,306.53194461616783,11598.957197156291) maxScaledCentreSkewM=4569.351 iconLineMeasured=1 maxIconToOrbitLineM=106.1 pid=3652467497
+[LOG 23:56:24.002] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp7-c2-midleg-kerbin-low-oblique scene=TRACKSTATION path=Screenshots/tp7-c2-midleg-kerbin-low-oblique.map.json bytes=142431 frame=7205 ghosts=1 lines=15 points=1408 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:56:24.692] [Parsek][INFO][TestCommands] recv id=0050 cmd=MapCamera args=4
+[LOG 23:56:24.693] [Parsek][INFO][TestCommands] exec id=0050 cmd=MapCamera start
+[LOG 23:56:24.696] [Parsek][INFO][TestCommands] mapcamera applied focus=Kerbin pitch=90 heading=0 distance=1800000 frame=7216
+[LOG 23:56:25.246] [Parsek][INFO][TestCommands] mapcamera ok focus=Kerbin pitch=90.000002504478161 heading=0 distance=1800000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=33
+[LOG 23:56:25.267] [Parsek][INFO][TestCommands] recv id=0051 cmd=CaptureScreenshot args=1
+[LOG 23:56:25.267] [Parsek][INFO][TestCommands] exec id=0051 cmd=CaptureScreenshot start
+[LOG 23:56:25.267] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp7-c2-neardock-kerbin-low-top superSize=1 overwrote=false path=Screenshots/tp7-c2-neardock-kerbin-low-top.png
+[LOG 23:56:25.331] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp7-c2-neardock-kerbin-low-top bytes=725758 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:56:25.367] [Parsek][INFO][TestCommands] recv id=0052 cmd=DumpMapGeometry args=1
+[LOG 23:56:25.367] [Parsek][INFO][TestCommands] exec id=0052 cmd=DumpMapGeometry start
+[LOG 23:56:25.367] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp7-c2-neardock-kerbin-low-top scene=TRACKSTATION path=Screenshots/tp7-c2-neardock-kerbin-low-top.map.json armFrame=7256
+[LOG 23:56:25.386] [Parsek][INFO][MapGeometry] capture frame=7257 scene=TRACKSTATION bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=1 routeLegs=14 scaledOffset=(11438.352290907158,300.22420535835533,10413.503586565865) maxScaledCentreSkewM=5918.072 iconLineMeasured=1 maxIconToOrbitLineM=44.8 pid=3110284009
+[LOG 23:56:25.398] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp7-c2-neardock-kerbin-low-top scene=TRACKSTATION path=Screenshots/tp7-c2-neardock-kerbin-low-top.map.json bytes=142596 frame=7257 ghosts=1 lines=15 points=1408 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:56:25.415] [Parsek][INFO][TestCommands] recv id=0053 cmd=MapCamera args=4
+[LOG 23:56:25.416] [Parsek][INFO][TestCommands] exec id=0053 cmd=MapCamera start
+[LOG 23:56:25.419] [Parsek][INFO][TestCommands] mapcamera applied focus=Kerbin pitch=0 heading=0 distance=1800000 frame=7259
+[LOG 23:56:25.431] [Parsek][INFO][TestCommands] mapcamera ok focus=Kerbin pitch=0 heading=0 distance=1800000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:56:25.451] [Parsek][INFO][TestCommands] recv id=0054 cmd=CaptureScreenshot args=1
+[LOG 23:56:25.451] [Parsek][INFO][TestCommands] exec id=0054 cmd=CaptureScreenshot start
+[LOG 23:56:25.451] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp7-c2-neardock-kerbin-low-edge superSize=1 overwrote=false path=Screenshots/tp7-c2-neardock-kerbin-low-edge.png
+[LOG 23:56:25.515] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp7-c2-neardock-kerbin-low-edge bytes=808276 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:56:25.552] [Parsek][INFO][TestCommands] recv id=0055 cmd=DumpMapGeometry args=1
+[LOG 23:56:25.552] [Parsek][INFO][TestCommands] exec id=0055 cmd=DumpMapGeometry start
+[LOG 23:56:25.553] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp7-c2-neardock-kerbin-low-edge scene=TRACKSTATION path=Screenshots/tp7-c2-neardock-kerbin-low-edge.map.json armFrame=7267
+[LOG 23:56:25.572] [Parsek][INFO][MapGeometry] capture frame=7268 scene=TRACKSTATION bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=1 routeLegs=14 scaledOffset=(11668.379234726755,0.16915164741781549,10606.529570376289) maxScaledCentreSkewM=2757.988 iconLineMeasured=1 maxIconToOrbitLineM=49.8 pid=3110284009
+[LOG 23:56:25.583] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp7-c2-neardock-kerbin-low-edge scene=TRACKSTATION path=Screenshots/tp7-c2-neardock-kerbin-low-edge.map.json bytes=145454 frame=7268 ghosts=1 lines=15 points=1408 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:56:25.602] [Parsek][INFO][TestCommands] recv id=0056 cmd=MapCamera args=4
+[LOG 23:56:25.603] [Parsek][INFO][TestCommands] exec id=0056 cmd=MapCamera start
+[LOG 23:56:25.606] [Parsek][INFO][TestCommands] mapcamera applied focus=Kerbin pitch=45 heading=90 distance=2600000 frame=7270
+[LOG 23:56:26.135] [Parsek][INFO][TestCommands] mapcamera ok focus=Kerbin pitch=45.00000125223908 heading=90.000002504478161 distance=2600000.0610351563 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=32
+[LOG 23:56:26.154] [Parsek][INFO][TestCommands] recv id=0057 cmd=CaptureScreenshot args=1
+[LOG 23:56:26.154] [Parsek][INFO][TestCommands] exec id=0057 cmd=CaptureScreenshot start
+[LOG 23:56:26.154] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp7-c2-neardock-kerbin-low-oblique superSize=1 overwrote=false path=Screenshots/tp7-c2-neardock-kerbin-low-oblique.png
+[LOG 23:56:26.219] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp7-c2-neardock-kerbin-low-oblique bytes=751490 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:56:26.253] [Parsek][INFO][TestCommands] recv id=0058 cmd=DumpMapGeometry args=1
+[LOG 23:56:26.254] [Parsek][INFO][TestCommands] exec id=0058 cmd=DumpMapGeometry start
+[LOG 23:56:26.254] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp7-c2-neardock-kerbin-low-oblique scene=TRACKSTATION path=Screenshots/tp7-c2-neardock-kerbin-low-oblique.map.json armFrame=7309
+[LOG 23:56:26.274] [Parsek][INFO][MapGeometry] capture frame=7310 scene=TRACKSTATION bodies=17 ghosts=1 protoGhosts=1 legs=0 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=1 routeLegs=14 scaledOffset=(11636.286415512888,306.53057132515221,10179.731367861641) maxScaledCentreSkewM=4205.536 iconLineMeasured=1 maxIconToOrbitLineM=67.8 pid=3110284009
+[LOG 23:56:26.286] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp7-c2-neardock-kerbin-low-oblique scene=TRACKSTATION path=Screenshots/tp7-c2-neardock-kerbin-low-oblique.map.json bytes=141067 frame=7310 ghosts=1 lines=15 points=1408 truncated=false unknownBodyItems=0 elapsed=0.0s
+[Harness][Info][Classify] verdict=PASS scenario=TP-7-depot-route-ts-pictures attempt=1 reason=driver valid, every verifier PASS/SKIPPED

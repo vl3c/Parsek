@@ -1,0 +1,74 @@
+[LOG 23:49:03.407] [Parsek][VERBOSE][CommittedFutureIndex] Invalidated committed-future index: reason=save-scoped-reset
+[LOG 23:49:05.515] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:49:05.515] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:49:05.518] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:49:05.518] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:49:05.522] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 23:49:05.522] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 23:49:18.157] [Parsek][INFO][TestCommands] recv id=0011 cmd=MapCamera args=4
+[LOG 23:49:18.157] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=MapCamera | suppressed=8
+[LOG 23:49:18.158] [Parsek][INFO][TestCommands] exec id=0011 cmd=MapCamera start
+[LOG 23:49:18.169] [Parsek][INFO][TestCommands] mapcamera applied focus=Sun pitch=90 heading=0 distance=50000000000 frame=7441
+[LOG 23:49:18.793] [Parsek][INFO][TestCommands] mapcamera ok focus=Sun pitch=90.000002504478161 heading=0 distance=50000001000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=37
+[LOG 23:49:18.813] [Parsek][INFO][TestCommands] recv id=0012 cmd=CaptureScreenshot args=1
+[LOG 23:49:18.813] [Parsek][INFO][TestCommands] exec id=0012 cmd=CaptureScreenshot start
+[LOG 23:49:18.814] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp8-save-clock-sys-top superSize=1 overwrote=false path=Screenshots/tp8-save-clock-sys-top.png
+[LOG 23:49:18.876] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp8-save-clock-sys-top bytes=600784 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:49:18.918] [Parsek][INFO][TestCommands] recv id=0013 cmd=DumpMapGeometry args=1
+[LOG 23:49:18.918] [Parsek][INFO][TestCommands] exec id=0013 cmd=DumpMapGeometry start
+[LOG 23:49:18.920] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp8-save-clock-sys-top scene=FLIGHT path=Screenshots/tp8-save-clock-sys-top.map.json armFrame=7485
+[LOG 23:49:18.946] [Parsek][INFO][MapGeometry] capture frame=7486 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=2 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=2 routeLegs=33 scaledOffset=(1668496.8700914641,8331932.90525527,-1534162.0720212841) maxScaledCentreSkewM=4160.869 iconLineMeasured=2 maxIconToOrbitLineM=698363.0 pid=3005273652
+[LOG 23:49:18.955] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp8-save-clock-sys-top scene=FLIGHT path=Screenshots/tp8-save-clock-sys-top.map.json bytes=121234 frame=7486 ghosts=2 lines=37 points=2324 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:49:18.975] [Parsek][INFO][TestCommands] recv id=0014 cmd=MapCamera args=4
+[LOG 23:49:18.975] [Parsek][INFO][TestCommands] exec id=0014 cmd=MapCamera start
+[LOG 23:49:18.979] [Parsek][INFO][TestCommands] mapcamera applied focus=Sun pitch=0 heading=0 distance=50000000000 frame=7488
+[LOG 23:49:18.989] [Parsek][INFO][TestCommands] mapcamera ok focus=Sun pitch=0 heading=0 distance=50000001000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=1
+[LOG 23:49:19.027] [Parsek][INFO][TestCommands] recv id=0015 cmd=CaptureScreenshot args=1
+[LOG 23:49:19.027] [Parsek][INFO][TestCommands] exec id=0015 cmd=CaptureScreenshot start
+[LOG 23:49:19.027] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp8-save-clock-sys-edge superSize=1 overwrote=false path=Screenshots/tp8-save-clock-sys-edge.png
+[LOG 23:49:19.091] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp8-save-clock-sys-edge bytes=756496 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:49:19.127] [Parsek][INFO][TestCommands] recv id=0016 cmd=DumpMapGeometry args=1
+[LOG 23:49:19.127] [Parsek][INFO][TestCommands] exec id=0016 cmd=DumpMapGeometry start
+[LOG 23:49:19.127] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp8-save-clock-sys-edge scene=FLIGHT path=Screenshots/tp8-save-clock-sys-edge.map.json armFrame=7497
+[LOG 23:49:19.151] [Parsek][INFO][MapGeometry] capture frame=7498 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=2 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=2 routeLegs=33 scaledOffset=(8052101.6383028291,-0.1350041738646226,3822312.6456458187) maxScaledCentreSkewM=5427.983 iconLineMeasured=2 maxIconToOrbitLineM=697522.7 pid=3005273652
+[LOG 23:49:19.160] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp8-save-clock-sys-edge scene=FLIGHT path=Screenshots/tp8-save-clock-sys-edge.map.json bytes=149298 frame=7498 ghosts=2 lines=37 points=2324 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:49:19.180] [Parsek][INFO][TestCommands] recv id=0017 cmd=MapCamera args=4
+[LOG 23:49:19.180] [Parsek][INFO][TestCommands] exec id=0017 cmd=MapCamera start
+[LOG 23:49:19.184] [Parsek][INFO][TestCommands] mapcamera applied focus=Kerbin pitch=90 heading=0 distance=28000000 frame=7500
+[LOG 23:49:20.504] [Parsek][INFO][TestCommands] mapcamera ok focus=Kerbin pitch=90.000002504478161 heading=0 distance=27999999.0234375 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=79
+[LOG 23:49:20.524] [Parsek][INFO][TestCommands] recv id=0018 cmd=CaptureScreenshot args=1
+[LOG 23:49:20.524] [Parsek][INFO][TestCommands] exec id=0018 cmd=CaptureScreenshot start
+[LOG 23:49:20.525] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp8-save-clock-kerbin-top superSize=1 overwrote=false path=Screenshots/tp8-save-clock-kerbin-top.png
+[LOG 23:49:20.588] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp8-save-clock-kerbin-top bytes=714684 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:49:20.626] [Parsek][INFO][TestCommands] recv id=0019 cmd=DumpMapGeometry args=1
+[LOG 23:49:20.627] [Parsek][INFO][TestCommands] exec id=0019 cmd=DumpMapGeometry start
+[LOG 23:49:20.627] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp8-save-clock-kerbin-top scene=FLIGHT path=Screenshots/tp8-save-clock-kerbin-top.map.json armFrame=7586
+[LOG 23:49:20.647] [Parsek][INFO][MapGeometry] capture frame=7587 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=2 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=2 routeLegs=33 scaledOffset=(-105.35963607294252,4667.3010417185724,-82.97127674784133) maxScaledCentreSkewM=2433.881 iconLineMeasured=2 maxIconToOrbitLineM=1056350.0 pid=3005273652
+[LOG 23:49:20.657] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp8-save-clock-kerbin-top scene=FLIGHT path=Screenshots/tp8-save-clock-kerbin-top.map.json bytes=173571 frame=7587 ghosts=2 lines=37 points=2324 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:49:20.677] [Parsek][INFO][TestCommands] recv id=0020 cmd=MapCamera args=4
+[LOG 23:49:20.677] [Parsek][INFO][TestCommands] exec id=0020 cmd=MapCamera start
+[LOG 23:49:20.680] [Parsek][INFO][TestCommands] mapcamera applied focus=Mun pitch=90 heading=0 distance=5400000 frame=7589
+[LOG 23:49:21.445] [Parsek][INFO][TestCommands] mapcamera ok focus=Mun pitch=90.000002504478161 heading=0 distance=5400000 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=46
+[LOG 23:49:21.468] [Parsek][INFO][TestCommands] recv id=0021 cmd=CaptureScreenshot args=1
+[LOG 23:49:21.468] [Parsek][INFO][TestCommands] exec id=0021 cmd=CaptureScreenshot start
+[LOG 23:49:21.468] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp8-save-clock-mun-top superSize=1 overwrote=false path=Screenshots/tp8-save-clock-mun-top.png
+[LOG 23:49:21.531] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp8-save-clock-mun-top bytes=713253 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:49:21.567] [Parsek][INFO][TestCommands] recv id=0022 cmd=DumpMapGeometry args=1
+[LOG 23:49:21.567] [Parsek][INFO][TestCommands] exec id=0022 cmd=DumpMapGeometry start
+[LOG 23:49:21.567] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp8-save-clock-mun-top scene=FLIGHT path=Screenshots/tp8-save-clock-mun-top.map.json armFrame=7642
+[LOG 23:49:21.588] [Parsek][INFO][MapGeometry] capture frame=7643 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=2 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=2 routeLegs=33 scaledOffset=(1508.6521246578195,900.01606857404113,1098.1329893718139) maxScaledCentreSkewM=1335.364 iconLineMeasured=2 maxIconToOrbitLineM=23857733.3 pid=3005273652
+[LOG 23:49:21.599] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp8-save-clock-mun-top scene=FLIGHT path=Screenshots/tp8-save-clock-mun-top.map.json bytes=174733 frame=7643 ghosts=2 lines=37 points=2324 truncated=false unknownBodyItems=0 elapsed=0.0s
+[LOG 23:49:21.618] [Parsek][INFO][TestCommands] recv id=0023 cmd=MapCamera args=4
+[LOG 23:49:21.619] [Parsek][INFO][TestCommands] exec id=0023 cmd=MapCamera start
+[LOG 23:49:21.622] [Parsek][INFO][TestCommands] mapcamera applied focus=Duna pitch=90 heading=0 distance=7000000 frame=7645
+[LOG 23:49:22.286] [Parsek][INFO][TestCommands] mapcamera ok focus=Duna pitch=90.000002504478161 heading=0 distance=6999999.755859375 pitchClamped=false distanceClamped=false minPitch=-91.673248586969549 maxPitch=91.673248586969549 frames=40
+[LOG 23:49:22.308] [Parsek][INFO][TestCommands] recv id=0024 cmd=CaptureScreenshot args=1
+[LOG 23:49:22.309] [Parsek][INFO][TestCommands] exec id=0024 cmd=CaptureScreenshot start
+[LOG 23:49:22.309] [Parsek][INFO][TestCommands] capturescreenshot initiated label=tp8-save-clock-duna-top superSize=1 overwrote=false path=Screenshots/tp8-save-clock-duna-top.png
+[LOG 23:49:22.371] [Parsek][INFO][TestCommands] capturescreenshot ok label=tp8-save-clock-duna-top bytes=717103 superSize=1 overwrote=false elapsed=0.1s
+[LOG 23:49:22.408] [Parsek][INFO][TestCommands] recv id=0025 cmd=DumpMapGeometry args=1
+[LOG 23:49:22.408] [Parsek][INFO][TestCommands] exec id=0025 cmd=DumpMapGeometry start
+[LOG 23:49:22.408] [Parsek][INFO][TestCommands] dumpmapgeometry armed label=tp8-save-clock-duna-top scene=FLIGHT path=Screenshots/tp8-save-clock-duna-top.map.json armFrame=7692
+[LOG 23:49:22.430] [Parsek][INFO][MapGeometry] capture frame=7693 scene=FLIGHT bodies=17 ghosts=2 protoGhosts=2 legs=2 legRefs=0 arcs=0 bridges=0 markersDrawn=0 markerBodiesBySoi=0 routes=2 routeLegs=33 scaledOffset=(721756.94328361307,-108.87937820330262,1958999.1542097614) maxScaledCentreSkewM=3292.185 iconLineMeasured=2 maxIconToOrbitLineM=8328351528.7 pid=3005273652
+[LOG 23:49:22.439] [Parsek][INFO][TestCommands] dumpmapgeometry ok label=tp8-save-clock-duna-top scene=FLIGHT path=Screenshots/tp8-save-clock-duna-top.map.json bytes=158194 frame=7693 ghosts=2 lines=37 points=2324 truncated=false unknownBodyItems=0 elapsed=0.0s
+[Harness][Info][Classify] verdict=PASS scenario=TP-8-interbody-route-map-pictures attempt=1 reason=driver valid, every verifier PASS/SKIPPED
