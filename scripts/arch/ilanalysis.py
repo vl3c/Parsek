@@ -6,26 +6,30 @@ the test-only split, the test assembly's facts):
 
 - static state: per module and owning type, reassignable statics, static
   readonly collections whose contents some method other than a static
-  constructor changes, and statics written (or mutated) from another
-  production outer type;
+  constructor changes, statics written (or mutated) from another production
+  outer type, and statics whose address another production type takes (a
+  read of a value-type member, or a `ref` / `out` write: reported, not gated);
 - complexity: decisions + 1 per method with the compiler-generated code folded
   in, ranked, and counted at 20 / 50 / 100;
 - game coupling: a method can reach the game when it names a live type or
   member of the game assemblies, or calls a method that can (interface and
   virtual calls reach every implementation and override in the assembly);
   per module, the share of instructions in such methods;
-- uncalled code: production methods nothing calls once the roots are honoured,
-  split by test reach when the test facts are given, with each root rule's
-  weight (how many methods it alone kept);
+- uncalled code: production methods the roots do not reach (a fixpoint over
+  calls and the use-reading rules, see `uncalled`), split by test reach when
+  the test facts are given, with each root rule's weight (how many live
+  methods it alone kept: no live caller);
 - test reach: per module, the share of production methods (and instructions)
   a unit test calls directly, and the complex methods none does.
 
 facts.toml (beside modules.toml) holds every list the rules read: the inert
 game types, the root attributes and names, the mutating members.
 
-The ratchets bind only facts that are stable between builds (call sets,
-static write sets, per-method decisions) and are pinned in facts_pins.toml
-from the Debug DLL CI builds:
+The ratchets bind call sets, static write sets and per-method decisions,
+never instruction counts or shares. Debug and Release builds of one compiler
+agree on them; two compilers (CI's SDK and a local one) can move a method's
+decisions by one or two, which the complexity watch band absorbs. They are
+pinned in facts_pins.toml from a Debug build:
 
     python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll                 # report
     python3 scripts/arch/ilanalysis.py Parsek.dll --tests Parsek.Tests.dll --json r.json   # with test reach
@@ -57,6 +61,11 @@ DEFAULT_CONFIG = HERE / "facts.toml"
 DEFAULT_PINS = HERE / "facts_pins.toml"
 THRESHOLDS = (20, 50, 100)
 COMPLEXITY_GATE = 50
+# Every method at COMPLEXITY_GATE - COMPLEXITY_WATCH_BAND or more is pinned, so
+# a compiler that counts a method one or two decisions higher than the one
+# that pinned it cannot red; a method that grows from below the band still
+# does. Leaving the band needs no re-pin.
+COMPLEXITY_WATCH_BAND = 5
 UNTESTED_DECISIONS = 30
 REPIN_COMMAND = (
     "python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll --write-pins"
@@ -337,7 +346,10 @@ def static_state(index, config):
             if call.rsplit("|", 1)[1] in mutating
             and not _key_name(call.split("|", 1)[0]).startswith(".cctor")
         })
-        writers = set(field.get("writers", ())) | set(field.get("addressTakenBy", ()))
+        # An `ldsflda` is how C# reads a member of a value-type static or calls
+        # a method on it (`Ledger.StateVersion.ToString(ic)`), so it is no
+        # write; it is reported on its own (a `ref` / `out` write is one too).
+        writers = set(field.get("writers", ()))
         if field["backingFor"]:
             writers |= setter_callers.get((path, field["backingFor"]), set())
         row = {
@@ -348,6 +360,8 @@ def static_state(index, config):
             "mutated": bool(field["initonly"] and mutators),
             "writtenElsewhereBy": other_production(key, writers) if not field["initonly"] else [],
             "mutatedElsewhereBy": other_production(key, mutators) if field["initonly"] else [],
+            "addressTakenElsewhereBy": (
+                other_production(key, field.get("addressTakenBy", ())) if not field["initonly"] else []),
         }
         rows[key] = row
 
@@ -360,6 +374,7 @@ def static_state(index, config):
             bucket["readonlyCollections"] += bool(row["collection"] and not row["reassignable"])
             bucket["writtenElsewhere"] += bool(row["writtenElsewhereBy"])
             bucket["mutatedElsewhere"] += bool(row["mutatedElsewhereBy"])
+            bucket["addressTakenElsewhere"] += bool(row["addressTakenElsewhereBy"])
         return {name: dict(counts) for name, counts in out.items()}
 
     by_module = tally(lambda _k, row: row["module"])
@@ -394,10 +409,10 @@ def complexity_report(index):
     return {"methods": rows, "atLeast": counts}
 
 
-def complexity_gate_names(report):
-    """`Type::Name` of every production method at or above COMPLEXITY_GATE (overloads merge)."""
+def complexity_gate_names(report, threshold=COMPLEXITY_GATE):
+    """`Type::Name` of every production method at or above `threshold` (overloads merge)."""
     return sorted({_key_type(r["key"]) + "::" + _key_name(r["key"])
-                   for r in report["methods"] if r["complexity"] >= COMPLEXITY_GATE})
+                   for r in report["methods"] if r["complexity"] >= threshold})
 
 
 # --- c. game coupling ------------------------------------------------------------
@@ -501,26 +516,43 @@ def _type_attributes(index, path, ignored):
     return found
 
 
-def uncalled(index, config, test_calls=None):
-    """Production methods with no caller in the assembly once the roots are honoured.
+def _string_names(entry):
+    """The names a string literal can match a method by: its own, and its property's."""
+    name = (explicit_parts(entry["name"]) or (None, entry["name"]))[1]
+    member = name
+    for prefix in ACCESSOR_PREFIXES:
+        if name.startswith(prefix):
+            member = name[len(prefix):]
+    return {name, member}
 
-    Returns {"rootedBy": {rule: [keys]}, "uncalled": [keys], and, when
+
+def uncalled(index, config, test_calls=None):
+    """Production methods no root reaches: the dead code of the assembly.
+
+    Live is a fixpoint. It starts from every non-production method (tooling
+    counts as a caller), the generated code no single method owns, and every
+    production method a root rule keeps on its own (static constructor,
+    delegate type, attribute, Harmony patch method, Unity message, object
+    member or operator, an outside override or interface implementation, a
+    constructor of a type another type names or the engine creates,
+    compiler-generated). It grows by calls from live methods, and by the
+    rules that read use: an implementation of an invoked slot, an abstract
+    or interface slot of a live implementation, the sibling accessor of a
+    live accessor, the constructor of a type with a live member, a method
+    named by a string literal in a live method. Every step reads only live
+    methods, so removing a dead method can never make another one dead.
+
+    Returns {"rootedBy": {rule: [keys]}, "uncalled": [dead keys], and, when
     `test_calls` (production keys a test calls, dispatch already expanded) is
-    given, "noCaller" and "testOnly"}. A method with a caller is never counted
-    under a rule, so each rule's list is what that rule alone keeps.
+    given, "noCaller" and "testOnly"}. A live method is counted under the
+    first rule that keeps it only when no other live method calls it, so each
+    rule's list is what that rule alone keeps.
     """
     rules = config["uncalled"]
     ignored = rules["ignored_attributes"]
     patch_methods = set(rules["patch_methods"])
     unity = set(rules["unity_messages"])
     object_members = set(rules["object_members"])
-    strings_by_outer = defaultdict(set)
-    every_string = set()
-    for entry in index.methods.values():
-        strings = entry.get("strings", ())
-        strings_by_outer[ilfacts.outermost(entry["type"])].update(strings)
-        every_string.update(strings)
-
     hooks = set(rules["patch_hooks"])
 
     def is_patch_type(path):
@@ -532,17 +564,11 @@ def uncalled(index, config, test_calls=None):
             index.methods[k]["name"] in hooks and "static" in index.methods[k]["flags"]
             for k in index.by_type.get(path, ()))
 
-    candidates = [
-        key for key, entry in index.methods.items()
-        if index.production(entry["type"]) and not index.callers.get(key)
-    ]
-    rooted = {}
-
-    def used(key):
-        return bool(index.callers.get(key)) or key in rooted
+    methods = index.methods
+    production = {key for key, entry in methods.items() if index.production(entry["type"])}
 
     def first_rules(key):
-        entry = index.methods[key]
+        entry = methods[key]
         path = entry["type"]
         name = entry["name"]
         bare = (explicit_parts(name) or (None, name))[1]
@@ -564,59 +590,105 @@ def uncalled(index, config, test_calls=None):
             return "implements an outside interface"
         return None
 
-    for key in candidates:
+    def created_outside(path):
+        # A type another type names, the engine creates, or that is an attribute.
+        return bool(index.types[path]["namedByOthers"] or index.engine_base(path)
+                    or index.is_attribute_type(path) or _type_attributes(index, path, ignored))
+
+    def slot_like(key):
+        return "abstract" in methods[key]["flags"] or index.types[methods[key]["type"]]["kind"] == "interface"
+
+    by_string_name = defaultdict(set)
+    for key in production:
+        for name in _string_names(methods[key]):
+            by_string_name[name].add(key)
+
+    live, invoked, pending = set(), set(), []
+
+    def mark(key, calls_it):
+        if key not in methods:
+            return
+        if calls_it and key not in invoked:
+            invoked.add(key)
+            pending.append(key)
+        if key not in live:
+            live.add(key)
+            pending.append(key)
+
+    first = {}
+    for key, entry in methods.items():
+        if key not in production:
+            mark(key, False)
+            continue
         rule = first_rules(key)
         if rule:
-            rooted[key] = rule
-    for key in candidates:
-        if key not in rooted and any(used(slot) for slot in index.slots.get(key, ())):
-            rooted[key] = "dispatch from a used slot"
-    for key in candidates:
-        entry = index.methods[key]
-        if key in rooted:
-            continue
-        slot_like = "abstract" in entry["flags"] or index.types[entry["type"]]["kind"] == "interface"
-        if slot_like and any(used(impl) for impl in index.implementers.get(key, ())):
-            rooted[key] = "slot with a used implementation"
-    for key in candidates:
-        if key in rooted:
-            continue
-        siblings = index.accessor_siblings(key)
-        if siblings and any(used(s) for s in siblings):
-            rooted[key] = "accessor of a used property"
-    for key in candidates:
-        if key in rooted:
-            continue
-        entry = index.methods[key]
-        path = entry["type"]
+            first[key] = rule
+            mark(key, True)
+        elif entry["compilerGenerated"] or (entry["name"] == ".ctor" and created_outside(entry["type"])):
+            mark(key, False)
+    for entry in index.types.values():
+        for callee in entry["unattributed"].get("calls", ()):
+            mark(callee, True)
+    while pending:
+        key = pending.pop()
+        entry = methods[key]
+        for callee in entry["calls"]:
+            mark(callee, True)
+        if key in invoked:
+            for impl in index.implementers.get(key, ()):
+                mark(impl, True)
+        for slot in index.slots.get(key, ()):
+            if slot_like(slot):
+                mark(slot, False)
+        for sibling in index.accessor_siblings(key) or ():
+            mark(sibling, False)
         if entry["name"] != ".ctor":
-            continue
-        type_entry = index.types[path]
-        others_used = any(used(k) for k in index.by_type.get(path, ()) if index.methods[k]["name"] != ".ctor")
-        if (others_used or type_entry["namedByOthers"] or index.engine_base(path)
-                or index.is_attribute_type(path) or _type_attributes(index, path, ignored)):
-            rooted[key] = "constructor of a used type"
-    for key in candidates:
-        if key in rooted:
-            continue
-        entry = index.methods[key]
-        name = (explicit_parts(entry["name"]) or (None, entry["name"]))[1]
-        member = name
-        for prefix in ACCESSOR_PREFIXES:
-            if name.startswith(prefix):
-                member = name[len(prefix):]
-        names = {name, member}
-        if names & strings_by_outer[ilfacts.outermost(entry["type"])]:
-            rooted[key] = "named in a string of its own type"
-        elif names & every_string:
-            rooted[key] = "named in a string elsewhere"
-        elif entry["compilerGenerated"]:
-            rooted[key] = "compiler-generated"
+            for other in index.by_type.get(entry["type"], ()):
+                if methods[other]["name"] == ".ctor":
+                    mark(other, False)
+        for text in entry.get("strings", ()):
+            for named in by_string_name.get(text, ()):
+                mark(named, False)
+
+    strings_by_outer = defaultdict(set)
+    every_string = set()
+    for key in live:
+        strings = methods[key].get("strings", ())
+        strings_by_outer[ilfacts.outermost(methods[key]["type"])].update(strings)
+        every_string.update(strings)
+    unattributed_suffix = "::" + ilfacts.UNATTRIBUTED
+
+    def kept_by(key):
+        entry = methods[key]
+        path = entry["type"]
+        if key in first:
+            return first[key]
+        if any(slot in invoked for slot in index.slots.get(key, ())):
+            return "dispatch from a used slot"
+        if slot_like(key) and any(impl in live for impl in index.implementers.get(key, ())):
+            return "slot with a used implementation"
+        if any(s in live for s in index.accessor_siblings(key) or ()):
+            return "accessor of a used property"
+        if entry["name"] == ".ctor" and (created_outside(path) or any(
+                k in live for k in index.by_type.get(path, ()) if methods[k]["name"] != ".ctor")):
+            return "constructor of a used type"
+        names = _string_names(entry)
+        if names & strings_by_outer[ilfacts.outermost(path)]:
+            return "named in a string of its own type"
+        if names & every_string:
+            return "named in a string elsewhere"
+        if entry["compilerGenerated"]:
+            return "compiler-generated"
+        return None
 
     by_rule = {rule: [] for rule in ROOT_RULES}
-    for key, rule in rooted.items():
-        by_rule[rule].append(key)
-    left = sorted(key for key in candidates if key not in rooted)
+    for key in production & live:
+        if any(c != key and (c in live or c.endswith(unattributed_suffix)) for c in index.callers.get(key, ())):
+            continue
+        rule = kept_by(key)
+        if rule:
+            by_rule[rule].append(key)
+    left = sorted(production - live)
     out = {"rootedBy": {rule: sorted(keys) for rule, keys in by_rule.items()}, "uncalled": left}
     if test_calls is not None:
         out["testOnly"] = [key for key in left if key in test_calls]
@@ -630,7 +702,7 @@ def is_test_hook(key, suffixes):
 
 
 def uncalled_gate_keys(report, config):
-    """The ratchet's set: no caller in the assembly after the roots, test hooks by name left out.
+    """The ratchet's set: production methods no root reaches, test hooks by name left out.
 
     Read from Parsek.dll alone, so it holds methods only a test calls too
     (that is production code the game never runs; a hook named as one does
@@ -715,6 +787,7 @@ def report(facts, tooling=(), config=None, tests_facts=None):
         "gates": {
             "crossTypeStaticWrites": sorted(statics["crossTypeWrites"]),
             "complexity50": complexity_gate_names(cx),
+            "complexityWatch": complexity_gate_names(cx, COMPLEXITY_GATE - COMPLEXITY_WATCH_BAND),
             "uncalledInAssembly": uncalled_gate_keys(dead, config),
         },
     }
@@ -740,16 +813,25 @@ def render_pins(gates, source="", date=""):
         "# The ratchets over the compiled-IL facts (scripts/arch/ilanalysis.py), read by",
         "# scripts/arch/test_ilanalysis.py in CI's compiled-IL step. Machine-written:",
         "#   " + REPIN_COMMAND,
-        "# A bound may only fall. Re-pin in the PR that lowers one; re-pin to raise one",
-        "# only when the change is deliberate, and say why in the PR.",
+        "# crossTypeStaticWrites and uncalledInAssembly are counted: the measured set may",
+        "# not outnumber `bound`. A swap inside the bound (one key out, another in) passes,",
+        "# and slack after a fall is not enforced until a re-pin, so re-pin in the PR that",
+        "# lowers a count; raise a bound only for a deliberate change the PR explains.",
+        "# complexityWatch lists every method at complexity >= %d (the gate %d minus a"
+        % (COMPLEXITY_GATE - COMPLEXITY_WATCH_BAND, COMPLEXITY_GATE),
+        "# watch band of %d, so a compiler that counts a method a decision or two higher"
+        % COMPLEXITY_WATCH_BAND,
+        "# cannot red); a method not listed here reds when it reaches %d. A listed method"
+        % COMPLEXITY_GATE,
+        "# may grow without a red, and a rename or a move into another type needs a re-pin.",
     ]
     if source or date:
         lines.append("# Pinned from %s %s" % (source, date))
-    for name in ("crossTypeStaticWrites", "uncalledInAssembly", "complexity50"):
+    for name in ("crossTypeStaticWrites", "uncalledInAssembly", "complexityWatch"):
         keys = gates[name]
         lines.append("")
         lines.append("[%s]" % name)
-        if name != "complexity50":
+        if name != "complexityWatch":
             lines.append("bound = %d" % len(keys))
         lines.append("keys = [")
         lines.extend("    %s," % json.dumps(key) for key in keys)
@@ -761,8 +843,8 @@ def ratchet_problems(gates, pins, details=None, names=None):
     """Why the measured sets break the pins (empty when they hold).
 
     Counted sets (cross-type static writes, uncalled) red only when the count
-    rises above the bound; the complexity set reds when a method not pinned
-    enters it. `details` maps a key to a short explanation (its writers, its
+    rises above the bound; the complexity gate reds when a method not in the
+    pinned watch band reaches COMPLEXITY_GATE. `details` maps a key to a short explanation (its writers, its
     complexity) for the message; `names` limits the check to those ratchets.
     """
     details = details or {}
@@ -772,7 +854,7 @@ def ratchet_problems(gates, pins, details=None, names=None):
         return "; ".join("%s%s" % (key, (" (" + details[key] + ")") if key in details else "") for key in keys)
 
     for name, label in (("crossTypeStaticWrites", "statics written by another production type"),
-                        ("uncalledInAssembly", "production methods with no caller in the assembly")):
+                        ("uncalledInAssembly", "production methods no root reaches in the assembly")):
         if names is not None and name not in names:
             continue
         measured = set(gates[name])
@@ -786,7 +868,7 @@ def ratchet_problems(gates, pins, details=None, names=None):
                 % (label, len(measured), bound, len(measured) - bound, describe(new) or "none",
                    (" Gone since the pin: %s." % "; ".join(gone)) if gone else "", REPIN_COMMAND)
             )
-    new = sorted(set(gates["complexity50"]) - set(pins["complexity50"]["keys"]))
+    new = sorted(set(gates["complexity50"]) - set(pins["complexityWatch"]["keys"]))
     if new and (names is None or "complexity50" in names):
         problems.append(
             "methods newly at complexity >= %d (decisions + 1, generated code folded in): %s."
@@ -802,9 +884,9 @@ def ratchet_slack(gates, pins):
     for name in ("crossTypeStaticWrites", "uncalledInAssembly"):
         if len(gates[name]) < pins[name]["bound"]:
             out.append("%s: %d below the bound %d" % (name, len(gates[name]), pins[name]["bound"]))
-    gone = set(pins["complexity50"]["keys"]) - set(gates["complexity50"])
+    gone = set(pins["complexityWatch"]["keys"]) - set(gates["complexityWatch"])
     if gone:
-        out.append("complexity50: %d pinned methods no longer at the gate" % len(gone))
+        out.append("complexityWatch: %d pinned methods no longer in the watch band" % len(gone))
     return out
 
 
@@ -833,9 +915,12 @@ def format_report(result, top=15):
     totals = result["statics"]["totals"]
     lines.append(
         "  statics: %d reassignable, %d readonly collections (%d mutated outside a static constructor),"
-        " %d reassignable written by another production type, %d collections mutated by one"
+        " %d reassignable written by another production type, %d collections mutated by one;"
+        " address taken by another production type: %d (reads of a value-type member, or a ref / out write"
+        " the gate does not see)"
         % (totals.get("reassignable", 0), totals.get("readonlyCollections", 0), totals.get("mutatedCollections", 0),
-           totals.get("writtenElsewhere", 0), totals.get("mutatedElsewhere", 0))
+           totals.get("writtenElsewhere", 0), totals.get("mutatedElsewhere", 0),
+           totals.get("addressTakenElsewhere", 0))
     )
     at = result["complexity"]["atLeast"]
     lines.append("  complexity (generated code folded in) >= 20 / 50 / 100: %d / %d / %d" % (at[20], at[50], at[100]))
@@ -846,13 +931,13 @@ def format_report(result, top=15):
         lines.append("    %-14s %8d instr  %4s  (direct %s)" % (
             module, row["instructions"], _pct(row["share"]), _pct(row["directShare"])))
     dead = result["uncalled"]
-    lines.append("  no caller in the assembly after the roots: %d methods, %d instructions" % (
+    lines.append("  not reached from the roots: %d methods, %d instructions" % (
         len(dead["uncalled"]), sum(dead["instructions"].values())))
     for rule in ROOT_RULES:
         if dead["rootedBy"].get(rule):
             lines.append("    kept by %-34s %d" % (rule + ":", len(dead["rootedBy"][rule])))
     if "noCaller" in dead:
-        lines.append("    no caller at all: %d; called only from the test assembly: %d %s" % (
+        lines.append("    no unit test calls it either: %d; called from the test assembly: %d %s" % (
             len(dead["noCaller"]), len(dead["testOnly"]), dict(sorted(dead["testOnlyBySuffix"].items()))))
     if result["testReach"]:
         reach = result["testReach"]
@@ -863,9 +948,11 @@ def format_report(result, top=15):
             UNTESTED_DECISIONS, len(reach["untestedComplex"])))
         lines.append("  test calls into the assembly that match no key: %d" % len(reach["unmatchedTestCalls"]))
     gates = result["gates"]
-    lines.append("  ratchet sets: %d cross-type static writes, %d methods at complexity >= %d, %d uncalled" % (
-        len(gates["crossTypeStaticWrites"]), len(gates["complexity50"]), COMPLEXITY_GATE,
-        len(gates["uncalledInAssembly"])))
+    lines.append("  ratchet sets: %d cross-type static writes, %d methods at complexity >= %d (%d in the watch band"
+                 " from %d), %d unreached" % (
+                     len(gates["crossTypeStaticWrites"]), len(gates["complexity50"]), COMPLEXITY_GATE,
+                     len(gates["complexityWatch"]), COMPLEXITY_GATE - COMPLEXITY_WATCH_BAND,
+                     len(gates["uncalledInAssembly"])))
     return "\n".join(lines)
 
 

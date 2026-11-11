@@ -4073,25 +4073,26 @@ def _atlas_code_facts(facts):
         split = dead.get("testOnlyBySuffix", {})
         hooks = sum(n for suffix, n in split.items() if suffix != "other")
         lines.append(
-            "<p>Production methods with no caller anywhere, tests included: %d (%s instructions). Called only"
-            " from the test assembly: %d more, %d of them named as test hooks and %d not.</p>"
+            "<p>Production methods the roots do not reach and no unit test calls: %d (%s instructions)."
+            " Not reached from the roots but called from the test assembly: %d more, %d of them named as"
+            " test hooks and %d not.</p>"
             % (len(dead["noCaller"]), _thousands(sum(sizes[k] for k in dead["noCaller"])), len(dead["testOnly"]),
                hooks, split.get("other", 0))
         )
     else:
         lines.append(
-            "<p>Production methods with no caller in the assembly: %d (%s instructions). Without the test"
+            "<p>Production methods the roots do not reach: %d (%s instructions). Without the test"
             " assembly the page cannot tell which of them a test calls.</p>"
             % (len(dead["uncalled"]), _thousands(sum(sizes.values())))
         )
     lines.append('<div class="wide"><table>')
-    lines.append('<tr><th>Root rule</th><th class="num">Methods it alone keeps</th></tr>')
+    lines.append('<tr><th>Root rule</th><th class="num">Live methods it alone keeps (no live caller)</th></tr>')
     for rule, keys in dead["rootedBy"].items():
         if keys:
             lines.append('<tr><td>%s</td><td class="num">%d</td></tr>' % (html.escape(rule), len(keys)))
     lines.append("</table></div>")
     lines.append('<div class="wide"><table>')
-    lines.append('<tr><th>Largest with no caller</th><th>Module</th><th class="num">Instructions</th></tr>')
+    lines.append('<tr><th>Largest not reached</th><th>Module</th><th class="num">Instructions</th></tr>')
     for key in sorted(listed, key=lambda k: (-sizes[k], k))[:15]:
         lines.append(
             '<tr><td><span class="id">%s</span></td><td>%s</td><td class="num">%s</td></tr>'

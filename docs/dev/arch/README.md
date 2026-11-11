@@ -237,8 +237,14 @@ type whose source file maps to a non-tooling module.
   method other than a static constructor changes (an outside call from
   `[statics] mutating_members`, or an element store, within 8 instructions
   after a read: a floor, the stack is not simulated), and statics written by
-  another production outer type (`stsfld`, `ldsflda`, or a call to its static
-  auto-property setter; tooling writers such as InGameTests do not count).
+  another production outer type (`stsfld`, or a call to its static
+  auto-property setter; a type nested in the owner is the owner; tooling
+  writers such as InGameTests do not count). An `ldsflda` (taking the
+  static's address) is not a write: C# emits it to read a member of a
+  value-type static or call a method on it (`Ledger.StateVersion.ToString(ic)`).
+  It is reported on its own ("address taken by another production type");
+  a `ref` / `out` / `Interlocked` write through another type's static takes
+  that path too, and the gate does not see it.
 - **Complexity**: decisions + 1 with the method's lambdas, local functions and
   iterator bodies folded in, ranked, counted at 20 / 50 / 100.
 - **Game coupling** ("can reach the game"): a method names a type of
@@ -251,28 +257,37 @@ type whose source file maps to a non-tooling module.
   assembly; calls into `not_followed` types (`ParsekLog`, which writes
   through a test sink) are not followed. Per module, the share of
   instructions in such methods. It means can reach on some path, not needs.
-- **Uncalled code**: production methods with no caller in Parsek.dll
-  (tooling callers count; recursion does not) that no root rule keeps. The
-  rules, tried in order, each counted with how many methods it alone keeps:
-  static constructor; member of a delegate type; any method attribute not in
-  `ignored_attributes` (Harmony, InGameTest, KSPEvent ...); a Harmony patch
-  method by name on a `[HarmonyPatch]` type, or on a type another type names
-  (`typeof` handed to Harmony) that declares a static `Prefix` / `Postfix` /
-  `Transpiler` / `Finalizer`; a Unity message by name on a type whose base
-  chain leaves the assembly for a non-BCL type; `ToString` / `Equals` /
-  `GetHashCode` / `Finalize` and operators; an override of an outside method;
-  an implementation of an outside interface (implicit or explicit); an
-  override or implementation whose slot has a caller or is rooted; an
-  abstract or interface member with a used implementation; an accessor whose
-  sibling accessor is used; a constructor of a type that is named by another
-  type, has a used member, has an engine base, is an attribute or carries a
-  type attribute; a name (or property name) equal to an identifier string in
-  its own outer type, or anywhere; compiler-generated. When unsure a rule
-  roots, so the "no caller at all" list is meant to hold no false positive.
-  With the test facts it splits into no caller at all and called only from
-  the test assembly (test hooks by name, `test_hook_suffixes`, against the
-  rest). Direct only: code called only by uncalled code appears one layer at
-  a time.
+- **Uncalled code**: production methods the roots do not reach in
+  Parsek.dll. Live is a fixpoint. It starts from every non-production
+  method (tooling such as InGameTests is live, so its calls count), the
+  generated code no single method owns, and the production methods a root
+  rule keeps on its own: static constructor; member of a delegate type; any
+  method attribute not in `ignored_attributes` (Harmony, InGameTest, KSPEvent
+  ...); a Harmony patch method by name on a `[HarmonyPatch]` type, or on a
+  type another type names (`typeof` handed to Harmony) that declares a static
+  `Prefix` / `Postfix` / `Transpiler` / `Finalizer`; a Unity message by name
+  on a type whose base chain leaves the assembly for a non-BCL type;
+  `ToString` / `Equals` / `GetHashCode` / `Finalize` and operators; an
+  override of an outside method; an implementation of an outside interface
+  (implicit or explicit); a constructor of a type that is named by another
+  type, has an engine base, is an attribute or carries a type attribute;
+  compiler-generated. It grows by the calls of live methods and by the rules
+  that read use, each a step of the same fixpoint: an override or
+  implementation of a slot that is called (or root-kept); an abstract or
+  interface member with a live implementation (this keeps the declaration,
+  not its other implementations); the sibling accessor of a live accessor;
+  the constructor of a type with a live member; a method whose name (or
+  property name) is an identifier string literal in a live method. Every
+  step reads only live methods, so deleting a dead method never makes another
+  one dead, and a chain called only from dead code is dead as a whole
+  (`DeletingDeadCodeTests` holds this on fixtures and, under
+  `PARSEK_ARCH_IL`, on 50+ methods of the real tree). Each rule is reported
+  with the live methods it alone keeps (no live caller), tried in the order
+  above. When unsure a rule roots. With the test facts the dead set splits
+  into what no unit test calls either and what a test calls (test hooks by
+  name, `test_hook_suffixes`, against the rest). A type that a dead method
+  alone names still counts as named (the facts count type naming per type,
+  not per method).
 - **Test reach**: per module, the share of production methods and of their
   instructions a test method calls directly (a call on an interface or
   virtual member credits its implementations), and the methods with 30 or
@@ -287,34 +302,46 @@ python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll \
 
 An input is an assembly, an `.il` dump or an `ilfacts.py --json` file. On
 4629fbfcf (2026-11-11, Debug, main's code): 865 reassignable statics, 217 of
-307 readonly collections mutated, 59 statics written by another production
-type; complexity 615 / 32 / 5; 46% of production instructions can reach the
-game (highest Patches 83%, Config 66%, Controllers 64%; lowest Core 6%,
-Trajectory 25%, Missions 26%); 830 methods with no caller in Parsek.dll after the roots: 170
-with no caller at all (4,241 instructions), 660 called only from tests (255
-hooks by name); 84 methods with 30+ decisions no unit test calls. The root
-rules kept 1,261 more (Harmony 310, `.cctor` 279, dispatch 276, strings 110,
-delegates 88 ...).
+307 readonly collections mutated, 55 statics written by another production
+type and 6 whose address another production type takes; complexity 615 / 32
+/ 5; 46% of production instructions can reach the game (highest Patches 83%,
+Config 66%, Controllers 64%; lowest Core 6%, Trajectory 25%, Missions 26%);
+943 methods the roots do not reach (22,756 instructions): 234 that no unit
+test calls either (7,611 instructions), 709 a test calls (257 hooks by name);
+84 methods with 30+ decisions no unit test calls. The rules alone kept 1,263
+live methods (Harmony 310, `.cctor` 279, dispatch 272, strings 112, delegates
+88 ...).
 
 ### The ratchets
 
 CI's compiled-IL step runs `test_ilanalysis.RealTreeRatchetTests` over the
 built Debug DLL (the step's `test_[si]*.py` pattern; `WorkflowTests` reds if
 it stops matching). The pins are `scripts/arch/facts_pins.toml`, the one place
-the bounds live; each ratchet binds only facts the Debug-against-Release
-measurement found stable (static write sets, call sets, per-method decisions),
-never instruction counts or shares:
+the bounds live. The ratchets bind static write sets, call sets and
+per-method decisions, never instruction counts or shares. A Debug and a
+Release build of one compiler agree on those; two compilers do not quite
+(CI's SDK and this container's 8.0.134 built identical source to 614 and 615
+methods at complexity 20 or more), which the complexity watch band absorbs.
 
 - `crossTypeStaticWrites`: the statics written by another production type
-  may not outnumber `bound` (59). A rename keeps the count and passes; a red
-  names the new keys and their writers.
-- `complexity50`: no method (by `Type::Name`, so overloads and a parameter
-  change do not move it) may newly reach complexity 50 (32 pinned). Leaving
-  the list needs no re-pin; a rename or a move into another type does.
-- `uncalledInAssembly`: methods with no caller in Parsek.dll after the roots,
-  test hooks by name left out, may not outnumber `bound` (546). It reads
+  may not outnumber `bound` (55). A red names the new keys and their writers.
+- `complexityWatch` (the complexity gate): every method (by `Type::Name`, so
+  overloads and a parameter change do not move it) at complexity 45 or more
+  is pinned (54), the gate 50 minus a watch band of 5
+  (`COMPLEXITY_WATCH_BAND`). A method that is not pinned reds when it
+  reaches 50, so a compiler that counts a pinned method a decision or two
+  higher cannot red the check, while a method growing from below 45 to 50
+  still does. A pinned method may grow past 50 without a red. Leaving the
+  band needs no re-pin; a rename or a move into another type does.
+- `uncalledInAssembly`: the methods the roots do not reach in Parsek.dll,
+  test hooks by name left out, may not outnumber `bound` (654). It reads
   Parsek.dll alone, so a production method only a test calls counts too:
-  that is code the game never runs (B7).
+  that is code the game never runs (B7). Deleting dead code cannot raise it.
+
+What the two counted gates guarantee is that the count does not rise. A
+swap inside a bound passes (one key leaves, another enters), and once a
+count falls the slack is not enforced until someone re-pins: a later PR may
+add entries up to the old bound without a red.
 
 A red prints what moved, by how much, which members, and the re-pin
 command. Re-pin after a Debug build of the tree, never from a Release build:
@@ -323,8 +350,9 @@ command. Re-pin after a Debug build of the tree, never from a Release build:
 python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll --write-pins
 ```
 
-Re-pin in the PR that lowers a bound (the step log prints the slack), and to
-raise one only for a deliberate change the PR explains.
+Re-pin in the PR that lowers a count (the step log prints the slack), so the
+bound follows it down, and raise one only for a deliberate change the PR
+explains.
 
 ## Regenerating
 

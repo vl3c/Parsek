@@ -78,6 +78,31 @@ def rule_of(result, key):
 
 VOID_CALL = "call       void %s()"
 UNITY_BASE = "[UnityEngine.CoreModule]UnityEngine.MonoBehaviour"
+# An attribute that roots the method carrying it: a live caller for a cell.
+ROOT = [attr("Parsek.InGameTests.InGameTestAttribute")]
+
+
+def dead_count(facts, tooling=("Tools",)):
+    index = ilanalysis.Index(facts, tooling)
+    return len(ilanalysis.uncalled_gate_keys(ilanalysis.uncalled(index, CONFIG), CONFIG))
+
+
+def without(facts, key):
+    """The model with one method deleted (its callers keep their call sites)."""
+    out = dict(facts)
+    out["methods"] = {k: v for k, v in facts["methods"].items() if k != key}
+    return out
+
+
+def sole_callers_of_several(index, dead):
+    """Dead keys that are the only caller of two or more other production methods."""
+    found = []
+    for key in sorted(dead):
+        sole = [c for c in index.methods[key]["calls"] if c != key and c in index.methods
+                and index.production(index.methods[c]["type"]) and index.callers.get(c) == {key}]
+        if len(sole) >= 2:
+            found.append(key)
+    return found
 
 
 class RootRuleTests(unittest.TestCase):
@@ -89,13 +114,20 @@ class RootRuleTests(unittest.TestCase):
         return result
 
     def test_a_plain_method_nothing_calls_is_listed(self):
-        il = cls("Parsek.Lonely", meth("Unused"), meth("Used"), meth("Caller", [VOID_CALL % "Parsek.Lonely::Used", "ret"]))
+        il = cls("Parsek.Lonely", meth("Unused"), meth("Used"),
+                 meth("Caller", [VOID_CALL % "Parsek.Lonely::Used", "ret"], attrs=ROOT))
         result = self.check(il, "Parsek.Lonely::Unused()", "uncalled")
         self.assertEqual(rule_of(result, "Parsek.Lonely::Used()"), "called")
         # Recursion is no caller.
         il = cls("Parsek.Self", meth("Loop", [VOID_CALL % "Parsek.Self::Loop", "ret"]))
         self.check(il, "Parsek.Self::Loop()", "uncalled")
 
+    def test_a_method_only_dead_code_calls_is_dead_too(self):
+        il = cls("Parsek.Chain", meth("Head", [VOID_CALL % "Parsek.Chain::Middle", "ret"]),
+                 meth("Middle", [VOID_CALL % "Parsek.Chain::Tail", "ret"]), meth("Tail"))
+        result = analyse(il)
+        self.assertEqual(result["uncalled"]["uncalled"],
+                         ["Parsek.Chain::Head()", "Parsek.Chain::Middle()", "Parsek.Chain::Tail()"])
     def test_static_constructor(self):
         il = cls("Parsek.S", meth(".cctor", flags="private hidebysig specialname rtspecialname static"))
         self.check(il, "Parsek.S::.cctor()", "static constructor")
@@ -175,7 +207,7 @@ class RootRuleTests(unittest.TestCase):
               + cls("Parsek.Over", meth("Run", flags="public hidebysig virtual instance"), extends="Parsek.Base")
               + cls("Parsek.User", meth("Use", [
                   "ldnull", "callvirt   instance void Parsek.IThing::Go()",
-                  "ldnull", "callvirt   instance void Parsek.Base::Run()", "ret"])))
+                  "ldnull", "callvirt   instance void Parsek.Base::Run()", "ret"], attrs=ROOT)))
         result = self.check(il, "Parsek.Thing::Go()", "dispatch from a used slot")
         self.assertEqual(rule_of(result, "Parsek.Explicit::Parsek.IThing.Go()"), "dispatch from a used slot")
         self.assertEqual(rule_of(result, "Parsek.Over::Run()"), "dispatch from a used slot")
@@ -186,15 +218,20 @@ class RootRuleTests(unittest.TestCase):
         il = (cls("Parsek.Shape", meth("Area", (), flags="public hidebysig newslot abstract virtual instance"),
                   flags="public abstract auto ansi beforefieldinit")
               + cls("Parsek.Square", meth("Area", flags="public hidebysig virtual instance"), extends="Parsek.Shape")
-              + cls("Parsek.Caller", meth("Use", ["ldnull", "call       instance void Parsek.Square::Area()", "ret"])))
-        self.check(il, "Parsek.Shape::Area()", "slot with a used implementation")
+              + cls("Parsek.Circle", meth("Area", flags="public hidebysig virtual instance"), extends="Parsek.Shape")
+              + cls("Parsek.Caller", meth("Use", ["ldnull", "call       instance void Parsek.Square::Area()", "ret"],
+                                          attrs=ROOT)))
+        result = self.check(il, "Parsek.Shape::Area()", "slot with a used implementation")
+        # Kept for its implementation, the slot is not invoked: its other
+        # implementations stay dead.
+        self.assertEqual(rule_of(result, "Parsek.Circle::Area()"), "uncalled")
 
     def test_accessor_of_a_used_property(self):
         special = "public hidebysig specialname static"
         il = (cls("Parsek.P", meth("get_Value", ["ldc.i4.0", "ret"], flags=special, ret="int32"),
                   meth("set_Value", flags=special, params="int32 'value'"),
                   meth("get_Lost", ["ldc.i4.0", "ret"], flags=special, ret="int32"))
-              + cls("Parsek.R", meth("Read", ["call       int32 Parsek.P::get_Value()", "pop", "ret"])))
+              + cls("Parsek.R", meth("Read", ["call       int32 Parsek.P::get_Value()", "pop", "ret"], attrs=ROOT)))
         result = self.check(il, "Parsek.P::set_Value(int32)", "accessor of a used property")
         self.assertEqual(rule_of(result, "Parsek.P::get_Lost()"), "uncalled")
 
@@ -205,11 +242,14 @@ class RootRuleTests(unittest.TestCase):
         self.assertEqual(rule_of(result, "Parsek.Orphan::.ctor()"), "uncalled")
 
     def test_names_in_strings(self):
-        il = (cls("Parsek.Co", meth("Tick"), meth("Start", ['ldstr      "Tick"', "pop", "ret"]))
-              + cls("Parsek.Far", meth("Remote"))
-              + cls("Parsek.Reflector", meth("Find", ['ldstr      "Remote"', "pop", "ret"])))
+        il = (cls("Parsek.Co", meth("Tick"), meth("Start", ['ldstr      "Tick"', "pop", "ret"], attrs=ROOT))
+              + cls("Parsek.Far", meth("Remote"), meth("Ghost"))
+              + cls("Parsek.Reflector", meth("Find", ['ldstr      "Remote"', "pop", "ret"], attrs=ROOT))
+              + cls("Parsek.DeadReflector", meth("Find", ['ldstr      "Ghost"', "pop", "ret"])))
         result = self.check(il, "Parsek.Co::Tick()", "named in a string of its own type")
         self.assertEqual(rule_of(result, "Parsek.Far::Remote()"), "named in a string elsewhere")
+        # A string in dead code reflects nothing.
+        self.assertEqual(rule_of(result, "Parsek.Far::Ghost()"), "uncalled")
 
     def test_compiler_generated(self):
         il = cls("Parsek.G", meth("EqualityContract",
@@ -237,6 +277,34 @@ class RootRuleTests(unittest.TestCase):
         self.assertEqual(result["gates"]["uncalledInAssembly"], ["Parsek.Svc::Dead()", "Parsek.Svc::OnlyTested()"])
 
 
+class DeletingDeadCodeTests(unittest.TestCase):
+    """Removing a dead method can never raise the dead count: every step of
+    the fixpoint reads only live methods."""
+
+    def test_on_a_chain_and_a_dead_reflector(self):
+        il = (cls("Parsek.Chain", meth("Head", [VOID_CALL % "Parsek.Chain::Middle", VOID_CALL % "Parsek.Chain::Side",
+                                                "ret"]),
+                  meth("Middle", [VOID_CALL % "Parsek.Chain::Tail", "ret"]), meth("Tail"), meth("Side"))
+              + cls("Parsek.Far", meth("Ghost"))
+              + cls("Parsek.DeadReflector", meth("Find", ['ldstr      "Ghost"', "pop", "ret"])))
+        facts = facts_of(il)
+        before = dead_count(facts)
+        self.assertEqual(before, 6)
+        for key in ilanalysis.uncalled(ilanalysis.Index(facts, ("Tools",)), CONFIG)["uncalled"]:
+            with self.subTest(key=key):
+                self.assertLessEqual(dead_count(without(facts, key)), before - 1)
+
+    def test_on_the_verbatim_fixture(self):
+        parsed = test_ilfacts.fixture_parse()
+        facts = ilfacts.build(parsed, {path: {"Core"} for path in parsed["typeInfo"]})
+        dead = ilanalysis.uncalled(ilanalysis.Index(facts, ("Tools",)), CONFIG)["uncalled"]
+        self.assertTrue(dead)
+        before = dead_count(facts)
+        for key in dead:
+            with self.subTest(key=key):
+                self.assertLessEqual(dead_count(without(facts, key)), before)
+
+
 class StaticStateTests(unittest.TestCase):
     LIST = "class [mscorlib]System.Collections.Generic.List`1<string>"
 
@@ -244,6 +312,8 @@ class StaticStateTests(unittest.TestCase):
         fields = "\n".join([
             "  .field public static int32 Counter",
             "  .field public static int32 Quiet",
+            "  .field public static int32 Version",
+            "  .field public static int32 Inner",
             "  .field public static initonly %s Items" % self.LIST,
             "  .field public static initonly %s Table" % self.LIST,
             "  .field public static initonly string[] Names",
@@ -259,6 +329,12 @@ class StaticStateTests(unittest.TestCase):
             meth("Bump", ["ldc.i4.1", "stsfld     int32 Parsek.Store::Quiet", "ret"]),
             meth("set_Mode", ["ldarg.0", "stsfld     int32 Parsek.Store::'<Mode>k__BackingField'", "ret"],
                  flags="public hidebysig specialname static", params="int32 'value'"),
+            # A nested type of the owner is the owner: its write does not count.
+            cls("Parsek.Store/Nest", meth("Set", ["ldc.i4.5", "stsfld     int32 Parsek.Store::Inner", "ret"]),
+                flags="nested public auto ansi beforefieldinit").replace(".class nested public auto ansi "
+                                                                         "beforefieldinit Parsek.Store/Nest",
+                                                                         ".class nested public auto ansi "
+                                                                         "beforefieldinit Nest"),
         )
         other = cls(
             "Parsek.Other",
@@ -267,7 +343,16 @@ class StaticStateTests(unittest.TestCase):
                 "ldsfld     %s Parsek.Store::Items" % self.LIST, 'ldstr      "y"', add,
                 "ldc.i4.3", "call       void Parsek.Store::set_Mode(int32)",
                 # An element store whose VALUE is the static is no mutation of it.
-                "ldnull", "ldc.i4.0", "ldsfld     string[] Parsek.Store::Names", "stelem.ref", "ret"]),
+                "ldnull", "ldc.i4.0", "ldsfld     string[] Parsek.Store::Names", "stelem.ref",
+                # `Store.Version.ToString()` takes the address to read it: no write.
+                "ldsflda    int32 Parsek.Store::Version",
+                "call       instance string [mscorlib]System.Int32::ToString()", "pop", "ret"]),
+            # A type nested in ANOTHER type is another type: its write counts.
+            cls("Parsek.Other/Nest", meth("Set", ["ldc.i4.6", "stsfld     int32 Parsek.Store::Quiet", "ret"]),
+                flags="nested public auto ansi beforefieldinit").replace(".class nested public auto ansi "
+                                                                         "beforefieldinit Parsek.Other/Nest",
+                                                                         ".class nested public auto ansi "
+                                                                         "beforefieldinit Nest"),
         )
         tool = cls("Parsek.InGameTests.Poker", meth("Poke", ["ldc.i4.4", "stsfld     int32 Parsek.Store::Quiet", "ret"]))
         return analyse(owner + other + tool, tooling_types=("Parsek.InGameTests.Poker",))["statics"]
@@ -277,7 +362,8 @@ class StaticStateTests(unittest.TestCase):
         rows = statics["fields"]
         self.assertNotIn("Parsek.Store::Max", rows)
         self.assertEqual(sorted(k for k, r in rows.items() if r["reassignable"]), [
-            "Parsek.Store::<Mode>k__BackingField", "Parsek.Store::Counter", "Parsek.Store::Quiet"])
+            "Parsek.Store::<Mode>k__BackingField", "Parsek.Store::Counter", "Parsek.Store::Inner",
+            "Parsek.Store::Quiet", "Parsek.Store::Version"])
         # Mutated by Add outside the static constructor; Table only inside it.
         self.assertTrue(rows["Parsek.Store::Items"]["mutated"])
         self.assertFalse(rows["Parsek.Store::Table"]["mutated"])
@@ -286,12 +372,22 @@ class StaticStateTests(unittest.TestCase):
 
     def test_written_by_another_production_type(self):
         statics = self.build()
-        # stsfld from Other and a static auto-property setter Other calls; the
-        # owner's own write and the tooling write do not count.
+        # stsfld from Other, from a type nested in Other, and a static
+        # auto-property setter Other calls; the owner's own write (its nested
+        # type's included), the tooling write and Other's address read of
+        # Version do not count.
         self.assertEqual(sorted(statics["crossTypeWrites"]), [
-            "Parsek.Store::<Mode>k__BackingField", "Parsek.Store::Counter"])
-        self.assertEqual(statics["byModule"]["Core"]["writtenElsewhere"], 2)
-        self.assertEqual(statics["byType"]["Parsek.Store"]["reassignable"], 3)
+            "Parsek.Store::<Mode>k__BackingField", "Parsek.Store::Counter", "Parsek.Store::Quiet"])
+        self.assertEqual(statics["crossTypeWrites"]["Parsek.Store::Quiet"], ["Parsek.Other/Nest::Set()"])
+        self.assertEqual(statics["byModule"]["Core"]["writtenElsewhere"], 3)
+        self.assertEqual(statics["byType"]["Parsek.Store"]["reassignable"], 5)
+
+    def test_an_address_taken_elsewhere_is_reported_not_gated(self):
+        statics = self.build()
+        rows = statics["fields"]
+        self.assertEqual(rows["Parsek.Store::Version"]["addressTakenElsewhereBy"], ["Parsek.Other::Poke()"])
+        self.assertEqual(rows["Parsek.Store::Version"]["writtenElsewhereBy"], [])
+        self.assertEqual(statics["byModule"]["Core"]["addressTakenElsewhere"], 1)
 
 
 class ComplexityAndCouplingTests(unittest.TestCase):
@@ -306,6 +402,17 @@ class ComplexityAndCouplingTests(unittest.TestCase):
         result = analyse(il)
         self.assertEqual(result["gates"]["complexity50"], ["Parsek.Big::Run"])
         self.assertEqual(result["complexity"]["methods"][0]["complexity"], 51)
+
+    def test_the_gate_and_the_watch_band_include_their_edges(self):
+        def at(decisions):
+            return meth("D%d" % decisions, ["ldarg.0", "brtrue.s   IL_0000"] * decisions + ["ret"], params="bool a")
+        gate = ilanalysis.COMPLEXITY_GATE
+        low = gate - ilanalysis.COMPLEXITY_WATCH_BAND
+        result = analyse(cls("Parsek.Edge", at(gate - 1), at(gate - 2), at(low - 1), at(low - 2)))
+        # decisions + 1: D49 is at the gate, D48 just under it, D44 at the band's floor.
+        self.assertEqual(result["gates"]["complexity50"], ["Parsek.Edge::D%d" % (gate - 1)])
+        self.assertEqual(result["gates"]["complexityWatch"],
+                         ["Parsek.Edge::D%d" % (low - 1), "Parsek.Edge::D%d" % (gate - 2), "Parsek.Edge::D%d" % (gate - 1)])
 
     def test_the_fixture_folds_lambda_decisions(self):
         facts = ilfacts.build(test_ilfacts.fixture_parse())
@@ -380,12 +487,12 @@ class RatchetTests(unittest.TestCase):
     PINS = {
         "crossTypeStaticWrites": {"bound": 2, "keys": ["A::x", "A::y"]},
         "uncalledInAssembly": {"bound": 1, "keys": ["B::M()"]},
-        "complexity50": {"keys": ["C::Big", "C::Huge"]},
+        "complexityWatch": {"keys": ["C::Big", "C::Huge", "C::Near"]},
     }
 
     def gates(self, **changes):
         out = {"crossTypeStaticWrites": ["A::x", "A::y"], "uncalledInAssembly": ["B::M()"],
-               "complexity50": ["C::Big", "C::Huge"]}
+               "complexity50": ["C::Big", "C::Huge"], "complexityWatch": ["C::Big", "C::Huge", "C::Near"]}
         out.update(changes)
         return out
 
@@ -419,10 +526,15 @@ class RatchetTests(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("C::New", problems[0])
 
+    def test_a_method_in_the_watch_band_may_drift_to_the_gate(self):
+        # A compiler that counts C::Near a decision or two higher does not red.
+        self.assertEqual(ilanalysis.ratchet_problems(self.gates(complexity50=["C::Big", "C::Huge", "C::Near"]),
+                                                     self.PINS), [])
+
     def test_rendered_pins_read_back(self):
         pins = tomllib.loads(ilanalysis.render_pins(self.gates(), "Parsek.dll", "2026-11-11"))
         self.assertEqual(pins["crossTypeStaticWrites"], self.PINS["crossTypeStaticWrites"])
-        self.assertEqual(pins["complexity50"], self.PINS["complexity50"])
+        self.assertEqual(pins["complexityWatch"], self.PINS["complexityWatch"])
         self.assertEqual(ilanalysis.ratchet_problems(self.gates(), pins), [])
 
     def test_the_committed_pins_are_consistent(self):
@@ -431,7 +543,7 @@ class RatchetTests(unittest.TestCase):
             with self.subTest(pin=name):
                 self.assertEqual(pins[name]["bound"], len(pins[name]["keys"]))
                 self.assertEqual(len(set(pins[name]["keys"])), len(pins[name]["keys"]))
-        self.assertTrue(pins["complexity50"]["keys"])
+        self.assertTrue(pins["complexityWatch"]["keys"])
 
     def test_the_config_names_every_list_the_rules_read(self):
         for section, keys in {
@@ -478,6 +590,7 @@ class RealTreeRatchetTests(unittest.TestCase):
         if not il_path.is_file():
             raise AssertionError("%s=%s does not exist (build Parsek first)" % (IL_ENV, il_path))
         facts, tooling = test_ilfacts.real_tree_facts(il_path)
+        cls.facts = (facts, tooling)
         cls.result = ilanalysis.report(facts, tooling, CONFIG)
         cls.pins = ilanalysis.load_pins()
         cls.details = ilanalysis.gate_details(cls.result)
@@ -499,6 +612,23 @@ class RealTreeRatchetTests(unittest.TestCase):
 
     def test_uncalled_production_methods(self):
         self.check("uncalledInAssembly")
+
+    def test_the_pinned_watch_band_covers_the_gate(self):
+        self.assertFalse(set(self.result["gates"]["complexity50"]) - set(self.pins["complexityWatch"]["keys"]))
+
+    def test_deleting_dead_code_never_raises_the_count(self):
+        facts, tooling = self.facts
+        index = ilanalysis.Index(facts, tooling)
+        dead = ilanalysis.uncalled(index, CONFIG)["uncalled"]
+        sole = sole_callers_of_several(index, dead)
+        self.assertGreaterEqual(len(sole), 9)
+        step = max(1, len(dead) // 50)
+        sample = sorted(set(sole) | set(dead[::step]))
+        self.assertGreaterEqual(len(sample), 50)
+        before = dead_count(facts, tooling)
+        for key in sample:
+            with self.subTest(key=key):
+                self.assertLessEqual(dead_count(without(facts, key), tooling), before)
 
     def test_the_roots_keep_what_the_runtime_calls(self):
         listed = set(self.result["uncalled"]["uncalled"])
