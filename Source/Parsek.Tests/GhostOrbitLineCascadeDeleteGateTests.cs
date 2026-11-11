@@ -87,7 +87,7 @@ namespace Parsek.Tests
             Assert.Contains("ghostsWithSuppressedIcon.Remove(", src);
 
             // Polyline-owning stamp: produced only by the polyline-owns branch; read by the
-            // post-polyline-release grace here AND by ParsekUI.DrawMapMarkers (trajPos preference).
+            // post-polyline-release grace here AND by ParsekFlightMapMarkers.DrawMapMarkers (trajPos preference).
             Assert.Contains("StampPolylineOwning(", src);
             Assert.Contains("IsPolylineRecentlyOwningGhostPhase(", src);
 

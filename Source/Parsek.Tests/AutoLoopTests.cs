@@ -336,17 +336,17 @@ namespace Parsek.Tests
         [InlineData(LoopTimeUnit.Auto, "s")] // Auto falls through to "s" — callers resolve to concrete unit first
         public void UnitSuffix_AllValues(LoopTimeUnit unit, string expected)
         {
-            Assert.Equal(expected, ParsekUI.UnitSuffix(unit));
+            Assert.Equal(expected, RecordingsTableUI.UnitSuffix(unit));
         }
 
         [Fact]
         public void CycleRecordingUnit_FullCycle()
         {
             var u = LoopTimeUnit.Sec;
-            u = ParsekUI.CycleRecordingUnit(u); Assert.Equal(LoopTimeUnit.Min, u);
-            u = ParsekUI.CycleRecordingUnit(u); Assert.Equal(LoopTimeUnit.Hour, u);
-            u = ParsekUI.CycleRecordingUnit(u); Assert.Equal(LoopTimeUnit.Auto, u);
-            u = ParsekUI.CycleRecordingUnit(u); Assert.Equal(LoopTimeUnit.Sec, u);
+            u = RecordingsTableUI.CycleRecordingUnit(u); Assert.Equal(LoopTimeUnit.Min, u);
+            u = RecordingsTableUI.CycleRecordingUnit(u); Assert.Equal(LoopTimeUnit.Hour, u);
+            u = RecordingsTableUI.CycleRecordingUnit(u); Assert.Equal(LoopTimeUnit.Auto, u);
+            u = RecordingsTableUI.CycleRecordingUnit(u); Assert.Equal(LoopTimeUnit.Sec, u);
         }
 
         [Fact]

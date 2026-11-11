@@ -435,7 +435,7 @@ namespace Parsek
             }
             else if (bodyInfo != null)
             {
-                ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
+                ConstraintExtraction extraction = ExtractPeriodicityConstraints(
                     view, compRoots, committed, mission.ExcludedIntervalKeys, bodyInfo);
                 // Reference time for "the next window at or after the loop was enabled": the
                 // loop-enable UT (LoopAnchorUT), so the snap is stable across frames (it does not
@@ -1604,6 +1604,29 @@ namespace Parsek
             if (k < 1.0)
                 k = 1.0;
             return k * p;
+        }
+
+        /// <summary>
+        /// The periodicity constraint extraction for a mission's included set: computes the
+        /// trimmed member windows (<see cref="ComputeTrimmedMemberWindows"/>, the same source of
+        /// truth the span clock and cadence use) and hands them to
+        /// <see cref="MissionPeriodicity.ExtractConstraints"/>. The windows are computed only when
+        /// both <paramref name="committed"/> and <paramref name="bodyInfo"/> are present, as the
+        /// extractor did before it took them as an input.
+        /// </summary>
+        internal static ConstraintExtraction ExtractPeriodicityConstraints(
+            MissionThroughLineView view,
+            List<MissionCompositionNode> compRoots,
+            IReadOnlyList<Recording> committed,
+            ICollection<string> excludedIntervalKeys,
+            IBodyInfo bodyInfo)
+        {
+            Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> memberWindows = null;
+            if (committed != null && bodyInfo != null)
+                memberWindows = ComputeTrimmedMemberWindows(
+                    view, compRoots, committed, excludedIntervalKeys, null,
+                    out _, out _);
+            return MissionPeriodicity.ExtractConstraints(view, memberWindows, committed, bodyInfo);
         }
 
         /// <summary>

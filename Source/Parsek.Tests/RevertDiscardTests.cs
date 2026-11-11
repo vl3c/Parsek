@@ -7,7 +7,7 @@ namespace Parsek.Tests
     /// Tests for #434: on revert, the pending tree is soft-unstashed (slot cleared) but
     /// sidecar files and tagged events are preserved so that a flight quicksave can still
     /// be F9'd back into. Contrast with merge-dialog Discard, which runs the full #431
-    /// purge via <see cref="RecordingStore.DiscardPendingTree"/>.
+    /// purge via <see cref="TreeDiscardService.DiscardPendingTree"/>.
     /// </summary>
     [Collection("Sequential")]
     public class RevertDiscardTests : System.IDisposable
@@ -67,7 +67,7 @@ namespace Parsek.Tests
         public void UnstashPendingTreeOnRevert_ClearsSlot_PreservesFilesAndEvents()
         {
             var tree = MakeTreeWithOneRec("Mun Lander", "rec-mun");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
             var munEvt = new GameStateEvent
             {
                 ut = 100.0,
@@ -76,12 +76,12 @@ namespace Parsek.Tests
                 recordingId = "rec-mun",
             };
             GameStateStore.AddEvent(ref munEvt);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.Single(GameStateStore.Events);
 
-            RecordingStore.UnstashPendingTreeOnRevert();
+            PendingTreeSlot.UnstashPendingTreeOnRevert();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             // Events NOT purged — soft-unstash preserves the tagged rows and sidecars for
             // F9-resume, while current-timeline visibility keeps them out of normal
             // ledger/milestone walks after the tree is unstashed.
@@ -95,13 +95,13 @@ namespace Parsek.Tests
         public void UnstashPendingTreeOnRevert_FromLimboState_WorksToo()
         {
             var tree = MakeTreeWithOneRec("F5 mid-mission", "rec-limbo");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
 
-            RecordingStore.UnstashPendingTreeOnRevert();
+            PendingTreeSlot.UnstashPendingTreeOnRevert();
 
-            Assert.False(RecordingStore.HasPendingTree);
-            Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+            Assert.False(PendingTreeSlot.HasPendingTree);
+            Assert.Equal(PendingTreeState.Finalized, PendingTreeSlot.PendingTreeStateValue);
             Assert.Contains(logLines, l =>
                 l.Contains("Unstashed pending tree 'F5 mid-mission'")
                 && l.Contains("was state=Limbo"));
@@ -111,13 +111,13 @@ namespace Parsek.Tests
         public void UnstashPendingTreeOnRevert_FromLimboVesselSwitchState_WorksToo()
         {
             var tree = MakeTreeWithOneRec("Vessel switch", "rec-switch");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-            RecordingStore.SetPendingTreeStateForTesting(PendingTreeState.LimboVesselSwitch);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.SetPendingTreeStateForTesting(PendingTreeState.LimboVesselSwitch);
 
-            RecordingStore.UnstashPendingTreeOnRevert();
+            PendingTreeSlot.UnstashPendingTreeOnRevert();
 
-            Assert.False(RecordingStore.HasPendingTree);
-            Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+            Assert.False(PendingTreeSlot.HasPendingTree);
+            Assert.Equal(PendingTreeState.Finalized, PendingTreeSlot.PendingTreeStateValue);
             Assert.Contains(logLines, l =>
                 l.Contains("was state=LimboVesselSwitch"));
         }
@@ -125,9 +125,9 @@ namespace Parsek.Tests
         [Fact]
         public void UnstashPendingTreeOnRevert_NoPendingTree_IsNoop()
         {
-            RecordingStore.UnstashPendingTreeOnRevert();
+            PendingTreeSlot.UnstashPendingTreeOnRevert();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]") && l.Contains("UnstashPendingTreeOnRevert called with no pending tree"));
         }
@@ -138,7 +138,7 @@ namespace Parsek.Tests
         public void UnstashPendingTreeOnRevert_ClearsPendingScienceSubjects()
         {
             var tree = MakeTreeWithOneRec("Mun sci", "rec-sci");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
             GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
             {
                 subjectId = "crewReport@MunSrfLandedMidlands",
@@ -153,7 +153,7 @@ namespace Parsek.Tests
             });
             Assert.Equal(2, GameStateRecorder.PendingScienceSubjects.Count);
 
-            RecordingStore.UnstashPendingTreeOnRevert();
+            PendingTreeSlot.UnstashPendingTreeOnRevert();
 
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
             Assert.Contains(logLines, l =>
@@ -169,7 +169,7 @@ namespace Parsek.Tests
                 science = 1.0f,
             });
 
-            RecordingStore.UnstashPendingTreeOnRevert();
+            PendingTreeSlot.UnstashPendingTreeOnRevert();
 
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
             Assert.Contains(logLines, l =>
@@ -322,8 +322,8 @@ namespace Parsek.Tests
             // would delete sidecar files tied to the reverted flight and break
             // F9-from-flight-quicksave.
             var tree = MakeTreeWithOneRec("Armed-revert tree", "rec-armed");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-            RecordingStore.PendingStashedThisTransition = true;
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.PendingStashedThisTransition = true;
             var armedEvt = new GameStateEvent
             {
                 ut = 600.0,
@@ -337,7 +337,7 @@ namespace Parsek.Tests
             ParsekScenario.DiscardStashedOnQuickload(preChangeUT: 708.0, currentUT: 552.0);
 
             // Tree and event must survive — the guard refused.
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.Single(GameStateStore.Events);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("refusing to run with armed RevertDetector"));
@@ -353,7 +353,7 @@ namespace Parsek.Tests
             // stashed a tree would leak the subjects onto the next unrelated commit. The fix
             // calls UnstashPendingTreeOnRevert unconditionally on the revert path; this test
             // pins the no-tree cleanup contract the new dispatch relies on.
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
             {
                 subjectId = "mysteryGoo@KerbinSrfLandedLaunchPad",
@@ -366,7 +366,7 @@ namespace Parsek.Tests
             });
             Assert.Equal(2, GameStateRecorder.PendingScienceSubjects.Count);
 
-            RecordingStore.UnstashPendingTreeOnRevert();
+            PendingTreeSlot.UnstashPendingTreeOnRevert();
 
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
             Assert.Contains(logLines, l =>
@@ -380,7 +380,7 @@ namespace Parsek.Tests
             //   UnstashPendingTreeOnRevert  -> soft clear, files + events stay
             //   DiscardPendingTree          -> hard clear, files + events purged
             var tree = MakeTreeWithOneRec("Contrast test", "rec-contrast");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
             var contrastEvt = new GameStateEvent
             {
                 ut = 50.0,
@@ -390,13 +390,13 @@ namespace Parsek.Tests
             };
             GameStateStore.AddEvent(ref contrastEvt);
 
-            RecordingStore.UnstashPendingTreeOnRevert();
+            PendingTreeSlot.UnstashPendingTreeOnRevert();
             Assert.Single(GameStateStore.Events); // tagged event retained on unstash
 
             // Restash and discard the second path — events should be purged.
             var tree2 = MakeTreeWithOneRec("Discard path", "rec-contrast");
-            RecordingStore.StashPendingTree(tree2, PendingTreeState.Finalized);
-            RecordingStore.DiscardPendingTree();
+            PendingTreeSlot.StashPendingTree(tree2, PendingTreeState.Finalized);
+            TreeDiscardService.DiscardPendingTree();
             Assert.Empty(GameStateStore.Events); // purge confirmed
         }
 

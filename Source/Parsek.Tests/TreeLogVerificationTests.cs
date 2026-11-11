@@ -70,7 +70,7 @@ namespace Parsek.Tests
         {
             var tree = MakeTree("tree_c1", "Mun Mission", 3);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Contains(capturedLines,
                 line => line.Contains("Committed tree 'Mun Mission' (3 recordings)"));
@@ -85,7 +85,7 @@ namespace Parsek.Tests
         {
             var tree = MakeTree("tree_c2", "Mun Mission", 3);
 
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.Contains(capturedLines,
                 line => line.Contains("Stashed pending tree 'Mun Mission' (3 recordings, state=Finalized)"));
@@ -99,10 +99,10 @@ namespace Parsek.Tests
         public void DiscardPendingTree_LogsTreeName()
         {
             var tree = MakeTree("tree_c3", "Mun Mission", 3);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             capturedLines.Clear();
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.Contains(capturedLines,
                 line => line.Contains("Discarded pending tree 'Mun Mission'"));

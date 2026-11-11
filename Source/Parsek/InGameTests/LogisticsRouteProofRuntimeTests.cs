@@ -261,7 +261,7 @@ namespace Parsek.InGameTests
             if (activeTree != null)
                 yield return activeTree;
 
-            RecordingTree pendingTree = RecordingStore.PendingTree;
+            RecordingTree pendingTree = PendingTreeSlot.PendingTree;
             if (pendingTree != null && !ReferenceEquals(pendingTree, activeTree))
                 yield return pendingTree;
 
@@ -293,7 +293,7 @@ namespace Parsek.InGameTests
                 return false;
             }
 
-            ConfigNode beforeSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            ConfigNode beforeSnapshot = FlightRecorder.TryBackupSnapshot(vessel);
             if (beforeSnapshot == null)
             {
                 skipReason = "Could not snapshot active vessel before inventory move";
@@ -454,7 +454,7 @@ namespace Parsek.InGameTests
             uint partPersistentId,
             string identityHash)
         {
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            ConfigNode snapshot = FlightRecorder.TryBackupSnapshot(vessel);
             if (snapshot == null)
                 return null;
 

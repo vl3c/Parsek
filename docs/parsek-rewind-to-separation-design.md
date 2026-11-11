@@ -292,7 +292,7 @@ This section fixes the vocabulary. Throughout the doc, "recording" (lowercase) i
 - **Loss row / sealing row** — the two classes of the retire set (section 2.12). Loss rows (crew deaths and bookkeeping, vessel-loss and crew-death reputation, building damage) can be retired; any sealing row (every gain, contract outcome and flight-tagged spend) makes the slot not re-flyable.
 - **Stranded EVA** — (retired 2026-09-27) formerly an EVA kerbal recording with a non-`Boarded` terminal, which qualified as an Unfinished Flight. An EVA kerbal now never qualifies, whatever its terminal (`evaNotSeparation`, §1.5).
 - **Prior tip** — the slot's current effective recording id at re-fly invocation time, before any new supersede relation has been appended for the current re-fly. Equals `slot.OriginChildRecordingId` on the first re-fly into a slot; equals the previous re-fly's recording id on chain extension. Stamped into `ReFlySessionMarker.SupersedeTargetId` by `RewindInvoker.AtomicMarkerWrite` (v0.9.1, see §6.22).
-- **Site A** — `RecordingStore.ApplyRewindProvisionalMergeStates`. The MergeState-promotion call site that runs at original tree commit. Reads the broadened predicate; promotes stable-leaf siblings to `CommittedProvisional` so they appear in Unfinished Flights.
+- **Site A** — `TreeCommitService.ApplyRewindProvisionalMergeStates`. The MergeState-promotion call site that runs at original tree commit. Reads the broadened predicate; promotes stable-leaf siblings to `CommittedProvisional` so they appear in Unfinished Flights.
 - **Site B-1** — `SupersedeCommit.FlipMergeStateAndClearTransient`. The MergeState-promotion call site that runs at re-fly merge. Applies the v0.9.1 auto-seal contract using the merge-time slot as `focusSlotOverride`.
 - **Site B-2** — `MergeDialog.TryCommitReFlySupersede`'s in-place continuation path. Consumes Site B-1's verdict; clean stable Re-Fly outcomes commit `Immutable` + auto-seal at Site B-1 and Site B-2 lets the reaper remove the RP. Safety-closed outcomes follow the same path. Terminal-failure outcomes (`Destroyed`) whose retire set holds no sealing row (section 2.12 Rule 1) stay `CommittedProvisional` so the player can retry the failure.
 
@@ -1007,7 +1007,7 @@ On session merge (the NON-re-fly merge that commits the tree that just ran):
 - Focused vessel's recording → `Immutable`.
 - BG-recorded controllable children whose parent BranchPoint has `RewindPointId != null` → `CommittedProvisional`. (They might become Unfinished Flights.)
 - Other BG children under a BranchPoint without an RP → `Immutable`.
-- Session-provisional RPs promote to persistent during `TagRpsForReap` when their `CreatingSessionId` matches the merging session — but for tree merges outside an active re-fly session, `CreatingSessionId` is null on the RPs written during flight, so the session promote path doesn't apply. `LoadTimeSweep` retains those normal staging RPs during the scene load that presents the merge dialog; `RecordingStore.CommitTree` promotes the accepted tree's normal staging RPs to persistent. Nested/session-created RPs with a dead `CreatingSessionId` are the ones purged. Unfinished Flights membership recomputes.
+- Session-provisional RPs promote to persistent during `TagRpsForReap` when their `CreatingSessionId` matches the merging session — but for tree merges outside an active re-fly session, `CreatingSessionId` is null on the RPs written during flight, so the session promote path doesn't apply. `LoadTimeSweep` retains those normal staging RPs during the scene load that presents the merge dialog; `TreeCommitService.CommitTree` promotes the accepted tree's normal staging RPs to persistent. Nested/session-created RPs with a dead `CreatingSessionId` are the ones purged. Unfinished Flights membership recomputes.
 
 Note: the distinction between "session merge of a normal flight" and "session merge of a re-fly session" is driven by whether `ActiveReFlySessionMarker` is non-null. Only re-fly merges go through `MergeJournalOrchestrator.RunMerge`.
 
@@ -1238,7 +1238,7 @@ Runs from `ParsekScenario.OnLoad` AFTER `MergeJournalOrchestrator.RunFinisher` a
 
 File: `Source/Parsek/TreeDiscardPurge.cs`.
 
-Triggered by merge-discard (`RecordingStore.DiscardPendingTree`) or by any other path that discards a whole tree. Note: the Revert-during-re-fly dialog's Discard Re-fly button does NOT reach this path — design §6.14's `DiscardReFlyHandler` is session-scoped and leaves the tree's supersede / tombstone / RP state untouched. `TreeDiscardPurge.PurgeTree(treeId)` removes every Rewind-to-Separation artifact tied to the tree:
+Triggered by merge-discard (`TreeDiscardService.DiscardPendingTree`) or by any other path that discards a whole tree. Note: the Revert-during-re-fly dialog's Discard Re-fly button does NOT reach this path — design §6.14's `DiscardReFlyHandler` is session-scoped and leaves the tree's supersede / tombstone / RP state untouched. `TreeDiscardPurge.PurgeTree(treeId)` removes every Rewind-to-Separation artifact tied to the tree:
 
 - Remove every RP whose `BranchPointId` is in the tree; delete each RP's quicksave file on disk.
 - Remove every `RecordingSupersedeRelation` with either endpoint in the tree.
@@ -1247,7 +1247,7 @@ Triggered by merge-discard (`RecordingStore.DiscardPendingTree`) or by any other
 - Clear `ActiveMergeJournal` if it references the tree.
 - Recompute crew reservations via `CrewReservationManager.RecomputeAfterTombstones` when tombstones shrank.
 
-**What this does NOT do:** it does not remove the tree's committed recordings themselves and does not delete the tree from `RecordingStore.CommittedTrees`. Removal of the recordings (for a pending tree being discarded before commit) is the caller's responsibility — `TreeDiscardPurge.PurgeTree` is invoked by `RecordingStore.DiscardPendingTree` BEFORE the recordings are removed from `CommittedRecordings` so the purge can still resolve recording ids to tree membership. The Revert-during-re-fly dialog's Discard Re-fly button is explicitly NOT a caller of this purge — it only clears the session artifacts and reloads the origin RP's quicksave; the tree's other RPs / supersede relations / tombstones are preserved (design §6.14).
+**What this does NOT do:** it does not remove the tree's committed recordings themselves and does not delete the tree from `RecordingStore.CommittedTrees`. Removal of the recordings (for a pending tree being discarded before commit) is the caller's responsibility — `TreeDiscardPurge.PurgeTree` is invoked by `TreeDiscardService.DiscardPendingTree` BEFORE the recordings are removed from `CommittedRecordings` so the purge can still resolve recording ids to tree membership. The Revert-during-re-fly dialog's Discard Re-fly button is explicitly NOT a caller of this purge — it only clears the session artifacts and reloads the origin RP's quicksave; the tree's other RPs / supersede relations / tombstones are preserved (design §6.14).
 
 Purging a tree's rewind-state is the **only** path that deletes supersede relations or ledger tombstones (invariant 7). Orphans left by partial crash states stay in place and are logged on every load.
 
@@ -1366,7 +1366,7 @@ The following helpers move from `UI/RecordingsTableUI.cs` into this file (or `Ef
 
 Site A decides whether a newly committed original-tree recording appears in Unfinished Flights. Site B decides what happens after the player re-flies one of those slots and commits the attempt back to the timeline. The policies share the same predicate but Site B also applies merge-time conclusion and safety gates: chosen stable leaves auto-seal, terminal failures can remain retryable, while recovered/docked/boarded terminals, downstream structural/world interactions, and a sealing row in the slot's retire set (section 2.12 Rule 1) closes the slot.
 
-**Site A: original tree commit.** `RecordingStore.ApplyRewindProvisionalMergeStates` (`RecordingStore.cs:715-770`) extends from the v0.9.0 Crashed-only check to the broader predicate:
+**Site A: original tree commit.** `TreeCommitService.ApplyRewindProvisionalMergeStates` (`RecordingStore.cs:715-770`) extends from the v0.9.0 Crashed-only check to the broader predicate:
 
 ```
 for each rec in tree.Recordings:

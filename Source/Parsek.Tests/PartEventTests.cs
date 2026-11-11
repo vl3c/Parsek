@@ -24,7 +24,7 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_SerializationRoundtrip()
         {
-            // Production codec on BOTH ends: RecordingStore.SerializeTrajectoryInto writes
+            // Production codec on BOTH ends: TrajectoryTextSidecarCodec.SerializeTrajectoryInto writes
             // the PART_EVENT nodes and DeserializeTrajectoryFrom reads them back. The old
             // body hand-rolled the read, so a regression in
             // TrajectoryTextSidecarCodec.DeserializePartEvents left it green.
@@ -47,10 +47,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Equal(2, loaded.PartEvents.Count);
 
@@ -78,12 +78,12 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 110, altitude = 200, bodyName = "Kerbin" });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
             Assert.Empty(node.GetNodes("PART_EVENT"));
             Assert.NotEmpty(node.GetNodes());
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Equal(2, loaded.Points.Count);
             Assert.NotNull(loaded.PartEvents);
@@ -305,7 +305,7 @@ namespace Parsek.Tests
                 .Build();
 
             var exclude = new HashSet<string> { "Jeb" };
-            VesselSpawner.RemoveSpecificCrewFromSnapshot(snapshot, exclude);
+            VesselSnapshotOps.RemoveSpecificCrewFromSnapshot(snapshot, exclude);
 
             var parts = snapshot.GetNodes("PART");
             foreach (var part in parts)
@@ -325,7 +325,7 @@ namespace Parsek.Tests
             part.AddValue("crew", "Bill");
 
             var exclude = new HashSet<string> { "Jeb" };
-            VesselSpawner.RemoveSpecificCrewFromSnapshot(snapshot, exclude);
+            VesselSnapshotOps.RemoveSpecificCrewFromSnapshot(snapshot, exclude);
 
             var crewAfter = part.GetValues("crew");
             Assert.Single(crewAfter);
@@ -335,7 +335,7 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveSpecificCrew_NullSnapshot_NoException()
         {
-            var ex = Record.Exception(() => VesselSpawner.RemoveSpecificCrewFromSnapshot(null, new HashSet<string> { "Jeb" }));
+            var ex = Record.Exception(() => VesselSnapshotOps.RemoveSpecificCrewFromSnapshot(null, new HashSet<string> { "Jeb" }));
             Assert.Null(ex);
         }
 
@@ -346,7 +346,7 @@ namespace Parsek.Tests
                 .AddPart("mk1pod.v2", "Jeb")
                 .Build();
 
-            var ex = Record.Exception(() => VesselSpawner.RemoveSpecificCrewFromSnapshot(snapshot, null));
+            var ex = Record.Exception(() => VesselSnapshotOps.RemoveSpecificCrewFromSnapshot(snapshot, null));
             Assert.Null(ex);
         }
 
@@ -360,7 +360,7 @@ namespace Parsek.Tests
             var snapshotCrew = new List<string> { "Jebediah Kerman", "Bill Kerman" };
             var existingCrew = new HashSet<string> { "Jebediah Kerman", "Valentina Kerman" };
 
-            var dupes = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
+            var dupes = VesselSnapshotOps.FindDuplicateCrew(snapshotCrew, existingCrew);
 
             Assert.Single(dupes);
             Assert.Contains("Jebediah Kerman", dupes);
@@ -372,7 +372,7 @@ namespace Parsek.Tests
             var snapshotCrew = new List<string> { "Bill Kerman" };
             var existingCrew = new HashSet<string> { "Jebediah Kerman", "Valentina Kerman" };
 
-            var dupes = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
+            var dupes = VesselSnapshotOps.FindDuplicateCrew(snapshotCrew, existingCrew);
 
             Assert.Empty(dupes);
         }
@@ -383,7 +383,7 @@ namespace Parsek.Tests
             var snapshotCrew = new List<string> { "Jebediah Kerman" };
             var existingCrew = new HashSet<string>();
 
-            var dupes = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
+            var dupes = VesselSnapshotOps.FindDuplicateCrew(snapshotCrew, existingCrew);
 
             Assert.Empty(dupes);
         }
@@ -391,8 +391,8 @@ namespace Parsek.Tests
         [Fact]
         public void FindDuplicateCrew_NullInputs_ReturnsEmpty()
         {
-            Assert.Empty(VesselSpawner.FindDuplicateCrew(null, new HashSet<string> { "Jeb" }));
-            Assert.Empty(VesselSpawner.FindDuplicateCrew(new List<string> { "Jeb" }, null));
+            Assert.Empty(VesselSnapshotOps.FindDuplicateCrew(null, new HashSet<string> { "Jeb" }));
+            Assert.Empty(VesselSnapshotOps.FindDuplicateCrew(new List<string> { "Jeb" }, null));
         }
 
         [Fact]
@@ -401,7 +401,7 @@ namespace Parsek.Tests
             var snapshotCrew = new List<string> { "Jebediah Kerman", "Bill Kerman", "Valentina Kerman" };
             var existingCrew = new HashSet<string> { "Jebediah Kerman", "Valentina Kerman" };
 
-            var dupes = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
+            var dupes = VesselSnapshotOps.FindDuplicateCrew(snapshotCrew, existingCrew);
 
             Assert.Equal(2, dupes.Count);
             Assert.Contains("Jebediah Kerman", dupes);
@@ -869,10 +869,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.LightOn, loaded.PartEvents[0].eventType);
@@ -897,10 +897,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.LightBlinkEnabled, loaded.PartEvents[0].eventType);
@@ -1209,10 +1209,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.GearDeployed, loaded.PartEvents[0].eventType);
@@ -1236,10 +1236,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.GearRetracted, loaded.PartEvents[0].eventType);
@@ -1363,10 +1363,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.CargoBayOpened, loaded.PartEvents[0].eventType);
@@ -1390,10 +1390,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.CargoBayClosed, loaded.PartEvents[0].eventType);
@@ -1455,10 +1455,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.FairingJettisoned, loaded.PartEvents[0].eventType);
@@ -1669,10 +1669,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.RCSActivated, loaded.PartEvents[0].eventType);
@@ -1698,10 +1698,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.RCSStopped, loaded.PartEvents[0].eventType);
@@ -1733,10 +1733,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Equal(2, loaded.PartEvents.Count);
             Assert.Equal(PartEventType.RCSThrottle, loaded.PartEvents[0].eventType);
@@ -1936,10 +1936,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.RoboticPositionSample, loaded.PartEvents[0].eventType);
@@ -2156,10 +2156,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.ThermalAnimationHot, loaded.PartEvents[0].eventType);
@@ -2185,10 +2185,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.ThermalAnimationMedium, loaded.PartEvents[0].eventType);
@@ -2216,7 +2216,7 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             // Manually inject an unknown event type (999)
             var unknownEvtNode = new ConfigNode("PART_EVENT");
@@ -2229,7 +2229,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-forward-compat";
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             // The unknown event (type=999) should be skipped, only the valid event remains
             Assert.Single(loaded.PartEvents);
@@ -2258,10 +2258,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.EngineIgnited, loaded.PartEvents[0].eventType);
@@ -2284,7 +2284,7 @@ namespace Parsek.Tests
             // No "value" or "midx" keys
 
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
             Assert.Single(rec.PartEvents);
             Assert.Equal(0f, rec.PartEvents[0].value);
@@ -2318,10 +2318,10 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var loaded = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Equal(2, loaded.PartEvents.Count);
             Assert.Equal(PartEventType.EngineThrottle, loaded.PartEvents[0].eventType);
@@ -2478,7 +2478,7 @@ namespace Parsek.Tests
             Assert.Contains("Bill Kerman", crew);
 
             // and the predicate the removal consults agrees.
-            var duplicates = VesselSpawner.FindDuplicateCrew(
+            var duplicates = VesselSnapshotOps.FindDuplicateCrew(
                 crew, new HashSet<string>(existingCrew.Keys));
             Assert.Empty(duplicates);
         }
@@ -2514,7 +2514,7 @@ namespace Parsek.Tests
             var snapshotCrew = new List<string> { "", "Jebediah Kerman" };
             var existingCrew = new HashSet<string> { "" };
 
-            var dupes = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
+            var dupes = VesselSnapshotOps.FindDuplicateCrew(snapshotCrew, existingCrew);
 
             // Empty string should not be treated as a duplicate
             Assert.Empty(dupes);
@@ -2534,7 +2534,7 @@ namespace Parsek.Tests
         [Fact]
         public void DescribeCrewDedupOutcome_PartialRemoval_ReportsRemainingSeats()
         {
-            string line = VesselSpawner.DescribeCrewDedupOutcome(3, 1);
+            string line = VesselSnapshotOps.DescribeCrewDedupOutcome(3, 1);
 
             Assert.Contains("removed 1 of 3", line);
             Assert.Contains("2 seat(s) still filled", line);
@@ -2546,7 +2546,7 @@ namespace Parsek.Tests
         {
             // The line that stops "my rewound craft came back with no crew" reading as a
             // Parsek bug: it names the reason (they are aboard other live vessels).
-            string line = VesselSpawner.DescribeCrewDedupOutcome(2, 2);
+            string line = VesselSnapshotOps.DescribeCrewDedupOutcome(2, 2);
 
             Assert.Contains("removed 2 of 2", line);
             Assert.Contains("0 seat(s) still filled", line);
@@ -2558,7 +2558,7 @@ namespace Parsek.Tests
         {
             // A crewless snapshot (probe) removes nothing: 0 of 0 must not read as the
             // all-seats-empty anomaly.
-            string line = VesselSpawner.DescribeCrewDedupOutcome(0, 0);
+            string line = VesselSnapshotOps.DescribeCrewDedupOutcome(0, 0);
 
             Assert.Contains("removed 0 of 0", line);
             Assert.DoesNotContain("EVERY seat empty", line);
@@ -2569,7 +2569,7 @@ namespace Parsek.Tests
         {
             // Defensive: a kerbal seated in two PART nodes of one snapshot is counted per
             // removal, so removedCount can exceed the extracted crew count.
-            string line = VesselSpawner.DescribeCrewDedupOutcome(1, 2);
+            string line = VesselSnapshotOps.DescribeCrewDedupOutcome(1, 2);
 
             Assert.Contains("0 seat(s) still filled", line);
             Assert.DoesNotContain("-1", line);

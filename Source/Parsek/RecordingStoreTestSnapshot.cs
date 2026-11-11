@@ -25,17 +25,17 @@ namespace Parsek
     /// <list type="bullet">
     ///   <item><description><c>committedRecordings</c> — list contents and ordering, reference-shallow.</description></item>
     ///   <item><description><c>committedTrees</c> — list contents and ordering, reference-shallow.</description></item>
-    ///   <item><description><c>pendingTree</c> — the slot reference, reference-shallow.</description></item>
-    ///   <item><description><c>pendingTreeState</c> — the enum value.</description></item>
-    ///   <item><description><c>savedPendingTreeDuringActiveRestore</c> — the preserved pending-tree reference, reference-shallow.</description></item>
+    ///   <item><description><c>PendingTreeSlot.PendingTree</c> — the slot reference, reference-shallow.</description></item>
+    ///   <item><description><c>PendingTreeSlot.PendingTreeStateValue</c> — the enum value.</description></item>
+    ///   <item><description><c>PendingTreeSlot.SavedPendingTreeDuringActiveRestore</c> — the preserved pending-tree reference, reference-shallow.</description></item>
     ///   <item><description><c>RecordingGroupStore.AutoAssignedStandaloneGroups</c> — dict copy.</description></item>
     /// </list></para>
     ///
     /// <para><b>Scope — what is NOT captured.</b> <see cref="RecordingStore.ResetForTesting"/>
     /// also clears a number of unrelated subsystems that this snapshot does not touch:
-    /// <c>SceneEntryActiveVesselPid</c> / <c>SceneEntryActiveVesselGuid</c>, the rewind-replay-target scope, <c>RewindContext</c>
+    /// <c>SceneEntryVesselScope.SceneEntryActiveVesselPid</c> / <c>SceneEntryVesselScope.SceneEntryActiveVesselGuid</c>, the rewind-replay-target scope, <c>RewindContext</c>
     /// state, <c>RewindUTAdjustmentPending</c>, <c>GameStateRecorder.PendingScienceSubjects</c>,
-    /// <c>PendingCleanupPids</c> / <c>PendingCleanupNames</c>, and <c>PendingStashedThisTransition</c>.
+    /// <c>PendingCleanupPids</c> / <c>PendingCleanupNames</c>, and <c>PendingTreeSlot.PendingStashedThisTransition</c>.
     /// This snapshot is intended for
     /// SPACECENTER-scene synthetic-fixture tests that only mutate the recording-store
     /// in-memory lists; rewind / cleanup / scene-entry state is out of scope. Callers that
@@ -101,10 +101,10 @@ namespace Parsek
             return new RecordingStoreTestSnapshot(
                 new List<Recording>(RecordingStore.CommittedRecordings),
                 new List<RecordingTree>(RecordingStore.CommittedTrees),
-                RecordingStore.PendingTree,
-                RecordingStore.PendingTreeStateValue,
-                RecordingStore.SavedPendingTreeDuringActiveRestore,
-                RecordingStore.SavedPendingTreeDuringActiveRestoreSerializedForSave,
+                PendingTreeSlot.PendingTree,
+                PendingTreeSlot.PendingTreeStateValue,
+                PendingTreeSlot.SavedPendingTreeDuringActiveRestore,
+                PendingTreeSlot.SavedPendingTreeDuringActiveRestoreSerializedForSave,
                 RecordingGroupStore.SnapshotAutoAssignedStandaloneGroupsForTesting());
         }
 

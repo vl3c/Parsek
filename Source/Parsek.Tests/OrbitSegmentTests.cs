@@ -882,7 +882,7 @@ namespace Parsek.Tests
 
             var rec = RecordingStore.CreateRecordingFromFlightData(points, "Ship", segments);
             Assert.NotNull(rec);
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Single(RecordingStore.CommittedRecordings[0].OrbitSegments);
@@ -1202,7 +1202,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = System.IO.Path.Combine(root, "Source", "Parsek", "ParsekFlight.cs");
             Assert.True(System.IO.File.Exists(path), "Source file not found at " + path);
-            return System.IO.File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadAll(System.IO.Path.GetDirectoryName(path));
         }
 
         #endregion
@@ -1212,10 +1212,10 @@ namespace Parsek.Tests
         private Recording RoundTripSerialize(Recording rec)
         {
             var node = new ConfigNode("TRAJECTORY");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var result = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, result);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, result);
             return result;
         }
 
@@ -1326,7 +1326,7 @@ namespace Parsek.Tests
             segNode.AddValue("ofrW", "0.321");
 
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
             Assert.Single(rec.OrbitSegments);
             var seg = rec.OrbitSegments[0];

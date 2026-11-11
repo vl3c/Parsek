@@ -230,12 +230,6 @@ namespace Parsek
             }
 
             TrajectoryPoint? closing = TryBuildSamePositionOnBody(sample, sectionBody);
-            if (closing.HasValue)
-            {
-                TrajectoryPoint canonical = closing.Value;
-                TryCanonicalizeActiveReFlyRecordingPoint(ref canonical, "physics-soi-closing");
-                closing = canonical;
-            }
             if (!TrySplitSectionAtPhysicsBodyChange(sample, closing))
                 return;
 

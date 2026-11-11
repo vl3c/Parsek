@@ -17,7 +17,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             ParsekScenario.ResetInstanceForTesting();
         }
 
@@ -359,7 +359,7 @@ namespace Parsek.Tests
             tree.Recordings["child1"].TerminalStateValue = TerminalState.Orbiting;
             tree.Recordings["child2"].TerminalStateValue = TerminalState.Landed;
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // All 3 recordings (root + 2 children) should be in CommittedRecordings
             Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
@@ -391,7 +391,7 @@ namespace Parsek.Tests
             continued.ExplicitStartUT = 97.0;
             continued.ExplicitEndUT = 116.0;
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal("continued-butterfly",
                 prior.TerminalSpawnSupersededByRecordingId);
@@ -431,7 +431,7 @@ namespace Parsek.Tests
             continued.ExplicitEndUT = 116.0;
             continued.RecordedVesselGuid = "a424011b746440baae6030e225c9de31"; // different launch
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Null(prior.TerminalSpawnSupersededByRecordingId);
         }
@@ -453,7 +453,7 @@ namespace Parsek.Tests
             prior.RecordedVesselGuid = "4a7550b023534326b424f8c2440b1b3c";
             RecordingStore.AddRecordingWithTreeForTesting(prior, "rover fuel 0");
 
-            int marked = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+            int marked = TreeCommitService.MarkTerminalSpawnSupersededByDockMerge(
                 absorbedPid: 2899379747u,
                 absorbedLaunchGuid: "4a7550b023534326b424f8c2440b1b3c",  // same launch as prior
                 mergedPid: 1603439995u,                                  // transport survived
@@ -486,7 +486,7 @@ namespace Parsek.Tests
             prior.RecordedVesselGuid = "4a7550b023534326b424f8c2440b1b3c";
             RecordingStore.AddRecordingWithTreeForTesting(prior, "rover fuel 0");
 
-            int marked = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+            int marked = TreeCommitService.MarkTerminalSpawnSupersededByDockMerge(
                 absorbedPid: 2899379747u,
                 absorbedLaunchGuid: "a424011b746440baae6030e225c9de31",  // conclusively different launch
                 mergedPid: 1603439995u,
@@ -513,7 +513,7 @@ namespace Parsek.Tests
             prior.RecordedVesselGuid = "4a7550b023534326b424f8c2440b1b3c";
             RecordingStore.AddRecordingWithTreeForTesting(prior, "station");
 
-            int marked = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+            int marked = TreeCommitService.MarkTerminalSpawnSupersededByDockMerge(
                 absorbedPid: 2899379747u,
                 absorbedLaunchGuid: "4a7550b023534326b424f8c2440b1b3c",
                 mergedPid: 2899379747u,                  // target survived AS the merged vessel
@@ -540,7 +540,7 @@ namespace Parsek.Tests
             prior.RecordedVesselGuid = "4a7550b023534326b424f8c2440b1b3c";
             RecordingStore.AddRecordingWithTreeForTesting(prior, "probe");
 
-            int marked = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+            int marked = TreeCommitService.MarkTerminalSpawnSupersededByDockMerge(
                 absorbedPid: 909090u,
                 absorbedLaunchGuid: "a424011b746440baae6030e225c9de31",  // differs, but ignored for unique spawn pid
                 mergedPid: 222u,
@@ -566,7 +566,7 @@ namespace Parsek.Tests
             prior.TerminalSpawnSupersededByRecordingId = "earlier-continuation";
             RecordingStore.AddRecordingWithTreeForTesting(prior, "rover fuel 0");
 
-            int marked = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+            int marked = TreeCommitService.MarkTerminalSpawnSupersededByDockMerge(
                 absorbedPid: 2899379747u,
                 absorbedLaunchGuid: "4a7550b023534326b424f8c2440b1b3c",
                 mergedPid: 1603439995u,
@@ -600,7 +600,7 @@ namespace Parsek.Tests
             continued.ExplicitStartUT = 97.0;
             continued.ExplicitEndUT = 116.0;
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal("continued-butterfly-renamed",
                 prior.TerminalSpawnSupersededByRecordingId);
@@ -658,7 +658,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(continued);
             RecordingStore.AddCommittedTreeInternal(tree);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal("continued-butterfly",
                 prior.TerminalSpawnSupersededByRecordingId);
@@ -675,12 +675,12 @@ namespace Parsek.Tests
         {
             var rewindTarget = MakeRecording("rewind-target", null, pid: 123u);
 
-            RecordingStore.SetRewindReplayTargetScope(rewindTarget);
+            SceneEntryVesselScope.SetRewindReplayTargetScope(rewindTarget);
             RecordingStore.ClearCommittedInternal();
             RecordingStore.ClearCommittedTreesInternal();
 
-            Assert.Equal(123u, RecordingStore.RewindReplayTargetSourcePid);
-            Assert.Equal("rewind-target", RecordingStore.RewindReplayTargetRecordingId);
+            Assert.Equal(123u, SceneEntryVesselScope.RewindReplayTargetSourcePid);
+            Assert.Equal("rewind-target", SceneEntryVesselScope.RewindReplayTargetRecordingId);
         }
 
         [Fact]
@@ -705,7 +705,7 @@ namespace Parsek.Tests
             };
             InstallScenarioWithRps(rp);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(MergeState.CommittedProvisional,
                 tree.Recordings["child2"].MergeState);
@@ -759,7 +759,7 @@ namespace Parsek.Tests
                 };
                 GameStateStore.AddEvent(ref e);
 
-                RecordingStore.CommitTree(tree);
+                TreeCommitService.CommitTree(tree);
 
                 Assert.Equal(MergeState.Immutable, child2.MergeState);
                 Assert.Contains(logLines, l => l.Contains("[UnfinishedFlights]")
@@ -797,7 +797,7 @@ namespace Parsek.Tests
             };
             InstallScenarioWithRps(rp);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(MergeState.Immutable,
                 tree.Recordings["child2"].MergeState);
@@ -826,7 +826,7 @@ namespace Parsek.Tests
             };
             var scenario = InstallScenarioWithRps(rp);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             int reaped = RewindPointReaper.ReapOrphanedRPs();
 
             Assert.False(rp.SessionProvisional);
@@ -857,7 +857,7 @@ namespace Parsek.Tests
             };
             InstallScenarioWithRps(rp);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
             Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child2"].MergeState);
@@ -908,7 +908,7 @@ namespace Parsek.Tests
                 };
                 InstallScenarioWithRps(rp);
 
-                RecordingStore.CommitTree(tree);
+                TreeCommitService.CommitTree(tree);
 
                 Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
                 Assert.Equal(MergeState.Immutable, tree.Recordings["child2"].MergeState);
@@ -957,7 +957,7 @@ namespace Parsek.Tests
             };
             InstallScenarioWithRps(rp);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
             Assert.False(UnfinishedFlightClassifier.TryQualify(
@@ -989,7 +989,7 @@ namespace Parsek.Tests
             };
             InstallScenarioWithRps(rp);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child1"].MergeState);
             Assert.True(UnfinishedFlightClassifier.TryQualify(
@@ -1026,7 +1026,7 @@ namespace Parsek.Tests
             InstallScenarioWithRps(rp);
 
             // Commit once: child2 (non-focus Orbiting) promotes to CP (open).
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child2"].MergeState);
 
             // Seal it (flip the tip to Immutable), then re-run the promotion pass
@@ -1034,7 +1034,7 @@ namespace Parsek.Tests
             // the reference-equal duplicate skip before the pass runs, so it could not
             // witness the first-commit guard this cell is named for.
             tree.Recordings["child2"].MergeState = MergeState.Immutable;
-            RecordingStore.ApplyRewindProvisionalMergeStatesForTesting(tree);
+            TreeCommitService.ApplyRewindProvisionalMergeStatesForTesting(tree);
 
             Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
             // The first-commit guard keeps the concluded tip Immutable; the
@@ -1066,7 +1066,7 @@ namespace Parsek.Tests
             };
             InstallScenarioWithRps(rp);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
             Assert.Equal(MergeState.Immutable, tree.Recordings["child2"].MergeState);
@@ -1080,7 +1080,7 @@ namespace Parsek.Tests
             tree.Recordings["child1"].TerminalStateValue = TerminalState.Orbiting;
             tree.Recordings["child2"].TerminalStateValue = TerminalState.Destroyed;
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(MergeState.Immutable,
                 tree.Recordings["child2"].MergeState);
@@ -1090,13 +1090,13 @@ namespace Parsek.Tests
         public void CommitTree_DuplicateTreeId_Skipped()
         {
             var tree = MakeSimpleTree("dup_tree");
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Single(RecordingStore.CommittedTrees);
 
             // Try to commit same tree again
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // Should not have duplicated
             Assert.Single(RecordingStore.CommittedRecordings);
@@ -1107,11 +1107,11 @@ namespace Parsek.Tests
         public void CommitTree_DuplicateTreeIdEquivalentCopy_Skipped()
         {
             var original = MakeSimpleTree("dup_tree_copy");
-            RecordingStore.CommitTree(original);
+            TreeCommitService.CommitTree(original);
 
             var equivalentCopy = MakeSimpleTree("dup_tree_copy");
             equivalentCopy.TreeName = "Equivalent Copy With Different Name";
-            RecordingStore.CommitTree(equivalentCopy);
+            TreeCommitService.CommitTree(equivalentCopy);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Single(RecordingStore.CommittedTrees);
@@ -1122,10 +1122,10 @@ namespace Parsek.Tests
         public void CommitTree_DuplicateTreeIdPoorerCopy_DoesNotReplaceCommittedTree()
         {
             var richer = MakeTreeWithBranch("dup_tree_poorer");
-            RecordingStore.CommitTree(richer);
+            TreeCommitService.CommitTree(richer);
 
             var staleCopy = MakeSimpleTree("dup_tree_poorer");
-            RecordingStore.CommitTree(staleCopy);
+            TreeCommitService.CommitTree(staleCopy);
 
             Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
             Assert.Single(RecordingStore.CommittedTrees);
@@ -1139,7 +1139,7 @@ namespace Parsek.Tests
         public void CommitPendingTree_SameTreeIdDifferentTopology_ReplacesCommittedTreeAndSavesReplacement()
         {
             var original = MakeSimpleTree("refly_tree");
-            RecordingStore.CommitTree(original);
+            TreeCommitService.CommitTree(original);
 
             var replacement = MakeSimpleTree("refly_tree");
             replacement.TreeName = "Updated Re-Fly Tree";
@@ -1163,10 +1163,10 @@ namespace Parsek.Tests
                 ChildRecordingIds = new List<string> { "rec_refly" }
             });
 
-            RecordingStore.StashPendingTree(replacement);
-            RecordingStore.CommitPendingTree();
+            PendingTreeSlot.StashPendingTree(replacement);
+            TreeCommitService.CommitPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Same(replacement, RecordingStore.CommittedTrees[0]);
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
@@ -1198,7 +1198,7 @@ namespace Parsek.Tests
             original.TreeName = "Kerbal X";
             // The launch save lives on the root recording.
             original.Recordings["root"].RewindSaveFileName = "parsek_rw_launch_001";
-            RecordingStore.CommitTree(original);
+            TreeCommitService.CommitTree(original);
 
             // Replacement pending tree (e.g. Re-Fly merge): same recording ids,
             // but the new instances DON'T carry RewindSaveFileName because the
@@ -1219,8 +1219,8 @@ namespace Parsek.Tests
             // Critically: replacement's "root" instance has no rewind save.
             Assert.Null(replacement.Recordings["root"].RewindSaveFileName);
 
-            RecordingStore.StashPendingTree(replacement);
-            RecordingStore.CommitPendingTree();
+            PendingTreeSlot.StashPendingTree(replacement);
+            TreeCommitService.CommitPendingTree();
 
             var rootCommitted = RecordingStore.CommittedRecordings
                 .Single(r => r.RecordingId == "root");
@@ -1262,7 +1262,7 @@ namespace Parsek.Tests
             existingRoot.SpawnSuppressedByRewind = true;
             existingRoot.SpawnSuppressedByRewindReason = "test-reason";
             existingRoot.SceneExitSituation = 4;
-            RecordingStore.CommitTree(original);
+            TreeCommitService.CommitTree(original);
 
             // Replacement pending tree: brand-new instance for "root" with
             // every runtime field at default.
@@ -1279,8 +1279,8 @@ namespace Parsek.Tests
             replacement.BranchPoints[0].ChildRecordingIds.Add("rec_refly");
             replacement.ActiveRecordingId = "rec_refly";
 
-            RecordingStore.StashPendingTree(replacement);
-            RecordingStore.CommitPendingTree();
+            PendingTreeSlot.StashPendingTree(replacement);
+            TreeCommitService.CommitPendingTree();
 
             var rootCommitted = RecordingStore.CommittedRecordings
                 .Single(r => r.RecordingId == "root");
@@ -1312,7 +1312,7 @@ namespace Parsek.Tests
             // of consolidating into the original mission's group.
             var original = MakeTreeWithBranch("refly_tree");
             original.TreeName = "Kerbal X";
-            RecordingStore.CommitTree(original);
+            TreeCommitService.CommitTree(original);
 
             string firstCommitGroup = RecordingStore.CommittedTrees[0].AutoGeneratedRootGroupName;
             Assert.Equal("Kerbal X", firstCommitGroup);
@@ -1330,8 +1330,8 @@ namespace Parsek.Tests
             replacement.BranchPoints[0].ChildRecordingIds.Add("rec_refly");
             replacement.ActiveRecordingId = "rec_refly";
 
-            RecordingStore.StashPendingTree(replacement);
-            RecordingStore.CommitPendingTree();
+            PendingTreeSlot.StashPendingTree(replacement);
+            TreeCommitService.CommitPendingTree();
 
             Assert.Single(RecordingStore.CommittedTrees);
             Assert.Equal("Kerbal X",
@@ -1351,21 +1351,21 @@ namespace Parsek.Tests
         {
             var tree = MakeSimpleTree();
 
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal("tree001", RecordingStore.PendingTree.Id);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal("tree001", PendingTreeSlot.PendingTree.Id);
         }
 
         [Fact]
         public void CommitPendingTree_CommitsAndClears()
         {
             var tree = MakeSimpleTree();
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.CommitPendingTree();
+            TreeCommitService.CommitPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Single(RecordingStore.CommittedTrees);
         }
@@ -1374,11 +1374,11 @@ namespace Parsek.Tests
         public void DiscardPendingTree_ClearsWithoutCommitting()
         {
             var tree = MakeSimpleTree();
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.Empty(RecordingStore.CommittedTrees);
         }
@@ -1585,14 +1585,14 @@ namespace Parsek.Tests
         public void ResetForTesting_ClearsTrees()
         {
             var tree = MakeSimpleTree();
-            RecordingStore.CommitTree(tree);
-            RecordingStore.StashPendingTree(MakeSimpleTree("pending_tree"));
+            TreeCommitService.CommitTree(tree);
+            PendingTreeSlot.StashPendingTree(MakeSimpleTree("pending_tree"));
 
             RecordingStore.ResetForTesting();
 
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.Empty(RecordingStore.CommittedTrees);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
 
         // ============================================================
@@ -1768,7 +1768,7 @@ namespace Parsek.Tests
             int beforeRecordings = RecordingStore.CommittedRecordings.Count;
             int beforeTrees = RecordingStore.CommittedTrees.Count;
 
-            RecordingStore.CommitTree(null);
+            TreeCommitService.CommitTree(null);
 
             Assert.Equal(beforeRecordings, RecordingStore.CommittedRecordings.Count);
             Assert.Equal(beforeTrees, RecordingStore.CommittedTrees.Count);

@@ -161,7 +161,7 @@ namespace Parsek
 
             ParsekLog.Info("KSC", "ParsekKSC starting in Space Center scene");
 
-            ui = new ParsekUI(UIMode.KSC);
+            ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             GameEvents.onGamePause.Add(OnGamePause);
             GameEvents.onGameUnpause.Add(OnGameUnpause);
             // kscGhosts and its side tables are keyed by committed index; a table delete or
@@ -1957,7 +1957,7 @@ namespace Parsek
                 return;
             }
 
-            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainLooping(rec.ChainId))
+            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingChainQueries.IsChainLooping(rec.ChainId))
                 GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
                     "KSCSpawn", "SPACECENTER", recIdx, rec, Planetarium.GetUniversalTime(), true);
 
@@ -2012,7 +2012,7 @@ namespace Parsek
             // it with no exclusion check at all). After adoption, before any spawn
             // route; the snapshot is re-hydrated first so the decision reads the same
             // position the spawn would use (no-op when already loaded).
-            RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+            RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
             if (VesselSpawner.TryRetireEndedFlightAtKsc(rec, recIdx))
                 return;
 
@@ -2025,7 +2025,7 @@ namespace Parsek
             // The in-memory snapshot is a transient cache that may have been
             // dropped in-session; re-hydrate from the durable _vessel.craft
             // sidecar before consuming it. No-op when already loaded.
-            if (!RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec)
+            if (!RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec)
                 || rec.VesselSnapshot == null)
             {
                 ParsekLog.Warn("KSCSpawn",
@@ -2071,7 +2071,7 @@ namespace Parsek
 
             // Correct unsafe snapshot situation before spawning (#169).
             // Same guard as SpawnOrRecoverIfTooClose - prevents on-rails pressure destruction.
-            VesselSpawner.CorrectUnsafeSnapshotSituation(spawnSnapshot, rec.TerminalStateValue);
+            VesselSnapshotOps.CorrectUnsafeSnapshotSituation(spawnSnapshot, rec.TerminalStateValue);
             HashSet<string> excludeCrew = VesselSpawner.BuildExcludeCrewSet(rec);
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
             bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;

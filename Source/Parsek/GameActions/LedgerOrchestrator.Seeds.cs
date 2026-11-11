@@ -441,11 +441,7 @@ namespace Parsek
             if (unenrichedMilestones > 0)
             {
                 origin = ReputationSeedOrigin.NotYetCaptured;
-                ParsekLog.Verbose(Tag,
-                    "EnsureInitialReputationSeed: deferring the reputation seed - " +
-                    unenrichedMilestones.ToString(CultureInfo.InvariantCulture) +
-                    " milestone row(s) still carry zero rewards, so stock has not applied " +
-                    "the award yet and the live pool is the PRE-award figure");
+                LogReputationSeedMilestoneDeferral(unenrichedMilestones);
                 return false;
             }
 
@@ -465,19 +461,52 @@ namespace Parsek
                 // ~0 pool is a genuinely fresh career. CL-2-pod-impact-ledger's deferral
                 // looked like the second and was the first.
                 origin = ReputationSeedOrigin.NotYetCaptured;
-                ParsekLog.Verbose(Tag,
-                    "EnsureInitialReputationSeed: deferring the reputation seed - " +
-                    (noReputationInstance
-                        ? "Reputation.Instance null"
-                        : "pool ~0, deferring (reputation="
-                            + repProbe.ReputationValue.ToString("R", CultureInfo.InvariantCulture)
-                            + ")"));
+                LogReputationSeedPoolDeferral(noReputationInstance, repProbe);
                 return false;
             }
 
             // Live-pool read: any death that already lowered the pool is inside the
             // value being seeded.
-            //
+            SeedInitialReputationFromLivePool(repProbe);
+            origin = ReputationSeedOrigin.CreatedThisCommitFromLivePool;
+            return true;
+        }
+
+        /// <summary>
+        /// <see cref="EnsureInitialReputationSeed"/>'s line for a seed deferred because
+        /// milestone rows still carry zero rewards.
+        /// </summary>
+        internal static void LogReputationSeedMilestoneDeferral(int unenrichedMilestones)
+        {
+            ParsekLog.Verbose(Tag,
+                "EnsureInitialReputationSeed: deferring the reputation seed - " +
+                unenrichedMilestones.ToString(CultureInfo.InvariantCulture) +
+                " milestone row(s) still carry zero rewards, so stock has not applied " +
+                "the award yet and the live pool is the PRE-award figure");
+        }
+
+        /// <summary>
+        /// <see cref="EnsureInitialReputationSeed"/>'s line for a seed deferred because the
+        /// live reputation pool is absent or about zero.
+        /// </summary>
+        internal static void LogReputationSeedPoolDeferral(
+            bool noReputationInstance, CurrencyPoolProbe repProbe)
+        {
+            ParsekLog.Verbose(Tag,
+                "EnsureInitialReputationSeed: deferring the reputation seed - " +
+                (noReputationInstance
+                    ? "Reputation.Instance null"
+                    : "pool ~0, deferring (reputation="
+                        + repProbe.ReputationValue.ToString("R", CultureInfo.InvariantCulture)
+                        + ")"));
+        }
+
+        /// <summary>
+        /// <see cref="EnsureInitialReputationSeed"/>'s live-pool seed: the pool's value,
+        /// with the uncommitted recordings and the capture UT when they can be read.
+        /// </summary>
+        internal static void SeedInitialReputationFromLivePool(CurrencyPoolProbe repProbe)
+        {
             // The live pool is a snapshot of EVERY stock change to date, including any
             // reputation movement - a death, a milestone, a contract outcome - from a
             // flight that is already RECORDED but not committed yet (the active tree, or
@@ -492,8 +521,6 @@ namespace Parsek
                 Ledger.SeedInitialReputation(repProbe.ReputationValue, uncommitted, captureUT);
             else
                 Ledger.SeedInitialReputation(repProbe.ReputationValue);
-            origin = ReputationSeedOrigin.CreatedThisCommitFromLivePool;
-            return true;
         }
 
         /// <summary>
@@ -573,7 +600,7 @@ namespace Parsek
         private static List<string> ReadUncommittedRecordingIdsLive()
         {
             var ids = new List<string>();
-            AddTreeRecordingIds(ids, RecordingStore.PendingTree);
+            AddTreeRecordingIds(ids, PendingTreeSlot.PendingTree);
             AddTreeRecordingIds(ids, ParsekFlight.UncommittedActiveTreeForLedger());
             if (ids.Count == 0)
                 return ids;

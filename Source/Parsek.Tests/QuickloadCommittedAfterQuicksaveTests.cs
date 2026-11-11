@@ -125,8 +125,8 @@ namespace Parsek.Tests
             {
                 Assert.True(restored);
                 Assert.Contains(logLines, l => l.Contains("keeping in-memory pending tree"));
-                Assert.Same(clone, RecordingStore.PendingTree);
-                Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+                Assert.Same(clone, PendingTreeSlot.PendingTree);
+                Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
             }
             else
             {
@@ -144,13 +144,13 @@ namespace Parsek.Tests
         {
             var future = MakeFutureTree("ql_plain");
             WriteSidecarsAtEpoch(future, 2);
-            RecordingStore.StashPendingTree(future, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(future, PendingTreeState.Limbo);
             ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_plain"), committedTree: null);
 
             logLines.Clear();
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
 
-            Assert.Same(future, RecordingStore.PendingTree);
+            Assert.Same(future, PendingTreeSlot.PendingTree);
             Assert.Contains(logLines, l => l.Contains("keeping in-memory pending tree"));
             Assert.DoesNotContain(logLines, l => l.Contains("removed committed tree"));
         }
@@ -168,17 +168,17 @@ namespace Parsek.Tests
             foreach (var rec in committed.Recordings.Values)
                 RecordingStore.AddCommittedInternal(rec);
             RecordingStore.AddCommittedTreeForTesting(committed);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, "test copy-on-write resume");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committed, "test copy-on-write resume");
             var finalizedClone = RecordingTree.DeepClone(committed);
-            RecordingStore.StashPendingTree(finalizedClone, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(finalizedClone, PendingTreeState.Finalized);
             ConfigNode node = QuicksaveNode(MakeQuicksaveTree("ql_finalized"), committedTree: null);
 
             logLines.Clear();
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
 
-            Assert.Same(finalizedClone, RecordingStore.PendingTree);
+            Assert.Same(finalizedClone, PendingTreeSlot.PendingTree);
             Assert.Contains(logLines, l => l.Contains("keeping in-memory Finalized tree"));
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
         }
 
         // ============================================================
@@ -326,10 +326,10 @@ namespace Parsek.Tests
         // in-flight commit, carrying a post-commit tail; the F9's scene change stashed it.
         private static RecordingTree StashResumedClone(RecordingTree committed)
         {
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, "test copy-on-write resume");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committed, "test copy-on-write resume");
             var clone = RecordingTree.DeepClone(committed);
             SetPoints(clone.Recordings[clone.RootRecordingId], 100.0, 150.0, 320.0, 340.0);
-            RecordingStore.StashPendingTree(clone, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(clone, PendingTreeState.Limbo);
             return clone;
         }
 
@@ -339,7 +339,7 @@ namespace Parsek.Tests
             {
                 var onDisk = Recording.DeepClone(rec);
                 onDisk.SidecarEpoch = epoch - 1;
-                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                     onDisk,
                     RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildTrajectoryRelativePath(onDisk.RecordingId)),
                     RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(onDisk.RecordingId)),

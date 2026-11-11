@@ -667,10 +667,6 @@ namespace Parsek
             }
 
             TrajectoryPoint absolutePoint = CreateAbsoluteTrajectoryPointFromVessel(vessel, ut);
-            TryCanonicalizeBackgroundReFlyRecordingPoint(
-                state.recordingId,
-                ref absolutePoint,
-                "relative-boundary");
             TrajectoryPoint relativePoint = absolutePoint;
             if (!ApplyBackgroundRelativeOffsetForAnchorPose(
                     state,
@@ -952,7 +948,7 @@ namespace Parsek
                 focusRecordingId: null,
                 focusTreeId: tree?.Id,
                 activeReFlyMarker: ParsekScenario.Instance?.ActiveReFlySessionMarker,
-                pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
+                pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveBackgroundPointWorldPosition,
                 bodyWorldRotationResolver: ResolveBackgroundBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveBackgroundOrbitalAnchorPose);
@@ -1075,10 +1071,6 @@ namespace Parsek
             string reason)
         {
             TrajectoryPoint boundaryPoint = CreateAbsoluteTrajectoryPointFromVessel(vessel, ut);
-            TryCanonicalizeBackgroundReFlyRecordingPoint(
-                state.recordingId,
-                ref boundaryPoint,
-                "relative-exit");
             string oldAnchorRecordingId = state.currentAnchorRecordingId;
             uint oldDiagnosticPid = state.currentAnchorCandidate.DiagnosticPid;
             ClearBackgroundCurrentAnchor(state);

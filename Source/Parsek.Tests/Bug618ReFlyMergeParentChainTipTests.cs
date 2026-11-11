@@ -165,7 +165,7 @@ namespace Parsek.Tests
 
             tree.Recordings[UpperHead].LoopPlayback = true; // block merge so the test exercises split handoff.
             MakeUpperTipSplittable(tree);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             var scenario = new ParsekScenario
             {
                 RecordingSupersedes = new List<RecordingSupersedeRelation>(),
@@ -189,7 +189,7 @@ namespace Parsek.Tests
 
             MergeDialog.MergeCommit(tree, decisions, spawnCount: 2);
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             RecordingTree committedTree = RecordingStore.CommittedTrees.Find(t => t.Id == TreeId);
             Assert.NotNull(committedTree);
             Recording finalUpperTip = EffectiveState.ResolveChainTerminalRecording(
@@ -231,7 +231,7 @@ namespace Parsek.Tests
             Assert.False(decisions[UpperHead]);
             Assert.True(decisions[UpperTip]);
 
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             var scenario = new ParsekScenario
             {
                 RecordingSupersedes = new List<RecordingSupersedeRelation>(),

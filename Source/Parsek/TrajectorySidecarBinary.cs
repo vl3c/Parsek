@@ -231,7 +231,7 @@ namespace Parsek
                 rec,
                 markDirty: false,
                 context: "TrajectorySidecarBinary.Write");
-            bool sectionAuthoritative = RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(rec);
+            bool sectionAuthoritative = TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(rec);
             List<TrajectoryPoint> flatFallbackPoints = sectionAuthoritative
                 ? null
                 : TrajectoryTextSidecarCodec.GetFlatFallbackPointsForWrite(rec);
@@ -271,7 +271,7 @@ namespace Parsek
             {
                 int nonDefaultSectionSources = CountNonDefaultSectionSources(rec.TrackSections);
                 int predictedCheckpointCount;
-                int predictedOrbitSegmentCount = RecordingStore.CountPredictedOrbitSegments(
+                int predictedOrbitSegmentCount = RecordingSidecarStore.CountPredictedOrbitSegments(
                     rec, out predictedCheckpointCount);
                 ParsekLog.Verbose("RecordingStore",
                     $"WriteBinaryTrajectoryFile: recording={rec.RecordingId} version={binaryVersion} " +
@@ -332,7 +332,7 @@ namespace Parsek
                     // the epoch every committed route captured as proof-of-source, parking
                     // the route in SourceChanged with no witnessed proof datum changed
                     // (todo ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT).
-                    healedMalformedFlatFallback = RecordingStore.TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
+                    healedMalformedFlatFallback = TrajectoryTextSidecarCodec.TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
                         rec, allowRelativeSections: true, markDirty: false);
                 }
 
@@ -343,8 +343,8 @@ namespace Parsek
 
                 if (sectionAuthoritative)
                 {
-                    int dedupedPointCopies = RecordingStore.RebuildPointsFromTrackSections(rec.TrackSections, rec.Points);
-                    int dedupedOrbitCopies = RecordingStore.RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rec.OrbitSegments);
+                    int dedupedPointCopies = TrajectoryTextSidecarCodec.RebuildPointsFromTrackSections(rec.TrackSections, rec.Points);
+                    int dedupedOrbitCopies = TrajectoryTextSidecarCodec.RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rec.OrbitSegments);
 
                     if (!RecordingStore.SuppressLogging)
                     {
@@ -373,7 +373,7 @@ namespace Parsek
                 // (e.g. a sub-1s stale-UT seam from a recording made before the
                 // foreground recorder gained its monotonicity guard) so it loads
                 // clean instead of tripping CommittedRecordingsHaveValidData.
-                int droppedNonMonotonic = RecordingStore.DropNonMonotonicTrajectoryPoints(rec.Points);
+                int droppedNonMonotonic = TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(rec.Points);
                 if (droppedNonMonotonic > 0)
                 {
                     ParsekLog.Warn("RecordingStore",

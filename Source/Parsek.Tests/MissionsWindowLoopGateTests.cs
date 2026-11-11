@@ -325,7 +325,7 @@ namespace Parsek.Tests
         {
             string srcRoot = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "Parsek"));
-            return File.ReadAllText(Path.Combine(srcRoot, "UI", "MissionsWindowUI.cs"));
+            return MissionsWindowUISourceFiles.ReadAll(Path.Combine(srcRoot, "UI"));
         }
     }
 }

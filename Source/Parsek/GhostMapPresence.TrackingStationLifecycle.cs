@@ -404,460 +404,619 @@ namespace Parsek
             List<(int idx, string reason)> toRemove = null;
             foreach (var kvp in vesselsByRecordingIndex)
             {
-                int idx = kvp.Key;
-                if (committed == null)
-                {
-                    // Bookkeeping teardown (no committed list this tick), NOT a deorbit handoff. Use a
-                    // distinct reason so it never matches ShouldAssertTerminalOrbitBoundClamp and
-                    // mis-fires the positive "clamped at the deorbit bound" assertion.
-                    if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "tracking-station-committed-null"));
-                    continue;
-                }
-
-                if (idx < 0 || idx >= committed.Count)
-                {
-                    // Bookkeeping teardown (stale index after the committed list shrank), NOT a deorbit
-                    // handoff. Distinct reason so it stays out of the terminal-orbit-clamp gate.
-                    if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "tracking-station-index-stale"));
-                    continue;
-                }
-
-                var rec = committed[idx];
-
-                // Slice (i): if this index became an overlap recording under the director-drive gate,
-                // it is now owned by the per-instance store. Tear down its leftover per-index ghost so
-                // there is no duplicate (the per-instance sweep created the N-per-cycle vessels).
-                if (ShouldDriveOverlapPerInstance(rec, idx, committed, loopUnits))
-                {
-                    if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "overlap-handoff-to-per-instance"));
-                    continue;
-                }
-
-                // Phase F: resolve the effective sample UT for this member under the shared Mission
-                // span clock. A member outside its loop window this cycle is torn down (queued for
-                // removal) so it stops rendering, exactly like the create pass skips it. Inert when
-                // idx is not a unit member or loopUnits is Empty (effUT == currentUT, renderHidden
-                // false): every live-UT read below becomes the unchanged live UT.
-                double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
-                    idx,
-                    rec != null ? rec.StartUT : currentUT,
-                    rec != null ? rec.EndUT : currentUT,
-                    currentUT,
-                    loopUnits,
-                    out bool renderHidden);
-                if (renderHidden)
-                {
-                    if (toRemove == null) toRemove = new List<(int, string)>();
-                    // Enrich the teardown reason with the loop role. This is the TRACKING-STATION teardown
-                    // site (where the descent-revert bug was observed): a descent member tearing down here is
-                    // the descent ghost being destroyed as its head leaves the descent clip and the loiter
-                    // member takes the icon, so name it for correlation with the [ReaimDescent] DESCENT
-                    // REVERTED line. Empty (byte-identical reason) for every non-descent member.
-                    toRemove.Add((idx, "mission-loop-out-of-window"
-                        + GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(idx, loopUnits)));
-                    continue;
-                }
-
-                // Live-frame epoch shift for loop members (0 off the loop path). The orbit / point
-                // were sampled at effUT, but the icon + arc patches run against the live tracking
-                // station clock, so the seeded orbit epoch + stored arc bounds are pushed forward by
-                // (currentUT - effUT) to put the icon at the replayed phase. See ApplyOrbitToVessel /
-                // UpdateGhostOrbitFromStateVectors loopEpochShiftSeconds.
-                double tsLoopEpochShift = currentUT - effUT;
-
-                // Re-aim: for a re-aim loop owner, the map orbit line / icon follow the per-window
-                // re-aimed transfer instead of the recorded geometry. Resolved ONCE here from the LIVE
-                // clock (the same window the flight engine uses) and threaded through every effUT-based
-                // orbit-source read below; identical to rec.OrbitSegments for every non-re-aim member.
-                List<OrbitSegment> effectiveSegments =
-                    ResolveEffectiveMapOrbitSegments(idx, rec, currentUT, loopUnits);
-
-                bool isSuppressed = rec != null
-                    && !string.IsNullOrEmpty(rec.RecordingId)
-                    && suppressed != null
-                    && suppressed.Contains(rec.RecordingId);
-                bool realVesselExists = rec != null
-                    && rec.VesselPersistentId != 0
-                    && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
-                bool alreadyMaterialized =
-                    IsTrackingStationRecordingMaterialized(rec, realVesselExists);
-                uint pid = kvp.Value.persistentId;
-                bool hasOrbitBounds = ghostOrbitBounds.TryGetValue(pid, out var bounds);
-                bool isStateVector =
-                    trackingStationStateVectorOrbitTrajectories.ContainsKey(idx);
-
-                // Mirror the create-path (ResolveTrackingStationGhostSource) and flight-scene
-                // (ParsekPlaybackPolicy.CheckPendingMapVessels) precedence: a wrapped/closed
-                // OrbitSegment covering effUT is the trusted source and wins over the distrusted
-                // OrbitalCheckpoint state-vector. `fromCheckpoint` (below) is re-derived from the
-                // section at effUT every tick; without this guard a Segment-created looped ghost is
-                // misrouted into the OrbitalCheckpoint state-vector refusal
-                // (state-vector-from-orbital-checkpoint) the moment effUT advances into a
-                // transfer/coast OrbitalCheckpoint section, freezing the orbit on its last segment
-                // instead of advancing through the mission's later segments. The checkpoint path
-                // stays available only for a genuine segment gap (no covering segment at effUT).
-                // LOITER-GAP map-presence clamp (re-aim looped LANDING destination loiter), Tracking-Station
-                // mirror of the flight path: the descent-trigger TRANSFER member's recorded loop clock (effUT)
-                // sweeps the parking conic up to its end (ParkingConicEndUT = the destination loiter run end =
-                // the deorbit point). PAST that point an UNCLAMPED lookup walks INTO the CONTIGUOUS
-                // deorbit-transition OrbitSegment and draws that deorbit arc as the loiter orbit (the user sees
-                // ~1/3 of an ellipse), then past the deorbit-arc end no segment covers effUT and the ghost is
-                // removed ("tracking-station-expired") mid-loiter, so the parking conic stops rendering until the
-                // descent fires. HOLD the segment-lookup sample UT at ParkingConicEndUT inside the gap (for the
-                // covering-segment query AND the removal-reason query) so both keep returning the real recorded
-                // PARKING-conic segment and the ghost stays alive on it. The clamp applies ONLY to these two
-                // segment lookups; every other effUT read below (checkpoint, gap-glide, logging, downstream orbit
-                // apply) still uses the live effUT. Layer B then stamps a per-pid line hold so GhostOrbitLinePatch
-                // keeps the FULL parking ellipse drawn until the live descent trigger. False (byte-identical) for
-                // every member except the destination transfer member (the owner, every ride-along in a
-                // different/unshifted frame, and every descent-set member), for non-re-aim units, and once the
-                // descent trigger fires (the transfer member then retires elsewhere).
-                double segmentLookupUT = effUT;
-                if (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(loopUnits, idx, effUT))
-                {
-                    segmentLookupUT = GhostPlaybackLogic.ResolveLoiterGapConicEndUT(loopUnits, idx);
-                    ParsekLog.VerboseRateLimited(Tag,
-                        "ts-loiter-gap-clamp-" + idx,
-                        string.Format(ic,
-                            "TS loiter-gap clamp: member={0} effUT={1:F1} held segment-lookup UT at parkingConicEnd={2:F1} "
-                            + "(re-aim descent transfer member in captureShift loiter gap; parking conic kept rendering)",
-                            idx, effUT, segmentLookupUT),
-                        5.0);
-                    // Layer B: hold the parking-conic LINE visible through the loiter (past the live parking-conic
-                    // bound) until the live descent trigger; GhostOrbitLinePatch consults the stamp.
-                    StampParkingConicLineHoldForLoiterGap(
-                        idx, pid, currentUT, loopUnits,
-                        rec != null ? rec.StartUT : currentUT,
-                        rec != null ? rec.EndUT : currentUT,
-                        "TS", "ts-parking-conic-line-hold-");
-                }
-                else
-                {
-                    // Not in the gap (still on the conic, or the descent fired / loop wrapped): tear down any
-                    // line hold for this ghost so the stamp never lingers into the next phase.
-                    ClearParkingConicLineHold(pid);
-                }
-
-                // Same-body carry: a brief drop between two non-orbit-equivalent segments
-                // in the same body frame (e.g., capture burn between two Mun orbits) used to
-                // tear down and recreate the ProtoVessel, flashing the icon and orbit line.
-                // Carry the previous segment across same-body intra-block gaps so the ghost
-                // stays alive and only blinks when the body actually changes (SOI crossing).
-                OrbitSegment? coveringSegment = (rec != null && effectiveSegments != null)
-                    ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, segmentLookupUT)
-                    : (OrbitSegment?)null;
-                bool segmentCoversEffUT = coveringSegment.HasValue;
-
-                // Resolve the gap-points glide decision up-front so the covering-segment log
-                // mirrors the flight scene: during the raise-gap glide the icon is driven from
-                // recorded body-fixed POINTS (source=StateVector), not the carried segment, even
-                // though FindOrbitSegmentOrSameBodyCarry still returns the carried previous segment.
-                // Reporting covered=false / source=StateVector here (instead of covered=true /
-                // source=Segment) makes the documented success signature (Segment -> StateVector ->
-                // Segment across the gap) actually appear in the TS log, matching the flight trace.
-                bool tsDriveGapFromPoints =
-                    coveringSegment.HasValue
-                    && !isStateVector
-                    && ShouldDriveGapFromPoints(effectiveSegments, rec, effUT);
-                LogMapCoveringSegmentChange("TS", idx, effUT, coveringSegment,
-                    segmentCoversEffUT && !tsDriveGapFromPoints,
-                    isStateVector || tsDriveGapFromPoints,
-                    effectiveSegments != null ? effectiveSegments.Count : 0);
-
-                int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
-                    ? cached
-                    : -1;
-                bool fromCheckpoint = TryResolveCheckpointStateVectorMapPoint(
-                    rec,
-                    effUT,
-                    ref cachedStateVectorIndex,
-                    out TrajectoryPoint checkpointPoint,
-                    out _,
-                    out _);
-                if (fromCheckpoint && segmentCoversEffUT && !isStateVector)
-                {
-                    // Deferring to the trusted segment path below. Logged (rate-limited, shared key)
-                    // so a log capture can confirm the precedence guard is active for looped ghosts
-                    // crossing from a parking-orbit segment into a transfer OrbitalCheckpoint section.
-                    ParsekLog.VerboseRateLimited(Tag,
-                        "ts-checkpoint-defer-to-segment",
-                        string.Format(ic,
-                            "TS orbit source: OrbitalCheckpoint section at effUT={0:F1} deferring to covering OrbitSegment "
-                            + "(idx={1} pid={2} segUT={3:F1}-{4:F1} body={5})",
-                            effUT, idx, pid,
-                            coveringSegment.Value.startUT, coveringSegment.Value.endUT,
-                            coveringSegment.Value.bodyName ?? "(null)"),
-                        2.0);
-                }
-
-                // LOITER-GAP clamp: pass segmentLookupUT (= conicEnd inside the gap, effUT otherwise) so the
-                // removal-reason's internal FindOrbitSegmentOrSameBodyCarry keeps finding the parking conic and
-                // does not expire the ghost in the captureShift gap. In the gap conicEnd < rec.EndUT, so the
-                // state-vector branch (currentUT > rec.EndUT) is unaffected (effUT is also < rec.EndUT there).
-                string removeReason = GetTrackingStationGhostRemovalReason(
-                    rec,
-                    isSuppressed,
-                    alreadyMaterialized,
-                    hasOrbitBounds,
-                    isStateVector || fromCheckpoint,
-                    segmentLookupUT,
-                    // Loop member replaying in its window: keep the ghost alongside any
-                    // persisted real terminal vessel (mirrors the create-path bypass).
-                    loopMemberInWindow: tsLoopEpochShift != 0.0,
-                    effectiveOrbitSegments: effectiveSegments);
-                // Rescue path: a "tracking-station-expired" removal is suppressed if the
-                // synthesizer can still produce a terminal-orbit seed. For a non-loop member
-                // this is the unchanged contract (loop-aware flag false). For a same-body
-                // loop member with no recorded OrbitSegments we allow the terminal-orbit
-                // source path here too -- otherwise idx 18 (the no-segment Kerbin-return loop
-                // member) loses its proto-vessel on the first refresh tick after creation.
-                bool acceptTerminalOrbitForLoopSynthesis =
-                    tsLoopEpochShift != 0.0
-                    && IsTerminalOrbitSynthesisSafeForLoopMember(rec);
-                if (string.Equals(removeReason, "tracking-station-expired", StringComparison.Ordinal)
-                    && TryResolveEndpointTailForMapPresence(
-                        rec,
-                        effUT,
-                        selectedSegment: null,
-                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, effUT),
-                        out _,
-                        out _,
-                        out _,
-                        acceptTerminalOrbitSource: acceptTerminalOrbitForLoopSynthesis))
-                {
-                    removeReason = null;
-                }
+                string removeReason = RefreshTrackingStationGhost(
+                    kvp.Key, kvp.Value, committed, suppressed, currentUT, loopUnits);
                 if (removeReason != null)
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, removeReason));
-                    continue;
+                    toRemove.Add((kvp.Key, removeReason));
                 }
-
-                if (ShouldConsumeCheckpointStateVectorForExistingGhost(fromCheckpoint, segmentCoversEffUT))
-                {
-                    trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
-                    if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, effUT,
-                        loopEpochShiftSeconds: tsLoopEpochShift))
-                    {
-                        if (toRemove == null) toRemove = new List<(int, string)>();
-                        toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
-                    }
-                    continue;
-                }
-
-                // Gap-points glide (Tracking Station mirror of the flight-scene branch in
-                // ParsekPlaybackPolicy.CheckPendingMapVessels): FindOrbitSegmentOrSameBodyCarry carried
-                // the PREVIOUS segment forward across a same-body inter-segment gap, holding coveringSegment
-                // true. For a real orbit RAISE (parking -> higher loiter) that freezes the icon on the stale
-                // parking orbit and then teleports it ~1318 km onto the loiter orbit when effUT enters the
-                // next segment. This ghost was created as a Segment ghost (isStateVector is false for an
-                // Absolute gap in a HasOrbitSegments recording), so the isStateVector branch below never
-                // reaches it -- a dedicated branch is required. Drive it from the recorded body-fixed POINTS
-                // so it glides the raise arc. Gated to the NON-orbit-equivalent gap so the equivalent-orbit
-                // carry (capture burn between two same orbits) stays byte-identical on the carry. Placed
-                // AFTER the removeReason block so a genuine expiry still wins, and the continue bypasses the
-                // segment-apply tail.
-                if (tsDriveGapFromPoints)
-                {
-                    TrajectoryPoint? gapPoint = TrajectoryMath.BracketPointAtUT(
-                        rec.Points, effUT, ref cachedStateVectorIndex);
-                    trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
-                    if (gapPoint.HasValue)
-                    {
-                        // UpdateGhostOrbitFromStateVectors returns true ONLY in the active-re-fly
-                        // suppression case (the ghost must be torn down this tick); false on the normal
-                        // success path (ghost updated in place). Mirror the isStateVector branch below.
-                        bool reFlySuppressed = UpdateGhostOrbitFromStateVectors(
-                            idx, rec, gapPoint.Value, effUT,
-                            stateVectorUpdateReason: "orbit-raise-gap-points",
-                            loopEpochShiftSeconds: tsLoopEpochShift);
-                        ParsekLog.VerboseRateLimited(Tag,
-                            "ts-gap-points-glide-" + idx,
-                            string.Format(ic,
-                                "TS gap-points glide: member={0} effUT={1:F1} body={2} alt={3:F0} reFlySuppressed={4} " +
-                                "(orbit-raise gap, icon glides recorded ascent instead of segment carry)",
-                                idx, effUT, gapPoint.Value.bodyName ?? "(null)", gapPoint.Value.altitude, reFlySuppressed),
-                            2.0);
-                        if (reFlySuppressed)
-                        {
-                            if (toRemove == null) toRemove = new List<(int, string)>();
-                            toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
-                        }
-                        continue;
-                    }
-                    // No bracketing point (effUT precedes first / past last recorded point): fall through
-                    // to the unchanged same-body carry / segment-apply path. Never force a single stale point.
-                    ParsekLog.VerboseRateLimited(Tag,
-                        "ts-gap-points-nobracket-" + idx,
-                        string.Format(ic,
-                            "TS gap-points glide skipped (no bracketing point): member={0} effUT={1:F1} " +
-                            "(falling through to same-body segment carry)",
-                            idx, effUT),
-                        5.0);
-                }
-
-                if (isStateVector)
-                {
-                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
-                        rec.Points,
-                        effUT,
-                        ref cachedStateVectorIndex);
-                    trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
-
-                    if (!pt.HasValue)
-                    {
-                        if (toRemove == null) toRemove = new List<(int, string)>();
-                        toRemove.Add((idx, "tracking-station-state-vector-expired"));
-                        continue;
-                    }
-
-                    // PR #556 follow-up: a Relative-frame state-vector ghost
-                    // must NOT be expired/removed just because the section is
-                    // Relative — pre-#583 the only way to get a Relative
-                    // currentUT here was a stale ghost the resolver would
-                    // never recreate, so killing it was safe. After #583 the
-                    // resolver creates these on purpose; the threshold check
-                    // is meaningless for Relative-frame points (point.altitude
-                    // is anchor-local dz, not geographic altitude) and would
-                    // tear the ghost down every cycle, then the create path
-                    // re-adds it next tick → flicker. Mirror the flight-scene
-                    // gate in ParsekPlaybackPolicy.CheckPendingMapVessels and
-                    // skip the altitude floor for Relative-frame points (the
-                    // speed floor stays, see ShouldRemoveStateVectorOrbitForFrame);
-                    // UpdateGhostOrbitFromStateVectors already dispatches on
-                    // referenceFrame and resolves world position via the
-                    // anchor for that branch.
-                    bool inRelativeFrame = IsInRelativeFrame(rec, effUT);
-                    // The atmosphere read stays behind the frame check: it touches
-                    // FlightGlobals, which a Relative-frame point must not pay for.
-                    double atmosphereDepth = inRelativeFrame
-                        ? 0.0
-                        : GetAtmosphereDepth(pt.Value.bodyName);
-                    if (ShouldRemoveStateVectorOrbitForFrame(
-                        inRelativeFrame,
-                        pt.Value.altitude,
-                        pt.Value.velocity.magnitude,
-                        atmosphereDepth))
-                    {
-                        if (toRemove == null) toRemove = new List<(int, string)>();
-                        toRemove.Add((idx, "below-state-vector-threshold"));
-                        continue;
-                    }
-
-                    if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, effUT,
-                        loopEpochShiftSeconds: tsLoopEpochShift))
-                    {
-                        if (toRemove == null) toRemove = new List<(int, string)>();
-                        toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
-                    }
-                    continue;
-                }
-
-                // A ghost with no stored orbit bounds is normally skipped (it is not a live
-                // segment ghost). EXCEPTION: when a covering OrbitSegment exists at effUT we must
-                // still (re)apply it. This is the recovery frame after a gap-points glide cleared
-                // ghostOrbitBounds via UpdateGhostOrbitFromStateVectors: as soon as effUT enters
-                // the next real segment (e.g. the loiter orbit after the raise gap) the segment-apply
-                // below re-seeds the orbit + re-populates ghostOrbitBounds, snapping the icon onto the
-                // loiter orbit instead of stranding it on the stale state-vector seed. With no covering
-                // segment the original skip stands. bounds==(0,0) here forces the apply below.
-                if (!hasOrbitBounds && !coveringSegment.HasValue)
-                    continue;
-
-                // Reuse the covering segment resolved above (same effUT, same OrbitSegments list).
-                OrbitSegment? seg = coveringSegment;
-                TrackingStationGhostSource orbitUpdateSource = TrackingStationGhostSource.Segment;
-
-                // The synthetic endpoint-tail (terminal-orbit) seed is a NON-LOOP concept: it shows
-                // where a finished flight ended up, seeded from the recorded historical body
-                // rotation/position at the recording's end. For a LOOP member that seed does not
-                // survive the loop epoch shift in the cross-body case: a cross-body terminal
-                // (e.g. a Mun orbit seeded from the Mun's RECORDED position) lands the
-                // proto-vessel tens of millions of metres off (~181 Mm in the Mun case) instead
-                // of beside the live Mun.
-                //
-                // Branch rules under plan section 1.5 (refresh path):
-                //
-                // - FIRST endpoint-tail branch (covering-segment OVERRIDE, below): stays
-                //   UNCONDITIONALLY suppressed for loop members (the 181 Mm bug class). When a
-                //   covering OrbitSegment exists at effUT, that segment IS the correct loop
-                //   replay orbit and the historical-rotation override would corrupt it.
-                //   Non-loop members keep the unchanged behaviour.
-                //
-                // - SECOND endpoint-tail branch (no-covering-segment FALLBACK, below): now
-                //   CONDITIONALLY enabled for same-body loop members via
-                //   IsTerminalOrbitSynthesisSafeForLoopMember. A recording whose last sampled
-                //   point body matches its TerminalOrbitBody (e.g. idx 18, Kerbin-return after
-                //   Mun takeoff, no recorded OrbitSegments) is shift-safe because the seeded
-                //   inertial Keplerian elements propagate body-rotation-frame-independently
-                //   under Orbit.SetOrbit(epoch + shift) (see plan section 1.5: Planetarium OrbitalFrame
-                //   is built from LAN/inc/argPe; historical body rotation enters at SEED
-                //   CONSTRUCTION only). Cross-body terminals (mismatched last-point body and
-                //   TerminalOrbitBody) stay suppressed via the predicate.
-                //
-                // hasFutureOrbitSegment additionally gates the no-covering-segment fallback for
-                // NON-loop members: a mid-recording gap (orbit segments still ahead, reachable
-                // via rewind/warp) must remove the ghost rather than jump to the terminal orbit;
-                // the endpoint tail stays reserved for the genuine terminal region (no future
-                // segment).
-                bool hasFutureOrbitSegment = HasOrbitSegmentStartingAfter(effectiveSegments, effUT);
-                bool endpointTailOverrideAllowed = EndpointTailAllowedInTrackingStationUpdate(tsLoopEpochShift);
-                // acceptTerminalOrbitForLoopSynthesis is computed above (rescue-path block).
-
-                if (seg.HasValue
-                    && endpointTailOverrideAllowed
-                    && TryResolveEndpointTailForMapPresence(
-                        rec,
-                        effUT,
-                        seg.Value,
-                        IsTerminalMapPresenceRegion(rec, effUT),
-                        out OrbitSegment endpointTailSegment,
-                        out _,
-                        out _,
-                        acceptTerminalOrbitSource: false))
-                {
-                    seg = endpointTailSegment;
-                    orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
-                }
-                else if (!seg.HasValue
-                    && (endpointTailOverrideAllowed || acceptTerminalOrbitForLoopSynthesis)
-                    && !hasFutureOrbitSegment
-                    && TryResolveEndpointTailForMapPresence(
-                        rec,
-                        effUT,
-                        selectedSegment: null,
-                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, effUT),
-                        out endpointTailSegment,
-                        out _,
-                        out _,
-                        acceptTerminalOrbitSource: acceptTerminalOrbitForLoopSynthesis))
-                {
-                    seg = endpointTailSegment;
-                    orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
-                }
-                if (!seg.HasValue)
-                {
-                    if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, hasFutureOrbitSegment
-                        ? "gap-between-orbit-segments"
-                        : "tracking-station-expired"));
-                    continue;
-                }
-                // For loop members the stored bounds are shifted into the live frame while
-                // seg.Value carries the raw recorded UTs, so this comparison stays true and the
-                // orbit re-applies each tick (re-snapping the per-cycle shift); for non-loop members
-                // (shift 0) it skips an unchanged orbit exactly as before.
-                if (bounds.startUT != seg.Value.startUT + tsLoopEpochShift
-                    || bounds.endUT != seg.Value.endUT + tsLoopEpochShift)
-                    UpdateGhostOrbitForRecording(idx, seg.Value, orbitUpdateSource,
-                        loopEpochShiftSeconds: tsLoopEpochShift,
-                        effectiveOrbitSegments: effectiveSegments);
             }
 
+            ApplyTrackingStationGhostRemovals(toRemove, currentUT);
+        }
+
+        /// <summary>
+        /// One existing Tracking Station ghost's refresh: resolves its recording and loop sample UT,
+        /// then retires it or re-drives its orbit from the source that covers the sample UT. Returns
+        /// the removal reason when the ghost must be torn down this tick, otherwise null.
+        /// </summary>
+        internal static string RefreshTrackingStationGhost(
+            int idx,
+            Vessel ghost,
+            IReadOnlyList<Recording> committed,
+            HashSet<string> suppressed,
+            double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
+            string teardownReason = ResolveTrackingStationRefreshTeardownReason(
+                idx, committed, currentUT, loopUnits, out Recording rec, out double effUT);
+            if (teardownReason != null)
+                return teardownReason;
+
+            // Live-frame epoch shift for loop members (0 off the loop path). The orbit / point
+            // were sampled at effUT, but the icon + arc patches run against the live tracking
+            // station clock, so the seeded orbit epoch + stored arc bounds are pushed forward by
+            // (currentUT - effUT) to put the icon at the replayed phase. See ApplyOrbitToVessel /
+            // UpdateGhostOrbitFromStateVectors loopEpochShiftSeconds.
+            double tsLoopEpochShift = currentUT - effUT;
+
+            // Re-aim: for a re-aim loop owner, the map orbit line / icon follow the per-window
+            // re-aimed transfer instead of the recorded geometry. Resolved ONCE here from the LIVE
+            // clock (the same window the flight engine uses) and threaded through every effUT-based
+            // orbit-source read below; identical to rec.OrbitSegments for every non-re-aim member.
+            List<OrbitSegment> effectiveSegments =
+                ResolveEffectiveMapOrbitSegments(idx, rec, currentUT, loopUnits);
+
+            bool isSuppressed = rec != null
+                && !string.IsNullOrEmpty(rec.RecordingId)
+                && suppressed != null
+                && suppressed.Contains(rec.RecordingId);
+            bool realVesselExists = rec != null
+                && rec.VesselPersistentId != 0
+                && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
+            bool alreadyMaterialized =
+                IsTrackingStationRecordingMaterialized(rec, realVesselExists);
+            uint pid = ghost.persistentId;
+            bool hasOrbitBounds = ghostOrbitBounds.TryGetValue(pid, out var bounds);
+            bool isStateVector =
+                trackingStationStateVectorOrbitTrajectories.ContainsKey(idx);
+
+            double segmentLookupUT = ResolveTrackingStationSegmentLookupUT(
+                idx, pid, rec, effUT, currentUT, loopUnits);
+
+            OrbitSegment? coveringSegment = ResolveTrackingStationCoveringSegment(
+                idx, rec, effectiveSegments, segmentLookupUT, effUT, isStateVector,
+                out bool segmentCoversEffUT, out bool tsDriveGapFromPoints);
+
+            int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
+                ? cached
+                : -1;
+            bool fromCheckpoint = TryResolveTrackingStationCheckpointPoint(
+                idx, pid, rec, effUT, coveringSegment, segmentCoversEffUT, isStateVector,
+                ref cachedStateVectorIndex, out TrajectoryPoint checkpointPoint);
+
+            string removeReason = ResolveTrackingStationRefreshRemovalReason(
+                rec, isSuppressed, alreadyMaterialized, hasOrbitBounds, isStateVector, fromCheckpoint,
+                segmentLookupUT, effUT, tsLoopEpochShift, effectiveSegments,
+                out bool acceptTerminalOrbitForLoopSynthesis);
+            if (removeReason != null)
+                return removeReason;
+
+            if (ShouldConsumeCheckpointStateVectorForExistingGhost(fromCheckpoint, segmentCoversEffUT))
+            {
+                trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
+                if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, effUT,
+                    loopEpochShiftSeconds: tsLoopEpochShift))
+                    return TrackingStationGhostSkipActiveReFlyRelativeUpdate;
+                return null;
+            }
+
+            if (tsDriveGapFromPoints
+                && TryDriveTrackingStationGapFromPoints(
+                    idx, rec, effUT, tsLoopEpochShift, ref cachedStateVectorIndex,
+                    out string gapRemoveReason))
+            {
+                return gapRemoveReason;
+            }
+
+            if (isStateVector)
+                return RefreshTrackingStationStateVectorGhost(
+                    idx, rec, effUT, tsLoopEpochShift, ref cachedStateVectorIndex);
+
+            return RefreshTrackingStationSegmentGhost(
+                idx, rec, effUT, coveringSegment, hasOrbitBounds, bounds, tsLoopEpochShift,
+                effectiveSegments, acceptTerminalOrbitForLoopSynthesis);
+        }
+
+        /// <summary>
+        /// Bookkeeping and loop-window teardown of a refreshed ghost: no committed list, a stale
+        /// index, an overlap recording now owned by the per-instance store, or a loop member
+        /// outside its window. Returns that reason, or null with the recording and its effective
+        /// sample UT resolved.
+        /// </summary>
+        internal static string ResolveTrackingStationRefreshTeardownReason(
+            int idx,
+            IReadOnlyList<Recording> committed,
+            double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            out Recording rec,
+            out double effUT)
+        {
+            rec = null;
+            effUT = currentUT;
+            if (committed == null)
+            {
+                // Bookkeeping teardown (no committed list this tick), NOT a deorbit handoff. Use a
+                // distinct reason so it never matches ShouldAssertTerminalOrbitBoundClamp and
+                // mis-fires the positive "clamped at the deorbit bound" assertion.
+                return "tracking-station-committed-null";
+            }
+
+            if (idx < 0 || idx >= committed.Count)
+            {
+                // Bookkeeping teardown (stale index after the committed list shrank), NOT a deorbit
+                // handoff. Distinct reason so it stays out of the terminal-orbit-clamp gate.
+                return "tracking-station-index-stale";
+            }
+
+            rec = committed[idx];
+
+            // Slice (i): if this index became an overlap recording under the director-drive gate,
+            // it is now owned by the per-instance store. Tear down its leftover per-index ghost so
+            // there is no duplicate (the per-instance sweep created the N-per-cycle vessels).
+            if (ShouldDriveOverlapPerInstance(rec, idx, committed, loopUnits))
+            {
+                return "overlap-handoff-to-per-instance";
+            }
+
+            // Phase F: resolve the effective sample UT for this member under the shared Mission
+            // span clock. A member outside its loop window this cycle is torn down (queued for
+            // removal) so it stops rendering, exactly like the create pass skips it. Inert when
+            // idx is not a unit member or loopUnits is Empty (effUT == currentUT, renderHidden
+            // false): every live-UT read below becomes the unchanged live UT.
+            effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                idx,
+                rec != null ? rec.StartUT : currentUT,
+                rec != null ? rec.EndUT : currentUT,
+                currentUT,
+                loopUnits,
+                out bool renderHidden);
+            if (renderHidden)
+            {
+                // Enrich the teardown reason with the loop role. This is the TRACKING-STATION teardown
+                // site (where the descent-revert bug was observed): a descent member tearing down here is
+                // the descent ghost being destroyed as its head leaves the descent clip and the loiter
+                // member takes the icon, so name it for correlation with the [ReaimDescent] DESCENT
+                // REVERTED line. Empty (byte-identical reason) for every non-descent member.
+                return "mission-loop-out-of-window"
+                    + GhostPlaybackLogic.DescribeLoopMemberRoleForTeardown(idx, loopUnits);
+            }
+
+            return null;
+        }
+
+        internal static double ResolveTrackingStationSegmentLookupUT(
+            int idx,
+            uint pid,
+            Recording rec,
+            double effUT,
+            double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
+            // LOITER-GAP map-presence clamp (re-aim looped LANDING destination loiter), Tracking-Station
+            // mirror of the flight path: the descent-trigger TRANSFER member's recorded loop clock (effUT)
+            // sweeps the parking conic up to its end (ParkingConicEndUT = the destination loiter run end =
+            // the deorbit point). PAST that point an UNCLAMPED lookup walks INTO the CONTIGUOUS
+            // deorbit-transition OrbitSegment and draws that deorbit arc as the loiter orbit (the user sees
+            // ~1/3 of an ellipse), then past the deorbit-arc end no segment covers effUT and the ghost is
+            // removed ("tracking-station-expired") mid-loiter, so the parking conic stops rendering until the
+            // descent fires. HOLD the segment-lookup sample UT at ParkingConicEndUT inside the gap (for the
+            // covering-segment query AND the removal-reason query) so both keep returning the real recorded
+            // PARKING-conic segment and the ghost stays alive on it. The clamp applies ONLY to these two
+            // segment lookups; every other effUT read below (checkpoint, gap-glide, logging, downstream orbit
+            // apply) still uses the live effUT. Layer B then stamps a per-pid line hold so GhostOrbitLinePatch
+            // keeps the FULL parking ellipse drawn until the live descent trigger. False (byte-identical) for
+            // every member except the destination transfer member (the owner, every ride-along in a
+            // different/unshifted frame, and every descent-set member), for non-re-aim units, and once the
+            // descent trigger fires (the transfer member then retires elsewhere).
+            double segmentLookupUT = effUT;
+            if (GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(loopUnits, idx, effUT))
+            {
+                segmentLookupUT = GhostPlaybackLogic.ResolveLoiterGapConicEndUT(loopUnits, idx);
+                ParsekLog.VerboseRateLimited(Tag,
+                    "ts-loiter-gap-clamp-" + idx,
+                    string.Format(ic,
+                        "TS loiter-gap clamp: member={0} effUT={1:F1} held segment-lookup UT at parkingConicEnd={2:F1} "
+                        + "(re-aim descent transfer member in captureShift loiter gap; parking conic kept rendering)",
+                        idx, effUT, segmentLookupUT),
+                    5.0);
+                // Layer B: hold the parking-conic LINE visible through the loiter (past the live parking-conic
+                // bound) until the live descent trigger; GhostOrbitLinePatch consults the stamp.
+                StampParkingConicLineHoldForLoiterGap(
+                    idx, pid, currentUT, loopUnits,
+                    rec != null ? rec.StartUT : currentUT,
+                    rec != null ? rec.EndUT : currentUT,
+                    "TS", "ts-parking-conic-line-hold-");
+            }
+            else
+            {
+                // Not in the gap (still on the conic, or the descent fired / loop wrapped): tear down any
+                // line hold for this ghost so the stamp never lingers into the next phase.
+                ClearParkingConicLineHold(pid);
+            }
+            return segmentLookupUT;
+        }
+
+        internal static OrbitSegment? ResolveTrackingStationCoveringSegment(
+            int idx,
+            Recording rec,
+            List<OrbitSegment> effectiveSegments,
+            double segmentLookupUT,
+            double effUT,
+            bool isStateVector,
+            out bool segmentCoversEffUT,
+            out bool tsDriveGapFromPoints)
+        {
+            // Same-body carry: a brief drop between two non-orbit-equivalent segments
+            // in the same body frame (e.g., capture burn between two Mun orbits) used to
+            // tear down and recreate the ProtoVessel, flashing the icon and orbit line.
+            // Carry the previous segment across same-body intra-block gaps so the ghost
+            // stays alive and only blinks when the body actually changes (SOI crossing).
+            OrbitSegment? coveringSegment = (rec != null && effectiveSegments != null)
+                ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, segmentLookupUT)
+                : (OrbitSegment?)null;
+            segmentCoversEffUT = coveringSegment.HasValue;
+
+            // Resolve the gap-points glide decision up-front so the covering-segment log
+            // mirrors the flight scene: during the raise-gap glide the icon is driven from
+            // recorded body-fixed POINTS (source=StateVector), not the carried segment, even
+            // though FindOrbitSegmentOrSameBodyCarry still returns the carried previous segment.
+            // Reporting covered=false / source=StateVector here (instead of covered=true /
+            // source=Segment) makes the documented success signature (Segment -> StateVector ->
+            // Segment across the gap) actually appear in the TS log, matching the flight trace.
+            tsDriveGapFromPoints =
+                coveringSegment.HasValue
+                && !isStateVector
+                && ShouldDriveGapFromPoints(effectiveSegments, rec, effUT);
+            LogMapCoveringSegmentChange("TS", idx, effUT, coveringSegment,
+                segmentCoversEffUT && !tsDriveGapFromPoints,
+                isStateVector || tsDriveGapFromPoints,
+                effectiveSegments != null ? effectiveSegments.Count : 0);
+            return coveringSegment;
+        }
+
+        internal static bool TryResolveTrackingStationCheckpointPoint(
+            int idx,
+            uint pid,
+            Recording rec,
+            double effUT,
+            OrbitSegment? coveringSegment,
+            bool segmentCoversEffUT,
+            bool isStateVector,
+            ref int cachedStateVectorIndex,
+            out TrajectoryPoint checkpointPoint)
+        {
+            // Mirror the create-path (ResolveTrackingStationGhostSource) and flight-scene
+            // (ParsekPlaybackPolicy.CheckPendingMapVessels) precedence: a wrapped/closed
+            // OrbitSegment covering effUT is the trusted source and wins over the distrusted
+            // OrbitalCheckpoint state-vector. `fromCheckpoint` (below) is re-derived from the
+            // section at effUT every tick; without this guard a Segment-created looped ghost is
+            // misrouted into the OrbitalCheckpoint state-vector refusal
+            // (state-vector-from-orbital-checkpoint) the moment effUT advances into a
+            // transfer/coast OrbitalCheckpoint section, freezing the orbit on its last segment
+            // instead of advancing through the mission's later segments. The checkpoint path
+            // stays available only for a genuine segment gap (no covering segment at effUT).
+            bool fromCheckpoint = TryResolveCheckpointStateVectorMapPoint(
+                rec,
+                effUT,
+                ref cachedStateVectorIndex,
+                out checkpointPoint,
+                out _,
+                out _);
+            if (fromCheckpoint && segmentCoversEffUT && !isStateVector)
+            {
+                // Deferring to the trusted segment path below. Logged (rate-limited, shared key)
+                // so a log capture can confirm the precedence guard is active for looped ghosts
+                // crossing from a parking-orbit segment into a transfer OrbitalCheckpoint section.
+                ParsekLog.VerboseRateLimited(Tag,
+                    "ts-checkpoint-defer-to-segment",
+                    string.Format(ic,
+                        "TS orbit source: OrbitalCheckpoint section at effUT={0:F1} deferring to covering OrbitSegment "
+                        + "(idx={1} pid={2} segUT={3:F1}-{4:F1} body={5})",
+                        effUT, idx, pid,
+                        coveringSegment.Value.startUT, coveringSegment.Value.endUT,
+                        coveringSegment.Value.bodyName ?? "(null)"),
+                    2.0);
+            }
+            return fromCheckpoint;
+        }
+
+        internal static string ResolveTrackingStationRefreshRemovalReason(
+            Recording rec,
+            bool isSuppressed,
+            bool alreadyMaterialized,
+            bool hasOrbitBounds,
+            bool isStateVector,
+            bool fromCheckpoint,
+            double segmentLookupUT,
+            double effUT,
+            double tsLoopEpochShift,
+            List<OrbitSegment> effectiveSegments,
+            out bool acceptTerminalOrbitForLoopSynthesis)
+        {
+            // LOITER-GAP clamp: pass segmentLookupUT (= conicEnd inside the gap, effUT otherwise) so the
+            // removal-reason's internal FindOrbitSegmentOrSameBodyCarry keeps finding the parking conic and
+            // does not expire the ghost in the captureShift gap. In the gap conicEnd < rec.EndUT, so the
+            // state-vector branch (currentUT > rec.EndUT) is unaffected (effUT is also < rec.EndUT there).
+            string removeReason = GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed,
+                alreadyMaterialized,
+                hasOrbitBounds,
+                isStateVector || fromCheckpoint,
+                segmentLookupUT,
+                // Loop member replaying in its window: keep the ghost alongside any
+                // persisted real terminal vessel (mirrors the create-path bypass).
+                loopMemberInWindow: tsLoopEpochShift != 0.0,
+                effectiveOrbitSegments: effectiveSegments);
+            // Rescue path: a "tracking-station-expired" removal is suppressed if the
+            // synthesizer can still produce a terminal-orbit seed. For a non-loop member
+            // this is the unchanged contract (loop-aware flag false). For a same-body
+            // loop member with no recorded OrbitSegments we allow the terminal-orbit
+            // source path here too -- otherwise idx 18 (the no-segment Kerbin-return loop
+            // member) loses its proto-vessel on the first refresh tick after creation.
+            acceptTerminalOrbitForLoopSynthesis =
+                tsLoopEpochShift != 0.0
+                && IsTerminalOrbitSynthesisSafeForLoopMember(rec);
+            if (string.Equals(removeReason, "tracking-station-expired", StringComparison.Ordinal)
+                && TryResolveEndpointTailForMapPresence(
+                    rec,
+                    effUT,
+                    selectedSegment: null,
+                    terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, effUT),
+                    out _,
+                    out _,
+                    out _,
+                    acceptTerminalOrbitSource: acceptTerminalOrbitForLoopSynthesis))
+            {
+                removeReason = null;
+            }
+            return removeReason;
+        }
+
+        /// <summary>
+        /// Returns true when the gap-points glide drove the ghost this tick (with the removal
+        /// reason in <paramref name="removeReason"/>, null to keep it); false when no point
+        /// brackets the sample UT and the caller falls through to the segment carry.
+        /// </summary>
+        internal static bool TryDriveTrackingStationGapFromPoints(
+            int idx,
+            Recording rec,
+            double effUT,
+            double tsLoopEpochShift,
+            ref int cachedStateVectorIndex,
+            out string removeReason)
+        {
+            // Gap-points glide (Tracking Station mirror of the flight-scene branch in
+            // ParsekPlaybackPolicy.CheckPendingMapVessels): FindOrbitSegmentOrSameBodyCarry carried
+            // the PREVIOUS segment forward across a same-body inter-segment gap, holding coveringSegment
+            // true. For a real orbit RAISE (parking -> higher loiter) that freezes the icon on the stale
+            // parking orbit and then teleports it ~1318 km onto the loiter orbit when effUT enters the
+            // next segment. This ghost was created as a Segment ghost (isStateVector is false for an
+            // Absolute gap in a HasOrbitSegments recording), so the isStateVector branch below never
+            // reaches it -- a dedicated branch is required. Drive it from the recorded body-fixed POINTS
+            // so it glides the raise arc. Gated to the NON-orbit-equivalent gap so the equivalent-orbit
+            // carry (capture burn between two same orbits) stays byte-identical on the carry. Placed
+            // AFTER the removeReason block so a genuine expiry still wins, and the continue bypasses the
+            // segment-apply tail.
+            TrajectoryPoint? gapPoint = TrajectoryMath.BracketPointAtUT(
+                rec.Points, effUT, ref cachedStateVectorIndex);
+            trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
+            if (gapPoint.HasValue)
+            {
+                // UpdateGhostOrbitFromStateVectors returns true ONLY in the active-re-fly
+                // suppression case (the ghost must be torn down this tick); false on the normal
+                // success path (ghost updated in place). Mirror the isStateVector branch below.
+                bool reFlySuppressed = UpdateGhostOrbitFromStateVectors(
+                    idx, rec, gapPoint.Value, effUT,
+                    stateVectorUpdateReason: "orbit-raise-gap-points",
+                    loopEpochShiftSeconds: tsLoopEpochShift);
+                ParsekLog.VerboseRateLimited(Tag,
+                    "ts-gap-points-glide-" + idx,
+                    string.Format(ic,
+                        "TS gap-points glide: member={0} effUT={1:F1} body={2} alt={3:F0} reFlySuppressed={4} " +
+                        "(orbit-raise gap, icon glides recorded ascent instead of segment carry)",
+                        idx, effUT, gapPoint.Value.bodyName ?? "(null)", gapPoint.Value.altitude, reFlySuppressed),
+                    2.0);
+                if (reFlySuppressed)
+                {
+                    removeReason = TrackingStationGhostSkipActiveReFlyRelativeUpdate;
+                    return true;
+                }
+                removeReason = null;
+                return true;
+            }
+            // No bracketing point (effUT precedes first / past last recorded point): fall through
+            // to the unchanged same-body carry / segment-apply path. Never force a single stale point.
+            ParsekLog.VerboseRateLimited(Tag,
+                "ts-gap-points-nobracket-" + idx,
+                string.Format(ic,
+                    "TS gap-points glide skipped (no bracketing point): member={0} effUT={1:F1} " +
+                    "(falling through to same-body segment carry)",
+                    idx, effUT),
+                5.0);
+            removeReason = null;
+            return false;
+        }
+
+        /// <summary>
+        /// A state-vector ghost's refresh from the recorded point at the sample UT. Returns the
+        /// removal reason, or null when the ghost was updated in place.
+        /// </summary>
+        internal static string RefreshTrackingStationStateVectorGhost(
+            int idx,
+            Recording rec,
+            double effUT,
+            double tsLoopEpochShift,
+            ref int cachedStateVectorIndex)
+        {
+            TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
+                rec.Points,
+                effUT,
+                ref cachedStateVectorIndex);
+            trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
+
+            if (!pt.HasValue)
+                return "tracking-station-state-vector-expired";
+
+            // PR #556 follow-up: a Relative-frame state-vector ghost
+            // must NOT be expired/removed just because the section is
+            // Relative — pre-#583 the only way to get a Relative
+            // currentUT here was a stale ghost the resolver would
+            // never recreate, so killing it was safe. After #583 the
+            // resolver creates these on purpose; the threshold check
+            // is meaningless for Relative-frame points (point.altitude
+            // is anchor-local dz, not geographic altitude) and would
+            // tear the ghost down every cycle, then the create path
+            // re-adds it next tick → flicker. Mirror the flight-scene
+            // gate in ParsekPlaybackPolicy.CheckPendingMapVessels and
+            // skip the altitude floor for Relative-frame points (the
+            // speed floor stays, see ShouldRemoveStateVectorOrbitForFrame);
+            // UpdateGhostOrbitFromStateVectors already dispatches on
+            // referenceFrame and resolves world position via the
+            // anchor for that branch.
+            bool inRelativeFrame = IsInRelativeFrame(rec, effUT);
+            // The atmosphere read stays behind the frame check: it touches
+            // FlightGlobals, which a Relative-frame point must not pay for.
+            double atmosphereDepth = inRelativeFrame
+                ? 0.0
+                : GetAtmosphereDepth(pt.Value.bodyName);
+            if (ShouldRemoveStateVectorOrbitForFrame(
+                inRelativeFrame,
+                pt.Value.altitude,
+                pt.Value.velocity.magnitude,
+                atmosphereDepth))
+                return "below-state-vector-threshold";
+
+            if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, effUT,
+                loopEpochShiftSeconds: tsLoopEpochShift))
+                return TrackingStationGhostSkipActiveReFlyRelativeUpdate;
+            return null;
+        }
+
+        /// <summary>
+        /// A segment ghost's refresh: re-applies the covering (or endpoint-tail) orbit when its
+        /// stored bounds moved. Returns the removal reason, or null to keep the ghost.
+        /// </summary>
+        internal static string RefreshTrackingStationSegmentGhost(
+            int idx,
+            Recording rec,
+            double effUT,
+            OrbitSegment? coveringSegment,
+            bool hasOrbitBounds,
+            (double startUT, double endUT) bounds,
+            double tsLoopEpochShift,
+            List<OrbitSegment> effectiveSegments,
+            bool acceptTerminalOrbitForLoopSynthesis)
+        {
+            // A ghost with no stored orbit bounds is normally skipped (it is not a live
+            // segment ghost). EXCEPTION: when a covering OrbitSegment exists at effUT we must
+            // still (re)apply it. This is the recovery frame after a gap-points glide cleared
+            // ghostOrbitBounds via UpdateGhostOrbitFromStateVectors: as soon as effUT enters
+            // the next real segment (e.g. the loiter orbit after the raise gap) the segment-apply
+            // below re-seeds the orbit + re-populates ghostOrbitBounds, snapping the icon onto the
+            // loiter orbit instead of stranding it on the stale state-vector seed. With no covering
+            // segment the original skip stands. bounds==(0,0) here forces the apply below.
+            if (!hasOrbitBounds && !coveringSegment.HasValue)
+                return null;
+
+            // Reuse the covering segment resolved above (same effUT, same OrbitSegments list).
+            OrbitSegment? seg = coveringSegment;
+            TrackingStationGhostSource orbitUpdateSource = TrackingStationGhostSource.Segment;
+
+            ResolveTrackingStationEndpointTailOverride(
+                rec, effUT, tsLoopEpochShift, effectiveSegments, acceptTerminalOrbitForLoopSynthesis,
+                ref seg, ref orbitUpdateSource, out bool hasFutureOrbitSegment);
+            if (!seg.HasValue)
+                return hasFutureOrbitSegment
+                    ? "gap-between-orbit-segments"
+                    : "tracking-station-expired";
+            // For loop members the stored bounds are shifted into the live frame while
+            // seg.Value carries the raw recorded UTs, so this comparison stays true and the
+            // orbit re-applies each tick (re-snapping the per-cycle shift); for non-loop members
+            // (shift 0) it skips an unchanged orbit exactly as before.
+            if (bounds.startUT != seg.Value.startUT + tsLoopEpochShift
+                || bounds.endUT != seg.Value.endUT + tsLoopEpochShift)
+                UpdateGhostOrbitForRecording(idx, seg.Value, orbitUpdateSource,
+                    loopEpochShiftSeconds: tsLoopEpochShift,
+                    effectiveOrbitSegments: effectiveSegments);
+            return null;
+        }
+
+        internal static void ResolveTrackingStationEndpointTailOverride(
+            Recording rec,
+            double effUT,
+            double tsLoopEpochShift,
+            List<OrbitSegment> effectiveSegments,
+            bool acceptTerminalOrbitForLoopSynthesis,
+            ref OrbitSegment? seg,
+            ref TrackingStationGhostSource orbitUpdateSource,
+            out bool hasFutureOrbitSegment)
+        {
+            // The synthetic endpoint-tail (terminal-orbit) seed is a NON-LOOP concept: it shows
+            // where a finished flight ended up, seeded from the recorded historical body
+            // rotation/position at the recording's end. For a LOOP member that seed does not
+            // survive the loop epoch shift in the cross-body case: a cross-body terminal
+            // (e.g. a Mun orbit seeded from the Mun's RECORDED position) lands the
+            // proto-vessel tens of millions of metres off (~181 Mm in the Mun case) instead
+            // of beside the live Mun.
+            //
+            // Branch rules under plan section 1.5 (refresh path):
+            //
+            // - FIRST endpoint-tail branch (covering-segment OVERRIDE, below): stays
+            //   UNCONDITIONALLY suppressed for loop members (the 181 Mm bug class). When a
+            //   covering OrbitSegment exists at effUT, that segment IS the correct loop
+            //   replay orbit and the historical-rotation override would corrupt it.
+            //   Non-loop members keep the unchanged behaviour.
+            //
+            // - SECOND endpoint-tail branch (no-covering-segment FALLBACK, below): now
+            //   CONDITIONALLY enabled for same-body loop members via
+            //   IsTerminalOrbitSynthesisSafeForLoopMember. A recording whose last sampled
+            //   point body matches its TerminalOrbitBody (e.g. idx 18, Kerbin-return after
+            //   Mun takeoff, no recorded OrbitSegments) is shift-safe because the seeded
+            //   inertial Keplerian elements propagate body-rotation-frame-independently
+            //   under Orbit.SetOrbit(epoch + shift) (see plan section 1.5: Planetarium OrbitalFrame
+            //   is built from LAN/inc/argPe; historical body rotation enters at SEED
+            //   CONSTRUCTION only). Cross-body terminals (mismatched last-point body and
+            //   TerminalOrbitBody) stay suppressed via the predicate.
+            //
+            // hasFutureOrbitSegment additionally gates the no-covering-segment fallback for
+            // NON-loop members: a mid-recording gap (orbit segments still ahead, reachable
+            // via rewind/warp) must remove the ghost rather than jump to the terminal orbit;
+            // the endpoint tail stays reserved for the genuine terminal region (no future
+            // segment).
+            hasFutureOrbitSegment = HasOrbitSegmentStartingAfter(effectiveSegments, effUT);
+            bool endpointTailOverrideAllowed = EndpointTailAllowedInTrackingStationUpdate(tsLoopEpochShift);
+            // acceptTerminalOrbitForLoopSynthesis is computed above (rescue-path block).
+
+            if (seg.HasValue
+                && endpointTailOverrideAllowed
+                && TryResolveEndpointTailForMapPresence(
+                    rec,
+                    effUT,
+                    seg.Value,
+                    IsTerminalMapPresenceRegion(rec, effUT),
+                    out OrbitSegment endpointTailSegment,
+                    out _,
+                    out _,
+                    acceptTerminalOrbitSource: false))
+            {
+                seg = endpointTailSegment;
+                orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
+            }
+            else if (!seg.HasValue
+                && (endpointTailOverrideAllowed || acceptTerminalOrbitForLoopSynthesis)
+                && !hasFutureOrbitSegment
+                && TryResolveEndpointTailForMapPresence(
+                    rec,
+                    effUT,
+                    selectedSegment: null,
+                    terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, effUT),
+                    out endpointTailSegment,
+                    out _,
+                    out _,
+                    acceptTerminalOrbitSource: acceptTerminalOrbitForLoopSynthesis))
+            {
+                seg = endpointTailSegment;
+                orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
+            }
+        }
+
+        internal static void ApplyTrackingStationGhostRemovals(
+            List<(int idx, string reason)> toRemove,
+            double currentUT)
+        {
             if (toRemove == null)
                 return;
 
@@ -1088,7 +1247,7 @@ namespace Parsek
             }
             GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
                 Tag, "TRACKSTATION", index, rec, currentUT,
-                !string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainLooping(rec.ChainId));
+                !string.IsNullOrEmpty(rec.ChainId) && RecordingChainQueries.IsChainLooping(rec.ChainId));
             try
             {
                 if (TrackingStationSpawnOverrideForTesting != null)
@@ -1224,7 +1383,7 @@ namespace Parsek
             if (!spawnResult.needsSpawn)
                 return spawnResult;
 
-            if (RecordingStore.IsChainMidSegment(rec))
+            if (RecordingChainQueries.IsChainMidSegment(rec))
                 return (false, TrackingStationSpawnSkipIntermediateChainSegment);
             var chainSuppressed = GhostPlaybackLogic.ShouldSuppressSpawnForChain(chains, rec);
             if (chainSuppressed.suppressed)

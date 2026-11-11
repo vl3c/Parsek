@@ -154,7 +154,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(MakeRecoveredSplittableRecording("rec-recovered"));
             InFlightRecoveryRequest.MarkAwaitingStockPayoutForTesting("rec-recovered");
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Recording second = SplitSecondHalf("rec-recovered");
             Assert.Equal(TerminalState.Recovered, second.TerminalStateValue);
@@ -173,7 +173,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(MakeRecoveredSplittableRecording("rec-recovered"));
             InFlightRecoveryRequest.MarkAwaitingStockPayoutForTesting("rec-recovered");
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Recording second = SplitSecondHalf("rec-recovered");
 
             var actions = LedgerOrchestrator.CreateVesselCostActions(
@@ -192,7 +192,7 @@ namespace Parsek.Tests
             // empty result above is the mark's doing and not a fixture that never pairs.
             RecordingStore.AddRecordingWithTreeForTesting(MakeRecoveredSplittableRecording("rec-recovered"));
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Recording second = SplitSecondHalf("rec-recovered");
 
             var actions = LedgerOrchestrator.CreateVesselCostActions(
@@ -212,7 +212,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(last);
             InFlightRecoveryRequest.MarkAwaitingStockPayoutForTesting("seg-c");
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Recording merged = Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("seg-a", merged.RecordingId);

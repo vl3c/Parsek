@@ -37,26 +37,26 @@ namespace Parsek.Tests
         public void RevertCleanupArming_WithProductionCollector_ArmsOnlySpawnedVessels()
         {
             // The collector half of the revert arming, wired the way OnLoad wires it:
-            // ArmRevertCleanupData(RecordingStore.CollectSpawnedVesselInfo). The two
+            // ArmRevertCleanupData(RewindLauncher.CollectSpawnedVesselInfo). The two
             // arming cells below inject a fake collector, so neither of them can see
             // what the real one returns; this cell asserts the armed set IS that
             // return value. The unspawned recording is the discriminator: cleanup must
             // name the vessels Parsek actually spawned, not every recorded vessel
             // (the all-names collector is a separate, deliberately wider set).
-            Assert.Null(RecordingStore.PendingCleanupPids);
-            Assert.Null(RecordingStore.PendingCleanupNames);
+            Assert.Null(RewindLauncher.PendingCleanupPids);
+            Assert.Null(RewindLauncher.PendingCleanupNames);
 
             RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Probe", SpawnedVesselPersistentId = 77 });
             RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "NeverSpawned", SpawnedVesselPersistentId = 0 });
 
-            ParsekScenario.ArmRevertCleanupData(RecordingStore.CollectSpawnedVesselInfo);
+            ParsekScenario.ArmRevertCleanupData(RewindLauncher.CollectSpawnedVesselInfo);
 
-            Assert.NotNull(RecordingStore.PendingCleanupPids);
-            Assert.Equal(new HashSet<uint> { 77u }, RecordingStore.PendingCleanupPids);
-            Assert.NotNull(RecordingStore.PendingCleanupNames);
-            Assert.Equal(new HashSet<string> { "Probe" }, RecordingStore.PendingCleanupNames);
+            Assert.NotNull(RewindLauncher.PendingCleanupPids);
+            Assert.Equal(new HashSet<uint> { 77u }, RewindLauncher.PendingCleanupPids);
+            Assert.NotNull(RewindLauncher.PendingCleanupNames);
+            Assert.Equal(new HashSet<string> { "Probe" }, RewindLauncher.PendingCleanupNames);
         }
 
         [Fact]
@@ -65,26 +65,26 @@ namespace Parsek.Tests
             // Revert to VAB / SPH lands in EDITOR; nothing consumes the OnFlightReady belt
             // there, so an armed set would fire on the NEXT launch with this revert's stale
             // whitelist and recover a vessel Parsek spawned at the Space Center in between.
-            RecordingStore.PendingCleanupPids = new HashSet<uint> { 42u };
-            RecordingStore.PendingCleanupNames = new HashSet<string> { "Rocket" };
-            RecordingStore.PendingRevertPreExistingPids = new HashSet<uint> { 7u };
+            RewindLauncher.PendingCleanupPids = new HashSet<uint> { 42u };
+            RewindLauncher.PendingCleanupNames = new HashSet<string> { "Rocket" };
+            RewindLauncher.PendingRevertPreExistingPids = new HashSet<uint> { 7u };
 
             Assert.True(ParsekScenario.ReleaseRevertCleanupOutsideFlight(GameScenes.EDITOR));
 
-            Assert.False(RecordingStore.ShouldRunPendingCleanupOnFlightReady());
-            Assert.Null(RecordingStore.PendingRevertPreExistingPids);
+            Assert.False(RewindLauncher.ShouldRunPendingCleanupOnFlightReady());
+            Assert.Null(RewindLauncher.PendingRevertPreExistingPids);
         }
 
         [Fact]
         public void RevertToLaunch_KeepsCleanupArmedForOnFlightReady()
         {
-            RecordingStore.PendingCleanupPids = new HashSet<uint> { 42u };
-            RecordingStore.PendingRevertPreExistingPids = new HashSet<uint> { 7u };
+            RewindLauncher.PendingCleanupPids = new HashSet<uint> { 42u };
+            RewindLauncher.PendingRevertPreExistingPids = new HashSet<uint> { 7u };
 
             Assert.False(ParsekScenario.ReleaseRevertCleanupOutsideFlight(GameScenes.FLIGHT));
 
-            Assert.True(RecordingStore.ShouldRunPendingCleanupOnFlightReady());
-            Assert.Equal(new HashSet<uint> { 7u }, RecordingStore.PendingRevertPreExistingPids);
+            Assert.True(RewindLauncher.ShouldRunPendingCleanupOnFlightReady());
+            Assert.Equal(new HashSet<uint> { 7u }, RewindLauncher.PendingRevertPreExistingPids);
         }
 
         [Fact]
@@ -95,28 +95,28 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
 
-            var (rewindPids, _) = RecordingStore.CollectSpawnedVesselInfo();
-            RecordingStore.PendingCleanupPids = rewindPids.Count > 0 ? rewindPids : null;
+            var (rewindPids, _) = RewindLauncher.CollectSpawnedVesselInfo();
+            RewindLauncher.PendingCleanupPids = rewindPids.Count > 0 ? rewindPids : null;
             var allNames = RecordingStore.CollectAllRecordingVesselNames();
-            RecordingStore.PendingCleanupNames = allNames.Count > 0 ? allNames : null;
+            RewindLauncher.PendingCleanupNames = allNames.Count > 0 ? allNames : null;
 
             // Step 2: ResetAllPlaybackState zeros spawn tracking
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             // Step 3: CollectSpawnedVesselInfo now returns empty (PIDs are zero)
-            var (emptyPids, emptyNames) = RecordingStore.CollectSpawnedVesselInfo();
+            var (emptyPids, emptyNames) = RewindLauncher.CollectSpawnedVesselInfo();
             Assert.Empty(emptyPids);
             Assert.Empty(emptyNames);
 
             // Step 4: Guard check (what the revert path does)
-            bool alreadyHasCleanupData = RecordingStore.PendingCleanupPids != null
-                                          || RecordingStore.PendingCleanupNames != null;
+            bool alreadyHasCleanupData = RewindLauncher.PendingCleanupPids != null
+                                          || RewindLauncher.PendingCleanupNames != null;
             Assert.True(alreadyHasCleanupData,
                 "Cleanup data from rewind must survive through the revert path");
 
             // Step 5: Verify the original data is intact
-            Assert.Contains(42u, RecordingStore.PendingCleanupPids);
-            Assert.Contains("Rocket", RecordingStore.PendingCleanupNames);
+            Assert.Contains(42u, RewindLauncher.PendingCleanupPids);
+            Assert.Contains("Rocket", RewindLauncher.PendingCleanupNames);
         }
 
         [Fact]
@@ -128,8 +128,8 @@ namespace Parsek.Tests
             // live spawn tracking, so the revert load that follows collects nothing -
             // overwriting would leave those vessels in the save with nothing to clean
             // them up.
-            RecordingStore.PendingCleanupPids = new HashSet<uint> { 42u };
-            RecordingStore.PendingCleanupNames = new HashSet<string> { "Rocket" };
+            RewindLauncher.PendingCleanupPids = new HashSet<uint> { 42u };
+            RewindLauncher.PendingCleanupNames = new HashSet<string> { "Rocket" };
             int collectorCalls = 0;
 
             ParsekScenario.ArmRevertCleanupData(() =>
@@ -139,8 +139,8 @@ namespace Parsek.Tests
             });
 
             Assert.Equal(0, collectorCalls);
-            Assert.Contains(42u, RecordingStore.PendingCleanupPids);
-            Assert.Contains("Rocket", RecordingStore.PendingCleanupNames);
+            Assert.Contains(42u, RewindLauncher.PendingCleanupPids);
+            Assert.Contains("Rocket", RewindLauncher.PendingCleanupNames);
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]")
                 && l.Contains("revert path skipping cleanup collection")
@@ -153,8 +153,8 @@ namespace Parsek.Tests
             // Mirror: with nothing armed the collector DOES run and its result is what
             // gets stored, so the cell above is about the guard rather than about the
             // arming step never writing anything.
-            Assert.Null(RecordingStore.PendingCleanupPids);
-            Assert.Null(RecordingStore.PendingCleanupNames);
+            Assert.Null(RewindLauncher.PendingCleanupPids);
+            Assert.Null(RewindLauncher.PendingCleanupNames);
             int collectorCalls = 0;
 
             ParsekScenario.ArmRevertCleanupData(() =>
@@ -164,20 +164,20 @@ namespace Parsek.Tests
             });
 
             Assert.Equal(1, collectorCalls);
-            Assert.Contains(7u, RecordingStore.PendingCleanupPids);
-            Assert.Contains("Probe", RecordingStore.PendingCleanupNames);
+            Assert.Contains(7u, RewindLauncher.PendingCleanupPids);
+            Assert.Contains("Probe", RewindLauncher.PendingCleanupNames);
         }
 
         [Fact]
         public void ResetForTesting_ClearsPendingCleanupData()
         {
-            RecordingStore.PendingCleanupPids = new HashSet<uint> { 1, 2, 3 };
-            RecordingStore.PendingCleanupNames = new HashSet<string> { "A", "B" };
+            RewindLauncher.PendingCleanupPids = new HashSet<uint> { 1, 2, 3 };
+            RewindLauncher.PendingCleanupNames = new HashSet<string> { "A", "B" };
 
             RecordingStore.ResetForTesting();
 
-            Assert.Null(RecordingStore.PendingCleanupPids);
-            Assert.Null(RecordingStore.PendingCleanupNames);
+            Assert.Null(RewindLauncher.PendingCleanupPids);
+            Assert.Null(RewindLauncher.PendingCleanupNames);
         }
 
     }

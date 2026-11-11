@@ -112,7 +112,7 @@ namespace Parsek.Tests
         [Fact]
         public void AttemptNode_WrittenWithNoHeldEvent_CarriesTreeIdAndArmReason()
         {
-            RecordingStore.ArmCommittedTreeRestoreAttempt(MakeCommittedTree(), OriginalArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(MakeCommittedTree(), OriginalArmReason);
             var build = GameStateStore.BuildEventsNode(
                 RecordingStore.CommittedTreeRestoreAttemptTreeId,
                 RecordingStore.CommittedTreeRestoreAttemptReason);
@@ -139,22 +139,22 @@ namespace Parsek.Tests
             logLines.Clear();
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.Cold, loadedSceneIsFlight: true));
 
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(TreeId));
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(TreeId));
             Assert.Equal(ParsekScenario.SaveAttemptRearmReasonPrefix + OriginalArmReason,
                 RecordingStore.CommittedTreeRestoreAttemptReason);
             // The cutoffs are the committed copy's: an event past the committed end but before
             // the clone's end is held back, one before the committed end is not.
-            Assert.True(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+            Assert.True(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
                 new GameStateEvent { ut = CommittedEndUT + 10.0, recordingId = RootId }));
-            Assert.False(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+            Assert.False(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
                 new GameStateEvent { ut = CommittedEndUT - 10.0, recordingId = RootId }));
 
             // The committed original stays committed, as in a live attempt.
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == TreeId);
             Assert.Contains(RecordingStore.CommittedRecordings, r => r.RecordingId == RootId);
             // The restored tree is the clone, its segment link intact and nothing dirtied.
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
-            RecordingTree restored = RecordingStore.PendingTree;
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
+            RecordingTree restored = PendingTreeSlot.PendingTree;
             Assert.Equal(TreeId, restored.Id);
             Assert.Equal(BranchPointId, restored.Recordings[RootId].ChildBranchPointId);
             Assert.False(restored.Recordings[RootId].FilesDirty);
@@ -192,10 +192,10 @@ namespace Parsek.Tests
 
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.Cold, loadedSceneIsFlight: true));
 
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(TreeId));
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(TreeId));
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == TreeId);
             Assert.Equal(0, ParsekScenario.ApplySaveAttemptEventsAfterActiveTreeRestore());
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(TreeId));
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(TreeId));
         }
 
         // catches: an attempt armed with no committed copy to take its cutoffs from (every
@@ -212,7 +212,7 @@ namespace Parsek.Tests
             logLines.Clear();
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.Cold, loadedSceneIsFlight: true));
 
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
             Assert.Contains(logLines, l => l.Contains("[VERBOSE][Scenario]")
                 && l.Contains("did not re-arm the save's committed-tree restore attempt: attemptTreeId=" + TreeId)
                 && l.Contains("decision=NoCommittedCopy")
@@ -240,7 +240,7 @@ namespace Parsek.Tests
                 inSessionWithHeldNode ? EarlyLoadKind.InSession : EarlyLoadKind.Cold,
                 loadedSceneIsFlight: true));
 
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == TreeId);
             ParsekScenario.ApplySaveAttemptEventsAfterActiveTreeRestore();
         }
@@ -269,7 +269,7 @@ namespace Parsek.Tests
 
             // The flight-ready restore arms the same tree again from its committed copy.
             logLines.Clear();
-            RecordingStore.ArmCommittedTreeRestoreAttempt(
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
                 RecordingStore.CommittedTrees.Single(t => t.Id == TreeId), OriginalArmReason);
             Assert.Equal(1, ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(TreeId));
             Assert.False(ParsekScenario.HasHeldSaveAttemptEventsForTesting);
@@ -312,7 +312,7 @@ namespace Parsek.Tests
             Assert.True(ParsekScenario.HasHeldSaveAttemptEventsForTesting);
 
             logLines.Clear();
-            RecordingStore.ArmCommittedTreeRestoreAttempt(
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
                 RecordingStore.CommittedTrees.Single(t => t.Id == TreeId), OriginalArmReason);
             Assert.Equal(1, ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(TreeId));
             Assert.Single(GameStateStore.Events.Where(e => e.key == "earned-in-attempt"));
@@ -388,7 +388,7 @@ namespace Parsek.Tests
         public void Wiring_FlightArmResolvesTheHold_OnLoadDropsIt()
         {
             string take = Collapse(PreparedMethodBody("ParsekFlight.cs", "internal static bool TryTakeCommittedTreeForSpawnedVesselRestore("));
-            int arm = IndexOrFail(take, "RecordingStore.ArmCommittedTreeRestoreAttempt(");
+            int arm = IndexOrFail(take, "CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(");
             int resolve = IndexOrFail(take, "ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(committedTree.Id)");
             Assert.True(arm < resolve);
 
@@ -470,7 +470,7 @@ namespace Parsek.Tests
             WriteSidecars(committed.Recordings[RootId]);
             WriteSidecars(clone.Recordings[SegmentId]);
 
-            RecordingStore.ArmCommittedTreeRestoreAttempt(committed, OriginalArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committed, OriginalArmReason);
             if (withHeldEvent)
             {
                 var earned = new GameStateEvent
@@ -523,7 +523,7 @@ namespace Parsek.Tests
                 RecordingTree committed = RecordingTree.Load(treeNode);
                 foreach (Recording rec in committed.Recordings.Values)
                 {
-                    Assert.True(RecordingStore.LoadRecordingFiles(rec));
+                    Assert.True(RecordingSidecarStore.LoadRecordingFiles(rec));
                     RecordingStore.AddCommittedInternal(rec);
                 }
                 RecordingStore.AddCommittedTreeForTesting(committed);
@@ -541,7 +541,7 @@ namespace Parsek.Tests
         {
             var onDisk = Recording.DeepClone(rec);
             onDisk.SidecarEpoch = rec.SidecarEpoch - 1;
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 onDisk,
                 RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildTrajectoryRelativePath(onDisk.RecordingId)),
                 RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(onDisk.RecordingId)),
@@ -572,7 +572,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(repo, "Source", "Parsek", relPath);
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
             int sigIdx = prepared.IndexOf(signatureFragment, StringComparison.Ordinal);
             Assert.True(sigIdx >= 0, "signature not found in " + relPath + ": " + signatureFragment);
             int open = prepared.IndexOf('{', sigIdx);

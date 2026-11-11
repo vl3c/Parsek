@@ -39,7 +39,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("Funding / R&D singletons are not initialized");
                 return;
             }
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {

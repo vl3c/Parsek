@@ -13,16 +13,18 @@ it can miss a reference spelled in a way the text does not literally contain
 reused as an unqualified local or a string (string literals and comments are
 stripped first, which removes the common false positives). The scan is
 deliberately good enough to answer "which modules and types reference which"
-at folder granularity; it is not sound enough to gate a build. See
-docs/dev/arch/README.md.
+at folder granularity; it is not sound enough to gate a build. The semantic
+graph (ilgraph.py, semantic.py, `--il`) reads the compiled assembly instead.
+See docs/dev/arch/README.md.
 
 Every decision function here (assign_module, strip_comments_and_strings,
 declared_types, references, metrics, sccs, type_declarations, type_references,
 type_role, type_levels, type_fanin, knots, knot_hubs, greedy_sink_cuts,
-sublevels, own_body_segments, scan_declaration_members, merge_type_size,
-size_recommendations, size_tier, size_report, parse_growth) is pure: it takes
-data and returns data, and performs no I/O, so the unit tests can drive it
-directly.
+replay_cut_residue, sublevels, own_body_segments, scan_declaration_members,
+merge_type_size, size_recommendations, size_tier, size_report, parse_growth,
+prose_number_findings)
+is pure: it takes data and returns data, and performs no I/O, so the unit
+tests can drive it directly.
 """
 
 from __future__ import annotations
@@ -46,6 +48,24 @@ DEFAULT_MIN_EDGE = 8
 DEFAULT_MODULES = Path(__file__).resolve().parent / "modules.toml"
 DEFAULT_ATLAS = Path(__file__).resolve().parent / "atlas.toml"
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# The cut order the residue ratchet replays (scripts/arch/test_archview.py pins
+# the same list; test_semantic keeps the two equal). The prose number check
+# reads it for "the residue after the pinned cut order".
+RATCHET_CUT_ORDER = [
+    "GhostPlaybackLogic",
+    "ParsekFlight",
+    "Route",
+    "ParsekScenario",
+    "RecordingStore",
+    "RecordingTree",
+    "Mission",
+    "GameStateRecorder",
+    "EffectiveState",
+    "ParsekUI",
+    "RouteOrchestrator",
+    "FlightRecorder",
+]
 
 SKIP_DIR_NAMES = {"bin", "obj", "Properties"}
 MIN_TYPE_NAME_LEN = 4
@@ -980,6 +1000,35 @@ def greedy_sink_cuts(component, type_graph, max_steps=12, candidates=12):
         if size_after < 30:
             break
     return cuts
+
+
+def replay_cut_residue(type_graph, order):
+    """Return the largest strongly connected component left after removing
+    every outgoing edge of each type named in `order`.
+
+    The replayed counterpart of `greedy_sink_cuts`: the cut types are fixed in
+    advance instead of chosen step by step, and a name absent from the graph
+    is skipped. It is monotone where the greedy sequence is not. For a fixed
+    set of cut types, deleting any reference from the graph can only split or
+    shrink the remaining components, never grow one, so this residue cannot
+    rise when a real reference is removed; the greedy residue can, because a
+    deleted edge can change which sink wins an early step and every later
+    step follows from that choice. Adding a reference or a type can still
+    raise it, which is what a ratchet over it should catch. Removing all of a
+    cut type's outgoing edges (not only those into the current largest
+    component, as the greedy step does) changes nothing: an edge into another
+    component cannot close a cycle back into the one it leaves.
+    """
+    removed = set(order)
+    nodes = sorted(type_graph)
+    edges = [
+        (name, target)
+        for name in nodes
+        if name not in removed
+        for target in type_graph[name]
+        if target != name and target in type_graph
+    ]
+    return max((len(part) for part in sccs(nodes, edges)), default=0)
 
 
 def sublevels(component, type_graph, cuts):
@@ -3310,14 +3359,17 @@ def band_for(instability, bands):
 
 
 def prose_findings(model, prose):
-    """Return the six atlas staleness lists for prose against the live model.
+    """Return the atlas staleness lists for prose against the live model.
 
     Keys: missingSummaries (production modules with no summary),
     missingGlossary (glossary names that are not declared types),
     staleGlossary (glossary names outside the live top 18 hubs, informational),
     staleReadings (upward readings whose edge no longer exists),
     missingReadingOrder (reading-order types not in the model) and
-    missingOpportunityTypes (opportunity `types` entries not in the model).
+    missingOpportunityTypes (opportunity `types` entries not in the model),
+    plus the prose number check (prose_number_findings): staleNumbers (claims
+    in an undated prose string that disagree with the model) and datedNumbers
+    (the same for dated strings, history rather than an error).
     """
     production = [module for module in model["modules"] if not module["tooling"]]
     summaries = prose.get("modules", {})
@@ -3366,7 +3418,10 @@ def prose_findings(model, prose):
         if isinstance(names, list):
             opportunity_types.update(name for name in names if isinstance(name, str))
     missing_opportunity = sorted(name for name in opportunity_types if name not in type_names)
+    numbers = prose_number_findings(model, prose)
     return {
+        "staleNumbers": [row["text"] for row in numbers if not row["dated"]],
+        "datedNumbers": [row["text"] for row in numbers if row["dated"]],
         "missingSummaries": missing_summaries,
         "missingGlossary": missing_glossary,
         "staleGlossary": stale_glossary,
@@ -3374,6 +3429,149 @@ def prose_findings(model, prose):
         "missingReadingOrder": missing_order,
         "missingOpportunityTypes": missing_opportunity,
     }
+
+
+WORD_NUMBERS = {
+    word: value
+    for value, word in enumerate(
+        "zero one two three four five six seven eight nine ten eleven twelve thirteen"
+        " fourteen fifteen sixteen seventeen eighteen nineteen twenty".split()
+    )
+}
+for _tens, _word in ((20, "twenty"), (30, "thirty"), (40, "forty")):
+    for _unit, _unit_word in enumerate("one two three four five six seven eight nine".split(), 1):
+        WORD_NUMBERS["%s-%s" % (_word, _unit_word)] = _tens + _unit
+    WORD_NUMBERS[_word] = _tens
+DATE_IN_PROSE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+
+
+def _measure_production_modules(model):
+    return sum(1 for module in model["modules"] if not module["tooling"])
+
+
+def _measure_upward_edges(model):
+    production = {module["name"] for module in model["modules"] if not module["tooling"]}
+    return sum(
+        1
+        for edge in model["edges"]
+        if edge.get("upward") and edge["from"] in production and edge["to"] in production
+    )
+
+
+def _measure_tooling_files(model):
+    return sum(module["files"] for module in model["modules"] if module["tooling"])
+
+
+def _measure_largest_knot(model):
+    knot_list = model.get("knots") or []
+    return knot_list[0]["size"] if knot_list else None
+
+
+def _measure_replayed_residue(model):
+    if not model.get("types"):
+        return None
+    graph = {entry["name"]: entry["referencesTo"] for entry in model["types"]}
+    return replay_cut_residue(graph, RATCHET_CUT_ORDER)
+
+
+def _measure_production_types(model):
+    return len(model["types"]) if model.get("types") else None
+
+
+def _measure_long_methods(model):
+    types = (model.get("sizes") or {}).get("types") or []
+    return sum(row.get("longMethods", 0) for row in types) if types else None
+
+
+def _measure_large_files(model):
+    files = (model.get("sizes") or {}).get("files") or []
+    return sum(1 for row in files if row["lines"] >= 1000) if files else None
+
+
+# Literal numbers the atlas prose states about the live model. Each pattern
+# captures one number (digits with thousands commas, or a number word) and is
+# anchored on the phrase that says what it counts, so a historical figure in
+# another phrasing ("88 on main", "on 2026-09-14 there were 26 interfaces") is
+# not read. A measure returning None (a model without that data) skips.
+PROSE_NUMBER_CLAIMS = [
+    ("production modules", re.compile(r"\b([A-Za-z]+(?:-[a-z]+)?|\d[\d,]*) production modules\b"),
+     _measure_production_modules),
+    ("upward module edges", re.compile(r"\b(\d[\d,]*) module edges run upward"),
+     _measure_upward_edges),
+    ("tooling files", re.compile(r"[Tt]ooling modules \([^)]*?\b(\d[\d,]*) files"),
+     _measure_tooling_files),
+    ("largest knot", re.compile(r"largest (?:knot|cycle) (?:held|holds|is|of) (\d[\d,]*) types"),
+     _measure_largest_knot),
+    ("replayed residue", re.compile(r"residue after the pinned cut order (?:held|holds|is) (\d[\d,]*) types"),
+     _measure_replayed_residue),
+    ("production types", re.compile(r"\b(\d[\d,]*) production types\b"), _measure_production_types),
+    ("methods of 90 lines or more", re.compile(r"\b(\d[\d,]*) methods of 90 lines or more"),
+     _measure_long_methods),
+    ("files of 1,000 lines or more",
+     re.compile(r"\b(\d[\d,]*) production files (?:at or above|of) 1,000 lines"),
+     _measure_large_files),
+]
+
+
+def _prose_strings(value, path=""):
+    """Yield (path, text) for every string inside the atlas prose structure."""
+    if isinstance(value, str):
+        yield path, value
+    elif isinstance(value, dict):
+        for key in value:
+            yield from _prose_strings(value[key], "%s.%s" % (path, key) if path else str(key))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _prose_strings(item, "%s[%d]" % (path, index))
+
+
+def _prose_number(text):
+    text = text.strip().lower()
+    if text.replace(",", "").isdigit():
+        return int(text.replace(",", ""))
+    return WORD_NUMBERS.get(text)
+
+
+def prose_number_findings(model, prose):
+    """Prose numbers that disagree with the live model.
+
+    Returns one row per mismatch: {path, claim, stated, measured, dated, text}.
+    A prose string carrying a YYYY-MM-DD date is a dated snapshot, so its
+    numbers are history: a mismatch there is `dated` and only reported. A
+    string with no date claims to describe the tree as it is, so a mismatch
+    there is an error the real-tree test fails on (the 2026-11-01 prose said
+    69 upward edges and 255 tooling files, undated, when the tree had 84 and
+    335).
+    """
+    rows = []
+    cache = {}
+    for path, text in _prose_strings(prose or {}):
+        for claim, pattern, measure_fn in PROSE_NUMBER_CLAIMS:
+            for match in pattern.finditer(text):
+                stated = _prose_number(match.group(1))
+                if stated is None:
+                    continue
+                if claim not in cache:
+                    try:
+                        cache[claim] = measure_fn(model)
+                    except (KeyError, TypeError):
+                        cache[claim] = None
+                measured = cache[claim]
+                if measured is None or measured == stated:
+                    continue
+                dated = bool(DATE_IN_PROSE_RE.search(text))
+                rows.append(
+                    {
+                        "path": path,
+                        "claim": claim,
+                        "stated": stated,
+                        "measured": measured,
+                        "dated": dated,
+                        "text": "%s: %s says %d, measured %d%s"
+                        % (path, claim, stated, measured, " (dated)" if dated else ""),
+                    }
+                )
+    return rows
 
 
 FINDINGS_STALE_DAYS = 30
@@ -4885,7 +5083,7 @@ def print_size_section(sizes):
             )
 
 
-def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None):
+def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, semantic=None):
     """Print the report-only architecture check.
 
     Never raises on a malformed policy spec: a bad "From -> To" string is
@@ -4894,6 +5092,8 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None):
     history.json payload and `sizes` the sizes.json payload (None for callers
     that do not have them); the ATLAS and HISTORY sections report what no
     longer matches the model, and SIZE is the last section before the marker.
+    `semantic` is the scripts/arch/semantic.py result for `--il` (None skips
+    the SEMANTIC section).
     """
     print()
     hidden = sorted(m["name"] for m in model["modules"] if m["tooling"])
@@ -5010,6 +5210,8 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None):
     atlas_list("upward readings whose edge no longer exists", findings["staleReadings"])
     atlas_list("reading-order types not in the model", findings["missingReadingOrder"])
     atlas_list("opportunity types not in the model", findings["missingOpportunityTypes"])
+    atlas_list("undated prose numbers that disagree with the model", findings["staleNumbers"])
+    atlas_list("dated prose numbers the model has moved past", findings["datedNumbers"])
     reviewed, age = findings_review(prose or {})
     if reviewed is None:
         print("  main findings: no [findings] reviewed date.")
@@ -5118,6 +5320,11 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None):
         for edge in unexpected:
             print("  %s -> %s: weight=%d" % (edge["from"], edge["to"], edge["weight"]))
 
+    if semantic is not None:
+        import semantic as semantic_report  # noqa: PLC0415 (it imports this module)
+
+        print()
+        semantic_report.print_report(semantic)
     print_size_section(sizes)
     print()
     print("ARCH-CHECK report-only")
@@ -5149,6 +5356,12 @@ def main(argv=None):
         "--check",
         action="store_true",
         help="print the report-only architecture check after generating the views",
+    )
+    parser.add_argument(
+        "--il",
+        default=None,
+        help="Parsek.dll (disassembled with ikdasm) or an ikdasm .il dump: add the"
+        " SEMANTIC section (compiled-IL type graph, forwarders read as calls) to --check",
     )
     parser.add_argument(
         "--place",
@@ -5282,10 +5495,28 @@ def main(argv=None):
         except Exception as exc:
             print("WARN archview: %s" % exc, file=sys.stderr)
 
+    semantic_result = None
+    if args.il and model is not None:
+        try:
+            import ilgraph  # noqa: PLC0415
+            import semantic as semantic_report  # noqa: PLC0415
+
+            semantic_result = semantic_report.build(model, ilgraph.load_il(args.il), args.source)
+        except Exception as exc:
+            print("WARN archview: semantic graph not built: %s" % exc, file=sys.stderr)
+
     if args.check:
         if model is not None:
             try:
-                run_check(model, forbidden, allowed, prose, history_payload, sizes_payload)
+                run_check(
+                    model,
+                    forbidden,
+                    allowed,
+                    prose,
+                    history_payload,
+                    sizes_payload,
+                    semantic_result,
+                )
             except Exception as exc:
                 print("WARN arch-check: %s" % exc, file=sys.stderr)
                 print()

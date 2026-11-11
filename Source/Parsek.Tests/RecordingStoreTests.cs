@@ -133,7 +133,7 @@ namespace Parsek.Tests
             var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship");
             Assert.NotNull(rec);
 
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("Ship", RecordingStore.CommittedRecordings[0].VesselName);
@@ -143,7 +143,7 @@ namespace Parsek.Tests
         public void CommitRecordingDirect_NullRecording_DoesNothing()
         {
             // Should not crash
-            RecordingStore.CommitRecordingDirect(null);
+            TreeCommitService.CommitRecordingDirect(null);
 
             Assert.Empty(RecordingStore.CommittedRecordings);
         }
@@ -418,7 +418,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording();
             rec.RecordingId = null;
-            RecordingStore.DeleteRecordingFiles(rec);
+            RecordingFileJanitor.DeleteRecordingFiles(rec);
         }
 
         [Fact]
@@ -428,7 +428,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "test123"
             };
-            RecordingStore.DeleteRecordingFiles(rec);
+            RecordingFileJanitor.DeleteRecordingFiles(rec);
         }
 
         [Theory]
@@ -451,7 +451,7 @@ namespace Parsek.Tests
         [InlineData(null, null)]
         public void ExtractRecordingIdFromFileName_Works(string fileName, string expected)
         {
-            Assert.Equal(expected, RecordingStore.ExtractRecordingIdFromFileName(fileName));
+            Assert.Equal(expected, RecordingFileJanitor.ExtractRecordingIdFromFileName(fileName));
         }
 
         [Theory]
@@ -468,7 +468,7 @@ namespace Parsek.Tests
         [InlineData(null, false)]
         public void IsTransientSidecarArtifactFile_Works(string fileName, bool expected)
         {
-            Assert.Equal(expected, RecordingStore.IsTransientSidecarArtifactFile(fileName));
+            Assert.Equal(expected, RecordingFileJanitor.IsTransientSidecarArtifactFile(fileName));
         }
 
         [Theory]
@@ -560,32 +560,32 @@ namespace Parsek.Tests
         [Fact]
         public void StashPendingTree_SetsPendingStashedThisTransition()
         {
-            Assert.False(RecordingStore.PendingStashedThisTransition);
+            Assert.False(PendingTreeSlot.PendingStashedThisTransition);
 
             var tree = new RecordingTree { TreeName = "TestTree" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.PendingStashedThisTransition);
+            Assert.True(PendingTreeSlot.PendingStashedThisTransition);
         }
 
         [Fact]
         public void StashPendingTree_Null_DoesNotSetFlag()
         {
-            RecordingStore.StashPendingTree(null);
+            PendingTreeSlot.StashPendingTree(null);
 
-            Assert.False(RecordingStore.PendingStashedThisTransition);
+            Assert.False(PendingTreeSlot.PendingStashedThisTransition);
         }
 
         [Fact]
         public void ResetForTesting_ClearsPendingStashedFlag()
         {
             var tree = new RecordingTree { TreeName = "Ship" };
-            RecordingStore.StashPendingTree(tree);
-            Assert.True(RecordingStore.PendingStashedThisTransition);
+            PendingTreeSlot.StashPendingTree(tree);
+            Assert.True(PendingTreeSlot.PendingStashedThisTransition);
 
             RecordingStore.ResetForTesting();
 
-            Assert.False(RecordingStore.PendingStashedThisTransition);
+            Assert.False(PendingTreeSlot.PendingStashedThisTransition);
         }
 
         // ── SanitizeNonLoopableLoopPlayback (load-time non-loopable cleanup) ──
@@ -607,9 +607,9 @@ namespace Parsek.Tests
             var deb = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Booster");
             deb.IsDebris = true;
             deb.LoopPlayback = true;
-            RecordingStore.CommitRecordingDirect(main);
-            RecordingStore.CommitRecordingDirect(coast);
-            RecordingStore.CommitRecordingDirect(deb);
+            TreeCommitService.CommitRecordingDirect(main);
+            TreeCommitService.CommitRecordingDirect(coast);
+            TreeCommitService.CommitRecordingDirect(deb);
 
             int cleared = RecordingStore.SanitizeNonLoopableLoopPlayback();
 
@@ -628,7 +628,7 @@ namespace Parsek.Tests
             var deb = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Booster");
             deb.IsDebris = true;
             deb.LoopPlayback = true;
-            RecordingStore.CommitRecordingDirect(deb);
+            TreeCommitService.CommitRecordingDirect(deb);
 
             int first = RecordingStore.SanitizeNonLoopableLoopPlayback();
             int second = RecordingStore.SanitizeNonLoopableLoopPlayback();
@@ -649,8 +649,8 @@ namespace Parsek.Tests
             var quietShip = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Quiet");
             quietShip.SegmentPhase = "atmo";
             quietShip.LoopPlayback = false;
-            RecordingStore.CommitRecordingDirect(loopShip);
-            RecordingStore.CommitRecordingDirect(quietShip);
+            TreeCommitService.CommitRecordingDirect(loopShip);
+            TreeCommitService.CommitRecordingDirect(quietShip);
 
             int cleared = RecordingStore.SanitizeNonLoopableLoopPlayback();
 
@@ -696,7 +696,7 @@ namespace Parsek.Tests
                 tree.AddOrReplaceRecording(root);
                 tree.AddOrReplaceRecording(child);
 
-                RecordingStore.CommitTree(tree);
+                TreeCommitService.CommitTree(tree);
 
                 RecordingTree committedTree = null;
                 foreach (var t in RecordingStore.CommittedTrees)
@@ -1254,7 +1254,7 @@ namespace Parsek.Tests
             try
             {
                 var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "FlushTest");
-                RecordingStore.CommitRecordingDirect(rec);
+                TreeCommitService.CommitRecordingDirect(rec);
 
                 // FlushDirtyFiles fires and logs (SaveRecordingFiles returns false
                 // in test env — no KSP paths — so "failed 1" is expected)
@@ -1316,7 +1316,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             RecordingStore.CommittedTrees.Add(tree);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // Tree should now have 2 recordings
             Assert.Equal(2, tree.Recordings.Count);
@@ -1399,7 +1399,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             RecordingStore.CommittedTrees.Add(tree);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // After split, first half should have no ChildBranchPointId
             Assert.Null(rec.ChildBranchPointId);
@@ -1467,7 +1467,7 @@ namespace Parsek.Tests
                 RecordingStore.AddRecordingWithTreeForTesting(rec);
                 RecordingStore.CommittedTrees.Add(tree);
 
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.Contains(logLines, l =>
                     l.Contains("[RecordingStore]") && l.Contains("Split recording") && l.Contains("tree=tree-log-test"));
@@ -1489,12 +1489,12 @@ namespace Parsek.Tests
             try
             {
                 var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "OptFlush");
-                RecordingStore.CommitRecordingDirect(rec);
+                TreeCommitService.CommitRecordingDirect(rec);
                 logLines.Clear();
 
                 // Force-dirty to simulate optimizer touching the recording
                 RecordingStore.CommittedRecordings[0].FilesDirty = true;
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.Contains(logLines, l =>
                     l.Contains("[RecordingStore]") && l.Contains("FlushDirtyFiles"));
@@ -1514,7 +1514,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             try
             {
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.DoesNotContain(logLines, l => l.Contains("FlushDirtyFiles"));
             }
@@ -1539,7 +1539,7 @@ namespace Parsek.Tests
                 RecordingStore.CommittedRecordings[0].FilesDirty = false;
                 logLines.Clear();
 
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.DoesNotContain(logLines, l => l.Contains("FlushDirtyFiles"));
             }
@@ -1596,7 +1596,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "r1",
             };
             pendingTree.Recordings["r1"] = pendingRec;
-            RecordingStore.StashPendingTree(pendingTree);
+            PendingTreeSlot.StashPendingTree(pendingTree);
 
             // Seed a committed entry with the same id via the test seam.
             // Reach into committedTrees via the public list accessor.

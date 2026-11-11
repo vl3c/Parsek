@@ -34,7 +34,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             MilestoneStore.ResetForTesting();
             GameStateRecorder.ResetForTesting();
             GameStateStore.ResetForTesting();
@@ -180,14 +180,14 @@ namespace Parsek.Tests
                 VesselName = "Reverted Flight",
                 TerminalStateValue = TerminalState.Destroyed,
             };
-            RecordingStore.StashPendingTree(reverted, PendingTreeState.Finalized);
-            Assert.True(RecordingStore.HasPendingTree);
+            PendingTreeSlot.StashPendingTree(reverted, PendingTreeState.Finalized);
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             // The two OnLoad revert steps this change sits between.
-            RecordingStore.UnstashPendingTreeOnRevert();
+            PendingTreeSlot.UnstashPendingTreeOnRevert();
             ParsekScenario.ResetTreeRecordingMutableStateForLoad(RecordingStore.CommittedRecordings);
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Equal(committedBefore, RecordingStore.CommittedRecordings.Count);
             foreach (var rec in RecordingStore.CommittedRecordings)
                 Assert.NotEqual("rec-reverted", rec.RecordingId);
@@ -204,7 +204,7 @@ namespace Parsek.Tests
             debris.TerminalSpawnCannotSpawnSafely = true;
             RecordingStore.AddRecordingWithTreeForTesting(debris, "Rewound Mission");
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal(TerminalState.Destroyed, debris.TerminalStateValue);
             AssertSpawnFieldsReset(debris);
@@ -249,7 +249,7 @@ namespace Parsek.Tests
                 ParentRecordingIds = new List<string> { "root" },
                 ChildRecordingIds = new List<string> { "debris-a", "debris-b" },
             });
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
 
             // ... the crew auto-unreserve pass marks the debris (the measured shape) ...
@@ -257,7 +257,7 @@ namespace Parsek.Tests
             debrisB.VesselSpawned = true;
 
             // ... and the rewind OnLoad resets playback state.
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal(TerminalState.Destroyed, debrisA.TerminalStateValue);
             Assert.Equal(TerminalState.Destroyed, debrisB.TerminalStateValue);
@@ -339,7 +339,7 @@ namespace Parsek.Tests
             var merged = MergedSpawnedParentEndingDestroyed();
             RecordingStore.AddRecordingWithTreeForTesting(merged, "Relay Mission");
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal(TerminalState.Destroyed, merged.TerminalStateValue);
             Assert.False(merged.VesselSpawned);
@@ -369,9 +369,13 @@ namespace Parsek.Tests
             string scenario = StripComments(ReadParsekSource("ParsekScenario.cs"));
             string helper = BraceBody(scenario,
                 "internal static int ResetTreeRecordingMutableStateForLoad(");
-            string store = StripComments(ReadParsekSource("RecordingStore.cs"));
-            string rewind = BraceBody(store,
-                "private static void ResetRecordingPlaybackFields(");
+            string launcher = StripComments(ReadParsekSource("RewindLauncher.cs"));
+            string rewindReset = BraceBody(launcher,
+                "internal static void ResetRecordingPlaybackFields(");
+            Assert.Contains("ClearSpawnState(rec);", rewindReset);
+            // The rewind reset zeroes the spawn fields through its ClearSpawnState unit.
+            string rewind = rewindReset + BraceBody(launcher,
+                "internal static void ClearSpawnState(Recording rec)");
 
             foreach (var body in new[] { helper, rewind })
             {
@@ -417,7 +421,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(root, "Source", "Parsek", relPath);
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
+            return ParsekScenarioSourceFiles.ReadText(path);
         }
 
         private static string StripComments(string source)

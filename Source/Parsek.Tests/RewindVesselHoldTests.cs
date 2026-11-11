@@ -28,8 +28,8 @@ namespace Parsek.Tests
             RewindVesselHold.ResetForTesting();
             RewindContext.ResetForTesting();
             SceneExitInterceptor.ResetTestOverrides();
-            RecordingStore.RewindWritePersistentForTesting = null;
-            RecordingStore.PostRewindPersistentWriteForTesting = null;
+            RewindLauncher.RewindWritePersistentForTesting = null;
+            RewindLauncher.PostRewindPersistentWriteForTesting = null;
         }
 
         public void Dispose()
@@ -37,8 +37,8 @@ namespace Parsek.Tests
             RewindVesselHold.ResetForTesting();
             RewindContext.ResetForTesting();
             SceneExitInterceptor.ResetTestOverrides();
-            RecordingStore.RewindWritePersistentForTesting = null;
-            RecordingStore.PostRewindPersistentWriteForTesting = null;
+            RewindLauncher.RewindWritePersistentForTesting = null;
+            RewindLauncher.PostRewindPersistentWriteForTesting = null;
             ParsekLog.ResetTestOverrides();
         }
 
@@ -195,26 +195,26 @@ namespace Parsek.Tests
         [Fact]
         public void Merge_OneEntryPerVessel_EarliestClaimWins_FlyingRecordingsUnioned()
         {
-            var chainEntry = new ReFlyInvokeHold.Entry
+            var chainEntry = new ReFlyHoldEntry
             {
                 Pid = 42u, LaunchGuid = GuidA, FirstClaimUT = 1600.0, RecordingId = "tip",
                 Evidence = RewindVesselHold.EvidenceChain,
             };
-            var flies = new ReFlyInvokeHold.Entry
+            var flies = new ReFlyHoldEntry
             {
                 Pid = 42u, LaunchGuid = GuidA, FirstClaimUT = 1200.0, RecordingId = "switch",
                 Evidence = ReFlyInvokeHold.EvidenceFlies,
             };
             flies.FlyingRecordingIds.Add("switch");
-            var other = new ReFlyInvokeHold.Entry
+            var other = new ReFlyHoldEntry
             {
                 Pid = 9u, LaunchGuid = GuidB, FirstClaimUT = 3000.0, RecordingId = "rec9",
                 Evidence = ReFlyInvokeHold.EvidenceRecovery,
             };
 
             var merged = RewindVesselHold.Merge(
-                new List<ReFlyInvokeHold.Entry> { chainEntry },
-                new List<ReFlyInvokeHold.Entry> { flies, other });
+                new List<ReFlyHoldEntry> { chainEntry },
+                new List<ReFlyHoldEntry> { flies, other });
 
             Assert.Equal(2, merged.Count);
             Assert.Equal(42u, merged[0].Pid);
@@ -240,7 +240,7 @@ namespace Parsek.Tests
                 new List<Recording> { earlier, later }, new List<GameAction>(),
                 new List<ReFlyInvokeHold.ChangeClaim>(), RewindUT, out matchedWithoutFuture);
 
-            var merged = RewindVesselHold.Merge(new List<ReFlyInvokeHold.Entry>(), future);
+            var merged = RewindVesselHold.Merge(new List<ReFlyHoldEntry>(), future);
             var entry = Assert.Single(merged);
             Assert.Equal(42u, entry.Pid);
             Assert.Equal(1500.0, entry.FirstClaimUT);
@@ -296,7 +296,7 @@ namespace Parsek.Tests
         [Fact]
         public void SaveInto_LoadFrom_RoundTripsEveryHoldWithItsSnapshot()
         {
-            var entry = new ReFlyInvokeHold.Entry
+            var entry = new ReFlyHoldEntry
             {
                 Pid = 42u, LaunchGuid = GuidA, FirstClaimUT = 1600.5, RecordingId = "tip",
                 Evidence = RewindVesselHold.EvidenceChain,
@@ -306,7 +306,7 @@ namespace Parsek.Tests
             snap.AddValue("name", "Station");
             snap.AddValue("persistentId", "42");
             snap.AddNode("PART").AddValue("name", "probeCoreOcto");
-            var claimPassed = new ReFlyInvokeHold.Entry { Pid = 9u, FirstClaimUT = 10.0, Evidence = "recovery" };
+            var claimPassed = new ReFlyHoldEntry { Pid = 9u, FirstClaimUT = 10.0, Evidence = "recovery" };
             RewindVesselHold.Replace(new List<RewindVesselHold.Hold>
             {
                 new RewindVesselHold.Hold { Entry = entry, VesselName = "Station", Snapshot = snap },
@@ -348,8 +348,8 @@ namespace Parsek.Tests
         {
             RewindVesselHold.Replace(new List<RewindVesselHold.Hold>
             {
-                new RewindVesselHold.Hold { Entry = new ReFlyInvokeHold.Entry { Pid = 42u, FirstClaimUT = 1600.0 } },
-                new RewindVesselHold.Hold { Entry = new ReFlyInvokeHold.Entry { Pid = 0u } },
+                new RewindVesselHold.Hold { Entry = new ReFlyHoldEntry { Pid = 42u, FirstClaimUT = 1600.0 } },
+                new RewindVesselHold.Hold { Entry = new ReFlyHoldEntry { Pid = 0u } },
             }, "plain-rewind");
             Assert.Single(RewindVesselHold.Holds);
             RewindVesselHold.Clear("load ReFlyStart");
@@ -363,7 +363,7 @@ namespace Parsek.Tests
         [Fact]
         public void HeldLine_NamesTheVesselAndItsClaim()
         {
-            var entry = new ReFlyInvokeHold.Entry
+            var entry = new ReFlyHoldEntry
             {
                 Pid = 42u, LaunchGuid = GuidA, FirstClaimUT = 1600.0, RecordingId = "tip",
                 Evidence = RewindVesselHold.EvidenceChain,
@@ -418,11 +418,11 @@ namespace Parsek.Tests
         public void RewindGameWritten_MarksTheRewind_AndASceneExitSaveThenSkips()
         {
             RewindContext.BeginRewind(500.0, default(BudgetSummary), 0, 0, 0f);
-            RecordingStore.RewindWritePersistentForTesting = g => true;
+            RewindLauncher.RewindWritePersistentForTesting = g => true;
             int saves = 0;
             SceneExitInterceptor.PersistentSaveStepForTesting = _ => saves++;
 
-            Assert.True(RecordingStore.WriteRewindGameAsPersistent(null, "Rewind"));
+            Assert.True(RewindLauncher.WriteRewindGameAsPersistent(null, "Rewind"));
             Assert.True(RewindContext.RewindGameWrittenToPersistent);
 
             Assert.True(SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER));
@@ -441,11 +441,11 @@ namespace Parsek.Tests
         public void RewindGameNotWritten_SceneExitSavesAsBefore()
         {
             RewindContext.BeginRewind(500.0, default(BudgetSummary), 0, 0, 0f);
-            RecordingStore.RewindWritePersistentForTesting = g => false;
+            RewindLauncher.RewindWritePersistentForTesting = g => false;
             int saves = 0;
             SceneExitInterceptor.PersistentSaveStepForTesting = _ => saves++;
 
-            Assert.False(RecordingStore.WriteRewindGameAsPersistent(null, "Rewind"));
+            Assert.False(RewindLauncher.WriteRewindGameAsPersistent(null, "Rewind"));
             Assert.False(RewindContext.RewindGameWrittenToPersistent);
             Assert.True(SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER));
             Assert.Equal(1, saves);
@@ -455,7 +455,7 @@ namespace Parsek.Tests
         public void WriteRewindGame_NoGame_Refuses()
         {
             RewindContext.BeginRewind(500.0, default(BudgetSummary), 0, 0, 0f);
-            Assert.False(RecordingStore.WriteRewindGameAsPersistent(null, "Rewind"));
+            Assert.False(RewindLauncher.WriteRewindGameAsPersistent(null, "Rewind"));
             Assert.False(RewindContext.RewindGameWrittenToPersistent);
             Assert.Contains(logLines, l => l.Contains("[Rewind]")
                 && l.Contains("Rewind: no rewind game to write to persistent.sfs"));
@@ -465,8 +465,8 @@ namespace Parsek.Tests
         public void PostRewindPersistentWrite_IsLogged()
         {
             int writes = 0;
-            RecordingStore.PostRewindPersistentWriteForTesting = () => { writes++; return true; };
-            Assert.True(RecordingStore.WritePersistentAfterRewindAdjustment());
+            RewindLauncher.PostRewindPersistentWriteForTesting = () => { writes++; return true; };
+            Assert.True(RewindLauncher.WritePersistentAfterRewindAdjustment());
             Assert.Equal(1, writes);
             Assert.Contains(logLines, l => l.Contains("[Rewind]")
                 && l.Contains("Post-rewind persistent.sfs write ok=true"));

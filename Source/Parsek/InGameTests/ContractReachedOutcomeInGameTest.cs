@@ -183,7 +183,7 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("needs ContractSystem and Funding");
                 return;
             }
-            string deferral = GameStateRecorder.HasActiveUncommittedTree() || RecordingStore.HasPendingTree
+            string deferral = GameStateRecorder.HasActiveUncommittedTree() || PendingTreeSlot.HasPendingTree
                 ? "a flight tree is live or pending, so the career update would defer its patch"
                 : null;
             InGameAssert.IsTrue(deferral == null, deferral ?? "");

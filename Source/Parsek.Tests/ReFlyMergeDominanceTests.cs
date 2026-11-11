@@ -924,7 +924,7 @@ namespace Parsek.Tests
         public void MergeCommit_DominanceThrows_LeavesTheTreePendingAndReShowsTheDialog()
         {
             var pending = InstallLiveFixture();
-            RecordingStore.StashPendingTree(pending);
+            PendingTreeSlot.StashPendingTree(pending);
             ReFlyMergeDominance.PreviewBuilderForTesting = t =>
                 throw new InvalidOperationException("injected preview failure");
             RecordingTree reShown = null;
@@ -933,7 +933,7 @@ namespace Parsek.Tests
             MergeDialog.MergeCommit(pending, new Dictionary<string, bool>(), 0,
                 refreshQuicksaveAfterCommit: false, reShowDialogOnRefusal: true);
 
-            Assert.Same(pending, RecordingStore.PendingTree);
+            Assert.Same(pending, PendingTreeSlot.PendingTree);
             Assert.Same(pending, reShown);
             Assert.NotNull(ParsekScenario.Instance.ActiveReFlySessionMarker);
         }
@@ -942,7 +942,7 @@ namespace Parsek.Tests
         public void MergeCommit_DominanceRefused_LeavesTheTreePendingAndTheLedgerUntouched()
         {
             var pending = InstallLiveFixture();
-            RecordingStore.StashPendingTree(pending);
+            PendingTreeSlot.StashPendingTree(pending);
             string ledgerBefore = LedgerCommitRowBuildTests.CanonicalLedger(Ledger.Actions);
             int committedBefore = RecordingStore.CommittedRecordings.Count;
             int refusalsBefore = MergeDialog.MergeDominanceRefusalCount;
@@ -952,7 +952,7 @@ namespace Parsek.Tests
             MergeDialog.MergeCommit(pending, new Dictionary<string, bool>(), 0,
                 refreshQuicksaveAfterCommit: false, reShowDialogOnRefusal: true);
 
-            Assert.Same(pending, RecordingStore.PendingTree);
+            Assert.Same(pending, PendingTreeSlot.PendingTree);
             // The automation seam reads this counter to report the refusal, not a commit.
             Assert.Equal(refusalsBefore + 1, MergeDialog.MergeDominanceRefusalCount);
             Assert.Equal(committedBefore, RecordingStore.CommittedRecordings.Count);

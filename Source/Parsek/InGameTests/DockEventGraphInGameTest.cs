@@ -8,7 +8,7 @@ namespace Parsek.InGameTests
     /// the LIVE committed store correctly and that its host cache does not rebuild per call.
     ///
     /// <para><b>What it drives (all production code, no fakes).</b> Two synthetic trees registered
-    /// through the real <c>RecordingStore.CommitTree</c>, carrying BOTH resolution shapes at once:
+    /// through the real <c>TreeCommitService.CommitTree</c>, carrying BOTH resolution shapes at once:
     /// the AB/CD CROSS-TREE dock (controller tree ta claims partner tree tb's vessel by pid +
     /// launch guid) and, later on the same controller tree, the A-&gt;D SAME-TREE RECOVERED dock
     /// (a single-parent dock whose target pid resolves to a terminal-stamped leaf in its own
@@ -114,9 +114,9 @@ namespace Parsek.InGameTests
                     taId, idA0, idAB, idA1, idB1, idD0, idAD,
                     dockBpId, undockBpId, dock2BpId, guidA, guidB, guidD,
                     nameAB, nameD0, nameAD, prefix);
-                RecordingStore.CommitTree(tb);
+                TreeCommitService.CommitTree(tb);
                 tbCommitted = true;
-                RecordingStore.CommitTree(ta);
+                TreeCommitService.CommitTree(ta);
                 taCommitted = true;
 
                 // ---- (1) Build through the HOST against the live store. ----

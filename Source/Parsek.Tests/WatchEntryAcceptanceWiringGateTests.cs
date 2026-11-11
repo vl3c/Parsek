@@ -100,7 +100,7 @@ namespace Parsek.Tests
                 if (exempt.Contains(Path.GetFileName(path)))
                     continue;
 
-                if (StripComments(File.ReadAllText(path)).Contains("IsGhostOnBody("))
+                if (StripComments(ParsekFlightSourceFiles.ReadText(path)).Contains("IsGhostOnBody("))
                     offenders.Add(rel);
             }
 
@@ -272,7 +272,7 @@ namespace Parsek.Tests
             string path = Path.Combine(
                 ParsekSourceRoot(), relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
 
         // Strip comments (XML doc comments and /* */ blocks included) so the change's own notes,

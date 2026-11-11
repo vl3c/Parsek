@@ -149,7 +149,7 @@ namespace Parsek.Tests
             foreach (RecordingBuilder b in builders.Skip(1))
             {
                 var rec = new Recording { RecordingId = b.GetRecordingId(), VesselSnapshot = b.GetVesselSnapshot() };
-                RecordingStore.DeserializePartEvents(b.BuildTrajectoryNode(), rec);
+                TrajectoryTextSidecarCodec.DeserializePartEvents(b.BuildTrajectoryNode(), rec);
                 PartEvent placed = Assert.Single(rec.PartEvents);
                 Assert.Equal(PartEventType.InventoryPartPlaced, placed.eventType);
                 Assert.Equal(100000u, placed.partPersistentId);

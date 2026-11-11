@@ -150,14 +150,14 @@ namespace Parsek.Tests
                 SegmentPhase = "approach",
                 SegmentBodyName = "Mun"
             };
-            Assert.Equal("Mun approach", RecordingStore.GetSegmentPhaseLabel(rec));
+            Assert.Equal("Mun approach", RecordingSegmentLabels.GetSegmentPhaseLabel(rec));
         }
 
         [Fact]
         public void GetSegmentPhaseLabel_ApproachWithoutBody()
         {
             var rec = new Recording { SegmentPhase = "approach" };
-            Assert.Equal("approach", RecordingStore.GetSegmentPhaseLabel(rec));
+            Assert.Equal("approach", RecordingSegmentLabels.GetSegmentPhaseLabel(rec));
         }
 
         // --- ClearBoundaryFlags clears altitude state ---

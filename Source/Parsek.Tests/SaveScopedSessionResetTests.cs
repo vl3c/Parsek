@@ -37,6 +37,15 @@ namespace Parsek.Tests
             // Leftovers found by the save-switch audit (2026-10-31).
             typeof(FacilityStatePatcher),
             typeof(RecordingGroupStore),
+            // RecordingStore services (ARCH-RECORDINGSTORE-GOD-OBJECT): statics moved off the store.
+            typeof(RecordingSidecarStore),
+            typeof(RecordingFileJanitor),
+            typeof(SceneEntryVesselScope),
+            typeof(CommittedTreeRestoreAttempt),
+            typeof(PendingTreeSlot),
+            typeof(TreeDiscardService),
+            typeof(RewindCarry),
+            typeof(RewindLauncher),
         };
 
         private readonly List<string> logLines = new List<string>();
@@ -499,14 +508,14 @@ namespace Parsek.Tests
                 File.WriteAllText(file, "sidecar");
             }
 
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
             var science = new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLanded", science = 1f };
             GameStateRecorder.PendingScienceSubjects.Add(science);
 
             ParsekScenario.ResetSaveScopedSessionState("main-menu");
 
-            Assert.False(RecordingStore.HasPendingTree);
-            Assert.False(RecordingStore.WasTreeDiscardedThisSession(treeId));
+            Assert.False(PendingTreeSlot.HasPendingTree);
+            Assert.False(TreeDiscardService.WasTreeDiscardedThisSession(treeId));
             foreach (string file in files)
                 Assert.True(File.Exists(file), "the reset deleted " + file);
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
@@ -521,16 +530,16 @@ namespace Parsek.Tests
         [Fact]
         public void DiscardSetAndRestoreAttempt_AreForgotten()
         {
-            RecordingStore.NoteTreeDiscardedThisSession("tree-gone", "Gone", 1);
+            TreeDiscardService.NoteTreeDiscardedThisSession("tree-gone", "Gone", 1);
             var attemptTree = new RecordingTree { Id = "tree-attempt", TreeName = "Attempt" };
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test");
-            Assert.True(RecordingStore.WasTreeDiscardedThisSession("tree-gone"));
-            Assert.True(RecordingStore.HasCommittedTreeRestoreAttempt);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(attemptTree, "test");
+            Assert.True(TreeDiscardService.WasTreeDiscardedThisSession("tree-gone"));
+            Assert.True(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
 
             ParsekScenario.ResetSaveScopedSessionState("main-menu");
 
-            Assert.False(RecordingStore.WasTreeDiscardedThisSession("tree-gone"));
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.False(TreeDiscardService.WasTreeDiscardedThisSession("tree-gone"));
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
         }
 
         // catches: a reset that nulls the committed-list notification events (the batch reset

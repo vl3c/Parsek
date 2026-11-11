@@ -144,7 +144,7 @@ namespace Parsek.Tests
 
         // A fresh post-switch recording (another vessel the player switched to) joins the tree
         // under a BranchPointType.Launch edge off this mission's vessel, mid-run: the shape
-        // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording produces (the joined
+        // ParsekFlightPostSwitchAutoRecord.PrepareActiveTreeForFreshPostSwitchRecording produces (the joined
         // recording is the branch point's only child; the ship's own line goes on through
         // its chain continuation).
         private static Recording[] PartnerJoinRecs() => new[]

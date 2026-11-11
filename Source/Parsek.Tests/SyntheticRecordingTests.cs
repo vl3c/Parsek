@@ -3568,11 +3568,11 @@ namespace Parsek.Tests
                 node.AddValue("recordingSchemaGeneration",
                     RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
                 node.AddValue("recordingId", rec.RecordingId);
-                RecordingStore.SerializeTrajectoryInto(node, rec);
+                TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
                 // Deserialize into a fresh recording
                 var rec2 = new Recording();
-                RecordingStore.DeserializeTrajectoryFrom(node, rec2);
+                TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec2);
 
                 // Verify points
                 Assert.Equal(rec.Points.Count, rec2.Points.Count);
@@ -3641,7 +3641,7 @@ namespace Parsek.Tests
                 precNode.AddValue("recordingSchemaGeneration",
                     RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
                 precNode.AddValue("recordingId", "filetest");
-                RecordingStore.SerializeTrajectoryInto(precNode, rec);
+                TrajectoryTextSidecarCodec.SerializeTrajectoryInto(precNode, rec);
 
                 string precPath = Path.Combine(tempDir, "filetest.prec");
                 precNode.Save(precPath);
@@ -5521,23 +5521,23 @@ namespace Parsek.Tests
                 string precPath = Path.Combine(recDir, $"{id}.prec");
                 Assert.True(File.Exists(precPath), $"Expected .prec file at {precPath}");
                 TrajectorySidecarProbe probe;
-                Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+                Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out probe));
                 Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
                 Assert.Equal(id, probe.RecordingId);
 
                 var restored = new Recording { RecordingId = id };
-                Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+                Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, restored));
                 Assert.True(restored.Points.Count >= 2, "Expected binary sidecar to preserve trajectory points");
 
                 // _vessel.craft file exists and has vessel data
                 string vesselPath = Path.Combine(recDir, $"{id}_vessel.craft");
                 Assert.True(File.Exists(vesselPath), $"Expected _vessel.craft at {vesselPath}");
                 SnapshotSidecarProbe vesselProbe;
-                Assert.True(RecordingStore.TryProbeSnapshotSidecar(vesselPath, out vesselProbe));
+                Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(vesselPath, out vesselProbe));
                 Assert.Equal(SnapshotSidecarEncoding.DeflateV1, vesselProbe.Encoding);
 
                 ConfigNode vesselSnapshot;
-                Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(vesselPath, out vesselSnapshot));
+                Assert.True(RecordingSidecarStore.LoadSnapshotSidecarForTesting(vesselPath, out vesselSnapshot));
                 Assert.Equal("Flea Flight", vesselSnapshot.GetValue("name"));
                 Assert.True(File.Exists(precPath + ".txt"), $"Expected readable .prec mirror at {precPath}.txt");
                 Assert.True(File.Exists(vesselPath + ".txt"), $"Expected readable vessel mirror at {vesselPath}.txt");
@@ -5591,7 +5591,7 @@ namespace Parsek.Tests
                         GhostVisualSnapshot = segments[i].GetGhostVisualSnapshot()?.CreateCopy(),
                     };
                     bool expectGhostSidecar =
-                        RecordingStore.DetermineGhostSnapshotMode(snapshotModeRecording) == GhostSnapshotMode.Separate;
+                        RecordingSidecarStore.DetermineGhostSnapshotMode(snapshotModeRecording) == GhostSnapshotMode.Separate;
                     Assert.Equal(expectGhostSidecar, File.Exists(Path.Combine(recDir, $"{id}_ghost.craft")));
                     Assert.Equal(expectGhostSidecar, File.Exists(Path.Combine(recDir, $"{id}_ghost.craft.txt")));
                 }
@@ -7287,7 +7287,7 @@ namespace Parsek.Tests
             RecordingBuilder builder = SinglePointOrbitalHold(SinglePointHoldSaveUT);
             RecordingTree tree = ScenarioWriter.MaterializeTree(new[] { builder });
             Recording rec = tree.Recordings[SinglePointHoldRecordingId];
-            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
 
             Assert.Single(rec.Points);
             Assert.Single(rec.OrbitSegments);
@@ -7339,7 +7339,7 @@ namespace Parsek.Tests
 
                 string recDir = Path.Combine(dir, "Parsek", "Recordings");
                 var loaded = new Recording { RecordingId = SinglePointHoldRecordingId };
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     loaded,
                     Path.Combine(recDir, SinglePointHoldRecordingId + ".prec"),
                     Path.Combine(recDir, SinglePointHoldRecordingId + "_vessel.craft"),
@@ -7851,7 +7851,7 @@ namespace Parsek.Tests
         {
             RecordingTree tree = ScenarioWriter.MaterializeTree(new[] { builder });
             Recording rec = tree.Recordings[id];
-            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
             return rec;
         }
 
@@ -7902,9 +7902,9 @@ namespace Parsek.Tests
 
                 // The production correction fires on exactly this snapshot and terminal.
                 Assert.Equal("LANDED",
-                    VesselSpawner.ComputeCorrectedSituation(snap.GetValue("sit"), rec.TerminalStateValue));
+                    VesselSnapshotOps.ComputeCorrectedSituation(snap.GetValue("sit"), rec.TerminalStateValue));
                 ConfigNode copy = snap.CreateCopy();
-                Assert.True(VesselSpawner.CorrectUnsafeSnapshotSituation(copy, rec.TerminalStateValue));
+                Assert.True(VesselSnapshotOps.CorrectUnsafeSnapshotSituation(copy, rec.TerminalStateValue));
                 Assert.Equal("LANDED", copy.GetValue("sit"));
                 Assert.Contains(logLines, l => l.Contains("[Spawner]")
                     && l.Contains("Corrected unsafe snapshot situation: FLYING -> LANDED (terminal=Landed)"));
@@ -8024,7 +8024,7 @@ namespace Parsek.Tests
 
                 string recDir = Path.Combine(dir, "Parsek", "Recordings");
                 var landed = new Recording { RecordingId = SituationCorrectionRecordingId };
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     landed,
                     Path.Combine(recDir, SituationCorrectionRecordingId + ".prec"),
                     Path.Combine(recDir, SituationCorrectionRecordingId + "_vessel.craft"),
@@ -8033,7 +8033,7 @@ namespace Parsek.Tests
                 Assert.Equal("FLYING", landed.VesselSnapshot.GetValue("sit"));
 
                 var orbiting = new Recording { RecordingId = TerminalOrbitRecordingId };
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     orbiting,
                     Path.Combine(recDir, TerminalOrbitRecordingId + ".prec"),
                     Path.Combine(recDir, TerminalOrbitRecordingId + "_vessel.craft"),
@@ -8260,7 +8260,7 @@ namespace Parsek.Tests
 
                 string recDir = Path.Combine(dir, "Parsek", "Recordings");
                 var loaded = new Recording { RecordingId = SpawnControlTargetRecordingId };
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     loaded,
                     Path.Combine(recDir, SpawnControlTargetRecordingId + ".prec"),
                     Path.Combine(recDir, SpawnControlTargetRecordingId + "_vessel.craft"),
@@ -8723,7 +8723,7 @@ namespace Parsek.Tests
                 string recDir = Path.Combine(dir, "Parsek", "Recordings");
                 string id = Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayARecordingId;
                 var loaded = new Recording { RecordingId = id };
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     loaded,
                     Path.Combine(recDir, id + ".prec"),
                     Path.Combine(recDir, id + "_vessel.craft"),
@@ -9330,7 +9330,7 @@ namespace Parsek.Tests
         // parent, no branch point, a ghosting-trigger part event. That is the one production
         // shape through which a tree records a vessel that is neither its root lineage nor a
         // split product of it (todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED item 2):
-        // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording starts a parentless
+        // ParsekFlightPostSwitchAutoRecord.PrepareActiveTreeForFreshPostSwitchRecording starts a parentless
         // recording when the switch happened while the tree had no active recording, and
         // StartStandaloneContinuationSegment attaches a parentless segment to a live tree. On
         // the next switch the vessel moves into BackgroundMap and BackgroundRecorder polls its
@@ -9435,7 +9435,7 @@ namespace Parsek.Tests
             for (int i = 0; i < builders.Length; i++)
             {
                 Recording rec = tree.Recordings[builders[i].GetRecordingId()];
-                RecordingStore.DeserializeTrajectoryFrom(builders[i].BuildTrajectoryNode(), rec);
+                TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builders[i].BuildTrajectoryNode(), rec);
             }
             return tree;
         }

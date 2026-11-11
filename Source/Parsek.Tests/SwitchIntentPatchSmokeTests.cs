@@ -374,7 +374,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
                 "Source", "Parsek", "Patches", "MapFocusObjectOnSelectPatch.cs");
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
 
         // Fails if: a future refactor drops the explicit clear in the
@@ -455,7 +455,7 @@ namespace Parsek.Tests
         public void DiscardPriorAndSwitchTo_ClearsSwitchSegmentSession_ViaScopedDiscard()
         {
             // The Discard handler calls
-            // RecordingStore.TryDiscardActiveSwitchSegmentAttempt which
+            // SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt which
             // calls scenario.ClearSwitchSegmentSession("scoped-discard")
             // internally. This test pins both ends of that contract
             // (the Discard handler routes through the helper, and the
@@ -474,7 +474,7 @@ namespace Parsek.Tests
             string discardBody = mapPatchSource.Substring(
                 discardStart, discardEnd - discardStart);
             Assert.Contains(
-                "RecordingStore.TryDiscardActiveSwitchSegmentAttempt",
+                "SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt",
                 discardBody);
 
             // Pin the helper still clears the session.
@@ -482,8 +482,8 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string storePath = Path.Combine(projectRoot,
-                "Source", "Parsek", "RecordingStore.cs");
-            string storeSource = File.ReadAllText(storePath);
+                "Source", "Parsek", "SwitchSegmentAttempts.cs");
+            string storeSource = ParsekFlightSourceFiles.ReadText(storePath);
             // TryDiscardActiveSwitchSegmentAttempt's success path always
             // calls ClearSwitchSegmentSession("scoped-discard") before
             // returning.
@@ -644,7 +644,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", ".."));
             string flightPath = Path.Combine(projectRoot,
                 "Source", "Parsek", "ParsekFlight.cs");
-            string flightSource = File.ReadAllText(flightPath);
+            string flightSource = ParsekFlightSourceFiles.ReadText(flightPath);
 
             // The new entry point exists.
             Assert.Contains(
@@ -654,7 +654,7 @@ namespace Parsek.Tests
             // Locate the shared core and assert it routes the screen
             // message and ledger reason parameters all the way through.
             int coreStart = flightSource.IndexOf(
-                "private void AutoDiscardActiveTreeCore(",
+                "internal void AutoDiscardActiveTreeCore(",
                 StringComparison.Ordinal);
             Assert.True(coreStart > 0,
                 "AutoDiscardActiveTreeCore helper must be defined");
@@ -771,7 +771,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", ".."));
             string mergeDialogPath = Path.Combine(projectRoot,
                 "Source", "Parsek", "MergeDialog.cs");
-            string mergeDialogSource = File.ReadAllText(mergeDialogPath);
+            string mergeDialogSource = ParsekFlightSourceFiles.ReadText(mergeDialogPath);
 
             // The override parameter is the load-bearing seam between
             // the session-aware and Case B paths.

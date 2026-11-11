@@ -341,18 +341,33 @@ namespace Parsek.Tests
             string projectRoot = Path.GetFullPath(
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
-            string source = File.ReadAllText(
+            string source = ParsekFlightSourceFiles.ReadText(
                 Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs"))
                 .Replace("\r\n", "\n");
 
-            int start = source.IndexOf("internal bool IsActiveTreeIdleOnPad()\n", StringComparison.Ordinal);
-            Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
-            int flush = source.IndexOf("FlushRecorderIntoActiveTreeForSerialization();", start, StringComparison.Ordinal);
-            int walk = source.IndexOf("foreach (var rec in activeTree.Recordings.Values)", start, StringComparison.Ordinal);
-            int evidence = source.IndexOf("TreeHasPadEvidenceForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", start, StringComparison.Ordinal);
-            Assert.True(flush > start, "flush not found in IsActiveTreeIdleOnPad");
+            string body = IsActiveTreeIdleOnPadBody(source);
+            int flush = body.IndexOf("FlushRecorderIntoActiveTreeForSerialization();", StringComparison.Ordinal);
+            int walk = body.IndexOf("AllRecordingsIdleOnPadAfterBackfill(host.activeTree, out bool anyHasPoints)", StringComparison.Ordinal);
+            Assert.True(walk >= 0, "distance walk must be called inside IsActiveTreeIdleOnPad");
+            int evidence = body.IndexOf("TreeHasPadEvidenceForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", StringComparison.Ordinal);
+            Assert.True(flush >= 0, "flush not found in IsActiveTreeIdleOnPad");
             Assert.True(walk > flush, "distance walk must run after the recorder flush");
             Assert.True(evidence > walk, "tree-level evidence check must run after the distance walk");
+        }
+
+        // The IsActiveTreeIdleOnPad body, brace-matched (comments blanked, literals intact),
+        // so a needle can only match inside that method.
+        private static string IsActiveTreeIdleOnPadBody(string source)
+        {
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(source);
+            string code = SourceScanText.StripCSharpComments(source);
+            const string decl = "internal bool IsActiveTreeIdleOnPad()\n";
+            int start = prepared.IndexOf(decl, StringComparison.Ordinal);
+            Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
+            Assert.True(prepared.IndexOf(decl, start + 1, StringComparison.Ordinal) < 0,
+                "IsActiveTreeIdleOnPad declaration ambiguous");
+            int open = prepared.IndexOf('{', start);
+            return code.Substring(open, SourceScanText.BraceMatchedBlock(prepared, open).Length);
         }
     }
 }

@@ -1200,7 +1200,7 @@ namespace Parsek
         private void OpenHarvestWindow(Vessel v, double ut, bool atRecordingStart, string trigger)
         {
             Dictionary<string, ResourceAmount> startManifest =
-                VesselSpawner.ExtractLiveResourceManifest(v);
+                LiveVesselSnapshot.ExtractLiveResourceManifest(v);
             List<string> converterIds = BuildActiveConverterIds();
             Dictionary<string, double> plausibleRates = BuildPlausibleHarvestRates(v);
 
@@ -1232,7 +1232,7 @@ namespace Parsek
                 return;
 
             Dictionary<string, ResourceAmount> endManifest =
-                VesselSpawner.ExtractLiveResourceManifest(v);
+                LiveVesselSnapshot.ExtractLiveResourceManifest(v);
             RouteHarvestCapture.CloseWindow(window, ut, endManifest, atRecordingStop: false);
             // Second rate sample: a crew bonus that rose inside the window (an
             // engineer boarded) still counts. The close-at-stop path keeps the open
@@ -1718,10 +1718,9 @@ namespace Parsek
         private OrbitSegment CreateOrbitSegmentWithRotation(Vessel v, double startUT)
         {
             var segment = CreateOrbitSegmentFromVessel(v, startUT);
-            TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+            LogActiveReFlyOrbitSegmentVelocityNonFinite(
                 v,
                 startUT,
-                ref segment,
                 "orbit-segment");
 
             StampVesselOrbitalFrameRotation(ref segment, v);
@@ -1894,10 +1893,9 @@ namespace Parsek
             var v = data.host;
             double soiUT = Planetarium.GetUniversalTime();
             currentOrbitSegment = CreateOrbitSegmentFromVessel(v, soiUT);
-            TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+            LogActiveReFlyOrbitSegmentVelocityNonFinite(
                 v,
                 soiUT,
-                ref currentOrbitSegment,
                 "soi-change");
 
             // Capture orbital-frame-relative rotation for new SOI, through the same encode the
@@ -2050,10 +2048,9 @@ namespace Parsek
             {
                 double backgroundUT = Planetarium.GetUniversalTime();
                 currentOrbitSegment = CreateOrbitSegmentFromVessel(v, backgroundUT);
-                TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+                LogActiveReFlyOrbitSegmentVelocityNonFinite(
                     v,
                     backgroundUT,
-                    ref currentOrbitSegment,
                     "transition-to-background");
                 isOnRails = true;
             }

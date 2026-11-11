@@ -148,7 +148,7 @@ namespace Parsek
                 focusRecordingId: focusRecording.RecordingId,
                 focusTreeId: focusTree?.Id,
                 activeReFlyMarker: ParsekScenario.Instance?.ActiveReFlySessionMarker,
-                pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
+                pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveAbsoluteWorldPosition,
                 bodyWorldRotationResolver: ResolveBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose,
@@ -185,8 +185,8 @@ namespace Parsek
                 }
             }
 
-            RecordingTree pending = RecordingStore.HasPendingTree
-                ? RecordingStore.PendingTree
+            RecordingTree pending = PendingTreeSlot.HasPendingTree
+                ? PendingTreeSlot.PendingTree
                 : null;
             if (pending?.Recordings != null
                 && (pending.Recordings.ContainsKey(focusRecording.RecordingId)
@@ -223,8 +223,8 @@ namespace Parsek
                 }
             }
 
-            RecordingTree pending = RecordingStore.HasPendingTree
-                ? RecordingStore.PendingTree
+            RecordingTree pending = PendingTreeSlot.HasPendingTree
+                ? PendingTreeSlot.PendingTree
                 : null;
             if (pending?.Recordings != null
                 && pending.Recordings.TryGetValue(recordingId, out recording)

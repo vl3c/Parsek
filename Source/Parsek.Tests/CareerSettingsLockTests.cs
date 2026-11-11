@@ -69,10 +69,10 @@ namespace Parsek.Tests
         [Fact]
         public void Decide_LocksWhenNone_RewritesADrift_ElseNothing()
         {
-            Assert.Equal(CareerSettingsLock.Action.Lock, CareerSettingsLock.Decide(null, true));
-            Assert.Equal(CareerSettingsLock.Action.None, CareerSettingsLock.Decide(false, false));
-            Assert.Equal(CareerSettingsLock.Action.RewriteLive, CareerSettingsLock.Decide(false, true));
-            Assert.Equal(CareerSettingsLock.Action.RewriteLive, CareerSettingsLock.Decide(true, false));
+            Assert.Equal(CareerSettingsLock.LockDecision.Lock, CareerSettingsLock.Decide(null, true));
+            Assert.Equal(CareerSettingsLock.LockDecision.None, CareerSettingsLock.Decide(false, false));
+            Assert.Equal(CareerSettingsLock.LockDecision.RewriteLive, CareerSettingsLock.Decide(false, true));
+            Assert.Equal(CareerSettingsLock.LockDecision.RewriteLive, CareerSettingsLock.Decide(true, false));
             Assert.True(CareerSettingsLock.Resolve(null, true));
             Assert.False(CareerSettingsLock.Resolve(false, true));
         }

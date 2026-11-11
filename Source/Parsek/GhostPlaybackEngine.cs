@@ -409,7 +409,6 @@ namespace Parsek
             RebuildAutoLoopLaunchScheduleCache(trajectories, ctx.autoLoopIntervalSeconds);
 
             ResetPerFramePlaybackCounters(suppressGhosts);
-            long spawnMicroseconds = 0;
             int ghostsProcessed = 0;
             int trajectoriesIterated = 0;
 
@@ -431,337 +430,407 @@ namespace Parsek
             for (int i = 0; i < trajectories.Count; i++)
             {
                 trajectoriesIterated++;
-                var traj = trajectories[i];
-                var f = flags[i];
+                UpdatePlaybackEntry(
+                    i, trajectories[i], flags[i], trajectories, ctx,
+                    suppressGhosts, suppressVisualFx, ref ghostsProcessed);
+            }
 
-                // Disabled/suppressed: destroy any active ghost before skipping.
-                // Bug #433: only the PlaybackEnabled=false cause is career-neutral, so
-                // only that cause must still fire PlaybackCompleted at past-end — the
-                // policy reads the event to spawn the persistent vessel, which must
-                // happen regardless of the visual toggle. !hasData and
-                // externalVesselSuppressed are structural (no valid trajectory / no
-                // spawn path) and keep their silent-skip behaviour.
-                if (f.skipGhost)
+            CompletePlaybackFrame(
+                trajectories, flags, ctx, engineIterTraceEnabled, ghostsProcessed, trajectoriesIterated);
+        }
+
+        /// <summary>
+        /// One trajectory of <see cref="UpdatePlayback"/>'s per-frame loop: the guard chain (skip flag, renderable
+        /// data, Re-Fly session suppression, unstable anchor, activation start, loop-unit / loop / loop-synced
+        /// debris dispatch, warp hide, chain-seam shadow), then in-range rendering, the past-end completion and the
+        /// stale past-end cleanup. Each early exit of the original loop body is a return here.
+        /// <paramref name="ghostsProcessed"/> counts trajectories that entered with loaded ghost visuals.
+        /// </summary>
+        internal void UpdatePlaybackEntry(
+            int i,
+            IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags f,
+            IReadOnlyList<IPlaybackTrajectory> trajectories,
+            FrameContext ctx,
+            bool suppressGhosts,
+            bool suppressVisualFx,
+            ref int ghostsProcessed)
+        {
+            // Disabled/suppressed: destroy any active ghost before skipping.
+            // Bug #433: only the PlaybackEnabled=false cause is career-neutral, so
+            // only that cause must still fire PlaybackCompleted at past-end — the
+            // policy reads the event to spawn the persistent vessel, which must
+            // happen regardless of the visual toggle. !hasData and
+            // externalVesselSuppressed are structural (no valid trajectory / no
+            // spawn path) and keep their silent-skip behaviour.
+            if (f.skipGhost)
+            {
+                HandleSkippedPlaybackEntry(i, traj, f, ctx);
+                return;
+            }
+
+            bool hasPointData = traj.Points != null && traj.Points.Count > 0;
+            bool hasInterpolatedPoints = traj.Points != null && traj.Points.Count >= 2;
+            bool hasOrbitData = traj.HasOrbitSegments;
+            bool hasSurfaceData = traj.SurfacePos.HasValue;
+            if (!HasRenderableGhostData(traj))
+            {
+                CountFrameSkip(GhostPlaybackSkipReason.NoRenderableData);
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, i, ctx.currentUT, "no-renderable-ghost-data");
+                return;
+            }
+
+            // Phase 7 of Rewind-to-Staging (design §3.3): during an active
+            // re-fly session, skip ghosts whose source recording is in the
+            // SessionSuppressedSubtree. Parent-owned companion debris is a
+            // render-only exception for already-committed rows:
+            // ERS/merge/supersede still suppresses it, NotCommitted rows
+            // stay hidden, but the debris body-fixed playback path can
+            // render committed companion debris without showing the
+            // replaced parent ghost. Destroy any other leftover ghost
+            // visuals first so the player doesn't see stale meshes from a
+            // recording that just got superseded mid-flight.
+            //
+            // The marker and per-recording suppression bit are pushed in by
+            // the host through FrameContext / TrajectoryPlaybackFlags so
+            // the engine doesn't reach into SessionSuppressionState
+            // directly. Both inputs are stable across a frame: every
+            // re-fly marker writer (scenario lifecycle, merge / rewind /
+            // revert orchestration, reconciliation apply) runs outside the
+            // engine's per-frame loop.
+            ReFlySessionMarker activeReFlyMarker = ctx.activeReFlyMarker;
+            if (activeReFlyMarker != null && f.sessionSuppressed)
+            {
+                if (!ShouldRenderSuppressedCompanionDebris(
+                        traj, activeReFlyMarker, f))
                 {
-                    CountFrameSkip(f.skipReason);
                     GhostRenderTrace.EmitGuardSkip(
-                        traj, i, ctx.currentUT, f.skipReason.ToLogToken());
+                        traj, i, ctx.currentUT, "session-suppressed-subtree");
                     if (ghostStates.ContainsKey(i))
                     {
                         DestroyAllOverlapGhosts(i);
-                        DestroyGhost(i, traj, f, reason: f.skipReason.ToLogToken());
+                        DestroyGhost(i, traj, f, reason: "session-suppressed subtree");
                     }
-
-                    if (GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
-                            traj, f, ctx.currentUT,
-                            completedEventFired.Contains(i),
-                            earlyDestroyedDebrisCompleted.Contains(i)))
-                    {
-                        bool skipHasPointData = traj.Points != null && traj.Points.Count > 0;
-                        ParsekLog.Verbose("Engine",
-                            $"Disabled past-end completion: #{i} \"{traj.VesselName}\" " +
-                            $"UT={ctx.currentUT:F2} endUT={traj.EndUT:F2} ghostActive=false");
-                        HandlePastEndGhost(i, traj, f, ctx, state: null, ghostActive: false, skipHasPointData);
-                    }
-                    continue;
+                    CountFrameSkip(GhostPlaybackSkipReason.SessionSuppressed);
+                    return;
                 }
 
-                bool hasPointData = traj.Points != null && traj.Points.Count > 0;
-                bool hasInterpolatedPoints = traj.Points != null && traj.Points.Count >= 2;
-                bool hasOrbitData = traj.HasOrbitSegments;
-                bool hasSurfaceData = traj.SurfacePos.HasValue;
-                if (!HasRenderableGhostData(traj))
+                LogSessionSuppressedCompanionDebrisRenderAllowed(
+                    i, traj, activeReFlyMarker);
+            }
+
+            GhostPlaybackState state;
+            ghostStates.TryGetValue(i, out state);
+            bool ghostActive = HasLoadedGhostVisuals(state);
+            if (ghostActive) ghostsProcessed++;
+
+            if (f.anchorReFlyUnstable)
+            {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, i, ctx.currentUT, GhostPlaybackSkipReason.AnchorReFlyUnstable.ToLogToken());
+                if (ghostActive && state.ghost.activeSelf)
                 {
-                    CountFrameSkip(GhostPlaybackSkipReason.NoRenderableData);
+                    state.ghost.SetActive(false);
+                    ResetGhostAppearanceTracking(state);
+                }
+                SetOverlapGhostsActive(i, false);
+                CountFrameSkip(GhostPlaybackSkipReason.AnchorReFlyUnstable);
+                return;
+            }
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+
+            // === Loop first run is real ===
+            // Both loop dispatches below `continue` before the past-end completion, so a
+            // looping index would otherwise never spawn its terminal vessel. Its first run
+            // (the recording's own UT window) is the real run: queue the one spawn-only
+            // completion here (and re-arm it while the playhead is before the recording),
+            // then let the loop render as usual.
+            TryQueueLoopFirstRunSpawn(i, traj, f, ctx, activationStartUT, hasPointData);
+
+            if (ctx.currentUT < activationStartUT)
+            {
+                completedEventFired.Remove(i);
+                earlyDestroyedDebrisCompleted.Remove(i);
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, i, ctx.currentUT, "before-activation-start-ut");
+                if (ghostActive)
+                {
+                    DestroyAllOverlapGhosts(i);
+                    DestroyGhost(i, traj, f, reason: "before activation start UT");
+                }
+                CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
+                return;
+            }
+
+            bool inRange = ctx.currentUT <= traj.EndUT;
+            bool pastEnd = ctx.currentUT > traj.EndUT;
+            bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
+
+            // === Mission loop unit interception (Phase D2) ===
+            // If this index is a member of a Mission loop unit, it is driven by the unit's
+            // shared span clock, NOT its own per-recording loop clock. Mission members do not
+            // carry their own per-recording LoopPlayback flag, so ShouldLoopPlayback(traj) is
+            // false for them - the interception must sit ABOVE the loop-dispatch gate (this
+            // deviates from the chain-auto-loop branch, where the equivalent interception lives
+            // inside the gate). Route it through UpdateUnitMemberPlayback (which re-checks anchor
+            // gating + warp suppression per-member). Gated entirely on unit membership, which is
+            // empty until a Mission loops, so non-members fall straight through below.
+            if (currentLoopUnits.TryGetUnitForMember(i, out GhostPlaybackLogic.LoopUnit unit))
+            {
+                UpdateUnitMemberPlayback(
+                    i, traj, f, ctx, trajectories, unit, suppressGhosts, suppressVisualFx,
+                    hasPointData, hasInterpolatedPoints,
+                    hasSurfaceData, hasOrbitData, ref state, ref ghostActive);
+                return;
+            }
+
+            // === Loop dispatch (before main rendering) ===
+            if (ShouldLoopPlayback(traj))
+            {
+                // Anchor gating: if anchor configured but not loaded, skip ghost
+                if (traj.LoopAnchorVesselId != 0 && !loadedAnchorVessels.Contains(traj.LoopAnchorVesselId))
+                {
                     GhostRenderTrace.EmitGuardSkip(
-                        traj, i, ctx.currentUT, "no-renderable-ghost-data");
-                    continue;
-                }
-
-                // Phase 7 of Rewind-to-Staging (design §3.3): during an active
-                // re-fly session, skip ghosts whose source recording is in the
-                // SessionSuppressedSubtree. Parent-owned companion debris is a
-                // render-only exception for already-committed rows:
-                // ERS/merge/supersede still suppresses it, NotCommitted rows
-                // stay hidden, but the debris body-fixed playback path can
-                // render committed companion debris without showing the
-                // replaced parent ghost. Destroy any other leftover ghost
-                // visuals first so the player doesn't see stale meshes from a
-                // recording that just got superseded mid-flight.
-                //
-                // The marker and per-recording suppression bit are pushed in by
-                // the host through FrameContext / TrajectoryPlaybackFlags so
-                // the engine doesn't reach into SessionSuppressionState
-                // directly. Both inputs are stable across a frame: every
-                // re-fly marker writer (scenario lifecycle, merge / rewind /
-                // revert orchestration, reconciliation apply) runs outside the
-                // engine's per-frame loop.
-                ReFlySessionMarker activeReFlyMarker = ctx.activeReFlyMarker;
-                if (activeReFlyMarker != null && f.sessionSuppressed)
-                {
-                    if (!ShouldRenderSuppressedCompanionDebris(
-                            traj, activeReFlyMarker, f))
-                    {
-                        GhostRenderTrace.EmitGuardSkip(
-                            traj, i, ctx.currentUT, "session-suppressed-subtree");
-                        if (ghostStates.ContainsKey(i))
-                        {
-                            DestroyAllOverlapGhosts(i);
-                            DestroyGhost(i, traj, f, reason: "session-suppressed subtree");
-                        }
-                        CountFrameSkip(GhostPlaybackSkipReason.SessionSuppressed);
-                        continue;
-                    }
-
-                    LogSessionSuppressedCompanionDebrisRenderAllowed(
-                        i, traj, activeReFlyMarker);
-                }
-
-                GhostPlaybackState state;
-                ghostStates.TryGetValue(i, out state);
-                bool ghostActive = HasLoadedGhostVisuals(state);
-                if (ghostActive) ghostsProcessed++;
-
-                if (f.anchorReFlyUnstable)
-                {
-                    GhostRenderTrace.EmitGuardSkip(
-                        traj, i, ctx.currentUT, GhostPlaybackSkipReason.AnchorReFlyUnstable.ToLogToken());
-                    if (ghostActive && state.ghost.activeSelf)
-                    {
-                        state.ghost.SetActive(false);
-                        ResetGhostAppearanceTracking(state);
-                    }
-                    SetOverlapGhostsActive(i, false);
-                    CountFrameSkip(GhostPlaybackSkipReason.AnchorReFlyUnstable);
-                    continue;
-                }
-
-                double activationStartUT = ResolveGhostActivationStartUT(traj);
-
-                // === Loop first run is real ===
-                // Both loop dispatches below `continue` before the past-end completion, so a
-                // looping index would otherwise never spawn its terminal vessel. Its first run
-                // (the recording's own UT window) is the real run: queue the one spawn-only
-                // completion here (and re-arm it while the playhead is before the recording),
-                // then let the loop render as usual.
-                TryQueueLoopFirstRunSpawn(i, traj, f, ctx, activationStartUT, hasPointData);
-
-                if (ctx.currentUT < activationStartUT)
-                {
-                    completedEventFired.Remove(i);
-                    earlyDestroyedDebrisCompleted.Remove(i);
-                    GhostRenderTrace.EmitGuardSkip(
-                        traj, i, ctx.currentUT, "before-activation-start-ut");
+                        traj, i, ctx.currentUT,
+                        "loop-anchor-unloaded pid=" + traj.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
                     if (ghostActive)
                     {
+                        DestroyGhost(i, traj, f, reason: $"anchor {traj.LoopAnchorVesselId} unloaded");
                         DestroyAllOverlapGhosts(i);
-                        DestroyGhost(i, traj, f, reason: "before activation start UT");
                     }
-                    CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
-                    continue;
+                    CountFrameSkip(GhostPlaybackSkipReason.AnchorMissing);
+                    return;
                 }
 
-                bool inRange = ctx.currentUT <= traj.EndUT;
-                bool pastEnd = ctx.currentUT > traj.EndUT;
-                bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
+                UpdateLoopingPlayback(i, traj, f, ctx, suppressGhosts, suppressVisualFx);
 
-                // === Mission loop unit interception (Phase D2) ===
-                // If this index is a member of a Mission loop unit, it is driven by the unit's
-                // shared span clock, NOT its own per-recording loop clock. Mission members do not
-                // carry their own per-recording LoopPlayback flag, so ShouldLoopPlayback(traj) is
-                // false for them - the interception must sit ABOVE the loop-dispatch gate (this
-                // deviates from the chain-auto-loop branch, where the equivalent interception lives
-                // inside the gate). Route it through UpdateUnitMemberPlayback (which re-checks anchor
-                // gating + warp suppression per-member). Gated entirely on unit membership, which is
-                // empty until a Mission loops, so non-members fall straight through below.
-                if (currentLoopUnits.TryGetUnitForMember(i, out GhostPlaybackLogic.LoopUnit unit))
+                // Clean up leftover overlap ghosts from loop->non-loop transition
+                List<GhostPlaybackState> leftoverOverlaps;
+                if (overlapGhosts.TryGetValue(i, out leftoverOverlaps) && leftoverOverlaps.Count > 0)
                 {
-                    UpdateUnitMemberPlayback(
-                        i, traj, f, ctx, trajectories, unit, suppressGhosts, suppressVisualFx,
-                        hasPointData, hasInterpolatedPoints,
-                        hasSurfaceData, hasOrbitData, ref state, ref ghostActive);
-                    continue;
+                    // Overlap cleanup handled in UpdateLoopingPlayback/UpdateOverlapPlayback
                 }
 
-                // === Loop dispatch (before main rendering) ===
-                if (ShouldLoopPlayback(traj))
-                {
-                    // Anchor gating: if anchor configured but not loaded, skip ghost
-                    if (traj.LoopAnchorVesselId != 0 && !loadedAnchorVessels.Contains(traj.LoopAnchorVesselId))
-                    {
-                        GhostRenderTrace.EmitGuardSkip(
-                            traj, i, ctx.currentUT,
-                            "loop-anchor-unloaded pid=" + traj.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
-                        if (ghostActive)
-                        {
-                            DestroyGhost(i, traj, f, reason: $"anchor {traj.LoopAnchorVesselId} unloaded");
-                            DestroyAllOverlapGhosts(i);
-                        }
-                        CountFrameSkip(GhostPlaybackSkipReason.AnchorMissing);
-                        continue;
-                    }
-
-                    UpdateLoopingPlayback(i, traj, f, ctx, suppressGhosts, suppressVisualFx);
-
-                    // Clean up leftover overlap ghosts from loop->non-loop transition
-                    List<GhostPlaybackState> leftoverOverlaps;
-                    if (overlapGhosts.TryGetValue(i, out leftoverOverlaps) && leftoverOverlaps.Count > 0)
-                    {
-                        // Overlap cleanup handled in UpdateLoopingPlayback/UpdateOverlapPlayback
-                    }
-
-                    continue;
-                }
-
-                // === Loop-synced debris: use parent's loop clock ===
-                // Runs BEFORE the loop->non-loop overlap cleanup below. A ride-along debris whose
-                // parent loops renders through the OVERLAP path (UpdateOverlapPlayback owns
-                // overlapGhosts[i] and expires its own staggered instances). The cleanup below must
-                // NOT wipe that list every frame: doing so destroys each demoted background instance
-                // (the older debris pieces still coasting to their crash) the very next frame, so
-                // only the freshest instance survives and it resets every cadence - the debris
-                // "disappears" long before its recorded flight ends. Non-debris recordings and a
-                // debris whose parent is NOT looping return false here and fall through to the
-                // cleanup, which is correct for them.
-                if (TryUpdateLoopSyncedDebris(
-                        i, traj, f, ctx, trajectories, suppressGhosts, suppressVisualFx,
-                        activationStartUT, hasPointData, hasInterpolatedPoints,
-                        hasSurfaceData, hasOrbitData, ref state, ref ghostActive))
-                    continue;
-
-                // Clean up overlap ghosts if recording switched from looping to non-looping.
-                if (overlapGhosts.ContainsKey(i))
-                {
-                    DestroyAllOverlapGhosts(i);
-                    overlapGhosts.Remove(i);
-                }
-
-                // === Warp suppression: hide moving ghosts during high warp ===
-                if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
-                        ctx.warpRate, traj, ctx.currentUT))
-                {
-                    if (ghostActive && state.ghost.activeSelf)
-                    {
-                        state.ghost.SetActive(false);
-                        ResetGhostAppearanceTracking(state);
-                    }
-                    DestroyAllOverlapGhosts(i);
-                    CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
-                    continue;
-                }
-
-                // === Chain-seam handoff: shadow the head when the chain
-                // continuation is rendering. This collapses the section-overlap
-                // case (head + continuation both authored across a UT window)
-                // onto a single visible ghost. The continuation already covers
-                // playback inside its UT range, so the head's render here is
-                // redundant. Bridge bookkeeping for the gap-case lives below
-                // in the stale-past-end cleanup. ===
-                //
-                // Note (flag/part events): the shadow path short-circuits
-                // before RenderInRangeGhost, which also means
-                // ApplyFlagEvents and per-frame part-event playback do not
-                // run for the shadowed head this frame. Authored flags are
-                // world-permanent and the same FlagEvent payload typically
-                // exists on the continuation recording (chain splits clone
-                // the events to both sides), so the continuation's render
-                // path plants them. Part events on the head past the
-                // continuation's startUT are intentionally skipped — the
-                // continuation's authored events are the authoritative
-                // surface during the overlap.
-                //
-                // Note (inRange vs chainEndUT): inRange uses traj.EndUT and
-                // pastEffectiveEnd uses f.chainEndUT.
-                // RecordingStore.GetChainEndUT returns Max(rec.EndUT, ...)
-                // over branch-0 chain peers, so chainEndUT >= EndUT and
-                // inRange implies !pastEffectiveEnd. Shadow firing here
-                // therefore cannot collide with the past-end branch below.
-                int chainNextIndex = ResolveChainNextIndex != null
-                    ? ResolveChainNextIndex(i)
-                    : -1;
-                bool continuationHasActiveGhost = chainNextIndex >= 0
-                    && HasActiveGhost(chainNextIndex);
-                // Defensive: never shadow the watched head. WatchModeController
-                // already coordinates the chain transition via its own destroy
-                // path (`auto-followed during hold`) and only fires after the
-                // continuation's ghost is active, so in normal flow the watch
-                // transfer wins the race and the head is destroyed before
-                // the shadow ever runs. But for chains whose head and
-                // continuation sectionUTs overlap (post-optimizer splits
-                // routinely leave a sub-second overlap), there is a 1-2 frame
-                // window where the head is still in-range AND watched AND the
-                // continuation has just activated. Without this guard the
-                // shadow would SetActive(false) on the watched ghost mesh in
-                // that window. The downstream watch transfer then destroys
-                // the head a frame or two later. Mesh hiding is visually
-                // subtle because the continuation's mesh is at an
-                // approximately overlapping world position, but the watch
-                // camera target should never be a deactivated ghost
-                // GameObject — IsGhostHeld(i) returns true only for the
-                // watched slot (or a held-pending-spawn slot), so the guard
-                // closes the race without affecting non-watched chain
-                // segments which is the primary case the shadow fixes.
-                // Bridge-hold path below is already gated by !IsGhostHeld
-                // via the surrounding stale-past-end cleanup branch.
-                if (inRange
-                    && (IsGhostHeld == null || !IsGhostHeld(i))
-                    && ChainHandoffLogic.DecideShadow(
-                        chainNextIndex, continuationHasActiveGhost))
-                {
-                    if (ghostActive && state != null && state.ghost != null
-                        && state.ghost.activeSelf)
-                    {
-                        state.ghost.SetActive(false);
-                        ResetGhostAppearanceTracking(state);
-                    }
-                    SetOverlapGhostsActive(i, false);
-                    // Continuation is rendering, so the gap-case bridge for
-                    // this slot is no longer relevant. Clearing here keeps the
-                    // dictionary footprint bounded.
-                    chainBridgeOpenedUT.Remove(i);
-                    CountFrameSkip(GhostPlaybackSkipReason.ChainShadowed);
-                    ParsekLog.VerboseRateLimited(
-                        "Engine",
-                        "chain-shadow-" + i.ToString(CultureInfo.InvariantCulture),
-                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
-                            + " \"" + (traj.VesselName ?? "?")
-                            + "\" chain-shadowed by continuation slot #"
-                            + chainNextIndex.ToString(CultureInfo.InvariantCulture)
-                            + " at UT="
-                            + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture),
-                        5.0);
-                    GhostRenderTrace.EmitGuardSkip(
-                        traj, i, ctx.currentUT, "chain-shadowed");
-                    continue;
-                }
-
-                // === In-range rendering ===
-                if (inRange)
-                {
-                    if (RenderInRangeGhost(i, traj, f, ctx, suppressVisualFx,
-                            hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
-                            allowEarlyDestroyedDebrisCompletion: true,
-                            ref state, ref ghostActive))
-                        continue;
-                }
-
-                // === Past end: fire completed event, optionally destroy ===
-                if ((pastEnd || pastEffectiveEnd)
-                    && !completedEventFired.Contains(i)
-                    && !earlyDestroyedDebrisCompleted.Contains(i))
-                    HandlePastEndGhost(i, traj, f, ctx, state, ghostActive, hasPointData);
-
-                // === Stale past-end ghost cleanup ===
-                // Ghost survived past-end (e.g. watch hold), completed event already fired,
-                // and not being held by the policy - destroy it. Prevents debris ghosts
-                // from freezing at their last trajectory point indefinitely. A slot whose
-                // completion event is still queued in deferredCompletedEvents has not been
-                // seen by the policy yet, so "not held" is not a decision the policy made:
-                // postpone its cleanup to RunStalePastEndCleanupsAfterCompletionDelivery,
-                // which re-evaluates it after FireDeferredFrameEvents in this same frame.
-                ApplyStalePastEndCleanupStep(i, traj, f, ctx.currentUT, state,
-                    chainNextIndex, continuationHasActiveGhost);
+                return;
             }
+
+            // === Loop-synced debris: use parent's loop clock ===
+            // Runs BEFORE the loop->non-loop overlap cleanup below. A ride-along debris whose
+            // parent loops renders through the OVERLAP path (UpdateOverlapPlayback owns
+            // overlapGhosts[i] and expires its own staggered instances). The cleanup below must
+            // NOT wipe that list every frame: doing so destroys each demoted background instance
+            // (the older debris pieces still coasting to their crash) the very next frame, so
+            // only the freshest instance survives and it resets every cadence - the debris
+            // "disappears" long before its recorded flight ends. Non-debris recordings and a
+            // debris whose parent is NOT looping return false here and fall through to the
+            // cleanup, which is correct for them.
+            if (TryUpdateLoopSyncedDebris(
+                    i, traj, f, ctx, trajectories, suppressGhosts, suppressVisualFx,
+                    activationStartUT, hasPointData, hasInterpolatedPoints,
+                    hasSurfaceData, hasOrbitData, ref state, ref ghostActive))
+                return;
+
+            // Clean up overlap ghosts if recording switched from looping to non-looping.
+            if (overlapGhosts.ContainsKey(i))
+            {
+                DestroyAllOverlapGhosts(i);
+                overlapGhosts.Remove(i);
+            }
+
+            // === Warp suppression: hide moving ghosts during high warp ===
+            if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                    ctx.warpRate, traj, ctx.currentUT))
+            {
+                if (ghostActive && state.ghost.activeSelf)
+                {
+                    state.ghost.SetActive(false);
+                    ResetGhostAppearanceTracking(state);
+                }
+                DestroyAllOverlapGhosts(i);
+                CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                return;
+            }
+
+            // === Chain-seam handoff: shadow the head when the chain
+            // continuation is rendering. This collapses the section-overlap
+            // case (head + continuation both authored across a UT window)
+            // onto a single visible ghost. The continuation already covers
+            // playback inside its UT range, so the head's render here is
+            // redundant. Bridge bookkeeping for the gap-case lives below
+            // in the stale-past-end cleanup. ===
+            //
+            // Note (flag/part events): the shadow path short-circuits
+            // before RenderInRangeGhost, which also means
+            // ApplyFlagEvents and per-frame part-event playback do not
+            // run for the shadowed head this frame. Authored flags are
+            // world-permanent and the same FlagEvent payload typically
+            // exists on the continuation recording (chain splits clone
+            // the events to both sides), so the continuation's render
+            // path plants them. Part events on the head past the
+            // continuation's startUT are intentionally skipped — the
+            // continuation's authored events are the authoritative
+            // surface during the overlap.
+            //
+            // Note (inRange vs chainEndUT): inRange uses traj.EndUT and
+            // pastEffectiveEnd uses f.chainEndUT.
+            // RecordingChainQueries.GetChainEndUT returns Max(rec.EndUT, ...)
+            // over branch-0 chain peers, so chainEndUT >= EndUT and
+            // inRange implies !pastEffectiveEnd. Shadow firing here
+            // therefore cannot collide with the past-end branch below.
+            int chainNextIndex = ResolveChainNextIndex != null
+                ? ResolveChainNextIndex(i)
+                : -1;
+            bool continuationHasActiveGhost = chainNextIndex >= 0
+                && HasActiveGhost(chainNextIndex);
+            // Defensive: never shadow the watched head. WatchModeController
+            // already coordinates the chain transition via its own destroy
+            // path (`auto-followed during hold`) and only fires after the
+            // continuation's ghost is active, so in normal flow the watch
+            // transfer wins the race and the head is destroyed before
+            // the shadow ever runs. But for chains whose head and
+            // continuation sectionUTs overlap (post-optimizer splits
+            // routinely leave a sub-second overlap), there is a 1-2 frame
+            // window where the head is still in-range AND watched AND the
+            // continuation has just activated. Without this guard the
+            // shadow would SetActive(false) on the watched ghost mesh in
+            // that window. The downstream watch transfer then destroys
+            // the head a frame or two later. Mesh hiding is visually
+            // subtle because the continuation's mesh is at an
+            // approximately overlapping world position, but the watch
+            // camera target should never be a deactivated ghost
+            // GameObject — IsGhostHeld(i) returns true only for the
+            // watched slot (or a held-pending-spawn slot), so the guard
+            // closes the race without affecting non-watched chain
+            // segments which is the primary case the shadow fixes.
+            // Bridge-hold path below is already gated by !IsGhostHeld
+            // via the surrounding stale-past-end cleanup branch.
+            if (inRange
+                && (IsGhostHeld == null || !IsGhostHeld(i))
+                && ChainHandoffLogic.DecideShadow(
+                    chainNextIndex, continuationHasActiveGhost))
+            {
+                ShadowChainHead(i, traj, ctx, state, ghostActive, chainNextIndex);
+                return;
+            }
+
+            // === In-range rendering ===
+            if (inRange)
+            {
+                if (RenderInRangeGhost(i, traj, f, ctx, suppressVisualFx,
+                        hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
+                        allowEarlyDestroyedDebrisCompletion: true,
+                        ref state, ref ghostActive))
+                    return;
+            }
+
+            // === Past end: fire completed event, optionally destroy ===
+            if ((pastEnd || pastEffectiveEnd)
+                && !completedEventFired.Contains(i)
+                && !earlyDestroyedDebrisCompleted.Contains(i))
+                HandlePastEndGhost(i, traj, f, ctx, state, ghostActive, hasPointData);
+
+            // === Stale past-end ghost cleanup ===
+            // Ghost survived past-end (e.g. watch hold), completed event already fired,
+            // and not being held by the policy - destroy it. Prevents debris ghosts
+            // from freezing at their last trajectory point indefinitely. A slot whose
+            // completion event is still queued in deferredCompletedEvents has not been
+            // seen by the policy yet, so "not held" is not a decision the policy made:
+            // postpone its cleanup to RunStalePastEndCleanupsAfterCompletionDelivery,
+            // which re-evaluates it after FireDeferredFrameEvents in this same frame.
+            ApplyStalePastEndCleanupStep(i, traj, f, ctx.currentUT, state,
+                chainNextIndex, continuationHasActiveGhost);
+        }
+
+        /// <summary>
+        /// The skip-flag exit of <see cref="UpdatePlaybackEntry"/>: counts the skip, traces it, destroys any ghost
+        /// the slot still holds, and for the PlaybackEnabled=false cause still queues the past-end completion
+        /// (bug #433). The caller returns after it.
+        /// </summary>
+        internal void HandleSkippedPlaybackEntry(
+            int i,
+            IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags f,
+            FrameContext ctx)
+        {
+            CountFrameSkip(f.skipReason);
+            GhostRenderTrace.EmitGuardSkip(
+                traj, i, ctx.currentUT, f.skipReason.ToLogToken());
+            if (ghostStates.ContainsKey(i))
+            {
+                DestroyAllOverlapGhosts(i);
+                DestroyGhost(i, traj, f, reason: f.skipReason.ToLogToken());
+            }
+
+            if (GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
+                    traj, f, ctx.currentUT,
+                    completedEventFired.Contains(i),
+                    earlyDestroyedDebrisCompleted.Contains(i)))
+            {
+                bool skipHasPointData = traj.Points != null && traj.Points.Count > 0;
+                ParsekLog.Verbose("Engine",
+                    $"Disabled past-end completion: #{i} \"{traj.VesselName}\" " +
+                    "UT=" + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture) +
+                    " endUT=" + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture) +
+                    " ghostActive=false");
+                HandlePastEndGhost(i, traj, f, ctx, state: null, ghostActive: false, skipHasPointData);
+            }
+        }
+
+        /// <summary>
+        /// The chain-seam shadow exit of <see cref="UpdatePlaybackEntry"/>: the chain continuation is rendering,
+        /// so the head's mesh and overlap clones are hidden, its gap-case bridge entry is dropped, and the skip is
+        /// counted, logged (rate-limited) and traced. The caller returns after it.
+        /// </summary>
+        internal void ShadowChainHead(
+            int i,
+            IPlaybackTrajectory traj,
+            FrameContext ctx,
+            GhostPlaybackState state,
+            bool ghostActive,
+            int chainNextIndex)
+        {
+            if (ghostActive && state != null && state.ghost != null
+                && state.ghost.activeSelf)
+            {
+                state.ghost.SetActive(false);
+                ResetGhostAppearanceTracking(state);
+            }
+            SetOverlapGhostsActive(i, false);
+            // Continuation is rendering, so the gap-case bridge for
+            // this slot is no longer relevant. Clearing here keeps the
+            // dictionary footprint bounded.
+            chainBridgeOpenedUT.Remove(i);
+            CountFrameSkip(GhostPlaybackSkipReason.ChainShadowed);
+            ParsekLog.VerboseRateLimited(
+                "Engine",
+                "chain-shadow-" + i.ToString(CultureInfo.InvariantCulture),
+                "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                    + " \"" + (traj.VesselName ?? "?")
+                    + "\" chain-shadowed by continuation slot #"
+                    + chainNextIndex.ToString(CultureInfo.InvariantCulture)
+                    + " at UT="
+                    + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture),
+                5.0);
+            GhostRenderTrace.EmitGuardSkip(
+                traj, i, ctx.currentUT, "chain-shadowed");
+        }
+
+        /// <summary>
+        /// <see cref="UpdatePlayback"/>'s frame tail after the per-trajectory loop: the engine-iteration trace,
+        /// the frame summary, deferred event delivery, the postponed stale past-end cleanups, the observability
+        /// capture, and the #414 budget bookkeeping and threshold check.
+        /// </summary>
+        internal void CompletePlaybackFrame(
+            IReadOnlyList<IPlaybackTrajectory> trajectories,
+            TrajectoryPlaybackFlags[] flags,
+            FrameContext ctx,
+            bool engineIterTraceEnabled,
+            int ghostsProcessed,
+            int trajectoriesIterated)
+        {
+            long spawnMicroseconds = 0;
 
             // Engine-iteration trace emit: one log line listing every iterated
             // trajectory's identity + producer-side inputs (skipReason /
@@ -1425,6 +1494,23 @@ namespace Parsek
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,
             FrameContext ctx, bool suppressGhosts, bool suppressVisualFx)
             => UpdateLoopingPlayback(index, traj, flags, ctx, suppressGhosts, suppressVisualFx);
+
+        // Drives one loop-unit member exactly as UpdatePlayback's unit interception does; false
+        // when the index is not a member of the published unit set.
+        internal bool UpdateUnitMemberPlaybackForTesting(
+            int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
+            IReadOnlyList<IPlaybackTrajectory> trajectories, bool suppressGhosts, bool suppressVisualFx,
+            bool hasPointData, bool hasInterpolatedPoints, bool hasSurfaceData, bool hasOrbitData,
+            ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            if (!currentLoopUnits.TryGetUnitForMember(i, out GhostPlaybackLogic.LoopUnit unit))
+                return false;
+            UpdateUnitMemberPlayback(
+                i, traj, f, ctx, trajectories, unit, suppressGhosts, suppressVisualFx,
+                hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
+                ref state, ref ghostActive);
+            return true;
+        }
 
         internal void UpdateOverlapPlaybackForTesting(
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags,

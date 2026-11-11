@@ -45,7 +45,7 @@ namespace Parsek
             return Resolve(allowNegative, live);
         }
 
-        internal enum Action
+        internal enum LockDecision
         {
             None = 0,
             Lock,
@@ -54,11 +54,11 @@ namespace Parsek
 
         /// <summary>Pure: no lock yet takes the live value; a live value that differs from the
         /// lock is written back; otherwise nothing.</summary>
-        internal static Action Decide(bool? locked, bool live)
+        internal static LockDecision Decide(bool? locked, bool live)
         {
             if (!locked.HasValue)
-                return Action.Lock;
-            return locked.Value == live ? Action.None : Action.RewriteLive;
+                return LockDecision.Lock;
+            return locked.Value == live ? LockDecision.None : LockDecision.RewriteLive;
         }
 
         /// <summary>
@@ -70,13 +70,13 @@ namespace Parsek
         {
             switch (Decide(allowNegative, live))
             {
-                case Action.Lock:
+                case LockDecision.Lock:
                     allowNegative = live;
                     ParsekLog.Info(Tag,
                         $"Allow negative currency locked {(live ? "on" : "off")} for this career " +
                         $"({reason ?? "unknown"}): every loss is judged under it");
                     return;
-                case Action.RewriteLive:
+                case LockDecision.RewriteLive:
                     bool wrote = WriteLive(allowNegative.Value);
                     ParsekLog.Info(Tag,
                         $"Allow negative currency is locked {(allowNegative.Value ? "on" : "off")} for this career " +

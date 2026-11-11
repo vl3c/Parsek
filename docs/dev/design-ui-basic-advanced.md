@@ -135,7 +135,7 @@ The Timeline's view row (`Overview` / `Details` / `Rewind/FF` / `Re-Fly` / `Care
 | Blocked-action popup | `CommittedActionDialog` | A refused stock-control click, no UI parent |
 | Flight-map ghost icon menu | `Patches/GhostVesselLoadPatch.cs` (`ParsekGhostIconMenu`) | Clicking a ghost icon in the flight map; NO parent window |
 | Tracking Station ghost icon menu | `ParsekTrackingStation` (`ParsekTrackingStationGhostMenu`) | Clicking a ghost icon in the TS; NO parent window |
-| Flight map markers | `ParsekUI.DrawMapMarkers` | Map view |
+| Flight map markers | `ParsekFlightMapMarkers.DrawMapMarkers` | Map view |
 | Tracking Station markers | `ParsekTrackingStation.OnGUI` | Tracking Station |
 | In-world ghost labels | `ParsekFlight.DrawGhostLabels` (text from `SpawnWarningUI`) | Flight |
 
@@ -194,7 +194,7 @@ Timeline `RecordingStart` and separation rows carry a `Go to` button that naviga
 | Site | Why it must not change |
 |------|------------------------|
 | `RecordingsTableUI.WindowIdKey = "ParsekRecordings"` (hashed into the IMGUI window id) | Changing it gives the window a new identity, resetting its saved position and size and risking an ID collision with another window. |
-| `Path.Combine("Parsek", "Recordings", ...)` (`RecordingPaths`, `RecordingStore.OrphanCleanup`, `Analyzer/Rules/Inv7bAnnotationStale.cs`, the Parsek.Tests and `InGameTests/RuntimeTests.cs` sites, `scripts/collect-logs.py`, `harness/run.py`, `harness/lib/_fake_ksp.py`, `harness/lib/test_run_smoke.py`) | The on-disk sidecar directory. Renaming it orphans every existing recording. |
+| `Path.Combine("Parsek", "Recordings", ...)` (`RecordingPaths`, `RecordingFileJanitor`, `Analyzer/Rules/Inv7bAnnotationStale.cs`, the Parsek.Tests and `InGameTests/RuntimeTests.cs` sites, `scripts/collect-logs.py`, `harness/run.py`, `harness/lib/_fake_ksp.py`, `harness/lib/test_run_smoke.py`) | The on-disk sidecar directory. Renaming it orphans every existing recording. |
 | ALL diagnostic log text containing "Recordings": `LogWindowPosition("Recordings", ...)`, `"Recordings window toggled"`, the resize / log keys, the tab-switch log `"Recordings window: tab switched"` (asserted verbatim by `RecordingsTableUITests`) | Diagnostic log keys. Changing any breaks grep continuity with every historical KSP.log and collected log snapshot; the tab-switch string additionally has a unit test asserting it. Blanket rule: log strings keep "Recordings". |
 | The Timeline's `Recordings` source toggle (`TimelineWindowUI.DrawSourceToggles`) | A Timeline entry-type filter that genuinely filters recording rows. Correctly named. |
 | The `Recordings` tab label itself | It names the raw per-recording table, which is what it is. |
@@ -218,7 +218,7 @@ Not to be confused with `Recording.Hidden`, the OTHER Recordings-tab-only flag, 
 - Every writer of `Recording.Hidden` lives in the Recordings tab (the per-row Archive checkbox and the folder / block aggregates), and so does the one filter control over it, the Archive header checkbox (`GroupHierarchyStore.HideActive`, persisted, default on: archived recordings hidden).
 - `TimelineBuilder.Build` skips every recording with `Recording.Hidden` set, unconditionally, and reads no store; the collector's `Recording collector:` Verbose line counts the skips as `hidden=`. The Recordings tab's Archive header filter does not reach the Timeline: flipping it changes only the Recordings tab.
 - The Timeline's filter area has no Archived control in either mode, and the seam's `op=state key=archived` is a `missions`-window key only.
-- Writing the flag invalidates the Timeline's cache: the Recordings tab's archive writes call `NotifyTimelineOfArchiveChange` (`ParsekUI.GetTimelineUI()?.InvalidateCache()`), because timeline invalidation otherwise fires only from `LedgerOrchestrator.OnTimelineDataChanged` and an archive is not a ledger event. The header filter needs no call, since the Timeline does not read it.
+- Writing the flag invalidates the Timeline's cache: the Recordings tab's archive writes call `NotifyTimelineOfArchiveChange` (`ParsekWindowSet.Of(parentUI)?.GetTimelineUI()?.InvalidateCache()`), because timeline invalidation otherwise fires only from `LedgerOrchestrator.OnTimelineDataChanged` and an archive is not a ledger event. The header filter needs no call, since the Timeline does not read it.
 
 **What that means in Basic.** Basic hides the Recordings tab, so a Basic player can neither archive nor un-archive. A recording archived in Advanced stays off the Timeline in Basic until the player switches to Advanced and clears its Archive box. Accepted by the ruling: archive is a Recordings-tab feature, and the Timeline is not a second place to manage it.
 

@@ -55,7 +55,7 @@ namespace Parsek
         /// <summary>
         /// Suffix of the sibling temp file both safe-write entry points serialize into before the
         /// swap (<c>&lt;path&gt;.tmp</c>). One constant for the producer and both sweepers: the
-        /// recordings sweep (<c>RecordingStore.IsTransientSidecarArtifactFile</c>) and
+        /// recordings sweep (<c>RecordingFileJanitor.IsTransientSidecarArtifactFile</c>) and
         /// <see cref="SweepStaleSafeWriteTemp"/> for the fixed-path stores.
         /// </summary>
         internal const string SafeWriteTempSuffix = ".tmp";

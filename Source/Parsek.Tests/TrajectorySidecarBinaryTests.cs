@@ -169,7 +169,7 @@ namespace Parsek.Tests
         public void WriteRead_SectionAuthoritativeFixture_RebuildsFlatPayloadFromTrackSections()
         {
             Recording original = BuildSectionAuthoritativeFixture();
-            Assert.True(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+            Assert.True(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(original));
 
             string path = Path.Combine(tempDir, "section-authoritative.prec");
             TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 9);
@@ -238,7 +238,7 @@ namespace Parsek.Tests
         public void WriteRead_FlatFallbackFixture_PreservesTailOutsideTrackSections_AndExistingRecordingId()
         {
             Recording original = BuildFlatFallbackFixture();
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(original));
 
             string path = Path.Combine(tempDir, "flat-fallback.prec");
             TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 11);
@@ -259,7 +259,7 @@ namespace Parsek.Tests
         public void WriteRead_RelativeFlatFallback_WritesBodyFixedPrimaryPointsAndPreservesOrbitTail()
         {
             Recording original = BuildRelativeFlatFallbackWithOrbitTailFixture();
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(original));
 
             string path = Path.Combine(tempDir, "relative-flat-fallback-tail.prec");
             TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 22);

@@ -5,7 +5,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// OPTIMIZER-PASS-STALE-INDEX-CACHES (2026-09-01): <c>RecordingStore.RunOptimizationPass</c>
+    /// OPTIMIZER-PASS-STALE-INDEX-CACHES (2026-09-01): <c>CommittedListOptimizer.RunOptimizationPass</c>
     /// removes merge-absorbed recordings and inserts split second halves mid-list without
     /// bumping <c>RecordingStore.StateVersion</c> or telling any index-keyed live consumer.
     /// These cells pin the two halves of the fix: the StateVersion bump (so the ERS cache
@@ -149,7 +149,7 @@ namespace Parsek.Tests
             Assert.Single(before);
             int versionBefore = RecordingStore.StateVersion;
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
             // MUTATION NOTE: deleting the BumpStateVersion() after the split Insert makes
@@ -170,7 +170,7 @@ namespace Parsek.Tests
             Assert.Equal(3, before.Count);
             int versionBefore = RecordingStore.StateVersion;
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.NotEqual(versionBefore, RecordingStore.StateVersion);
@@ -190,7 +190,7 @@ namespace Parsek.Tests
                 ersSizesSeenByRemovedHandler.Add(EffectiveState.ComputeERS().Count);
             EffectiveState.ComputeERS();
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(new[] { 2, 1 }, ersSizesSeenByRemovedHandler);
         }
@@ -201,7 +201,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(MakeInertRecording("inert"));
             int versionBefore = RecordingStore.StateVersion;
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal(versionBefore, RecordingStore.StateVersion);
@@ -246,7 +246,7 @@ namespace Parsek.Tests
                 catch (Exception ex) { handlerFailure = ex; }
             };
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Null(handlerFailure);
             Assert.Equal(new[]
@@ -287,7 +287,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Null(handlerFailure);
             Assert.Equal(new[] { 2 }, inserted);
@@ -322,7 +322,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedRecordingRemoved += (index, removed, absorbedInto) =>
                 sequence.Add($"removed:{index}:{removed.RecordingId}:target={(absorbedInto == null ? "none" : absorbedInto.RecordingId)}:count={RecordingStore.CommittedRecordings.Count}");
 
-            RecordingStore.RemoveRecordingAt(1);
+            TreeDiscardService.RemoveRecordingAt(1);
 
             Assert.Equal(new[]
             {
@@ -340,7 +340,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedRecordingInserted += index =>
                 throw new InvalidOperationException("subscriber boom");
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
             Assert.Contains(logLines, l =>
@@ -357,7 +357,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             RecordingStore.AddRecordingWithTreeForTesting(MakeSplittableRecording("rec-split"));
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
             Assert.Equal(0, calls);

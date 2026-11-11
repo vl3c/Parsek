@@ -138,7 +138,7 @@ namespace Parsek.Tests
             var attemptTree = MakeTreeWithRecordings(AttemptTreeId, shared);
             RecordingStore.AddCommittedTreeForTesting(attemptTree);
             RecordingStore.AddCommittedInternal(shared);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
             Assert.NotNull(scenario.ActiveSwitchSegmentSession);
 
             var activeTree = MakeTreeWithRecordings(LiveTreeId, shared);
@@ -298,7 +298,7 @@ namespace Parsek.Tests
             var attemptTree = MakeTreeWithRecordings(AttemptTreeId, overlap);
             RecordingStore.AddCommittedTreeForTesting(attemptTree);
             RecordingStore.AddCommittedInternal(overlap);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(attemptTree, "test-arm");
 
             segment = MakeRecording(SegmentRecordingId, AttemptTreeId,
                 switchSegmentSessionId: ToSessionString(session.SessionId));
@@ -372,7 +372,7 @@ namespace Parsek.Tests
             string scenarioPath = Path.Combine(projectRoot, "Source", "Parsek", "ParsekScenario.cs");
             Assert.True(File.Exists(scenarioPath), $"ParsekScenario.cs not found at {scenarioPath}");
 
-            string source = File.ReadAllText(scenarioPath);
+            string source = ParsekScenarioSourceFiles.ReadText(scenarioPath);
             int start = source.IndexOf(
                 "private static void SaveActiveTreeIfAny(ConfigNode node)", StringComparison.Ordinal);
             Assert.True(start >= 0, "SaveActiveTreeIfAny method signature not found");

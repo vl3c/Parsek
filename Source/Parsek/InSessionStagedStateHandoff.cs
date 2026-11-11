@@ -257,7 +257,7 @@ namespace Parsek
 
         /// <summary>
         /// The branch-point ids and branch-point rewind-point ids of the given committed trees:
-        /// the link <c>RecordingStore.PromoteNormalStagingRewindPoints</c> uses between a tree and
+        /// the link <c>TreeCommitService.PromoteNormalStagingRewindPoints</c> uses between a tree and
         /// its rewind points, plus <see cref="RewindPoint.BranchPointId"/>.
         /// </summary>
         internal static void CollectCommittedTreeRewindLinks(

@@ -58,7 +58,7 @@ namespace Parsek.Tests
         private string WriteVesselSidecar(ConfigNode node)
         {
             string path = Path.Combine(tempDir, Guid.NewGuid().ToString("N") + "_vessel.craft");
-            RecordingStore.WriteSnapshotSidecarForTesting(path, node);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, node);
             return path;
         }
 
@@ -69,7 +69,7 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "rec-1", VesselSnapshot = existing };
 
             // Path points nowhere; a no-op must not attempt to read it.
-            bool ok = RecordingStore.TryHydrateVesselSnapshotFromPath(
+            bool ok = RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(
                 rec, Path.Combine(tempDir, "absent_vessel.craft"));
 
             Assert.True(ok);
@@ -82,7 +82,7 @@ namespace Parsek.Tests
             string path = WriteVesselSidecar(MakeVesselNode());
             var rec = new Recording { RecordingId = "rec-1", VesselSnapshot = null };
 
-            bool ok = RecordingStore.TryHydrateVesselSnapshotFromPath(rec, path);
+            bool ok = RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, path);
 
             Assert.True(ok);
             Assert.NotNull(rec.VesselSnapshot);
@@ -97,7 +97,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording { RecordingId = "rec-1", VesselSnapshot = null };
 
-            bool ok = RecordingStore.TryHydrateVesselSnapshotFromPath(
+            bool ok = RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(
                 rec, Path.Combine(tempDir, "missing_vessel.craft"));
 
             Assert.False(ok);
@@ -111,7 +111,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording { RecordingId = "rec-1", VesselSnapshot = null };
 
-            Assert.False(RecordingStore.TryHydrateVesselSnapshotFromPath(rec, path));
+            Assert.False(RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, path));
             Assert.Null(rec.VesselSnapshot);
         }
 
@@ -122,7 +122,7 @@ namespace Parsek.Tests
             File.WriteAllText(path, "this is not a valid snapshot sidecar @@@@");
             var rec = new Recording { RecordingId = "rec-1", VesselSnapshot = null };
 
-            bool ok = RecordingStore.TryHydrateVesselSnapshotFromPath(rec, path);
+            bool ok = RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, path);
 
             Assert.False(ok);
             Assert.Null(rec.VesselSnapshot);
@@ -131,7 +131,7 @@ namespace Parsek.Tests
         [Fact]
         public void Hydrate_NullRecording_ReturnsFalse()
         {
-            Assert.False(RecordingStore.TryHydrateVesselSnapshotFromPath(null, "x"));
+            Assert.False(RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(null, "x"));
         }
 
         [Fact]
@@ -141,13 +141,13 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "rec-1", VesselSnapshot = null };
 
             // First probe: file absent -> fails and poisons the negative cache.
-            Assert.False(RecordingStore.TryHydrateVesselSnapshotFromPath(rec, path));
+            Assert.False(RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, path));
             Assert.True(rec.VesselSnapshotHydrationFailed);
 
             // The sidecar appears later, but the cached failure short-circuits the
             // per-frame probe so we do not re-read disk (gate stays cheap).
-            RecordingStore.WriteSnapshotSidecarForTesting(path, MakeVesselNode());
-            Assert.False(RecordingStore.TryHydrateVesselSnapshotFromPath(rec, path));
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, MakeVesselNode());
+            Assert.False(RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, path));
             Assert.Null(rec.VesselSnapshot);
         }
 
@@ -157,13 +157,13 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "rec-1", VesselSnapshot = null };
 
             // An unresolvable (empty) path can be transient, so it must not cache.
-            Assert.False(RecordingStore.TryHydrateVesselSnapshotFromPath(rec, ""));
+            Assert.False(RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, ""));
             Assert.False(rec.VesselSnapshotHydrationFailed);
 
             // A subsequent call with a real sidecar still succeeds.
             string path = Path.Combine(tempDir, Guid.NewGuid().ToString("N") + "_vessel.craft");
-            RecordingStore.WriteSnapshotSidecarForTesting(path, MakeVesselNode());
-            Assert.True(RecordingStore.TryHydrateVesselSnapshotFromPath(rec, path));
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, MakeVesselNode());
+            Assert.True(RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, path));
             Assert.NotNull(rec.VesselSnapshot);
         }
 

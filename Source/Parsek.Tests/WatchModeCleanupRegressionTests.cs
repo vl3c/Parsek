@@ -72,8 +72,10 @@ namespace Parsek.Tests
             string path = LocateParsekFlightSource();
             Assert.True(System.IO.File.Exists(path), $"ParsekFlight.cs not found at {path}");
 
+            // The body lives on the playback host; ParsekFlight keeps a forwarder of the same name.
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
-                System.IO.File.ReadAllText(path));
+                System.IO.File.ReadAllText(System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(path), "ParsekFlightPlaybackHost.cs")));
             const string signature = "void DestroyAllTimelineGhosts()";
             int sigIdx = prepared.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(sigIdx >= 0, "DestroyAllTimelineGhosts() no longer exists");

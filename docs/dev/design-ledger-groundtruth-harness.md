@@ -272,7 +272,7 @@ Flow:
      2026-10-26 for the scripted campaign's CS-2: stock creates no Funding or Reputation scenario
      in a Science game, so the parsed save carries no funds or rep facet and the diff skips both,
      leaving the science pool HARD); any other mode Skips naming it.
-   - `RecordingStore.HasPendingTree || GameStateRecorder.HasActiveUncommittedTree() ||
+   - `PendingTreeSlot.HasPendingTree || GameStateRecorder.HasActiveUncommittedTree() ||
      GameStateRecorder.HasLiveRecorder()` -> Skip. (Note: `GetKspPatchDeferralReason`
      checks all THREE; the existing in-game test omits `HasLiveRecorder`. We include it,
      because a live recorder both defers the patch AND means S includes uncommitted

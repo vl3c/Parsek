@@ -139,9 +139,9 @@ namespace Parsek.Tests
             string sfs = WriteRewindQuicksave();
             double seenUT = double.NaN;
 
-            RecordingStore.PreProcessRewindSave(
-                sfs, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
-                RecordingStore.ResolveRewindStripSpawnedPids,
+            RewindLauncher.PreProcessRewindSave(
+                sfs, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
+                RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds,
                 ut => { seenUT = ut; return new HashSet<uint> { RoverPid }; });
 
@@ -161,9 +161,9 @@ namespace Parsek.Tests
             var shape = BuildEva11Shape();
             string sfs = WriteRewindQuicksave();
 
-            RecordingStore.PreProcessRewindSave(
+            RewindLauncher.PreProcessRewindSave(
                 sfs, new HashSet<string> { "Bill Kerman" },
-                RecordingStore.ResolveRewindStripSpawnedPids,
+                RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             var pids = new List<string>();
@@ -187,7 +187,7 @@ namespace Parsek.Tests
                 out _, out _));
 
             // The member's spawn state resets, so the chain tip spawns again at its end.
-            RecordingStore.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
+            RewindLauncher.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
             Assert.Equal(0u, shape.rover.SpawnedVesselPersistentId);
             Assert.False(shape.rover.VesselSpawned);
             Assert.Equal(0u, shape.bill.SpawnedVesselPersistentId);
@@ -203,7 +203,7 @@ namespace Parsek.Tests
         public void Eva11Shape_ScopeLeavesRoverAndStillStripsBill()
         {
             var shape = BuildEva11Shape();
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), AdjustedUT, MemberIds());
 
             Assert.DoesNotContain(RoverPid, scope.StripPids);
@@ -219,7 +219,7 @@ namespace Parsek.Tests
         public void Control_NoMemberIds_StripsRoverAsBefore()
         {
             BuildEva11Shape();
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), AdjustedUT);
 
             Assert.Contains(RoverPid, scope.StripPids);
@@ -232,7 +232,7 @@ namespace Parsek.Tests
             // A member born in the tree (an undock) did not exist before it: stripped.
             BuildEva11Shape(BranchPointType.Undock);
             Assert.Empty(MemberIds());
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), AdjustedUT, MemberIds());
 
             Assert.Contains(RoverPid, scope.StripPids);
@@ -293,13 +293,13 @@ namespace Parsek.Tests
             BuildEva11Shape();
             var all = RecordingStore.CollectAllCommittedRecordings();
 
-            Assert.False(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.False(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 spawner, all, AdjustedUT, out _, MemberIds()));
-            Assert.True(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.True(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 spawner, all, AdjustedUT, out string viaUnscoped));
             Assert.StartsWith("same-vessel-recording-replays:r222", viaUnscoped);
 
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(all, AdjustedUT, MemberIds());
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(all, AdjustedUT, MemberIds());
             Assert.DoesNotContain(RoverPid, scope.StripPids);
             Assert.Contains(RoverPid, scope.KeptPids);
             Assert.Contains(spawner.RecordingId, scope.KeptHolderRecordingIds);
@@ -314,7 +314,7 @@ namespace Parsek.Tests
             BuildEva11Shape();
             var all = RecordingStore.CollectAllCommittedRecordings();
 
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(all, 2.0, MemberIds());
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(all, 2.0, MemberIds());
             Assert.Contains(RoverPid, scope.StripPids);
             Assert.Contains(RoverPid, scope.ForeignAdoptedPids);
             Assert.DoesNotContain(spawner.RecordingId, scope.KeptHolderRecordingIds);
@@ -338,15 +338,15 @@ namespace Parsek.Tests
             var all = RecordingStore.CollectAllCommittedRecordings();
 
             // Before the fix: the continuation route stripped the rover the member only ghosts.
-            Assert.True(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.True(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 spawner, all, AdjustedUT, out string viaUnscoped));
             Assert.StartsWith("superseding-continuation-replays:r222", viaUnscoped);
 
-            Assert.False(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.False(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 spawner, all, AdjustedUT, out string via, MemberIds()));
             Assert.Null(via);
 
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(all, AdjustedUT, MemberIds());
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(all, AdjustedUT, MemberIds());
             Assert.DoesNotContain(RoverPid, scope.StripPids);
             Assert.Contains(RoverPid, scope.KeptPids);
             Assert.Contains(spawner.RecordingId, scope.KeptHolderRecordingIds);
@@ -367,10 +367,10 @@ namespace Parsek.Tests
             var spawner = CommitLinkedSpawnerTree("t444");
             var all = RecordingStore.CollectAllCommittedRecordings();
 
-            Assert.True(RecordingStore.FliesTransferAdoptedVessel(tip, all, MemberIds()));
-            Assert.False(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.True(RewindSpawnScope.FliesTransferAdoptedVessel(tip, all, MemberIds()));
+            Assert.False(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 spawner, all, AdjustedUT, out _, MemberIds()));
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(all, AdjustedUT, MemberIds());
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(all, AdjustedUT, MemberIds());
             Assert.Contains(RoverPid, scope.KeptPids);
             Assert.DoesNotContain(RoverPid, scope.StripPids);
         }
@@ -382,7 +382,7 @@ namespace Parsek.Tests
             // predates the rover), so the rover is stripped as before.
             BuildEva11Shape();
             var spawner = CommitLinkedSpawnerTree("r222");
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), 2.0, MemberIds());
             Assert.Contains(RoverPid, scope.StripPids);
             Assert.DoesNotContain(spawner.RecordingId, scope.KeptHolderRecordingIds);
@@ -399,8 +399,8 @@ namespace Parsek.Tests
             var spawner = CommitLinkedSpawnerTree("c666");
             var all = RecordingStore.CollectAllCommittedRecordings();
 
-            Assert.False(RecordingStore.FliesTransferAdoptedVessel(other, all, MemberIds()));
-            Assert.True(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+            Assert.False(RewindSpawnScope.FliesTransferAdoptedVessel(other, all, MemberIds()));
+            Assert.True(RewindSpawnScope.IsSpawnedVesselReproducedByRewindReplay(
                 spawner, all, AdjustedUT, out string via, MemberIds()));
             Assert.StartsWith("superseding-continuation-replays:c666", via);
         }
@@ -417,11 +417,11 @@ namespace Parsek.Tests
             var spawner = CommitLinkedSpawnerTree("r222");
             string sfs = WriteRewindQuicksave();
 
-            RecordingStore.PreProcessRewindSave(
-                sfs, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
-                RecordingStore.ResolveRewindStripSpawnedPids,
+            RewindLauncher.PreProcessRewindSave(
+                sfs, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
+                RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds,
-                RecordingStore.ResolveRewindClaimedVesselPids);
+                RewindSpawnScope.ResolveRewindClaimedVesselPids);
 
             var pids = new List<string>();
             foreach (var v in ConfigNode.Load(sfs).GetNode("FLIGHTSTATE").GetNodes("VESSEL"))
@@ -449,12 +449,12 @@ namespace Parsek.Tests
             var all = RecordingStore.CollectAllCommittedRecordings();
             var ids = MemberIds();
 
-            Assert.True(RecordingStore.FliesTransferAdoptedVessel(shape.rover, all, ids));
-            Assert.False(RecordingStore.FliesTransferAdoptedVessel(shape.bill, all, ids));
+            Assert.True(RewindSpawnScope.FliesTransferAdoptedVessel(shape.rover, all, ids));
+            Assert.False(RewindSpawnScope.FliesTransferAdoptedVessel(shape.bill, all, ids));
             var otherTree = Rec("o555", "rover fuel 0", "treeZ", 10.0, 20.0, RoverPid, RoverGuid);
-            Assert.False(RecordingStore.FliesTransferAdoptedVessel(
+            Assert.False(RewindSpawnScope.FliesTransferAdoptedVessel(
                 otherTree, new List<Recording>(all) { otherTree }, ids));
-            Assert.False(RecordingStore.FliesTransferAdoptedVessel(shape.rover, all, null));
+            Assert.False(RewindSpawnScope.FliesTransferAdoptedVessel(shape.rover, all, null));
         }
 
         // ---- The pure helpers ----

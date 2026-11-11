@@ -100,7 +100,7 @@ namespace Parsek.Tests
         public void DiscardHelper_ArmedAttempt_PurgesSameIdPostCutoffEventTails_ThenClears()
         {
             RecordingTree tree = TreeWithRecording(CloneTreeId, "rec-clone", endUT: 200.0);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
 
             GameStateEvent postCutoff = MakeGameStateEvent("tail-post", ut: 250.0,
                 recordingId: "rec-clone");
@@ -111,14 +111,14 @@ namespace Parsek.Tests
 
             // The precondition that makes the purge load-bearing: while armed, only the
             // post-cutoff tail is held off disk, so only it can leak after the clear.
-            Assert.True(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+            Assert.True(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
                 postCutoff));
-            Assert.False(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+            Assert.False(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
                 preCutoff));
 
             RecordingStore.DiscardCommittedTreeRestoreAttempt(DiscardReason, preserveIrreversibleTails: false);
 
-            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
+            Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "tail-post");
             Assert.Contains(GameStateStore.Events, e => e.key == "tail-pre");
             // The purge must name THIS discard reason: a collected log then ties the tail
@@ -165,15 +165,15 @@ namespace Parsek.Tests
         public void ReFlyStart_DiscardsTheRestoreAttemptOfThePreRewindFlight()
         {
             RecordingTree tree = TreeWithRecording(CloneTreeId, "rec-clone", endUT: 200.0);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
             GameStateEvent postCutoff = MakeGameStateEvent("tail-post", ut: 250.0,
                 recordingId: "rec-clone");
             GameStateStore.AddEvent(ref postCutoff);
 
             Assert.True(RewindInvoker.DiscardRestoreAttemptOfAbandonedFlight("sess_t"));
 
-            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
-            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptRecordingId("rec-clone"));
+            Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
+            Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptRecordingId("rec-clone"));
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "tail-post");
             Assert.Contains(logLines, l => l.Contains("[Rewind]")
                 && l.Contains("discarding the committed-tree restore attempt of the pre-rewind flight")
@@ -188,7 +188,7 @@ namespace Parsek.Tests
         public void ConsumePostLoad_DiscardsTheAttempt_AfterTheBundleRestore_BeforeTheStrip()
         {
             string body = ExtractMethodBody(
-                ReadStrippedParsekSource("RewindInvoker.cs"),
+                ReadStrippedParsekSource(RewindInvokerSourceFiles.PostLoad),
                 "internal static void ConsumePostLoad(");
             int restore = body.IndexOf("ReconciliationBundle.Restore(", StringComparison.Ordinal);
             int discard = body.IndexOf("DiscardRestoreAttemptOfAbandonedFlight(", StringComparison.Ordinal);
@@ -215,7 +215,7 @@ namespace Parsek.Tests
         public void AutoDiscardNoOpNoSessionCommittedResume_DiscardsTheAttempt_NotBareClear()
         {
             string body = ExtractMethodBody(
-                ReadStrippedParsekSource("ParsekFlight.cs"),
+                ReadStrippedParsekSource("ParsekFlightSwitchContinuation.cs"),
                 "void AutoDiscardNoOpNoSessionCommittedResume(");
             AssertDiscardHelperNotBareClear(body,
                 "AutoDiscardNoOpNoSessionCommittedResume",
@@ -230,8 +230,8 @@ namespace Parsek.Tests
         public void SwitchSegmentScopedDiscard_CommittedRestoreCloneBranch_DiscardsTheAttempt()
         {
             string body = ExtractMethodBody(
-                ReadStrippedParsekSource("RecordingStore.cs"),
-                "internal static SwitchSegmentDiscardDisposition " +
+                ReadStrippedParsekSource("SwitchSegmentAttempts.cs"),
+                "internal static RecordingStore.SwitchSegmentDiscardDisposition " +
                 "TryDiscardActiveSwitchSegmentAttempt(");
             AssertDiscardHelperNotBareClear(body,
                 "TryDiscardActiveSwitchSegmentAttempt",
@@ -245,7 +245,7 @@ namespace Parsek.Tests
             int discard = body.IndexOf(
                 "DiscardCommittedTreeRestoreAttempt(", StringComparison.Ordinal);
             int done = body.IndexOf(
-                "return SwitchSegmentDiscardDisposition.CommittedRestoreClone;",
+                "return RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone;",
                 StringComparison.Ordinal);
             Assert.True(branch >= 0 && discard > branch && done > discard,
                 "TryDiscardActiveSwitchSegmentAttempt must discard the restore attempt " +
@@ -301,7 +301,7 @@ namespace Parsek.Tests
         private static string ReadStrippedParsekSource(string relativePath)
         {
             return SourceScanText.StripCSharpComments(
-                File.ReadAllText(LocateParsekSourceFile(relativePath)));
+                ParsekFlightSourceFiles.ReadText(LocateParsekSourceFile(relativePath)));
         }
 
         /// <summary>

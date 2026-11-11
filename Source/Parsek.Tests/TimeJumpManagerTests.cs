@@ -360,7 +360,7 @@ namespace Parsek.Tests
                 VesselSnapshot = null
             };
             RecordingStore.AddCommittedInternal(rec);
-            RecordingStore.SceneEntryActiveVesselPid = 777;
+            SceneEntryVesselScope.SceneEntryActiveVesselPid = 777;
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 777);
             var chains = new Dictionary<uint, GhostChain>
             {
@@ -391,7 +391,7 @@ namespace Parsek.Tests
                 VesselSnapshot = null
             };
             RecordingStore.AddCommittedInternal(rec);
-            RecordingStore.SceneEntryActiveVesselPid = 888;
+            SceneEntryVesselScope.SceneEntryActiveVesselPid = 888;
             VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 888);
             var chains = new Dictionary<uint, GhostChain>
             {
@@ -828,10 +828,10 @@ namespace Parsek.Tests
                 var events = new List<SegmentEvent> { evt };
                 var node = new ConfigNode("ROOT");
 
-                RecordingStore.SerializeSegmentEvents(node, events);
+                TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, events);
 
                 var deserialized = new List<SegmentEvent>();
-                RecordingStore.DeserializeSegmentEvents(node, deserialized);
+                TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
                 Assert.Single(deserialized);
                 Assert.Equal(SegmentEventType.TimeJump, deserialized[0].type);

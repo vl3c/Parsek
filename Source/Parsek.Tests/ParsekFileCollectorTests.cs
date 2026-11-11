@@ -290,7 +290,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(headM), "expected kept: " + headM);
             Assert.False(File.Exists(headOrphan), "expected collected: " + headOrphan);
             Assert.Equal("orphan", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings",
-                RecordingStore.OrphanQuarantineDirName, "2026-10-23", "rec-orphan_vessel.craft")));
+                RecordingFileJanitor.OrphanQuarantineDirName, "2026-10-23", "rec-orphan_vessel.craft")));
             Assert.False(File.Exists(transient), "expected collected: " + transient);
             Assert.True(File.Exists(versionA1), "expected kept: " + versionA1);
             Assert.False(File.Exists(versionA2), "expected collected: " + versionA2);
@@ -325,7 +325,7 @@ namespace Parsek.Tests
 
         private static string Quarantined(string folder, string fileName)
         {
-            return "Parsek/Recordings/" + RecordingStore.OrphanQuarantineDirName + "/"
+            return "Parsek/Recordings/" + RecordingFileJanitor.OrphanQuarantineDirName + "/"
                 + (folder == null ? "" : folder + "/") + fileName;
         }
 
@@ -413,7 +413,7 @@ namespace Parsek.Tests
 
             var first = ParsekFileCollector.Run("test", null);
 
-            string dated = Path.Combine(dir, "Parsek", "Recordings", RecordingStore.OrphanQuarantineDirName,
+            string dated = Path.Combine(dir, "Parsek", "Recordings", RecordingFileJanitor.OrphanQuarantineDirName,
                 "2026-10-23", "rec-flat.prec");
             Assert.False(File.Exists(flat));
             Assert.Equal("flat", File.ReadAllText(dated));
@@ -442,7 +442,7 @@ namespace Parsek.Tests
             Write(dir, "Parsek/Recordings/rec-future.prec", "future");
 
             var first = ParsekFileCollector.Run("test", null);
-            string dated = Path.Combine(dir, "Parsek", "Recordings", RecordingStore.OrphanQuarantineDirName,
+            string dated = Path.Combine(dir, "Parsek", "Recordings", RecordingFileJanitor.OrphanQuarantineDirName,
                 "2026-10-23", "rec-future.prec");
             Assert.Equal(1, first.HeadsQuarantined);
             Assert.Equal("future", File.ReadAllText(dated));
@@ -554,7 +554,7 @@ namespace Parsek.Tests
 
         private static string VersionQuarantined(string folder, string fileName)
         {
-            return "Parsek/Recordings/_versions/" + RecordingStore.OrphanQuarantineDirName + "/"
+            return "Parsek/Recordings/_versions/" + RecordingFileJanitor.OrphanQuarantineDirName + "/"
                 + folder + "/" + fileName;
         }
 

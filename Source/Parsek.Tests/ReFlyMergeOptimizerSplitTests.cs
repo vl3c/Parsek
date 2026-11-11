@@ -8,7 +8,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Re-Fly merge × optimizer split interaction. The optimizer's split pass
-    /// runs from <see cref="RecordingStore.RunOptimizationPass"/>, which the
+    /// runs from <see cref="CommittedListOptimizer.RunOptimizationPass"/>, which the
     /// merge dialog invokes during <c>CommitPendingTree</c> before
     /// <c>TryCommitReFlySupersede</c>. Without the deferral guard,
     /// <see cref="RecordingOptimizer.SplitAtSection"/> moves
@@ -125,7 +125,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(provisional);
             RecordingStore.AddRecordingWithTreeForTesting(sibling);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             var recordings = RecordingStore.CommittedRecordings;
 
@@ -156,7 +156,7 @@ namespace Parsek.Tests
                 startUT: 200, midUT: 250, endUT: 300);
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             var recordings = RecordingStore.CommittedRecordings;
             Assert.Equal(2, recordings.Count);
@@ -183,7 +183,7 @@ namespace Parsek.Tests
                 startUT: 200, midUT: 250, endUT: 300);
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
         }
@@ -208,7 +208,7 @@ namespace Parsek.Tests
             provisional.SupersedeTargetId = "origin_rec";
             RecordingStore.AddRecordingWithTreeForTesting(provisional);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // Provisional must satisfy ValidateSupersedeTarget at the moment
             // TryCommitReFlySupersede looks it up: same id, terminal state

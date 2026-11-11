@@ -85,7 +85,8 @@ RATE_WINDOW_SECONDS = 60.0
 # The C# literals the checks key on: (check id, repo-relative C# file, literal).
 # The literal must occur in the comment-stripped file (SourceSyncTests). A path
 # with a '*' is a glob over a partial class's files (SRC_ORCHESTRATOR): the
-# literal must occur in their concatenation.
+# literal must occur in their concatenation. SRC_PATCHER and SRC_SCENARIO name a
+# partial class's main file and read it with its split files (see each constant).
 # ---------------------------------------------------------------------------
 
 SRC_LEDGER_TRACE = "Source/Parsek/LedgerTrace.cs"
@@ -99,10 +100,48 @@ SRC_TAKE_BACK = "Source/Parsek/GameActions/StockShadowTakeBack.cs"
 SRC_PATCHER = "Source/Parsek/GameActions/KspStatePatcher.cs"
 SRC_LEDGER = "Source/Parsek/GameActions/Ledger.cs"
 SRC_ORCHESTRATOR = "Source/Parsek/GameActions/LedgerOrchestrator*.cs"
+# The candidate half of the orchestrator's recovery-owner pick (the path and guid filter lines).
+SRC_RECOVERY_PICKER = "Source/Parsek/GameActions/RecoveryRecordingPicker.cs"
 SRC_LOAD_POLICY = "Source/Parsek/LoadReconcilePolicy.cs"
+# A partial class: the text that was ParsekScenario.cs is this main file plus the files
+# scripts/refactor/split_parsekscenario.py split out of it (SRC_SCENARIO_SPLIT), read by the
+# SourceSyncTests as one text, the main file first and the split files in name order. The
+# older ParsekScenario.*.cs siblings (SRC_SCENARIO_OTHER) were never part of it and are not
+# read. Every ParsekScenario.*.cs on disk is named in one of the two (a SourceSyncTests cell).
+# Same lists as Source/Parsek.Tests/ParsekScenarioSourceFiles.cs.
 SRC_SCENARIO = "Source/Parsek/ParsekScenario.cs"
+SRC_SCENARIO_SPLIT = (
+    "ParsekScenario.AutoCommit.cs",
+    "ParsekScenario.CommittedTreeCarry.cs",
+    "ParsekScenario.Diagnostics.cs",
+    "ParsekScenario.InertPassthrough.cs",
+    "ParsekScenario.LoadLedgerRecalc.cs",
+    "ParsekScenario.LoadSteps.cs",
+    "ParsekScenario.QuickloadDiscard.cs",
+    "ParsekScenario.RewindLoad.cs",
+    "ParsekScenario.RewindStaging.cs",
+    "ParsekScenario.Save.cs",
+    "ParsekScenario.SceneTransitions.cs",
+    "ParsekScenario.StockActionIntent.cs",
+    "ParsekScenario.TestBatchReconcile.cs",
+    "ParsekScenario.TreeLoad.cs",
+    "ParsekScenario.TreeRestore.cs",
+    "ParsekScenario.VesselLifecycle.cs",
+    "ParsekScenario.VesselStrip.cs",
+)
+SRC_SCENARIO_OTHER = (
+    "ParsekScenario.DiscardedFlightRestore.cs",
+    "ParsekScenario.HydrationRepair.cs",
+    "ParsekScenario.InSessionHandoff.cs",
+    "ParsekScenario.LoadDroppedRecordings.cs",
+    "ParsekScenario.RemovedReplayFlags.cs",
+    "ParsekScenario.RevertLedgerSnapshot.cs",
+    "ParsekScenario.RewindVesselHold.cs",
+    "ParsekScenario.SessionReset.cs",
+    "ParsekScenario.Trim.cs",
+)
 SRC_TERMINAL_ORBIT = "Source/Parsek/ParsekFlight.TerminalOrbit.cs"
-SRC_FLIGHT = "Source/Parsek/ParsekFlight.cs"
+SRC_FLIGHT_TREE_RESTORE = "Source/Parsek/ParsekFlight.TreeRestore.cs"
 SRC_CONCLUSION = "Source/Parsek/ReFlyConclusionRoute.cs"
 SRC_DOMINANCE = "Source/Parsek/ReFlyMergeDominance.cs"
 SRC_CHAIN_WALKER = "Source/Parsek/GhostChainWalker.cs"
@@ -111,7 +150,9 @@ SRC_EXTRAPOLATOR = "Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs"
 SRC_GT_HARNESS = "Source/Parsek/InGameTests/LedgerGroundTruthHarness.cs"
 SRC_GT_REPORT = "Source/Parsek/LedgerGroundTruth.cs"
 SRC_LOG = "Source/Parsek/ParsekLog.cs"
-SRC_REWIND_INVOKER = "Source/Parsek/RewindInvoker.cs"
+# RewindInvoker is a partial class (scripts/refactor/split_rewindinvoker.py); the horizon walk
+# this names is in RunStripActivateMarker, which lives in the StripActivate file.
+SRC_REWIND_INVOKER = "Source/Parsek/RewindInvoker.StripActivate.cs"
 SRC_POOL_REF = "Source/Parsek/GameActions/StockPoolReference.cs"
 
 LIT_TRACE_TAG = "LedgerTrace"
@@ -207,13 +248,13 @@ SOURCE_ANCHORS: Tuple[Tuple[str, str, str], ...] = (
     ("load-kind", SRC_LOAD_POLICY, LIT_CLASSIFIED),
     ("load-kind", SRC_SCENARIO, LIT_ONLOAD_DONE),
     ("refly-leftover", SRC_SCENARIO, LIT_UNBOUND),
-    ("refly-leftover", SRC_FLIGHT, LIT_UNBOUND),
+    ("refly-leftover", SRC_FLIGHT_TREE_RESTORE, LIT_UNBOUND),
     ("refly-leftover", SRC_TERMINAL_ORBIT, "outcome=" + LIT_RETIRED),
     ("refly-leftover", SRC_CONCLUSION, LIT_RETIRED),
     ("merge-refused", SRC_DOMINANCE, LIT_DOMINANCE),
     ("already-owned", SRC_FUNDS, LIT_OWNED),
     ("same-craft", SRC_CHAIN_WALKER, LIT_PID_ONLY),
-    ("same-craft", SRC_ORCHESTRATOR, LIT_GUID_UNKNOWN),
+    ("same-craft", SRC_RECOVERY_PICKER, LIT_GUID_UNKNOWN),
     ("finalizer-oddity", SRC_FINALIZER_CACHE, LIT_SUBSURFACE),
     ("finalizer-oddity", SRC_FINALIZER_CACHE, LIT_SUBSURFACE_DECLINE),
     ("finalizer-oddity", SRC_EXTRAPOLATOR, LIT_FALLBACK),

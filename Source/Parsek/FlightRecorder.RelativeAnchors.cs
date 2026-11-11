@@ -841,9 +841,6 @@ namespace Parsek
                 v,
                 SampleCurrentVelocity(v),
                 boundaryUT);
-            TryCanonicalizeActiveReFlyRecordingPoint(
-                ref absolutePoint,
-                "relative-boundary");
             TrajectoryPoint relativePoint = absolutePoint;
             if (!ApplyRelativeOffsetForAnchorPose(
                     ref relativePoint,
@@ -1001,7 +998,7 @@ namespace Parsek
                 focusRecordingId: ActiveTree?.ActiveRecordingId,
                 focusTreeId: ActiveTree?.Id,
                 activeReFlyMarker: ParsekScenario.Instance?.ActiveReFlySessionMarker,
-                pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
+                pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveRecordedPointWorldPosition,
                 bodyWorldRotationResolver: ResolveRecordedPointBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPoseForRecorder);
@@ -1101,28 +1098,15 @@ namespace Parsek
             return FinalizationCache?.RecordingId;
         }
 
-        private bool TryCanonicalizeActiveReFlyRecordingPoint(
-            ref TrajectoryPoint point,
-            string context)
-        {
-            return TryCanonicalizeReFlyRecordingPoint(
-                ResolveActiveRecordingIdForFrameCanonicalization(),
-                ref point,
-                "Recorder",
-                context);
-        }
-
-        private bool TryCanonicalizeActiveReFlyRecordingOrbitSegment(
+        private void LogActiveReFlyOrbitSegmentVelocityNonFinite(
             Vessel vessel,
             double startUT,
-            ref OrbitSegment segment,
             string context)
         {
-            return TryCanonicalizeReFlyRecordingOrbitSegment(
+            LogReFlyOrbitSegmentVelocityNonFinite(
                 ResolveActiveRecordingIdForFrameCanonicalization(),
                 vessel,
                 startUT,
-                ref segment,
                 "Recorder",
                 context);
         }

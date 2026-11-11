@@ -186,14 +186,14 @@ namespace Parsek
             // the last flushed sparse section). Otherwise prefer the resolved sections and
             // rebuild the flat lists from them.
             bool flatTailExtendsResolvedSections =
-                RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+                TrajectoryTextSidecarCodec.FlatTrajectoryExtendsTrackSectionPayload(
                     source, target.TrackSections, allowRelativeSections);
 
             if (!flatTailExtendsResolvedSections)
             {
                 if (healedUnrecordedGaps > 0
                     && preHealMergedSections != null
-                    && RecordingStore.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
+                    && TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
                         target, source, preHealMergedSections, allowRelativeSections))
                 {
                     flatSyncMode = "healed-track-sections-preserved-flat-tail";
@@ -210,7 +210,7 @@ namespace Parsek
                     return true;
                 }
 
-                if (RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                if (TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(
                         target, allowRelativeSections))
                 {
                     flatSyncMode = "track-sections";
@@ -240,7 +240,7 @@ namespace Parsek
             }
 
             bool rebuiltFlatTrajectory =
-                RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(
                     target, allowRelativeSections);
             flatSyncMode = rebuiltFlatTrajectory
                 ? "track-sections"
@@ -263,7 +263,7 @@ namespace Parsek
                 || target == null
                 || source.OrbitSegments == null
                 || source.OrbitSegments.Count == 0
-                || !RecordingStore.HasCompleteTrackSectionPayloadForFlatSync(
+                || !TrajectoryTextSidecarCodec.HasCompleteTrackSectionPayloadForFlatSync(
                     target.TrackSections, allowRelativeSections))
             {
                 return false;
@@ -273,10 +273,10 @@ namespace Parsek
                 return false;
 
             var rebuiltPoints = new List<TrajectoryPoint>();
-            RecordingStore.RebuildPointsFromTrackSections(target.TrackSections, rebuiltPoints);
+            TrajectoryTextSidecarCodec.RebuildPointsFromTrackSections(target.TrackSections, rebuiltPoints);
 
             var rebuiltOrbitSegments = new List<OrbitSegment>();
-            RecordingStore.RebuildOrbitSegmentsFromTrackSections(
+            TrajectoryTextSidecarCodec.RebuildOrbitSegmentsFromTrackSections(
                 target.TrackSections, rebuiltOrbitSegments);
 
             // Align the predicted-tail floor with the resolved payload that we are about

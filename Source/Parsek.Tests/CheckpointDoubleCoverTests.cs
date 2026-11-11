@@ -736,17 +736,17 @@ namespace Parsek.Tests
                 .BuildTrajectoryNode();
 
             var rec = new Recording { RecordingId = "e2e-double-cover" };
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
             // The write path runs the bridge (mirrors every sidecar save).
             var outNode = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(outNode, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(outNode, rec);
 
             AssertNoDoubleCover(rec);
 
             // Round-trip the serialized form and re-check: what lands on disk is clean.
             var restored = new Recording { RecordingId = "e2e-double-cover" };
-            RecordingStore.DeserializeTrajectoryFrom(outNode, restored);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(outNode, restored);
             AssertNoDoubleCover(restored);
         }
     }

@@ -1270,7 +1270,7 @@ namespace Parsek.Tests
             rec.OrbitSegments.Add(PredictedOrbitSegment(recordedEndUT, 400.0));
             rec.OrbitSegments.Add(PredictedOrbitSegment(400.0, terminalUT));
 
-            Assert.True(RecordingStore.FlatTrajectoryExtendsTrackSectionPayload(
+            Assert.True(TrajectoryTextSidecarCodec.FlatTrajectoryExtendsTrackSectionPayload(
                 rec, rec.TrackSections, allowRelativeSections: true));
 
             var second = RecordingOptimizer.SplitAtSection(rec, 1);
@@ -1286,7 +1286,7 @@ namespace Parsek.Tests
             Assert.All(second.OrbitSegments, seg => Assert.True(seg.isPredicted));
             Assert.Equal(recordedEndUT, second.OrbitSegments[0].startUT);
             Assert.Equal(terminalUT, second.OrbitSegments[second.OrbitSegments.Count - 1].endUT);
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(second));
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(second));
             Assert.Contains(logLines, l =>
                 l.Contains("[Optimizer]")
                 && l.Contains("SplitAtSection: split split-predicted-tail")
@@ -1906,7 +1906,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(b);
             RecordingStore.AddRecordingWithTreeForTesting(c);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // Should be merged into 1 recording
             Assert.Single(recordings);
@@ -1964,7 +1964,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(first);
             RecordingStore.AddRecordingWithTreeForTesting(second);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Single(tree.Recordings);
@@ -1994,7 +1994,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(b);
             RecordingStore.AddRecordingWithTreeForTesting(c);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // No merges should occur (b blocks both pairs)
             Assert.Equal(3, recordings.Count);
@@ -2019,7 +2019,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Single(recordings);
             Assert.Equal("eva_continuous", recordings[0].RecordingId);
@@ -2094,7 +2094,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Single(recordings);
             Assert.Equal("eva_surface_bridge", recordings[0].RecordingId);
@@ -2166,7 +2166,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(first);
             RecordingStore.AddRecordingWithTreeForTesting(second);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Single(recordings);
             Assert.Equal(0, recordings[0].ChainIndex);
@@ -2196,7 +2196,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(b1);
             RecordingStore.AddRecordingWithTreeForTesting(b2);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // Both chains should be merged independently → 2 recordings
             Assert.Equal(2, recordings.Count);
@@ -2224,8 +2224,8 @@ namespace Parsek.Tests
                 };
                 RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-                RecordingStore.RunOptimizationPass();
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 var leaf = Assert.Single(RecordingStore.CommittedRecordings);
                 Assert.Equal(17630, leaf.EndUT);
@@ -2266,7 +2266,7 @@ namespace Parsek.Tests
                 rec.PartEvents.Add(MakeConverterEvent(17035, 4242, PartEventType.ConverterActivated));
                 RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
                 var head = RecordingStore.CommittedRecordings[0];
@@ -2275,7 +2275,7 @@ namespace Parsek.Tests
                 Assert.Null(leaf.RouteHarvestWindows);
                 Assert.Equal(17630, leaf.EndUT);
 
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
                 Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
                 Assert.Null(RecordingStore.CommittedRecordings[1].RouteHarvestWindows);
                 Assert.Equal(17630, RecordingStore.CommittedRecordings[1].EndUT);
@@ -2306,8 +2306,8 @@ namespace Parsek.Tests
                 rec.PartEvents.Add(MakeConverterEvent(17010, 4242, PartEventType.ConverterActivated));
                 RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-                RecordingStore.RunOptimizationPass();
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
                 var leaf = RecordingStore.CommittedRecordings[1];
@@ -2337,7 +2337,7 @@ namespace Parsek.Tests
                 rec.VesselName = "Lander";
                 RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
                 Assert.Equal(17060, RecordingStore.CommittedRecordings[1].EndUT);
@@ -2821,7 +2821,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(3, recordings.Count);
             Assert.NotNull(recordings[0].ChainId);
@@ -2847,7 +2847,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, recordings.Count);
             Assert.NotEmpty(recordings[0].ChainId);
@@ -2883,7 +2883,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // Tree recording should be split into 2 chain segments
             Assert.Equal(2, recordings.Count);
@@ -2909,7 +2909,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, recordings.Count);
             Assert.Equal("Kerbin", recordings[0].SegmentBodyName);
@@ -2954,7 +2954,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // Tree recording should be split into 2
             Assert.Equal(2, recordings.Count);
@@ -3009,7 +3009,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, recordings.Count);
             Assert.Equal("bp_early", recordings[0].ChildBranchPointId);
@@ -3033,7 +3033,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Single(recordings);
             Assert.Equal("single_env", recordings[0].RecordingId);
@@ -3054,13 +3054,13 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.Equal(2, recordings.Count);
             string chainId = recordings[0].ChainId;
             string id0 = recordings[0].RecordingId;
             string id1 = recordings[1].RecordingId;
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.Equal(2, recordings.Count);
             Assert.Equal(chainId, recordings[0].ChainId);
             Assert.Equal(id0, recordings[0].RecordingId);
@@ -3085,7 +3085,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, recordings.Count);
             Assert.Equal(100000, recordings[1].PreLaunchFunds);
@@ -3109,7 +3109,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, recordings.Count);
             Assert.NotNull(recordings[1].RecordingGroups);
@@ -3134,7 +3134,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, recordings.Count);
             // MUST-FIX 1: ParentRecordingId should NOT be set on the second half
@@ -3310,7 +3310,7 @@ namespace Parsek.Tests
             debris.Points.Add(new TrajectoryPoint { ut = 35 });
 
             var recordings = new List<Recording> { parent, debris };
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(0, debris.LoopSyncParentIdx);
             Assert.Equal(-1, parent.LoopSyncParentIdx);
@@ -3346,7 +3346,7 @@ namespace Parsek.Tests
             partner.Points.Add(new TrajectoryPoint { ut = 60 });
 
             var recordings = new List<Recording> { rec, partner };
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(-1, rec.LoopSyncParentIdx);
             Assert.Equal(-1, partner.LoopSyncParentIdx);
@@ -3367,7 +3367,7 @@ namespace Parsek.Tests
 
             // No parent recording in the list
             var recordings = new List<Recording> { debris };
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(-1, debris.LoopSyncParentIdx);
         }
@@ -3403,7 +3403,7 @@ namespace Parsek.Tests
             partner.Points.Add(new TrajectoryPoint { ut = 50 });
 
             var recordings = new List<Recording> { debris, partner };
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(-1, debris.LoopSyncParentIdx);
         }
@@ -3440,7 +3440,7 @@ namespace Parsek.Tests
             debris2.Points.Add(new TrajectoryPoint { ut = 75 });
 
             var recordings = new List<Recording> { parent1, parent2, debris1, debris2 };
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(0, debris1.LoopSyncParentIdx); // parent1 covers UT 30
             Assert.Equal(1, debris2.LoopSyncParentIdx); // parent2 covers UT 70
@@ -3511,7 +3511,7 @@ namespace Parsek.Tests
                 debrisAfterHold
             };
 
-            RecordingStore.PopulateLoopSyncParentIndices(recordings);
+            CommittedListOptimizer.PopulateLoopSyncParentIndices(recordings);
 
             Assert.Equal(-1, debrisDuringHold.LoopSyncParentIdx);
             Assert.Equal(-1, debrisAfterHold.LoopSyncParentIdx);
@@ -4504,7 +4504,7 @@ namespace Parsek.Tests
             Assert.Single(rec.TrackSections[1].frames);
             Assert.Equal(17050, rec.TrackSections[1].frames[0].ut);
 
-            Assert.True(RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec));
+            Assert.True(TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(rec));
             Assert.Equal(17050, rec.EndUT);
             Assert.Equal(17050, rec.Points[rec.Points.Count - 1].ut);
         }
@@ -4560,7 +4560,7 @@ namespace Parsek.Tests
             Assert.Single(rec.TrackSections[1].checkpoints);
             Assert.Equal(17060, rec.TrackSections[1].checkpoints[0].endUT);
 
-            Assert.True(RecordingStore.TrySyncFlatTrajectoryFromTrackSections(rec));
+            Assert.True(TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(rec));
             Assert.Equal(17060, rec.EndUT);
             Assert.Single(rec.OrbitSegments);
             Assert.Equal(17060, rec.OrbitSegments[0].endUT);
@@ -5468,7 +5468,7 @@ namespace Parsek.Tests
                 && l.Contains("ecc delta"));
         }
 
-        // Bulk-pass logging contract: when `RecordingStore.TrimBoringTailsForOptimization`
+        // Bulk-pass logging contract: when `CommittedListOptimizer.TrimBoringTailsForOptimization`
         // walks every committed recording, it now passes `logSkipReason: false` and
         // aggregates skip categories into a single summary line. Direct callers (and
         // the existing per-recording skip-reason tests above) keep the verbose detail
@@ -5711,7 +5711,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(main);
             RecordingStore.AddRecordingWithTreeForTesting(debris);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // 4 chain segments from main + 1 debris = 5 recordings
             Assert.Equal(5, recordings.Count);
@@ -5899,7 +5899,7 @@ namespace Parsek.Tests
                 RecordingStore.AddRecordingWithTreeForTesting(capsule);
                 RecordingStore.AddRecordingWithTreeForTesting(stationMerged);
 
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
 
                 Assert.Equal(9, recordings.Count);
                 Assert.Equal(9, tree.Recordings.Count);
@@ -6000,7 +6000,7 @@ namespace Parsek.Tests
             var recordings = RecordingStore.CommittedRecordings;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // Should split into 2: Approach + Surface
             Assert.Equal(2, recordings.Count);
@@ -6818,7 +6818,7 @@ namespace Parsek.Tests
                 (SegmentEnvironment.SurfaceMobile, 60, "Kerbin", false));     // landing
 
             RecordingStore.AddRecordingWithTreeForTesting(rec);
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             // Four env-class boundaries → up to 4 splits → chain length 4 (or capped by
             // RunOptimizationSplitPass.MaxSplitsPerPass; verify chain >= 4 to be tolerant).
@@ -6847,7 +6847,7 @@ namespace Parsek.Tests
 
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             int initialCount = RecordingStore.CommittedRecordings.Count;
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(initialCount, RecordingStore.CommittedRecordings.Count); // no chain expansion
 
@@ -6869,7 +6869,7 @@ namespace Parsek.Tests
 
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             int initialCount = RecordingStore.CommittedRecordings.Count;
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(initialCount, RecordingStore.CommittedRecordings.Count);
 

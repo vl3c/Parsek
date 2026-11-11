@@ -95,10 +95,10 @@ namespace Parsek.Tests
             var section = MakeSection(source: TrackSectionSource.Checkpoint);
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { section });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { section });
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             Assert.Equal(TrackSectionSource.Checkpoint, loaded[0].source);
@@ -114,7 +114,7 @@ namespace Parsek.Tests
             var section = MakeSection(source: TrackSectionSource.Active);
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { section });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { section });
 
             var tsNode = parent.GetNodes("TRACK_SECTION")[0];
             Assert.Null(tsNode.GetValue("src"));
@@ -130,7 +130,7 @@ namespace Parsek.Tests
             var section = MakeSection(source: TrackSectionSource.Background);
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { section });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { section });
 
             var tsNode = parent.GetNodes("TRACK_SECTION")[0];
             Assert.Equal("1", tsNode.GetValue("src"));
@@ -146,10 +146,10 @@ namespace Parsek.Tests
             var section = MakeSection(boundaryDiscontinuity: 5.3f);
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { section });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { section });
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             Assert.Equal(5.3f, loaded[0].boundaryDiscontinuityMeters);
@@ -165,7 +165,7 @@ namespace Parsek.Tests
             var section = MakeSection(boundaryDiscontinuity: 0f);
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { section });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { section });
 
             var tsNode = parent.GetNodes("TRACK_SECTION")[0];
             Assert.Null(tsNode.GetValue("bdisc"));
@@ -181,7 +181,7 @@ namespace Parsek.Tests
             var section = MakeSection(boundaryDiscontinuity: 12.5f);
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { section });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { section });
 
             var tsNode = parent.GetNodes("TRACK_SECTION")[0];
             Assert.NotNull(tsNode.GetValue("bdisc"));
@@ -208,7 +208,7 @@ namespace Parsek.Tests
             // No "src" or "bdisc" keys — simulates old format
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             Assert.Equal(TrackSectionSource.Active, loaded[0].source);
@@ -225,7 +225,7 @@ namespace Parsek.Tests
             var section = MakeSection(source: TrackSectionSource.Background);
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { section });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { section });
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") && l.Contains("source=Background") && l.Contains("non-default"));
@@ -237,7 +237,7 @@ namespace Parsek.Tests
             var section = MakeSection(source: TrackSectionSource.Active);
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { section });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { section });
 
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("source=Active") && l.Contains("non-default"));
@@ -260,7 +260,7 @@ namespace Parsek.Tests
             tsNode.AddValue("src", "2"); // Checkpoint
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             Assert.Equal(TrackSectionSource.Checkpoint, loaded[0].source);
@@ -280,10 +280,10 @@ namespace Parsek.Tests
                 boundaryDiscontinuity: 42.7f);
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { section });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { section });
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             Assert.Equal(TrackSectionSource.Checkpoint, loaded[0].source);

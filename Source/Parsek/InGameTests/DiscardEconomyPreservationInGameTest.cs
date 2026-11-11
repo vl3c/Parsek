@@ -119,7 +119,7 @@ namespace Parsek.InGameTests
                 skipReason = "Funding/R&D/Reputation singletons not all initialized";
                 return false;
             }
-            if (RecordingStore.HasPendingTree
+            if (PendingTreeSlot.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
             {
@@ -192,10 +192,10 @@ namespace Parsek.InGameTests
                     ActiveRecordingId = recId,
                 };
                 tree.Recordings[recId] = new Recording { RecordingId = recId, TreeId = tree.Id };
-                RecordingStore.StashPendingTree(tree);
+                PendingTreeSlot.StashPendingTree(tree);
 
                 // REAL discard (genuine vs abandon) + REAL recalc against live KSP.
-                RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay);
+                TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay);
                 LedgerOrchestrator.RecalculateAndPatch();
 
                 afterRecalc();
@@ -213,8 +213,8 @@ namespace Parsek.InGameTests
                 // RestoreBatchFlightBaselineAfterExecution, which reloads the entire career
                 // (ledger included) from the clean baseline after the test - so the persisted
                 // save is always restored and any in-memory residue is bounded to that window.
-                if (RecordingStore.HasPendingTree)
-                    RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+                if (PendingTreeSlot.HasPendingTree)
+                    TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
                 FlightIntegrationTests.TruncateLedgerForTeardown(
                     beforeActions, "DiscardEconomyPreservation");
                 GameStateStore.TruncateEventsForTesting(beforeEvents);

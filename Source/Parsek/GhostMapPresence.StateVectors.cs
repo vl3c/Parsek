@@ -761,8 +761,8 @@ namespace Parsek
                 }
             }
 
-            RecordingTree pending = RecordingStore.HasPendingTree
-                ? RecordingStore.PendingTree
+            RecordingTree pending = PendingTreeSlot.HasPendingTree
+                ? PendingTreeSlot.PendingTree
                 : null;
             if (pending?.Recordings != null
                 && pending.Recordings.TryGetValue(recordingId, out recording)
@@ -1296,7 +1296,7 @@ namespace Parsek
             // active recording in either committed or pending state.
             IReadOnlyList<RecordingTree> searchTrees = ComposeSearchTreesForReFlySuppression(
                 RecordingStore.CommittedTrees,
-                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+                PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null);
             if (ShouldSuppressStateVectorProtoVesselForActiveReFlyAtCreateTime(
                     SessionSuppressionState.ActiveMarker,
                     resolution.Branch,
@@ -1483,32 +1483,14 @@ namespace Parsek
 
             if (vessel.orbitDriver == null)
             {
-                var miss = NewDecisionFields("update-state-vector-miss");
-                miss.RecordingId = traj?.RecordingId;
-                miss.RecordingIndex = recordingIndex;
-                miss.VesselName = traj?.VesselName;
-                miss.Source = "StateVector";
-                miss.Body = point.bodyName;
-                miss.GhostPid = vessel.persistentId;
-                miss.UT = ut;
-                miss.Reason = "no-orbit-driver";
-                ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
+                LogStateVectorUpdateMiss(recordingIndex, traj, point, vessel, ut, "no-orbit-driver");
                 return false;
             }
 
             CelestialBody body = FindBodyByName(point.bodyName);
             if (body == null)
             {
-                var miss = NewDecisionFields("update-state-vector-miss");
-                miss.RecordingId = traj?.RecordingId;
-                miss.RecordingIndex = recordingIndex;
-                miss.VesselName = traj?.VesselName;
-                miss.Source = "StateVector";
-                miss.Body = point.bodyName;
-                miss.GhostPid = vessel.persistentId;
-                miss.UT = ut;
-                miss.Reason = "body-not-found";
-                ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
+                LogStateVectorUpdateMiss(recordingIndex, traj, point, vessel, ut, "body-not-found");
                 return false;
             }
 
@@ -1520,20 +1502,7 @@ namespace Parsek
                     allowOrbitalCheckpointStateVector);
             if (!resolution.Resolved)
             {
-                var skip = NewDecisionFields("update-state-vector-skip");
-                skip.RecordingId = traj?.RecordingId;
-                skip.RecordingIndex = recordingIndex;
-                skip.VesselName = traj?.VesselName;
-                skip.Source = "StateVector";
-                skip.Branch = MapResolutionBranch(resolution.Branch);
-                skip.Body = point.bodyName;
-                skip.GhostPid = vessel.persistentId;
-                skip.AnchorPid = resolution.AnchorPid;
-                skip.StateVecAlt = point.altitude;
-                skip.StateVecSpeed = point.velocity.magnitude;
-                skip.UT = ut;
-                skip.Reason = resolution.FailureReason ?? "(null)";
-                ParsekLog.Warn(Tag, BuildGhostMapDecisionLine(skip));
+                LogStateVectorUpdateSkip(recordingIndex, traj, point, ut, vessel, resolution);
                 return false;
             }
 
@@ -1545,9 +1514,101 @@ namespace Parsek
                 localOffsetForLog = new Vector3d(point.latitude, point.longitude, point.altitude);
             }
 
+            if (TrySuppressStateVectorUpdateForActiveReFly(
+                    recordingIndex, traj, point, ut, vessel, resolution, anchorPosForLog, localOffsetForLog))
+                return true;
+
+            bool soiChanged = ResolveStateVectorSoiChange(
+                recordingIndex, traj, ut, vessel, body, resolution, stateVectorUpdateReason);
+
+            Vector3d worldPos = resolution.WorldPos;
+
+            bool inertialPathFired = false;
+            string inertialDeclineReason = null;
+            double inertialLonForLog = double.NaN;
+            if (ShouldSeedGapGlideInertial(stateVectorUpdateReason, resolution.Branch))
+                SeedStateVectorGapGlideInertial(
+                    recordingIndex, traj, point, loopEpochShiftSeconds, vessel, body,
+                    ref inertialPathFired, ref inertialDeclineReason, ref inertialLonForLog);
+
+            ClearStaleSegmentDriveForStateVectorReseed(vessel, recordingIndex, loopEpochShiftSeconds);
+
+            if (!inertialPathFired)
+                ReseedStateVectorOrbitBodyFixed(
+                    recordingIndex, traj, point, ut, vessel, body, resolution, worldPos, loopEpochShiftSeconds);
+            vessel.orbitDriver.updateFromParameters();
+            NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
+
+            RefreshStateVectorSeamComd(vessel);
+
+            RebuildRendererAndRecordStateVectorBody(vessel, body, soiChanged);
+
+            lifecycleUpdatedThisTick++;
+
+            LogStateVectorUpdateAndStash(
+                recordingIndex, traj, point, ut, vessel, body, resolution, worldPos,
+                anchorPosForLog, localOffsetForLog, stateVectorUpdateReason,
+                inertialPathFired, inertialLonForLog, inertialDeclineReason);
+            return false;
+        }
+
+        /// <summary>
+        /// The update-state-vector-miss line of a state-vector update that cannot run: the ghost
+        /// has no OrbitDriver, or the point's body is not found (<paramref name="reason"/>).
+        /// </summary>
+        internal static void LogStateVectorUpdateMiss(
+            int recordingIndex, IPlaybackTrajectory traj, TrajectoryPoint point, Vessel vessel,
+            double ut, string reason)
+        {
+            var miss = NewDecisionFields("update-state-vector-miss");
+            miss.RecordingId = traj?.RecordingId;
+            miss.RecordingIndex = recordingIndex;
+            miss.VesselName = traj?.VesselName;
+            miss.Source = "StateVector";
+            miss.Body = point.bodyName;
+            miss.GhostPid = vessel.persistentId;
+            miss.UT = ut;
+            miss.Reason = reason;
+            ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
+        }
+
+        /// <summary>
+        /// The update-state-vector-skip line of a state-vector update whose world position did not
+        /// resolve (the resolution's branch and failure reason).
+        /// </summary>
+        internal static void LogStateVectorUpdateSkip(
+            int recordingIndex, IPlaybackTrajectory traj, TrajectoryPoint point, double ut,
+            Vessel vessel, StateVectorWorldFrame resolution)
+        {
+            var skip = NewDecisionFields("update-state-vector-skip");
+            skip.RecordingId = traj?.RecordingId;
+            skip.RecordingIndex = recordingIndex;
+            skip.VesselName = traj?.VesselName;
+            skip.Source = "StateVector";
+            skip.Branch = MapResolutionBranch(resolution.Branch);
+            skip.Body = point.bodyName;
+            skip.GhostPid = vessel.persistentId;
+            skip.AnchorPid = resolution.AnchorPid;
+            skip.StateVecAlt = point.altitude;
+            skip.StateVecSpeed = point.velocity.magnitude;
+            skip.UT = ut;
+            skip.Reason = resolution.FailureReason ?? "(null)";
+            ParsekLog.Warn(Tag, BuildGhostMapDecisionLine(skip));
+        }
+
+        /// <summary>
+        /// Active Re-Fly suppression of a state-vector update: when the resolved frame is anchored
+        /// to the vessel being re-flown, marks the ghost deferred for the session, logs
+        /// update-state-vector-suppressed and returns true (the caller tears the ghost down).
+        /// </summary>
+        internal static bool TrySuppressStateVectorUpdateForActiveReFly(
+            int recordingIndex, IPlaybackTrajectory traj, TrajectoryPoint point, double ut,
+            Vessel vessel, StateVectorWorldFrame resolution, Vector3d? anchorPosForLog,
+            Vector3d? localOffsetForLog)
+        {
             IReadOnlyList<RecordingTree> searchTrees = ComposeSearchTreesForReFlySuppression(
                 RecordingStore.CommittedTrees,
-                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
+                PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null);
             if (ShouldRemoveStateVectorProtoVesselForActiveReFlyOnUpdate(
                     SessionSuppressionState.ActiveMarker,
                     resolution.Branch,
@@ -1582,6 +1643,17 @@ namespace Parsek
                 return true;
             }
 
+            return false;
+        }
+
+        /// <summary>
+        /// True when the body about to be applied differs from the one Parsek last applied to this
+        /// ghost (or none was applied); logs update-state-vector-soi-change when it does.
+        /// </summary>
+        internal static bool ResolveStateVectorSoiChange(
+            int recordingIndex, IPlaybackTrajectory traj, double ut, Vessel vessel, CelestialBody body,
+            StateVectorWorldFrame resolution, string stateVectorUpdateReason)
+        {
             // SOI transition handling (same pattern as ApplyOrbitToVessel): compare against the body
             // PARSEK last applied, not orbitDriver.referenceBody (a KSP-owned field), so the renderer
             // rebuild fires once per genuine Parsek-driven body change. (KSP's per-frame SOI transition
@@ -1604,11 +1676,21 @@ namespace Parsek
                 soi.Reason = stateVectorUpdateReason;
                 ParsekLog.Info(Tag, BuildGhostMapDecisionLine(soi));
             }
+            return soiChanged;
+        }
 
-            Vector3d worldPos = resolution.WorldPos;
-
+        /// <summary>
+        /// Orbit-raise gap glide: seeds the ghost orbit from the inertial position reconstructed
+        /// from the glide sample and its neighbour. Sets <paramref name="inertialPathFired"/> when
+        /// it seeded, otherwise the decline reason (the caller falls back to the body-fixed seed).
+        /// </summary>
+        internal static void SeedStateVectorGapGlideInertial(
+            int recordingIndex, IPlaybackTrajectory traj, TrajectoryPoint point,
+            double loopEpochShiftSeconds, Vessel vessel, CelestialBody body,
+            ref bool inertialPathFired, ref string inertialDeclineReason, ref double inertialLonForLog)
+        {
             // Orbit-raise gap glide: reconstruct the recorded INERTIAL position. The body-fixed
-            // FromWorldPosAndRecordedVelocity seed below resolves the gap point via
+            // FromWorldPosAndRecordedVelocity reseed resolves the gap point via
             // body.GetWorldSurfacePosition at the LIVE body orientation; on a loop replayed ~1e9 s
             // later the body has rotated, so the body-fixed gap rendering sits rotated off the
             // inertial orbit lines drawn from recorded Keplerian elements. Reconstruct the point's
@@ -1617,81 +1699,83 @@ namespace Parsek
             // raise->loiter seam). Gated to the orbit-raise-gap-points reason on an Absolute branch
             // ONLY; the launch ascent (no preceding OrbitSegment) never reaches this path via
             // ShouldDriveGapFromPoints, and SOI-gap / checkpoint / terminal callers pass other reasons.
-            bool inertialPathFired = false;
-            string inertialDeclineReason = null;
-            double inertialLonForLog = double.NaN;
-            if (ShouldSeedGapGlideInertial(stateVectorUpdateReason, resolution.Branch))
+            // The recorded velocity's frame and world yaw are resolved from the glide sample
+            // and its neighbour (a parking orbit below the inverse-rotation altitude records
+            // surface-relative vectors), as the endpoint-tail map seed does.
+            if (!OrbitSeedResolver.TryResolveRotationPeriod(body, out double gapRotationPeriod))
             {
-                // The recorded velocity's frame and world yaw are resolved from the glide sample
-                // and its neighbour (a parking orbit below the inverse-rotation altitude records
-                // surface-relative vectors), as the endpoint-tail map seed does.
-                if (!OrbitSeedResolver.TryResolveRotationPeriod(body, out double gapRotationPeriod))
+                inertialDeclineReason = "historical-rotation-unavailable";
+            }
+            else if (!OrbitReseed.TrySelectGapGlidePair(
+                    traj?.Points,
+                    traj?.TrackSections,
+                    point,
+                    out TrajectoryPoint gapPrevious,
+                    out TrajectoryPoint gapTail,
+                    out string gapPairReason))
+            {
+                inertialDeclineReason = gapPairReason;
+            }
+            else
+            {
+                double gapInitialRotation = OrbitSeedResolver.ResolveInitialRotation(body);
+                if (OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
+                        vessel.orbitDriver.orbit,
+                        body,
+                        gapPrevious,
+                        gapTail,
+                        gapTail.ut + loopEpochShiftSeconds,
+                        gapRotationPeriod,
+                        gapInitialRotation,
+                        out OrbitReseed.HistoricalTailPairSeedInputs gapSeed,
+                        traj?.RecordingId))
                 {
-                    inertialDeclineReason = "historical-rotation-unavailable";
-                }
-                else if (!TrySelectGapGlidePair(
-                        traj?.Points,
-                        traj?.TrackSections,
-                        point,
-                        out TrajectoryPoint gapPrevious,
-                        out TrajectoryPoint gapTail,
-                        out string gapPairReason))
-                {
-                    inertialDeclineReason = gapPairReason;
+                    inertialPathFired = true;
+                    inertialLonForLog = gapSeed.InertialLongitude;
+                    gapGlideInertialSeedCount++;
                 }
                 else
                 {
-                    double gapInitialRotation = OrbitSeedResolver.ResolveInitialRotation(body);
-                    if (OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
-                            vessel.orbitDriver.orbit,
-                            body,
-                            gapPrevious,
-                            gapTail,
-                            gapTail.ut + loopEpochShiftSeconds,
-                            gapRotationPeriod,
-                            gapInitialRotation,
-                            out OrbitReseed.HistoricalTailPairSeedInputs gapSeed,
-                            traj?.RecordingId))
-                    {
-                        inertialPathFired = true;
-                        inertialLonForLog = gapSeed.InertialLongitude;
-                        gapGlideInertialSeedCount++;
-                    }
-                    else
-                    {
-                        inertialDeclineReason = gapSeed.FailureReason ?? "historical-helper-declined";
-                    }
+                    inertialDeclineReason = gapSeed.FailureReason ?? "historical-helper-declined";
                 }
+            }
 
-                if (!inertialPathFired)
-                {
-                    gapGlideBodyFixedFallbackCount++;
-                    // Rate-limited per ghost and reason: a sample with no same-section
-                    // neighbour declines on every frame the glide dwells on it.
-                    ParsekLog.WarnRateLimited(Tag,
-                        string.Format(ic, "gap-glide-inertial-decline-{0}-{1}",
-                            vessel.persistentId, inertialDeclineReason ?? "(null)"),
-                        string.Format(ic,
-                            "Gap-glide inertial seed declined for ghost pid={0} recIndex={1} body={2} "
-                            + "recordedUT={3:F2} shift={4:F1} reason={5}: falling back to body-fixed seed "
-                            + "(icon may rotate off the inertial orbit lines this frame)",
-                            vessel.persistentId, recordingIndex, body.name, point.ut,
-                            loopEpochShiftSeconds, inertialDeclineReason ?? "(null)"),
-                        5.0);
-                }
-
-                // Aggregate proof-of-fire summary (shared key, ~5s window): a KSP.log capture must
-                // show inertial>0 for the looped re-aim playtest; inertial==0 means the gate never
-                // engaged (the no-op trap). bodyFixed counts the safety fallbacks.
-                ParsekLog.VerboseRateLimited(Tag,
-                    "gap-glide-inertial-summary",
+            if (!inertialPathFired)
+            {
+                gapGlideBodyFixedFallbackCount++;
+                // Rate-limited per ghost and reason: a sample with no same-section
+                // neighbour declines on every frame the glide dwells on it.
+                ParsekLog.WarnRateLimited(Tag,
+                    string.Format(ic, "gap-glide-inertial-decline-{0}-{1}",
+                        vessel.persistentId, inertialDeclineReason ?? "(null)"),
                     string.Format(ic,
-                        "Gap-glide seed summary: inertial={0} bodyFixed={1} "
-                        + "(orbit-raise gaps reconstructed in inertial frame)",
-                        gapGlideInertialSeedCount, gapGlideBodyFixedFallbackCount),
+                        "Gap-glide inertial seed declined for ghost pid={0} recIndex={1} body={2} "
+                        + "recordedUT={3:F2} shift={4:F1} reason={5}: falling back to body-fixed seed "
+                        + "(icon may rotate off the inertial orbit lines this frame)",
+                        vessel.persistentId, recordingIndex, body.name, point.ut,
+                        loopEpochShiftSeconds, inertialDeclineReason ?? "(null)"),
                     5.0);
             }
 
+            // Aggregate proof-of-fire summary (shared key, ~5s window): a KSP.log capture must
+            // show inertial>0 for the looped re-aim playtest; inertial==0 means the gate never
+            // engaged (the no-op trap). bodyFixed counts the safety fallbacks.
+            ParsekLog.VerboseRateLimited(Tag,
+                "gap-glide-inertial-summary",
+                string.Format(ic,
+                    "Gap-glide seed summary: inertial={0} bodyFixed={1} "
+                    + "(orbit-raise gaps reconstructed in inertial frame)",
+                    gapGlideInertialSeedCount, gapGlideBodyFixedFallbackCount),
+                5.0);
+        }
+
+        /// <summary>
+        /// Drops the segment-drive state (orbit bounds, loop shift, epoch shift, icon-drive
+        /// propagate UT) a previous segment phase left for this ghost, before a state-vector reseed.
+        /// </summary>
+        internal static void ClearStaleSegmentDriveForStateVectorReseed(
+            Vessel vessel, int recordingIndex, double loopEpochShiftSeconds)
+        {
             // The state-vector path keeps the OLD contract: a SHIFTED-epoch orbit (seeded at
             // ut + loopEpochShiftSeconds == liveUT) that stock propagates at the LIVE Planetarium
             // clock. The segment-driven raw-epoch + effUT-drive contract (GhostOrbitIconDrivePatch)
@@ -1727,28 +1811,40 @@ namespace Parsek
                         vessel.persistentId, recordingIndex, loopEpochShiftSeconds,
                         HighLogic.LoadedScene));
             }
+        }
 
+        /// <summary>
+        /// Body-fixed state-vector seed: rebuilds the ghost orbit from the resolved world position
+        /// and the recorded velocity at the loop-shifted epoch <c>ut + loopEpochShiftSeconds</c>.
+        /// </summary>
+        internal static void ReseedStateVectorOrbitBodyFixed(
+            int recordingIndex, IPlaybackTrajectory traj, TrajectoryPoint point, double ut,
+            Vessel vessel, CelestialBody body, StateVectorWorldFrame resolution, Vector3d worldPos,
+            double loopEpochShiftSeconds)
+        {
             // Loop replay: push the orbit epoch forward by (liveUT - effUT) so the icon, drawn at
             // getPositionAtUT(liveUT), lands on the world position recorded at effUT instead of
             // being propagated forward along the ellipse. Zero shift for non-loop ghosts. Skipped
-            // when the orbit-raise inertial branch above already seeded the orbit (it seeded at the
+            // when the orbit-raise inertial seed already seeded the orbit (it seeded at the
             // same loop-shifted epoch via the reconstructed inertial position) so we don't re-seed
             // it back into the body-fixed frame; the body-fixed seed still runs for every other
             // reason and as the safety fallback when the inertial reconstruction declined.
-            if (!inertialPathFired)
-            {
-                Vector3d vel = ResolveStateVectorSeedVelocity(
-                    traj, point, body, resolution, "update", recordingIndex, rateLimit: true);
-                OrbitReseed.FromWorldPosAndRecordedVelocity(
-                    vessel.orbitDriver.orbit,
-                    body,
-                    worldPos,
-                    vel,
-                    ut + loopEpochShiftSeconds);
-            }
-            vessel.orbitDriver.updateFromParameters();
-            NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
+            Vector3d vel = ResolveStateVectorSeedVelocity(
+                traj, point, body, resolution, "update", recordingIndex, rateLimit: true);
+            OrbitReseed.FromWorldPosAndRecordedVelocity(
+                vessel.orbitDriver.orbit,
+                body,
+                worldPos,
+                vel,
+                ut + loopEpochShiftSeconds);
+        }
 
+        /// <summary>
+        /// After a state-vector reseed, re-snaps the cached CoMD onto the new conic when the conic
+        /// changed (the seam), and records the applied elements.
+        /// </summary>
+        internal static void RefreshStateVectorSeamComd(Vessel vessel)
+        {
             // Seam CoMD re-snap (Bug A loop-icon-warp-lag): this state-vector reseed runs in a Parsek
             // per-frame pass AFTER this frame's VesselPrecalculate.FixedUpdate, so the cached
             // Vessel.CoMD (the value Vessel.GetWorldPos3D returns, and what the map icon renders at)
@@ -1814,7 +1910,15 @@ namespace Parsek
                             seamComdRefreshCount, seamComdSteadyCount, seamComdMaxOffOrbitDegPostRefresh),
                         5.0);
             }
+        }
 
+        /// <summary>
+        /// Rebuilds the ghost's orbit renderer when the applied body changed, and records the body
+        /// just applied as the one Parsek last applied to this ghost.
+        /// </summary>
+        internal static void RebuildRendererAndRecordStateVectorBody(
+            Vessel vessel, CelestialBody body, bool soiChanged)
+        {
             if (soiChanged && vessel.orbitRenderer != null)
             {
                 vessel.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
@@ -1824,9 +1928,18 @@ namespace Parsek
 
             // Remember the body we just applied (see GhostOrbitBodyChanged / ghostLastAppliedOrbitBody).
             ghostLastAppliedOrbitBody[vessel.persistentId] = body.name;
+        }
 
-            lifecycleUpdatedThisTick++;
-
+        /// <summary>
+        /// The rate-limited update-state-vector line of a completed update, and the last-known
+        /// frame stash for the ghost's recording index.
+        /// </summary>
+        internal static void LogStateVectorUpdateAndStash(
+            int recordingIndex, IPlaybackTrajectory traj, TrajectoryPoint point, double ut,
+            Vessel vessel, CelestialBody body, StateVectorWorldFrame resolution, Vector3d worldPos,
+            Vector3d? anchorPosForLog, Vector3d? localOffsetForLog, string stateVectorUpdateReason,
+            bool inertialPathFired, double inertialLonForLog, string inertialDeclineReason)
+        {
             // Per-recording rate-limited line — one entry per recording per ~5s
             // window so a long warp pass leaves a readable trace without spam.
             string updateKey = string.Format(ic,
@@ -1872,7 +1985,6 @@ namespace Parsek
                 AnchorPid = resolution.AnchorPid,
                 LastUT = ut
             });
-            return false;
         }
 
         /// <summary>
@@ -1965,105 +2077,6 @@ namespace Parsek
         {
             return string.Equals(stateVectorUpdateReason, "orbit-raise-gap-points", System.StringComparison.Ordinal)
                 && string.Equals(resolutionBranch, "absolute", System.StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Pure: the two consecutive recorded samples the gap glide resolves its velocity frame
-        /// from (<see cref="OrbitReseed.TryComputeHistoricalTailPairInputs"/>), for the glide
-        /// sample <paramref name="point"/> (an element of <paramref name="points"/>, as
-        /// <see cref="TrajectoryMath.BracketPointAtUT"/> returns it). Prefers the sample before
-        /// it, so the seeded state is <paramref name="point"/>'s own; when that one is in another
-        /// track section or on another body (a section start), pairs <paramref name="point"/>
-        /// with the sample after it and the seeded state is that later sample's. Both samples
-        /// must share <paramref name="point"/>'s section (by UT) and body: a section boundary can
-        /// be a frame or session seam the pair must not straddle. Points are sorted by UT.
-        /// </summary>
-        internal static bool TrySelectGapGlidePair(
-            List<TrajectoryPoint> points,
-            List<TrackSection> sections,
-            TrajectoryPoint point,
-            out TrajectoryPoint previous,
-            out TrajectoryPoint tail,
-            out string declineReason)
-        {
-            previous = default(TrajectoryPoint);
-            tail = default(TrajectoryPoint);
-            declineReason = null;
-            if (points == null || points.Count == 0)
-            {
-                declineReason = GapGlidePairPointNotFound;
-                return false;
-            }
-
-            // Last index with ut <= point.ut.
-            int lo = 0;
-            int hi = points.Count - 1;
-            int index = -1;
-            while (lo <= hi)
-            {
-                int mid = lo + (hi - lo) / 2;
-                if (points[mid].ut <= point.ut)
-                {
-                    index = mid;
-                    lo = mid + 1;
-                }
-                else
-                {
-                    hi = mid - 1;
-                }
-            }
-            if (index < 0 || points[index].ut != point.ut)
-            {
-                declineReason = GapGlidePairPointNotFound;
-                return false;
-            }
-
-            int section = FindGapGlideSection(sections, point.ut);
-            for (int j = index - 1; j >= 0; j--)
-            {
-                if (points[j].ut >= point.ut)
-                    continue;
-                if (IsGapGlidePartner(points[j], point, sections, section))
-                {
-                    previous = points[j];
-                    tail = point;
-                    return true;
-                }
-                break;
-            }
-
-            for (int k = index + 1; k < points.Count; k++)
-            {
-                if (points[k].ut <= point.ut)
-                    continue;
-                if (IsGapGlidePartner(points[k], point, sections, section))
-                {
-                    previous = point;
-                    tail = points[k];
-                    return true;
-                }
-                break;
-            }
-
-            declineReason = GapGlidePairSingleSample;
-            return false;
-        }
-
-        private static int FindGapGlideSection(List<TrackSection> sections, double ut)
-        {
-            return sections == null || sections.Count == 0
-                ? -1
-                : TrajectoryMath.FindTrackSectionForUT(sections, ut);
-        }
-
-        private static bool IsGapGlidePartner(
-            TrajectoryPoint candidate,
-            TrajectoryPoint point,
-            List<TrackSection> sections,
-            int pointSection)
-        {
-            return string.Equals(candidate.bodyName, point.bodyName, System.StringComparison.Ordinal)
-                && FindGapGlideSection(sections, candidate.ut) == pointSection;
         }
 
         /// <summary>

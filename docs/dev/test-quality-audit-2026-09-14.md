@@ -2415,7 +2415,7 @@ Still open at the baseline (grep-verified, zero or self-only test references): E
 | E2 | Reflection-classifier interpretation split | closed | F-catchall-035-01 |  |
 | E3 | BallisticExtrapolator Kepler core vs closed form | closed | F-trajectory-orbit-008-01 |  |
 | E4 | RecordedRelativeAnchorPoseResolver with injected body-pose provider | closed |  |  |
-| E5 | ReFlyCanonicalization round-trip under 1 mm | open |  |  |
+| E5 | ReFlyCanonicalization round-trip under 1 mm (the canonicalization was dead code and is deleted) | superseded |  |  |
 | E6 | Spawn-rotation family vs the two-rotation contract | closed |  |  |
 | E7 | TryPassTerminalOrbitSpawnSafety vs the BUG-C geometry | closed |  |  |
 | E8 | RP-slot ambiguity detection | unknown | F-recording-tree-032-02 |  |

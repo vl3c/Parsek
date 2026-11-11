@@ -73,7 +73,7 @@ namespace Parsek.Tests
         // ----- fixture: a real recordings directory with real staged sidecars -----
 
         /// <summary>
-        /// The seven sidecar suffixes <c>RecordingStore.DeleteRecordingFiles</c> unlinks
+        /// The seven sidecar suffixes <c>RecordingFileJanitor.DeleteRecordingFiles</c> unlinks
         /// under <c>Parsek/Recordings/</c>. Its EIGHTH limb - the per-recording
         /// quickload-resume save at <c>Parsek/Saves/&lt;RewindSaveFileName&gt;.sfs</c> -
         /// lives in a different directory and is staged separately (see
@@ -137,7 +137,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Stands in for <c>RecordingStore.DeleteRecordingFiles</c>, which resolves
+        /// Stands in for <c>RecordingFileJanitor.DeleteRecordingFiles</c>, which resolves
         /// paths through <c>KSPUtil.ApplicationRootPath</c> and throws outside KSP.
         /// Deletes exactly the recording's footprint from the staged save - the seven
         /// sidecars AND the quickload-resume save when the recording carries one - so
@@ -402,7 +402,7 @@ namespace Parsek.Tests
         [Fact]
         public void Reap_LockedFile_CountsAsFailed_AndTheBatchContinues()
         {
-            // This is the PRODUCTION degrade path. RecordingStore.DeleteRecordingFiles
+            // This is the PRODUCTION degrade path. RecordingFileJanitor.DeleteRecordingFiles
             // swallows each per-file exception (logging its own Warn) and reports the
             // outcome through its RETURN VALUE: false means at least one file is still
             // on disk. The reap must count that as failed rather than assume success,
@@ -446,9 +446,9 @@ namespace Parsek.Tests
             // production delete resolves no paths and unlinks nothing - that is
             // "nothing left behind", so it must report success; a null / invalid-id
             // recording is unusable and must report failure.
-            Assert.False(RecordingStore.DeleteRecordingFiles(null));
-            Assert.False(RecordingStore.DeleteRecordingFiles(new Recording { RecordingId = "../nope" }));
-            Assert.True(RecordingStore.DeleteRecordingFiles(Rec("rec-no-save-context")));
+            Assert.False(RecordingFileJanitor.DeleteRecordingFiles(null));
+            Assert.False(RecordingFileJanitor.DeleteRecordingFiles(new Recording { RecordingId = "../nope" }));
+            Assert.True(RecordingFileJanitor.DeleteRecordingFiles(Rec("rec-no-save-context")));
         }
 
         [Fact]
@@ -488,7 +488,7 @@ namespace Parsek.Tests
             StageRewindSave("resume-rec-with-save");
             string rpQuicksave = StageRewindPointQuicksave("rp-untouched");
 
-            // No deleter override here: the REAL RecordingStore.DeleteRecordingFiles
+            // No deleter override here: the REAL RecordingFileJanitor.DeleteRecordingFiles
             // runs, with its save-root resolution pointed at the staged temp save.
             // Every unlink below is production's.
             RecordingPaths.SaveRootOverrideForTesting = lastSaveRoot;
@@ -561,22 +561,24 @@ namespace Parsek.Tests
         public void PendingAndScopedDiscardPaths_KeepOwningTheirOwnSidecarDeletes()
         {
             // Inventory pin: the whole-pending-tree discard and the scoped
-            // switch-segment discard already delete sidecars at the store level, so
-            // this fix deliberately adds nothing there. If either loses its delete the
-            // gap reopens somewhere this fix does not cover.
-            string source = ReadProjectSource("RecordingStore.cs");
+            // switch-segment discard already delete sidecars in their services
+            // (TreeDiscardService, SwitchSegmentAttempts), so this fix deliberately adds
+            // nothing there. If either loses its delete the gap reopens somewhere this
+            // fix does not cover.
+            string source = ReadProjectSource("TreeDiscardService.cs");
             int discardPending = source.IndexOf("public static void DiscardPendingTree(",
                 StringComparison.Ordinal);
             Assert.True(discardPending > 0, "DiscardPendingTree not found");
             Assert.Contains("DeleteRecordingFiles(rec)",
                 source.Substring(discardPending, Math.Min(12000, source.Length - discardPending)));
 
-            int scoped = source.IndexOf(
-                "internal static SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt(",
+            string scopedSource = ReadProjectSource("SwitchSegmentAttempts.cs");
+            int scoped = scopedSource.IndexOf(
+                "internal static RecordingStore.SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt(",
                 StringComparison.Ordinal);
             Assert.True(scoped > 0, "TryDiscardActiveSwitchSegmentAttempt not found");
             Assert.Contains("DeleteRecordingFiles(rec)",
-                source.Substring(scoped, Math.Min(12000, source.Length - scoped)));
+                scopedSource.Substring(scoped, Math.Min(12000, scopedSource.Length - scoped)));
         }
 
         // ================= source gates: the gameplay paths reach the reap ==========
@@ -594,13 +596,13 @@ namespace Parsek.Tests
             parts.AddRange(relativeParts);
             string path = Path.Combine(parts.ToArray());
             Assert.True(File.Exists(path), $"source not found at {path}");
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
 
         private static string ReadAutoDiscardCoreBody()
         {
             string source = ReadProjectSource("ParsekFlight.cs");
-            int coreStart = source.IndexOf("private void AutoDiscardActiveTreeCore(",
+            int coreStart = source.IndexOf("internal void AutoDiscardActiveTreeCore(",
                 StringComparison.Ordinal);
             Assert.True(coreStart > 0, "AutoDiscardActiveTreeCore not found");
             int coreEnd = source.IndexOf("\n        private ", coreStart + 1, StringComparison.Ordinal);
@@ -616,7 +618,7 @@ namespace Parsek.Tests
         public void AutoDiscardActiveTreeCore_CapturesRecordingsBeforeNullingActiveTree()
         {
             string body = ReadAutoDiscardCoreBody();
-            int capture = body.IndexOf("DiscardSidecarReap.CaptureTreeRecordings(activeTree)",
+            int capture = body.IndexOf("DiscardSidecarReap.CaptureTreeRecordings(host.activeTree)",
                 StringComparison.Ordinal);
             int nulling = body.IndexOf("activeTree = null;", StringComparison.Ordinal);
             Assert.True(capture > 0, "reap capture not found in AutoDiscardActiveTreeCore");
@@ -660,7 +662,7 @@ namespace Parsek.Tests
         public void AutoDiscardActiveTreeCore_PassesTheCapturedTreeIdToTheReap()
         {
             string body = ReadAutoDiscardCoreBody();
-            int capture = body.IndexOf("reapTreeId = activeTree?.Id;", StringComparison.Ordinal);
+            int capture = body.IndexOf("reapTreeId = host.activeTree?.Id;", StringComparison.Ordinal);
             int nulling = body.IndexOf("activeTree = null;", StringComparison.Ordinal);
             Assert.True(capture > 0, "tree id capture not found in AutoDiscardActiveTreeCore");
             Assert.True(capture < nulling, "the tree id must be captured before the teardown");
@@ -681,7 +683,7 @@ namespace Parsek.Tests
             int end = source.IndexOf("\n        private ", start + 1, StringComparison.Ordinal);
             string body = source.Substring(start, (end > start ? end : source.Length) - start);
             int reapLine = body.IndexOf("discardtree sidecar-reap: treeRecordings=", StringComparison.Ordinal);
-            int note = body.IndexOf("RecordingStore.NoteTreeDiscardedThisSession(discardedTreeId", StringComparison.Ordinal);
+            int note = body.IndexOf("TreeDiscardService.NoteTreeDiscardedThisSession(discardedTreeId", StringComparison.Ordinal);
             Assert.True(reapLine > 0, "the verb's reap summary line not found");
             Assert.True(note > reapLine, "the verb must note the tree after its reap");
         }
@@ -696,7 +698,7 @@ namespace Parsek.Tests
             DiscardSidecarReap.ReapDiscardedTreeSidecars(
                 new List<Recording> { Rec("rec-note-a") }, skipReason: null,
                 context: "pre-switch-dialog discard", treeId: "tree-note", treeName: "Note Tree");
-            Assert.True(RecordingStore.WasTreeDiscardedThisSession("tree-note"));
+            Assert.True(TreeDiscardService.WasTreeDiscardedThisSession("tree-note"));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]")
                 && l.Contains("Noted tree 'Note Tree' id=tree-note as discarded this session (removedSidecarSets=1"));
@@ -706,7 +708,7 @@ namespace Parsek.Tests
             DiscardSidecarReap.ReapDiscardedTreeSidecars(
                 new List<Recording> { Rec("rec-note-b") }, skipReason: null,
                 context: "pre-switch-dialog discard", treeId: "tree-note-failed", treeName: "Failed");
-            Assert.False(RecordingStore.WasTreeDiscardedThisSession("tree-note-failed"));
+            Assert.False(TreeDiscardService.WasTreeDiscardedThisSession("tree-note-failed"));
 
             // No tree id (a caller that captured none): reaps as before, notes nothing.
             DiscardSidecarReap.DeleteRecordingFilesForTesting = rec => true;
@@ -737,7 +739,7 @@ namespace Parsek.Tests
         {
             string body = ReadAutoDiscardCoreBody();
             Assert.Matches(new Regex(
-                @"try\s*\{[\s\S]{0,900}?DiscardSidecarReap\.CaptureTreeRecordings\(activeTree\)" +
+                @"try\s*\{[\s\S]{0,900}?DiscardSidecarReap\.CaptureTreeRecordings\(host\.activeTree\)" +
                 @"[\s\S]{0,900}?\}\s*catch[\s\S]{0,400}?reapCapturedRecordings\s*=\s*null;",
                 RegexOptions.Multiline),
                 body);
@@ -757,7 +759,7 @@ namespace Parsek.Tests
             var optOutFiles = new List<string>();
             foreach (string path in EnumerateModSources())
             {
-                if (Regex.IsMatch(File.ReadAllText(path), @"reapSidecars:\s*false"))
+                if (Regex.IsMatch(ParsekFlightSourceFiles.ReadText(path), @"reapSidecars:\s*false"))
                     optOutFiles.Add(Path.GetFileName(path));
             }
             Assert.Equal(new[] { "ParsekTestCommandAddon.cs" }, optOutFiles.ToArray());

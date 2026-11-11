@@ -17,7 +17,7 @@ namespace Parsek.Tests
     /// <see cref="FlightRecorder.ClassifyForegroundCommitTimeOrder"/> closes the
     /// recorder-side gap (foreground analog of the background
     /// <c>ApplyTrajectoryPointToRecording</c> reject); <see
-    /// cref="RecordingStore.DropNonMonotonicTrajectoryPoints"/> heals recordings
+    /// cref="TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints"/> heals recordings
     /// already persisted with the corruption when they load.
     /// </summary>
     public class ForegroundMonotonicityTests
@@ -90,14 +90,14 @@ namespace Parsek.Tests
         [Fact]
         public void Drop_Null_ReturnsZero()
         {
-            Assert.Equal(0, RecordingStore.DropNonMonotonicTrajectoryPoints(null));
+            Assert.Equal(0, TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(null));
         }
 
         [Fact]
         public void Drop_SinglePoint_ReturnsZero()
         {
             var points = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 100.0 } };
-            Assert.Equal(0, RecordingStore.DropNonMonotonicTrajectoryPoints(points));
+            Assert.Equal(0, TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(points));
             Assert.Single(points);
         }
 
@@ -111,7 +111,7 @@ namespace Parsek.Tests
                 new TrajectoryPoint { ut = 110.0 },
                 new TrajectoryPoint { ut = 120.0 },
             };
-            Assert.Equal(0, RecordingStore.DropNonMonotonicTrajectoryPoints(points));
+            Assert.Equal(0, TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(points));
             Assert.Equal(4, points.Count);
         }
 
@@ -129,7 +129,7 @@ namespace Parsek.Tests
                 new TrajectoryPoint { ut = 61.392699890135795 },
             };
 
-            int dropped = RecordingStore.DropNonMonotonicTrajectoryPoints(points);
+            int dropped = TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(points);
 
             Assert.Equal(1, dropped);
             Assert.Equal(4, points.Count);
@@ -155,7 +155,7 @@ namespace Parsek.Tests
                 new TrajectoryPoint { ut = 180.0 },
             };
 
-            int dropped = RecordingStore.DropNonMonotonicTrajectoryPoints(points);
+            int dropped = TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(points);
 
             Assert.Equal(2, dropped);
             Assert.Equal(3, points.Count);

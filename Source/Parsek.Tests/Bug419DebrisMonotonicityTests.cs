@@ -509,7 +509,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.AppendPointsFromTrackSections(tracks, existingPoints);
+            TrajectoryTextSidecarCodec.AppendPointsFromTrackSections(tracks, existingPoints);
 
             Assert.Equal(5, existingPoints.Count);
             Assert.DoesNotContain(logLines, l => l.Contains("non-monotonic frame(s)"));
@@ -547,7 +547,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.AppendPointsFromTrackSections(tracks, existingPoints);
+            TrajectoryTextSidecarCodec.AppendPointsFromTrackSections(tracks, existingPoints);
 
             // The two non-monotonic frames (155.84, 165.0) must be skipped; only 180.0
             // extends strictly past the current last (170.92).
@@ -584,7 +584,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.AppendPointsFromTrackSections(tracks, existingPoints);
+            TrajectoryTextSidecarCodec.AppendPointsFromTrackSections(tracks, existingPoints);
 
             Assert.Equal(3, existingPoints.Count);
             Assert.DoesNotContain(logLines, l => l.Contains("non-monotonic frame(s)"));

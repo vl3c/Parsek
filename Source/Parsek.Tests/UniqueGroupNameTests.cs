@@ -34,7 +34,7 @@ namespace Parsek.Tests
         [Fact]
         public void FirstUse_ReturnsBaseNameUnchanged()
         {
-            string result = RecordingStore.GenerateUniqueGroupName("Flea");
+            string result = RecordingGroupStore.GenerateUniqueGroupName("Flea", RecordingStore.CommittedRecordings);
 
             Assert.Equal("Flea", result);
             Assert.Contains(logLines, l =>
@@ -51,7 +51,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "Flea" }
             });
 
-            string result = RecordingStore.GenerateUniqueGroupName("Flea");
+            string result = RecordingGroupStore.GenerateUniqueGroupName("Flea", RecordingStore.CommittedRecordings);
 
             // Hash-prefix suffix avoids the "(N) (count)" visual collision in
             // the recordings-table button label — see GenerateUniqueGroupName
@@ -76,7 +76,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "Flea #2" }
             });
 
-            string result = RecordingStore.GenerateUniqueGroupName("Flea");
+            string result = RecordingGroupStore.GenerateUniqueGroupName("Flea", RecordingStore.CommittedRecordings);
 
             Assert.Equal("Flea #3", result);
             Assert.Contains(logLines, l =>
@@ -92,7 +92,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "Flea" }
             });
 
-            string result = RecordingStore.GenerateUniqueGroupName("Hopper");
+            string result = RecordingGroupStore.GenerateUniqueGroupName("Hopper", RecordingStore.CommittedRecordings);
 
             Assert.Equal("Hopper", result);
         }
@@ -100,7 +100,7 @@ namespace Parsek.Tests
         [Fact]
         public void NullBaseName_FallsBackToChain()
         {
-            string result = RecordingStore.GenerateUniqueGroupName(null);
+            string result = RecordingGroupStore.GenerateUniqueGroupName(null, RecordingStore.CommittedRecordings);
 
             Assert.Equal("Chain", result);
             Assert.Contains(logLines, l =>
@@ -110,7 +110,7 @@ namespace Parsek.Tests
         [Fact]
         public void EmptyBaseName_FallsBackToChain()
         {
-            string result = RecordingStore.GenerateUniqueGroupName("");
+            string result = RecordingGroupStore.GenerateUniqueGroupName("", RecordingStore.CommittedRecordings);
 
             Assert.Equal("Chain", result);
             Assert.Contains(logLines, l =>
@@ -127,7 +127,7 @@ namespace Parsek.Tests
             });
 
             // "Flea" should collide with "flea" (case-insensitive)
-            string result = RecordingStore.GenerateUniqueGroupName("Flea");
+            string result = RecordingGroupStore.GenerateUniqueGroupName("Flea", RecordingStore.CommittedRecordings);
 
             Assert.Equal("Flea #2", result);
         }
@@ -142,7 +142,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "Flea", "Flea #3" }
             });
 
-            string result = RecordingStore.GenerateUniqueGroupName("Flea");
+            string result = RecordingGroupStore.GenerateUniqueGroupName("Flea", RecordingStore.CommittedRecordings);
 
             Assert.Equal("Flea #2", result);
         }

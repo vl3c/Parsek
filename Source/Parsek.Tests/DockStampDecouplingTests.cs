@@ -110,12 +110,12 @@ namespace Parsek.Tests
         {
             // Both OnPartCouple paths must feed the stamp the partner-side flag, never the
             // either-side coupleInvolvesEva the route window keys on.
-            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            string src = ParsekFlightSourceFiles.ReadAll(System.IO.Path.Combine(
                 System.AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "ParsekFlight.cs"));
+                "..", "..", "..", "..", "..", "Source", "Parsek"));
             Assert.DoesNotContain("RecordingVesselId, coupleInvolvesEva)", src);
-            Assert.Contains("partnerPidFromEvent, recorder.RecordingVesselId, partnerIsEva);", src);
-            Assert.Contains("partnerPidFromEventR, recorder.RecordingVesselId, partnerIsEvaR);", src);
+            Assert.Contains("partnerPidFromEvent, host.recorder.RecordingVesselId, partnerIsEva);", src);
+            Assert.Contains("partnerPidFromEventR, host.recorder.RecordingVesselId, partnerIsEvaR);", src);
             Assert.Contains("data.from, data.to, partnerPidFromEvent);", src);
             Assert.Contains("data.from, data.to, partnerPidFromEventR);", src);
         }

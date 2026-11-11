@@ -130,7 +130,7 @@ namespace Parsek.Tests
         public void UpdateRecordingsForTerminalEvent_RenamedVessel_StampedAndLogged()
         {
             var rec = MakeRec("pending-renamed", "Probe", 4242u, GuidA);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromRawName("Relay-2", GuidA, 4242u),
@@ -148,7 +148,7 @@ namespace Parsek.Tests
         public void UpdateRecordingsForTerminalEvent_SameNameDifferentLaunch_LeftAlone()
         {
             var rec = MakeRec("pending-other", "Kerbal X", 4242u, GuidA);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromRawName("Kerbal X", GuidB, 4242u),
@@ -164,7 +164,7 @@ namespace Parsek.Tests
         public void UpdateRecordingsForTerminalEvent_SameNameMatch_DoesNotLogRenamedLine()
         {
             var rec = MakeRec("pending-same", "Kerbal X", 4242u, GuidA);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             Assert.True(ParsekScenario.UpdateRecordingsForTerminalEvent(
                 RecoveredVesselIdentity.FromRawName("Kerbal X", GuidA, 4242u),
@@ -176,7 +176,7 @@ namespace Parsek.Tests
         public void ShouldPatchRecoveryFundsOutsideFlight_RenamedPendingOwner_DefersToCommit()
         {
             var rec = MakeRec("pending-funds", "Probe", 4242u, GuidA);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             // The renamed vessel is still owned by its pending recording: the commit pays it.
             Assert.False(ParsekScenario.ShouldPatchRecoveryFundsOutsideFlight(
@@ -192,7 +192,7 @@ namespace Parsek.Tests
         public void RecoveryDispatchScope_RenamedPendingVessel_OwnsTheProgressEvent()
         {
             var rec = MakeRec("pending-scope", "Probe", 4242u, GuidA);
-            RecordingStore.StashPendingTree(MakePendingTree(rec));
+            PendingTreeSlot.StashPendingTree(MakePendingTree(rec));
 
             RecoveryDispatchScope.Open(
                 RecoveredVesselIdentity.FromRawName("Relay-2", GuidA, 4242u), 4242u, "test");
@@ -473,13 +473,13 @@ namespace Parsek.Tests
         }
 
         // ============================================================
-        // RecordingStore.IsSameVesselForContinuationRepair (SupersedeTerminalSpawn)
+        // TreeCommitService.IsSameVesselForContinuationRepair (SupersedeTerminalSpawn)
         // ============================================================
 
         [Fact]
         public void ContinuationRepair_SameNameDifferentLaunch_NotSuperseded()
         {
-            Assert.False(RecordingStore.IsSameVesselForContinuationRepair(
+            Assert.False(TreeCommitService.IsSameVesselForContinuationRepair(
                 MakeRec("prior", "Rover", 1u, GuidA), MakeRec("cont", "Rover", 2u, GuidB),
                 out string reason));
             Assert.Null(reason);
@@ -488,7 +488,7 @@ namespace Parsek.Tests
         [Fact]
         public void ContinuationRepair_RenamedSameLaunch_Superseded()
         {
-            Assert.True(RecordingStore.IsSameVesselForContinuationRepair(
+            Assert.True(TreeCommitService.IsSameVesselForContinuationRepair(
                 MakeRec("prior", "Rover", 1u, GuidA), MakeRec("cont", "Base Rover", 2u, GuidA),
                 out string reason));
             Assert.Equal("same-launch-overlapping-continuation-tree", reason);
@@ -497,11 +497,11 @@ namespace Parsek.Tests
         [Fact]
         public void ContinuationRepair_GuidlessLegacy_StillMatchedByName()
         {
-            Assert.True(RecordingStore.IsSameVesselForContinuationRepair(
+            Assert.True(TreeCommitService.IsSameVesselForContinuationRepair(
                 MakeRec("prior", "Rover", 1u, null), MakeRec("cont", "Rover", 2u, GuidB),
                 out string reason));
             Assert.Equal("same-name-overlapping-continuation-tree", reason);
-            Assert.False(RecordingStore.IsSameVesselForContinuationRepair(
+            Assert.False(TreeCommitService.IsSameVesselForContinuationRepair(
                 MakeRec("prior", "Rover", 1u, null), MakeRec("cont", "Other", 2u, null),
                 out _));
         }
@@ -546,7 +546,7 @@ namespace Parsek.Tests
         }
 
         // ============================================================
-        // RecordingStore.RewindOwnerStrip (unchanged in Phase 0): why its name fallback stays
+        // RewindSpawnScope.RewindOwnerStrip (unchanged in Phase 0): why its name fallback stays
         // ============================================================
 
         // Settles design 7.9's open check: the PID strip does NOT cover a re-keyed owner copy
@@ -561,29 +561,29 @@ namespace Parsek.Tests
             owner.VesselSpawned = false;
             owner.SpawnedVesselPersistentId = 0u;
 
-            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+            var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 new List<Recording> { owner }, double.NaN);
             Assert.DoesNotContain(90001u, scope.StripPids);
 
-            var strip = RecordingStore.BuildRewindOwnerStrip(owner);
+            var strip = RewindSpawnScope.BuildRewindOwnerStrip(owner);
             // The quicksave holds only the re-keyed copy (fresh spawn guid): no vessel carries
             // the owner guid, so the strip is unanchored and the name decides.
-            bool anchored = RecordingStore.RewindOwnerStripIsAnchored(strip, new[] { GuidB });
+            bool anchored = RewindSpawnScope.RewindOwnerStripIsAnchored(strip, new[] { GuidB });
             Assert.False(anchored);
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Relay", GuidB, strip, anchored));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripName,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Relay", GuidB, strip, anchored));
             // Neither the name nor the guid reaches a copy under another name without a link.
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.NotMatched,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Relay-2", GuidB, strip, anchored));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.NotMatched,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Relay-2", GuidB, strip, anchored));
 
             // Phase 2b: the Resume link puts the copy's guid in the owner's identity guid set,
             // so the copy is found by guid under any name.
             Assert.True(VesselNameStore.AddLink(GuidB, GuidA, VesselIdentityLinkKind.Resume, "test"));
-            var linked = RecordingStore.BuildRewindOwnerStrip(owner);
-            bool linkedAnchored = RecordingStore.RewindOwnerStripIsAnchored(linked, new[] { GuidB });
+            var linked = RewindSpawnScope.BuildRewindOwnerStrip(owner);
+            bool linkedAnchored = RewindSpawnScope.RewindOwnerStripIsAnchored(linked, new[] { GuidB });
             Assert.True(linkedAnchored);
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripOwnerGuid,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Relay-2", GuidB, linked, linkedAnchored));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripOwnerGuid,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Relay-2", GuidB, linked, linkedAnchored));
         }
 
         // ============================================================

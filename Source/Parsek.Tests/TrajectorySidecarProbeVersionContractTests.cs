@@ -10,7 +10,7 @@ namespace Parsek.Tests
         [Fact]
         public void CurrentVersionPair_IsAccepted()
         {
-            Assert.True(RecordingStore.IsAcceptableSidecarVersionLag(
+            Assert.True(RecordingSidecarStore.IsAcceptableSidecarVersionLag(
                 RecordingStore.CurrentRecordingFormatVersion,
                 RecordingStore.CurrentRecordingFormatVersion));
         }
@@ -18,7 +18,7 @@ namespace Parsek.Tests
         [Fact]
         public void LegacyEqualVersionPair_IsRejected()
         {
-            Assert.False(RecordingStore.IsAcceptableSidecarVersionLag(
+            Assert.False(RecordingSidecarStore.IsAcceptableSidecarVersionLag(
                 RecordingStore.CurrentRecordingFormatVersion - 1,
                 RecordingStore.CurrentRecordingFormatVersion - 1));
         }
@@ -26,7 +26,7 @@ namespace Parsek.Tests
         [Fact]
         public void MismatchedVersionPair_IsRejected()
         {
-            Assert.False(RecordingStore.IsAcceptableSidecarVersionLag(
+            Assert.False(RecordingSidecarStore.IsAcceptableSidecarVersionLag(
                 RecordingStore.CurrentRecordingFormatVersion - 1,
                 RecordingStore.CurrentRecordingFormatVersion));
         }
@@ -38,7 +38,7 @@ namespace Parsek.Tests
             try
             {
                 TrajectorySidecarProbe probe;
-                Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+                Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(path, out probe));
 
                 Assert.False(probe.Supported);
                 Assert.Equal(TrajectorySidecarEncoding.UnknownBinary, probe.Encoding);

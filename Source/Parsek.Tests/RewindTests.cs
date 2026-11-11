@@ -26,20 +26,20 @@ namespace Parsek.Tests
         [Fact]
         public void IsStableState_StableStates()
         {
-            Assert.True(RecordingStore.IsStableState(1));   // LANDED
-            Assert.True(RecordingStore.IsStableState(2));   // SPLASHED
-            Assert.True(RecordingStore.IsStableState(4));   // PRELAUNCH
-            Assert.True(RecordingStore.IsStableState(32));  // ORBITING
+            Assert.True(RewindSpawnScope.IsStableState(1));   // LANDED
+            Assert.True(RewindSpawnScope.IsStableState(2));   // SPLASHED
+            Assert.True(RewindSpawnScope.IsStableState(4));   // PRELAUNCH
+            Assert.True(RewindSpawnScope.IsStableState(32));  // ORBITING
         }
 
         [Fact]
         public void IsStableState_UnstableStates()
         {
-            Assert.False(RecordingStore.IsStableState(8));   // FLYING
-            Assert.False(RecordingStore.IsStableState(16));  // SUB_ORBITAL
-            Assert.False(RecordingStore.IsStableState(64));  // ESCAPING
-            Assert.False(RecordingStore.IsStableState(128)); // DOCKED
-            Assert.False(RecordingStore.IsStableState(0));   // unknown
+            Assert.False(RewindSpawnScope.IsStableState(8));   // FLYING
+            Assert.False(RewindSpawnScope.IsStableState(16));  // SUB_ORBITAL
+            Assert.False(RewindSpawnScope.IsStableState(64));  // ESCAPING
+            Assert.False(RewindSpawnScope.IsStableState(128)); // DOCKED
+            Assert.False(RewindSpawnScope.IsStableState(0));   // unknown
         }
 
         [Fact]
@@ -58,7 +58,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 200 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            var (recordingCount, treeCount) = RecordingStore.ResetAllPlaybackState();
+            var (recordingCount, treeCount) = RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal(1, recordingCount);
             Assert.Equal(1, treeCount);
@@ -133,7 +133,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             // A committed verdict is recorded content (REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL,
             // ruling 2026-09-26): the spawn fields reset, the verdict stays.
@@ -154,7 +154,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
             Assert.Equal(0u, rec.SpawnedVesselPersistentId);
@@ -173,7 +173,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             // Terminal state should persist — it was set during recording, not post-spawn
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
@@ -192,7 +192,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             // Every recorded verdict is preserved, situation-based ones included
             Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
@@ -204,7 +204,7 @@ namespace Parsek.Tests
             var rec = new Recording { VesselName = "Rocket", SpawnedVesselPersistentId = 0 };
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+            var (pids, names) = RewindLauncher.CollectSpawnedVesselInfo();
 
             Assert.Empty(pids);
             Assert.Empty(names);
@@ -218,7 +218,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Shuttle", SpawnedVesselPersistentId = 99 });
 
-            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+            var (pids, names) = RewindLauncher.CollectSpawnedVesselInfo();
 
             Assert.Equal(2, pids.Count);
             Assert.Contains(42u, pids);
@@ -236,7 +236,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Shuttle", SpawnedVesselPersistentId = 0 });
 
-            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+            var (pids, names) = RewindLauncher.CollectSpawnedVesselInfo();
 
             Assert.Single(pids);
             Assert.Contains(42u, pids);
@@ -252,7 +252,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(new Recording
                 { VesselName = "Rocket", SpawnedVesselPersistentId = 99 });
 
-            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+            var (pids, names) = RewindLauncher.CollectSpawnedVesselInfo();
 
             Assert.Equal(2, pids.Count);
             Assert.Single(names); // "Rocket" deduplicated

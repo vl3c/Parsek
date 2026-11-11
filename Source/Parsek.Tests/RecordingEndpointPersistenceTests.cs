@@ -141,7 +141,7 @@ namespace Parsek.Tests
                     RecordingEndpointPhase.Unknown,
                     null);
                 source.RecordingId = "authoritative-endpoint";
-                RecordingStore.WriteTrajectorySidecar(precPath, source, sidecarEpoch: 1);
+                RecordingSidecarStore.WriteTrajectorySidecar(precPath, source, sidecarEpoch: 1);
 
                 var loaded = new Recording
                 {
@@ -160,7 +160,7 @@ namespace Parsek.Tests
                     TerminalOrbitEpoch = 150.0
                 };
 
-                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                     loaded, precPath, vesselPath, ghostPath));
 
                 Assert.Equal(RecordingEndpointPhase.TrajectoryPoint, loaded.EndpointPhase);

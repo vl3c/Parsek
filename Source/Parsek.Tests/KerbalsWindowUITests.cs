@@ -1468,10 +1468,10 @@ namespace Parsek.Tests
         [Fact]
         public void ScrollToRecording_OpensTheTimelineWindowWhenItIsClosed()
         {
-            var ui = new ParsekUI(UIMode.KSC);
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
             try
             {
-                TimelineWindowUI timeline = ui.GetTimelineUI();
+                TimelineWindowUI timeline = ParsekWindowSet.Of(ui).GetTimelineUI();
                 Assert.False(timeline.IsOpen);
 
                 // Exactly what a Flights row hands OnFatesRowClicked.
@@ -2078,10 +2078,10 @@ namespace Parsek.Tests
         public void LiveCrewRefresh_TheDocumentedEventSetIsExactlyWhatTheWindowSubscribes()
         {
             string src = TooltipEchoBudgetTests.ReadParsekSource("UI/KerbalsWindowUI.cs");
-            int start = src.IndexOf("internal void SubscribeLiveCrewEvents()",
+            int start = src.IndexOf("public void SubscribeLiveCrewEvents()",
                 StringComparison.Ordinal);
             Assert.True(start >= 0, "SubscribeLiveCrewEvents moved or was renamed.");
-            int end = src.IndexOf("internal void UnsubscribeLiveCrewEvents()",
+            int end = src.IndexOf("public void UnsubscribeLiveCrewEvents()",
                 start, StringComparison.Ordinal);
             Assert.True(end > start, "UnsubscribeLiveCrewEvents moved or was renamed.");
             string body = src.Substring(start, end - start);
@@ -2121,12 +2121,16 @@ namespace Parsek.Tests
         [Fact]
         public void LiveCrewRefresh_ParsekUiSubscribesAndUnsubscribesWhereTheLedgerHookIs()
         {
-            string src = TooltipEchoBudgetTests.ReadParsekSource("ParsekUI.cs");
+            // Line endings normalized: the adjacency needle below spans a line break, and a
+            // core.autocrlf=true checkout stores the file with CRLF.
+            string src = TooltipEchoBudgetTests.ReadParsekSource("ParsekUI.cs").Replace("\r\n", "\n");
             // Both constructors subscribe (one per scene host), and Cleanup drops them.
             Assert.Equal(2, CountOccurrences(src, "kerbalsUI.SubscribeLiveCrewEvents();"));
             Assert.Equal(1, CountOccurrences(src, "kerbalsUI.UnsubscribeLiveCrewEvents();"));
+            // The ledger hook: each window hooks its own cache, Timeline first, from the
+            // same two constructors.
             Assert.Equal(2, CountOccurrences(
-                src, "LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;"));
+                src, "timelineUI.SubscribeTimelineDataChanged();\n            kerbalsUI.SubscribeTimelineDataChanged();"));
         }
 
         // R11 - catches: a negative expanded= term on the wire. foldedKerbals can hold a

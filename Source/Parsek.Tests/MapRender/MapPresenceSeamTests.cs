@@ -63,7 +63,7 @@ namespace Parsek.Tests
         [Fact]
         public void ParsekFlight_DrivesMapPresence_ThroughScene_NotPolicyDirectly()
         {
-            string source = ReadSource("Source", "Parsek", "ParsekFlight.cs");
+            string source = ParsekFlightSourceFiles.ReadAll(Path.Combine(ProjectRoot, "Source", "Parsek"));
 
             // The per-frame presence tick routes through the scene adapter seam...
             Assert.Contains("mapViewScene.DriveMapPresence(", source);

@@ -59,7 +59,7 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no existing pending tree");
                 yield break;
@@ -101,7 +101,7 @@ namespace Parsek.InGameTests
             try
             {
                 MergeDialog.DismissAndClearPendingFlag("OnFlightReady Re-Fly guard test setup");
-                RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+                PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
 
                 scenario.ActiveReFlySessionMarker = new ReFlySessionMarker
                 {
@@ -145,10 +145,10 @@ namespace Parsek.InGameTests
             finally
             {
                 MergeDialog.DismissAndClearPendingFlag("OnFlightReady Re-Fly guard test cleanup");
-                if (RecordingStore.HasPendingTree
-                    && object.ReferenceEquals(RecordingStore.PendingTree, tree))
+                if (PendingTreeSlot.HasPendingTree
+                    && object.ReferenceEquals(PendingTreeSlot.PendingTree, tree))
                 {
-                    RecordingStore.DiscardPendingTree();
+                    TreeDiscardService.DiscardPendingTree();
                 }
                 // Restore the marker, then re-align RenderSessionState with
                 // it. Skip-on-active-session guarantees savedMarker is null
@@ -178,7 +178,7 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            if (RecordingStore.HasPendingTree)
+            if (PendingTreeSlot.HasPendingTree)
             {
                 InGameAssert.Skip("requires no existing pending tree");
                 yield break;
@@ -215,7 +215,7 @@ namespace Parsek.InGameTests
             try
             {
                 MergeDialog.DismissAndClearPendingFlag("OnFlightReady control test setup");
-                RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+                PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
                 scenario.ActiveReFlySessionMarker = null;
                 // Pair the marker-null with the anchor-map clear so the T4
                 // grep scan (AnchorCorrectionLifecycleTests.Marker_NullAssignmentSites_AllPairWithClearCall)
@@ -250,10 +250,10 @@ namespace Parsek.InGameTests
             finally
             {
                 MergeDialog.DismissAndClearPendingFlag("OnFlightReady control test cleanup");
-                if (RecordingStore.HasPendingTree
-                    && object.ReferenceEquals(RecordingStore.PendingTree, tree))
+                if (PendingTreeSlot.HasPendingTree
+                    && object.ReferenceEquals(PendingTreeSlot.PendingTree, tree))
                 {
-                    RecordingStore.DiscardPendingTree();
+                    TreeDiscardService.DiscardPendingTree();
                 }
                 // Restore the marker, then re-align RenderSessionState with
                 // it. Skip-on-active-session guarantees savedMarker is null

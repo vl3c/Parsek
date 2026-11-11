@@ -78,7 +78,7 @@ namespace Parsek.Tests
                 RootRecordingId = rec.RecordingId
             };
             tree.Recordings[rec.RecordingId] = rec;
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
             return MissionStore.FindOriginalMission(treeId);
         }
@@ -92,15 +92,15 @@ namespace Parsek.Tests
         {
             Mission mission = CommitTreeWithMission("tree-1", "Munshot", "rec-1");
 
-            var ui = new ParsekUI(UIMode.KSC);
-            var table = ui.GetRecordingsTableUI();
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            var table = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
             Assert.Equal(RecordingsTableUI.TabMissions, table.SelectedTabForTesting);
 
             table.ShowMissionForRecording("rec-1");
 
             Assert.True(table.IsOpen);
             Assert.Equal(RecordingsTableUI.TabMissions, table.SelectedTabForTesting);
-            Assert.Equal(mission.Id, ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+            Assert.Equal(mission.Id, ParsekWindowSet.Of(ui).GetMissionsUI().PendingRevealMissionIdForTesting);
             Assert.Contains(logLines, l =>
                 l.Contains("[UI]") && l.Contains("Cross-link: reveal requested for mission"));
         }
@@ -113,8 +113,8 @@ namespace Parsek.Tests
         {
             CommitTreeWithMission("tree-1", "Munshot", "rec-1");
 
-            var ui = new ParsekUI(UIMode.KSC);
-            var table = ui.GetRecordingsTableUI();
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            var table = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
             table.ScrollToRecording("rec-1");
             Assert.Equal(RecordingsTableUI.TabRecordings, table.SelectedTabForTesting);
 
@@ -135,10 +135,10 @@ namespace Parsek.Tests
             Mission clone = MissionStore.Clone(original);
             Assert.NotEqual(original.Id, clone.Id);
 
-            var ui = new ParsekUI(UIMode.KSC);
-            ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            ParsekWindowSet.Of(ui).GetRecordingsTableUI().ShowMissionForRecording("rec-1");
 
-            Assert.Equal(original.Id, ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+            Assert.Equal(original.Id, ParsekWindowSet.Of(ui).GetMissionsUI().PendingRevealMissionIdForTesting);
         }
 
         // --- Collapse ---
@@ -155,12 +155,12 @@ namespace Parsek.Tests
             Mission mission = CommitTreeWithMission("tree-1", "Munshot", "rec-1");
             mission.Collapsed = true;
 
-            var ui = new ParsekUI(UIMode.KSC);
-            ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            ParsekWindowSet.Of(ui).GetRecordingsTableUI().ShowMissionForRecording("rec-1");
 
-            Assert.Equal(mission.Id, ui.GetMissionsUI().PendingExpandMissionIdForTesting);
+            Assert.Equal(mission.Id, ParsekWindowSet.Of(ui).GetMissionsUI().PendingExpandMissionIdForTesting);
             Assert.True(mission.Collapsed);   // the draw expands it, not the click
-            Assert.Equal(mission.Id, ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+            Assert.Equal(mission.Id, ParsekWindowSet.Of(ui).GetMissionsUI().PendingRevealMissionIdForTesting);
             Assert.Contains(logLines, l =>
                 l.Contains("[UI]") && l.Contains("Cross-link: queued expanding collapsed mission"));
         }
@@ -171,10 +171,10 @@ namespace Parsek.Tests
         {
             CommitTreeWithMission("tree-1", "Munshot", "rec-1");
 
-            var ui = new ParsekUI(UIMode.KSC);
-            ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            ParsekWindowSet.Of(ui).GetRecordingsTableUI().ShowMissionForRecording("rec-1");
 
-            Assert.Null(ui.GetMissionsUI().PendingExpandMissionIdForTesting);
+            Assert.Null(ParsekWindowSet.Of(ui).GetMissionsUI().PendingExpandMissionIdForTesting);
         }
 
         // --- Failure paths: land on the tab, warn, schedule nothing ---
@@ -182,14 +182,14 @@ namespace Parsek.Tests
         [Fact]
         public void GoToWarnsAndSchedulesNothingWhenTheRecordingIsNotEffective()
         {
-            var ui = new ParsekUI(UIMode.KSC);
-            var table = ui.GetRecordingsTableUI();
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            var table = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
 
             table.ShowMissionForRecording("no-such-recording");
 
             Assert.True(table.IsOpen);
             Assert.Equal(RecordingsTableUI.TabMissions, table.SelectedTabForTesting);
-            Assert.Null(ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+            Assert.Null(ParsekWindowSet.Of(ui).GetMissionsUI().PendingRevealMissionIdForTesting);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("not found in the effective recording set"));
         }
@@ -199,10 +199,10 @@ namespace Parsek.Tests
         {
             RecordingStore.AddCommittedInternal(MakeRec("rec-1", null));
 
-            var ui = new ParsekUI(UIMode.KSC);
-            ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            ParsekWindowSet.Of(ui).GetRecordingsTableUI().ShowMissionForRecording("rec-1");
 
-            Assert.Null(ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+            Assert.Null(ParsekWindowSet.Of(ui).GetMissionsUI().PendingRevealMissionIdForTesting);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("belongs to no mission"));
         }
@@ -214,10 +214,10 @@ namespace Parsek.Tests
         {
             RecordingStore.AddCommittedInternal(MakeRec("rec-1", "tree-1"));
 
-            var ui = new ParsekUI(UIMode.KSC);
-            ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            ParsekWindowSet.Of(ui).GetRecordingsTableUI().ShowMissionForRecording("rec-1");
 
-            Assert.Null(ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+            Assert.Null(ParsekWindowSet.Of(ui).GetMissionsUI().PendingRevealMissionIdForTesting);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("has no mission for recording"));
         }
@@ -237,15 +237,15 @@ namespace Parsek.Tests
                 RootRecordingId = rec.RecordingId
             };
             tree.Recordings[rec.RecordingId] = rec;
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
             Assert.Null(MissionStore.FindOriginalMission("tree-1"));
 
-            var ui = new ParsekUI(UIMode.KSC);
-            ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            ParsekWindowSet.Of(ui).GetRecordingsTableUI().ShowMissionForRecording("rec-1");
 
             Mission seeded = MissionStore.FindOriginalMission("tree-1");
             Assert.NotNull(seeded);
-            Assert.Equal(seeded.Id, ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+            Assert.Equal(seeded.Id, ParsekWindowSet.Of(ui).GetMissionsUI().PendingRevealMissionIdForTesting);
             // Specifically not the backstop path. (Scoped to cross-link warns: committing a
             // tree emits unrelated merger logging.)
             Assert.DoesNotContain(logLines, l =>
@@ -258,14 +258,14 @@ namespace Parsek.Tests
         {
             CommitTreeWithMission("tree-1", "Munshot", "rec-1");
 
-            var ui = new ParsekUI(UIMode.KSC);
-            var table = ui.GetRecordingsTableUI();
+            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
+            var table = ParsekWindowSet.Of(ui).GetRecordingsTableUI();
             table.ShowMissionForRecording("rec-1");
-            Assert.NotNull(ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+            Assert.NotNull(ParsekWindowSet.Of(ui).GetMissionsUI().PendingRevealMissionIdForTesting);
 
             table.ShowMissionForRecording("no-such-recording");
 
-            Assert.Null(ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+            Assert.Null(ParsekWindowSet.Of(ui).GetMissionsUI().PendingRevealMissionIdForTesting);
         }
 
         // --- Rows that have no mission to go to ---
@@ -346,7 +346,7 @@ namespace Parsek.Tests
                 path = Path.Combine(projectRoot, "Parsek", "ParsekFlight.cs");
             Assert.True(File.Exists(path), $"ParsekFlight.cs not found at {path}");
 
-            string dense = Regex.Replace(File.ReadAllText(path), @"\s+", string.Empty);
+            string dense = Regex.Replace(ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path)), @"\s+", string.Empty);
 
             Assert.Contains(
                 "SelectiveSpawnUI.FormatProximityNotification(cand,currentUT,ParsekUI.IsSpawnControlReachable)",
@@ -403,7 +403,7 @@ namespace Parsek.Tests
             if (!File.Exists(path))
                 path = Path.Combine(projectRoot, "Parsek", "UI", "TimelineWindowUI.cs");
             Assert.True(File.Exists(path), $"TimelineWindowUI.cs not found at {path}");
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
     }
 }

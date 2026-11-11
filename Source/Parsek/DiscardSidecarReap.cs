@@ -8,7 +8,7 @@ namespace Parsek
     ///
     /// <para><b>Why this exists.</b> <c>StartRecording</c>'s quickload-resume OnSave
     /// writes ACTIVE-tree sidecars to <c>saves/&lt;save&gt;/Parsek/Recordings/</c> - the
-    /// seven files <c>RecordingStore.DeleteRecordingFiles</c> unlinks (<c>.prec</c>,
+    /// seven files <c>RecordingFileJanitor.DeleteRecordingFiles</c> unlinks (<c>.prec</c>,
     /// <c>.pann</c>, <c>_vessel.craft</c>, <c>_ghost.craft</c> and the three readable
     /// mirrors), plus, for a recording that carries one, its per-recording
     /// quickload-resume save at <c>Parsek/Saves/&lt;name&gt;.sfs</c> (NOT the
@@ -57,7 +57,7 @@ namespace Parsek
     {
         /// <summary>
         /// Test seam for the per-recording sidecar delete. Null in production, where the
-        /// reap calls <c>RecordingStore.DeleteRecordingFiles</c> (which resolves paths
+        /// reap calls <c>RecordingFileJanitor.DeleteRecordingFiles</c> (which resolves paths
         /// through <c>KSPUtil.ApplicationRootPath</c> and therefore cannot run headless).
         /// Carries the same contract as the production delete: true when nothing was
         /// left behind, false when at least one file could not be unlinked.
@@ -176,7 +176,7 @@ namespace Parsek
         /// <param name="treeId">
         /// The discarded tree's id, captured with the recordings. When at least one
         /// sidecar set was fully removed, the tree is noted as discarded this session
-        /// (<see cref="RecordingStore.NoteTreeDiscardedThisSession"/>), so a later load of
+        /// (<see cref="TreeDiscardService.NoteTreeDiscardedThisSession"/>), so a later load of
         /// a save that still holds it as the active tree starts a fresh recording instead
         /// of resuming into the deleted ids.
         /// </param>
@@ -248,7 +248,7 @@ namespace Parsek
                     // assuming success, so `failed=` in the summary is truthful.
                     bool allDeleted = delete != null
                         ? delete(rec)
-                        : RecordingStore.DeleteRecordingFiles(rec);
+                        : RecordingFileJanitor.DeleteRecordingFiles(rec);
                     if (allDeleted)
                     {
                         outcome.Reaped++;
@@ -279,7 +279,7 @@ namespace Parsek
                 $"reaped={outcome.Reaped} failed={outcome.Failed} " +
                 $"preservedKnown={outcome.PreservedKnown} invalidId={outcome.InvalidId}");
             if (outcome.Reaped > 0)
-                RecordingStore.NoteTreeDiscardedThisSession(treeId, treeName, outcome.Reaped);
+                TreeDiscardService.NoteTreeDiscardedThisSession(treeId, treeName, outcome.Reaped);
             return outcome;
         }
     }

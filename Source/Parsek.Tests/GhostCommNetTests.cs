@@ -1196,9 +1196,10 @@ namespace Parsek.Tests
         {
             // Source gate: FLIGHT's per-frame flags pass must not scan the committed list for a
             // continuation hold far from a recording's EndUT (O(K*n) per frame otherwise).
-            string src = File.ReadAllText(FindSourceFile("ParsekFlight.cs"));
+            // The flags pass (ComputePlaybackFlags) lives on the playback host service.
+            string src = File.ReadAllText(FindSourceFile("ParsekFlightPlaybackHost.cs"));
             int call = src.IndexOf("GhostCommNetMath.ApplyContinuationHold(", StringComparison.Ordinal);
-            Assert.True(call >= 0, "ParsekFlight no longer calls ApplyContinuationHold");
+            Assert.True(call >= 0, "ParsekFlightPlaybackHost no longer calls ApplyContinuationHold");
             Assert.Equal(-1, src.IndexOf("GhostCommNetMath.ApplyContinuationHold(", call + 1,
                 StringComparison.Ordinal));
             int ifStart = src.LastIndexOf("if (hasData && !rec.IsDebris", call, StringComparison.Ordinal);

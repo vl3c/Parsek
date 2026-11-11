@@ -575,7 +575,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// The rewind save's own UT for its route copy: the UT the save was written at, as
-        /// <c>RecordingStore.PreProcessRewindSave</c> read it before winding the clock back by the
+        /// <c>RewindLauncher.PreProcessRewindSave</c> read it before winding the clock back by the
         /// lead time (<paramref name="preWindbackSaveUT"/>), else the parsed save's clock
         /// (<paramref name="parsedClockUT"/>; a save loaded without the windback, such as the
         /// career-start snapshot, carries its own UT there).

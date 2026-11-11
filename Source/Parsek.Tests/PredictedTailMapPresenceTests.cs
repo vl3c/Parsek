@@ -362,7 +362,7 @@ namespace Parsek.Tests
         /// [191.04, 1078.45] carrying every conic including the two predicted tail ones.
         /// Registered under one tree so the chain-tip walker's tree scan resolves.
         /// </summary>
-        private static void RegisterSplitChain(out Recording head, out Recording tip)
+        internal static void RegisterSplitChain(out Recording head, out Recording tip)
         {
             head = ChainMember("rec_head", "chain_split", 0);
             head.Points.Add(Point(32.94, 96.0));
@@ -921,10 +921,10 @@ namespace Parsek.Tests
                 Section(100.0, 200.0, ReferenceFrame.Relative)
             };
 
-            var source = ParsekUI.ResolveMapMarkerFrameSource(
+            var source = ParsekFlightMapMarkers.ResolveMapMarkerFrameSource(
                 sections, 150.0, out List<TrajectoryPoint> resolved);
 
-            Assert.Equal(ParsekUI.MapMarkerFrameSource.RelativeUnresolved, source);
+            Assert.Equal(ParsekFlightMapMarkers.MapMarkerFrameSource.RelativeUnresolved, source);
             Assert.Null(resolved);
         }
 
@@ -937,10 +937,10 @@ namespace Parsek.Tests
                 Section(100.0, 200.0, ReferenceFrame.Relative, shadow)
             };
 
-            var source = ParsekUI.ResolveMapMarkerFrameSource(
+            var source = ParsekFlightMapMarkers.ResolveMapMarkerFrameSource(
                 sections, 150.0, out List<TrajectoryPoint> resolved);
 
-            Assert.Equal(ParsekUI.MapMarkerFrameSource.SectionBodyFixedFrames, source);
+            Assert.Equal(ParsekFlightMapMarkers.MapMarkerFrameSource.SectionBodyFixedFrames, source);
             Assert.Same(shadow, resolved);
         }
 
@@ -955,18 +955,18 @@ namespace Parsek.Tests
             };
 
             Assert.Equal(
-                ParsekUI.MapMarkerFrameSource.FlatPoints,
-                ParsekUI.ResolveMapMarkerFrameSource(sections, 50.0, out List<TrajectoryPoint> a));
+                ParsekFlightMapMarkers.MapMarkerFrameSource.FlatPoints,
+                ParsekFlightMapMarkers.ResolveMapMarkerFrameSource(sections, 50.0, out List<TrajectoryPoint> a));
             Assert.Null(a);
 
             Assert.Equal(
-                ParsekUI.MapMarkerFrameSource.FlatPoints,
-                ParsekUI.ResolveMapMarkerFrameSource(sections, 500.0, out List<TrajectoryPoint> b));
+                ParsekFlightMapMarkers.MapMarkerFrameSource.FlatPoints,
+                ParsekFlightMapMarkers.ResolveMapMarkerFrameSource(sections, 500.0, out List<TrajectoryPoint> b));
             Assert.Null(b);
 
             Assert.Equal(
-                ParsekUI.MapMarkerFrameSource.FlatPoints,
-                ParsekUI.ResolveMapMarkerFrameSource(null, 50.0, out List<TrajectoryPoint> c));
+                ParsekFlightMapMarkers.MapMarkerFrameSource.FlatPoints,
+                ParsekFlightMapMarkers.ResolveMapMarkerFrameSource(null, 50.0, out List<TrajectoryPoint> c));
             Assert.Null(c);
         }
     }

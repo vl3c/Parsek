@@ -99,7 +99,7 @@ namespace Parsek
             // Persist the mode that matches the current sidecars on disk. Recomputing
             // from live snapshots here can drift .sfs metadata away from sidecars when
             // later saves serialize tree state without rewriting files.
-            GhostSnapshotMode ghostSnapshotMode = RecordingStore.GetExpectedGhostSnapshotMode(rec);
+            GhostSnapshotMode ghostSnapshotMode = RecordingSidecarStore.GetExpectedGhostSnapshotMode(rec);
             rec.GhostSnapshotMode = ghostSnapshotMode;
             if (ghostSnapshotMode != GhostSnapshotMode.Unspecified)
                 recNode.AddValue("ghostSnapshotMode", ghostSnapshotMode.ToString());
@@ -180,17 +180,17 @@ namespace Parsek
             SaveCrewEndStates(recNode, rec);
 
             // Resource manifests (Phase 11)
-            RecordingStore.SerializeResourceManifest(recNode, rec);
+            RecordingManifestCodec.SerializeResourceManifest(recNode, rec);
 
             SaveInventoryManifests(recNode, rec);
 
             // Crew manifests (Phase 11)
-            RecordingStore.SerializeCrewManifest(recNode, rec);
+            RecordingManifestCodec.SerializeCrewManifest(recNode, rec);
 
             SaveDockTargetVesselPid(recNode, rec);
 
             // Logistics route proof metadata (additive; missing node = no proof data)
-            RecordingStore.SerializeRouteProofMetadata(recNode, rec);
+            RouteProofCodec.SerializeRouteProofMetadata(recNode, rec);
 
             SaveRewindToStagingMergeState(recNode, rec);
 
@@ -419,7 +419,7 @@ namespace Parsek
             // Crew end states (kerbals module)
             if (rec.CrewEndStatesResolved)
                 recNode.AddValue("crewEndStatesResolved", rec.CrewEndStatesResolved.ToString());
-            RecordingStore.SerializeCrewEndStates(recNode, rec);
+            RecordingManifestCodec.SerializeCrewEndStates(recNode, rec);
 
             // Crew death respawn stamp (sparse: only a recording whose end states recorded
             // a death carries it, so every other recording stays byte-identical).
@@ -437,7 +437,7 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
 
             // Inventory manifests (Phase 11)
-            RecordingStore.SerializeInventoryManifest(recNode, rec);
+            RecordingManifestCodec.SerializeInventoryManifest(recNode, rec);
             if (rec.StartInventorySlots != 0)
                 recNode.AddValue("startInvSlots", rec.StartInventorySlots.ToString(ic));
             if (rec.EndInventorySlots != 0)
@@ -789,7 +789,7 @@ namespace Parsek
             // recordingSchemaGeneration were already parsed and assigned to rec
             // by LoadRecordingFrom before the schema-compatibility gate, with
             // identical default-0 semantics, so they are not re-parsed here.
-            rec.GhostSnapshotMode = RecordingStore.ParseGhostSnapshotMode(recNode.GetValue("ghostSnapshotMode"));
+            rec.GhostSnapshotMode = RecordingSidecarStore.ParseGhostSnapshotMode(recNode.GetValue("ghostSnapshotMode"));
 
             // Sidecar epoch (bug #270)
             rec.SidecarEpoch = ParseIntOr(recNode, "sidecarEpoch", rec.SidecarEpoch);
@@ -958,7 +958,7 @@ namespace Parsek
 
             // Crew end states (kerbals module)
             rec.CrewEndStatesResolved = ParseBoolOr(recNode, "crewEndStatesResolved", rec.CrewEndStatesResolved);
-            RecordingStore.DeserializeCrewEndStates(recNode, rec);
+            RecordingManifestCodec.DeserializeCrewEndStates(recNode, rec);
             if (rec.CrewEndStates != null)
                 rec.CrewEndStatesResolved = true;
             string crewDeathRespawnStr = recNode.GetValue("crewDeathRespawn");
@@ -969,21 +969,21 @@ namespace Parsek
             }
 
             // Resource manifests (Phase 11)
-            RecordingStore.DeserializeResourceManifest(recNode, rec);
+            RecordingManifestCodec.DeserializeResourceManifest(recNode, rec);
 
             // Inventory manifests (Phase 11)
-            RecordingStore.DeserializeInventoryManifest(recNode, rec);
+            RecordingManifestCodec.DeserializeInventoryManifest(recNode, rec);
             rec.StartInventorySlots = ParseIntOr(recNode, "startInvSlots", rec.StartInventorySlots);
             rec.EndInventorySlots = ParseIntOr(recNode, "endInvSlots", rec.EndInventorySlots);
 
             // Crew manifests (Phase 11)
-            RecordingStore.DeserializeCrewManifest(recNode, rec);
+            RecordingManifestCodec.DeserializeCrewManifest(recNode, rec);
 
             // Dock target vessel PID (Phase 11)
             rec.DockTargetVesselPid = ParseUintOr(recNode, "dockTargetPid", rec.DockTargetVesselPid);
 
             // Logistics route proof metadata (additive; missing node = no proof data)
-            RecordingStore.DeserializeRouteProofMetadata(recNode, rec);
+            RouteProofCodec.DeserializeRouteProofMetadata(recNode, rec);
 
             // Rewind-to-Staging (design section 5.5 + 9). Recordings without `mergeState`
             // default to Immutable. Stray transient SupersedeTargetId on committed

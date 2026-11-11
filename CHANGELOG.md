@@ -4,6 +4,23 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 1.1.0
+
+### Changed
+
+- **Large internal rebuild, same game.** Most of Parsek's code was reorganised into smaller,
+  separately tested parts: recording, ghost playback, saving and loading, Rewind and Re-Fly,
+  vessel spawning and the career ledger. Nothing should look or play differently; the work makes
+  future fixes safer. Your 1.0 saves load as before.
+- **Looped ghosts cost a little less every frame.** Ghosts that replay as part of a looped
+  mission no longer create throwaway objects each frame, which trims garbage collection pauses
+  when many loops play at once.
+- **A looped trip from one moon to another waits until both moons line up.** Looping a Laythe ->
+  Vall or Mun -> Minmus flight (or a moon -> planet return) now repeats only when both moons are
+  back where they were, so the ghost no longer jumps as it leaves one moon or reaches the other.
+  The trip replays exactly as recorded; only the wait between loops changes.
+  (MOON-TO-MOON-LOOP-NOT-RETIMED)
+
 ## 1.0.1
 
 ### Changed

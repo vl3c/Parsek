@@ -8,7 +8,7 @@ namespace Parsek
         /// <summary>
         /// Implements the "Discard" branch of the dialog. Does NOT call
         /// <see cref="RecordingStore.MarkTreeAsApplied"/>: the tree is
-        /// removed from storage by <see cref="RecordingStore.DiscardPendingTree"/>
+        /// removed from storage by <see cref="TreeDiscardService.DiscardPendingTree"/>
         /// so there is no surviving caller that needs recording indexes advanced.
         ///
         /// <para>Refuses with a Warn log + screen message if a merge journal
@@ -73,7 +73,7 @@ namespace Parsek
             // Breakup-during-segment falsely triggered the prompt).
             string switchSegmentReason;
             var switchSegmentDisposition =
-                RecordingStore.TryDiscardActiveSwitchSegmentAttempt(
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
                     out switchSegmentReason);
             if (switchSegmentDisposition
                 != RecordingStore.SwitchSegmentDiscardDisposition.NoActiveSession)
@@ -87,7 +87,7 @@ namespace Parsek
             }
 
             // M1 (PR #876 round-5 review): the whole-pending-tree branch
-            // below reads RecordingStore.PendingTree as its canonical input
+            // below reads PendingTreeSlot.PendingTree as its canonical input
             // (DiscardPendingTreeAndRecalculate, RefreshSaveAndQuicksaveAfterDiscard
             // and friends). A session-resolved tree from the CommittedTrees
             // slot would diverge here and we'd discard the wrong tree (or
@@ -95,7 +95,7 @@ namespace Parsek
             // switch-segment scoped branches already had their chance — at
             // this point a tree != pending is genuinely the misrouted Bug-C
             // case the round-5 review flagged. Refuse with Warn.
-            var pendingForGuard = RecordingStore.PendingTree;
+            var pendingForGuard = PendingTreeSlot.PendingTree;
             if (pendingForGuard == null
                 || !object.ReferenceEquals(pendingForGuard, tree))
             {
@@ -109,8 +109,8 @@ namespace Parsek
             }
 
             bool refreshSerializedPendingMarker =
-                RecordingStore.HasPendingTree
-                && RecordingStore.PendingTreeSerializedForSave;
+                PendingTreeSlot.HasPendingTree
+                && PendingTreeSlot.PendingTreeSerializedForSave;
             int discardedRecordingCount = tree.Recordings?.Count ?? 0;
 
             // #466: while the merge/discard choice is pending, mid-flight effects stay live
@@ -119,7 +119,7 @@ namespace Parsek
             ParsekScenario.DiscardPendingTreeAndRecalculate("merge dialog discard");
             if (refreshSerializedPendingMarker)
             {
-                RecordingStore.RefreshSaveAndQuicksaveAfterDiscard(
+                TreeDiscardService.RefreshSaveAndQuicksaveAfterDiscard(
                     "merge dialog Tree Discard", discardedRecordingCount);
             }
             else
@@ -333,11 +333,11 @@ namespace Parsek
                 return false;
             }
 
-            bool wasPending = object.ReferenceEquals(tree, RecordingStore.PendingTree);
+            bool wasPending = object.ReferenceEquals(tree, PendingTreeSlot.PendingTree);
             bool restored = RestoreSanitizedPendingTreeIfDetached(
                 tree, marker, summary.AttemptIds ?? new HashSet<string>(System.StringComparer.Ordinal));
             if (restored && wasPending)
-                RecordingStore.PopPendingTree();
+                PendingTreeSlot.PopPendingTree();
             ParsekLog.Info("MergeDialog",
                 $"RestoreDetachedTreeAfterEscDiscard callSite={callSite ?? "<none>"}: tree={tree.Id ?? "<none>"} " +
                 $"detached restored={(restored ? "true" : "false")} wasPending={(wasPending ? "true" : "false")} " +
@@ -443,8 +443,8 @@ namespace Parsek
             var discard = DiscardReFlyAttemptRecordingsAndRewindPoints(
                 scenario, marker, tree, MergeDialogDiscardReason);
 
-            RecordingStore.PopPendingTree();
-            RecordingStore.ClearRewindReplayTargetScope();
+            PendingTreeSlot.PopPendingTree();
+            SceneEntryVesselScope.ClearRewindReplayTargetScope();
 
             EndDiscardedReFlySession(scenario, sessionId, "MergeDialog:discard-refly-attempt");
 
@@ -593,7 +593,7 @@ namespace Parsek
         /// <param name="rewindLabel">Log label of the rewind that ended the session.</param>
         /// <param name="droppedLiveTreeId">Id of the live tree the scene exit was armed to drop,
         /// else null; the rewind undoes the drop when its load fails
-        /// (<see cref="RecordingStore.UndoLiveTreeDropAfterFailedRewind"/>).</param>
+        /// (<see cref="RewindLauncher.UndoLiveTreeDropAfterFailedRewind"/>).</param>
         /// <param name="droppedTreeRestoredToCommitted">True when that tree was also put back in
         /// the committed store.</param>
         /// <returns>True when a live session was ended.</returns>
@@ -631,21 +631,21 @@ namespace Parsek
                     ? liveActiveTree
                     : RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
             bool treeWasPending = tree != null
-                && object.ReferenceEquals(tree, RecordingStore.PendingTree);
+                && object.ReferenceEquals(tree, PendingTreeSlot.PendingTree);
             bool dropLiveTree = ShouldDropLiveTreeOnRewindSceneExit(tree, liveActiveTree);
 
             var discard = DiscardReFlyAttemptRecordingsAndRewindPoints(
                 scenario, marker, tree, RewindDiscardReason);
             if (treeWasPending)
             {
-                RecordingStore.PopPendingTree();
+                PendingTreeSlot.PopPendingTree();
                 ClearPendingFlag("rewind discard of a pending Re-Fly tree");
             }
             EndDiscardedReFlySession(scenario, sessionId, "Rewind:discard-refly-session");
 
             if (dropLiveTree)
             {
-                RecordingStore.ArmNextTreeSceneExitCommitSuppression(
+                PendingTreeSlot.ArmNextTreeSceneExitCommitSuppression(
                     $"{RewindDiscardReason} sess={sessionId ?? "<no-id>"}");
                 droppedLiveTreeId = tree.Id;
                 droppedTreeRestoredToCommitted = discard.RestoredCommittedTree;
@@ -1090,7 +1090,7 @@ namespace Parsek
                     continue;
                 if (!attemptIds.Contains(rec.RecordingId))
                     continue;
-                RecordingStore.DeleteRecordingFiles(rec);
+                RecordingFileJanitor.DeleteRecordingFiles(rec);
                 deleted++;
             }
             return deleted;
@@ -1108,7 +1108,7 @@ namespace Parsek
         /// merge dialog), and dangling parent/child id refs would survive
         /// discard and OnSave would serialise them as committed mission history.
         /// The pending-tree case is naturally handled by
-        /// <see cref="RecordingStore.PopPendingTree"/> later in the discard flow.
+        /// <see cref="PendingTreeSlot.PopPendingTree"/> later in the discard flow.
         /// </summary>
         private static int PruneAttemptRecordingsFromCommittedTrees(
             HashSet<string> attemptIds, ReFlySessionMarker marker)

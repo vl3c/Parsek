@@ -213,7 +213,7 @@ namespace Parsek.Tests
         {
             var fx = BuildReFlyTree();
             Recording owner = AddLaterChainTipOwner(KerbalXGuid);
-            Assert.Same(owner, RecordingStore.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, KerbalXGuid));
+            Assert.Same(owner, TreeCommitService.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, KerbalXGuid));
         }
 
         // A relaunch of the same craft shares the baked pid but not the guid: the live vessel is
@@ -223,7 +223,7 @@ namespace Parsek.Tests
         {
             var fx = BuildReFlyTree();
             AddLaterChainTipOwner(KerbalXGuid);
-            Assert.Null(RecordingStore.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, OtherLaunchGuid));
+            Assert.Null(TreeCommitService.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, OtherLaunchGuid));
         }
 
         // Unknown live guid: pid-only fallback per the identity contract.
@@ -232,7 +232,7 @@ namespace Parsek.Tests
         {
             var fx = BuildReFlyTree();
             Recording owner = AddLaterChainTipOwner(KerbalXGuid);
-            Assert.Same(owner, RecordingStore.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, null));
+            Assert.Same(owner, TreeCommitService.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, null));
         }
 
         // A genuine Parsek spawn carries a KSP-unique spawn pid: the pid match alone is conclusive.
@@ -242,8 +242,8 @@ namespace Parsek.Tests
             var fx = BuildReFlyTree();
             Recording owner = AddLaterChainTipOwner(KerbalXGuid);
             owner.SpawnedVesselPersistentId = 4111222333;
-            Assert.Same(owner, RecordingStore.FindLaterCommittedSpawnOwner(fx.Tail, 4111222333, OtherLaunchGuid));
-            Assert.Null(RecordingStore.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, KerbalXGuid));
+            Assert.Same(owner, TreeCommitService.FindLaterCommittedSpawnOwner(fx.Tail, 4111222333, OtherLaunchGuid));
+            Assert.Null(TreeCommitService.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, KerbalXGuid));
         }
 
         // Mirror: a recording that continues an EARLIER recording's spawned vessel (a Switch-To
@@ -255,7 +255,7 @@ namespace Parsek.Tests
             Recording owner = AddLaterChainTipOwner(KerbalXGuid);
             owner.ExplicitStartUT = 100.0;
             owner.ExplicitEndUT = 150.0;
-            Assert.Null(RecordingStore.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, KerbalXGuid));
+            Assert.Null(TreeCommitService.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, KerbalXGuid));
         }
 
         [Fact]
@@ -264,7 +264,7 @@ namespace Parsek.Tests
             var fx = BuildReFlyTree();
             Recording owner = AddLaterChainTipOwner(KerbalXGuid);
             owner.RecordingId = fx.Tail.RecordingId;
-            Assert.Null(RecordingStore.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, KerbalXGuid));
+            Assert.Null(TreeCommitService.FindLaterCommittedSpawnOwner(fx.Tail, KerbalXPid, KerbalXGuid));
         }
 
         // catches: the identity gate missing - the committed tail re-snapshotted from the vessel

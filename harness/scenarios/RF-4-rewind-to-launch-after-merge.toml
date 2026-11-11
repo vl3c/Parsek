@@ -34,7 +34,7 @@ id = "RF-4-rewind-to-launch-after-merge"
 # THAT FIX MAKES THE VERB SUCCEED AND THROWS THE SUBJECT AWAY, and the reason is
 # mechanical rather than a matter of taste. The kept-rows audit (the rollback before
 # 2026-10-25) is scoped to the OWNER'S TREE.
-# `RecordingStore.LogSupersedesKeptAcrossRewind` resolves `ownerTree` by
+# `RewindCarry.LogSupersedesKeptAcrossRewind` resolves `ownerTree` by
 # `owner.TreeId`; `AuditSupersedesKeptAcrossRewindPure` then builds
 # `rewoundOutOldIds` from the owner plus that tree's recordings with
 # `StartUT >= rewindAdjustedUT`, and keeps ONLY relations whose `OldRecordingId` is in that
@@ -163,7 +163,7 @@ tags = ["RF-4", "rewind", "rewind-to-launch", "refly", "supersede", "rollback", 
 # `IsMultiControllableSplit` returns two and a RewindPoint is authored by physics. What
 # this lane additionally needs from it is the thing no recorded fixture has: the LAUNCH
 # itself, whose non-promotion recording start writes the `parsek_rw_*` quicksave that
-# `RecordingStore.CanRewind` demands.
+# `RewindLauncher.CanRewind` demands.
 saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
 injectedRecordings = "none"
 craft              = []

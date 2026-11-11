@@ -6,7 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Bug fix-refly-abandon-and-fork-persist §Bug2a: unit tests for
-    /// <see cref="RecordingStore.CommitTree"/>'s new active-Re-Fly union
+    /// <see cref="TreeCommitService.CommitTree"/>'s new active-Re-Fly union
     /// path. The strict <see cref="ShouldReplaceCommittedTree"/> gate
     /// rejects an incoming tree as "incoming-missing-existing-ids" when
     /// the active session pruned BPs via trim-scope=ActiveRecOnly; the
@@ -111,7 +111,7 @@ namespace Parsek.Tests
                 ActiveReFlySessionMarker = marker,
             });
 
-            RecordingStore.CommitTree(incoming);
+            TreeCommitService.CommitTree(incoming);
 
             // After commit, the canonical tree is `existing` (we reassign
             // tree=committedTrees[i] inside CommitTree). It should now
@@ -164,7 +164,7 @@ namespace Parsek.Tests
             ParsekScenario.SetInstanceForTesting(new ParsekScenario());
 
             int existingTreesBefore = RecordingStore.CommittedTrees.Count;
-            RecordingStore.CommitTree(incoming);
+            TreeCommitService.CommitTree(incoming);
 
             // Tree count unchanged. The existing tree is untouched.
             Assert.Equal(existingTreesBefore, RecordingStore.CommittedTrees.Count);
@@ -209,7 +209,7 @@ namespace Parsek.Tests
                 ActiveReFlySessionMarker = marker,
             });
 
-            RecordingStore.CommitTree(incoming);
+            TreeCommitService.CommitTree(incoming);
 
             // Strict gate keeps existing tree intact.
             Assert.Single(existing.BranchPoints);

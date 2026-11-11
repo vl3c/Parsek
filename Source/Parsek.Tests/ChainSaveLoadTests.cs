@@ -511,7 +511,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(scenarioPath),
                 $"ParsekScenario.cs not found at {scenarioPath}");
 
-            string source = File.ReadAllText(scenarioPath);
+            string source = ParsekScenarioSourceFiles.ReadText(scenarioPath);
 
             // ParsekScenario should NOT contain references to ghost chain types.
             // Chains are derived in ParsekFlight, not persisted in the scenario.

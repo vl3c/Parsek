@@ -54,7 +54,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(parsekFlightPath),
                 $"ParsekFlight.cs not found at {parsekFlightPath}");
 
-            string src = File.ReadAllText(parsekFlightPath);
+            string src = ParsekFlightSourceFiles.ReadText(parsekFlightPath);
 
             // Isolate the OnFlightReady method body by walking brace depth
             // from the opening brace to its matching close. This is more

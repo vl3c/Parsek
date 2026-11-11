@@ -142,9 +142,9 @@ namespace Parsek.Tests
 
         private static void PreProcess(string path, Recording owner)
         {
-            RecordingStore.PreProcessRewindSave(
-                path, RecordingStore.BuildRewindOwnerStrip(owner),
-                RecordingStore.ResolveRewindStripSpawnedPids,
+            RewindLauncher.PreProcessRewindSave(
+                path, RewindSpawnScope.BuildRewindOwnerStrip(owner),
+                RewindSpawnScope.ResolveRewindStripSpawnedPids,
                 RecordingStore.RewindToLaunchLeadTimeSeconds);
         }
 
@@ -193,7 +193,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(OtherPid, left);
             Assert.Contains(3555000005u, left);
             Assert.Contains("cccc3333cccc3333cccc3333cccc3333",
-                RecordingStore.BuildRewindOwnerStrip(owner).OwnerIdentityGuids);
+                RewindSpawnScope.BuildRewindOwnerStrip(owner).OwnerIdentityGuids);
         }
 
         // catches: dropping the Phase 1 alias pair once links exist. A copy resumed BEFORE the
@@ -215,7 +215,7 @@ namespace Parsek.Tests
             PreProcess(sfs, owner);
 
             Assert.DoesNotContain(OtherPid, SurvivingPids(sfs));
-            RecordingStore.RewindOwnerStrip strip = RecordingStore.BuildRewindOwnerStrip(owner);
+            RewindSpawnScope.RewindOwnerStrip strip = RewindSpawnScope.BuildRewindOwnerStrip(owner);
             Assert.True(strip.OwnerAliasNames.SetEquals(new[] { "Kerbal X" }));
             Assert.DoesNotContain("cccc3333cccc3333cccc3333cccc3333", strip.OwnerIdentityGuids);
         }
@@ -246,7 +246,7 @@ namespace Parsek.Tests
             List<uint> left = SurvivingPids(sfs);
             Assert.Contains(OtherPid, left);
             Assert.DoesNotContain(CopyPid, left);
-            RecordingStore.RewindOwnerStrip dockStrip = RecordingStore.BuildRewindOwnerStrip(owner);
+            RewindSpawnScope.RewindOwnerStrip dockStrip = RewindSpawnScope.BuildRewindOwnerStrip(owner);
             Assert.DoesNotContain("cccc3333cccc3333cccc3333cccc3333", dockStrip.OwnerIdentityGuids);
             Assert.DoesNotContain("Station Alpha", dockStrip.OwnerAliasNames);
         }
@@ -290,10 +290,10 @@ namespace Parsek.Tests
             List<uint> left = SurvivingPids(sfs);
             Assert.DoesNotContain(SecondPid, left);
             Assert.Contains(OtherPid, left);
-            RecordingStore.RewindOwnerStrip strip = RecordingStore.BuildRewindOwnerStrip(owner);
+            RewindSpawnScope.RewindOwnerStrip strip = RewindSpawnScope.BuildRewindOwnerStrip(owner);
             Assert.Contains("Kerbal X", strip.OwnerAliasNames);
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.NotMatched,
-                RecordingStore.ClassifyRewindOwnerStripVessel(
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.NotMatched,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel(
                     "Kerbal X", "cccc3333cccc3333cccc3333cccc3333", strip, ownerAnchored: true));
         }
 
@@ -331,7 +331,7 @@ namespace Parsek.Tests
 
             // Playback reset + the guid-aware post-strip reconcile keep the first flight linked
             // to its vessel; the rewound flight is reset and re-spawns at its end.
-            RecordingStore.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
+            RewindLauncher.ResetAllPlaybackState(RewindContext.RewindHistoricalSpawnKeepRecordingIds);
             ParsekScenario.ReconcileSpawnStateAfterStrip(SurvivingIdentities(sfs), all);
             Assert.True(shape.first.VesselSpawned);
             Assert.Equal(FirstPid, shape.first.SpawnedVesselPersistentId);
@@ -475,57 +475,57 @@ namespace Parsek.Tests
         [Fact]
         public void Classify_Table()
         {
-            var strip = new RecordingStore.RewindOwnerStrip { OwnerName = "Kerbal X", OwnerGuid = SecondGuid };
+            var strip = new RewindSpawnScope.RewindOwnerStrip { OwnerName = "Kerbal X", OwnerGuid = SecondGuid };
             strip.NameOnly.Add("Bill Kerman");
 
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", SecondGuid, strip, true));
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.KeepOtherLaunch,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", FirstGuid, strip, true));
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", FirstGuid, strip, false));
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", null, strip, true));
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripOwnerGuid,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Renamed", SecondGuid.ToUpperInvariant(), strip, true));
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Bill Kerman", FirstGuid, strip, true));
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.NotMatched,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Station", FirstGuid, strip, true));
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.NotMatched,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", SecondGuid, null, true));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripName,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Kerbal X", SecondGuid, strip, true));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.KeepOtherLaunch,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Kerbal X", FirstGuid, strip, true));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripName,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Kerbal X", FirstGuid, strip, false));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripName,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Kerbal X", null, strip, true));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripOwnerGuid,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Renamed", SecondGuid.ToUpperInvariant(), strip, true));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripName,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Bill Kerman", FirstGuid, strip, true));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.NotMatched,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Station", FirstGuid, strip, true));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.NotMatched,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Kerbal X", SecondGuid, null, true));
 
-            var legacy = RecordingStore.RewindOwnerStrip.FromNames(new[] { "Kerbal X" });
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", FirstGuid, legacy, false));
+            var legacy = RewindSpawnScope.RewindOwnerStrip.FromNames(new[] { "Kerbal X" });
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripName,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Kerbal X", FirstGuid, legacy, false));
         }
 
         [Fact]
         public void Classify_IdentityGuidSet_LinkGuidsCountAsTheOwner()
         {
-            var strip = new RecordingStore.RewindOwnerStrip { OwnerName = "Relay", OwnerGuid = SecondGuid };
+            var strip = new RewindSpawnScope.RewindOwnerStrip { OwnerName = "Relay", OwnerGuid = SecondGuid };
             strip.OwnerIdentityGuids.Add(SecondGuid);
             strip.OwnerIdentityGuids.Add("cccc3333cccc3333cccc3333cccc3333");
 
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripOwnerGuid,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", "CCCC3333CCCC3333CCCC3333CCCC3333", strip, true));
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.StripName,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Relay", "cccc3333cccc3333cccc3333cccc3333", strip, true));
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.KeepOtherLaunch,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Relay", FirstGuid, strip, true));
-            Assert.Equal(RecordingStore.RewindOwnerStripDecision.NotMatched,
-                RecordingStore.ClassifyRewindOwnerStripVessel("Kerbal X", FirstGuid, strip, false));
-            Assert.True(RecordingStore.RewindOwnerStripIsAnchored(strip, new[] { "cccc3333-cccc-3333-cccc-3333cccc3333" }));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripOwnerGuid,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Kerbal X", "CCCC3333CCCC3333CCCC3333CCCC3333", strip, true));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.StripName,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Relay", "cccc3333cccc3333cccc3333cccc3333", strip, true));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.KeepOtherLaunch,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Relay", FirstGuid, strip, true));
+            Assert.Equal(RewindSpawnScope.RewindOwnerStripDecision.NotMatched,
+                RewindSpawnScope.ClassifyRewindOwnerStripVessel("Kerbal X", FirstGuid, strip, false));
+            Assert.True(RewindSpawnScope.RewindOwnerStripIsAnchored(strip, new[] { "cccc3333-cccc-3333-cccc-3333cccc3333" }));
         }
 
         [Fact]
         public void Anchored_OnlyWhenASaveVesselCarriesTheOwnerGuid()
         {
-            var strip = new RecordingStore.RewindOwnerStrip { OwnerName = "Kerbal X", OwnerGuid = SecondGuid };
-            Assert.True(RecordingStore.RewindOwnerStripIsAnchored(strip, new[] { FirstGuid, null, SecondGuid }));
-            Assert.False(RecordingStore.RewindOwnerStripIsAnchored(strip, new[] { FirstGuid, null }));
-            Assert.False(RecordingStore.RewindOwnerStripIsAnchored(
-                new RecordingStore.RewindOwnerStrip { OwnerName = "Kerbal X" }, new[] { SecondGuid }));
+            var strip = new RewindSpawnScope.RewindOwnerStrip { OwnerName = "Kerbal X", OwnerGuid = SecondGuid };
+            Assert.True(RewindSpawnScope.RewindOwnerStripIsAnchored(strip, new[] { FirstGuid, null, SecondGuid }));
+            Assert.False(RewindSpawnScope.RewindOwnerStripIsAnchored(strip, new[] { FirstGuid, null }));
+            Assert.False(RewindSpawnScope.RewindOwnerStripIsAnchored(
+                new RewindSpawnScope.RewindOwnerStrip { OwnerName = "Kerbal X" }, new[] { SecondGuid }));
         }
     }
 }

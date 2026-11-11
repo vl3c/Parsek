@@ -80,6 +80,91 @@ $checks = @(
         Label = "recorded-relative flight playback live PID read"
     },
     @{
+        Path = "Source/Parsek/ParsekFlight.GhostPositioner.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.GhostPositioning.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.TimelinePlayback.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.MergeFlow.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.PadEvidence.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.RecorderSession.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.SplitBranching.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.SwitchContinuation.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlight.TreeRestore.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlightGhostPositioner.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlightPostSwitchAutoRecord.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlightPlaybackHost.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlightSpawnHost.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlightSurfaceCapture.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlightSplitBrancher.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlightMergeFlow.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
+        Path = "Source/Parsek/ParsekFlightSwitchContinuation.cs"
+        Pattern = "target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid"
+        Label = "recorded-relative flight playback live PID read"
+    },
+    @{
         Path = "Source/Parsek/GhostRenderTrace.cs"
         Pattern = "context\.AnchorVesselId\s*=|section\.AnchorVesselId"
         Label = "recorded-relative trace section PID propagation"
@@ -143,12 +228,12 @@ $checks = @(
 
 $requiredChecks = @(
     @{
-        Path = "Source/Parsek/ParsekFlight.cs"
+        Path = "Source/Parsek/ParsekFlightGhostPositioner.cs"
         Pattern = "relativeLoopLiveAnchor\s*=\s*true"
         Label = "loop-only LateUpdate live-anchor flag"
     },
     @{
-        Path = "Source/Parsek/ParsekFlight.cs"
+        Path = "Source/Parsek/ParsekFlightPlaybackHost.cs"
         Pattern = "NonLoopLivePidGuard\.NonLoopRelativeLivePidLookupAttempted"
         Label = "non-loop LateUpdate live-PID DEBUG guard"
     }

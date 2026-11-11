@@ -38,7 +38,7 @@ namespace Parsek
             DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
                 rec,
                 $"PersistFinalizedRecording {context}");
-            if (RecordingStore.SaveRecordingFiles(rec, incrementEpoch: false))
+            if (RecordingSidecarStore.SaveRecordingFiles(rec, incrementEpoch: false))
             {
                 ParsekLog.Verbose("BgRecorder",
                     $"PersistFinalizedRecording: wrote sidecar for " +

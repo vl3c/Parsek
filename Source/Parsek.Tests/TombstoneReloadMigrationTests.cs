@@ -515,7 +515,7 @@ namespace Parsek.Tests
             var rec = BuildTwoEnvironmentCrewedRecording("rec_full", "tree_o", endStatesPopulated: true);
             InstallInTree(rec, "tree_o");
             Migrate();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
             Assert.Null(list[0].CrewEndStates);
@@ -544,7 +544,7 @@ namespace Parsek.Tests
         {
             var rec = BuildTwoEnvironmentCrewedRecording("rec_fresh", "tree_f", endStatesPopulated: false);
             InstallInTree(rec, "tree_f");
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
             Migrate(); // the commit-time derivation, after the split
@@ -609,7 +609,7 @@ namespace Parsek.Tests
             var rec = BuildTwoEnvironmentCrewedRecording("rec_full", "tree_o", endStatesPopulated: true);
             InstallInTree(rec, "tree_o");
             Migrate();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             string seg2 = RecordingStore.CommittedRecordings[1].RecordingId;
             string tipId;
             ReFlyAndTombstone(seg2, "tree_o", 34.0, out tipId);
@@ -641,7 +641,7 @@ namespace Parsek.Tests
             var atCut = AddFundsEarning("rec_tag", 20.0);
 
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
             string seg1 = list[0].RecordingId;
@@ -679,7 +679,7 @@ namespace Parsek.Tests
             };
             Ledger.AddAction(penalty);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             string seg2 = RecordingStore.CommittedRecordings[1].RecordingId;
             Assert.Equal(seg2, penalty.RecordingId);
 
@@ -733,7 +733,7 @@ namespace Parsek.Tests
             Ledger.AddAction(otherPenalty);
 
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
             string seg1 = list[0].RecordingId;
@@ -813,7 +813,7 @@ namespace Parsek.Tests
             Assert.Equal(KerbalEndState.Recovered, billBefore.KerbalEndStateField);
             string billId = billBefore.ActionId;
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
             Assert.Equal("rec_alive", Ledger.Actions.Single(a => a.ActionId == billId).RecordingId);
@@ -847,7 +847,7 @@ namespace Parsek.Tests
             Migrate();
             var late = AddFundsEarning("rec_nocrew", 45.0);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             string seg2 = RecordingStore.CommittedRecordings[1].RecordingId;
             Assert.Equal(seg2, late.RecordingId);
             Migrate();
@@ -869,7 +869,7 @@ namespace Parsek.Tests
             Migrate();
             var deathIds = Ledger.Actions.Where(a => a.Type == GameActionType.KerbalAssignment)
                 .Select(a => a.ActionId).ToList();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Migrate(); // segment 1 derives its Recovered handoff rows
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
@@ -881,7 +881,7 @@ namespace Parsek.Tests
             Assert.True(RecordingOptimizer.CanAutoMerge(list[0], list[1]));
 
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.Contains(logLines, l => l.Contains("Optimization pass: merged 1 segment pair(s)"));
             Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.RecordingId == firstSecondId);
             AssertNoOrphanRows();
@@ -911,7 +911,7 @@ namespace Parsek.Tests
             Migrate();
             var deathIds = Ledger.Actions.Where(a => a.Type == GameActionType.KerbalAssignment)
                 .Select(a => a.ActionId).OrderBy(x => x, StringComparer.Ordinal).ToList();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Migrate();
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
@@ -925,7 +925,7 @@ namespace Parsek.Tests
                 sec.environment = SegmentEnvironment.Atmospheric;
                 list[1].TrackSections[i] = sec;
             }
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal(4, Ledger.Actions.Count(a => a.Type == GameActionType.KerbalAssignment
                 && a.RecordingId == "rec_lm"));
@@ -1041,7 +1041,7 @@ namespace Parsek.Tests
             // Reload 1: migrate, then the load-time optimization pass.
             Migrate();
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             EffectiveState.ResetCachesForTesting();
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count); // HEAD + TIP, TIP not split
             Assert.Contains(logLines, l => l.Contains("skipped 1 superseded recording(s)"));

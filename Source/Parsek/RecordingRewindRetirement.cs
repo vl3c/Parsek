@@ -9,7 +9,7 @@ namespace Parsek
     /// rolled back.
     ///
     /// <para>Nothing writes these any more: a plain rewind keeps every supersede
-    /// row (owner ruling 2026-10-24, <c>RecordingStore.LogSupersedesKeptAcrossRewind</c>).
+    /// row (owner ruling 2026-10-24, <c>RewindCarry.LogSupersedesKeptAcrossRewind</c>).
     /// The type, its reasons and its readers stay so a save that already carries
     /// rows (written by the rewind rollback before 2026-10-25) loads and renders
     /// as it did; such saves are not repaired.</para>

@@ -276,7 +276,7 @@ namespace Parsek.Tests
             Assert.Equal("rp_cl_root", rp.RewindPointId);
             Assert.Equal(RewindCrewLossFixture.RewindPointId, rp.RewindPointId);
             // A committed tree's staging point is persistent: the commit promoted it
-            // (RecordingStore.PromoteNormalStagingRewindPoints clears SessionProvisional and
+            // (TreeCommitService.PromoteNormalStagingRewindPoints clears SessionProvisional and
             // CreatingSessionId), so LoadTimeSweep, which only ever discards
             // SessionProvisional points, keeps it as a durable split point.
             Assert.False(rp.SessionProvisional);

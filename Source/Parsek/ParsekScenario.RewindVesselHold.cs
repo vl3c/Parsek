@@ -69,13 +69,13 @@ namespace Parsek
                 ? GhostChainWalker.ComputeAllGhostChains(trees, rewindUT)
                 : null;
             // A hold is only as good as the replay that ends it: a recording the rewind will not
-            // play (historical, RecordingStore.WillReplayAfterRewind - the strip and spawn gates'
+            // play (historical, RewindSpawnScope.WillReplayAfterRewind - the strip and spawn gates'
             // own predicate) would neither ghost nor spawn the vessel back, so its use holds
             // nothing and the vessel stays live as before.
             Func<string, bool> recordingReplays = id =>
-                RecordingStore.WillReplayAfterRewind(FindEffectiveRecordingById(id), rewindUT);
+                RewindSpawnScope.WillReplayAfterRewind(FindEffectiveRecordingById(id), rewindUT);
             int chainsNotReplayed;
-            List<ReFlyInvokeHold.Entry> chainEntries = RewindVesselHold.CollectChainHolds(
+            List<ReFlyHoldEntry> chainEntries = RewindVesselHold.CollectChainHolds(
                 chains, rewindUT, guidOf, recordingReplays, out chainsNotReplayed);
 
             var supersededClaimants = GhostChainWalker.BuildSupersededClaimantMap(RecordingSupersedes);
@@ -86,17 +86,17 @@ namespace Parsek
                 out claimsSkipped);
             int matchedWithoutFuture;
             int fliesNotReplayed;
-            List<ReFlyInvokeHold.Entry> futureEntries = ReFlyInvokeHold.Classify(
+            List<ReFlyHoldEntry> futureEntries = ReFlyInvokeHold.Classify(
                 survivors, null, EffectiveState.ComputeERS(), EffectiveState.ComputeELS(),
-                changeClaims, rewindUT, rec => RecordingStore.WillReplayAfterRewind(rec, rewindUT),
+                changeClaims, rewindUT, rec => RewindSpawnScope.WillReplayAfterRewind(rec, rewindUT),
                 out matchedWithoutFuture, out fliesNotReplayed);
 
-            List<ReFlyInvokeHold.Entry> merged = RewindVesselHold.Merge(chainEntries, futureEntries);
+            List<ReFlyHoldEntry> merged = RewindVesselHold.Merge(chainEntries, futureEntries);
             var held = new List<RewindVesselHold.Hold>();
             int notInWorld = 0, claimsReleased = 0;
             for (int m = 0; m < merged.Count; m++)
             {
-                ReFlyInvokeHold.Entry entry = merged[m];
+                ReFlyHoldEntry entry = merged[m];
                 int index = FindHeldProtoVesselIndex(protoVessels, entry.Pid, entry.LaunchGuid);
                 if (index < 0)
                 {

@@ -23,7 +23,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             RecordingStore.SuppressLogging = false;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             RecordingStore.ResetForTesting();
             RewindInvokeContext.Clear();
             RewindInvoker.PreconditionCache.InvalidateForTesting();
@@ -50,7 +50,7 @@ namespace Parsek.Tests
             RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = null;
             SidecarFileCommitBatch.DeleteTransientArtifactOverrideForTesting = null;
             ParsekScenario.ResetInstanceForTesting();
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();
@@ -81,13 +81,12 @@ namespace Parsek.Tests
         public void OnLoadSource_HasSingleTimingCallSite()
         {
             string repoRoot = ResolveRepoRoot();
+            // OnLoad lives in the main file of the ParsekScenario partial class; the slice runs
+            // from its declaration to its closing brace (the first class-member-level brace).
             string sourcePath = Path.Combine(repoRoot, "Source", "Parsek", "ParsekScenario.cs");
-            string source = File.ReadAllText(sourcePath);
+            string source = File.ReadAllText(sourcePath).Replace("\r\n", "\n");
             int onLoadStart = source.IndexOf("public override void OnLoad", StringComparison.Ordinal);
-            int nextMethod = source.IndexOf(
-                "private static void DispatchRewindPostLoadIfPending",
-                onLoadStart,
-                StringComparison.Ordinal);
+            int nextMethod = source.IndexOf("\n        }\n", onLoadStart, StringComparison.Ordinal);
 
             Assert.True(onLoadStart >= 0, "OnLoad method not found.");
             Assert.True(nextMethod > onLoadStart, "OnLoad end marker not found.");
@@ -109,7 +108,7 @@ namespace Parsek.Tests
                 RecordingId = "rec_pending",
                 VesselName = "Pending Vessel"
             };
-            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(pendingTree, PendingTreeState.Limbo);
 
             var scenario = new ParsekScenario
             {
@@ -173,7 +172,7 @@ namespace Parsek.Tests
                     RecordingId = "rec_save_pending",
                     VesselName = "Pending Save Vessel"
                 };
-                RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+                PendingTreeSlot.StashPendingTree(pendingTree, PendingTreeState.Limbo);
 
                 var scenario = new ParsekScenario
                 {
@@ -240,10 +239,10 @@ namespace Parsek.Tests
                 GhostSnapshotMode = GhostSnapshotMode.Separate
             };
 
-            RecordingStore.SnapshotSidecarLoadSummary summary =
-                RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
+            RecordingSidecarStore.SnapshotSidecarLoadSummary summary =
+                RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
 
-            Assert.Equal(RecordingStore.SnapshotSidecarLoadState.Invalid, summary.VesselState);
+            Assert.Equal(RecordingSidecarStore.SnapshotSidecarLoadState.Invalid, summary.VesselState);
             Assert.Contains(logLines, line =>
                 line.Contains("[WARN][RecordingStore]") &&
                 line.Contains("invalid vessel snapshot sidecar") &&
@@ -268,10 +267,10 @@ namespace Parsek.Tests
                 GhostSnapshotMode = GhostSnapshotMode.Separate
             };
 
-            RecordingStore.SnapshotSidecarLoadSummary summary =
-                RecordingStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
+            RecordingSidecarStore.SnapshotSidecarLoadSummary summary =
+                RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath: null);
 
-            Assert.Equal(RecordingStore.SnapshotSidecarLoadState.Unsupported, summary.VesselState);
+            Assert.Equal(RecordingSidecarStore.SnapshotSidecarLoadState.Unsupported, summary.VesselState);
             Assert.Equal("snapshot-vessel-unsupported", summary.FailureReason);
             Assert.Contains(logLines, line =>
                 line.Contains("[WARN][RecordingStore]") &&
@@ -303,7 +302,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 1.0 });
             rec.Points.Add(new TrajectoryPoint { ut = 2.0 });
 
-            Assert.False(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.False(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec,
                 invalidFinalPath,
                 vesselPath,

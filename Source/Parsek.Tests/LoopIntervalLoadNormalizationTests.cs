@@ -78,7 +78,7 @@ namespace Parsek.Tests
         private string WriteSidecar(Recording rec, int epoch = 1)
         {
             string path = Path.Combine(tempDir, rec.RecordingId + ".prec");
-            RecordingStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: epoch);
+            RecordingSidecarStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: epoch);
             rec.SidecarEpoch = epoch;
             return path;
         }
@@ -95,7 +95,7 @@ namespace Parsek.Tests
 
             // Loader sees .sfs-derived state: loop on, interval 0, format v4, trajectory empty
             // until sidecar hydration. This mirrors RecordingTree.LoadLoopFields handing a
-            // partially-populated Recording to RecordingStore.LoadRecordingFiles.
+            // partially-populated Recording to RecordingSidecarStore.LoadRecordingFiles.
             var loaded = new Recording
             {
                 RecordingId = original.RecordingId,
@@ -107,7 +107,7 @@ namespace Parsek.Tests
                 SidecarEpoch = 1,
             };
 
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loaded, precPath, vesselPath: null, ghostPath: null));
 
             Assert.Equal(68.0, loaded.LoopIntervalSeconds);
@@ -140,7 +140,7 @@ namespace Parsek.Tests
                 SidecarEpoch = 1,
             };
 
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loaded, precPath, vesselPath: null, ghostPath: null));
 
             Assert.Equal(LoopTiming.DefaultLoopIntervalSeconds, loaded.LoopIntervalSeconds);
@@ -168,7 +168,7 @@ namespace Parsek.Tests
                 SidecarEpoch = 1,
             };
 
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loaded, precPath, vesselPath: null, ghostPath: null));
 
             Assert.Equal(0.0, loaded.LoopIntervalSeconds);
@@ -198,7 +198,7 @@ namespace Parsek.Tests
                 SidecarEpoch = 1,
             };
 
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loaded, precPath, vesselPath: null, ghostPath: null));
 
             Assert.Equal(0.0, loaded.LoopIntervalSeconds);
@@ -225,7 +225,7 @@ namespace Parsek.Tests
                 SidecarEpoch = 1,
             };
 
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loaded, precPath, vesselPath: null, ghostPath: null));
 
             Assert.Equal(45.0, loaded.LoopIntervalSeconds);
@@ -287,7 +287,7 @@ namespace Parsek.Tests
                 GhostSnapshotMode = GhostSnapshotMode.Separate,
             };
 
-            bool result = RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            bool result = RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loaded, precPath, vesselPath, ghostPath: null);
 
             // Load reports failure (surface to the caller for salvage / diagnostics)...
@@ -329,7 +329,7 @@ namespace Parsek.Tests
                 SidecarEpoch = 1,
             };
 
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loaded, precPath, vesselPath: null, ghostPath: null));
 
             logLines.Clear();

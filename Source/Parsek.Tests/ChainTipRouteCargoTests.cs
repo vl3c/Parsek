@@ -32,16 +32,16 @@ namespace Parsek.Tests
         private const uint TransportPart = 5001u;
 
         private readonly List<string> logLines = new List<string>();
-        private readonly VesselSpawner.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
-        private readonly VesselSpawner.ResolveBodyByNameDelegate originalBodyResolver;
-        private readonly VesselSpawner.ResolveBodyIndexDelegate originalBodyIndexResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyByNameDelegate originalBodyResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyIndexDelegate originalBodyIndexResolver;
         private string tempDir;
 
         public ChainTipRouteCargoTests()
         {
-            originalBodyNameResolver = VesselSpawner.BodyNameResolverForTesting;
-            originalBodyResolver = VesselSpawner.BodyResolverForTesting;
-            originalBodyIndexResolver = VesselSpawner.BodyIndexResolverForTesting;
+            originalBodyNameResolver = LiveVesselSnapshot.BodyNameResolverForTesting;
+            originalBodyResolver = LiveVesselSnapshot.BodyResolverForTesting;
+            originalBodyIndexResolver = LiveVesselSnapshot.BodyIndexResolverForTesting;
 
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
@@ -59,9 +59,9 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            VesselSpawner.BodyNameResolverForTesting = originalBodyNameResolver;
-            VesselSpawner.BodyResolverForTesting = originalBodyResolver;
-            VesselSpawner.BodyIndexResolverForTesting = originalBodyIndexResolver;
+            LiveVesselSnapshot.BodyNameResolverForTesting = originalBodyNameResolver;
+            LiveVesselSnapshot.BodyResolverForTesting = originalBodyResolver;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = originalBodyIndexResolver;
             TestBodyRegistry.Reset();
             RetiredRouteCargoStore.ResetForTesting();
             Ledger.ResetForTesting();
@@ -832,9 +832,9 @@ namespace Parsek.Tests
         private void InstallKerbin()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12));
-            VesselSpawner.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
-            VesselSpawner.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
-            VesselSpawner.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
+            LiveVesselSnapshot.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
+            LiveVesselSnapshot.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
         }
 
         private static double LiquidFuelOf(ConfigNode vessel, uint partPid)
@@ -1150,7 +1150,10 @@ namespace Parsek.Tests
 
         private static void AssertMethodCallsApply(string path, string anchor, string copyName)
         {
-            string text = File.ReadAllText(path).Replace("\r\n", "\n");
+            // VesselSpawner is a partial class; read every split file as one text.
+            string text = (Path.GetFileName(path) == "VesselSpawner.cs"
+                ? VesselSpawnerSourceFiles.ReadAll(Path.GetDirectoryName(path))
+                : File.ReadAllText(path)).Replace("\r\n", "\n");
             int at = text.IndexOf(anchor, StringComparison.Ordinal);
             Assert.True(at >= 0, "anchor not found in " + Path.GetFileName(path) + ": " + anchor);
             // The call must follow the anchor within the same method (before the next member).
@@ -1299,7 +1302,7 @@ namespace Parsek.Tests
             RouteEventLog.Add(DeliveredAction("route-a", "cycle-1", 1300, "LiquidFuel", 100));
             RouteEventLog.Add(DeliveredAction("route-a", "cycle-2", 1600, "LiquidFuel", 100));
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.True(leaf.EndUT < 1450.0, "the tail was not trimmed: endUT=" + leaf.EndUT.ToString("R", CultureInfo.InvariantCulture));
             double spawnUT = leaf.EndUT;
             DropOrbitAfterTheTrim(leaf);
@@ -1333,7 +1336,7 @@ namespace Parsek.Tests
             SeedRouteHistory();
             RouteEventLog.Add(DeliveredAction("route-a", "cycle-3", 1650, "LiquidFuel", 100));
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.True(tip.EndUT < 1645.0, "the tail was not trimmed: endUT=" + tip.EndUT.ToString("R", CultureInfo.InvariantCulture));
             DropOrbitAfterTheTrim(tip);
 
@@ -1563,6 +1566,11 @@ namespace Parsek.Tests
             var declaration = new Regex(@"\bstatic\s+uint\s+(RespawnVessel|SpawnAtPosition)\s*\(");
             var found = new Dictionary<string, int>(StringComparer.Ordinal);
             string inGameTests = Path.Combine(sourceDir, "InGameTests");
+            // VesselSpawner is a partial class: its split files count as one VesselSpawner.cs,
+            // so a call and the declaration it pairs with may sit in different files.
+            var spawnerFiles = new HashSet<string>(
+                VesselSpawnerSourceFiles.Paths(sourceDir).Select(Path.GetFullPath),
+                StringComparer.OrdinalIgnoreCase);
             foreach (string file in Directory.GetFiles(sourceDir, "*.cs", SearchOption.AllDirectories))
             {
                 if (file.StartsWith(inGameTests, StringComparison.OrdinalIgnoreCase))
@@ -1570,9 +1578,13 @@ namespace Parsek.Tests
                 string text = ParsekDialogNamePrefixSourceGateTests.StripComments(
                     File.ReadAllText(file).Replace("\r\n", "\n"));
                 int count = call.Matches(text).Count - declaration.Matches(text).Count;
-                if (count > 0)
-                    found[Path.GetFileName(file)] = count;
+                string key = spawnerFiles.Contains(Path.GetFullPath(file))
+                    ? "VesselSpawner.cs" : Path.GetFileName(file);
+                found.TryGetValue(key, out int sum);
+                found[key] = sum + count;
             }
+            foreach (string key in found.Where(kv => kv.Value <= 0).Select(kv => kv.Key).ToList())
+                found.Remove(key);
 
             Assert.Equal(
                 expected.OrderBy(kv => kv.Key).Select(kv => kv.Key + "=" + kv.Value).ToArray(),

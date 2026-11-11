@@ -82,7 +82,7 @@ flight tracer's per-frame ``phase=AfterUpdate`` line, for its two trailing
 fields ``dRotDeg=<F3|NaN> rotRef=<token>``: the angle between the ghost's
 rendered world rotation and the rotation the recording implies at that playback
 UT (``GhostRenderTrace.ResolveAttitudeResidualDegrees``, resolved by
-``ParsekFlight.TryResolveRecordedAttitudeForTrace`` through the positioner's own
+``ParsekFlightGhostPositioner.TryResolveRecordedAttitudeForTrace`` through the positioner's own
 frame conventions). Those lines never enter ``lines`` / ``cycles``; they feed the
 ``attitude`` facet and the optional ``attitude`` sub-table of the block. A log
 from a DLL older than the residual carries AfterUpdate lines with no

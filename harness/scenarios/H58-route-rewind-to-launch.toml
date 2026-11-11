@@ -266,7 +266,7 @@ tier = "nightly"
 #
 # -------------------------------------------------------------------------------------
 # WHAT MADE THIS LANE POSSIBLE, AND WHAT IS STILL TRUE ABOUT THE FIXTURES. Rewind-to-Launch
-# needs a subject carrying a launch quicksave, and `RecordingStore.CanRewind` refuses
+# needs a subject carrying a launch quicksave, and `RewindLauncher.CanRewind` refuses
 # "No rewind save available" without one. That is still true of every committed recorded
 # fixture and is POLICY rather than decay: `harvest_bdock_station.py` prunes `Parsek/Saves`
 # and clears the hint, and `build_rover_route_recorded.py` gates the absence in both
@@ -387,7 +387,7 @@ steps = [
 # satisfied rather than waived. `route-x-rewind` was H6's SYNTHETIC claim: H6 drives the
 # reconciliation through `ReconciliationBundle.Restore(cutoff)` from an in-game test, and
 # its own header names what it cannot reach - "the REAL HandleRewindOnLoad go-back scene
-# load". That is exactly what flight 2 drove: a real `RecordingStore.InitiateRewind`, a
+# load". That is exactly what flight 2 drove: a real `RewindLauncher.InitiateRewind`, a
 # real KSP scene reload into SPACECENTER, and `ParsekScenario.HandleRewindOnLoad`'s own
 # `RouteEventLog.RetireFutureRouteActionsAtRewind` + `RouteRewindClassifier.ReconcileStoreAtRewind`
 # pass over the live `RouteStore`. H6 KEEPS the cell as the synthetic declarer; this is
@@ -613,7 +613,7 @@ count = { min = 6, max = 6 }
 #          keyword exists.
 #
 # TOKEN 14 THE PRODUCT ENTRY POINT, `Rewind-to-Launch initiated to UT` from
-#          `RecordingStore.BeginRewindForOwner`. Pinned separately from the seam's own
+#          `RewindLauncher.BeginRewindForOwner`. Pinned separately from the seam's own
 #          lines because it is the PRODUCT saying the rewind started, not the verb saying
 #          it asked - GS-4 pins the same token for the same reason.
 #

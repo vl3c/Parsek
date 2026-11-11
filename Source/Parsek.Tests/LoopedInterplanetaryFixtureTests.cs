@@ -23,7 +23,7 @@ namespace Parsek.Tests
             // compatibility gate requires (plain Build() is the legacy inline
             // shape and loads only up to the gate).
             RecordingTreeRecordCodec.LoadRecordingFrom(builder.BuildV3Metadata(), rec);
-            RecordingStore.DeserializeTrajectoryFrom(
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(
                 builder.BuildTrajectoryNode(), rec);
             return rec;
         }

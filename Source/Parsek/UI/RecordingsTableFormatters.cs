@@ -68,9 +68,9 @@ namespace Parsek
             {
                 // No terminal state (chain mid-segment or interior tree recording).
                 // Fallback: display body path -> SegmentBodyName -> last trajectory point body -> StartBodyName.
-                string segBody = RecordingStore.GetSegmentBodyDisplayLabel(rec);
+                string segBody = RecordingSegmentLabels.GetSegmentBodyDisplayLabel(rec);
 
-                string segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec, segBody);
+                string segmentLabel = RecordingSegmentLabels.GetSegmentPhaseLabel(rec, segBody);
                 if (!string.IsNullOrEmpty(segmentLabel))
                     return segmentLabel;
                 if (!string.IsNullOrEmpty(segBody))

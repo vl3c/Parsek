@@ -33,7 +33,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             Ledger.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
-            RecoveredRecordingEvidence.ResetForTesting();
+            EffectiveState.ResetRecoveredIndexForTesting();
             InFlightRecoveryRequest.ResetForTesting();
             GhostMapPresence.ResetForTesting();
         }
@@ -41,7 +41,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             InFlightRecoveryRequest.ResetForTesting();
-            RecoveredRecordingEvidence.ResetForTesting();
+            EffectiveState.ResetRecoveredIndexForTesting();
             EffectiveState.ResetCachesForTesting();
             Ledger.ResetForTesting();
             GhostMapPresence.ResetForTesting();
@@ -108,7 +108,7 @@ namespace Parsek.Tests
         {
             var tip = Tip("ctr-tip-rec", TerminalState.Landed);
             var tree = TreeOf(tip);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
             InFlightRecoveryRequest.Arm(Pid, LaunchGuid, Name, 626.7);
 
             Assert.True(SceneExitInterceptor.PendingRecoveryKeepsLiveTree(
@@ -132,7 +132,7 @@ namespace Parsek.Tests
         {
             var tip = Tip("ctr-tip-rec", resumedTerminal);
             var tree = TreeOf(tip);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
             InFlightRecoveryRequest.Arm(Pid, LaunchGuid, Name, 626.7);
 
             Assert.True(SceneExitInterceptor.PendingRecoveryKeepsLiveTree(
@@ -171,7 +171,7 @@ namespace Parsek.Tests
         {
             var tip = Tip("ctr-tip-rec", TerminalState.Landed);
             var tree = TreeOf(tip);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
             InFlightRecoveryRequest.Arm(Pid, "fedcba9876543210fedcba9876543210", Name, 626.7);
 
             Assert.False(SceneExitInterceptor.PendingRecoveryKeepsLiveTree(
@@ -192,7 +192,7 @@ namespace Parsek.Tests
             var tip = Tip("ctr-tip-rec", TerminalState.Landed);
             tip.VesselPersistentId = spawnPid;   // promoted by the resume
             var tree = TreeOf(tip);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
             InFlightRecoveryRequest.Arm(spawnPid, spawnGuid, Name, 626.7, "ctr-tip-rec");
 
             Assert.Contains(logLines, l =>
@@ -212,7 +212,7 @@ namespace Parsek.Tests
         {
             var tip = Tip("ctr-tip-rec", TerminalState.Landed);
             var tree = TreeOf(tip);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
             InFlightRecoveryRequest.Arm(
                 3842087101u, "aaaabbbbccccddddeeeeffff00001111", Name, 626.7, "ctr-tip-rec");
 
@@ -231,7 +231,7 @@ namespace Parsek.Tests
         public void ArmedRecovery_NonSpaceCenterDestination_DoesNotHold(GameScenes destination)
         {
             var tree = TreeOf(Tip("ctr-tip-rec", TerminalState.Landed));
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
             InFlightRecoveryRequest.Arm(Pid, LaunchGuid, Name, 626.7);
 
             Assert.False(SceneExitInterceptor.PendingRecoveryKeepsLiveTree(
@@ -244,7 +244,7 @@ namespace Parsek.Tests
         public void NoArmedRecovery_OrNoTree_DoesNotHold()
         {
             var tree = TreeOf(Tip("ctr-tip-rec", TerminalState.Landed));
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
 
             Assert.False(SceneExitInterceptor.PendingRecoveryKeepsLiveTree(
                 tree, GameScenes.SPACECENTER, "noop-no-session-resume"));
@@ -262,7 +262,7 @@ namespace Parsek.Tests
         {
             var tip = Tip("ctr-tip-rec", TerminalState.Destroyed);
             var tree = TreeOf(tip);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test-resume");
             InFlightRecoveryRequest.Arm(Pid, LaunchGuid, Name, 626.7);
 
             Assert.False(SceneExitInterceptor.PendingRecoveryKeepsLiveTree(
@@ -284,7 +284,7 @@ namespace Parsek.Tests
             existing.SpawnedVesselPersistentId = Pid;
             var incoming = Tip("ctr-tip-rec", terminal);
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out int otherPreserved,
                 new HashSet<uint> { Pid });
 
@@ -307,7 +307,7 @@ namespace Parsek.Tests
             existing.SpawnedVesselPersistentId = Pid;
             var incoming = Tip("ctr-tip-rec", TerminalState.Landed);
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out int otherPreserved,
                 new HashSet<uint> { Pid });
 

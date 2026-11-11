@@ -952,7 +952,7 @@ explicit choice. No other near-miss word is accepted - `newest`, `last`, `active
 all stay `unknown-tree`.
 
 **Why it exists, and it is a MEASURED wall rather than a convenience.** Rewind-to-Launch
-needs a subject carrying a launch quicksave: `RecordingStore.CanRewind` resolves the owner
+needs a subject carrying a launch quicksave: `RewindLauncher.CanRewind` resolves the owner
 through `GetRewindRecording`, which wants a non-empty `Recording.RewindSaveFileName` on the
 recording or its tree ROOT. Every committed recorded fixture ships that field EMPTY by
 harvest policy (`harvest_bdock_station.py` prunes `Parsek/Saves` and clears the hint;
@@ -1362,7 +1362,7 @@ act.
 **One tree-mode outcome deserves its own reading, because it looks like a handler failure
 and is not.** `TrySeal` never seals the recording it is handed - it flips that recording's
 slot's EFFECTIVE chain+supersede tip. A tree can therefore carry an open member that is not
-its own slot's tip (`RecordingStore.CommitTree` demotes both a qualifying HEAD and a chain
+its own slot's tip (`TreeCommitService.CommitTree` demotes both a qualifying HEAD and a chain
 tip), and for such a member every `TrySeal` SUCCEEDS while the member stays
 `CommittedProvisional` forever. The pass reports `ERROR seal-incomplete member-not-slot-tip`
 with `failed=0 remaining=N` - the distinct token exists precisely so an operator does not go
@@ -3072,8 +3072,9 @@ The mapping cannot live on the pure side at all: that half must stay free of
 already had the getter), `SelectedTabForTesting` + `TabCountForTesting` on
 `KerbalsWindowUI`, `TierFilterModeIndexForTesting` on `TimelineWindowUI` (an INT over the
 private filter-mode enum, so the enum stays private), `GetLogisticsUI()` /
-`GetStructureListUI()` on `ParsekUI` (the two sub-windows with no accessor, because
-neither is in the Advanced -> Basic close set),
+`GetStructureListUI()` (the two sub-windows with no accessor, because
+neither is in the Advanced -> Basic close set; every window accessor now lives on
+`ParsekWindowSet`, reached as `ParsekWindowSet.Of(ui)`),
 `ParsekUI.PersistedUiComplexityMode` + `ParsekUI.TryRequeuePersistedUiComplexityMode()`
 (the setting-vs-latch pair the `complexity` no-op test needs; the second is deliberately
 not a general mode setter - it can only queue the value the settings object already
@@ -4183,7 +4184,7 @@ this verb injects the crash inside one boot (supervisor ruling 2026-09-25).
   pattern= baselineDigest= baselinePoints=`.
 - `probe`: read-only. `safewritecrash probe recording= fired= armed= digest= unchanged=
   residue= loaded= loadFailed= points= baselinePoints=`; `residue` counts the recording's
-  `.prec` transient artifacts by `RecordingStore.IsTransientSidecarArtifactFile`.
+  `.prec` transient artifacts by `RecordingFileJanitor.IsTransientSidecarArtifactFile`.
 - `coldreload`: runs `ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore` (the
   in-game runner's isolated-restore prep), so the NEXT `LoadGame` takes the cold OnLoad
   path (sidecars re-read from disk, `CleanOrphanFiles`). A same-process `LoadGame` of the

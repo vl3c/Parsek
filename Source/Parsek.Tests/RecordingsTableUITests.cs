@@ -6,8 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for internal static methods on RecordingsTableUI.
-    /// These methods were extracted from ParsekUI and are tested both directly
-    /// and via the ParsekUI forwarders.
+    /// These methods were extracted from ParsekUI; the tests call them directly.
     /// </summary>
     [Collection("Sequential")]
     public class RecordingsTableUITests : IDisposable
@@ -767,8 +766,8 @@ namespace Parsek.Tests
             int helperEnd = rewindSrc.IndexOf("internal void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
             string helperBlock = rewindSrc.Substring(helperStart, helperEnd - helperStart);
 
-            Assert.Contains("RecordingStore.CanFastForward(", helperBlock);
-            Assert.Contains("RecordingStore.CanRewind(", helperBlock);
+            Assert.Contains("RewindLauncher.CanFastForward(", helperBlock);
+            Assert.Contains("RewindLauncher.CanRewind(", helperBlock);
             Assert.DoesNotContain("canWatch", rowBlock);
             Assert.DoesNotContain("hasGhost", rowBlock);
             Assert.DoesNotContain("sameBody", rowBlock);
@@ -782,9 +781,9 @@ namespace Parsek.Tests
             int groupEnd = groupSrc.IndexOf("// Hide group checkbox", groupStart, StringComparison.Ordinal);
             string groupBlock = groupSrc.Substring(groupStart, groupEnd - groupStart);
 
-            Assert.Contains("RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording)", groupBlock);
+            Assert.Contains("RewindLauncher.CanFastForward(mainRec, out ffReason, isRecording: isRecording)", groupBlock);
             Assert.Contains("FindGroupLegacyRewindRecordingIndex(descendants, committed, now)", groupBlock);
-            Assert.Contains("RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", groupBlock);
+            Assert.Contains("RewindLauncher.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", groupBlock);
             Assert.Contains("Rewind to launch: {targetName}", groupBlock);
             Assert.DoesNotContain("canWatch", groupBlock);
             Assert.DoesNotContain("hasGhost", groupBlock);
@@ -796,9 +795,9 @@ namespace Parsek.Tests
             string blockTemporal = rowsSrc.Substring(blockStart, blockEnd - blockStart);
 
             Assert.Contains("FindAggregateForwardRecordingIndex(members, committed, now)", blockTemporal);
-            Assert.Contains("RecordingStore.CanFastForward(forwardRec, out ffReason, isRecording: isRecording)", blockTemporal);
+            Assert.Contains("RewindLauncher.CanFastForward(forwardRec, out ffReason, isRecording: isRecording)", blockTemporal);
             Assert.Contains("FindAggregateLegacyRewindRecordingIndex(members, committed, now)", blockTemporal);
-            Assert.Contains("RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", blockTemporal);
+            Assert.Contains("RewindLauncher.CanRewind(rewindRec, out rewindReason, isRecording: isRecording)", blockTemporal);
             Assert.DoesNotContain("canWatch", blockTemporal);
             Assert.DoesNotContain("hasGhost", blockTemporal);
             Assert.DoesNotContain("sameBody", blockTemporal);
@@ -926,7 +925,17 @@ namespace Parsek.Tests
 
             int groupWatchStart = groupSrc.IndexOf("// Watch button (flight only) — Bug #382", StringComparison.Ordinal);
             int groupWatchEnd = groupSrc.IndexOf("// Rewind / Forward button. Forward still targets", groupWatchStart, StringComparison.Ordinal);
-            string groupWatchBlock = groupSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
+            string groupWatchShell = groupSrc.Substring(groupWatchStart, groupWatchEnd - groupWatchStart);
+            // The rotation step lives in ResolveGroupWatchRotation, which the folder's Watch
+            // block dispatches to: read the block and that helper's body as one span.
+            Assert.Contains("ResolveGroupWatchRotation(", groupWatchShell);
+            int rotationStart = groupSrc.IndexOf(
+                "internal static GhostPlaybackLogic.GroupWatchAdvanceResult ResolveGroupWatchRotation(",
+                StringComparison.Ordinal);
+            Assert.True(rotationStart >= 0, "ResolveGroupWatchRotation not found");
+            int rotationEnd = groupSrc.IndexOf("/// <summary>", rotationStart, StringComparison.Ordinal);
+            string groupWatchBlock = groupWatchShell + "\n"
+                + groupSrc.Substring(rotationStart, rotationEnd - rotationStart);
 
             Assert.Contains("GhostPlaybackLogic.AdvanceGroupWatchCursor", groupWatchBlock);
             Assert.Contains("groupWatchCursorByGroupName", groupWatchBlock);
@@ -940,7 +949,7 @@ namespace Parsek.Tests
         public void GetRecordingSortKey_LaunchTime_ReturnsStartUT()
         {
             var rec = MakeRec(250, 400);
-            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.LaunchTime, 0, 0);
+            double key = RecordingsTableUI.GetRecordingSortKey(rec, RecordingsTableUI.SortColumn.LaunchTime, 0, 0);
             Assert.Equal(250, key);
         }
 
@@ -948,7 +957,7 @@ namespace Parsek.Tests
         public void GetRecordingSortKey_Duration_ReturnsDuration()
         {
             var rec = MakeRec(100, 350);
-            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Duration, 0, 0);
+            double key = RecordingsTableUI.GetRecordingSortKey(rec, RecordingsTableUI.SortColumn.Duration, 0, 0);
             Assert.Equal(250, key);
         }
 
@@ -956,7 +965,7 @@ namespace Parsek.Tests
         public void GetRecordingSortKey_Status_Future()
         {
             var rec = MakeRec(500, 600);
-            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Status, 100, 0);
+            double key = RecordingsTableUI.GetRecordingSortKey(rec, RecordingsTableUI.SortColumn.Status, 100, 0);
             Assert.Equal(0, key); // future
         }
 
@@ -964,7 +973,7 @@ namespace Parsek.Tests
         public void GetRecordingSortKey_Status_Active()
         {
             var rec = MakeRec(100, 300);
-            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Status, 200, 0);
+            double key = RecordingsTableUI.GetRecordingSortKey(rec, RecordingsTableUI.SortColumn.Status, 200, 0);
             Assert.Equal(1, key); // active
         }
 
@@ -972,7 +981,7 @@ namespace Parsek.Tests
         public void GetRecordingSortKey_Status_Past()
         {
             var rec = MakeRec(100, 200);
-            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Status, 500, 0);
+            double key = RecordingsTableUI.GetRecordingSortKey(rec, RecordingsTableUI.SortColumn.Status, 500, 0);
             Assert.Equal(2, key); // past
         }
 
@@ -980,7 +989,7 @@ namespace Parsek.Tests
         public void GetRecordingSortKey_Index_ReturnsRowFallback()
         {
             var rec = MakeRec(100, 200);
-            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Index, 0, 42);
+            double key = RecordingsTableUI.GetRecordingSortKey(rec, RecordingsTableUI.SortColumn.Index, 0, 42);
             Assert.Equal(42, key);
         }
 
@@ -989,7 +998,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRec(100, 200);
             rec.SegmentPhase = "atmo";
-            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Phase, 0, 11);
+            double key = RecordingsTableUI.GetRecordingSortKey(rec, RecordingsTableUI.SortColumn.Phase, 0, 11);
             Assert.Equal(11, key); // Phase uses default branch = rowFallback
         }
 
@@ -1028,7 +1037,7 @@ namespace Parsek.Tests
         public void GetRecordingSortKey_Name_ReturnsRowFallback()
         {
             var rec = MakeRec(100, 200, "Vessel");
-            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.Name, 0, 5);
+            double key = RecordingsTableUI.GetRecordingSortKey(rec, RecordingsTableUI.SortColumn.Name, 0, 5);
             Assert.Equal(5, key); // Name uses default branch = rowFallback
         }
 
@@ -1044,8 +1053,8 @@ namespace Parsek.Tests
                 MakeRec(300, 300)   // single point at 300, ends the span
             };
             var members = new List<int> { 0, 1, 2 };
-            double key = ParsekUI.GetChainSortKey(members, committed,
-                ParsekUI.SortColumn.Duration, 0);
+            double key = RecordingsTableUI.GetChainSortKey(members, committed,
+                RecordingsTableUI.SortColumn.Duration, 0);
             Assert.Equal(200, key);
         }
 
@@ -1059,8 +1068,8 @@ namespace Parsek.Tests
                 MakeRec(800, 900)   // future at now=600
             };
             var members = new List<int> { 0, 1, 2 };
-            double key = ParsekUI.GetChainSortKey(members, committed,
-                ParsekUI.SortColumn.Status, 600);
+            double key = RecordingsTableUI.GetChainSortKey(members, committed,
+                RecordingsTableUI.SortColumn.Status, 600);
             Assert.Equal(0, key); // future is "best" (lowest order)
         }
 
@@ -1069,8 +1078,8 @@ namespace Parsek.Tests
         {
             var committed = new List<Recording> { MakeRec(100, 200) };
             var members = new List<int> { 0 };
-            double key = ParsekUI.GetChainSortKey(members, committed,
-                ParsekUI.SortColumn.Name, 0);
+            double key = RecordingsTableUI.GetChainSortKey(members, committed,
+                RecordingsTableUI.SortColumn.Name, 0);
             Assert.Equal(0, key);
         }
 
@@ -1079,7 +1088,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetGroupEarliestStartUT_EmptyDescendants_ReturnsMaxValue()
         {
-            var result = ParsekUI.GetGroupEarliestStartUT(new HashSet<int>(), new List<Recording>());
+            var result = RecordingsTableUI.GetGroupEarliestStartUT(new HashSet<int>(), new List<Recording>());
             Assert.Equal(double.MaxValue, result);
         }
 
@@ -1087,7 +1096,7 @@ namespace Parsek.Tests
         public void GetGroupEarliestStartUT_Single_ReturnsStartUT()
         {
             var committed = new List<Recording> { MakeRec(500, 600) };
-            var result = ParsekUI.GetGroupEarliestStartUT(new HashSet<int> { 0 }, committed);
+            var result = RecordingsTableUI.GetGroupEarliestStartUT(new HashSet<int> { 0 }, committed);
             Assert.Equal(500, result);
         }
 
@@ -1100,7 +1109,7 @@ namespace Parsek.Tests
                 MakeRec(100, 200),
                 MakeRec(200, 300)
             };
-            var result = ParsekUI.GetGroupEarliestStartUT(new HashSet<int> { 0, 1, 2 }, committed);
+            var result = RecordingsTableUI.GetGroupEarliestStartUT(new HashSet<int> { 0, 1, 2 }, committed);
             Assert.Equal(100, result);
         }
 
@@ -1109,7 +1118,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetGroupSpanDuration_EmptyDescendants_ReturnsZero()
         {
-            var result = ParsekUI.GetGroupSpanDuration(new HashSet<int>(), new List<Recording>());
+            var result = RecordingsTableUI.GetGroupSpanDuration(new HashSet<int>(), new List<Recording>());
             Assert.Equal(0, result);
         }
 
@@ -1117,7 +1126,7 @@ namespace Parsek.Tests
         public void GetGroupSpanDuration_SingleRecording_ReturnsDuration()
         {
             var committed = new List<Recording> { MakeRec(100, 250) };
-            var result = ParsekUI.GetGroupSpanDuration(new HashSet<int> { 0 }, committed);
+            var result = RecordingsTableUI.GetGroupSpanDuration(new HashSet<int> { 0 }, committed);
             Assert.Equal(150, result);
         }
 
@@ -1129,7 +1138,7 @@ namespace Parsek.Tests
                 MakeRec(100, 100),  // single point at 100
                 MakeRec(200, 350)
             };
-            var result = ParsekUI.GetGroupSpanDuration(new HashSet<int> { 0, 1 }, committed);
+            var result = RecordingsTableUI.GetGroupSpanDuration(new HashSet<int> { 0, 1 }, committed);
             Assert.Equal(250, result);
         }
 
@@ -1142,7 +1151,7 @@ namespace Parsek.Tests
                 MakeRec(150, 420),  // overlaps the first
                 MakeRec(500, 530)   // after a gap
             };
-            var result = ParsekUI.GetGroupSpanDuration(new HashSet<int> { 0, 1, 2 }, committed);
+            var result = RecordingsTableUI.GetGroupSpanDuration(new HashSet<int> { 0, 1, 2 }, committed);
             Assert.Equal(430, result);
         }
 
@@ -1151,7 +1160,7 @@ namespace Parsek.Tests
         [Fact]
         public void FindGroupMainRecordingIndex_EmptyDescendants_ReturnsNegativeOne()
         {
-            Assert.Equal(-1, ParsekUI.FindGroupMainRecordingIndex(
+            Assert.Equal(-1, RecordingsTableUI.FindGroupMainRecordingIndex(
                 new HashSet<int>(), new List<Recording>()));
         }
 
@@ -1159,7 +1168,7 @@ namespace Parsek.Tests
         public void FindGroupMainRecordingIndex_SingleNonDebris_ReturnsThatIndex()
         {
             var committed = new List<Recording> { MakeRec(100, 200, "Vessel") };
-            Assert.Equal(0, ParsekUI.FindGroupMainRecordingIndex(
+            Assert.Equal(0, RecordingsTableUI.FindGroupMainRecordingIndex(
                 new HashSet<int> { 0 }, committed));
         }
 
@@ -1169,7 +1178,7 @@ namespace Parsek.Tests
             var d1 = MakeRec(100, 200, "Stage1"); d1.IsDebris = true;
             var d2 = MakeRec(150, 250, "Stage2"); d2.IsDebris = true;
             var committed = new List<Recording> { d1, d2 };
-            Assert.Equal(-1, ParsekUI.FindGroupMainRecordingIndex(
+            Assert.Equal(-1, RecordingsTableUI.FindGroupMainRecordingIndex(
                 new HashSet<int> { 0, 1 }, committed));
         }
 
@@ -1180,7 +1189,7 @@ namespace Parsek.Tests
             var laterVessel = MakeRec(200, 300, "Lander");
             var earlierVessel = MakeRec(100, 200, "Rocket");
             var committed = new List<Recording> { debris, laterVessel, earlierVessel };
-            Assert.Equal(2, ParsekUI.FindGroupMainRecordingIndex(
+            Assert.Equal(2, RecordingsTableUI.FindGroupMainRecordingIndex(
                 new HashSet<int> { 0, 1, 2 }, committed));
         }
 
@@ -1189,7 +1198,7 @@ namespace Parsek.Tests
         {
             var committed = new List<Recording> { MakeRec(100, 200, "Vessel") };
             // Index 5 is out of range, should be skipped without crash
-            Assert.Equal(0, ParsekUI.FindGroupMainRecordingIndex(
+            Assert.Equal(0, RecordingsTableUI.FindGroupMainRecordingIndex(
                 new HashSet<int> { 0, 5 }, committed));
         }
 
@@ -1372,7 +1381,7 @@ namespace Parsek.Tests
                 MakeRec(700, 800),
                 MakeRec(600, 700)
             };
-            ParsekUI.GetGroupStatus(new HashSet<int> { 0, 1 }, committed,
+            RecordingsTableUI.GetGroupStatus(new HashSet<int> { 0, 1 }, committed,
                 500, out string text, out int order);
             Assert.Equal(0, order);
         }
@@ -1385,7 +1394,7 @@ namespace Parsek.Tests
                 MakeRec(100, 200),
                 MakeRec(250, 350)
             };
-            ParsekUI.GetGroupStatus(new HashSet<int> { 0, 1 }, committed,
+            RecordingsTableUI.GetGroupStatus(new HashSet<int> { 0, 1 }, committed,
                 500, out string text, out int order);
             Assert.Equal(2, order);
             Assert.Equal("past", text);
@@ -1401,8 +1410,8 @@ namespace Parsek.Tests
                 MakeRec(300, 400),
                 MakeRec(150, 250)
             };
-            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0, 1 }, committed,
-                ParsekUI.SortColumn.LaunchTime, 0);
+            double key = RecordingsTableUI.GetGroupSortKey(new HashSet<int> { 0, 1 }, committed,
+                RecordingsTableUI.SortColumn.LaunchTime, 0);
             Assert.Equal(150, key);
         }
 
@@ -1414,8 +1423,8 @@ namespace Parsek.Tests
                 MakeRec(100, 200),  // 100s
                 MakeRec(300, 370)   // 70s
             };
-            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0, 1 }, committed,
-                ParsekUI.SortColumn.Duration, 0);
+            double key = RecordingsTableUI.GetGroupSortKey(new HashSet<int> { 0, 1 }, committed,
+                RecordingsTableUI.SortColumn.Duration, 0);
             Assert.Equal(270, key); // 370 - 100: the folder row's own Duration cell
         }
 
@@ -1426,8 +1435,8 @@ namespace Parsek.Tests
             {
                 MakeRec(400, 600)   // active at now=500
             };
-            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
-                ParsekUI.SortColumn.Status, 500);
+            double key = RecordingsTableUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
+                RecordingsTableUI.SortColumn.Status, 500);
             Assert.Equal(1, key);
         }
 
@@ -1435,8 +1444,8 @@ namespace Parsek.Tests
         public void GetGroupSortKey_Phase_ReturnsZero()
         {
             var committed = new List<Recording> { MakeRec(100, 200) };
-            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
-                ParsekUI.SortColumn.Phase, 0);
+            double key = RecordingsTableUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
+                RecordingsTableUI.SortColumn.Phase, 0);
             Assert.Equal(0, key);
         }
 
@@ -1444,8 +1453,8 @@ namespace Parsek.Tests
         public void GetGroupSortKey_Index_ReturnsNegativeOne()
         {
             var committed = new List<Recording> { MakeRec(100, 200) };
-            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
-                ParsekUI.SortColumn.Index, 0);
+            double key = RecordingsTableUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
+                RecordingsTableUI.SortColumn.Index, 0);
             Assert.Equal(-1, key);
         }
 
@@ -1458,7 +1467,7 @@ namespace Parsek.Tests
         [InlineData(LoopTimeUnit.Auto, "s")]  // Auto falls through to default "s"
         public void UnitSuffix_ReturnsCorrectSuffix(LoopTimeUnit unit, string expected)
         {
-            Assert.Equal(expected, ParsekUI.UnitSuffix(unit));
+            Assert.Equal(expected, RecordingsTableUI.UnitSuffix(unit));
         }
 
         // ── CycleRecordingUnit ──
@@ -1759,7 +1768,7 @@ namespace Parsek.Tests
                     new TrackSection { environment = SegmentEnvironment.ExoBallistic, startUT = 200, endUT = 500 }
                 }
             };
-            ParsekUI.ApplyAutoLoopRange(rec, true);
+            RecordingsTableUI.ApplyAutoLoopRange(rec, true);
             Assert.Equal(100, rec.LoopStartUT);
             Assert.Equal(200, rec.LoopEndUT);
         }
@@ -1769,7 +1778,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording(); // LoopStartUT/EndUT default to NaN
             logLines.Clear();
-            ParsekUI.ApplyAutoLoopRange(rec, false);
+            RecordingsTableUI.ApplyAutoLoopRange(rec, false);
             // No "Loop range cleared" log because they were already NaN
             Assert.DoesNotContain(logLines, l => l.Contains("Loop range cleared"));
         }
@@ -1791,7 +1800,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 50 });
             rec.Points.Add(new TrajectoryPoint { ut = 500 });
             logLines.Clear();
-            ParsekUI.ApplyAutoLoopRange(rec, true);
+            RecordingsTableUI.ApplyAutoLoopRange(rec, true);
             Assert.Contains(logLines, l => l.Contains("Auto loop range") && l.Contains("TestShip"));
         }
 
@@ -2229,7 +2238,7 @@ namespace Parsek.Tests
                 VesselName = "Rocket",
                 RecordingGroups = new List<string> { "Launch" }
             };
-            ParsekUI.BuildGroupTreeData(
+            RecordingsTableUI.BuildGroupTreeData(
                 new List<Recording> { rec }, new int[] { 0 }, new List<string>(),
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
@@ -2271,7 +2280,7 @@ namespace Parsek.Tests
                 }
             };
 
-            ParsekUI.BuildGroupTreeData(
+            RecordingsTableUI.BuildGroupTreeData(
                 committed, new int[] { 0, 1 }, new List<string>(),
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
@@ -2316,7 +2325,7 @@ namespace Parsek.Tests
                 }
             };
 
-            ParsekUI.BuildGroupTreeData(
+            RecordingsTableUI.BuildGroupTreeData(
                 committed, new int[] { 0, 1 }, new List<string>(),
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
@@ -2334,7 +2343,7 @@ namespace Parsek.Tests
                 new Recording { VesselName = "Seg0", ChainId = "chain-1", ChainIndex = 0 },
                 new Recording { VesselName = "Seg1", ChainId = "chain-1", ChainIndex = 1 }
             };
-            ParsekUI.BuildGroupTreeData(
+            RecordingsTableUI.BuildGroupTreeData(
                 committed, new int[] { 0, 1 }, new List<string>(),
                 out var grpToRecs, out var chainToRecs, out var grpChildren,
                 out var rootGrps, out var rootChainIds);
@@ -2460,8 +2469,8 @@ namespace Parsek.Tests
         {
             var ra = MakeRecWithSite(100, 200, "Runway");
             var rb = MakeRecWithSite(100, 200, "LaunchPad");
-            int cmp = ParsekUI.CompareRecordings(ra, rb,
-                ParsekUI.SortColumn.LaunchSite, true, 0);
+            int cmp = RecordingsTableUI.CompareRecordings(ra, rb,
+                RecordingsTableUI.SortColumn.LaunchSite, true, 0);
             Assert.True(cmp > 0); // Runway > LaunchPad alphabetically
         }
 
@@ -2470,8 +2479,8 @@ namespace Parsek.Tests
         {
             var ra = MakeRecWithSite(300, 400, "LaunchPad");
             var rb = MakeRecWithSite(100, 200, "LaunchPad");
-            int cmp = ParsekUI.CompareRecordings(ra, rb,
-                ParsekUI.SortColumn.LaunchSite, true, 0);
+            int cmp = RecordingsTableUI.CompareRecordings(ra, rb,
+                RecordingsTableUI.SortColumn.LaunchSite, true, 0);
             Assert.True(cmp > 0); // Same site, ra has later StartUT
         }
 
@@ -2480,8 +2489,8 @@ namespace Parsek.Tests
         {
             var ra = MakeRec(100, 200); // no site (null)
             var rb = MakeRecWithSite(100, 200, "LaunchPad");
-            int cmp = ParsekUI.CompareRecordings(ra, rb,
-                ParsekUI.SortColumn.LaunchSite, true, 0);
+            int cmp = RecordingsTableUI.CompareRecordings(ra, rb,
+                RecordingsTableUI.SortColumn.LaunchSite, true, 0);
             Assert.True(cmp < 0); // "" < "LaunchPad"
         }
 
@@ -2490,8 +2499,8 @@ namespace Parsek.Tests
         {
             var ra = MakeRecWithSite(100, 200, "launchpad");
             var rb = MakeRecWithSite(100, 200, "LaunchPad");
-            int cmp = ParsekUI.CompareRecordings(ra, rb,
-                ParsekUI.SortColumn.LaunchSite, true, 0);
+            int cmp = RecordingsTableUI.CompareRecordings(ra, rb,
+                RecordingsTableUI.SortColumn.LaunchSite, true, 0);
             // Same site name (case-insensitive), same UT → tiebreak returns 0
             Assert.Equal(0, cmp);
         }
@@ -2501,10 +2510,10 @@ namespace Parsek.Tests
         {
             var ra = MakeRecWithSite(100, 200, "LaunchPad");
             var rb = MakeRecWithSite(100, 200, "Runway");
-            int ascCmp = ParsekUI.CompareRecordings(ra, rb,
-                ParsekUI.SortColumn.LaunchSite, true, 0);
-            int descCmp = ParsekUI.CompareRecordings(ra, rb,
-                ParsekUI.SortColumn.LaunchSite, false, 0);
+            int ascCmp = RecordingsTableUI.CompareRecordings(ra, rb,
+                RecordingsTableUI.SortColumn.LaunchSite, true, 0);
+            int descCmp = RecordingsTableUI.CompareRecordings(ra, rb,
+                RecordingsTableUI.SortColumn.LaunchSite, false, 0);
             Assert.Equal(-ascCmp, descCmp);
         }
 
@@ -2518,8 +2527,8 @@ namespace Parsek.Tests
                 MakeRecWithSite(300, 400, "LaunchPad", "L2"),
                 MakeRecWithSite(100, 200, "Runway", "R1")
             };
-            var indices = ParsekUI.BuildSortedIndices(committed,
-                ParsekUI.SortColumn.LaunchSite, true, 0);
+            var indices = RecordingsTableUI.BuildSortedIndices(committed,
+                RecordingsTableUI.SortColumn.LaunchSite, true, 0);
             // Expected order: LaunchPad(UT=100), LaunchPad(UT=300), Runway(UT=100), Runway(UT=200)
             Assert.Equal(1, indices[0]); // L1 (LaunchPad, UT=100)
             Assert.Equal(2, indices[1]); // L2 (LaunchPad, UT=300)
@@ -2531,7 +2540,7 @@ namespace Parsek.Tests
         public void GetRecordingSortKey_LaunchSite_ReturnsRowFallback()
         {
             var rec = MakeRecWithSite(100, 200, "LaunchPad");
-            double key = ParsekUI.GetRecordingSortKey(rec, ParsekUI.SortColumn.LaunchSite, 0, 7);
+            double key = RecordingsTableUI.GetRecordingSortKey(rec, RecordingsTableUI.SortColumn.LaunchSite, 0, 7);
             Assert.Equal(7, key); // string-based column, returns rowFallback
         }
 
@@ -2540,8 +2549,8 @@ namespace Parsek.Tests
         {
             var committed = new List<Recording> { MakeRecWithSite(100, 200, "LaunchPad") };
             var members = new List<int> { 0 };
-            double key = ParsekUI.GetChainSortKey(members, committed,
-                ParsekUI.SortColumn.LaunchSite, 0);
+            double key = RecordingsTableUI.GetChainSortKey(members, committed,
+                RecordingsTableUI.SortColumn.LaunchSite, 0);
             Assert.Equal(0, key);
         }
 
@@ -2549,8 +2558,8 @@ namespace Parsek.Tests
         public void GetGroupSortKey_LaunchSite_ReturnsZero()
         {
             var committed = new List<Recording> { MakeRecWithSite(100, 200, "LaunchPad") };
-            double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
-                ParsekUI.SortColumn.LaunchSite, 0);
+            double key = RecordingsTableUI.GetGroupSortKey(new HashSet<int> { 0 }, committed,
+                RecordingsTableUI.SortColumn.LaunchSite, 0);
             Assert.Equal(0, key);
         }
 

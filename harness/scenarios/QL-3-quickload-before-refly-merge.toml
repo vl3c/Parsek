@@ -23,7 +23,7 @@ id = "QL-3-quickload-before-refly-merge"
 #   1. THE FIXTURE IS PRODUCTION-SHAPED (todo REWIND-CREW-LOSS-FIXTURE-RP-HAS-NO-BRANCH-POINT,
 #      FIXED): the `rewind-crew-loss` tree now carries the split branch point `bp_cl_root`
 #      (JointBreak, root -> probe + pod, `rewindPointId = rp_cl_root`) and the point is
-#      persistent (SessionProvisional false, as `RecordingStore.PromoteNormalStagingRewindPoints`
+#      persistent (SessionProvisional false, as `TreeCommitService.PromoteNormalStagingRewindPoints`
 #      leaves a committed tree's staging point). Step B of the QL-3 load therefore claims the
 #      point for the committed tree and drops the save's copy: required
 #      `rp_cl_root:CommittedOwner:dropped-save-only`, forbidden `rp_cl_root:FollowSave:`, and

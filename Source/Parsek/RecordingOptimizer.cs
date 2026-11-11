@@ -253,7 +253,7 @@ namespace Parsek
         /// Scans committed recordings for consecutive chain segments that can be merged.
         /// Returns pairs of indices (a, b) where b can be merged into a.
         /// </summary>
-        internal static List<(int, int)> FindMergeCandidates(List<Recording> committed)
+        internal static List<(int, int)> FindMergeCandidates(IReadOnlyList<Recording> committed)
         {
             var candidates = new List<(int, int)>();
             if (committed == null || committed.Count < 2) return candidates;
@@ -762,7 +762,7 @@ namespace Parsek
         /// reads `original.TrackSections[sectionIndex].startUT` off the SAME live list before
         /// running its own Ensure, so analysis and split must see one section list.
         /// </remarks>
-        internal static List<(int, int)> FindSplitCandidatesForOptimizer(List<Recording> committed)
+        internal static List<(int, int)> FindSplitCandidatesForOptimizer(IReadOnlyList<Recording> committed)
         {
             var candidates = new List<(int, int)>();
             if (committed == null) return candidates;
@@ -1444,14 +1444,14 @@ namespace Parsek
                 // frame is the authoritative start.
                 var firstPt = ResolveSecondHalfStartPoint(second);
                 second.StartBodyName = firstPt.bodyName;
-                second.StartBiome = VesselSpawner.TryResolveBiome(firstPt.bodyName, firstPt.latitude, firstPt.longitude);
+                second.StartBiome = LiveVesselSnapshot.TryResolveBiome(firstPt.bodyName, firstPt.latitude, firstPt.longitude);
                 // StartSituation left null — ambiguous from environment alone
             }
 
             if (original.Points.Count > 0)
             {
                 var lastPt = original.Points[original.Points.Count - 1];
-                original.EndBiome = VesselSpawner.TryResolveBiome(lastPt.bodyName, lastPt.latitude, lastPt.longitude);
+                original.EndBiome = LiveVesselSnapshot.TryResolveBiome(lastPt.bodyName, lastPt.latitude, lastPt.longitude);
             }
 
             // 10. Transfer terminal-state fields to second half (represents end-of-recording state)
@@ -1482,14 +1482,14 @@ namespace Parsek
                     : null
             };
 
-            bool syncedOriginalFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+            bool syncedOriginalFlatTrajectory = TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(
                 original, allowRelativeSections: true);
             string originalFlatSyncMode = syncedOriginalFlatTrajectory
                 ? "track-sections"
                 : "unchanged";
 
             bool preservedSecondFlatTail =
-                RecordingStore.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
+                TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail(
                     second,
                     secondFlatTailSource,
                     second.TrackSections,
@@ -1502,7 +1502,7 @@ namespace Parsek
             }
             else
             {
-                bool syncedSecondFlatTrajectory = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+                bool syncedSecondFlatTrajectory = TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(
                     second, allowRelativeSections: true);
                 secondFlatSyncMode = syncedSecondFlatTrajectory
                     ? "track-sections"
@@ -2224,7 +2224,7 @@ namespace Parsek
         /// only the 0.0 fallback), then by the previous ChainIndex and the recording id for a
         /// deterministic order on ties, and assigns sequential indices starting from 0.
         /// </summary>
-        internal static void ReindexChain(List<Recording> committed, string chainId)
+        internal static void ReindexChain(IReadOnlyList<Recording> committed, string chainId)
         {
             if (committed == null || string.IsNullOrEmpty(chainId)) return;
 
@@ -2561,7 +2561,7 @@ namespace Parsek
                 TrimOverlappingSectionFrames(target.TrackSections);
             }
 
-            bool rebuilt = RecordingStore.TrySyncFlatTrajectoryFromTrackSections(
+            bool rebuilt = TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(
                 target, allowRelativeSections: true);
 
             if (!rebuilt && target.Points != null && target.Points.Count > 1)

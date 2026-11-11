@@ -74,14 +74,14 @@ namespace Parsek
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
-        private struct Held
+        private struct HeldSlice
         {
             internal double Start;
             internal double End;
             internal GameAction Holder;
         }
 
-        private readonly Dictionary<string, List<Held>> held = new Dictionary<string, List<Held>>(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<HeldSlice>> held = new Dictionary<string, List<HeldSlice>>(StringComparer.Ordinal);
 
         internal void Reset()
         {
@@ -119,7 +119,7 @@ namespace Parsek
             d.Length = end - start;
             d.Uncovered = new List<KeyValuePair<double, double>> { new KeyValuePair<double, double>(start, end) };
 
-            List<Held> slices;
+            List<HeldSlice> slices;
             if (!held.TryGetValue(KeyOf(row), out slices) || slices.Count == 0)
                 return d;
 
@@ -127,7 +127,7 @@ namespace Parsek
             var forgotten = new List<KeyValuePair<double, double>>();
             for (int i = 0; i < slices.Count; i++)
             {
-                Held h = slices[i];
+                HeldSlice h = slices[i];
                 double a = Math.Max(h.Start, start);
                 double b = Math.Min(h.End, end);
                 if (!(b > a))
@@ -158,17 +158,17 @@ namespace Parsek
             if (!IsProducerSlice(row) || decision.Uncovered == null)
                 return;
             string key = KeyOf(row);
-            List<Held> slices;
+            List<HeldSlice> slices;
             if (!held.TryGetValue(key, out slices))
             {
-                slices = new List<Held>();
+                slices = new List<HeldSlice>();
                 held[key] = slices;
             }
             for (int i = 0; i < decision.Uncovered.Count; i++)
             {
                 KeyValuePair<double, double> part = decision.Uncovered[i];
                 if (part.Value > part.Key)
-                    slices.Add(new Held { Start = part.Key, End = part.Value, Holder = row });
+                    slices.Add(new HeldSlice { Start = part.Key, End = part.Value, Holder = row });
             }
         }
 

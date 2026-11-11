@@ -10,7 +10,7 @@ namespace Parsek.Analyzer.Rules
     // TIP is Immutable. It is the on-disk residue of the defect PR #1658 fixed
     // (OPTIMIZER-SPLIT-DROPS-MERGESTATE-AND-CLOSES-AN-OPEN-REFLY-SLOT):
     // MergeDialog.MergeCommit promotes a re-flyable slot's tip to CommittedProvisional
-    // and only THEN runs RecordingStore.RunOptimizationPass(); when the phase-change
+    // and only THEN runs CommittedListOptimizer.RunOptimizationPass(); when the phase-change
     // split cut the just-promoted recording, RecordingOptimizer.
     // TransferTerminalFieldsToSecondHalf moved the terminal onto a brand-new chain TIP
     // but not the MergeState, and Recording.MergeState defaults to Immutable. A slot's
@@ -27,7 +27,7 @@ namespace Parsek.Analyzer.Rules
     // AnalyzerModel does not load scenario RewindPoints either (see Inv9RewindPoint's
     // class comment). The chain HEAD/TIP pair is the surviving witness and the one the
     // model can read. MergeState.CommittedProvisional is MINTED FOR A SLOT ORIGIN only by
-    // RecordingStore.ApplyRewindProvisionalMergeStates (:1260 / :1290) over RewindPoint
+    // TreeCommitService.ApplyRewindProvisionalMergeStates (:1260 / :1290) over RewindPoint
     // slot tips; the other writers PROPAGATE an existing one rather than mint it
     // (RecordingOptimizer.MergeInto :866 and the split carry :1407,
     // UnfinishedFlightStashHandler :85 re-opening a tip, ParsekScenario.HydrationRepair).

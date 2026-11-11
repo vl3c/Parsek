@@ -42,10 +42,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("ROOT");
-            RecordingStore.SerializeSegmentEvents(node, events);
+            TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, events);
 
             var deserialized = new List<SegmentEvent>();
-            RecordingStore.DeserializeSegmentEvents(node, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
             Assert.Equal(3, deserialized.Count);
 
@@ -71,7 +71,7 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("ROOT");
-            RecordingStore.SerializeSegmentEvents(node, events);
+            TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, events);
 
             // Verify no details key was written
             var seNodes = node.GetNodes("SEGMENT_EVENT");
@@ -79,7 +79,7 @@ namespace Parsek.Tests
             Assert.Null(seNodes[0].GetValue("details"));
 
             var deserialized = new List<SegmentEvent>();
-            RecordingStore.DeserializeSegmentEvents(node, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
             Assert.Single(deserialized);
             Assert.Equal(500.0, deserialized[0].ut);
@@ -96,7 +96,7 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("ROOT");
-            RecordingStore.SerializeSegmentEvents(node, events);
+            TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, events);
 
             // Empty string treated same as null — no details key
             var seNodes = node.GetNodes("SEGMENT_EVENT");
@@ -104,7 +104,7 @@ namespace Parsek.Tests
             Assert.Null(seNodes[0].GetValue("details"));
 
             var deserialized = new List<SegmentEvent>();
-            RecordingStore.DeserializeSegmentEvents(node, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
             Assert.Single(deserialized);
             Assert.Null(deserialized[0].details);
@@ -120,10 +120,10 @@ namespace Parsek.Tests
             }
 
             var node = new ConfigNode("ROOT");
-            RecordingStore.SerializeSegmentEvents(node, events);
+            TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, events);
 
             var deserialized = new List<SegmentEvent>();
-            RecordingStore.DeserializeSegmentEvents(node, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
             Assert.Equal(events.Count, deserialized.Count);
             for (int i = 0; i < events.Count; i++)
@@ -144,13 +144,13 @@ namespace Parsek.Tests
             var events = new List<SegmentEvent>();
 
             var node = new ConfigNode("ROOT");
-            RecordingStore.SerializeSegmentEvents(node, events);
+            TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, events);
 
             var seNodes = node.GetNodes("SEGMENT_EVENT");
             Assert.Empty(seNodes);
 
             var deserialized = new List<SegmentEvent>();
-            RecordingStore.DeserializeSegmentEvents(node, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
             Assert.Empty(deserialized);
         }
@@ -170,7 +170,7 @@ namespace Parsek.Tests
             pt.AddValue("funds", "0"); pt.AddValue("science", "0"); pt.AddValue("rep", "0");
 
             var deserialized = new List<SegmentEvent>();
-            RecordingStore.DeserializeSegmentEvents(node, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
             Assert.Empty(deserialized);
         }
@@ -196,7 +196,7 @@ namespace Parsek.Tests
             try
             {
                 var deserialized = new List<SegmentEvent>();
-                RecordingStore.DeserializeSegmentEvents(node, deserialized);
+                TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
                 Assert.Empty(deserialized);
                 Assert.Contains(logLines, l =>
@@ -227,7 +227,7 @@ namespace Parsek.Tests
             try
             {
                 var deserialized = new List<SegmentEvent>();
-                RecordingStore.DeserializeSegmentEvents(node, deserialized);
+                TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
                 Assert.Empty(deserialized);
                 Assert.Contains(logLines, l =>
@@ -267,7 +267,7 @@ namespace Parsek.Tests
             se4.AddValue("type", "3");
 
             var deserialized = new List<SegmentEvent>();
-            RecordingStore.DeserializeSegmentEvents(node, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
             Assert.Equal(2, deserialized.Count);
             Assert.Equal(100.0, deserialized[0].ut);
@@ -291,10 +291,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("ROOT");
-            RecordingStore.SerializeSegmentEvents(node, events);
+            TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, events);
 
             var deserialized = new List<SegmentEvent>();
-            RecordingStore.DeserializeSegmentEvents(node, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
             // Ordering must match serialization order, not UT order
             Assert.Equal(3, deserialized.Count);
@@ -318,10 +318,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("ROOT");
-            RecordingStore.SerializeSegmentEvents(node, events);
+            TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, events);
 
             var deserialized = new List<SegmentEvent>();
-            RecordingStore.DeserializeSegmentEvents(node, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
             Assert.Single(deserialized);
             // "R" format guarantees exact double round-trip
@@ -339,10 +339,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("ROOT");
-            RecordingStore.SerializeSegmentEvents(node, events);
+            TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, events);
 
             var deserialized = new List<SegmentEvent>();
-            RecordingStore.DeserializeSegmentEvents(node, deserialized);
+            TrajectoryTextSidecarCodec.DeserializeSegmentEvents(node, deserialized);
 
             Assert.Single(deserialized);
             Assert.Equal(negativeUT, deserialized[0].ut);
@@ -373,7 +373,7 @@ namespace Parsek.Tests
             se.AddValue("details", "stage separation");
 
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
             Assert.Single(rec.Points);
             Assert.Single(rec.SegmentEvents);
@@ -394,7 +394,7 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("ROOT");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             var seNodes = node.GetNodes("SEGMENT_EVENT");
             Assert.Single(seNodes);

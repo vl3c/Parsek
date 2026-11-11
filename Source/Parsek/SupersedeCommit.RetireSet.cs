@@ -466,7 +466,7 @@ namespace Parsek
         /// <summary>
         /// Scopes <see cref="RetireSetHoldsSealingRow"/> to also read
         /// <paramref name="rows"/>, the rows a tree commit files right after it promotes
-        /// its Unfinished Flights (<c>RecordingStore.ApplyRewindProvisionalMergeStates</c>
+        /// its Unfinished Flights (<c>TreeCommitService.ApplyRewindProvisionalMergeStates</c>
         /// runs inside <c>CommitTree</c>, before <c>NotifyLedgerTreeCommitted</c>). Without
         /// it Site A would promote a slot whose own new rows seal it (RF-9). Dispose
         /// restores the previous scope.

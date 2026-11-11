@@ -1211,6 +1211,40 @@ class GreedySinkCutTests(unittest.TestCase):
         self.assertEqual(archview.greedy_sink_cuts(["AOne", "BTwo"], graph, max_steps=0), [])
 
 
+class ReplayCutResidueTests(unittest.TestCase):
+    def test_matches_the_greedy_residue_for_the_greedy_order(self):
+        graph = GreedySinkCutTests._two_cycle_graph(
+            ["ZSink", "QOne", "QTwo", "QThree", "QFour"], ["ASink", "POne", "PTwo"]
+        )
+        cuts = archview.greedy_sink_cuts(sorted(graph), graph)
+        order = [cut["sink"] for cut in cuts]
+        self.assertEqual(archview.replay_cut_residue(graph, order), cuts[-1]["sizeAfter"])
+
+    def test_no_cut_is_the_largest_component(self):
+        graph = GreedySinkCutTests._two_cycle_graph(["AOne", "ATwo"], ["BOne", "BTwo", "BThree"])
+        self.assertEqual(archview.replay_cut_residue(graph, []), 5)
+
+    def test_a_name_absent_from_the_graph_is_skipped(self):
+        graph = {"AOne": ["BTwo"], "BTwo": ["AOne"], "CThree": []}
+        self.assertEqual(archview.replay_cut_residue(graph, ["GoneType"]), 2)
+        self.assertEqual(archview.replay_cut_residue(graph, ["GoneType", "AOne"]), 1)
+
+    def test_deleting_an_edge_never_raises_it(self):
+        # The monotonicity the residue ratchet relies on, checked over every
+        # single-edge deletion.
+        graph = GreedySinkCutTests._two_cycle_graph(
+            ["ZSink", "QOne", "QTwo", "QThree", "QFour"], ["ASink", "POne", "PTwo"]
+        )
+        graph["QTwo"].append("POne")
+        order = [cut["sink"] for cut in archview.greedy_sink_cuts(sorted(graph), graph)]
+        before = archview.replay_cut_residue(graph, order)
+        for name, targets in graph.items():
+            for target in targets:
+                trimmed = {key: [t for t in value if (key, t) != (name, target)]
+                           for key, value in graph.items()}
+                self.assertLessEqual(archview.replay_cut_residue(trimmed, order), before)
+
+
 class SublevelTests(unittest.TestCase):
     def test_cutting_one_sink_turns_the_cycle_into_a_chain(self):
         graph = {"AOne": ["BTwo"], "BTwo": ["CThree"], "CThree": ["DFour"], "DFour": ["AOne"]}
@@ -3127,6 +3161,26 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
 
 
+# The cut order the text residue replays (test_cut_sequence_halves_the_largest_knot):
+# the greedy sequence on the refactor branch after wave 2 W3b (2026-11-07). The ratchet
+# itself reads the semantic graph since W4a2 (semantic.SEMANTIC_CUT_ORDER); keep this
+# list equal to archview.RATCHET_CUT_ORDER (test_semantic.CutOrderTests).
+RATCHET_CUT_ORDER = [
+    "GhostPlaybackLogic",
+    "ParsekFlight",
+    "Route",
+    "ParsekScenario",
+    "RecordingStore",
+    "RecordingTree",
+    "Mission",
+    "GameStateRecorder",
+    "EffectiveState",
+    "ParsekUI",
+    "RouteOrchestrator",
+    "FlightRecorder",
+]
+
+
 @unittest.skipUnless(REAL_SOURCE.is_dir(), "Source/Parsek is not present")
 class RealTreeSmokeTests(unittest.TestCase):
     @classmethod
@@ -3207,20 +3261,61 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(len(largest["modules"]), 10)
 
     def test_knot_sizes_match_the_documented_tree(self):
-        # A snapshot of the current tree, re-derived 2026-11-04 on the release
-        # branch, whose production code is main's. Placing 50 root files the map
-        # had skipped took the kernel knot to 584 on 2026-11-01 (the 7-type
-        # stock-screen decoration knot merged into it); teaching the scanner
-        # member names (a field or enum member spelled like a type is not a
-        # reference) split off a 3-type stock-UI grey knot, and main's code is
-        # 542 with that scanner. Recording and GameAction are inside it: their
-        # re-cuts (454 there, 456 after the 2026-11-04 merge of main) live on the
-        # refactor branch claude/project-thread-bkwmrr only. It was
-        # [301, 7, 4, 2, 2] on 2026-09-25, [286, 4, 2, 2] on 2026-09-22 and
-        # [391, 4, 2] before the 2026-09-14 arch PRs shrank the kernel.
+        # A snapshot of the current tree, re-derived 2026-11-06 on the refactor
+        # branch claude/project-thread-bkwmrr (main at 7eb3770e0, 1.0.0, plus
+        # the re-landed Recording, GameAction and dead-code slices). Placing 50
+        # root files the map had skipped took the kernel knot to 584 on
+        # 2026-11-01 (the 7-type stock-screen decoration knot merged into it);
+        # teaching the scanner member names (a field or enum member spelled
+        # like a type is not a reference) split off a 3-type stock-UI grey knot,
+        # and main's code is 542 with that scanner. Here Recording is plain data
+        # and GameAction's real CaptureSequence call goes through the leaf
+        # CaptureSequenceCodec, so both are outside the knot: 457, one more than
+        # main's 542 with those three references cut, because the RecordingStore
+        # type initialiser that installs Recording.GhostHiddenRule keeps
+        # LaunchSiteOnlyGhost inside. Each RecordingStore service the
+        # 2026-11-06 plan moves into its own type adds that type when it still
+        # sits on a cycle: 458 after RecordingSegmentLabels (PR1, it calls
+        # RecordingOptimizer), 459 after RecordingChainQueries (PR4), 460 after
+        # RewindSpawnScope (PR5), 461 after RecordingFileJanitor (PR6). File-placement
+        # PR 8 split LiveVesselSnapshot out of VesselSpawner; its follow-up keeps the
+        # capture entry points (TryBackupSnapshot, SnapshotVessel) on FlightRecorder,
+        # whose crew-name reverse map and terminal-state calls reach KerbalsModule,
+        # CrewReservationManager and RecordingTree, so LiveVesselSnapshot references
+        # no knot member and stays outside: still 461; 462 after
+        # CommittedListOptimizer (services PR8), 463 after CommittedTreeRestoreAttempt
+        # (services PR9), 464 after PendingTreeSlot (services PR10), 465 after
+        # SwitchSegmentAttempts (services PR11), 466 after TreeDiscardService
+        # (services PR12 K), 467 after TreeCommitService (services PR12 L), 468 after
+        # RewindCarry (services PR13 N), 469 after RewindLauncher (services PR13 O),
+        # 470 after ParsekFlightGhostPositioner (ParsekFlight plan PF2: the flight
+        # scene's IGhostPositioner, which reaches its host), 471 after
+        # ParsekFlightPostSwitchAutoRecord (PF3), 472 after ParsekFlightPlaybackHost (PF4),
+        # 473 after ParsekFlightSpawnHost (PF5), 474 after ParsekFlightSurfaceCapture (PF6),
+        # 475 after ParsekFlightSplitBrancher (PF7), 476 after ParsekFlightMergeFlow (PF8),
+        # 477 after ParsekFlightSwitchContinuation (PF9). Wave 2 W1a (2026-11-07) makes
+        # VesselLaunchIdentity a sink: its link-row test and sidecar hydration are rules
+        # VesselNameStore and RecordingSidecarStore install, so the knot drops to 459 and
+        # OrbitReseed / RecordedTailVelocityResolver, which only reached it through
+        # launch identity, are left as their own 2-type knot. W1b moves the hold decision
+        # record out of ReFlyInvokeHold into the plain ReFlyHoldEntry, so the rewind hold
+        # (RewindVesselHold.Hold) no longer reaches the classifier: 450. Wave 2 W3b moves the
+        # ReasonColorHex const and AppendReason from StockUiRnDDecoration onto StockUiText,
+        # the two references that held 18 stock-screen types in the kernel: 432, and nine of
+        # them (the overlay controller, the RnD / facility / astronaut decorations, the live
+        # snapshot, the reason tooltip, the Mission Control UI and two patches, which call
+        # each other) are left as their own 9-type knot. Wave 2 W6 moves the flight map
+        # markers out of ParsekUI into ParsekFlightMapMarkers, which reaches the knot and is
+        # reached from its host: 433. W6's window set (ParsekUI holds its windows through
+        # interfaces; ParsekWindowSet builds and holds them typed) adds three: the set, which
+        # its hosts reach and which reaches the windows, ISpawnControlWindow, whose DrawIfOpen
+        # names ParsekFlight, and IParsekUIWindows, which names ISpawnControlWindow: 436.
+        # It was [301, 7, 4, 2, 2] on 2026-09-25,
+        # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
+        # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [542, 4, 3])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [436, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3229,15 +3324,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # then placed 67 of those by hand, leaving the kernel files that are
         # used across many modules (see README, "Editing modules.toml").
         # VesselSnapshotOps.cs joined them in the 2026-09-14 VesselSpawner
-        # split, which named it in the Core rule, so the kernel is 9 files.
-        self.assertEqual(self.by_name["Core"]["files"], 9)
+        # split, which named it in the Core rule; file-placement PR 9 moved
+        # VesselSpawner.cs itself to Controllers, so the kernel is 8 files.
+        self.assertEqual(self.by_name["Core"]["files"], 8)
 
     def test_kernel_files_resolve_to_core(self):
         kernel = [
             "BranchPoint.cs",
             "IPlaybackTrajectory.cs",
             "VesselLaunchIdentity.cs",
-            "VesselSpawner.cs",
             "VesselSnapshotOps.cs",
             "MilestoneStore.cs",
             "GroupHierarchyStore.cs",
@@ -3287,13 +3382,22 @@ class RealTreeSmokeTests(unittest.TestCase):
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
         self.assertIn("| Core |", fresh)
-        # 196: the historical before-state collects every root file the narrowed
+        # 213: the historical before-state collects every root file the narrowed
         # family rules leave behind (138 on 2026-09-25, 126 before the stock-UI
         # reservation files landed at the root; the 2026-11-01 refresh placed
         # 50 more by hand, the first 2026-11-04 merge of main three more, the
-        # second two more while main deleted one); 9 after, the kernel list as
-        # it stands today.
-        self.assertIn("| Core | 196 | 9 |", fresh)
+        # second two more while main deleted one, and the RecordingStore
+        # services plan's SceneEntryVesselScope, CommittedListOptimizer,
+        # CommittedTreeRestoreAttempt and PendingTreeSlot, which no family prefix
+        # names, four more (PR11's SwitchSegmentAttempts takes the SwitchIntent
+        # family prefix and adds none; PR12 K's TreeDiscardService one more and
+        # PR12 L's TreeCommitService with its two partial files three more),
+        # file-placement PR 8's LiveVesselSnapshot one more, and PR 10's eight
+        # VesselSpawner.<Area>.cs partial files eight more; PR 8's follow-up
+        # FlightRecorder.LiveSnapshot.cs matches a family prefix and adds none);
+        # 8 after, the kernel list as it stands today (9 until
+        # file-placement PR 9 placed VesselSpawner.cs in Controllers).
+        self.assertIn("| Core | 213 | 8 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -3302,6 +3406,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(findings["missingGlossary"], [])
         self.assertEqual(findings["staleReadings"], [])
         self.assertEqual(findings["missingReadingOrder"], [])
+        # A literal number in an undated prose string must match the model
+        # (archview.PROSE_NUMBER_CLAIMS); a dated one is history.
+        self.assertEqual(findings["staleNumbers"], [])
 
     def test_rendered_atlas_contains_the_live_facts(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -3327,35 +3434,153 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(len(production), 20)
 
     def test_first_cut_matches_the_documented_tree(self):
-        # Re-derived 2026-11-04 on the release branch (main's production code at
-        # becf1e92e): Recording's two helper calls (LaunchSiteOnlyGhost,
-        # SidecarVersions) are the first cut and GameAction's real CaptureSequence
-        # call the second (main's save-format freeze removed its Ledger call; the
-        # cuts were 494 and 455 before it). The refactor branch claude/project-thread-bkwmrr
-        # moves both out, and there the first cut is Route. On 2026-09-25
+        # Re-derived 2026-11-06 on the refactor branch: Recording and GameAction
+        # are outside the knot, so the first cut is the supply route type and
+        # the second the flight controller. On main's code (542) Recording
+        # (-> 496) and GameAction (-> 456) are the first two cuts; on 2026-09-25
         # GameAction was first (301 -> 273, dropping Ledger) and RecordingStore
         # second. Same canary contract as the knot sizes above.
-        first, second = self.model["knots"][0]["cuts"][:2]
-        self.assertEqual(first["sink"], "Recording")
-        self.assertEqual(first["sizeBefore"], 542)
-        self.assertEqual(first["sizeAfter"], 496)
-        self.assertEqual(first["droppedReferences"], ["LaunchSiteOnlyGhost", "SidecarVersions"])
-        self.assertEqual(second["sink"], "GameAction")
-        self.assertEqual(second["sizeAfter"], 456)
-        self.assertEqual(second["droppedReferences"], ["CaptureSequence"])
+        # ParsekFlight plan PF4 (2026-11-07) adds ParsekFlightPlaybackHost, which only its
+        # host reaches: the flight controller's cut now drops it too and ties the route cut
+        # (18 each), so the flight controller goes first and the route cut second, with the
+        # same five references; it was route 471 -> 453, launch identity -> 435 and the
+        # flight controller -> 419 before. PF5's ParsekFlightSpawnHost is the same shape
+        # (473 before, the cut still lands on 454), and so is PF6's ParsekFlightSurfaceCapture
+        # (474 before, still 454 after), and PF7's ParsekFlightSplitBrancher (475 before,
+        # still 454 after), and PF8's ParsekFlightMergeFlow (476 before, still 454 after),
+        # and PF9's ParsekFlightSwitchContinuation (477 before, still 454 after).
+        # Wave 2 W1a takes VesselLaunchIdentity out of the knot (459 before, 437 after),
+        # W1b the rewind hold record (450 before, 428 after).
+        # W1c (MissionPeriodicity takes the trimmed member windows as an input instead of
+        # calling MissionLoopUnitBuilder) leaves the knot at 450 but reorders the greedy
+        # cuts: the ghost playback logic now ties the flight controller (22 each) and goes
+        # first, the flight controller second, and the route cut third without its
+        # GhostPlaybackLogic and LoopUnit references (the first cut already dropped them).
+        # W3b takes 18 stock-screen types out of the knot (432 before; each of the first
+        # three cuts lands 18 lower). W6 adds ParsekFlightMapMarkers (the flight map markers
+        # moved out of ParsekUI), which only its host reaches: the flight controller's cut
+        # now drops it too and breaks the 22-each tie, so the flight controller goes first
+        # (433 -> 410) and the ghost playback logic second (410 -> 388, the same references).
+        # W6's window set (three more knot types, see the knot sizes above) is reached from
+        # the flight controller, which builds it: the first cut drops it too and lands lower
+        # (436 -> 405), and the ghost playback cut follows from there (405 -> 383).
+        first, second, third = self.model["knots"][0]["cuts"][:3]
+        self.assertEqual(first["sink"], "ParsekFlight")
+        self.assertEqual(first["sizeBefore"], 436)
+        self.assertEqual(first["sizeAfter"], 405)
+        for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
+                        "ParsekFlightMergeFlow",
+                        "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
+                        "ParsekFlightSpawnHost", "ParsekFlightSplitBrancher",
+                        "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
+            self.assertIn(service, first["droppedReferences"])
+        self.assertEqual(second["sink"], "GhostPlaybackLogic")
+        self.assertEqual(second["sizeBefore"], 405)
+        self.assertEqual(second["sizeAfter"], 383)
+        for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
+            self.assertIn(dropped, second["droppedReferences"])
+        # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
+        # that made the launch-identity cut (dropping its RecordingSidecarStore and
+        # VesselNameStore references) beat the flight controller for second
+        # place (426 before). The residue ratchet below is immune to this reorder.
+        # File-placement PR 5 (2026-11-07) deleted the Ghost -> GameActions call,
+        # which tightened this cut by one (426 before); services PR8's
+        # CommittedListOptimizer is one more knot member on the uncut side
+        # (425 before), and so are PR9's CommittedTreeRestoreAttempt (426 before),
+        # PR10's PendingTreeSlot (427 before), PR11's SwitchSegmentAttempts
+        # (428 before), PR12 K's TreeDiscardService (429 before), PR12 L's
+        # TreeCommitService (430 before), PR13 N's RewindCarry (431 before), PR13 O's
+        # RewindLauncher (432 before), ParsekFlight plan PF2's
+        # ParsekFlightGhostPositioner (433 before) and PF3's
+        # ParsekFlightPostSwitchAutoRecord (434 before); PF4 moved it to third
+        # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
+        # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
+        # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
+        # 383 -> 364 after W6's window set).
+        self.assertEqual(third["sink"], "Route")
+        self.assertEqual(third["sizeBefore"], 383)
+        self.assertEqual(third["sizeAfter"], 364)
+        self.assertEqual(
+            third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
         # a residue of about 300 types (328 of 584 before the scanner learned
-        # member names; 306 of 542 on main's production code at becf1e92e with
-        # it, the value pinned here, 301 before main's save-format freeze removed
-        # GameAction's Ledger call; 277 of 456 on the refactor branch, where
-        # Recording and GameAction are cut): the god objects at the end of the
-        # sequence hold a core the cheap cuts cannot reach. The bound is that
-        # residue, a ratchet the refactor program tightens toward half the knot;
-        # refactor work must never loosen it.
+        # member names; 306 of 542 on main's production code at 7eb3770e0 with
+        # it): the god objects at the end of the sequence hold a core the cheap
+        # cuts cannot reach. On this branch, where Recording and GameAction are
+        # cut, it is 282 of 457. The bound is that residue, a ratchet the
+        # refactor program tightens toward half the knot; refactor work must
+        # never loosen it by adding a reference. Moving a member out of a cut
+        # sink is the one exception, because it moves no reference: the sink's
+        # cut used to drop the member's edges with it. RecordingSegmentLabels
+        # (PR1 of the RecordingStore plan) keeps its RecordingOptimizer edge,
+        # which the RecordingStore cut dropped, so it and RecordingsTableFormatters
+        # stay in the residue: 284 of 458. PR2 points GroupPickerPresentation's
+        # IsInvalidGroupName call at RecordingGroupStore (uncut) instead of the
+        # RecordingStore forwarder (cut): 285 of 458. PR3 deletes the sidecar
+        # forwarders, so their callers reach RecordingSidecarStore and
+        # RouteProofCodec directly and both stay in the residue: 287 of 458,
+        # the value pinned here (still 287 of 459 after PR4's
+        # RecordingChainQueries, which the RecordingStore cut drops with it, and
+        # 287 of 460 after PR5's RewindSpawnScope and of 461 after PR6's
+        # RecordingFileJanitor). The bound is never loosened, not even for a
+        # new type that only splits an existing residue member: file-placement
+        # PR 8's LiveVesselSnapshot did that (288 of 462), and its follow-up
+        # moved the capture entry points that carry the knot edges onto
+        # FlightRecorder, a cut type, which takes LiveVesselSnapshot out of the
+        # knot. The replayed residue is then 283 of 461 (still 283 of 462 after
+        # services PR8's CommittedListOptimizer, which the RecordingStore cut
+        # drops with it, of 463 after PR9's CommittedTreeRestoreAttempt and of
+        # 464 after PR10's PendingTreeSlot and of 465 after PR11's
+        # SwitchSegmentAttempts); the bound stayed 287.
+        # Still 283, of 466, after services PR12 K's TreeDiscardService, of 467
+        # after PR12 L's TreeCommitService, of 468 after PR13 N's RewindCarry, and of
+        # 469 after PR13 O's RewindLauncher, and of 470 after ParsekFlight plan
+        # PF2's ParsekFlightGhostPositioner (only its host reaches it, and the
+        # ParsekFlight cut drops that edge, so it is not in the residue), and of
+        # 471 after PF3's ParsekFlightPostSwitchAutoRecord, of 472 after PF4's
+        # ParsekFlightPlaybackHost, of 473 after PF5's ParsekFlightSpawnHost and of 474
+        # after PF6's ParsekFlightSurfaceCapture and of 475 after PF7's
+        # ParsekFlightSplitBrancher, of 476 after PF8's ParsekFlightMergeFlow and of 477
+        # after PF9's ParsekFlightSwitchContinuation (the same shape).
+        # The bound ratchets: it is tightened to the measured replayed residue, 283.
+        # Wave 2 W1a (VesselLaunchIdentity's two store calls become installed rules) takes
+        # it to 272 of 459 (greedy 272 too); W1b (RewindVesselHold.Hold carries the plain
+        # ReFlyHoldEntry, not ReFlyInvokeHold's nested type) to 263 of 450; W1c
+        # (MissionPeriodicity no longer calls MissionLoopUnitBuilder) to 246 of 450 on the
+        # then pinned order, with the greedy sequence reordered (GhostPlaybackLogic first) and
+        # the greedy residue at 201. Wave 2 W3b (ReasonColorHex and AppendReason move onto
+        # StockUiText) takes 18 stock-screen types out of the knot: the greedy sequence ends at
+        # 179 of 432, while the W1c-era order replays to 228. The order above is re-pinned to
+        # the new greedy one, which replays to 179, the last text bound pinned here.
+        #
+        # The bound applies to min(greedy residue, replayed residue). The greedy
+        # sequence is a heuristic: deleting a real reference can change which
+        # sink wins an early step and leave a LARGER residue after the same 12
+        # steps (file-placement PR 4 deletes OrbitReseed -> GhostMapPresence and
+        # the greedy residue rises 285 -> 290 on the tree it was measured on).
+        # The replay removes the outgoing edges of the fixed order pinned below
+        # (the greedy order after wave 2 W3b; a name that leaves the model is
+        # skipped), and for a fixed set of cut types deleting an edge can only
+        # shrink the remaining components, so the replayed residue never rises
+        # when a reference is removed. The greedy sequence stays the reported,
+        # documented one (test_first_cut_matches_the_documented_tree); the
+        # minimum is only the ratchet's measure.
+        #
+        # RETIRED as the ratchet 2026-11-07 (W4a2): the bound moved to the
+        # semantic graph read from the compiled IL, where a call through a
+        # forwarder counts as a call to the forwarded type, so code can no
+        # longer move this text residue by adding or deleting forwarders
+        # (test_semantic.RealTreeSemanticTests.test_the_semantic_residue_ratchet,
+        # bound 150 = the semantic residue on 668a03255, a tree that still
+        # passed the text bound 179 here). The text residue stays measured and
+        # reported (`archview.py --check`, `semantic.py`), not bounded:
+        # deleting the RecordingStore metric forwarders (W4c) raises it.
         largest = self.model["knots"][0]
-        self.assertLessEqual(largest["cuts"][-1]["sizeAfter"], 306)
+        graph = {entry["name"]: entry["referencesTo"] for entry in self.model["types"]}
+        replayed = archview.replay_cut_residue(graph, RATCHET_CUT_ORDER)
+        self.assertLessEqual(min(largest["cuts"][-1]["sizeAfter"], replayed), largest["size"])
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}
@@ -3467,10 +3692,14 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_expression_bodied_properties_are_not_counted_as_static_state(self):
         # RecordingStore forwards about twenty of them; each used to read as a
-        # reassignable static.
+        # reassignable static. The lower bound proves real statics still count:
+        # the RecordingStore services plan moves the store's own statics out
+        # (20 left after PR10's PendingTreeSlot took ten, 13 after PR13 O's
+        # RewindLauncher took the cleanup sets and the persistent-write seams),
+        # so it sits below that.
         row = self.size_types["RecordingStore"]
         self.assertLess(row["mutableStatics"], 45)
-        self.assertGreater(row["mutableStatics"], 20)
+        self.assertGreater(row["mutableStatics"], 8)
 
     def test_nested_types_that_share_a_name_are_separate_rows(self):
         names = [row["name"] for row in self.sizes["types"]]

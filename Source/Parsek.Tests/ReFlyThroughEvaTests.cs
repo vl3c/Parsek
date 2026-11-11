@@ -507,7 +507,7 @@ namespace Parsek.Tests
             var rp = ReFlyThroughEvaFixture.BuildRewindPoint();
             InstallScenario(rp);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             string tipId = UpperSlot(rp).EffectiveRecordingId(NoSupersedes);
             Assert.Equal(ReFlyThroughEvaFixture.UpperAfterBoardId, tipId);
@@ -539,7 +539,7 @@ namespace Parsek.Tests
             var rp = ReFlyThroughEvaFixture.BuildRewindPoint();
             InstallScenario(rp);
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.False(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(UpperSlot(rp)));
             Assert.True(RewindPointReaper.IsReapEligible(rp, NoSupersedes));

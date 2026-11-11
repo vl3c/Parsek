@@ -104,7 +104,7 @@ namespace Parsek.InGameTests
         public void RouteOriginProof_StartedOnRunway_ProducerSkipsProof()
         {
             // PRECONDITION: a committed recording exists whose StartSituation
-            // (captured at record_start by FlightRecorder via VesselSpawner.HumanizeSituation)
+            // (captured at record_start by FlightRecorder via LiveVesselSnapshot.HumanizeSituation)
             // equals "Prelaunch". Same read-side pattern as the docked-origin
             // sibling test: the runner inspects what gameplay already produced
             // rather than driving StartRecording itself.
@@ -181,7 +181,7 @@ namespace Parsek.InGameTests
                     if (recording == null)
                         continue;
                     // FlightRecorder writes the humanized vessel.situation string at
-                    // record_start; VesselSpawner.HumanizeSituation(Vessel.Situations.PRELAUNCH)
+                    // record_start; LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.PRELAUNCH)
                     // returns "Prelaunch". This matches Recording.IsPlayerLaunched's
                     // own PRELAUNCH probe (Recording.cs:1059).
                     if (!string.Equals(recording.StartSituation, "Prelaunch", System.StringComparison.Ordinal))
@@ -209,7 +209,7 @@ namespace Parsek.InGameTests
             if (activeTree != null && seen.Add(activeTree))
                 yield return new RecordingTreeRuntimeView { Tree = activeTree, Source = "active" };
 
-            RecordingTree pendingTree = RecordingStore.PendingTree;
+            RecordingTree pendingTree = PendingTreeSlot.PendingTree;
             if (pendingTree != null && seen.Add(pendingTree))
                 yield return new RecordingTreeRuntimeView { Tree = pendingTree, Source = "pending" };
 

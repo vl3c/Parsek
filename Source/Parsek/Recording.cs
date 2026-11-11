@@ -119,7 +119,7 @@ namespace Parsek
         [NonSerialized] internal string SegmentBodyDisplayLabelCacheStartBodyName;
         [NonSerialized] internal string SegmentBodyDisplayLabelCacheLastPointBodyName;
 
-        // T2.1 body-path sequence memo (RecordingStore.GetBodyTransitionSequence): the walk is
+        // T2.1 body-path sequence memo (RecordingSegmentLabels.GetBodyTransitionSequence): the walk is
         // O(Points) and reached from the Missions header's per-frame facts rebuild, so it is
         // cached behind the same content signature the display-label cache above uses. A null
         // cache list means "not computed"; callers must treat the returned list as read-only.
@@ -212,7 +212,24 @@ namespace Parsek
         public bool PlaybackEnabled = true;
         // The player's toggle plus the derived launch-site-only hide (LaunchSiteOnlyGhost):
         // what every ghost host reads. Same visual-only contract as PlaybackEnabled.
-        internal bool GhostVisible => PlaybackEnabled && !LaunchSiteOnlyGhost.IsHidden(this);
+        internal bool GhostVisible => PlaybackEnabled && !IsHiddenByGhostRule();
+
+        /// <summary>
+        /// The derived ghost-hide rule <see cref="GhostVisible"/> consults, installed by its
+        /// owner (<c>LaunchSiteOnlyGhost.EnsureGhostHiddenRuleInstalled</c>, run by that
+        /// type's static constructor and by the committed store's type initialiser) so this
+        /// data type does not reference the module that computes it. The rule can only
+        /// answer true for a recording in a committed tree, and the store is initialised
+        /// before any tree is committed, so it is always installed when it matters. Null
+        /// reads as "not hidden".
+        /// </summary>
+        internal static Func<Recording, bool> GhostHiddenRule;
+
+        private bool IsHiddenByGhostRule()
+        {
+            Func<Recording, bool> rule = GhostHiddenRule;
+            return rule != null && rule(this);
+        }
         public bool Hidden;                  // true = hidden from recordings list (unless Show Hidden is on)
 
         // EVA child recording linkage
@@ -1113,7 +1130,9 @@ namespace Parsek
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;
             clone.SidecarEpochAdvancePending = source.SidecarEpochAdvancePending;
-            SidecarVersions.CopyHashes(clone, source);
+            clone.PrecHash = source.PrecHash;
+            clone.VesselSnapshotHash = source.VesselSnapshotHash;
+            clone.GhostSnapshotHash = source.GhostSnapshotHash;
             clone.SidecarVersionsResolved = source.SidecarVersionsResolved;
             clone.SidecarLoadFailed = source.SidecarLoadFailed;
             clone.SidecarLoadFailureReason = source.SidecarLoadFailureReason;

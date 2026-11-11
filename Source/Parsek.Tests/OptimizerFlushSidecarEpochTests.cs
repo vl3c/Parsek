@@ -30,7 +30,7 @@ namespace Parsek.Tests
         {
             originalScene = HighLogic.LoadedScene;
             HighLogic.LoadedScene = GameScenes.SPACECENTER;
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
@@ -48,7 +48,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             HighLogic.LoadedScene = originalScene;
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             ParsekScenario.PersistentSavePathOverrideForTesting = null;
             RecordingPaths.SaveRootOverrideForTesting = null;
             try
@@ -110,7 +110,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording();
             RecordingTree.LoadRecordingFrom(sfs, rec);
-            hydrated = RecordingStore.LoadRecordingFiles(rec);
+            hydrated = RecordingSidecarStore.LoadRecordingFiles(rec);
             return rec;
         }
 
@@ -122,7 +122,7 @@ namespace Parsek.Tests
         private int ProbePrecEpoch(string id)
         {
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(PrecPath(id), out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(PrecPath(id), out probe));
             return probe.SidecarEpoch;
         }
 
@@ -133,7 +133,7 @@ namespace Parsek.Tests
 
             // OnSave: epoch advances, .prec written, then the .sfs carries the same epoch.
             var flown = MakeRecording(id);
-            Assert.True(RecordingStore.SaveRecordingFiles(flown, incrementEpoch: true));
+            Assert.True(RecordingSidecarStore.SaveRecordingFiles(flown, incrementEpoch: true));
             ConfigNode persistentSfs = SnapshotSfs(flown);
             int sfsEpoch = flown.SidecarEpoch;
             Assert.Equal(1, sfsEpoch);
@@ -148,7 +148,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(loaded);
             loaded.MarkFilesDirty();
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.False(loaded.FilesDirty);
             Assert.Contains(logLines, l =>
@@ -210,13 +210,13 @@ namespace Parsek.Tests
             const string id = "optflushepoch1mirror";
 
             var flown = MakeRecording(id);
-            Assert.True(RecordingStore.SaveRecordingFiles(flown, incrementEpoch: true));
+            Assert.True(RecordingSidecarStore.SaveRecordingFiles(flown, incrementEpoch: true));
             ConfigNode preFlushQuicksave = SnapshotSfs(flown);
             Assert.Equal(1, flown.SidecarEpoch);
 
             CommitInTree(flown, "optflushepochtree1");
             flown.MarkFilesDirty();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.False(flown.FilesDirty);
             Assert.True(flown.SidecarEpochAdvancePending);
@@ -248,10 +248,10 @@ namespace Parsek.Tests
             const string id = "optflushepoch3clear";
 
             var flown = MakeRecording(id);
-            Assert.True(RecordingStore.SaveRecordingFiles(flown, incrementEpoch: true));
+            Assert.True(RecordingSidecarStore.SaveRecordingFiles(flown, incrementEpoch: true));
             CommitInTree(flown, "optflushepochtree3");
             flown.MarkFilesDirty();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             Assert.True(flown.SidecarEpochAdvancePending);
 
             Assert.Equal("2", RealOnSave(id).GetValue("sidecarEpoch"));
@@ -275,7 +275,7 @@ namespace Parsek.Tests
             var incoming = new Recording { RecordingId = "optflushepoch4swap", SidecarEpoch = 3 };
             bool savePreserved;
             int otherPreserved;
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 source, incoming, out savePreserved, out otherPreserved);
             Assert.True(incoming.SidecarEpochAdvancePending);
         }
@@ -292,7 +292,7 @@ namespace Parsek.Tests
 
             var committed = MakeRecording(id);
             Assert.Equal(0, committed.SidecarEpoch);
-            RecordingStore.CommitRecordingDirect(committed);
+            TreeCommitService.CommitRecordingDirect(committed);
 
             Assert.False(committed.FilesDirty);
             Assert.Equal(1, committed.SidecarEpoch);
@@ -300,7 +300,7 @@ namespace Parsek.Tests
 
             ConfigNode firstSave = SnapshotSfs(committed);
             committed.MarkFilesDirty();
-            Assert.True(RecordingStore.SaveRecordingFiles(committed, incrementEpoch: true));
+            Assert.True(RecordingSidecarStore.SaveRecordingFiles(committed, incrementEpoch: true));
 
             bool hydrated;
             Recording stale = ColdLoad(firstSave, out hydrated);

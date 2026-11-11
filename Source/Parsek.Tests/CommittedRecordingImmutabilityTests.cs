@@ -133,7 +133,7 @@ namespace Parsek.Tests
             rec.VesselDestroyed = true;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.False(rec.VesselDestroyed,
                 "VesselDestroyed must be reset by ResetAllPlaybackState so spawn works after revert");
@@ -147,7 +147,7 @@ namespace Parsek.Tests
             rec.VesselDestroyed = true;
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,

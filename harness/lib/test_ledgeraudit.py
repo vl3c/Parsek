@@ -1470,6 +1470,9 @@ def _src_paths(rel):
         if not paths:
             raise AssertionError("no source file matches %s" % rel)
         return paths
+    if rel == la.SRC_SCENARIO:
+        # The text that was ParsekScenario.cs: the main file, then its split files in name order.
+        return [path] + [os.path.join(os.path.dirname(path), n) for n in sorted(la.SRC_SCENARIO_SPLIT)]
     if rel != la.SRC_PATCHER:
         return [path]
     stem = os.path.splitext(path)[0]
@@ -1508,6 +1511,17 @@ def _method_body(src, name):
 
 
 class SourceSyncTests(unittest.TestCase):
+    def test_scenario_split_lists_name_every_partial_file(self):
+        # A new ParsekScenario.*.cs must be declared, read with SRC_SCENARIO or not, so an
+        # anchor never goes silently unread.
+        src_dir = os.path.join(REPO_ROOT, "Source", "Parsek")
+        on_disk = sorted(n for n in os.listdir(src_dir)
+                         if n.startswith("ParsekScenario.") and n.endswith(".cs")
+                         and n != "ParsekScenario.cs")
+        declared = sorted(la.SRC_SCENARIO_SPLIT + la.SRC_SCENARIO_OTHER)
+        self.assertEqual(declared, on_disk)
+        self.assertEqual(len(declared), len(set(declared)))
+
     def test_every_anchor_literal_is_in_its_source_file(self):
         missing = []
         cache = {}
@@ -1616,7 +1630,7 @@ class SourceSyncTests(unittest.TestCase):
 
     def test_guid_unknown_and_owned(self):
         self.assertIn('reason={(identity.HasLaunchGuid ? "no-recording-carries-launch-guid" : '
-                      '"live-launch-guid-unknown")}', _src(la.SRC_ORCHESTRATOR))
+                      '"live-launch-guid-unknown")}', _src(la.SRC_RECOVERY_PICKER))
         self.assertIn('$"is already owned at ut={action.UT.ToString("R", IC)} " +',
                       _src(la.SRC_FUNDS))
 

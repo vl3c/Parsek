@@ -49,7 +49,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             ResetAll();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             RewindPointReaper.ReleaseQuicksaveForTesting = rpId =>
             {
                 deletedRpIds.Add(rpId);
@@ -84,7 +84,7 @@ namespace Parsek.Tests
         private static void ResetAll()
         {
             RecordingStore.ResetForTesting();
-            RecordingStore.ResetRewindFlags();
+            RewindLauncher.ResetRewindFlags();
             RewindContext.ResetForTesting();
             RewindInvokeContext.Clear();
             InSessionStagedStateHandoff.ResetForTesting();
@@ -297,8 +297,8 @@ namespace Parsek.Tests
             var fresh = new ParsekScenario();
             ParsekScenario.SetInstanceForTesting(fresh);
             Invoke(fresh, "LoadRewindStagingState", saved);
-            RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(fresh);
-            RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(fresh);
+            RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(fresh);
+            RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(fresh);
             fresh.ApplyInSessionStagedStateHandoffStepA(early);
             afterStepA?.Invoke(fresh);
             treeRestore?.Invoke();
@@ -500,7 +500,7 @@ namespace Parsek.Tests
             // rewind points follow the launch-state save (today's behaviour), files untouched.
             var reverted = BuildTree("tree_reverted", new[] { "rp_flight" },
                 Rec("rec_flight", 10.0, MergeState.NotCommitted, "tree_reverted"));
-            RecordingStore.StashPendingTree(reverted, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(reverted, PendingTreeState.Limbo);
             InstallMergedReFlyTree();
             var memory = Memory(s =>
             {
@@ -608,7 +608,7 @@ namespace Parsek.Tests
                     var resumed = BuildTree(TreeId, new[] { "rp_t", "rp_s_child" },
                         Rec(OriginId, 50.0, MergeState.Immutable),
                         Rec(ForkId, 55.0, MergeState.NotCommitted));
-                    RecordingStore.StashPendingTree(resumed, PendingTreeState.Limbo);
+                    PendingTreeSlot.StashPendingTree(resumed, PendingTreeState.Limbo);
                 });
 
             Assert.NotNull(loaded.ActiveReFlySessionMarker);
@@ -693,7 +693,7 @@ namespace Parsek.Tests
         {
             var onDisk = Recording.DeepClone(rec);
             onDisk.SidecarEpoch = epoch - 1;
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 onDisk,
                 RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildTrajectoryRelativePath(onDisk.RecordingId)),
                 RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildVesselSnapshotRelativePath(onDisk.RecordingId)),
@@ -782,7 +782,7 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(logLines, l => l.Contains("Quickload committed-copy restore"));
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == TreeId);
-            Assert.True(RecordingStore.PendingTree.Recordings.ContainsKey(ForkId));
+            Assert.True(PendingTreeSlot.PendingTree.Recordings.ContainsKey(ForkId));
             Assert.Equal(new[] { "rel_a" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
             Assert.Equal(new[] { "tomb_a" }, loaded.LedgerTombstones.Select(t => t.TombstoneId));
         }
@@ -921,7 +921,7 @@ namespace Parsek.Tests
                 members.Add(Provisional(Rec(EarlierForkId, 52.0, MergeState.Immutable), "sess_s0", "rp_t", EarlierChildId));
             }
             var tree = BuildTree(TreeId, new[] { "rp_t" }, members.ToArray());
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
             if (withEarlierSameRpAttempt)
             {
                 Ledger.AddAction(new GameAction
@@ -979,7 +979,7 @@ namespace Parsek.Tests
             Assert.True(committed.Recordings.ContainsKey(OriginId), "the origin is committed again");
             Assert.False(committed.Recordings.ContainsKey(ForkId), "the discarded attempt is not");
             Assert.Equal(OriginId, committed.ActiveRecordingId);
-            Assert.False(RecordingStore.HasPendingTree, "the restored tree does not also stay pending");
+            Assert.False(PendingTreeSlot.HasPendingTree, "the restored tree does not also stay pending");
             Assert.True(ErsHas(OriginId), "the sanitized tree is committed again with its origin visible");
             Assert.False(ErsHas(ForkId));
             Assert.Contains(logLines, l => l.Contains("[INFO][MergeDialog]")
@@ -1449,7 +1449,7 @@ namespace Parsek.Tests
             var memory = Memory(s => s.RecordingSupersedes.Add(Rel("rel_mem", "o", "n")));
             ConfigNode saved = SaveNode(null);
             RewindContext.BeginRewind(30.0, default(BudgetSummary), 0, 0, 0f);
-            RecordingStore.CaptureRewindStagedListsForRewind(memory, "Rewind");
+            RewindCarry.CaptureRewindStagedListsForRewind(memory, "Rewind");
 
             var loaded = Load(memory, saved, EarlyLoadKind.PlainRewind);
 

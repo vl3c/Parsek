@@ -86,7 +86,7 @@ namespace Parsek
             string vesselName = vessel.vesselName ?? "(unnamed)";
 
             // Capture snapshot before despawn
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            ConfigNode snapshot = FlightRecorder.TryBackupSnapshot(vessel);
             if (snapshot == null)
             {
                 ParsekLog.Error(Tag,
@@ -928,9 +928,9 @@ namespace Parsek
         private static Vector3d ResolveSpawnPosition(Recording tipRecording, ConfigNode vesselSnapshot)
         {
             double snapLat = 0, snapLon = 0, snapAlt = 0;
-            bool hasSnapPos = VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lat", out snapLat)
-                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lon", out snapLon)
-                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "alt", out snapAlt);
+            bool hasSnapPos = VesselSnapshotOps.TryGetSnapshotDouble(vesselSnapshot, "lat", out snapLat)
+                           && VesselSnapshotOps.TryGetSnapshotDouble(vesselSnapshot, "lon", out snapLon)
+                           && VesselSnapshotOps.TryGetSnapshotDouble(vesselSnapshot, "alt", out snapAlt);
             bool hasEndpointCoords = RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
                 tipRecording,
                 out string endpointBodyName,
@@ -941,7 +941,7 @@ namespace Parsek
             if (hasSnapPos)
             {
                 if (hasEndpointCoords
-                    && VesselSpawner.TryGetSnapshotReferenceBodyName(vesselSnapshot, out string snapshotBodyName)
+                    && LiveVesselSnapshot.TryGetSnapshotReferenceBodyName(vesselSnapshot, out string snapshotBodyName)
                     && string.Equals(snapshotBodyName, endpointBodyName, StringComparison.Ordinal))
                 {
                     CelestialBody snapBody = FlightGlobals.GetBodyByName(endpointBodyName);
@@ -958,7 +958,7 @@ namespace Parsek
 
                 if (!hasEndpointCoords)
                 {
-                    if (VesselSpawner.TryGetSnapshotReferenceBodyName(vesselSnapshot, out string snapshotFallbackBodyName))
+                    if (LiveVesselSnapshot.TryGetSnapshotReferenceBodyName(vesselSnapshot, out string snapshotFallbackBodyName))
                     {
                         CelestialBody snapBody = FlightGlobals.GetBodyByName(snapshotFallbackBodyName);
                         if (snapBody != null)

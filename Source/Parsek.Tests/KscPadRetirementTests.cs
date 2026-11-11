@@ -54,7 +54,7 @@ namespace Parsek.Tests
             SetHomeWorld(kerbin, true);
             var mun = TestBodyRegistry.CreateBody("Mun", 200000.0, 6.5138398e10);
             SetHomeWorld(mun, false);
-            VesselSpawner.BodyResolverForTesting = (string name, out CelestialBody body) =>
+            LiveVesselSnapshot.BodyResolverForTesting = (string name, out CelestialBody body) =>
             {
                 body = name == "Kerbin" ? kerbin : name == "Mun" ? mun : null;
                 return !ReferenceEquals(body, null);
@@ -64,7 +64,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            VesselSpawner.BodyResolverForTesting = null;
+            LiveVesselSnapshot.BodyResolverForTesting = null;
             VesselSpawner.ResetMaterializedSourceVesselExistsOverrideForTesting();
             RecordingPaths.SaveRootOverrideForTesting = null;
             if (tempSaveRoot != null && System.IO.Directory.Exists(tempSaveRoot))
@@ -337,7 +337,7 @@ namespace Parsek.Tests
         [Fact]
         public void Evaluate_NoBodyRegistry_IsNotRetired()
         {
-            VesselSpawner.BodyResolverForTesting = (string name, out CelestialBody body) =>
+            LiveVesselSnapshot.BodyResolverForTesting = (string name, out CelestialBody body) =>
             {
                 body = null;
                 return false;
@@ -950,7 +950,7 @@ namespace Parsek.Tests
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildVesselSnapshotRelativePath(recordingId));
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
-            RecordingStore.WriteSnapshotSidecarForTesting(path, snapshot);
+            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, snapshot);
         }
 
         [Fact]
@@ -1128,8 +1128,8 @@ namespace Parsek.Tests
             typeof(ParsekFlight).GetField("activeGhostChains", BindingFlags.Instance | BindingFlags.NonPublic)
                 .SetValue(host, active);
 
-            typeof(ParsekFlight).GetMethod("RetireChainAtKsc", BindingFlags.Instance | BindingFlags.NonPublic)
-                .Invoke(host, new object[] { chain, rec, 7 });
+            typeof(ParsekFlightSpawnHost).GetMethod("RetireChainAtKsc", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(host.SpawnHost, new object[] { chain, rec, 7 });
 
             Assert.Empty(active);
             Assert.Contains(logLines, l => l.Contains("Chain tip retired at KSC (flight #7 \"Pad Rig\"): originalPid=904"));

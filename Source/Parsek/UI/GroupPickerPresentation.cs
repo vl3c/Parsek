@@ -259,7 +259,7 @@ namespace Parsek
             out string newName)
         {
             newName = rawName != null ? rawName.Trim() : null;
-            if (RecordingStore.IsInvalidGroupName(newName))
+            if (RecordingGroupStore.IsInvalidGroupName(newName))
                 return false;
             if (ContainsName(allNames, newName) || ContainsName(knownEmptyGroups, newName))
                 return false;

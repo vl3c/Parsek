@@ -205,7 +205,7 @@ namespace Parsek.Tests
             AddPendingScience("other@Kerbin", 45.0, "rec_other");
 
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
@@ -233,7 +233,7 @@ namespace Parsek.Tests
         // The whole commit order of a fresh flight: optimizer split, then the ledger
         // notify, then a Re-Fly of the SECOND segment from a rewind point inside it.
         // MUTATION NOTE: removing the event / pending-science retag in
-        // RecordingStore.RetagLedgerActionsAfterOptimizationSplit reds every assertion
+        // CommittedListOptimizer.RetagLedgerActionsAfterOptimizationSplit reds every assertion
         // after the split: the milestone and the science row land on seg1 (the science
         // at seg1's end, UT 20), no KerbalDeath penalty row is filed at all, and the
         // Re-Fly then keeps the milestone and the science it superseded.
@@ -248,7 +248,7 @@ namespace Parsek.Tests
                 53.0, "rec_fresh", valueBefore: 20.0, valueAfter: 10.0);
             AddPendingScience("crewReport@KerbinSrfLanded", 45.0, "rec_fresh");
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             var list = RecordingStore.CommittedRecordings;
             Assert.Equal(2, list.Count);
             string seg1 = list[0].RecordingId;
@@ -326,7 +326,7 @@ namespace Parsek.Tests
             AddPendingScience("mysteryGoo@KerbinFlying", 15.0, "rec_quiet");
 
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal("rec_quiet", TagOf("RecordsSpeed"));
             Assert.Equal("rec_quiet", PendingTagOf("mysteryGoo@KerbinFlying"));
@@ -365,7 +365,7 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------
         // OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY: the merge moves all three carriers
         // MUTATION NOTE: dropping the event / pending-science retag in
-        // RecordingStore.RetagLedgerActionsAfterOptimizationMerge leaves the milestone and
+        // CommittedListOptimizer.RetagLedgerActionsAfterOptimizationMerge leaves the milestone and
         // the pending subject on 'seg-b', a recording the merge removed.
         // ------------------------------------------------------------------
 
@@ -409,7 +409,7 @@ namespace Parsek.Tests
             Ledger.AddAction(science);
 
             logLines.Clear();
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.False(tree.Recordings.ContainsKey("seg-b"));
             Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.RecordingId == "seg-b");

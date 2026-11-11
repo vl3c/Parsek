@@ -78,7 +78,7 @@ namespace Parsek.Tests
                 VesselName = "Kerbal X Debris",
                 TreeId = "active-tree"
             };
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             var knownIds = RecordingStore.BuildKnownRecordingIds();
 
@@ -115,7 +115,7 @@ namespace Parsek.Tests
                 VesselName = "Jeb Kerman",
                 TreeId = "tree-1"
             };
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             var knownIds = RecordingStore.BuildKnownRecordingIds();
 
@@ -145,7 +145,7 @@ namespace Parsek.Tests
                 VesselName = "NewRocket",
                 TreeId = "active-tree"
             };
-            RecordingStore.StashPendingTree(activeTree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(activeTree, PendingTreeState.Limbo);
 
             var knownIds = RecordingStore.BuildKnownRecordingIds();
 
@@ -160,7 +160,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             // No pending tree
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             var knownIds = RecordingStore.BuildKnownRecordingIds();
 
@@ -201,7 +201,7 @@ namespace Parsek.Tests
                 VesselName = "Null",
                 TreeId = "tree-with-gaps"
             };
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             var knownIds = RecordingStore.BuildKnownRecordingIds();
 
@@ -253,7 +253,7 @@ namespace Parsek.Tests
                 VesselName = "Empty",
                 TreeId = "tree-out"
             };
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             RecordingStore.BuildKnownRecordingIds(out int pendingCount);
 
@@ -282,8 +282,8 @@ namespace Parsek.Tests
                 VesselName = "SavedShip Debris",
                 TreeId = "saved-tree"
             };
-            RecordingStore.PreservePendingTreeFromSaveDuringActiveRestore(saved);
-            Assert.False(RecordingStore.HasPendingTree);
+            PendingTreeSlot.PreservePendingTreeFromSaveDuringActiveRestore(saved);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             var knownIds = RecordingStore.BuildKnownRecordingIds(out int pendingCount);
 
@@ -358,7 +358,7 @@ namespace Parsek.Tests
             string root = Path.Combine(Path.GetTempPath(), saveFolder);
             string recordingsDir = Path.Combine(root, "Parsek", "Recordings");
             Directory.CreateDirectory(recordingsDir);
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
             cleanupRoots.Add(root);
             return recordingsDir;
         }

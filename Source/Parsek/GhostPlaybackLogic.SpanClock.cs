@@ -1381,70 +1381,8 @@ namespace Parsek
             // for a scheduled unit, so the tail engages and the caller hides all members - render
             // nothing in the gap). Null schedule -> the uniform path below, byte-identical.
             if (schedule != null)
-            {
-                // INV-3 self-defending guard (docs/dev/plans/zero-drift-reschedule-hardening.md Phase B):
-                // a scheduled unit is mutually exclusive with loiter cuts / arrival hold BY CONSTRUCTION
-                // (the builder attaches a schedule ONLY in the same-parent phase-locked block; the re-aim
-                // branch that produces cuts/hold sets relaunchSchedule=null). This branch returns early
-                // before the cut/hold remap, so the predicate below is ALWAYS false on the shipped path
-                // (zero behavior change, byte-identical). It is here ONLY to convert a latent silent-drop
-                // (a future same-parent loiter compression or a re-aim unit that ever co-attached a
-                // schedule) into a LOUD contract violation. This is a per-frame hot path with a documented
-                // purity contract (see the summary above), so the warning is RATE-LIMITED + keyed on
-                // mission identity (phaseAnchorUT + spanStartUT), mirroring the per-loop-hold key below -
-                // a raw per-frame Warn / a throw would spam the log across multiple scenes. Degrading, not
-                // crashing: a future misuse stays visible without breaking playback.
-                if (loiterCuts != null || arrivalHoldSeconds > 0.0)
-                {
-                    var gic = CultureInfo.InvariantCulture;
-                    ParsekLog.VerboseRateLimited(
-                        "MissionPeriodicity",
-                        // Mission identity key: distinct missions get distinct keys (no collision); one
-                        // mission keeps ONE key across all frames, so the key set is bounded by mission
-                        // count, not frame count.
-                        $"sched-mutex-violation.{phaseAnchorUT.ToString("R", gic)}.{spanStartUT.ToString("R", gic)}",
-                        "INV-3 contract violation: a scheduled unit carries " +
-                        $"loiterCuts={(loiterCuts != null ? loiterCuts.Count.ToString(gic) : "0")} " +
-                        $"arrivalHoldSeconds={arrivalHoldSeconds.ToString("R", gic)} - the schedule branch " +
-                        "bypasses the cut/hold remap (schedule and cuts/hold are mutually exclusive by " +
-                        "construction). The cut/hold is silently DROPPED; check the builder routing.");
-                }
-
-                if (!schedule.TryResolveActiveLaunch(currentUT, out double launchUT, out long sIdx))
-                    return new SpanLoopFrame(false, loopUT, cycleIndex, isInInterCycleTail, false, secondaryLoopUT, secondaryCycleIndex); // parked before the first scheduled launch
-                double scheduledPhase = currentUT - launchUT;
-                if (scheduledPhase < 0.0)
-                    scheduledPhase = 0.0;
-                cycleIndex = sIdx;
-
-                // M4b phasing-loiter knob (docs/dev/plans/mission-loiter-knob.md section 4.1): a
-                // knob-engaged schedule carries PER-LAUNCH timing - this launch's loiter cuts and
-                // (for an extended loiter) the last-rev wrap. The phase runs over the per-launch
-                // EFFECTIVE span (span - cuts + extension), maps through the extension wrap, and
-                // decompresses through the cuts to the recorded loopUT. Knob-less schedules (no
-                // entry) keep the plain path below byte-identical. This is the sanctioned
-                // schedule+cuts composition; the INV-3 guard above still flags the UNSANCTIONED
-                // pairing (a schedule with the static LoopUnit.LoiterCuts list / arrival hold).
-                if (schedule.TryGetLaunchTiming(sIdx, out LaunchTimingEntry timing))
-                {
-                    double effSpan = span - TotalCutLength(timing.Cuts) + timing.ExtensionSeconds;
-                    if (effSpan <= 0.0)
-                        effSpan = span; // defensive: a degenerate entry never bricks the clock
-                    isInInterCycleTail = (scheduledPhase >= effSpan);
-                    double clamped = scheduledPhase >= effSpan ? effSpan : scheduledPhase;
-                    double insertPos = timing.ExtensionSeconds > 0.0
-                        ? CompressSpanUT(timing.ExtensionWrapStartUT, timing.Cuts) - spanStartUT
-                        : double.NaN;
-                    double wrapped = ApplyLoiterExtensionToPhase(
-                        clamped, insertPos, timing.ExtensionSeconds, timing.ExtensionWrapPeriod);
-                    loopUT = DecompressSpanUT(spanStartUT + wrapped, timing.Cuts);
-                    return new SpanLoopFrame(true, loopUT, cycleIndex, isInInterCycleTail, false, secondaryLoopUT, secondaryCycleIndex);
-                }
-
-                isInInterCycleTail = (scheduledPhase >= span);
-                loopUT = spanStartUT + (scheduledPhase >= span ? span : scheduledPhase);
-                return new SpanLoopFrame(true, loopUT, cycleIndex, isInInterCycleTail, false, secondaryLoopUT, secondaryCycleIndex);
-            }
+                return ComputeScheduledSpanLoopFrame(
+                    currentUT, phaseAnchorUT, spanStartUT, span, schedule, loiterCuts, arrivalHoldSeconds);
 
             if (currentUT < phaseAnchorUT)
                 return new SpanLoopFrame(false, loopUT, cycleIndex, isInInterCycleTail, false, secondaryLoopUT, secondaryCycleIndex);
@@ -1485,138 +1423,25 @@ namespace Parsek
             // MissionsWindowUI.ComputeNextRelaunchUT now reads ComputeBoundaryOverlapAdvanceSeconds so the navigable
             // launch time agrees with the clock. The boundary-overlap advance is gated so a not-engaged / not-re-aim
             // caller gets 0 and the clock is byte-identical.
-            double rawLaunchAdvance = launchHoldEngaged
-                ? ComputePerLoopLaunchAdvanceSeconds(phaseAnchorUT, spanStartUT, cycleIndex, cycleDuration, launchBodyRotationPeriod)
-                : 0.0;
-            double cappedLaunchAdvance = launchHoldEngaged
-                ? ComputeCappedLaunchAdvanceSeconds(
-                    phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex,
-                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
-                    arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
-                    arrivalJointMaxWholeHoldPeriods)
-                : 0.0;
-            double launchAdvance = launchHoldEngaged
-                ? ComputeBoundaryOverlapAdvanceSeconds(
-                    phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex,
-                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
-                    arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
-                    arrivalJointMaxWholeHoldPeriods)
-                : 0.0;
+            double rawLaunchAdvance;
+            double cappedLaunchAdvance;
+            double launchAdvance = ResolveSpanLoopLaunchAdvances(
+                launchHoldEngaged, phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex,
+                launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
+                arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                arrivalJointMaxWholeHoldPeriods, out rawLaunchAdvance, out cappedLaunchAdvance);
             // Whether the boundary overlap ENGAGES for the region-A instance N (the cap bit -> full raw delta used).
             // On an already-aligned loop launchAdvance == cappedLaunchAdvance and this is false (no secondary).
             bool boundaryOverlapEngagedA = launchAdvance > cappedLaunchAdvance + 1e-9;
 
-            // Loiter compression (docs/dev/plans/reaim-loiter-compression.md section 5): when a re-aim unit
-            // carries whole-period loiter cuts, the loop's ACTIVE duration is the COMPRESSED span
-            // (span - totalCut); the phase wraps over that, and the clamped compressed phase is remapped to
-            // a recorded loopUT that SKIPS the cut intervals. Members stay on recorded UTs (so faithful
-            // Points members render unchanged, just earlier in live time); the cut interval is never
-            // sampled. Cadence is cut-independent (a cut lives within one cycle), so cycleIndex / elapsed /
-            // the boundary-rollback below are unchanged. Empty/null cuts => effectiveSpan == span and the
-            // remap is the identity, so every non-re-aim caller is byte-identical.
-            double totalCut = TotalCutLength(loiterCuts);
-            double compressedSpan = (totalCut > 0.0 && totalCut < span) ? span - totalCut : span;
-            // Arrival HOLD (re-aim cross-parent landing alignment): the INVERSE of a loiter cut. A cut
-            // REMOVES recorded-span time (compressedSpan); the hold INSERTS it at the heliocentric->capture
-            // boundary, so the in-SOI replay defers and the destination rotation phase at the deorbit recurs
-            // to recorded. holdPhasePos is that boundary in compressed-span phase. A zero/degenerate hold
-            // leaves effectiveSpan == compressedSpan and the remap below the identity, so every existing
-            // caller (passing the default 0 hold) stays byte-identical. The re-aim cadence is the synodic
-            // period, far larger than span + hold, so the hold never pushes effectiveSpan past the cadence.
-            double hold = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds)) ? arrivalHoldSeconds : 0.0;
-            // Per-loop arrival hold (docs/dev/plans/reaim-destination-arrival-alignment.md sections 13b/13c):
-            // the constant base hold (W_0) aligns the destination rotation phase at the deorbit for ONE loop,
-            // but the synodic cadence is not a whole number of destination rotations, so the deorbit drifts a
-            // fraction of a turn each loop. Override the constant hold with the per-loop W_N for the current
-            // cycleIndex (cadence == cycleDuration, the live per-loop advance). Strictly gated on hold > 0
-            // (W_0 > 0): when the base hold is 0 (alignment Off / Drop) the helper returns 0 unchanged, so Off
-            // stays byte-identical (the 13b regression fence); a degenerate rotation period also returns the
-            // base hold unchanged, keeping the constant-hold behavior. cycleIndex / phaseInCycle are computed
-            // above (BEFORE the base hold read), so the per-loop recurrence is open-loop in N (no feedback).
-            if (hold > 0.0)
-            {
-                double w0 = hold;
-                // JOINT dispatch (D8 landing+station, post-M4c SolveArrivalWindow wiring): a unit
-                // carrying a valid joint secondary period re-solves the whole-station-period
-                // extension per loop so BOTH the station (exact, the align period) and the rotation
-                // (within its mode tolerance) recur - the absolute entryOffset0 base (derived in
-                // the shared resolver) makes the check absolute in N, never accumulating. Every
-                // other unit (NaN secondary / 0 budget) takes the shipped single-period path
-                // byte-identically.
-                hold = ResolvePerLoopArrivalHold(
-                    w0, cycleIndex, cycleDuration, arrivalHoldAlignPeriod,
-                    phaseAnchorUT, spanStartUT, loiterCuts, arrivalHoldAtUT,
-                    arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
-                    arrivalJointMaxWholeHoldPeriods, out bool jointValid);
-                if (jointValid)
-                {
-                    // Never silent: the defensive bounded-best fallback (build gate guarantees a hit,
-                    // so this should not fire) leaves a rotation residual past tolerance - warn once
-                    // per mission so a playtest sees which loops carry it.
-                    double entryOffset0 = phaseAnchorUT
-                        + (CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT) - arrivalHoldAtUT;
-                    double jointErr = MissionPeriodicity.CircularPhaseError(
-                        entryOffset0 + cycleIndex * cycleDuration + hold, arrivalJointSecondaryPeriod);
-                    if (jointErr > arrivalJointSecondaryTolerance)
-                    {
-                        var jic = CultureInfo.InvariantCulture;
-                        ParsekLog.WarnRateLimited(
-                            "Reaim",
-                            $"joint-hold-residual.{phaseAnchorUT.ToString("R", jic)}.{spanStartUT.ToString("R", jic)}",
-                            $"per-loop JOINT arrival hold exceeded its budget (bounded-best fallback): " +
-                            $"cycleIndex={cycleIndex.ToString(jic)} WN={hold.ToString("R", jic)}s " +
-                            $"rotResidual={jointErr.ToString("R", jic)}s " +
-                            $"tol={arrivalJointSecondaryTolerance.ToString("R", jic)}s " +
-                            $"budget={arrivalJointMaxWholeHoldPeriods.ToString(jic)} whole periods - " +
-                            "station stays exact, rotation best-effort this loop");
-                    }
-                }
-                // The arrival hold is UNCHANGED by the launch alignment (borrow-at-launch / repay-at-SOI-exit):
-                // the SOI-exit repay nets to zero with the earlier launch, so the SOI entry occurs at the SAME
-                // live UT as baseline and W_N aligns the destination rotation phase correctly with no
-                // compensation. (The PR #1174 forward-shift required a (W_N - H_launch) subtraction; the
-                // borrow-repay model removes it.)
-                bool tAlignValid = !double.IsNaN(arrivalHoldAlignPeriod) && !double.IsInfinity(arrivalHoldAlignPeriod)
-                    && arrivalHoldAlignPeriod > 0.0;
-                // Per-frame hot path: rate-limited per mission (keyed on phaseAnchorUT + spanStartUT, NOT
-                // cycleIndex, so the key set stays bounded by mission count rather than growing one entry per
-                // replayed loop). The message carries cycleIndex and W_N, so a playtest sees W_N step as the
-                // loop advances across the periodic lines, without per-frame spam.
-                if (tAlignValid)
-                {
-                    var hic = CultureInfo.InvariantCulture;
-                    ParsekLog.VerboseRateLimited(
-                        "Reaim",
-                        // Key is the mission identity (phaseAnchorUT + spanStartUT): distinct re-aim missions
-                        // get distinct keys (no collision), and a single mission keeps ONE key across all its
-                        // loops, so the rate-limiter key set is bounded by mission count, not loop count.
-                        $"perloop-hold.{phaseAnchorUT.ToString("R", hic)}.{spanStartUT.ToString("R", hic)}",
-                        $"per-loop arrival hold: cycleIndex={cycleIndex.ToString(hic)} " +
-                        $"W0={w0.ToString("R", hic)}s cadence={cycleDuration.ToString("R", hic)}s " +
-                        $"Talign={arrivalHoldAlignPeriod.ToString("R", hic)}s " +
-                        $"joint={jointValid} WN={hold.ToString("R", hic)}s");
-                }
-            }
-            // Defense-in-depth: never let the holds push the active span past the cadence (a mid-span cycle
-            // wrap would silently truncate the in-SOI replay). No current caller can trip this for the common
-            // re-aim case (the SOI-exit repay nets to zero with the earlier launch, so the SOI-exit-and-onward
-            // timeline stays on baseline and effectiveSpan = compressedSpan + delta + hold <= cadence whenever
-            // delta <= slack). The LAUNCH ADVANCE cap (the design's delta_N > slack edge handling, §2.6) is now
-            // applied UPSTREAM by ComputeCappedLaunchAdvanceSeconds (launchAdvance + advNext below are already
-            // capped to the LAUNCHING cycle's slack), so launchAdvance arrives here pre-bounded; the local slack
-            // below is slack_N (= cadence - compressedSpan - W_N), kept only for the diagnostic line + the hold
-            // clamp. Capping bounds the borrow to the previous instance's idle gap so the early launch never
-            // overlaps the previous instance's live replay, and it can never reopen the seam the way the old
-            // forward H_N truncation did (the advance is bounded BY slack). When capped, a residual rotation
-            // offset remains only on those loops; the common case (delta <= slack) is unaffected. A WARN fires
-            // once per mission so a playtest sees which loops carry a residual.
-            double slack = cycleDuration - compressedSpan - hold;
-            if (slack < 0.0)
-                slack = 0.0;
-            // (The per-instance "still capped" diagnostic flag is computed in the diagnostics block below against
-            // the RENDERED instance's raw delta vs its actually-used advance - see renderedCapped there.)
-            if (hold > 0.0 && compressedSpan + hold > cycleDuration)
-                hold = Math.Max(0.0, cycleDuration - compressedSpan);
+            // Loiter compression, the arrival hold W_N and the slack the holds leave in the cadence.
+            double compressedSpan;
+            double hold;
+            double slack = ResolveSpanLoopHoldsAndSlack(
+                span, cycleDuration, cycleIndex, phaseAnchorUT, spanStartUT, loiterCuts,
+                arrivalHoldSeconds, arrivalHoldAtUT, arrivalHoldAlignPeriod,
+                arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance, arrivalJointMaxWholeHoldPeriods,
+                out compressedSpan, out hold);
 
             // The SOI-exit repay boundary in compressed-span phase (from spanStart): where the delta_N coast
             // hold is inserted so the SOI-exit-and-onward timeline returns to baseline. Mirrors how the arrival
@@ -1631,23 +1456,13 @@ namespace Parsek
             // residual-seam loop ComputeBoundaryOverlapAdvanceSeconds(win=cycleIndex+1) returns the full raw delta;
             // on an already-aligned loop it returns the old capped advance and region B never fires (advNext stays
             // == cappedAdvNext, no secondary). The cap-only value is kept for the diagnostic.
-            double rawAdvNext = launchHoldEngaged
-                ? ComputePerLoopLaunchAdvanceSeconds(phaseAnchorUT, spanStartUT, cycleIndex + 1, cycleDuration, launchBodyRotationPeriod)
-                : 0.0;
-            double cappedAdvNext = launchHoldEngaged
-                ? ComputeCappedLaunchAdvanceSeconds(
-                    phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex + 1,
-                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
-                    arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
-                    arrivalJointMaxWholeHoldPeriods)
-                : 0.0;
-            double advNext = launchHoldEngaged
-                ? ComputeBoundaryOverlapAdvanceSeconds(
-                    phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex + 1,
-                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
-                    arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
-                    arrivalJointMaxWholeHoldPeriods)
-                : 0.0;
+            double rawAdvNext;
+            double cappedAdvNext;
+            double advNext = ResolveSpanLoopLaunchAdvances(
+                launchHoldEngaged, phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex + 1,
+                launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
+                arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                arrivalJointMaxWholeHoldPeriods, out rawAdvNext, out cappedAdvNext);
             // Whether the boundary overlap ENGAGES for the next instance N+1 (the cap bit for it -> full raw delta).
             // The secondary is emitted ONLY when this is true (the residual-seam loops); on already-aligned loops
             // advNext == cappedAdvNext so this is false and there is NO secondary (byte-identical to today).
@@ -1709,139 +1524,23 @@ namespace Parsek
                     // (b) ENGAGED loop SECONDARY: instance N+1's early launch as a separate concurrent ghost.
                     if (inBorrowWindow && boundaryOverlapEngagedNext)
                     {
-                        double secPhaseFromLaunch = phaseInCycle - (cycleDuration - advNext);
-                        double secSoiExitPhasePos = !double.IsNaN(soiExitAtUT)
-                            ? CompressSpanUT(soiExitAtUT, loiterCuts) - spanStartUT
-                            : double.NaN;
-                        double secEffectiveSpan = compressedSpan + advNext + hold;
-                        double secClampedPhase = secPhaseFromLaunch >= secEffectiveSpan ? secEffectiveSpan : secPhaseFromLaunch;
-                        double secAfterSoi = ApplyArrivalHoldToPhase(secClampedPhase, secSoiExitPhasePos, advNext);
-                        double secHoldPhasePos = hold > 0.0 ? CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT : double.NaN;
-                        double secCutPhase = ApplyArrivalHoldToPhase(secAfterSoi, secHoldPhasePos, hold);
-                        secondaryLoopUT = DecompressSpanUT(spanStartUT + secCutPhase, loiterCuts);
+                        secondaryLoopUT = ComputeBoundaryOverlapSecondaryLoopUT(
+                            phaseInCycle, cycleDuration, advNext, soiExitAtUT, loiterCuts,
+                            spanStartUT, compressedSpan, hold, arrivalHoldAtUT);
                         secondaryCycleIndex = cycleIndex + 1;
                         hasSecondary = true;
                     }
                 }
             }
 
-            // Per-loop LAUNCH ADVANCE diagnostic (design 6.4 + boundary-overlap plan 2.3): a rate-limited Verbose
-            // Reaim line, gated on launchHoldEngaged && a finite/positive T_sid (a degenerate T_sid yields
-            // launchAdvance == 0). Keyed on mission identity (phaseAnchorUT + spanStartUT, NOT cycleIndex) so the key
-            // set stays bounded by mission count. The diagnostic describes the PRIMARY (instance N, region-A
-            // semantics for the whole cycle). Under the boundary overlap, the primary's launchAdvance is the FULL raw
-            // delta on engaged loops, so residualDeg ~ 0 (the seam closes). A `secondaryActive` field reports the
-            // boundary-overlap secondary when present. The capped value (cappedLaunchAdvance) is still computed so
-            // residualDeg = (rawDeltaN - cappedAdvance) reports how far the OLD cap would have fallen short - useful
-            // to confirm the boundary overlap closed a previously-capped loop. The launch-advance-capped WARN now
-            // fires only on the (re-aim-impossible) genuinely-uncloseable case (launchAdvanceCapped, where even the
-            // boundary overlap could not use the full raw delta).
+            // Per-loop LAUNCH ADVANCE diagnostic (design 6.4 + boundary-overlap plan 2.3); see LogSpanLoopLaunchAdvance.
             if (launchHoldEngaged)
-            {
-                double tSid = Math.Abs(launchBodyRotationPeriod);
-                if (!double.IsNaN(tSid) && !double.IsInfinity(tSid) && tSid > 0.0)
-                {
-                    var lic = CultureInfo.InvariantCulture;
-                    // The RENDERED instance: regime (a)'s region-B flip renders instance N+1 (cycleIndex was
-                    // incremented; raw delta rawAdvNext); region A / regime (b) renders instance N (raw delta
-                    // rawLaunchAdvance). The launching-cycle slack for the rendered instance is slack_{(rendered)-1}:
-                    // for the flipped N+1 that is slack_N (= the local `slack`); for instance N that is slack_{N-1}.
-                    double rawDeltaN = earlyNextFlip ? rawAdvNext : rawLaunchAdvance;
-                    double renderedSlack;
-                    if (earlyNextFlip)
-                    {
-                        renderedSlack = slack; // slack_N, the launching cycle of the flipped instance N+1
-                    }
-                    else
-                    {
-                        // Diagnostic slack only; the single-period value is a lower bound on the joint
-                        // hold, so a joint unit's reported slack may read slightly high here. The
-                        // authoritative clamp above already used the real (joint) hold.
-                        double wPrev = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds))
-                            ? ComputePerLoopArrivalHoldSeconds(arrivalHoldSeconds, cycleIndex - 1, cycleDuration, arrivalHoldAlignPeriod)
-                            : 0.0;
-                        if (wPrev > 0.0 && compressedSpan + wPrev > cycleDuration)
-                            wPrev = Math.Max(0.0, cycleDuration - compressedSpan);
-                        renderedSlack = cycleDuration - compressedSpan - wPrev;
-                        if (renderedSlack < 0.0)
-                            renderedSlack = 0.0;
-                    }
-                    // residualDeg = the leftover launch-body rotation NOT aligned, as a fraction of one sidereal
-                    // rotation in degrees [0,360): (rawDeltaN - effectiveLaunchAdvance). 0 when the boundary overlap
-                    // engaged (advance == full raw delta) OR the loop was already aligned (raw delta <= cap, the flip
-                    // uses advNext == rawAdvNext). Non-zero only on the genuinely-uncloseable case.
-                    double residualSeconds = rawDeltaN - effectiveLaunchAdvance;
-                    double residualDeg = (residualSeconds % tSid) / tSid * 360.0;
-                    if (residualDeg < 0.0)
-                        residualDeg += 360.0;
-                    // renderedCapped: did the rendered instance's raw delta exceed the advance it actually used?
-                    // For the flipped N+1 (regime a) the flip uses advNext == rawAdvNext (aligned loop, no cap), so
-                    // this is false; for instance N it is false when the boundary overlap engaged (full raw delta)
-                    // or the loop was aligned. True only on the genuinely-uncloseable case.
-                    bool renderedCapped = rawDeltaN > effectiveLaunchAdvance + 1e-9;
-                    bool boundaryOverlapEngagedRendered = earlyNextFlip ? boundaryOverlapEngagedNext : boundaryOverlapEngagedA;
-                    double renderedCappedAdv = earlyNextFlip ? cappedAdvNext : cappedLaunchAdvance;
-                    // secondaryActive reports the live N+1 secondary this frame (regime b only).
-                    ParsekLog.VerboseRateLimited(
-                        "Reaim",
-                        $"perloop-launch-advance.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
-                        $"per-loop launch advance: cycleIndex={cycleIndex.ToString(lic)} " +
-                        $"Tsid={tSid.ToString("R", lic)}s cadence={cycleDuration.ToString("R", lic)}s " +
-                        $"deltaN={effectiveLaunchAdvance.ToString("R", lic)}s slack={renderedSlack.ToString("R", lic)}s " +
-                        $"cappedAdv={renderedCappedAdv.ToString("R", lic)}s boundaryOverlap={boundaryOverlapEngagedRendered} " +
-                        $"region={(earlyNextFlip ? "B-earlyNext" : "A-current")} " +
-                        $"secondaryActive={hasSecondary} secondaryLoopUT={(hasSecondary ? secondaryLoopUT.ToString("R", lic) : "(none)")} " +
-                        $"capped={renderedCapped} " +
-                        $"rawDeltaN={rawDeltaN.ToString("R", lic)}s residualDeg={residualDeg.ToString("R", lic)}");
-                    if (renderedCapped)
-                        ParsekLog.WarnRateLimited(
-                            "Reaim",
-                            $"launch-advance-capped.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
-                            $"per-loop launch advance still CAPPED (boundary overlap could not use the full raw " +
-                            $"delta - genuinely uncloseable seam); cycleIndex={cycleIndex.ToString(lic)} " +
-                            $"cadence={cycleDuration.ToString("R", lic)}s " +
-                            $"rawDeltaN={rawDeltaN.ToString("R", lic)}s residualDeg={residualDeg.ToString("R", lic)}");
-                    // One-shot per-mission `boundary-overlap engaged` line (plan 2.3): fires the first time the
-                    // boundary overlap engages for this mission (the primary uses the full raw delta because the
-                    // old cap would have bitten). Rate-limited per mission identity (its own key).
-                    if (boundaryOverlapEngagedA || boundaryOverlapEngagedNext)
-                        ParsekLog.VerboseRateLimited(
-                            "Reaim",
-                            $"boundary-overlap-engaged.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
-                            $"boundary-overlap engaged: looped re-aim launch realigns via a secondary in-SOI ghost " +
-                            $"on the zero-slack loops (the seam now closes on every loop). cycleIndex={cycleIndex.ToString(lic)} " +
-                            $"cadence={cycleDuration.ToString("R", lic)}s Tsid={tSid.ToString("R", lic)}s");
-                    // ACTUAL-LAUNCH-INSTANT marker for the live secondary: name the real launch UT of the
-                    // early-launching instance N+1 (L_{N+1} - advNext) so a playtest can compare the Missions
-                    // warp-to target against where the secondary ghost actually lifts off. Rate-limited per
-                    // mission identity (its own key, distinct from the per-loop-advance line's key).
-                    if (hasSecondary)
-                    {
-                        double nominalLNext = phaseAnchorUT + secondaryCycleIndex * cycleDuration;
-                        double actualLaunchUT = nominalLNext - advNext;
-                        ParsekLog.VerboseRateLimited(
-                            "Reaim",
-                            $"launch-instant.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
-                            $"launch instant: secondary instance N={secondaryCycleIndex.ToString(lic)} launches at " +
-                            $"UT={actualLaunchUT.ToString("R", lic)} (nominal L_N={nominalLNext.ToString("R", lic)} " +
-                            $"advance={advNext.ToString("R", lic)}s)");
-
-                        // SEAM-RENDER OBSERVABILITY 1 (docs/dev/design-reaim-launch-hold-seam.md): the AUTHORITATIVE
-                        // "the launch should be visible NOW" timestamp - the live UT at which the secondary first
-                        // resolves its loopUT at/just past spanStart (its computed launch instant). The next playtest
-                        // compares this against when the secondary's icon/conic and polyline ascent actually appear:
-                        // a few-minutes lag between this currentUT and the map-presence first-create (observability 2)
-                        // measures the pre-Segment gap exactly. secondaryLoopUT near spanStart == on the pad.
-                        // Rate-limited per mission identity (its own key); logging-only, no control-flow effect.
-                        ParsekLog.VerboseRateLimited(
-                            "Reaim",
-                            $"boundary-overlap-secondary-clock-launch.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
-                            $"boundary-overlap secondary clock-launch: secondaryCycle={secondaryCycleIndex.ToString(lic)} " +
-                            $"currentUT={currentUT.ToString("R", lic)} secondaryLoopUT={secondaryLoopUT.ToString("R", lic)} " +
-                            $"spanStart={spanStartUT.ToString("R", lic)}");
-                    }
-                }
-            }
+                LogSpanLoopLaunchAdvance(
+                    currentUT, phaseAnchorUT, spanStartUT, launchBodyRotationPeriod, cycleIndex, cycleDuration,
+                    compressedSpan, slack, arrivalHoldSeconds, arrivalHoldAlignPeriod, earlyNextFlip,
+                    rawLaunchAdvance, cappedLaunchAdvance, effectiveLaunchAdvance, boundaryOverlapEngagedA,
+                    rawAdvNext, cappedAdvNext, advNext, boundaryOverlapEngagedNext,
+                    hasSecondary, secondaryLoopUT, secondaryCycleIndex);
 
             double holdPhasePos = hold > 0.0 ? CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT : double.NaN;
             double effectiveSpan = compressedSpan + effectiveLaunchAdvance + hold;
@@ -1881,6 +1580,467 @@ namespace Parsek
             loopUT = DecompressSpanUT(spanStartUT + cutPhase, loiterCuts);
             isInInterCycleTail = (phaseFromLaunch >= effectiveSpan);
             return new SpanLoopFrame(true, loopUT, cycleIndex, isInInterCycleTail, hasSecondary, secondaryLoopUT, secondaryCycleIndex);
+        }
+
+        /// <summary>
+        /// One instance's launch advances for <see cref="ComputeSpanLoopFrame"/>, each 0 unless the launch hold is
+        /// engaged: the raw per-loop delta and the old capped advance (out), and, returned, the boundary-overlap
+        /// advance the clock uses. <paramref name="window"/> is the instance's cycle index: the frame's
+        /// <c>cycleIndex</c> for region A's instance N, <c>cycleIndex + 1</c> for the early-launching N+1.
+        /// </summary>
+        internal static double ResolveSpanLoopLaunchAdvances(
+            bool launchHoldEngaged,
+            double phaseAnchorUT,
+            double spanStartUT,
+            double spanEndUT,
+            double cycleDuration,
+            long window,
+            double launchBodyRotationPeriod,
+            IReadOnlyList<LoopCut> loiterCuts,
+            double arrivalHoldSeconds,
+            double arrivalHoldAlignPeriod,
+            double arrivalHoldAtUT,
+            double arrivalJointSecondaryPeriod,
+            double arrivalJointSecondaryTolerance,
+            int arrivalJointMaxWholeHoldPeriods,
+            out double rawAdvance,
+            out double cappedAdvance)
+        {
+            rawAdvance = launchHoldEngaged
+                ? ComputePerLoopLaunchAdvanceSeconds(phaseAnchorUT, spanStartUT, window, cycleDuration, launchBodyRotationPeriod)
+                : 0.0;
+            cappedAdvance = launchHoldEngaged
+                ? ComputeCappedLaunchAdvanceSeconds(
+                    phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, window,
+                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
+                    arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods)
+                : 0.0;
+            return launchHoldEngaged
+                ? ComputeBoundaryOverlapAdvanceSeconds(
+                    phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, window,
+                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
+                    arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods)
+                : 0.0;
+        }
+
+        /// <summary>
+        /// The holds of <see cref="ComputeSpanLoopFrame"/>: the loiter-compressed span and the arrival hold W_N
+        /// for <paramref name="cycleIndex"/> (out), and, returned, the slack they leave in the cadence (never
+        /// negative). The hold is clamped so the active span never passes the cadence.
+        /// </summary>
+        internal static double ResolveSpanLoopHoldsAndSlack(
+            double span,
+            double cycleDuration,
+            long cycleIndex,
+            double phaseAnchorUT,
+            double spanStartUT,
+            IReadOnlyList<LoopCut> loiterCuts,
+            double arrivalHoldSeconds,
+            double arrivalHoldAtUT,
+            double arrivalHoldAlignPeriod,
+            double arrivalJointSecondaryPeriod,
+            double arrivalJointSecondaryTolerance,
+            int arrivalJointMaxWholeHoldPeriods,
+            out double compressedSpan,
+            out double hold)
+        {
+            // Loiter compression (docs/dev/plans/reaim-loiter-compression.md section 5): when a re-aim unit
+            // carries whole-period loiter cuts, the loop's ACTIVE duration is the COMPRESSED span
+            // (span - totalCut); the phase wraps over that, and the clamped compressed phase is remapped to
+            // a recorded loopUT that SKIPS the cut intervals. Members stay on recorded UTs (so faithful
+            // Points members render unchanged, just earlier in live time); the cut interval is never
+            // sampled. Cadence is cut-independent (a cut lives within one cycle), so cycleIndex / elapsed /
+            // the boundary-rollback below are unchanged. Empty/null cuts => effectiveSpan == span and the
+            // remap is the identity, so every non-re-aim caller is byte-identical.
+            double totalCut = TotalCutLength(loiterCuts);
+            compressedSpan = (totalCut > 0.0 && totalCut < span) ? span - totalCut : span;
+            // Arrival HOLD (re-aim cross-parent landing alignment): the INVERSE of a loiter cut. A cut
+            // REMOVES recorded-span time (compressedSpan); the hold INSERTS it at the heliocentric->capture
+            // boundary, so the in-SOI replay defers and the destination rotation phase at the deorbit recurs
+            // to recorded. holdPhasePos is that boundary in compressed-span phase. A zero/degenerate hold
+            // leaves effectiveSpan == compressedSpan and the remap below the identity, so every existing
+            // caller (passing the default 0 hold) stays byte-identical. The re-aim cadence is the synodic
+            // period, far larger than span + hold, so the hold never pushes effectiveSpan past the cadence.
+            hold = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds)) ? arrivalHoldSeconds : 0.0;
+            // Per-loop arrival hold (docs/dev/plans/reaim-destination-arrival-alignment.md sections 13b/13c):
+            // the constant base hold (W_0) aligns the destination rotation phase at the deorbit for ONE loop,
+            // but the synodic cadence is not a whole number of destination rotations, so the deorbit drifts a
+            // fraction of a turn each loop. Override the constant hold with the per-loop W_N for the current
+            // cycleIndex (cadence == cycleDuration, the live per-loop advance). Strictly gated on hold > 0
+            // (W_0 > 0): when the base hold is 0 (alignment Off / Drop) the helper returns 0 unchanged, so Off
+            // stays byte-identical (the 13b regression fence); a degenerate rotation period also returns the
+            // base hold unchanged, keeping the constant-hold behavior. cycleIndex / phaseInCycle are computed
+            // above (BEFORE the base hold read), so the per-loop recurrence is open-loop in N (no feedback).
+            if (hold > 0.0)
+                hold = ResolveSpanLoopFrameArrivalHold(
+                    hold, cycleIndex, cycleDuration, arrivalHoldAlignPeriod,
+                    phaseAnchorUT, spanStartUT, loiterCuts, arrivalHoldAtUT,
+                    arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods);
+            // Defense-in-depth: never let the holds push the active span past the cadence (a mid-span cycle
+            // wrap would silently truncate the in-SOI replay). No current caller can trip this for the common
+            // re-aim case (the SOI-exit repay nets to zero with the earlier launch, so the SOI-exit-and-onward
+            // timeline stays on baseline and effectiveSpan = compressedSpan + delta + hold <= cadence whenever
+            // delta <= slack). The LAUNCH ADVANCE cap (the design's delta_N > slack edge handling, §2.6) is now
+            // applied UPSTREAM by ComputeCappedLaunchAdvanceSeconds (launchAdvance + advNext below are already
+            // capped to the LAUNCHING cycle's slack), so launchAdvance arrives here pre-bounded; the local slack
+            // below is slack_N (= cadence - compressedSpan - W_N), kept only for the diagnostic line + the hold
+            // clamp. Capping bounds the borrow to the previous instance's idle gap so the early launch never
+            // overlaps the previous instance's live replay, and it can never reopen the seam the way the old
+            // forward H_N truncation did (the advance is bounded BY slack). When capped, a residual rotation
+            // offset remains only on those loops; the common case (delta <= slack) is unaffected. A WARN fires
+            // once per mission so a playtest sees which loops carry a residual.
+            double slack = cycleDuration - compressedSpan - hold;
+            if (slack < 0.0)
+                slack = 0.0;
+            // (The per-instance "still capped" diagnostic flag is computed in the diagnostics block below against
+            // the RENDERED instance's raw delta vs its actually-used advance - see renderedCapped there.)
+            if (hold > 0.0 && compressedSpan + hold > cycleDuration)
+                hold = Math.Max(0.0, cycleDuration - compressedSpan);
+            return slack;
+        }
+
+        /// <summary>
+        /// Per-loop LAUNCH ADVANCE diagnostic (design 6.4 + boundary-overlap plan 2.3): a rate-limited Verbose
+        /// Reaim line, gated on launchHoldEngaged && a finite/positive T_sid (a degenerate T_sid yields
+        /// launchAdvance == 0). Keyed on mission identity (phaseAnchorUT + spanStartUT, NOT cycleIndex) so the key
+        /// set stays bounded by mission count. The diagnostic describes the PRIMARY (instance N, region-A
+        /// semantics for the whole cycle). Under the boundary overlap, the primary's launchAdvance is the FULL raw
+        /// delta on engaged loops, so residualDeg ~ 0 (the seam closes). A `secondaryActive` field reports the
+        /// boundary-overlap secondary when present. The capped value (cappedLaunchAdvance) is still computed so
+        /// residualDeg = (rawDeltaN - cappedAdvance) reports how far the OLD cap would have fallen short - useful
+        /// to confirm the boundary overlap closed a previously-capped loop. The launch-advance-capped WARN now
+        /// fires only on the (re-aim-impossible) genuinely-uncloseable case (launchAdvanceCapped, where even the
+        /// boundary overlap could not use the full raw delta).
+        /// </summary>
+        internal static void LogSpanLoopLaunchAdvance(
+            double currentUT,
+            double phaseAnchorUT,
+            double spanStartUT,
+            double launchBodyRotationPeriod,
+            long cycleIndex,
+            double cycleDuration,
+            double compressedSpan,
+            double slack,
+            double arrivalHoldSeconds,
+            double arrivalHoldAlignPeriod,
+            bool earlyNextFlip,
+            double rawLaunchAdvance,
+            double cappedLaunchAdvance,
+            double effectiveLaunchAdvance,
+            bool boundaryOverlapEngagedA,
+            double rawAdvNext,
+            double cappedAdvNext,
+            double advNext,
+            bool boundaryOverlapEngagedNext,
+            bool hasSecondary,
+            double secondaryLoopUT,
+            long secondaryCycleIndex)
+        {
+            double tSid = Math.Abs(launchBodyRotationPeriod);
+            if (!double.IsNaN(tSid) && !double.IsInfinity(tSid) && tSid > 0.0)
+            {
+                var lic = CultureInfo.InvariantCulture;
+                // The RENDERED instance: regime (a)'s region-B flip renders instance N+1 (cycleIndex was
+                // incremented; raw delta rawAdvNext); region A / regime (b) renders instance N (raw delta
+                // rawLaunchAdvance). The launching-cycle slack for the rendered instance is slack_{(rendered)-1}:
+                // for the flipped N+1 that is slack_N (= the local `slack`); for instance N that is slack_{N-1}.
+                double rawDeltaN = earlyNextFlip ? rawAdvNext : rawLaunchAdvance;
+                double renderedSlack;
+                if (earlyNextFlip)
+                {
+                    renderedSlack = slack; // slack_N, the launching cycle of the flipped instance N+1
+                }
+                else
+                {
+                    // Diagnostic slack only; the single-period value is a lower bound on the joint
+                    // hold, so a joint unit's reported slack may read slightly high here. The
+                    // authoritative clamp above already used the real (joint) hold.
+                    double wPrev = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds))
+                        ? ComputePerLoopArrivalHoldSeconds(arrivalHoldSeconds, cycleIndex - 1, cycleDuration, arrivalHoldAlignPeriod)
+                        : 0.0;
+                    if (wPrev > 0.0 && compressedSpan + wPrev > cycleDuration)
+                        wPrev = Math.Max(0.0, cycleDuration - compressedSpan);
+                    renderedSlack = cycleDuration - compressedSpan - wPrev;
+                    if (renderedSlack < 0.0)
+                        renderedSlack = 0.0;
+                }
+                // residualDeg = the leftover launch-body rotation NOT aligned, as a fraction of one sidereal
+                // rotation in degrees [0,360): (rawDeltaN - effectiveLaunchAdvance). 0 when the boundary overlap
+                // engaged (advance == full raw delta) OR the loop was already aligned (raw delta <= cap, the flip
+                // uses advNext == rawAdvNext). Non-zero only on the genuinely-uncloseable case.
+                double residualSeconds = rawDeltaN - effectiveLaunchAdvance;
+                double residualDeg = (residualSeconds % tSid) / tSid * 360.0;
+                if (residualDeg < 0.0)
+                    residualDeg += 360.0;
+                // renderedCapped: did the rendered instance's raw delta exceed the advance it actually used?
+                // For the flipped N+1 (regime a) the flip uses advNext == rawAdvNext (aligned loop, no cap), so
+                // this is false; for instance N it is false when the boundary overlap engaged (full raw delta)
+                // or the loop was aligned. True only on the genuinely-uncloseable case.
+                bool renderedCapped = rawDeltaN > effectiveLaunchAdvance + 1e-9;
+                bool boundaryOverlapEngagedRendered = earlyNextFlip ? boundaryOverlapEngagedNext : boundaryOverlapEngagedA;
+                double renderedCappedAdv = earlyNextFlip ? cappedAdvNext : cappedLaunchAdvance;
+                // secondaryActive reports the live N+1 secondary this frame (regime b only).
+                ParsekLog.VerboseRateLimited(
+                    "Reaim",
+                    $"perloop-launch-advance.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
+                    $"per-loop launch advance: cycleIndex={cycleIndex.ToString(lic)} " +
+                    $"Tsid={tSid.ToString("R", lic)}s cadence={cycleDuration.ToString("R", lic)}s " +
+                    $"deltaN={effectiveLaunchAdvance.ToString("R", lic)}s slack={renderedSlack.ToString("R", lic)}s " +
+                    $"cappedAdv={renderedCappedAdv.ToString("R", lic)}s boundaryOverlap={boundaryOverlapEngagedRendered} " +
+                    $"region={(earlyNextFlip ? "B-earlyNext" : "A-current")} " +
+                    $"secondaryActive={hasSecondary} secondaryLoopUT={(hasSecondary ? secondaryLoopUT.ToString("R", lic) : "(none)")} " +
+                    $"capped={renderedCapped} " +
+                    $"rawDeltaN={rawDeltaN.ToString("R", lic)}s residualDeg={residualDeg.ToString("R", lic)}");
+                if (renderedCapped)
+                    ParsekLog.WarnRateLimited(
+                        "Reaim",
+                        $"launch-advance-capped.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
+                        $"per-loop launch advance still CAPPED (boundary overlap could not use the full raw " +
+                        $"delta - genuinely uncloseable seam); cycleIndex={cycleIndex.ToString(lic)} " +
+                        $"cadence={cycleDuration.ToString("R", lic)}s " +
+                        $"rawDeltaN={rawDeltaN.ToString("R", lic)}s residualDeg={residualDeg.ToString("R", lic)}");
+                // One-shot per-mission `boundary-overlap engaged` line (plan 2.3): fires the first time the
+                // boundary overlap engages for this mission (the primary uses the full raw delta because the
+                // old cap would have bitten). Rate-limited per mission identity (its own key).
+                if (boundaryOverlapEngagedA || boundaryOverlapEngagedNext)
+                    ParsekLog.VerboseRateLimited(
+                        "Reaim",
+                        $"boundary-overlap-engaged.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
+                        $"boundary-overlap engaged: looped re-aim launch realigns via a secondary in-SOI ghost " +
+                        $"on the zero-slack loops (the seam now closes on every loop). cycleIndex={cycleIndex.ToString(lic)} " +
+                        $"cadence={cycleDuration.ToString("R", lic)}s Tsid={tSid.ToString("R", lic)}s");
+                // ACTUAL-LAUNCH-INSTANT marker for the live secondary: name the real launch UT of the
+                // early-launching instance N+1 (L_{N+1} - advNext) so a playtest can compare the Missions
+                // warp-to target against where the secondary ghost actually lifts off. Rate-limited per
+                // mission identity (its own key, distinct from the per-loop-advance line's key).
+                if (hasSecondary)
+                {
+                    double nominalLNext = phaseAnchorUT + secondaryCycleIndex * cycleDuration;
+                    double actualLaunchUT = nominalLNext - advNext;
+                    ParsekLog.VerboseRateLimited(
+                        "Reaim",
+                        $"launch-instant.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
+                        $"launch instant: secondary instance N={secondaryCycleIndex.ToString(lic)} launches at " +
+                        $"UT={actualLaunchUT.ToString("R", lic)} (nominal L_N={nominalLNext.ToString("R", lic)} " +
+                        $"advance={advNext.ToString("R", lic)}s)");
+
+                    // SEAM-RENDER OBSERVABILITY 1 (docs/dev/design-reaim-launch-hold-seam.md): the AUTHORITATIVE
+                    // "the launch should be visible NOW" timestamp - the live UT at which the secondary first
+                    // resolves its loopUT at/just past spanStart (its computed launch instant). The next playtest
+                    // compares this against when the secondary's icon/conic and polyline ascent actually appear:
+                    // a few-minutes lag between this currentUT and the map-presence first-create (observability 2)
+                    // measures the pre-Segment gap exactly. secondaryLoopUT near spanStart == on the pad.
+                    // Rate-limited per mission identity (its own key); logging-only, no control-flow effect.
+                    ParsekLog.VerboseRateLimited(
+                        "Reaim",
+                        $"boundary-overlap-secondary-clock-launch.{phaseAnchorUT.ToString("R", lic)}.{spanStartUT.ToString("R", lic)}",
+                        $"boundary-overlap secondary clock-launch: secondaryCycle={secondaryCycleIndex.ToString(lic)} " +
+                        $"currentUT={currentUT.ToString("R", lic)} secondaryLoopUT={secondaryLoopUT.ToString("R", lic)} " +
+                        $"spanStart={spanStartUT.ToString("R", lic)}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The schedule branch of <see cref="ComputeSpanLoopFrame"/> (zero-drift per-window reschedule): the
+        /// active relaunch is the largest scheduled launch at or before <paramref name="currentUT"/>, the phase
+        /// runs from it over the span (or the knob's per-launch effective span) and parks at the span end in the
+        /// gap. Never a secondary. Unresolved before the first scheduled launch. Pure apart from the rate-limited
+        /// INV-3 contract-violation line.
+        /// </summary>
+        internal static SpanLoopFrame ComputeScheduledSpanLoopFrame(
+            double currentUT,
+            double phaseAnchorUT,
+            double spanStartUT,
+            double span,
+            MissionRelaunchSchedule schedule,
+            IReadOnlyList<LoopCut> loiterCuts,
+            double arrivalHoldSeconds)
+        {
+            double loopUT = spanStartUT;
+            long cycleIndex = 0;
+            bool isInInterCycleTail = false;
+            double secondaryLoopUT = spanStartUT;
+            long secondaryCycleIndex = 0;
+
+            // INV-3 self-defending guard (docs/dev/plans/zero-drift-reschedule-hardening.md Phase B):
+            // a scheduled unit is mutually exclusive with loiter cuts / arrival hold BY CONSTRUCTION
+            // (the builder attaches a schedule ONLY in the same-parent phase-locked block; the re-aim
+            // branch that produces cuts/hold sets relaunchSchedule=null). This branch returns early
+            // before the cut/hold remap, so the predicate below is ALWAYS false on the shipped path
+            // (zero behavior change, byte-identical). It is here ONLY to convert a latent silent-drop
+            // (a future same-parent loiter compression or a re-aim unit that ever co-attached a
+            // schedule) into a LOUD contract violation. This is a per-frame hot path with a documented
+            // purity contract (see the summary above), so the warning is RATE-LIMITED + keyed on
+            // mission identity (phaseAnchorUT + spanStartUT), mirroring the per-loop-hold key below -
+            // a raw per-frame Warn / a throw would spam the log across multiple scenes. Degrading, not
+            // crashing: a future misuse stays visible without breaking playback.
+            if (loiterCuts != null || arrivalHoldSeconds > 0.0)
+            {
+                var gic = CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited(
+                    "MissionPeriodicity",
+                    // Mission identity key: distinct missions get distinct keys (no collision); one
+                    // mission keeps ONE key across all frames, so the key set is bounded by mission
+                    // count, not frame count.
+                    $"sched-mutex-violation.{phaseAnchorUT.ToString("R", gic)}.{spanStartUT.ToString("R", gic)}",
+                    "INV-3 contract violation: a scheduled unit carries " +
+                    $"loiterCuts={(loiterCuts != null ? loiterCuts.Count.ToString(gic) : "0")} " +
+                    $"arrivalHoldSeconds={arrivalHoldSeconds.ToString("R", gic)} - the schedule branch " +
+                    "bypasses the cut/hold remap (schedule and cuts/hold are mutually exclusive by " +
+                    "construction). The cut/hold is silently DROPPED; check the builder routing.");
+            }
+
+            if (!schedule.TryResolveActiveLaunch(currentUT, out double launchUT, out long sIdx))
+                return new SpanLoopFrame(false, loopUT, cycleIndex, isInInterCycleTail, false, secondaryLoopUT, secondaryCycleIndex); // parked before the first scheduled launch
+            double scheduledPhase = currentUT - launchUT;
+            if (scheduledPhase < 0.0)
+                scheduledPhase = 0.0;
+            cycleIndex = sIdx;
+
+            // M4b phasing-loiter knob (docs/dev/plans/mission-loiter-knob.md section 4.1): a
+            // knob-engaged schedule carries PER-LAUNCH timing - this launch's loiter cuts and
+            // (for an extended loiter) the last-rev wrap. The phase runs over the per-launch
+            // EFFECTIVE span (span - cuts + extension), maps through the extension wrap, and
+            // decompresses through the cuts to the recorded loopUT. Knob-less schedules (no
+            // entry) keep the plain path below byte-identical. This is the sanctioned
+            // schedule+cuts composition; the INV-3 guard above still flags the UNSANCTIONED
+            // pairing (a schedule with the static LoopUnit.LoiterCuts list / arrival hold).
+            if (schedule.TryGetLaunchTiming(sIdx, out LaunchTimingEntry timing))
+            {
+                double effSpan = span - TotalCutLength(timing.Cuts) + timing.ExtensionSeconds;
+                if (effSpan <= 0.0)
+                    effSpan = span; // defensive: a degenerate entry never bricks the clock
+                isInInterCycleTail = (scheduledPhase >= effSpan);
+                double clamped = scheduledPhase >= effSpan ? effSpan : scheduledPhase;
+                double insertPos = timing.ExtensionSeconds > 0.0
+                    ? CompressSpanUT(timing.ExtensionWrapStartUT, timing.Cuts) - spanStartUT
+                    : double.NaN;
+                double wrapped = ApplyLoiterExtensionToPhase(
+                    clamped, insertPos, timing.ExtensionSeconds, timing.ExtensionWrapPeriod);
+                loopUT = DecompressSpanUT(spanStartUT + wrapped, timing.Cuts);
+                return new SpanLoopFrame(true, loopUT, cycleIndex, isInInterCycleTail, false, secondaryLoopUT, secondaryCycleIndex);
+            }
+
+            isInInterCycleTail = (scheduledPhase >= span);
+            loopUT = spanStartUT + (scheduledPhase >= span ? span : scheduledPhase);
+            return new SpanLoopFrame(true, loopUT, cycleIndex, isInInterCycleTail, false, secondaryLoopUT, secondaryCycleIndex);
+        }
+
+        /// <summary>
+        /// The per-loop arrival hold of <see cref="ComputeSpanLoopFrame"/> for a positive base hold
+        /// (<paramref name="hold"/> = W_0): resolves W_N for <paramref name="cycleIndex"/> through
+        /// <see cref="ResolvePerLoopArrivalHold"/> (the joint dispatch included), warns (rate-limited) when a
+        /// joint hold leaves a rotation residual past tolerance, and writes the rate-limited per-loop hold line
+        /// when the align period is valid. Returns W_N.
+        /// </summary>
+        internal static double ResolveSpanLoopFrameArrivalHold(
+            double hold,
+            long cycleIndex,
+            double cycleDuration,
+            double arrivalHoldAlignPeriod,
+            double phaseAnchorUT,
+            double spanStartUT,
+            IReadOnlyList<LoopCut> loiterCuts,
+            double arrivalHoldAtUT,
+            double arrivalJointSecondaryPeriod,
+            double arrivalJointSecondaryTolerance,
+            int arrivalJointMaxWholeHoldPeriods)
+        {
+            double w0 = hold;
+            // JOINT dispatch (D8 landing+station, post-M4c SolveArrivalWindow wiring): a unit
+            // carrying a valid joint secondary period re-solves the whole-station-period
+            // extension per loop so BOTH the station (exact, the align period) and the rotation
+            // (within its mode tolerance) recur - the absolute entryOffset0 base (derived in
+            // the shared resolver) makes the check absolute in N, never accumulating. Every
+            // other unit (NaN secondary / 0 budget) takes the shipped single-period path
+            // byte-identically.
+            hold = ResolvePerLoopArrivalHold(
+                w0, cycleIndex, cycleDuration, arrivalHoldAlignPeriod,
+                phaseAnchorUT, spanStartUT, loiterCuts, arrivalHoldAtUT,
+                arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                arrivalJointMaxWholeHoldPeriods, out bool jointValid);
+            if (jointValid)
+            {
+                // Never silent: the defensive bounded-best fallback (build gate guarantees a hit,
+                // so this should not fire) leaves a rotation residual past tolerance - warn once
+                // per mission so a playtest sees which loops carry it.
+                double entryOffset0 = phaseAnchorUT
+                    + (CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT) - arrivalHoldAtUT;
+                double jointErr = MissionPeriodicity.CircularPhaseError(
+                    entryOffset0 + cycleIndex * cycleDuration + hold, arrivalJointSecondaryPeriod);
+                if (jointErr > arrivalJointSecondaryTolerance)
+                {
+                    var jic = CultureInfo.InvariantCulture;
+                    ParsekLog.WarnRateLimited(
+                        "Reaim",
+                        $"joint-hold-residual.{phaseAnchorUT.ToString("R", jic)}.{spanStartUT.ToString("R", jic)}",
+                        $"per-loop JOINT arrival hold exceeded its budget (bounded-best fallback): " +
+                        $"cycleIndex={cycleIndex.ToString(jic)} WN={hold.ToString("R", jic)}s " +
+                        $"rotResidual={jointErr.ToString("R", jic)}s " +
+                        $"tol={arrivalJointSecondaryTolerance.ToString("R", jic)}s " +
+                        $"budget={arrivalJointMaxWholeHoldPeriods.ToString(jic)} whole periods - " +
+                        "station stays exact, rotation best-effort this loop");
+                }
+            }
+            // The arrival hold is UNCHANGED by the launch alignment (borrow-at-launch / repay-at-SOI-exit):
+            // the SOI-exit repay nets to zero with the earlier launch, so the SOI entry occurs at the SAME
+            // live UT as baseline and W_N aligns the destination rotation phase correctly with no
+            // compensation. (The PR #1174 forward-shift required a (W_N - H_launch) subtraction; the
+            // borrow-repay model removes it.)
+            bool tAlignValid = !double.IsNaN(arrivalHoldAlignPeriod) && !double.IsInfinity(arrivalHoldAlignPeriod)
+                && arrivalHoldAlignPeriod > 0.0;
+            // Per-frame hot path: rate-limited per mission (keyed on phaseAnchorUT + spanStartUT, NOT
+            // cycleIndex, so the key set stays bounded by mission count rather than growing one entry per
+            // replayed loop). The message carries cycleIndex and W_N, so a playtest sees W_N step as the
+            // loop advances across the periodic lines, without per-frame spam.
+            if (tAlignValid)
+            {
+                var hic = CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited(
+                    "Reaim",
+                    // Key is the mission identity (phaseAnchorUT + spanStartUT): distinct re-aim missions
+                    // get distinct keys (no collision), and a single mission keeps ONE key across all its
+                    // loops, so the rate-limiter key set is bounded by mission count, not loop count.
+                    $"perloop-hold.{phaseAnchorUT.ToString("R", hic)}.{spanStartUT.ToString("R", hic)}",
+                    $"per-loop arrival hold: cycleIndex={cycleIndex.ToString(hic)} " +
+                    $"W0={w0.ToString("R", hic)}s cadence={cycleDuration.ToString("R", hic)}s " +
+                    $"Talign={arrivalHoldAlignPeriod.ToString("R", hic)}s " +
+                    $"joint={jointValid} WN={hold.ToString("R", hic)}s");
+            }
+            return hold;
+        }
+
+        /// <summary>
+        /// The boundary-overlap SECONDARY's loop UT in <see cref="ComputeSpanLoopFrame"/>: instance N+1's early
+        /// in-SOI launch inside the borrow window of an engaged loop, run through the same clamp / SOI-exit repay /
+        /// arrival hold / cut decompression as the primary but with its own advance <paramref name="advNext"/>.
+        /// Pure.
+        /// </summary>
+        internal static double ComputeBoundaryOverlapSecondaryLoopUT(
+            double phaseInCycle,
+            double cycleDuration,
+            double advNext,
+            double soiExitAtUT,
+            IReadOnlyList<LoopCut> loiterCuts,
+            double spanStartUT,
+            double compressedSpan,
+            double hold,
+            double arrivalHoldAtUT)
+        {
+            double secPhaseFromLaunch = phaseInCycle - (cycleDuration - advNext);
+            double secSoiExitPhasePos = !double.IsNaN(soiExitAtUT)
+                ? CompressSpanUT(soiExitAtUT, loiterCuts) - spanStartUT
+                : double.NaN;
+            double secEffectiveSpan = compressedSpan + advNext + hold;
+            double secClampedPhase = secPhaseFromLaunch >= secEffectiveSpan ? secEffectiveSpan : secPhaseFromLaunch;
+            double secAfterSoi = ApplyArrivalHoldToPhase(secClampedPhase, secSoiExitPhasePos, advNext);
+            double secHoldPhasePos = hold > 0.0 ? CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT : double.NaN;
+            double secCutPhase = ApplyArrivalHoldToPhase(secAfterSoi, secHoldPhasePos, hold);
+            return DecompressSpanUT(spanStartUT + secCutPhase, loiterCuts);
         }
 
         /// <summary>

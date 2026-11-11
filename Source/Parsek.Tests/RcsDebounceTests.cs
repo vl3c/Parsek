@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// <summary>
     /// Unit suite for <see cref="FlightRecorder.ProcessRcsDebounce"/>, the shared RCS
     /// debounce state machine driven from two call sites:
-    /// <c>FlightRecorder.CheckRcsState</c> / <c>ParsekFlight.EvaluatePostSwitchRcsActivity</c>
+    /// <c>FlightRecorder.CheckRcsState</c> / <c>ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchRcsActivity</c>
     /// (loaded vessel) and <c>BackgroundRecorder.CheckRcsState</c> (background vessel).
     ///
     /// The method is pure over the four collections it is handed (frame-count map,

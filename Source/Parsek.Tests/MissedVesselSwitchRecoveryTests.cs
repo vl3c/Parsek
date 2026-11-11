@@ -403,7 +403,7 @@ namespace Parsek.Tests
             // Comments blanked (length-preserving) before any scan: a raw IndexOf reads a
             // commented-out call as live code, and a comment mentioning one of the three tokens
             // earlier in the method inverts the first-occurrence ordering comparison.
-            string src = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(parsekFlightPath));
+            string src = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(parsekFlightPath));
             string methodBody = ExtractMethodBody(src, "void Update()");
 
             int clearIdx = methodBody.IndexOf("ClearStaleConfirmations();", StringComparison.Ordinal);

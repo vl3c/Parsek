@@ -600,7 +600,7 @@ namespace Parsek.Tests.Generators
         /// Serialization is the production one: the window is stamped onto a
         /// <see cref="Recording"/> proof carrier in
         /// <see cref="SerializeRouteProofMetadataInto"/> and written through
-        /// <c>RecordingStore.SerializeRouteProofMetadata</c> -&gt;
+        /// <c>RouteProofCodec.SerializeRouteProofMetadata</c> -&gt;
         /// <c>RouteProofCodec</c>, the same chokepoint the production recording
         /// writer (<c>RecordingTreeRecordCodec.SaveRecordingResourceAndState</c>)
         /// uses. There is
@@ -877,7 +877,7 @@ namespace Parsek.Tests.Generators
             node.AddValue("recordingId", GetRecordingId());
             if (trackSections.Count > 0)
             {
-                bool sectionAuthoritative = RecordingStore.HasCompleteTrackSectionPayloadForFlatSync(
+                bool sectionAuthoritative = TrajectoryTextSidecarCodec.HasCompleteTrackSectionPayloadForFlatSync(
                     trackSections, allowRelativeSections: true);
                 node.AddValue("sectionAuthoritative", sectionAuthoritative ? "True" : "False");
             }
@@ -893,9 +893,9 @@ namespace Parsek.Tests.Generators
 
             // v6: serialize segment events and track sections
             if (segmentEvents.Count > 0)
-                RecordingStore.SerializeSegmentEvents(node, segmentEvents);
+                TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, segmentEvents);
             if (trackSections.Count > 0)
-                RecordingStore.SerializeTrackSections(node, trackSections);
+                TrajectoryTextSidecarCodec.SerializeTrackSections(node, trackSections);
 
             return node;
         }
@@ -916,7 +916,7 @@ namespace Parsek.Tests.Generators
                 VesselSnapshot = vesselSnapshot,
                 GhostVisualSnapshot = ghostVisualSnapshot ?? vesselSnapshot
             };
-            GhostSnapshotMode ghostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(snapshotModeRecording);
+            GhostSnapshotMode ghostSnapshotMode = RecordingSidecarStore.DetermineGhostSnapshotMode(snapshotModeRecording);
             if (ghostSnapshotMode != GhostSnapshotMode.Unspecified)
                 node.AddValue("ghostSnapshotMode", ghostSnapshotMode.ToString());
             node.AddValue("loopPlayback", loopPlayback.ToString());
@@ -1022,7 +1022,7 @@ namespace Parsek.Tests.Generators
 
         /// <summary>
         /// Serializes StartResources/EndResources into a RESOURCE_MANIFEST node on parent,
-        /// matching the format used by RecordingStore.SerializeResourceManifest.
+        /// matching the format used by RecordingManifestCodec.SerializeResourceManifest.
         /// </summary>
         private void SerializeResourceManifestInto(ConfigNode parent)
         {
@@ -1182,9 +1182,9 @@ namespace Parsek.Tests.Generators
 
             // v6: Segment events and track sections (inline for v2)
             if (segmentEvents.Count > 0)
-                RecordingStore.SerializeSegmentEvents(node, segmentEvents);
+                TrajectoryTextSidecarCodec.SerializeSegmentEvents(node, segmentEvents);
             if (trackSections.Count > 0)
-                RecordingStore.SerializeTrackSections(node, trackSections);
+                TrajectoryTextSidecarCodec.SerializeTrackSections(node, trackSections);
 
             // Resource manifests (Phase 11)
             SerializeResourceManifestInto(node);
@@ -1214,7 +1214,7 @@ namespace Parsek.Tests.Generators
                 RouteConnectionWindows = routeConnectionWindows,
                 RouteOriginProof = routeOriginProof
             };
-            RecordingStore.SerializeRouteProofMetadata(node, proofCarrier);
+            RouteProofCodec.SerializeRouteProofMetadata(node, proofCarrier);
         }
 
         /// <summary>Returns the rewind save file name (may be null).</summary>

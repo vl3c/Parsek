@@ -124,7 +124,7 @@ namespace Parsek.Tests
                 MakeSourceSection(TrackSectionSource.Background, 400.0),
             };
 
-            RecordingStore.SerializeTrackSections(new ConfigNode("TEST"), tracks);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(new ConfigNode("TEST"), tracks);
 
             var summaries = logLines
                 .Where(l => l.Contains("[RecordingStore]") && l.Contains("SerializeTrackSections:"))
@@ -152,7 +152,7 @@ namespace Parsek.Tests
                 MakeSourceSection(TrackSectionSource.Active, 200.0),
             };
 
-            RecordingStore.SerializeTrackSections(new ConfigNode("TEST"), tracks);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(new ConfigNode("TEST"), tracks);
 
             Assert.Empty(logLines.Where(l => l.Contains("SerializeTrackSections:")));
         }
@@ -199,10 +199,10 @@ namespace Parsek.Tests
 
             var parent = new ConfigNode("TEST");
             var tracks = new List<TrackSection> { original };
-            RecordingStore.SerializeTrackSections(parent, tracks);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, tracks);
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             var result = loaded[0];
@@ -244,10 +244,10 @@ namespace Parsek.Tests
 
             var parent = new ConfigNode("TEST");
             var tracks = new List<TrackSection> { original };
-            RecordingStore.SerializeTrackSections(parent, tracks);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, tracks);
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             var result = loaded[0];
@@ -288,7 +288,7 @@ namespace Parsek.Tests
             };
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(
+            TrajectoryTextSidecarCodec.SerializeTrackSections(
                 parent,
                 new List<TrackSection> { original });
 
@@ -297,7 +297,7 @@ namespace Parsek.Tests
             Assert.Equal("42", tsNode.GetValue("anchorPid"));
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             Assert.Equal("anchor-rec-1", loaded[0].anchorRecordingId);
@@ -358,10 +358,10 @@ namespace Parsek.Tests
             };
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, sections);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, sections);
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Equal(3, loaded.Count);
 
@@ -392,7 +392,7 @@ namespace Parsek.Tests
             ptNode.AddValue("ut", "17000");
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Empty(loaded);
         }
@@ -413,7 +413,7 @@ namespace Parsek.Tests
             tsNode.AddValue("sampleRate", "10");
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Empty(loaded);
             Assert.Contains(logLines, l =>
@@ -436,7 +436,7 @@ namespace Parsek.Tests
             tsNode.AddValue("sampleRate", "10");
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Empty(loaded);
             Assert.Contains(logLines, l =>
@@ -463,10 +463,10 @@ namespace Parsek.Tests
 
             var parent = new ConfigNode("TEST");
             var tracks = new List<TrackSection> { original };
-            RecordingStore.SerializeTrackSections(parent, tracks);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, tracks);
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             var result = loaded[0];
@@ -503,10 +503,10 @@ namespace Parsek.Tests
 
             var parent = new ConfigNode("TEST");
             var tracks = new List<TrackSection> { original };
-            RecordingStore.SerializeTrackSections(parent, tracks);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, tracks);
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             Assert.Equal(TrackSectionSource.Background, loaded[0].source);
@@ -529,7 +529,7 @@ namespace Parsek.Tests
             };
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { original });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { original });
 
             // Verify the src key was not written
             var tsNode = parent.GetNodes("TRACK_SECTION")[0];
@@ -537,7 +537,7 @@ namespace Parsek.Tests
 
             // Still round-trips correctly (defaults to Active)
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
             Assert.Single(loaded);
             Assert.Equal(TrackSectionSource.Active, loaded[0].source);
         }
@@ -562,7 +562,7 @@ namespace Parsek.Tests
             };
 
             var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { original });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, new List<TrackSection> { original });
 
             var tsNode = parent.GetNodes("TRACK_SECTION")[0];
             Assert.Null(tsNode.GetValue("anchorPid"));
@@ -591,7 +591,7 @@ namespace Parsek.Tests
             });
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             // Verify TRACK_SECTION node was written
             Assert.Single(node.GetNodes("TRACK_SECTION"));
@@ -630,7 +630,7 @@ namespace Parsek.Tests
             tsNode.AddValue("sampleRate", "10");
 
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
             // Legacy point loaded
             Assert.Single(rec.Points);
@@ -646,7 +646,7 @@ namespace Parsek.Tests
             rec.Points.Add(MakePoint(17000, 0, 0, 100));
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
 
             // No TRACK_SECTION nodes should be written
             Assert.Empty(node.GetNodes("TRACK_SECTION"));
@@ -670,10 +670,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(node, tracks);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(node, tracks);
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(node, loaded);
 
             Assert.Single(loaded);
             Assert.Equal(500f, loaded[0].minAltitude);
@@ -697,10 +697,10 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(node, new List<TrackSection> { track });
+            TrajectoryTextSidecarCodec.SerializeTrackSections(node, new List<TrackSection> { track });
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(node, loaded);
 
             Assert.Single(loaded);
             Assert.Single(loaded[0].checkpoints);
@@ -720,7 +720,7 @@ namespace Parsek.Tests
             // No minAlt/maxAlt keys
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(node, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(node, loaded);
 
             Assert.Single(loaded);
             Assert.True(float.IsNaN(loaded[0].minAltitude));
@@ -746,7 +746,7 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(node, tracks);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(node, tracks);
 
             var tsNode = node.GetNodes("TRACK_SECTION")[0];
             Assert.Null(tsNode.GetValue("minAlt"));
@@ -778,14 +778,14 @@ namespace Parsek.Tests
 
             var parent = new ConfigNode("TEST");
             var tracks = new List<TrackSection> { original };
-            RecordingStore.SerializeTrackSections(parent, tracks);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(parent, tracks);
 
             // Sparse: the seam key is written exactly when the flag is set.
             var tsNode = parent.GetNodes("TRACK_SECTION")[0];
             Assert.Equal("1", tsNode.GetValue("seam"));
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             Assert.True(loaded[0].isBoundarySeam);
@@ -807,7 +807,7 @@ namespace Parsek.Tests
             // Deliberately no "seam" key — pre-v8 layout.
 
             var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
+            TrajectoryTextSidecarCodec.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
             Assert.False(loaded[0].isBoundarySeam);
@@ -834,7 +834,7 @@ namespace Parsek.Tests
             };
 
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(node, tracks);
+            TrajectoryTextSidecarCodec.SerializeTrackSections(node, tracks);
 
             var tsNode = node.GetNodes("TRACK_SECTION")[0];
             Assert.Null(tsNode.GetValue("seam"));

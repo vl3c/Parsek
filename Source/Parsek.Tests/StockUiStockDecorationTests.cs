@@ -243,13 +243,13 @@ namespace Parsek.Tests
         [Fact]
         public void AppendReason_AddsOneColouredLine_AndIsIdempotent()
         {
-            string once = StockUiRnDDecoration.AppendReason("<color=#fff>45 science</color>", "Researched on D5.");
-            Assert.Equal("<color=#fff>45 science</color>\n<color=" + StockUiRnDDecoration.ReasonColorHex
+            string once = StockUiText.AppendReason("<color=#fff>45 science</color>", "Researched on D5.");
+            Assert.Equal("<color=#fff>45 science</color>\n<color=" + StockUiText.ReasonColorHex
                 + ">Researched on D5.</color>", once);
-            Assert.Equal(once, StockUiRnDDecoration.AppendReason(once, "Researched on D5."));
-            Assert.Equal("stock", StockUiRnDDecoration.AppendReason("stock", null));
-            Assert.Equal("<color=" + StockUiRnDDecoration.ReasonColorHex + ">x</color>",
-                StockUiRnDDecoration.AppendReason("", "x"));
+            Assert.Equal(once, StockUiText.AppendReason(once, "Researched on D5."));
+            Assert.Equal("stock", StockUiText.AppendReason("stock", null));
+            Assert.Equal("<color=" + StockUiText.ReasonColorHex + ">x</color>",
+                StockUiText.AppendReason("", "x"));
         }
 
         // ---------------- Astronaut Complex pure decisions ----------------

@@ -16,7 +16,7 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -31,7 +31,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             RecordingStore.ResetForTesting();
 
             if (Directory.Exists(tempDir))
@@ -61,13 +61,13 @@ namespace Parsek.Tests
             string vesselPath = Path.Combine(tempDir, written.RecordingId + "_vessel.craft");
             string ghostPath = Path.Combine(tempDir, written.RecordingId + "_ghost.craft");
 
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 written, precPath, vesselPath, ghostPath, incrementEpoch: true));
 
             var restored = new Recording { RecordingId = written.RecordingId };
             logLines.Clear();
 
-            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+            Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, restored));
 
             Assert.Equal(14, restored.Points.Count);
             Assert.Single(restored.TrackSections);

@@ -227,14 +227,14 @@ namespace Parsek.Tests.Logistics
         public void TargetAbsorbed_OnPartCoupleTargetBranch_RoutesThroughResolver()
         {
             string src = StripLineComments(
-                File.ReadAllText(FindParsekFlightSource()).Replace("\r\n", "\n"));
+                ParsekFlightSourceFiles.ReadText(FindParsekFlightSource()).Replace("\r\n", "\n"));
             int branch = src.IndexOf("if (isTarget)", StringComparison.Ordinal);
             Assert.True(branch >= 0, "OnPartCouple no longer branches on isTarget");
             int resolve = src.IndexOf(
-                "absorbedPid = ResolveTargetSideAbsorbedPid(\n                            "
-                + "partnerPidFromEvent, mergedPid, activeTree.BackgroundMap.Keys);",
+                "absorbedPid = ParsekFlight.ResolveTargetSideAbsorbedPid(\n                            "
+                + "partnerPidFromEvent, mergedPid, host.activeTree.BackgroundMap.Keys);",
                 branch, StringComparison.Ordinal);
-            int initiator = src.IndexOf("absorbedPid = recorder.RecordingVesselId;", branch,
+            int initiator = src.IndexOf("absorbedPid = host.recorder.RecordingVesselId;", branch,
                 StringComparison.Ordinal);
             Assert.True(resolve > branch && initiator > resolve,
                 "the TARGET branch must assign absorbedPid through ResolveTargetSideAbsorbedPid "

@@ -1552,7 +1552,7 @@ namespace Parsek.TestCommands
         private static InGameTestRunner SettingsTestRunnerWindowRunner()
         {
             ParsekUI ui = ParsekUI.ActiveInstance;
-            TestRunnerUI window = ui != null ? ui.GetTestRunnerUI() : null;
+            TestRunnerUI window = ui != null ? ParsekWindowSet.Of(ui).GetTestRunnerUI() : null;
             return window != null ? window.RunnerForTesting : null;
         }
 
@@ -2734,7 +2734,7 @@ namespace Parsek.TestCommands
                 {
                     try
                     {
-                        if (RecordingStore.DeleteRecordingFiles(rec))
+                        if (RecordingFileJanitor.DeleteRecordingFiles(rec))
                             fullyRemoved++;
                         reaped++;
                     }
@@ -2751,7 +2751,7 @@ namespace Parsek.TestCommands
                 // still holds this tree must start a fresh recording, not resume into
                 // the deleted ids.
                 if (fullyRemoved > 0)
-                    RecordingStore.NoteTreeDiscardedThisSession(discardedTreeId, discardedTreeName, fullyRemoved);
+                    TreeDiscardService.NoteTreeDiscardedThisSession(discardedTreeId, discardedTreeName, fullyRemoved);
             }
 
             ParsekLog.Info(Tag, "discardtree discarded=true");

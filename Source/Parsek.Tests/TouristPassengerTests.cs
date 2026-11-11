@@ -171,7 +171,7 @@ namespace Parsek.Tests
                 new[] { "Imported Kerman", "Tourist Kerman" });
             var inRoster = new HashSet<string> { "Jeb Kerman" };
 
-            var plan = VesselSpawner.PlanMissingCrew(
+            var plan = VesselSnapshotOps.PlanMissingCrew(
                 snapshot, inRoster.Contains, n => n == "Tourist Kerman");
 
             Assert.Equal(2, plan.Count);
@@ -185,15 +185,15 @@ namespace Parsek.Tests
         public void PlanMissingCrew_EveryoneInRoster_PlansNothing()
         {
             var snapshot = Snapshot(new[] { "Jeb Kerman", "Tourist Kerman" });
-            var plan = VesselSpawner.PlanMissingCrew(snapshot, n => true, n => true);
+            var plan = VesselSnapshotOps.PlanMissingCrew(snapshot, n => true, n => true);
             Assert.Empty(plan);
-            Assert.Empty(VesselSpawner.PlanMissingCrew(null, n => false, null));
+            Assert.Empty(VesselSnapshotOps.PlanMissingCrew(null, n => false, null));
         }
 
         [Fact]
         public void PlanMissingCrew_NoEvidenceSource_IsCrew()
         {
-            var plan = VesselSpawner.PlanMissingCrew(
+            var plan = VesselSnapshotOps.PlanMissingCrew(
                 Snapshot(new[] { "Synthetic Kerman" }), n => false, null);
             Assert.Single(plan);
             Assert.False(plan[0].AsTourist);

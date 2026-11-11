@@ -14,9 +14,9 @@ namespace Parsek.Tests
     {
         private readonly List<string> logLines = new List<string>();
         private readonly object originalFlightGlobalsBodies;
-        private readonly VesselSpawner.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
-        private readonly VesselSpawner.ResolveBodyByNameDelegate originalBodyResolver;
-        private readonly VesselSpawner.ResolveBodyIndexDelegate originalBodyIndexResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyByNameDelegate originalBodyResolver;
+        private readonly LiveVesselSnapshot.ResolveBodyIndexDelegate originalBodyIndexResolver;
 
         public SpawnSafetyNetTests()
         {
@@ -27,9 +27,9 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            originalBodyNameResolver = VesselSpawner.BodyNameResolverForTesting;
-            originalBodyResolver = VesselSpawner.BodyResolverForTesting;
-            originalBodyIndexResolver = VesselSpawner.BodyIndexResolverForTesting;
+            originalBodyNameResolver = LiveVesselSnapshot.BodyNameResolverForTesting;
+            originalBodyResolver = LiveVesselSnapshot.BodyResolverForTesting;
+            originalBodyIndexResolver = LiveVesselSnapshot.BodyIndexResolverForTesting;
             originalFlightGlobalsBodies = typeof(FlightGlobals)
                 .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.GetValue(null);
@@ -37,9 +37,9 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            VesselSpawner.BodyNameResolverForTesting = originalBodyNameResolver;
-            VesselSpawner.BodyResolverForTesting = originalBodyResolver;
-            VesselSpawner.BodyIndexResolverForTesting = originalBodyIndexResolver;
+            LiveVesselSnapshot.BodyNameResolverForTesting = originalBodyNameResolver;
+            LiveVesselSnapshot.BodyResolverForTesting = originalBodyResolver;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = originalBodyIndexResolver;
             typeof(FlightGlobals)
                 .GetField("bodies", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.SetValue(null, originalFlightGlobalsBodies);
@@ -722,7 +722,7 @@ namespace Parsek.Tests
             snapshot.AddNode(part1);
             snapshot.AddNode(part2);
 
-            int removed = VesselSpawner.StripAllCrewFromSnapshot(snapshot);
+            int removed = VesselSnapshotOps.StripAllCrewFromSnapshot(snapshot);
 
             Assert.Equal(3, removed);
 
@@ -740,7 +740,7 @@ namespace Parsek.Tests
             var part = new ConfigNode("PART");
             snapshot.AddNode(part);
 
-            int removed = VesselSpawner.StripAllCrewFromSnapshot(snapshot);
+            int removed = VesselSnapshotOps.StripAllCrewFromSnapshot(snapshot);
 
             Assert.Equal(0, removed);
         }
@@ -748,7 +748,7 @@ namespace Parsek.Tests
         [Fact]
         public void StripAllCrewFromSnapshot_NullSnapshot_ReturnsZero()
         {
-            int removed = VesselSpawner.StripAllCrewFromSnapshot(null);
+            int removed = VesselSnapshotOps.StripAllCrewFromSnapshot(null);
 
             Assert.Equal(0, removed);
         }
@@ -761,7 +761,7 @@ namespace Parsek.Tests
             part.AddValue("crew", "Jebediah Kerman");
             snapshot.AddNode(part);
 
-            VesselSpawner.StripAllCrewFromSnapshot(snapshot);
+            VesselSnapshotOps.StripAllCrewFromSnapshot(snapshot);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]") &&
@@ -776,35 +776,35 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeCorrectedSituation_FlyingWithLanded_ReturnsLanded()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Landed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Landed);
             Assert.Equal("LANDED", result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_FlyingWithSplashed_ReturnsSplashed()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Splashed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Splashed);
             Assert.Equal("SPLASHED", result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_SubOrbitalWithLanded_ReturnsLanded()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Landed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Landed);
             Assert.Equal("LANDED", result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_SubOrbitalWithSplashed_ReturnsSplashed()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Splashed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("SUB_ORBITAL", TerminalState.Splashed);
             Assert.Equal("SPLASHED", result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_FlyingWithDestroyed_ReturnsNull()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Destroyed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Destroyed);
             Assert.Null(result);
         }
 
@@ -812,14 +812,14 @@ namespace Parsek.Tests
         public void ComputeCorrectedSituation_FlyingWithOrbiting_ReturnsOrbiting()
         {
             // Vessel captured during ascent (FLYING) that achieved orbit — correct to ORBITING
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Orbiting);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Orbiting);
             Assert.Equal("ORBITING", result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_FlyingWithNull_ReturnsNull()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", null);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", null);
             Assert.Null(result);
         }
 
@@ -827,7 +827,7 @@ namespace Parsek.Tests
         public void ComputeCorrectedSituation_LandedWithLanded_ReturnsNull()
         {
             // Already safe — no correction needed
-            string result = VesselSpawner.ComputeCorrectedSituation("LANDED", TerminalState.Landed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("LANDED", TerminalState.Landed);
             Assert.Null(result);
         }
 
@@ -835,28 +835,28 @@ namespace Parsek.Tests
         public void ComputeCorrectedSituation_OrbitingWithLanded_ReturnsNull()
         {
             // ORBITING is not unsafe — no correction needed
-            string result = VesselSpawner.ComputeCorrectedSituation("ORBITING", TerminalState.Landed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("ORBITING", TerminalState.Landed);
             Assert.Null(result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_NullSit_ReturnsNull()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation(null, TerminalState.Landed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation(null, TerminalState.Landed);
             Assert.Null(result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_EmptySit_ReturnsNull()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("", TerminalState.Landed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("", TerminalState.Landed);
             Assert.Null(result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_CaseInsensitive()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("flying", TerminalState.Landed);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("flying", TerminalState.Landed);
             Assert.Equal("LANDED", result);
         }
 
@@ -864,28 +864,28 @@ namespace Parsek.Tests
         public void ComputeCorrectedSituation_FlyingWithSubOrbital_ReturnsNull()
         {
             // SubOrbital terminal state should not override — vessel is still in flight
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.SubOrbital);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.SubOrbital);
             Assert.Null(result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_FlyingWithDocked_ReturnsNull()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Docked);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Docked);
             Assert.Null(result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_FlyingWithBoarded_ReturnsNull()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Boarded);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Boarded);
             Assert.Null(result);
         }
 
         [Fact]
         public void ComputeCorrectedSituation_FlyingWithRecovered_ReturnsNull()
         {
-            string result = VesselSpawner.ComputeCorrectedSituation("FLYING", TerminalState.Recovered);
+            string result = VesselSnapshotOps.ComputeCorrectedSituation("FLYING", TerminalState.Recovered);
             Assert.Null(result);
         }
 
@@ -903,7 +903,7 @@ namespace Parsek.Tests
             snapshot.AddValue("landedAt", "LaunchPad");
             snapshot.AddValue("displaylandedAt", "#autoLOC_6002112");
 
-            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
+            bool corrected = VesselSnapshotOps.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
 
             Assert.True(corrected);
             Assert.Equal("LANDED", snapshot.GetValue("sit"));
@@ -922,7 +922,7 @@ namespace Parsek.Tests
             snapshot.AddValue("splashed", "False");
             snapshot.AddValue("landedAt", "LaunchPad");
 
-            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Splashed);
+            bool corrected = VesselSnapshotOps.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Splashed);
 
             Assert.True(corrected);
             Assert.Equal("SPLASHED", snapshot.GetValue("sit"));
@@ -941,7 +941,7 @@ namespace Parsek.Tests
             snapshot.AddValue("landedAt", "LaunchPad");
             snapshot.AddValue("displaylandedAt", "#autoLOC_6002112");
 
-            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Orbiting);
+            bool corrected = VesselSnapshotOps.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Orbiting);
 
             Assert.True(corrected);
             Assert.Equal("ORBITING", snapshot.GetValue("sit"));
@@ -1063,7 +1063,7 @@ namespace Parsek.Tests
         public void BuildValidatedRespawnSnapshot_NonFiniteSurfaceVector_RejectsBeforeMaterialization()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12));
-            VesselSpawner.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
+            LiveVesselSnapshot.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "ORBITING");
@@ -1216,9 +1216,9 @@ namespace Parsek.Tests
         public void BuildValidatedRespawnSnapshot_PersistedEndpointBodyMismatchWithoutCoordinates_Rejects()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
-            VesselSpawner.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
-            VesselSpawner.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
-            VesselSpawner.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
+            LiveVesselSnapshot.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
+            LiveVesselSnapshot.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "FLYING");
@@ -1253,9 +1253,9 @@ namespace Parsek.Tests
         public void BuildValidatedRespawnSnapshot_SurfaceTerminalWithStaleOrbit_UsesEndpointSurfaceRepair()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
-            VesselSpawner.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
-            VesselSpawner.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
-            VesselSpawner.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
+            LiveVesselSnapshot.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
+            LiveVesselSnapshot.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "LANDED");
@@ -1321,9 +1321,9 @@ namespace Parsek.Tests
         public void BuildValidatedRespawnSnapshot_SurfaceTerminalWithSameBodyStaleOrbit_UsesSnapshotSurfaceRepair()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
-            VesselSpawner.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
-            VesselSpawner.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
-            VesselSpawner.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
+            LiveVesselSnapshot.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
+            LiveVesselSnapshot.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "LANDED");
@@ -1372,14 +1372,14 @@ namespace Parsek.Tests
         public void TryGetSnapshotReferenceBodyName_UsesResolverOverride()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
-            VesselSpawner.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
+            LiveVesselSnapshot.BodyNameResolverForTesting = TestBodyRegistry.ResolveBodyNameByIndex;
 
             var snapshot = new ConfigNode("VESSEL");
             var orbitNode = new ConfigNode("ORBIT");
             orbitNode.AddValue("REF", "1");
             snapshot.AddNode(orbitNode);
 
-            Assert.True(VesselSpawner.TryGetSnapshotReferenceBodyName(snapshot, out string bodyName));
+            Assert.True(LiveVesselSnapshot.TryGetSnapshotReferenceBodyName(snapshot, out string bodyName));
             Assert.Equal("Mun", bodyName);
         }
 
@@ -1387,9 +1387,9 @@ namespace Parsek.Tests
         public void TryResolveBodyByName_UsesResolverOverride()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
-            VesselSpawner.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
+            LiveVesselSnapshot.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
 
-            Assert.True(VesselSpawner.TryResolveBodyByName("Mun", out CelestialBody body));
+            Assert.True(LiveVesselSnapshot.TryResolveBodyByName("Mun", out CelestialBody body));
             Assert.NotNull(body);
             Assert.Equal("Mun", body.bodyName);
         }
@@ -1398,10 +1398,10 @@ namespace Parsek.Tests
         public void ResolveBodyIndex_UsesResolverOverride()
         {
             TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ("Mun", 200000.0, 6.5138398e10));
-            VesselSpawner.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
-            VesselSpawner.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
+            LiveVesselSnapshot.BodyResolverForTesting = TestBodyRegistry.ResolveBodyByName;
+            LiveVesselSnapshot.BodyIndexResolverForTesting = TestBodyRegistry.ResolveBodyIndex;
 
-            Assert.True(VesselSpawner.TryResolveBodyByName("Mun", out CelestialBody body));
+            Assert.True(LiveVesselSnapshot.TryResolveBodyByName("Mun", out CelestialBody body));
             Assert.True(InvokeTryResolveBodyIndex(body, out int index));
             Assert.Equal(1, index);
         }
@@ -1412,7 +1412,7 @@ namespace Parsek.Tests
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "LANDED");
 
-            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
+            bool corrected = VesselSnapshotOps.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
 
             Assert.False(corrected);
             Assert.Equal("LANDED", snapshot.GetValue("sit"));
@@ -1421,7 +1421,7 @@ namespace Parsek.Tests
         [Fact]
         public void CorrectUnsafeSnapshotSituation_NullSnapshot_ReturnsFalse()
         {
-            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(null, TerminalState.Landed);
+            bool corrected = VesselSnapshotOps.CorrectUnsafeSnapshotSituation(null, TerminalState.Landed);
 
             Assert.False(corrected);
         }
@@ -1432,7 +1432,7 @@ namespace Parsek.Tests
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "FLYING");
 
-            bool corrected = VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, null);
+            bool corrected = VesselSnapshotOps.CorrectUnsafeSnapshotSituation(snapshot, null);
 
             Assert.False(corrected);
             Assert.Equal("FLYING", snapshot.GetValue("sit"));
@@ -1446,7 +1446,7 @@ namespace Parsek.Tests
             snapshot.AddValue("landed", "False");
             snapshot.AddValue("splashed", "False");
 
-            VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
+            VesselSnapshotOps.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]") &&
@@ -1461,7 +1461,7 @@ namespace Parsek.Tests
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "LANDED");
 
-            VesselSpawner.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
+            VesselSnapshotOps.CorrectUnsafeSnapshotSituation(snapshot, TerminalState.Landed);
 
             Assert.DoesNotContain(logLines, l => l.Contains("#169"));
         }
@@ -2017,7 +2017,7 @@ namespace Parsek.Tests
             snapshot.AddValue("vesselSpawning", "True");
             snapshot.AddValue("lastUT", "74.220361328121982");
 
-            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 1323814.6578770601);
+            VesselSnapshotOps.NormalizeOrbitalSpawnMetadata(snapshot, 1323814.6578770601);
 
             Assert.Equal("-1", snapshot.GetValue("hgt"));
             Assert.Equal("0", snapshot.GetValue("distanceTraveled"));
@@ -2039,7 +2039,7 @@ namespace Parsek.Tests
             part.AddValue("tempExtUnexp", "4");
             part.AddValue("staticPressureAtm", "0.10801468253165093");
 
-            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 200.0);
+            VesselSnapshotOps.NormalizeOrbitalSpawnMetadata(snapshot, 200.0);
 
             Assert.Equal("0", part.GetValue("tempExt"));
             Assert.Equal("0", part.GetValue("tempExtUnexp"));
@@ -2052,7 +2052,7 @@ namespace Parsek.Tests
             var snapshot = new ConfigNode("VESSEL");
             var part = snapshot.AddNode("PART");
 
-            VesselSpawner.NormalizeOrbitalSpawnMetadata(snapshot, 123.5);
+            VesselSnapshotOps.NormalizeOrbitalSpawnMetadata(snapshot, 123.5);
 
             Assert.Equal("-1", snapshot.GetValue("hgt"));
             Assert.Equal("0", snapshot.GetValue("distanceTraveled"));
@@ -2080,7 +2080,7 @@ namespace Parsek.Tests
             snapshot.AddValue("lon", "2.0");
             snapshot.AddValue("alt", "3.0");
 
-            VesselSpawner.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 0, "Test");
+            VesselSnapshotOps.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 0, "Test");
 
             Assert.Equal("10.5", snapshot.GetValue("lat"));
             Assert.Equal("20.5", snapshot.GetValue("lon"));
@@ -2092,7 +2092,7 @@ namespace Parsek.Tests
         {
             var snapshot = new ConfigNode("VESSEL");
 
-            VesselSpawner.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 0, "Test");
+            VesselSnapshotOps.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 0, "Test");
 
             Assert.Equal("10.5", snapshot.GetValue("lat"));
             Assert.Equal("20.5", snapshot.GetValue("lon"));
@@ -2102,7 +2102,7 @@ namespace Parsek.Tests
         [Fact]
         public void OverrideSnapshotPosition_NullSnapshot_NoThrow()
         {
-            VesselSpawner.OverrideSnapshotPosition(null, 10.5, 20.5, 30.5, 0, "Test");
+            VesselSnapshotOps.OverrideSnapshotPosition(null, 10.5, 20.5, 30.5, 0, "Test");
             // No exception = pass
         }
 
@@ -2114,7 +2114,7 @@ namespace Parsek.Tests
             snapshot.AddValue("lon", "2.0");
             snapshot.AddValue("alt", "3.0");
 
-            VesselSpawner.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 7, "Jeb");
+            VesselSnapshotOps.OverrideSnapshotPosition(snapshot, 10.5, 20.5, 30.5, 7, "Jeb");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]") && l.Contains("Snapshot position override") && l.Contains("Jeb"));
@@ -2412,7 +2412,7 @@ namespace Parsek.Tests
             module.AddValue("state", "Ladder (Acquire)");
             module.AddValue("OnALadder", "True");
 
-            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+            VesselSnapshotOps.StripEvaLadderState(snapshot, 0, "Jeb");
 
             // The state value is removed entirely so KerbalEVA.StartEVA picks the
             // correct st_idle_gr / st_idle_fl / st_swim_idle name at runtime
@@ -2430,7 +2430,7 @@ namespace Parsek.Tests
             module.AddValue("name", "KerbalEVA");
             module.AddValue("state", "st_idle_gr");
 
-            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+            VesselSnapshotOps.StripEvaLadderState(snapshot, 0, "Jeb");
 
             // Non-ladder state must be left alone — strip only when "ladder" appears.
             Assert.Equal("st_idle_gr", module.GetValue("state"));
@@ -2445,7 +2445,7 @@ namespace Parsek.Tests
             module.AddValue("name", "KerbalEVAFlight");
             module.AddValue("state", "Ladder_Idle");
 
-            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+            VesselSnapshotOps.StripEvaLadderState(snapshot, 0, "Jeb");
 
             Assert.False(module.HasValue("state"));
         }
@@ -2453,7 +2453,7 @@ namespace Parsek.Tests
         [Fact]
         public void StripEvaLadderState_NullSnapshot_NoThrow()
         {
-            VesselSpawner.StripEvaLadderState(null, 0, "Jeb");
+            VesselSnapshotOps.StripEvaLadderState(null, 0, "Jeb");
         }
 
         [Fact]
@@ -2462,7 +2462,7 @@ namespace Parsek.Tests
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddNode("PART");
 
-            VesselSpawner.StripEvaLadderState(snapshot, 0, "Jeb");
+            VesselSnapshotOps.StripEvaLadderState(snapshot, 0, "Jeb");
         }
 
         [Fact]
@@ -2474,7 +2474,7 @@ namespace Parsek.Tests
             module.AddValue("name", "KerbalEVA");
             module.AddValue("state", "Ladder (Acquire)");
 
-            VesselSpawner.StripEvaLadderState(snapshot, 3, "Val");
+            VesselSnapshotOps.StripEvaLadderState(snapshot, 3, "Val");
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]") && l.Contains("ladder state stripped") && l.Contains("Val"));
@@ -2487,14 +2487,14 @@ namespace Parsek.Tests
         [Fact]
         public void OverrideSituationFromTerminalState_FlyingLanded_ReturnsLanded()
         {
-            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.Landed);
+            string result = VesselSnapshotOps.OverrideSituationFromTerminalState("FLYING", TerminalState.Landed);
             Assert.Equal("LANDED", result);
         }
 
         [Fact]
         public void OverrideSituationFromTerminalState_FlyingSplashed_ReturnsSplashed()
         {
-            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.Splashed);
+            string result = VesselSnapshotOps.OverrideSituationFromTerminalState("FLYING", TerminalState.Splashed);
             Assert.Equal("SPLASHED", result);
         }
 
@@ -2502,7 +2502,7 @@ namespace Parsek.Tests
         public void OverrideSituationFromTerminalState_FlyingOrbiting_ReturnsOrbiting()
         {
             // Regression guard for #176 — this path used to be an inline override in SpawnAtPosition.
-            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.Orbiting);
+            string result = VesselSnapshotOps.OverrideSituationFromTerminalState("FLYING", TerminalState.Orbiting);
             Assert.Equal("ORBITING", result);
         }
 
@@ -2510,7 +2510,7 @@ namespace Parsek.Tests
         public void OverrideSituationFromTerminalState_FlyingDocked_ReturnsOrbiting()
         {
             // Regression guard for #176.
-            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.Docked);
+            string result = VesselSnapshotOps.OverrideSituationFromTerminalState("FLYING", TerminalState.Docked);
             Assert.Equal("ORBITING", result);
         }
 
@@ -2519,7 +2519,7 @@ namespace Parsek.Tests
         {
             // SubOrbital terminal doesn't map to an explicit override — we don't force LANDED
             // or ORBITING on a sub-orbital recording. The caller's decision logic decides.
-            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.SubOrbital);
+            string result = VesselSnapshotOps.OverrideSituationFromTerminalState("FLYING", TerminalState.SubOrbital);
             Assert.Equal("FLYING", result);
         }
 
@@ -2528,7 +2528,7 @@ namespace Parsek.Tests
         {
             // Only fires on FLYING input. If DetermineSituation already returned LANDED,
             // we don't re-override.
-            string result = VesselSpawner.OverrideSituationFromTerminalState("LANDED", TerminalState.Landed);
+            string result = VesselSnapshotOps.OverrideSituationFromTerminalState("LANDED", TerminalState.Landed);
             Assert.Equal("LANDED", result);
         }
 
@@ -2537,14 +2537,14 @@ namespace Parsek.Tests
         {
             // A high-velocity classifier result is trusted over a potentially stale terminal state —
             // forcing LANDED on a fast-moving vessel would be dangerous. Only FLYING gets overridden.
-            string result = VesselSpawner.OverrideSituationFromTerminalState("ORBITING", TerminalState.Landed);
+            string result = VesselSnapshotOps.OverrideSituationFromTerminalState("ORBITING", TerminalState.Landed);
             Assert.Equal("ORBITING", result);
         }
 
         [Fact]
         public void OverrideSituationFromTerminalState_FlyingNullTerminal_ReturnsFlyingUnchanged()
         {
-            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", null);
+            string result = VesselSnapshotOps.OverrideSituationFromTerminalState("FLYING", null);
             Assert.Equal("FLYING", result);
         }
 
@@ -2552,7 +2552,7 @@ namespace Parsek.Tests
         public void OverrideSituationFromTerminalState_FlyingDestroyed_ReturnsFlyingUnchanged()
         {
             // Destroyed has no stable resting situation — no override.
-            string result = VesselSpawner.OverrideSituationFromTerminalState("FLYING", TerminalState.Destroyed);
+            string result = VesselSnapshotOps.OverrideSituationFromTerminalState("FLYING", TerminalState.Destroyed);
             Assert.Equal("FLYING", result);
         }
 
@@ -2568,18 +2568,18 @@ namespace Parsek.Tests
             // DetermineSituation returns "FLYING" (alt > 0, speed < 0.9 * orbitalSpeed).
             // Without OverrideSituationFromTerminalState, the kerbal spawns as FLYING and hits
             // the OrbitDriver.updateMode=UPDATE stale-orbit bug.
-            string classified = VesselSpawner.DetermineSituation(
+            string classified = VesselSnapshotOps.DetermineSituation(
                 alt: 5.0, overWater: false, speed: 2.0, orbitalSpeed: 2296.0);
             Assert.Equal("FLYING", classified);
 
-            string overridden = VesselSpawner.OverrideSituationFromTerminalState(classified, TerminalState.Landed);
+            string overridden = VesselSnapshotOps.OverrideSituationFromTerminalState(classified, TerminalState.Landed);
             Assert.Equal("LANDED", overridden);
         }
 
         private static bool InvokeTryResolveBodyIndex(CelestialBody body, out int index)
         {
             index = -1;
-            MethodInfo method = typeof(VesselSpawner).GetMethod(
+            MethodInfo method = typeof(LiveVesselSnapshot).GetMethod(
                 "TryResolveBodyIndex",
                 BindingFlags.Static | BindingFlags.NonPublic);
             Assert.NotNull(method);

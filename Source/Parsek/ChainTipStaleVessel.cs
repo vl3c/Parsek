@@ -641,7 +641,7 @@ namespace Parsek
 
             // The spawn re-hydrates a dropped snapshot the same way; doing it here keeps a
             // dropped in-memory copy from reading as "cannot spawn".
-            RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+            RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
             string tipSpawnBlocker = ResolveTipSpawnBlocker(rec);
             bool tipPidAmongLive = livePids.Contains(rec.VesselPersistentId);
             bool tipIdentityLive = !tipPidAmongLive
@@ -985,7 +985,7 @@ namespace Parsek
             ConfigNode snapshot;
             if (vessel != null)
             {
-                snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+                snapshot = FlightRecorder.TryBackupSnapshot(vessel);
             }
             else
             {

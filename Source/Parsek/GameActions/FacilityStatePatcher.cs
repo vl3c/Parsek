@@ -265,7 +265,7 @@ namespace Parsek
             string skipReason = ResolveDestructionPatchSkipReason(
                 GameStateRecorder.HasLiveRecorder(),
                 GameStateRecorder.HasActiveUncommittedTree(),
-                RecordingStore.HasPendingTree,
+                PendingTreeSlot.HasPendingTree,
                 ParsekScenario.IsOnLoadInProgress,
                 liveUt);
             if (skipReason != null)

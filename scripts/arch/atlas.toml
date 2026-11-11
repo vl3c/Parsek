@@ -6,8 +6,11 @@
 # captions, the generated-views list) stay in the renderer template. `--check`
 # reports prose that no longer matches the model (missing module summaries,
 # glossary names that are gone, readings for vanished edges, reading-order
-# types that do not exist, opportunity types that do not exist) and the age of
-# the `[findings]` review date.
+# types that do not exist, opportunity types that do not exist, literal numbers
+# that disagree with the model) and the age of the `[findings]` review date.
+# A number the check knows how to measure (archview.PROSE_NUMBER_CLAIMS) must
+# match the model in any string that carries no YYYY-MM-DD date; in a dated
+# string it is history and is only listed.
 #
 # `[findings]` and `[[opportunities]]` (at the end of this file) are the only
 # conclusions on the page. They must not restate a number the page already
@@ -18,22 +21,22 @@
 
 [page]
 lede = "What the mod is made of, how the parts lean on each other, which names you must know first, and where the structure resists change. Every number below comes from the text scan in <code>scripts/arch/archview.py</code>; it counts type references between files, not compiler facts, and it is accurate to the folder, not the line."
-map_note = "Twenty production modules, drawn as layers. A module's <em>instability</em> is the share of its references that point outward: near 1 means it only depends on others (the top), near 0 means it is only depended on (the bottom). Grey arrows point down the gradient, which is the healthy direction. <span class=\"up\">Red arrows point back up</span>: a more stable module leaning on a less stable one. Arrows carrying fewer than 8 references are hidden. Tooling modules (in-game tests, the command seam, the analyzer, the GUI census and harness support, 255 files together) are excluded from every figure on this page."
+map_note = "Twenty production modules, drawn as layers. A module's <em>instability</em> is the share of its references that point outward: near 1 means it only depends on others (the top), near 0 means it is only depended on (the bottom). Grey arrows point down the gradient, which is the healthy direction. <span class=\"up\">Red arrows point back up</span>: a more stable module leaning on a less stable one. Arrows carrying fewer than 8 references are hidden. Tooling modules (in-game tests, the command seam, the analyzer, the GUI census and harness support, 339 files together on 2026-11-10) are excluded from every figure on this page."
 map_reading = "The reading, top to bottom: KSP touches Parsek through <strong>Patches</strong> and <strong>UI</strong>; <strong>Controllers</strong> (the scene addons and the scenario module) orchestrate; <strong>Ghost</strong>, <strong>Rewind</strong>, <strong>Missions</strong>, <strong>MapRender</strong> and <strong>Logistics</strong> are the feature layer; <strong>Recording</strong> and <strong>GameActions</strong> are the persistent model; <strong>Trajectory</strong>, <strong>Core</strong>, <strong>Config</strong> and <strong>LogIO</strong> are the floor."
 directory_note = "Ordered by layer. \"Hubs\" are the module's most-referenced types, counted by how many other files use them. Descriptions are from the design docs, not derived."
 vocabulary_note = "Learn these names before reading any file. Each is ranked by how many other files reference it. Together they are the language the whole mod is written in; the rest of the code is sentences made of them."
 knot_note = "Every one of them can reach every other through references."
 knot_consequence = "This is why the module map is one big cycle underneath the layering, and it is the single fact that most constrains refactoring: nothing inside the knot can be tested, extracted or reasoned about in isolation."
 knot_cuts_note = "The knot is not held together by popularity. It is held by a few outgoing references from the hub types. Making a hub a pure sink (removing its own references to other knot members) shrinks the knot by this much:"
-knot_callout = "<strong>How to read it.</strong> The first two rows are afternoon-sized: the recording data type calls two helpers (the launch-site ghost hide, the sidecar hash copy) and the game-action row reaches into the ledger and the capture-sequence key. Two references each, and each splits a run of types off the knot; the refactor branch claude/project-thread-bkwmrr cuts both. The rest of the sequence names the supply route type and the god objects - the store, the flight controller, the route orchestrator, the playback logic, the scene controllers - whose cuts drop a long list of references at once, and what is left when the sequence ends is still a cluster of types. Those are design work, not moved edges, and they are where the opportunity list spends its argument."
-layering_note = "69 module edges run upward. Most are light. These are the ones that carry weight, with the types that cause them; the pairs at the end reference each other in both directions, which is the module-level signature of the knot."
+knot_callout = "<strong>How to read it.</strong> The cheap rows are gone: the recording data type, the game-action row, launch identity, the rewind hold and mission periodicity are out of the residue (launch identity is also outside the knot). What leads the sequence now is the flight controller, because its services, map markers and window set each hold a reference back to it, then the ghost playback logic, the supply route type and the god objects - the scenario module, the tree, the mission record, the route orchestrator, the recorder, the game-state recorder, the store, the effective-state walker and the map presence. The services the program extracted are knot members that hang off the hubs they came from. What is left is a cluster led by the ledger and the stock-UI reservation layer, and that is where the opportunity list spends its argument."
+layering_note = "On 2026-11-10, 79 module edges run upward at the frozen refactor tip (84 on 2026-11-07, 88 on main then). Most are light. These are the ones that carry weight, with the types that cause them; the pairs at the end reference each other in both directions, which is the module-level signature of the knot."
 reading_note = "If you were new to this codebase, or coming back to it after months, this is the order in which the abstractions build on each other. Each step depends only on the ones before it."
 views_note = "This page is a snapshot with prose. The live views regenerate from source in a few seconds and stay honest as the code moves; they are written under <code>docs/dev/arch/</code> and are not committed."
 history_reading = "Co-change is a second opinion on the map: pairs that change together in most of their commits behave as one module whatever the folders say."
 size_note = "The edges say what leans on what; this says how much of it there is. Lines are counted per file and per type with the parts of a partial class merged, so one row is one type however many files it is spread across. The candidates are rule output over those numbers, cheapest first, and each cites what fired it: a reading list for a later refactor pass, not a verdict that a split is safe. The rules, their thresholds and their blind spots are in <code>docs/dev/arch/README.md</code>, \"Size view\"."
 findings_note = "The conclusions, written by hand and re-read against this page on the date below. They carry no live figures of their own: each points at the generated section that does, so read the section rather than a remembered number."
 opportunities_note = "Refactoring opportunities in rank order, with their status. The evidence names the generated section behind each item; the only figures written here are dated facts. Every item still needs a proposal and a review against <code>docs/dev/refactor-guidelines.md</code> before code moves."
-approximation_note = "Text-scan approximation. Type references are matched by name after stripping comments, strings and preprocessor lines; names declared in two modules are excluded; method calls that share a type's name are skipped. Good enough to place files and rank couplings; not sound enough to gate a build. The Roslyn extractor planned for phase 5 replaces the edges with semantic-model facts and keeps every view."
+approximation_note = "Text-scan approximation. Type references are matched by name after stripping comments, strings and preprocessor lines; names declared in two modules are excluded; method calls that share a type's name are skipped. Good enough to place files and rank couplings; not sound enough to gate a build. The build gate is the semantic residue read from the compiled IL (<code>scripts/arch/semantic.py</code>), where a call through a forwarder counts as a call to the forwarded type; this page keeps the text edges."
 
 # Layer bands for the module directory, by instability. A module belongs to the
 # first band whose `min` it reaches, so keep the list ordered high to low.
@@ -53,7 +56,7 @@ summary = "The IMGUI windows and tabs: recordings table, settings, missions, log
 summary = "Builds the timeline window's entries from ledger and recording events."
 
 [modules.Controllers]
-summary = "The scene controllers: <span class=\"id\">ParsekScenario</span> (save, load, the OnLoad sweeps), <span class=\"id\">ParsekFlight</span> (flight scene, recording, chains, input), KSC and tracking-station addons, warp-to-time."
+summary = "The scene controllers: <span class=\"id\">ParsekScenario</span> (save, load, the OnLoad sweeps), <span class=\"id\">ParsekFlight</span> (the flight-scene composition root) and its eight <code>ParsekFlight*</code> services (ghost positioning, playback hosting, spawning, split branching, merge flow, switch continuation, post-switch auto-record, surface capture), the spawner, KSC and tracking-station addons, warp-to-time."
 
 [modules.Rendering]
 summary = "Smoothing, anchoring and outlier handling for drawn trajectories."
@@ -89,13 +92,13 @@ summary = "Routes between recorded vessels: endpoints, stops, proofs of origin a
 summary = "The ledger: game actions, recalculation, resource modules, KSP state patching, game-state events."
 
 [modules.Trajectory]
-summary = "Pure math over orbits and samples: segments, points, frames, ballistic extrapolation."
+summary = "Pure math over orbits and samples, and the trajectory data vocabulary: segments, points, track sections and their frames, terminal states, ballistic extrapolation."
 
 [modules.Recording]
-summary = "The recording itself: <span class=\"id\">Recording</span>, its tree, track sections, the store, the flight and background recorders, sidecar codecs, the optimizer."
+summary = "The recording itself: <span class=\"id\">Recording</span>, its tree, the store, the flight and background recorders, sidecar codecs, the optimizer."
 
 [modules.Core]
-summary = "The kernel files used across many modules and owned by none: branch points, the playback trajectory interface, launch identity, the spawner, milestone and group stores, inventory manifests."
+summary = "The kernel files used across many modules and owned by none: branch points, the playback trajectory interface, launch identity, the pure snapshot operations, milestone and group stores, inventory manifests."
 
 [modules.Config]
 summary = "Settings, loop timing, distance thresholds."
@@ -113,7 +116,7 @@ meaning = "One recorded flight segment: metadata, trajectory points, track secti
 meaning = "The ledger's entry point: captures KSC and flight game actions, runs the recalculation walk, patches stock career state from it, and tells every reader when the committed timeline changed."
 
 [glossary.RecordingStore]
-meaning = "The static store of committed recordings that survives scene changes; also the index-keyed live state contract."
+meaning = "The static committed list and trees that survive scene changes, with the list primitives and the index-keyed notification contract; commit, discard, rewind, pending and file work live on its services."
 
 [glossary.RecordingTree]
 meaning = "The branch topology a flight produces: splits, docks, continuations, all rooted at one launch."
@@ -152,16 +155,13 @@ meaning = "The one place that resolves which recordings and ledger rows are in e
 meaning = "Sampling, interpolation, orbit search, the relative-offset converters, the Zup swizzle."
 
 [glossary.ParsekFlight]
-meaning = "The flight-scene controller: policy, recording, chains, input."
+meaning = "The flight-scene controller and composition root: Unity callbacks, event subscriptions, coroutines and the recording session; the bodies of eight seams live on its ParsekFlight* services."
 
 [glossary.IPlaybackTrajectory]
 meaning = "The interface the playback engine sees instead of a Recording."
 
 [glossary.BranchPoint]
 meaning = "Where and why a tree branched: decouple, dock, undock, EVA, switch."
-
-[glossary.Action]
-meaning = "<code>CareerSettingsLock.Action</code>, the negative-currency lock's decision (lock, rewrite the live value, nothing). Its file count is a scanner false positive: every <code>System.Action</code> delegate reads as this type."
 
 [glossary.Kind]
 meaning = "What a rewind split mutated: a branch point, a debris parent, a track-section anchor, a ledger row or a milestone row."
@@ -178,9 +178,12 @@ meaning = "The ghost's map and tracking-station presence: its ProtoVessel, orbit
 [glossary.GameActionType]
 meaning = "The kind of ledger row: which economy, roster or facility effect it records (science, funds, milestones, contracts, reputation, crew, facilities, strategies and route cycles)."
 
+[glossary.FlightRecorder]
+meaning = "The active vessel's recorder: samples the flight each physics frame into track sections and part events, and takes the live vessel snapshots."
+
 [[upward_readings]]
 edge = "Recording -> Trajectory"
-reading = "Instabilities 0.19 and 0.21: a near tie, not a real inversion. The extrapolator lives in Trajectory but is used by the recorder."
+reading = "Not upward since the 2026-09-14 placements (Trajectory reads near 0.02 since TrackSection and TerminalState joined it on 2026-11-06). The recorder is Trajectory's main client: the extrapolator, the sample math and the section vocabulary."
 
 [[upward_readings]]
 edge = "MapRender -> Ghost"
@@ -204,7 +207,15 @@ reading = "Perfectly symmetric. Either one module, or a cut is needed."
 
 [[upward_readings]]
 edge = "Core -> Recording"
-reading = "The kernel vocabulary reaching up into the model; mostly <span class=\"id\">BranchPoint</span> and the spawner."
+reading = "The kernel vocabulary reaching up into the model: the playback trajectory interface (part and flag events), milestones, launch identity and the group hierarchy. The section and terminal vocabulary left this edge on 2026-11-06 (now Trajectory), and the spawner, once most of it, on 2026-11-07 (file-placement PR 9, now Controllers)."
+
+[[upward_readings]]
+edge = "GameActions -> Recording"
+reading = "Ordering, not new coupling: upward since 2026-11-06, when moving TrackSection and TerminalState into Trajectory lifted Recording's instability just past the ledger's (both near 0.32). The ledger reads recordings, trees and the store to tag rows; Recording &rarr; GameActions, the lighter reverse, stopped reading upward."
+
+[[upward_readings]]
+edge = "Crew -> Recording"
+reading = "Ordering, like GameActions &rarr; Recording: the crew reservation manager and kerbals module read recordings and snapshots, and the same 2026-11-06 instability shift turned the pair around."
 
 [[reading_order]]
 title = "The floor."
@@ -213,12 +224,12 @@ text = "Hundreds of types sit at this level (the ladder's bottom row); you need 
 
 [[reading_order]]
 title = "Trajectory math."
-types = ["OrbitSegment", "TrajectoryPoint", "TrajectoryMath"]
+types = ["OrbitSegment", "TrajectoryPoint", "TrackSection", "TrajectoryMath"]
 text = "Plus the frame contracts in CLAUDE.md. Pure, testable, and the ground truth for every position on screen."
 
 [[reading_order]]
 title = "The recording model."
-types = ["Recording", "TrackSection", "RecordingTree", "BranchPoint", "VesselSnapshot"]
+types = ["Recording", "RecordingTree", "BranchPoint", "VesselSnapshot"]
 text = "What a flight becomes on disk."
 
 [[reading_order]]
@@ -250,168 +261,157 @@ text = "Plus the UI windows and the Harmony patches. Read last: they are where e
 # opportunities below were last re-read against a fresh page; `--check` says
 # when it is more than 30 days old.
 [findings]
-reviewed = "2026-11-01"
+reviewed = "2026-11-10"
 
 [[findings.items]]
-title = "The knot nearly doubled in five weeks."
-body = "On 2026-11-01 the largest cycle held 584 types, against 301 on 2026-09-25. Part of the jump is 50 root files the map had been skipping as unplaced (placed in the 2026-11-01 refresh); the rest is about 975 commits of feature work. The greedy cuts no longer halve it: a core survives them (306 of 542 on main's code with the member-name scanner; 277 of 456 on the refactor branch claude/project-thread-bkwmrr, which also cuts the recording and game-action types). Live size and cut sequence: <em>The knot</em>."
+title = "Wave 2 shrank the core; the first wave only moved code."
+body = "On 2026-11-07 the first wave had bought locality, not decoupling: replaying the same cut order, the residue was 282 types on main and 283 on this branch. Wave 2 cut references instead of moving them: launch identity, the rewind hold record and mission periodicity left the residue, the stock-screen reason text moved onto <span class=\"id\">StockUiText</span>, and <span class=\"id\">ParsekUI</span> reaches its windows through interfaces. On 2026-11-10 the same 2026-11-07 order replays to 237 types, the knot is 41 types smaller than on 2026-11-07, and the semantic residue the ratchet bounds fell from 258 to 141. The extracted services are still knot members that hang off the hubs they came from (<em>The knot</em>)."
 
 [[findings.items]]
-title = "Recording had stopped being plain data."
-body = "PR #1684 made the recording data type a leaf. By 2026-11-01 it called two helpers again (the launch-site ghost hide and the sidecar hash copy), tying 50 types to the knot (584). The scanner now skips member names (fields named like types, an enum member named like a class), which split off a small 3-type stock-UI grey knot; on main's code the knot is 542 and its first two cuts are the recording type and the game-action row. The refactor branch claude/project-thread-bkwmrr re-cuts both (an installed hide rule, an inline hash copy; the game-action row's two real knot calls moved out), taking the knot to 456 with the supply route type as the first cut; that code is not on main."
+title = "What is left is a ledger and stock-UI reservation core."
+body = "On 2026-11-10 the residue after the pinned cut order held 225 types, 60 of them GameActions and 32 UI, then Rewind, Logistics, Recording, MapRender and Controllers. Its hubs inside the text residue are <span class=\"id\">LedgerOrchestrator</span>, <span class=\"id\">GhostMapPresence</span>, <span class=\"id\">RouteStore</span> and <span class=\"id\">GameStateStore</span>. The semantic residue moved the same way: its replayed members went from 297 on 2026-11-07 to 145, GameActions 52 to 45 and UI 45 to 24, while Ghost, Reaim and Rendering left it, so the ledger is nearly a third of it. Its hubs are <span class=\"id\">LedgerOrchestrator</span>, <span class=\"id\">GameStateStore</span>, <span class=\"id\">Ledger</span>, <span class=\"id\">KerbalsModule</span> and the stock-UI reservation layer (<span class=\"id\">CommittedFutureIndex</span>, <span class=\"id\">ReservationExplanation</span>). <span class=\"id\">ParsekUI</span>, <span class=\"id\">VesselLaunchIdentity</span> and <span class=\"id\">MissionPeriodicity</span>, residue members on 2026-11-07, are out."
 
 [[findings.items]]
-title = "The checker drifted because nothing runs it."
-body = "On 2026-11-01, 50 production root files were unplaced (skipped from every figure) and six real-tree canaries in <code>scripts/arch/test_archview.py</code> were red on main, unnoticed: CI runs the harness suites and the xUnit suite, not <code>scripts/arch</code>. Todo ARCH-TOOLING-ROSLYN-AND-CI."
+title = "One file is left above 5,000 lines; the giants are spread, not gone."
+body = "On 2026-11-10 one production file is above 5,000 lines, <span class=\"id\">ParsekFlightGhostPositioner</span> (five on 2026-11-07), but 154 production files at or above 1,000 lines remain (147 on 2026-11-07, 135 on main then) and the same 18 types are at or above 5,000 once their partial files are merged. Long-method extraction moved more than it removed: 654 methods of 90 lines or more (664 on 2026-11-07, 665 on main). Live list and split candidates: <em>Largest files and types</em>."
 
 [[findings.items]]
-title = "The giants keep growing."
-body = "On 2026-11-01, 109 production files were at or above 1,000 lines and 16 at or above 5,000 (83 and 14 on 2026-09-22). <span class=\"id\">ParsekFlight</span> is the largest type by more than twice the next. Live list, tiers and split candidates: <em>Largest files and types</em>. The <span class=\"id\">GhostMapPresence</span> extraction study is <code>docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md</code>."
+title = "ParsekScenario holds the longest method, and its file pair still leads."
+body = "Its partial files are split by load phase and the stretches of <code>OnLoad</code> between gate-named lines are extracted, but on 2026-11-10 <code>OnLoad</code> is still the longest method in the production code (1,377 lines; the load gates read its source order, so the named lines stay in its body), the type keeps 31 reassignable statics, and <code>ParsekScenario.cs</code> is still on the most frequent cross-module file pair, with <code>RecordingStore.cs</code> (<em>Largest files and types</em>, <em>What changes together</em>)."
 
 [[findings.items]]
-title = "The pain is still a handful of controller and store files."
-body = "<span class=\"id\">ParsekFlight</span>, <span class=\"id\">RecordingStore</span>, <span class=\"id\">ParsekScenario</span> and <span class=\"id\">Recording</span> head the hotspot table, and the two most frequent cross-module file pairs are the flight recorder with the flight controller and the scenario module with the recording store (<em>What changes together</em>). <span class=\"id\">LedgerOrchestrator</span> is now a top-ten hotspot and one of the largest single-file types."
+title = "History lags the split."
+body = "The hotspot and co-change tables count commits over each type's files since the window start, so on 2026-11-10 they still lead with <code>ParsekFlight</code>, <code>RecordingStore</code> and <code>ParsekScenario</code>, and the refactor's own commits raise them. Fan-in rose for both hubs on this branch because the services name their host. Read <em>What changes together</em> as where the pain was, and re-measure after a month of commits on main."
 
 [[findings.items]]
-title = "One declared boundary is crossed for real."
-body = "On 2026-11-01 the Ghost &rarr; GameActions boundary is crossed by one call, ghost playback logic asking the ledger whether a recording was recovered (<code>RecoveredRecordingEvidence</code>); the scan's other hits on that edge are a field named like a ledger type. The Missions &rarr; Logistics hit is a name collision (a nested <code>VesselIdentity</code> struct in Logistics), now excluded by the scan. Live list: <em>Where the layering breaks</em>."
+title = "The services still call their host; the metric forwarders are gone."
+body = "Each <code>ParsekFlight*</code> service, the flight map markers and the window set are built with the controller and reference it back, which is why the flight controller is the first cut in <em>The knot</em>. The 11 <span class=\"id\">RecordingStore</span> forwarders kept only for the text ratchet were deleted on 2026-11-08 (W4c), once the ratchet moved to the semantic graph, where a call through a forwarder counts as a call to the service."
 
 [[findings.items]]
-title = "The 2026-09-14 hotspot list was wrong for partial classes."
-body = "A merged partial type was scored on the commits of whichever of its files the scan met first, often a small part. The hotspot table now scores the union of a type's files, and <span class=\"id\">ParsekFlight</span> and <span class=\"id\">GhostMapPresence</span> enter it; neither was on the old list."
+title = "No declared boundary is crossed on this branch."
+body = "On 2026-11-07 main reported a Ghost &rarr; GameActions VIOLATION of weight 17 (one real call for recovered-recording evidence, plus two nested types named like BCL names); this branch moved the evidence index into <span class=\"id\">EffectiveState</span> and renamed the nested types, and on 2026-11-10 the edge is still gone. The heavy upward edges left are Rewind &rarr; Controllers, Ghost &rarr; Controllers and Recording &rarr; Rewind; GameActions &rarr; Crew now reads upward because the crew module's instability rose past the ledger's. Live list: <em>Where the layering breaks</em>."
+
+[[findings.items]]
+title = "The checker runs in CI, checks its prose, and gates on the compiled IL."
+body = "CI runs <code>scripts/arch</code> on every PR with the semantic cells pointed at the built DLL, and on 2026-11-10 the 275-cell suite is green at the frozen refactor tip. The residue ratchet is the semantic residue (bound 141, measured 141), so adding or deleting a forwarder no longer moves it, and <code>--check</code> reports any undated literal number in this prose that disagrees with the page. The text residue is still measured and shown here, not bounded."
 
 [[findings.items]]
 title = "The modules are real."
 body = "Even the most entangled pair of modules co-changes in a minority of its commits (the co-change tile above, and <em>What changes together</em>). The folder and name boundaries match how the code is edited."
 
 [[findings.items]]
+title = "Missions and Reaim are not one module, and one file is the seam."
+body = "They reference each other equally in both directions (<em>Where the layering breaks</em>) but change together in a small share of their commits (<em>What changes together</em>). Every type Reaim reads from Missions is declared in <code>MissionPeriodicity.cs</code>. Since 2026-11-08 (W1c) <span class=\"id\">MissionPeriodicity</span> takes the trimmed member windows as an input instead of calling the loop-unit builder, so it is out of the residue; on 2026-11-10 the two modules still reference each other 21 / 21."
+
+[[findings.items]]
+title = "Trajectory and Core are the floor the docs claim."
+body = "Trajectory no longer references Recording, and the spawner left the Core kernel for Controllers in the file-placement plan; both sit near zero instability in the <em>Module directory</em>. Core still reaches Recording, mostly through the playback trajectory interface's event types and the save-format vocabulary; launch identity's sidecar read became a rule the sidecar store installs (2026-11-07, W1a). The next kernel question is those event types."
+
+[[findings.items]]
 title = "Parsek is data plus functions, not objects."
-body = "On 2026-09-14 there were 26 interfaces and 6 abstract bases in 1,335 types, against 497 data types and 343 static helper classes. The abstractions are the names in <em>The vocabulary</em>, not a class hierarchy."
-
-[[findings.items]]
-title = "The old Core was a filing error."
-body = "On 2026-09-14, 115 of the 123 root-level files had an obvious owner and were moved in PR #1682. The real kernel is the small Core module in the <em>Module directory</em>, the files every module uses. New root files still need a placement rule, or the checker skips them."
-
-[[findings.items]]
-title = "Trajectory is the pure module the docs claim."
-body = "It became one once five recorder-side files stopped matching its name prefixes (PR #1682); its instability in the <em>Module directory</em> is near the floor."
-
-[[findings.items]]
-title = "Missions and Reaim are not one module."
-body = "They reference each other about equally in both directions (<em>Where the layering breaks</em>) but change together in only a small share of their commits (<em>What changes together</em>): cut them with an interface, do not merge them."
+body = "On 2026-09-14 there were 26 interfaces and 6 abstract bases in 1,335 types, against 497 data types and 343 static helper classes; on 2026-11-10 there are 38 interfaces, and the services the refactor added are host-constructed classes, not a hierarchy. The abstractions are the names in <em>The vocabulary</em>."
 
 # The ranked opportunities. `types` names the types an item concerns; they are
 # drawn as chips and `--check` reports any that are no longer in the model.
 [[opportunities]]
 rank = 1
-item = "ParsekFlight seams: recorder hookup, playback hosting, spawning, merge flow"
-evidence = "The top hotspot and the largest type; on one side of most of the top cross-module file pairs (<em>What changes together</em>, <em>Largest files and types</em>)."
-size = "large"
-status = "Last; one seam per PR, a harness tier each."
-types = ["ParsekFlight"]
+item = "Cheap residue sinks: launch identity, the rewind vessel hold, mission periodicity"
+evidence = "On 2026-11-07, 2 + 1 + 4 references take the replayed residue from 283 to 246; <span class=\"id\">MissionPeriodicity</span> is also the Missions / Reaim seam (<em>The knot</em>, <em>Where the layering breaks</em>)."
+size = "an afternoon each"
+status = "Done 2026-11-07 and 2026-11-08 (W1a, W1b, W1c): all three are out of the residue."
+types = ["VesselLaunchIdentity", "MissionPeriodicity"]
 
 [[opportunities]]
 rank = 2
-item = "ParsekLog as a pure sink"
-evidence = "Two references held 56 types in the cycle on 2026-09-14."
-size = "afternoon"
-status = "Done, PR #1683."
-types = ["ParsekLog"]
-
-[[opportunities]]
-rank = 3
-item = "Recording as plain data"
-evidence = "Two references held 54 more on 2026-09-14; a top hotspot. On 2026-11-01 two new references (launch-site ghost hide, sidecar hash copy) hold 50 types again: the first row of the cut sequence."
-size = "afternoon"
-status = "Done in PR #1684, regressed by 2026-11-01, re-cut on the refactor branch claude/project-thread-bkwmrr 2026-11-01 (not on main)."
-types = ["Recording"]
-
-[[opportunities]]
-rank = 4
-item = "RecordingStore: the list plus services"
-evidence = "The first cut in the sequence under <em>The knot</em>, a top hotspot, and <code>ParsekScenario.cs</code> with <code>RecordingStore.cs</code> is one of the most frequent cross-module file pairs (<em>What changes together</em>)."
-size = "medium-high"
-status = "Design, next after the cheap cuts."
-types = ["RecordingStore"]
-
-[[opportunities]]
-rank = 5
-item = "The Recording / Rewind boundary"
-evidence = "Recording &rarr; Rewind runs upward while the reverse edge is much heavier, and the two rarely change together (<em>Where the layering breaks</em>)."
-size = "decide after 2 to 4"
-status = "Open."
-
-[[opportunities]]
-rank = 6
-item = "Trajectory purity"
-evidence = "Five files were filed by name prefix, not by role."
-size = "placement"
-status = "Done, PR #1682."
-
-[[opportunities]]
-rank = 7
-item = "VesselSpawner split: kernel ops, spawn planner, live ops"
-evidence = "On 2026-09-14: 6,897 lines; 103 pure, 30 live, 50 model and 17 glue members; the ledger uses the pure members only."
-size = "5 steps"
-status = "Step 1 done, PR #1686; plan in <code>docs/dev/research/vesselspawner-split-plan-2026-09-14.md</code>."
-types = ["VesselSpawner"]
-
-[[opportunities]]
-rank = 8
-item = "Missions / Reaim interface cut"
-evidence = "Symmetric references but a small co-change share (<em>Where the layering breaks</em>, <em>What changes together</em>)."
-size = "small"
-status = "Low priority."
-
-[[opportunities]]
-rank = 9
-item = "Missions &rarr; Logistics crossing"
-evidence = "One file, 5 references on 2026-09-14."
-size = "one PR"
-status = "Done, PR #1685."
-
-[[opportunities]]
-rank = 10
-item = "MapRender &rarr; Ghost interface"
-evidence = "A heavy upward edge with no co-change signal behind it (<em>Where the layering breaks</em>)."
-size = "small"
-status = "Documentation only."
-
-[[opportunities]]
-rank = 11
-item = "GhostMapPresence: partial-file carve-outs, then a source-resolver type"
-evidence = "A Tier 1 type and a top-ten hotspot (<em>Largest files and types</em>); three low-risk partial slices need no call-site change."
-size = "3 to 5 PRs"
-status = "Study done 2026-09-22 (<code>docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md</code>); needs in-game validation."
-types = ["GhostMapPresence"]
-
-[[opportunities]]
-rank = 12
-item = "Same-file extract-method pass over the Tier 1 types"
-evidence = "The long-method column in <em>Largest files and types</em>; <code>ParsekScenario.OnLoad</code> was 1,209 lines on 2026-09-22."
-size = "per file"
-status = "Open."
+item = "ParsekScenario: partial files by load phase, then name the OnLoad phases"
+evidence = "Largest file, longest method, 31 reassignable statics, on the top co-change pair (<em>Largest files and types</em>, <em>What changes together</em>)."
+size = "2 to 4 PRs"
+status = "Partly done 2026-11-07 to 2026-11-10: partial files (W2a), the OnLoad, OnSave and tree-load phases extracted (W2b), the static map in docs (W2c). OnLoad keeps the gate-named lines and is still the longest method."
 types = ["ParsekScenario"]
 
 [[opportunities]]
-rank = 13
-item = "Make the architecture checker a gate"
-evidence = "On 2026-11-01 the placement contract and six real-tree canaries were red on main and nobody saw it (<em>Main findings</em>)."
-size = "small"
-status = "Done 2026-11-01: CI runs the suite, and a real-tree cell fails on an unplaced file."
+rank = 3
+item = "Stock-UI reservation layer below both GameActions and UI"
+evidence = "GameActions &rarr; UI runs upward through the reservation text and predicates, and the residue is led by GameActions and UI (<em>Main findings</em>, <em>Where the layering breaks</em>). Todo ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25."
+size = "medium"
+status = "Partly done 2026-11-08 (W3, W3b): the reason text moved onto <span class=\"id\">StockUiText</span> and 18 stock-screen types left the knot. No module rule can place the vocabulary below both (every candidate file also declares a type that reaches up), so the reservation layer is now the residue's second hub cluster."
+types = ["ReservationExplanation", "CommittedFutureIndex"]
 
 [[opportunities]]
-rank = 14
-item = "GameAction as a sink"
-evidence = "On 2026-11-01 its two real knot calls (the ledger's load tallies, the capture-sequence key) moved out on the refactor branch; the four references left were scanner false positives, and the scanner now skips member names (<em>The knot</em>)."
-size = "afternoon"
-status = "Done on the refactor branch claude/project-thread-bkwmrr 2026-11-01 (not on main): there the game-action row is outside the knot."
-types = ["GameAction"]
+rank = 4
+item = "Give the ratchet a measure the code cannot bend to; retire the metric forwarders"
+evidence = "11 of the store's 13 forwarders exist to keep callers on the cut side; prose literals are unchecked (<em>Main findings</em>)."
+size = "medium"
+status = "Done 2026-11-08: the ratchet reads the semantic graph from the compiled IL (W4a / W4a2), atlas prose numbers are checked, and W4c deleted the 11 metric forwarders. Todo ARCH-TOOLING-ROSLYN-AND-CI."
 
 [[opportunities]]
-rank = 15
-item = "LedgerOrchestrator: partial-file split, then services"
-evidence = "One file of 11,222 lines on 2026-11-01, a top-ten hotspot, 34 reassignable statics (<em>Largest files and types</em>)."
+rank = 5
+item = "GhostMapPresence: source-resolver type, then the static state"
+evidence = "The largest hub inside the residue and the type with the most static fields (<em>Largest files and types</em>)."
 size = "3 to 5 PRs"
-status = "Open; ledger-sensitive, S3 partial files first (no call-site change)."
+status = "Static map done 2026-11-07 (W5a, <code>docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md</code>); the source resolver, the flight-map passes, the tracking-station refresh and the state-vector orbit update were split into named units in place (W5c, W5d), not into a new type. Needs map and tracking-station flights."
+types = ["GhostMapPresence"]
+
+[[opportunities]]
+rank = 6
+item = "ParsekUI as a window registry"
+evidence = "It names every window; one cut takes 39 types out of the residue on 2026-11-07, the largest single cut left."
+size = "medium"
+status = "Done 2026-11-09 (W6): ParsekUI reaches its windows through interfaces and the window set builds them; the semantic ratchet went from 150 to 141."
+types = ["ParsekUI"]
+
+[[opportunities]]
+rank = 7
+item = "LedgerOrchestrator: services"
+evidence = "Partial files are done (none above 1,600 lines); 30 reassignable statics, a top-ten hotspot (<em>Largest files and types</em>)."
+size = "3 to 5 PRs"
+status = "Static map (W7a) and method extraction (W7b) done; services stopped 2026-11-10 after the recovery pick (W7c): the seeds, commit rows and earnings reconcile read ledger and store statics through most of their bodies, so a move would produce forwarders."
 types = ["LedgerOrchestrator"]
+
+[[opportunities]]
+rank = 8
+item = "Tidy the split: TreeRestore, the stub partials, the single-file giants"
+evidence = "On 2026-11-07 ParsekFlight was 23 partial files plus 8 services, ten partials were under 200 lines, <code>RestoreActiveTreeFromPending</code> was its longest method, and five single-file types were near or above 5,000 lines (<em>Largest files and types</em>)."
+size = "per file"
+status = "Mostly done 2026-11-10: small ParsekFlight partials folded into the root file (W8a), the long ParsekFlight methods extracted (W8b), RouteOrchestrator, KerbalsModule, MissionsWindowUI, LogisticsWindowUI and RewindInvoker split into partial files (W8c). ParsekFlightGhostPositioner is the one single-file giant left."
+types = ["ParsekFlightGhostPositioner", "KerbalsModule", "RouteOrchestrator"]
+
+[[opportunities]]
+rank = 9
+item = "ParsekFlight seams: recorder hookup, playback hosting, spawning, merge flow"
+evidence = "On 2026-11-07 <code>ParsekFlight.cs</code> is 2,567 lines (30,387 on main); the type is under half its old size."
+size = "large"
+status = "Done on this branch (PF0 to PF10), IL-proven moves, not yet flown; not on main."
+types = ["ParsekFlight"]
+
+[[opportunities]]
+rank = 10
+item = "RecordingStore: the list plus services"
+evidence = "On 2026-11-07 the type is 1,934 lines over 5 files (10,000 on main), 13 reassignable statics (42 on main)."
+size = "medium-high"
+status = "Done on this branch (services PRs 1 to 14), not yet flown; not on main."
+types = ["RecordingStore"]
+
+[[opportunities]]
+rank = 11
+item = "VesselSpawner split and file placement"
+evidence = "Placement PRs 1 to 10; the spawner is in Controllers in 9 partial files."
+size = "10 PRs"
+status = "Done on this branch; not on main."
+types = ["VesselSpawner"]
+
+[[opportunities]]
+rank = 12
+item = "Recording and GameAction as sinks; ParsekLog as a sink"
+evidence = "Cheap cuts of 2026-09-14 and 2026-11-01 (<em>The knot</em>)."
+size = "afternoon"
+status = "ParsekLog done (PR #1683); Recording and GameAction done on this branch, still the first two cuts on main."
+types = ["Recording", "GameAction"]
+
+[[opportunities]]
+rank = 13
+item = "The Recording / Rewind boundary"
+evidence = "Recording &rarr; Rewind still runs upward while the reverse edge is heavier (<em>Where the layering breaks</em>)."
+size = "decide later"
+status = "Open."
+

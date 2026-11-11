@@ -55,7 +55,7 @@ namespace Parsek.Tests
             HighLogic.SaveFolder = originalSaveFolder;
             HighLogic.LoadedScene = originalScene;
             ParsekScenario.PersistentSavePathOverrideForTesting = null;
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.ClearDurableCommittedRecordingIdHint();
             for (int i = 0; i < cleanupFiles.Count; i++)
             {
@@ -85,7 +85,7 @@ namespace Parsek.Tests
         [Fact]
         public void SaveTreeRecordings_UnserializableTree_KeepsItsNodeFromTheOnDiskSave()
         {
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             PrepareSaveFolder("carry-forward");
 
             RecordingTree tree = MakeUnserializableTree("tree-x", "Mun Program", "rec-x");
@@ -122,7 +122,7 @@ namespace Parsek.Tests
         [Fact]
         public void SaveTreeRecordings_UnserializableTreeWithNoDiskNode_DropsLoudly()
         {
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             PrepareSaveFolder("carry-forward-none");
 
             RecordingStore.AddCommittedTreeForTesting(
@@ -144,7 +144,7 @@ namespace Parsek.Tests
         [Fact]
         public void SaveTreeRecordings_SerializableTree_WritesFromMemoryOnce()
         {
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             PrepareSaveFolder("carry-forward-healthy");
 
             RecordingStore.AddCommittedTreeForTesting(
@@ -474,7 +474,7 @@ namespace Parsek.Tests
         public void ShouldPreserveCommittedOverlapOnPendingDiscard_Matrix(
             bool committedInMemory, bool durableHint, bool expected)
         {
-            Assert.Equal(expected, RecordingStore.ShouldPreserveCommittedOverlapOnPendingDiscard(
+            Assert.Equal(expected, TreeDiscardService.ShouldPreserveCommittedOverlapOnPendingDiscard(
                 committedInMemory, durableHint));
         }
 
@@ -515,7 +515,7 @@ namespace Parsek.Tests
         [Fact]
         public void DiscardPendingTree_ColdLoadOverlap_RoutesOverlapIdsToPreserveViaDurableHint()
         {
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakeUnserializableTree("tree-overlap", "Overlap", "rec-overlap"),
                 PendingTreeState.Finalized);
             Assert.Empty(RecordingStore.CommittedTrees); // cold load: trees not loaded yet
@@ -525,7 +525,7 @@ namespace Parsek.Tests
                 new HashSet<string>(StringComparer.Ordinal) { "rec-overlap" });
             try
             {
-                RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+                TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
             }
             finally
             {
@@ -551,13 +551,13 @@ namespace Parsek.Tests
         [Fact]
         public void DiscardPendingTree_ColdLoadOverlap_WithoutHint_TakesTheDeleteBranch()
         {
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakeUnserializableTree("tree-control", "Control", "rec-control"),
                 PendingTreeState.Finalized);
             RecordingStore.ClearDurableCommittedRecordingIdHint();
 
             logLines.Clear();
-            RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+            TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
 
             Assert.DoesNotContain(logLines, l => l.Contains("skipped deleting"));
             Assert.DoesNotContain(logLines, l =>
@@ -590,7 +590,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 100.0,
                 ExplicitEndUT = 110.0,
             };
-            RecordingStore.MarkSidecarLoadFailure(rec, "trajectory-missing");
+            RecordingSidecarStore.MarkSidecarLoadFailure(rec, "trajectory-missing");
             tree.AddOrReplaceRecording(rec);
             return tree;
         }
@@ -602,7 +602,7 @@ namespace Parsek.Tests
             string root = Path.Combine(Path.GetTempPath(), saveFolder);
             string recordingsDir = Path.Combine(root, "Parsek", "Recordings");
             Directory.CreateDirectory(recordingsDir);
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
             cleanupRoots.Add(root);
             return recordingsDir;
         }

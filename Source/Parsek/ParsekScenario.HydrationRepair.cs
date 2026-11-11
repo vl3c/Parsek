@@ -12,9 +12,9 @@ namespace Parsek
         {
             return staleEpochHydrationFailures > 0
                 && loadedTree != null
-                && RecordingStore.HasPendingTree
-                && RecordingStore.PendingTree != null
-                && RecordingStore.PendingTree.Id == loadedTree.Id;
+                && PendingTreeSlot.HasPendingTree
+                && PendingTreeSlot.PendingTree != null
+                && PendingTreeSlot.PendingTree.Id == loadedTree.Id;
         }
 
         internal const string StaleSidecarEpochReason = "stale-sidecar-epoch";
@@ -22,14 +22,14 @@ namespace Parsek
         internal static int RestoreHydrationFailedRecordingsFromPendingTree(RecordingTree loadedTree)
         {
             if (loadedTree == null
-                || !RecordingStore.HasPendingTree
-                || RecordingStore.PendingTree == null
-                || RecordingStore.PendingTree.Id != loadedTree.Id)
+                || !PendingTreeSlot.HasPendingTree
+                || PendingTreeSlot.PendingTree == null
+                || PendingTreeSlot.PendingTree.Id != loadedTree.Id)
             {
                 return 0;
             }
 
-            var pendingTree = RecordingStore.PendingTree;
+            var pendingTree = PendingTreeSlot.PendingTree;
             var failedIds = new List<string>();
             foreach (var kvp in loadedTree.Recordings)
             {
@@ -64,7 +64,7 @@ namespace Parsek
                     continue;
 
                 Recording restoredRec = Recording.DeepClone(pendingRec);
-                RecordingStore.ClearSidecarLoadFailure(restoredRec);
+                RecordingSidecarStore.ClearSidecarLoadFailure(restoredRec);
                 restoredRec.MarkFilesDirty();
                 loadedTree.AddOrReplaceRecording(restoredRec);
                 restored++;
@@ -393,6 +393,151 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Recording step of <see cref="SpliceMissingCommittedRecordingsIntoLoadedTree"/>: clones into the
+        /// loaded tree every committed recording it lacks (marked dirty, sidecar failure cleared) and
+        /// refreshes every same-id loaded recording from its committed copy (recorder-owned state kept on
+        /// the active one), adding to the spliced / refreshed counts and id lists.
+        /// </summary>
+        internal static void SpliceMissingCommittedRecordingsPhaseSpliceAndRefreshRecordings(RecordingTree loadedTree, RecordingTree committedTree, string activeRecordingId, List<string> splicedRecordingIds, List<string> refreshedRecordingIds, ref int splicedRecordings, ref int refreshedRecordings, ref int refreshedRecordingsFull, ref int refreshedRecordingsRecorderStatePreserved)
+        {
+            if (committedTree.Recordings != null && committedTree.Recordings.Count > 0)
+            {
+                foreach (var kvp in committedTree.Recordings)
+                {
+                    string recId = kvp.Key;
+                    Recording committedRec = kvp.Value;
+                    if (string.IsNullOrEmpty(recId) || committedRec == null)
+                        continue;
+
+                    Recording loadedRec = null;
+                    bool loadedHasId = loadedTree.Recordings != null
+                        && loadedTree.Recordings.TryGetValue(recId, out loadedRec)
+                        && loadedRec != null;
+
+                    if (!loadedHasId)
+                    {
+                        Recording clone = Recording.DeepClone(committedRec);
+                        RecordingSidecarStore.ClearSidecarLoadFailure(clone);
+                        // Mark dirty so the next OnSave rewrites the .sfs with the
+                        // spliced shape AND advances the .prec sidecar epoch in
+                        // lockstep — otherwise the committed-but-not-loaded recording
+                        // would resurface as a "stale-sidecar-epoch" warning on a
+                        // future scene reload (bug #270's mismatch detector).
+                        clone.MarkFilesDirty();
+                        loadedTree.AddOrReplaceRecording(clone);
+                        splicedRecordings++;
+                        splicedRecordingIds.Add(recId);
+                        continue;
+                    }
+
+                    // Same-ID refresh path (P1 review of PR #575 + follow-up).
+                    // The committed copy is the post-merge truth (post-
+                    // SplitAtSection: truncated trajectory, moved terminal
+                    // payload, reassigned ChildBranchPointId). The loaded copy
+                    // is the pre-merge .sfs snapshot (full trajectory, original
+                    // child link). Without refreshing, the loaded copy would
+                    // internally disagree with the committed BP parent lists
+                    // that the branch-point phase overwrites onto the loaded BPs
+                    // (e.g. parent BP's ParentRecordingIds names the new exo
+                    // half but the original recording's ChildBranchPointId
+                    // still points at the parent BP).
+                    //
+                    // The active recording is NOT skipped any more (the initial
+                    // PR #575 follow-up did skip it — the reviewer rejected
+                    // that because the active recording is precisely the one
+                    // most likely to be a stale post-split first half kept by
+                    // the RP's frozen .sfs). At splice time the recorder has
+                    // not yet bound to the active recording — TryRestoreActiveTreeNode
+                    // runs in OnLoad, the splice runs immediately after sidecar
+                    // hydration, then the tree is stashed as pending-Limbo and
+                    // the recorder rebind only fires on the deferred onFlightReady
+                    // pass. There is therefore no in-flight recorder-owned
+                    // payload state in the active recording to lose. The
+                    // structural refresh always runs; the active id is forwarded
+                    // into the helper so it can switch to recorder-state-
+                    // preserving mode for the small set of [NonSerialized]
+                    // flags that load-time mitigation paths may have already
+                    // set on the active recording (FilesDirty / SidecarLoadFailed /
+                    // SidecarLoadFailureReason / PreReFlyAnchor* snapshots).
+                    bool isActive = !string.IsNullOrEmpty(activeRecordingId)
+                        && string.Equals(recId, activeRecordingId, StringComparison.Ordinal);
+
+                    if (RefreshLoadedRecordingFromCommittedSplit(
+                            loadedRec, committedRec, preserveRecorderOwnedState: isActive))
+                    {
+                        refreshedRecordings++;
+                        refreshedRecordingIds.Add(recId);
+                        if (isActive)
+                            refreshedRecordingsRecorderStatePreserved++;
+                        else
+                            refreshedRecordingsFull++;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Branch-point step of <see cref="SpliceMissingCommittedRecordingsIntoLoadedTree"/>: clones into the
+        /// loaded tree every committed branch point it lacks, and overwrites a same-id loaded branch point's
+        /// parent / child id lists from the committed copy when they diverge, adding to the two counts.
+        /// </summary>
+        internal static void SpliceMissingCommittedRecordingsPhaseMergeBranchPoints(RecordingTree loadedTree, RecordingTree committedTree, ref int splicedBranchPoints, ref int updatedBranchPoints)
+        {
+            if (committedTree.BranchPoints != null && committedTree.BranchPoints.Count > 0)
+            {
+                if (loadedTree.BranchPoints == null)
+                    loadedTree.BranchPoints = new List<BranchPoint>();
+
+                var loadedBpIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+                for (int i = 0; i < loadedTree.BranchPoints.Count; i++)
+                {
+                    BranchPoint loadedBp = loadedTree.BranchPoints[i];
+                    if (loadedBp != null && !string.IsNullOrEmpty(loadedBp.Id))
+                        loadedBpIndex[loadedBp.Id] = i;
+                }
+
+                for (int b = 0; b < committedTree.BranchPoints.Count; b++)
+                {
+                    BranchPoint committedBp = committedTree.BranchPoints[b];
+                    if (committedBp == null || string.IsNullOrEmpty(committedBp.Id))
+                        continue;
+
+                    if (!loadedBpIndex.TryGetValue(committedBp.Id, out int existingIdx))
+                    {
+                        // Brand-new BranchPoint authored after the RP snapshot.
+                        BranchPoint clonedBp = CloneBranchPoint(committedBp);
+                        loadedTree.BranchPoints.Add(clonedBp);
+                        splicedBranchPoints++;
+                        continue;
+                    }
+
+                    // Existing BP — overwrite parent/child id lists if the post-merge
+                    // committed version diverges from the .sfs version. This is what
+                    // catches the "Split: updated BranchPoint ParentRecordingIds:
+                    // X -> Y" case where the parent BP id is unchanged but its
+                    // ParentRecordingIds was rewritten to point at the new split
+                    // half. Copying the lists also covers any future BP-edit path
+                    // that doesn't change the BP id.
+                    BranchPoint loadedBp = loadedTree.BranchPoints[existingIdx];
+                    if (loadedBp == null) continue;
+                    bool listsDiverged =
+                        !StringListsEqual(loadedBp.ParentRecordingIds, committedBp.ParentRecordingIds)
+                        || !StringListsEqual(loadedBp.ChildRecordingIds, committedBp.ChildRecordingIds);
+                    if (listsDiverged)
+                    {
+                        loadedBp.ParentRecordingIds = committedBp.ParentRecordingIds != null
+                            ? new List<string>(committedBp.ParentRecordingIds)
+                            : new List<string>();
+                        loadedBp.ChildRecordingIds = committedBp.ChildRecordingIds != null
+                            ? new List<string>(committedBp.ChildRecordingIds)
+                            : new List<string>();
+                        updatedBranchPoints++;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// Bug #601: Re-Fly load preserves post-RP merge tree mutations.
         ///
         /// <para>
@@ -480,133 +625,9 @@ namespace Parsek
             var splicedRecordingIds = new List<string>();
             var refreshedRecordingIds = new List<string>();
 
-            if (committedTree.Recordings != null && committedTree.Recordings.Count > 0)
-            {
-                foreach (var kvp in committedTree.Recordings)
-                {
-                    string recId = kvp.Key;
-                    Recording committedRec = kvp.Value;
-                    if (string.IsNullOrEmpty(recId) || committedRec == null)
-                        continue;
+            SpliceMissingCommittedRecordingsPhaseSpliceAndRefreshRecordings(loadedTree, committedTree, activeRecordingId, splicedRecordingIds, refreshedRecordingIds, ref splicedRecordings, ref refreshedRecordings, ref refreshedRecordingsFull, ref refreshedRecordingsRecorderStatePreserved);
 
-                    Recording loadedRec = null;
-                    bool loadedHasId = loadedTree.Recordings != null
-                        && loadedTree.Recordings.TryGetValue(recId, out loadedRec)
-                        && loadedRec != null;
-
-                    if (!loadedHasId)
-                    {
-                        Recording clone = Recording.DeepClone(committedRec);
-                        RecordingStore.ClearSidecarLoadFailure(clone);
-                        // Mark dirty so the next OnSave rewrites the .sfs with the
-                        // spliced shape AND advances the .prec sidecar epoch in
-                        // lockstep — otherwise the committed-but-not-loaded recording
-                        // would resurface as a "stale-sidecar-epoch" warning on a
-                        // future scene reload (bug #270's mismatch detector).
-                        clone.MarkFilesDirty();
-                        loadedTree.AddOrReplaceRecording(clone);
-                        splicedRecordings++;
-                        splicedRecordingIds.Add(recId);
-                        continue;
-                    }
-
-                    // Same-ID refresh path (P1 review of PR #575 + follow-up).
-                    // The committed copy is the post-merge truth (post-
-                    // SplitAtSection: truncated trajectory, moved terminal
-                    // payload, reassigned ChildBranchPointId). The loaded copy
-                    // is the pre-merge .sfs snapshot (full trajectory, original
-                    // child link). Without refreshing, the loaded copy would
-                    // internally disagree with the committed BP parent lists
-                    // that the BP loop below overwrites onto the loaded BPs
-                    // (e.g. parent BP's ParentRecordingIds names the new exo
-                    // half but the original recording's ChildBranchPointId
-                    // still points at the parent BP).
-                    //
-                    // The active recording is NOT skipped any more (the initial
-                    // PR #575 follow-up did skip it — the reviewer rejected
-                    // that because the active recording is precisely the one
-                    // most likely to be a stale post-split first half kept by
-                    // the RP's frozen .sfs). At splice time the recorder has
-                    // not yet bound to the active recording — TryRestoreActiveTreeNode
-                    // runs in OnLoad, the splice runs immediately after sidecar
-                    // hydration, then the tree is stashed as pending-Limbo and
-                    // the recorder rebind only fires on the deferred onFlightReady
-                    // pass. There is therefore no in-flight recorder-owned
-                    // payload state in the active recording to lose. The
-                    // structural refresh always runs; the active id is forwarded
-                    // into the helper so it can switch to recorder-state-
-                    // preserving mode for the small set of [NonSerialized]
-                    // flags that load-time mitigation paths may have already
-                    // set on the active recording (FilesDirty / SidecarLoadFailed /
-                    // SidecarLoadFailureReason / PreReFlyAnchor* snapshots).
-                    bool isActive = !string.IsNullOrEmpty(activeRecordingId)
-                        && string.Equals(recId, activeRecordingId, StringComparison.Ordinal);
-
-                    if (RefreshLoadedRecordingFromCommittedSplit(
-                            loadedRec, committedRec, preserveRecorderOwnedState: isActive))
-                    {
-                        refreshedRecordings++;
-                        refreshedRecordingIds.Add(recId);
-                        if (isActive)
-                            refreshedRecordingsRecorderStatePreserved++;
-                        else
-                            refreshedRecordingsFull++;
-                    }
-                }
-            }
-
-            if (committedTree.BranchPoints != null && committedTree.BranchPoints.Count > 0)
-            {
-                if (loadedTree.BranchPoints == null)
-                    loadedTree.BranchPoints = new List<BranchPoint>();
-
-                var loadedBpIndex = new Dictionary<string, int>(StringComparer.Ordinal);
-                for (int i = 0; i < loadedTree.BranchPoints.Count; i++)
-                {
-                    BranchPoint loadedBp = loadedTree.BranchPoints[i];
-                    if (loadedBp != null && !string.IsNullOrEmpty(loadedBp.Id))
-                        loadedBpIndex[loadedBp.Id] = i;
-                }
-
-                for (int b = 0; b < committedTree.BranchPoints.Count; b++)
-                {
-                    BranchPoint committedBp = committedTree.BranchPoints[b];
-                    if (committedBp == null || string.IsNullOrEmpty(committedBp.Id))
-                        continue;
-
-                    if (!loadedBpIndex.TryGetValue(committedBp.Id, out int existingIdx))
-                    {
-                        // Brand-new BranchPoint authored after the RP snapshot.
-                        BranchPoint clonedBp = CloneBranchPoint(committedBp);
-                        loadedTree.BranchPoints.Add(clonedBp);
-                        splicedBranchPoints++;
-                        continue;
-                    }
-
-                    // Existing BP — overwrite parent/child id lists if the post-merge
-                    // committed version diverges from the .sfs version. This is what
-                    // catches the "Split: updated BranchPoint ParentRecordingIds:
-                    // X -> Y" case where the parent BP id is unchanged but its
-                    // ParentRecordingIds was rewritten to point at the new split
-                    // half. Copying the lists also covers any future BP-edit path
-                    // that doesn't change the BP id.
-                    BranchPoint loadedBp = loadedTree.BranchPoints[existingIdx];
-                    if (loadedBp == null) continue;
-                    bool listsDiverged =
-                        !StringListsEqual(loadedBp.ParentRecordingIds, committedBp.ParentRecordingIds)
-                        || !StringListsEqual(loadedBp.ChildRecordingIds, committedBp.ChildRecordingIds);
-                    if (listsDiverged)
-                    {
-                        loadedBp.ParentRecordingIds = committedBp.ParentRecordingIds != null
-                            ? new List<string>(committedBp.ParentRecordingIds)
-                            : new List<string>();
-                        loadedBp.ChildRecordingIds = committedBp.ChildRecordingIds != null
-                            ? new List<string>(committedBp.ChildRecordingIds)
-                            : new List<string>();
-                        updatedBranchPoints++;
-                    }
-                }
-            }
+            SpliceMissingCommittedRecordingsPhaseMergeBranchPoints(loadedTree, committedTree, ref splicedBranchPoints, ref updatedBranchPoints);
 
             int repairedChainPredecessors = RepairMissingContiguousChainPredecessors(
                 loadedTree, "SpliceMissingCommittedRecordings");
@@ -806,7 +827,7 @@ namespace Parsek
             SidecarVersions.CopyHashes(loadedRec, sourceClone);
             loadedRec.SidecarEpochAdvancePending =
                 loadedRec.SidecarEpochAdvancePending || sourceClone.SidecarEpochAdvancePending;
-            RecordingStore.ClearSidecarLoadFailure(loadedRec);
+            RecordingSidecarStore.ClearSidecarLoadFailure(loadedRec);
             // Mark dirty so the next OnSave rewrites the .sfs with the refreshed
             // shape + advances the .prec sidecar epoch in lockstep (same
             // contract as the missing-id splice path above).
@@ -1004,7 +1025,7 @@ namespace Parsek
             target.SidecarEpoch = sourceClone.SidecarEpoch;
             SidecarVersions.CopyHashes(target, sourceClone);
             target.SidecarEpochAdvancePending = sourceClone.SidecarEpochAdvancePending;
-            RecordingStore.ClearSidecarLoadFailure(target);
+            RecordingSidecarStore.ClearSidecarLoadFailure(target);
 
             target.RecordingId = recordingId;
             target.TreeId = treeId;
@@ -1115,7 +1136,7 @@ namespace Parsek
             if (!HasCoherentSnapshotState(loadedRec))
                 return false;
 
-            RecordingStore.ClearSidecarLoadFailure(loadedRec);
+            RecordingSidecarStore.ClearSidecarLoadFailure(loadedRec);
             loadedRec.MarkFilesDirty();
             return true;
         }
@@ -1135,12 +1156,12 @@ namespace Parsek
 
             GhostSnapshotMode mode = rec.GhostSnapshotMode != GhostSnapshotMode.Unspecified
                 ? rec.GhostSnapshotMode
-                : RecordingStore.DetermineGhostSnapshotMode(rec);
+                : RecordingSidecarStore.DetermineGhostSnapshotMode(rec);
             if (mode == GhostSnapshotMode.AliasVessel)
             {
                 return rec.VesselSnapshot != null
                     && rec.GhostVisualSnapshot != null
-                    && RecordingStore.ConfigNodesEquivalent(rec.VesselSnapshot, rec.GhostVisualSnapshot);
+                    && RecordingSidecarStore.ConfigNodesEquivalent(rec.VesselSnapshot, rec.GhostVisualSnapshot);
             }
             if (mode == GhostSnapshotMode.Separate)
                 return rec.GhostVisualSnapshot != null;

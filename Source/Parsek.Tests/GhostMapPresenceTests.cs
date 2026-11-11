@@ -3033,7 +3033,7 @@ namespace Parsek.Tests
                     && l.Contains("segmentUT=250.0-300.0"));
         }
 
-        private static Recording BuildRelativeFrameRecordingBetweenOrbitSegments()
+        internal static Recording BuildRelativeFrameRecordingBetweenOrbitSegments()
         {
             var rec = BuildRelativeFrameRecording(
                 anchorRecordingId: "anchor-rec",
@@ -3064,7 +3064,7 @@ namespace Parsek.Tests
             return rec;
         }
 
-        private static Recording BuildRelativeFrameRecording(
+        internal static Recording BuildRelativeFrameRecording(
             string anchorRecordingId, double pointDz, double pointSpeed)
         {
             return new Recording

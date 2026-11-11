@@ -232,7 +232,7 @@ namespace Parsek.Tests
             }
             Assert.True(File.Exists(scenarioPath),
                 $"ParsekScenario.cs not found at {scenarioPath}");
-            return File.ReadAllText(scenarioPath);
+            return ParsekScenarioSourceFiles.ReadText(scenarioPath);
         }
 
         private static string ReadMethodBody(string signature, string endAnchor)

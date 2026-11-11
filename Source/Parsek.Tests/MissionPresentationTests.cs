@@ -526,14 +526,14 @@ namespace Parsek.Tests
 
         // catches: PeriodTooltipLocked losing its OWN consumer. It survived the `locked`
         // parameter's removal because a route-owned mission renders its period as the label
-        // "locked" carrying this text directly (UI/MissionsWindowUI.cs), which is a different
+        // "locked" carrying this text directly (MissionsWindowUI), which is a different
         // control from the unit button BuildPeriodStateTooltip feeds.
         [Fact]
         public void PeriodTooltipLocked_IsStillDrawnByTheRouteOwnedPeriodLabel()
         {
-            string src = System.IO.File.ReadAllText(System.IO.Path.GetFullPath(
+            string src = MissionsWindowUISourceFiles.ReadAll(System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", "Parsek", "UI", "MissionsWindowUI.cs")));
+                    "..", "..", "..", "..", "Parsek", "UI")));
 
             Assert.True(DrawsThePeriodTooltipLockedConstant(src),
                 "MissionsWindowUI must still DRAW MissionPresentation.PeriodTooltipLocked; "
@@ -1016,13 +1016,13 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { bodyName = "Mun" });
             Assert.Equal(new List<string> { "Kerbin", "Mun" },
-                RecordingStore.GetBodyTransitionSequence(rec));
+                RecordingSegmentLabels.GetBodyTransitionSequence(rec));
 
             var bare = new Recording { RecordingId = "r2", StartBodyName = "Eve" };
             Assert.Equal(new List<string> { "Eve" },
-                RecordingStore.GetBodyTransitionSequence(bare));
+                RecordingSegmentLabels.GetBodyTransitionSequence(bare));
 
-            Assert.Empty(RecordingStore.GetBodyTransitionSequence(null));
+            Assert.Empty(RecordingSegmentLabels.GetBodyTransitionSequence(null));
         }
 
         [Fact]
@@ -1044,14 +1044,14 @@ namespace Parsek.Tests
             };
             rec.TrackSections.Add(section);
             Assert.Equal(new List<string> { "Kerbin", "Mun" },
-                RecordingStore.GetBodyTransitionSequence(rec));
+                RecordingSegmentLabels.GetBodyTransitionSequence(rec));
 
             // And with neither source carrying a transition, the single-body fallback prefers
             // SegmentBodyName over the lone point body - same order as the label.
             var single = new Recording { RecordingId = "r4", SegmentBodyName = "Duna" };
             single.Points.Add(new TrajectoryPoint { bodyName = "Ike" });
             Assert.Equal(new List<string> { "Duna" },
-                RecordingStore.GetBodyTransitionSequence(single));
+                RecordingSegmentLabels.GetBodyTransitionSequence(single));
         }
 
         [Fact]
@@ -1062,11 +1062,11 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "r5" };
             rec.Points.Add(new TrajectoryPoint { bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { bodyName = "Mun" });
-            List<string> first = RecordingStore.GetBodyTransitionSequence(rec);
-            Assert.Same(first, RecordingStore.GetBodyTransitionSequence(rec));
+            List<string> first = RecordingSegmentLabels.GetBodyTransitionSequence(rec);
+            Assert.Same(first, RecordingSegmentLabels.GetBodyTransitionSequence(rec));
 
             rec.Points.Add(new TrajectoryPoint { bodyName = "Kerbin" });
-            List<string> second = RecordingStore.GetBodyTransitionSequence(rec);
+            List<string> second = RecordingSegmentLabels.GetBodyTransitionSequence(rec);
             Assert.NotSame(first, second);
             Assert.Equal(new List<string> { "Kerbin", "Mun", "Kerbin" }, second);
         }

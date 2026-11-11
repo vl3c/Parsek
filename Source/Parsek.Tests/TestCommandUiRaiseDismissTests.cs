@@ -365,9 +365,9 @@ namespace Parsek.Tests
         [InlineData("rewind", "UI/RecordingsTableUI.RewindColumns.cs")]
         [InlineData("fastforward", "UI/RecordingsTableUI.RewindColumns.cs")]
         [InlineData("seal", "UnfinishedFlightSealHandler.cs")]
-        [InlineData("deleteroute", "UI/LogisticsWindowUI.cs")]
-        [InlineData("deletedormantroute", "UI/LogisticsWindowUI.cs")]
-        [InlineData("createroute", "UI/LogisticsWindowUI.cs")]
+        [InlineData("deleteroute", "UI/LogisticsWindowUI.Actions.cs")]
+        [InlineData("deletedormantroute", "UI/LogisticsWindowUI.Actions.cs")]
+        [InlineData("createroute", "UI/LogisticsWindowUI.Actions.cs")]
         public void EveryRowsNameAndButtons_AppearInTheFileThatSpawnsIt(
             string token, string relPath)
         {

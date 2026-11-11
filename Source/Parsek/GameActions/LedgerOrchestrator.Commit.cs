@@ -7,7 +7,7 @@ namespace Parsek
 {
     internal static partial class LedgerOrchestrator
     {
-        private struct RecordingScienceWindow
+        internal struct RecordingScienceWindow
         {
             public string RecordingId;
             public string ChainId;
@@ -65,7 +65,7 @@ namespace Parsek
         /// What <see cref="FileRecordingCommitRows"/> filed for one recording, carried to
         /// the post-walk reconciliation (<see cref="CompleteRecordingCommitAfterWalk"/>).
         /// </summary>
-        private struct FiledRecordingCommit
+        internal struct FiledRecordingCommit
         {
             public string RecordingId;
             public double StartUT;
@@ -510,42 +510,9 @@ namespace Parsek
             {
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    double startUT = rec.StartUT;
-                    double endUT = rec.EndUT;
-
-                    // Close chain segment gap: extend startUT backward to predecessor's EndUT
-                    double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
-                    if (adjusted < startUT) gapsClosed++;
-                    startUT = adjusted;
-
-                    // A Re-Fly attempt owns the awards tagged to it before its recorder bound.
-                    double reFlyAdjusted = AdjustStartUtForReFlyProvisional(
-                        rec, startUT, ResolveRewindPointUt);
-                    if (reFlyAdjusted < startUT) reFlyWindowsExtended++;
-                    startUT = reFlyAdjusted;
-
-                    IReadOnlyList<PendingScienceSubject> perRecordingPending;
-                    if (!pendingByRecording.TryGetValue(rec.RecordingId, out perRecordingPending))
-                        perRecordingPending = EmptyPendingScience;
-
-                    bool scienceAddedToLedger = false;
-                    try
-                    {
-                        filedCommits.Add(FileRecordingCommitRows(
-                            rec.RecordingId,
-                            startUT,
-                            endUT,
-                            perRecordingPending,
-                            ref scienceAddedToLedger,
-                            repSeedOrigin));
-                        removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
-                    }
-                    catch
-                    {
-                        if (scienceAddedToLedger)
-                            removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
-                        throw;
-                    }
+                    FileTreeRecordingCommit(
+                        rec, chainEndUTs, pendingByRecording, repSeedOrigin, filedCommits,
+                        ref removedPending, ref gapsClosed, ref reFlyWindowsExtended);
                 }
 
                 Recording retiredProvisional = ResolveRetiredReFlyProvisionalForCommit(tree);
@@ -560,20 +527,7 @@ namespace Parsek
                 // Rows already filed for earlier recordings stay in the ledger; walk them
                 // so live state matches what was filed, as the per-recording walks did
                 // before the batch walk. The original exception still propagates.
-                if (filedCommits.Count > 0 || retiredProvisionalRows > 0)
-                {
-                    try
-                    {
-                        RecalculateAndPatchAfterCommit(TreeCommitFailedRecalcReason);
-                    }
-                    catch (Exception walkEx)
-                    {
-                        ParsekLog.Warn(Tag,
-                            $"NotifyLedgerTreeCommitted: walk after a failed commit threw " +
-                            $"(filed={filedCommits.Count.ToString(CultureInfo.InvariantCulture)}): " +
-                            walkEx.Message);
-                    }
-                }
+                WalkAfterFailedTreeCommit(filedCommits, retiredProvisionalRows);
                 throw;
             }
             finally
@@ -585,51 +539,166 @@ namespace Parsek
                 // to recover; current production callers surface the exception instead of
                 // retrying the whole commit batch.
                 int remainingPending = GameStateRecorder.PendingScienceSubjects.Count;
-                if (commitSucceeded)
-                {
-                    if (remainingPending == 0 && (pendingBefore > 0 || removedPending > 0))
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"NotifyLedgerTreeCommitted: cleared PendingScienceSubjects " +
-                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending})");
-                    }
-                    else if (removedPending > 0 || remainingPending > 0)
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"NotifyLedgerTreeCommitted: preserved unrelated PendingScienceSubjects after success " +
-                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
-                            $"remaining={remainingPending})");
-                    }
-                }
-                else
-                {
-                    if (removedPending == 0)
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"NotifyLedgerTreeCommitted: retained PendingScienceSubjects after failure " +
-                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
-                            $"remaining={remainingPending})");
-                    }
-                    else if (remainingPending == 0)
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"NotifyLedgerTreeCommitted: already removed PendingScienceSubjects before failure " +
-                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
-                            $"remaining={remainingPending})");
-                    }
-                    else
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"NotifyLedgerTreeCommitted: partially retained PendingScienceSubjects after failure " +
-                            $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
-                            $"remaining={remainingPending})");
-                    }
-                }
+                LogTreeCommitPendingScienceOutcome(
+                    commitSucceeded, pendingBefore, routedPending, removedPending, remainingPending);
             }
 
             // 6. One walk for the whole tree, then each recording's post-walk
             // reconciliation (it reads the walk's derived fields). An empty tree files
             // nothing and walks nothing.
+            WalkAndCompleteTreeCommit(tree, chainEndUTs, filedCommits, retiredProvisionalRows);
+
+            // #390: prune events consumed by milestone creation + ledger conversion
+            GameStateStore.PruneProcessedEvents();
+
+            ParsekLog.Verbose(Tag,
+                $"NotifyLedgerTreeCommitted: tree='{tree.TreeName}' " +
+                $"recordings={tree.Recordings.Count}, chainSegments={chainEndUTs.Count}, " +
+                $"gapsClosed={gapsClosed}, reFlyWindowsExtended={reFlyWindowsExtended}, " +
+                $"retiredProvisionalRows={retiredProvisionalRows}");
+        }
+
+        /// <summary>
+        /// One recording of <see cref="NotifyLedgerTreeCommitted"/>: widen its window for a
+        /// chain gap and a Re-Fly provisional, file its rows (no walk) into
+        /// <paramref name="filedCommits"/>, and remove its routed pending science from the
+        /// static list once that science is safe to discard. An exception propagates after
+        /// the science already in the ledger has been removed.
+        /// </summary>
+        internal static void FileTreeRecordingCommit(
+            Recording rec,
+            Dictionary<string, double> chainEndUTs,
+            Dictionary<string, IReadOnlyList<PendingScienceSubject>> pendingByRecording,
+            ReputationSeedOrigin repSeedOrigin,
+            List<FiledRecordingCommit> filedCommits,
+            ref int removedPending,
+            ref int gapsClosed,
+            ref int reFlyWindowsExtended)
+        {
+            double startUT = rec.StartUT;
+            double endUT = rec.EndUT;
+
+            // Close chain segment gap: extend startUT backward to predecessor's EndUT
+            double adjusted = AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
+            if (adjusted < startUT) gapsClosed++;
+            startUT = adjusted;
+
+            // A Re-Fly attempt owns the awards tagged to it before its recorder bound.
+            double reFlyAdjusted = AdjustStartUtForReFlyProvisional(
+                rec, startUT, ResolveRewindPointUt);
+            if (reFlyAdjusted < startUT) reFlyWindowsExtended++;
+            startUT = reFlyAdjusted;
+
+            IReadOnlyList<PendingScienceSubject> perRecordingPending;
+            if (!pendingByRecording.TryGetValue(rec.RecordingId, out perRecordingPending))
+                perRecordingPending = EmptyPendingScience;
+
+            bool scienceAddedToLedger = false;
+            try
+            {
+                filedCommits.Add(FileRecordingCommitRows(
+                    rec.RecordingId,
+                    startUT,
+                    endUT,
+                    perRecordingPending,
+                    ref scienceAddedToLedger,
+                    repSeedOrigin));
+                removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
+            }
+            catch
+            {
+                if (scienceAddedToLedger)
+                    removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// The catch side of <see cref="NotifyLedgerTreeCommitted"/>: when any rows were
+        /// filed before the failure, walk them once; a walk that throws is logged and
+        /// swallowed, so the caller rethrows the original exception.
+        /// </summary>
+        internal static void WalkAfterFailedTreeCommit(
+            List<FiledRecordingCommit> filedCommits, int retiredProvisionalRows)
+        {
+            if (filedCommits.Count > 0 || retiredProvisionalRows > 0)
+            {
+                try
+                {
+                    RecalculateAndPatchAfterCommit(TreeCommitFailedRecalcReason);
+                }
+                catch (Exception walkEx)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"NotifyLedgerTreeCommitted: walk after a failed commit threw " +
+                        $"(filed={filedCommits.Count.ToString(CultureInfo.InvariantCulture)}): " +
+                        walkEx.Message);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The finally side of <see cref="NotifyLedgerTreeCommitted"/>: one Verbose line
+        /// naming what happened to the pending science (cleared, preserved, retained,
+        /// already removed, partially retained), or none when a success touched none.
+        /// </summary>
+        internal static void LogTreeCommitPendingScienceOutcome(
+            bool commitSucceeded, int pendingBefore, int routedPending, int removedPending,
+            int remainingPending)
+        {
+            if (commitSucceeded)
+            {
+                if (remainingPending == 0 && (pendingBefore > 0 || removedPending > 0))
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: cleared PendingScienceSubjects " +
+                        $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending})");
+                }
+                else if (removedPending > 0 || remainingPending > 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: preserved unrelated PendingScienceSubjects after success " +
+                        $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                        $"remaining={remainingPending})");
+                }
+            }
+            else
+            {
+                if (removedPending == 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: retained PendingScienceSubjects after failure " +
+                        $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                        $"remaining={remainingPending})");
+                }
+                else if (remainingPending == 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: already removed PendingScienceSubjects before failure " +
+                        $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                        $"remaining={remainingPending})");
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"NotifyLedgerTreeCommitted: partially retained PendingScienceSubjects after failure " +
+                        $"(snapshot={pendingBefore}, routed={routedPending}, removed={removedPending}, " +
+                        $"remaining={remainingPending})");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Step 6 of <see cref="NotifyLedgerTreeCommitted"/>: when the tree filed any rows,
+        /// ONE walk for the whole tree, then each recording's post-walk reconciliation (it
+        /// reads the walk's derived fields). An empty tree files nothing and walks nothing.
+        /// </summary>
+        internal static void WalkAndCompleteTreeCommit(
+            RecordingTree tree,
+            Dictionary<string, double> chainEndUTs,
+            List<FiledRecordingCommit> filedCommits,
+            int retiredProvisionalRows)
+        {
             if (filedCommits.Count > 0 || retiredProvisionalRows > 0)
             {
                 ParsekLog.Info(Tag,
@@ -641,15 +710,6 @@ namespace Parsek
                 for (int i = 0; i < filedCommits.Count; i++)
                     CompleteRecordingCommitAfterWalk(filedCommits[i]);
             }
-
-            // #390: prune events consumed by milestone creation + ledger conversion
-            GameStateStore.PruneProcessedEvents();
-
-            ParsekLog.Verbose(Tag,
-                $"NotifyLedgerTreeCommitted: tree='{tree.TreeName}' " +
-                $"recordings={tree.Recordings.Count}, chainSegments={chainEndUTs.Count}, " +
-                $"gapsClosed={gapsClosed}, reFlyWindowsExtended={reFlyWindowsExtended}, " +
-                $"retiredProvisionalRows={retiredProvisionalRows}");
         }
 
         private static Dictionary<string, IReadOnlyList<PendingScienceSubject>> BuildTreePendingScienceRouting(
@@ -740,94 +800,121 @@ namespace Parsek
 
                     RecordingScienceWindow tagged = windows[i];
 
-                    // Belt-and-suspenders (re-fly pending-science audit): the tag
-                    // alone used to be authoritative, so a stale subject leaking
-                    // across a rewind (captureUT after the rewind cutoff, tag
-                    // pointing at the recording that becomes the kept pre-rewind
-                    // HEAD after the origin split) landed a ScienceEarning row on
-                    // a non-superseded recording. Sanity-check the tag against
-                    // the tagged recording's UT window; an implausible captureUT
-                    // (NaN/Inf/<=0, e.g. synthetic entries) gives no basis to
-                    // distrust the tag, so those keep tag routing unchanged.
-                    double captureUT = subject.captureUT;
-                    bool capturePlausible = !double.IsNaN(captureUT)
-                        && !double.IsInfinity(captureUT)
-                        && captureUT > 0.0;
-                    if (!capturePlausible
-                        || (captureUT >= tagged.StartUT && captureUT <= tagged.EndUT))
-                        return tagged.RecordingId;
-
-                    // Window mismatch: fall back to what the non-tag path would
-                    // do — attribute by capture-UT window. If another window
-                    // covers the capture, route there (the downstream tag check
-                    // in ConvertScienceSubjects then skips it as cross-recording,
-                    // so no science is credited from a mis-tagged capture). If
-                    // NO window covers it, keep the tag: post-window tagged
-                    // captures are legitimate for on-rails flights whose
-                    // trajectory bounds end before the last live capture (the
-                    // BUG-A rule in ConvertScienceSubjects owns that case).
-                    string fallback = PickScienceWindowRecordingId(captureUT, windows, activeRecordingId);
-                    string captureUtText = captureUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
-                    string windowText =
-                        $"[{tagged.StartUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                        $"{tagged.EndUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}]";
-                    if (string.IsNullOrEmpty(fallback))
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"Tree science routing: subject '{subject.subjectId}' tagged '{subjectRecordingId}' " +
-                            $"has captureUT={captureUtText} outside the tagged window {windowText} and no other " +
-                            "recording window covers it — keeping tag attribution (post-window on-rails captures " +
-                            "are legitimate; the per-subject window checks in ConvertScienceSubjects decide)");
-                        return tagged.RecordingId;
-                    }
-
-                    // Chain carve-out: when the covering window belongs to a
-                    // CHAIN SIBLING of the tagged recording, do NOT re-route.
-                    // The science windows are built with chain-gap closure
-                    // (AdjustStartUtForChainGap pulls segment N's StartUT back
-                    // to the predecessor's EndUT), so the legitimate BUG-A
-                    // shape on a chained flight — recorder live through
-                    // on-rails warp, capture tagged segment A after A's
-                    // trajectory bounds ended — lands the captureUT inside the
-                    // successor's ADJUSTED window. Re-routing there would make
-                    // the downstream cross-recording check drop the science
-                    // entirely (credited to NEITHER segment). Within one chain
-                    // the tag is authoritative (it is one physical flight);
-                    // the stale re-fly leak this sanity check targets is
-                    // already removed by the ReconciliationBundle cutoff-drop
-                    // on the rewind success path.
-                    string fallbackChainId = null;
-                    for (int j = 0; j < windows.Count; j++)
-                    {
-                        if (string.Equals(windows[j].RecordingId, fallback, StringComparison.Ordinal))
-                        {
-                            fallbackChainId = windows[j].ChainId;
-                            break;
-                        }
-                    }
-                    if (!string.IsNullOrEmpty(tagged.ChainId)
-                        && string.Equals(tagged.ChainId, fallbackChainId, StringComparison.Ordinal))
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"Tree science routing: subject '{subject.subjectId}' tagged '{subjectRecordingId}' " +
-                            $"has captureUT={captureUtText} outside the tagged window {windowText}, but the " +
-                            $"covering window '{fallback}' is a chain sibling (chain={tagged.ChainId}) — " +
-                            "keeping tag attribution (chain-gap-adjusted coverage; the tag is authoritative " +
-                            "within one chained flight)");
-                        return tagged.RecordingId;
-                    }
-
-                    ParsekLog.Warn(Tag,
-                        $"Tree science routing: subject '{subject.subjectId}' tagged '{subjectRecordingId}' " +
-                        $"has captureUT={captureUtText} outside the tagged window {windowText} — " +
-                        $"re-routing by capture UT to '{fallback}'");
-                    return fallback;
+                    return ResolveTaggedScienceOwnerRecordingId(
+                        subject, subjectRecordingId, tagged, windows, activeRecordingId);
                 }
 
                 return null;
             }
 
             return PickScienceWindowRecordingId(subject.captureUT, windows, activeRecordingId);
+        }
+
+        /// <summary>
+        /// The tagged side of <see cref="ResolveTreePendingScienceOwnerRecordingId"/>, once
+        /// the subject's tag names a window: keep the tag when the capture is implausible or
+        /// inside the tagged window, when no window covers it, or when the covering window is
+        /// a chain sibling; otherwise re-route to the covering window (logged as a warning).
+        /// </summary>
+        internal static string ResolveTaggedScienceOwnerRecordingId(
+            PendingScienceSubject subject,
+            string subjectRecordingId,
+            RecordingScienceWindow tagged,
+            IReadOnlyList<RecordingScienceWindow> windows,
+            string activeRecordingId)
+        {
+            // Belt-and-suspenders (re-fly pending-science audit): the tag
+            // alone used to be authoritative, so a stale subject leaking
+            // across a rewind (captureUT after the rewind cutoff, tag
+            // pointing at the recording that becomes the kept pre-rewind
+            // HEAD after the origin split) landed a ScienceEarning row on
+            // a non-superseded recording. Sanity-check the tag against
+            // the tagged recording's UT window; an implausible captureUT
+            // (NaN/Inf/<=0, e.g. synthetic entries) gives no basis to
+            // distrust the tag, so those keep tag routing unchanged.
+            double captureUT = subject.captureUT;
+            bool capturePlausible = !double.IsNaN(captureUT)
+                && !double.IsInfinity(captureUT)
+                && captureUT > 0.0;
+            if (!capturePlausible
+                || (captureUT >= tagged.StartUT && captureUT <= tagged.EndUT))
+                return tagged.RecordingId;
+
+            // Window mismatch: fall back to what the non-tag path would
+            // do — attribute by capture-UT window. If another window
+            // covers the capture, route there (the downstream tag check
+            // in ConvertScienceSubjects then skips it as cross-recording,
+            // so no science is credited from a mis-tagged capture). If
+            // NO window covers it, keep the tag: post-window tagged
+            // captures are legitimate for on-rails flights whose
+            // trajectory bounds end before the last live capture (the
+            // BUG-A rule in ConvertScienceSubjects owns that case).
+            string fallback = PickScienceWindowRecordingId(captureUT, windows, activeRecordingId);
+            string captureUtText = captureUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            string windowText =
+                $"[{tagged.StartUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"{tagged.EndUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}]";
+            if (string.IsNullOrEmpty(fallback))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Tree science routing: subject '{subject.subjectId}' tagged '{subjectRecordingId}' " +
+                    $"has captureUT={captureUtText} outside the tagged window {windowText} and no other " +
+                    "recording window covers it — keeping tag attribution (post-window on-rails captures " +
+                    "are legitimate; the per-subject window checks in ConvertScienceSubjects decide)");
+                return tagged.RecordingId;
+            }
+
+            // Chain carve-out: when the covering window belongs to a
+            // CHAIN SIBLING of the tagged recording, do NOT re-route.
+            // The science windows are built with chain-gap closure
+            // (AdjustStartUtForChainGap pulls segment N's StartUT back
+            // to the predecessor's EndUT), so the legitimate BUG-A
+            // shape on a chained flight — recorder live through
+            // on-rails warp, capture tagged segment A after A's
+            // trajectory bounds ended — lands the captureUT inside the
+            // successor's ADJUSTED window. Re-routing there would make
+            // the downstream cross-recording check drop the science
+            // entirely (credited to NEITHER segment). Within one chain
+            // the tag is authoritative (it is one physical flight);
+            // the stale re-fly leak this sanity check targets is
+            // already removed by the ReconciliationBundle cutoff-drop
+            // on the rewind success path.
+            string fallbackChainId = FindScienceWindowChainId(windows, fallback);
+            if (!string.IsNullOrEmpty(tagged.ChainId)
+                && string.Equals(tagged.ChainId, fallbackChainId, StringComparison.Ordinal))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Tree science routing: subject '{subject.subjectId}' tagged '{subjectRecordingId}' " +
+                    $"has captureUT={captureUtText} outside the tagged window {windowText}, but the " +
+                    $"covering window '{fallback}' is a chain sibling (chain={tagged.ChainId}) — " +
+                    "keeping tag attribution (chain-gap-adjusted coverage; the tag is authoritative " +
+                    "within one chained flight)");
+                return tagged.RecordingId;
+            }
+
+            ParsekLog.Warn(Tag,
+                $"Tree science routing: subject '{subject.subjectId}' tagged '{subjectRecordingId}' " +
+                $"has captureUT={captureUtText} outside the tagged window {windowText} — " +
+                $"re-routing by capture UT to '{fallback}'");
+            return fallback;
+        }
+
+        /// <summary>
+        /// The chain id of the first window named <paramref name="fallback"/>, or null.
+        /// </summary>
+        internal static string FindScienceWindowChainId(
+            IReadOnlyList<RecordingScienceWindow> windows, string fallback)
+        {
+            string fallbackChainId = null;
+            for (int j = 0; j < windows.Count; j++)
+            {
+                if (string.Equals(windows[j].RecordingId, fallback, StringComparison.Ordinal))
+                {
+                    fallbackChainId = windows[j].ChainId;
+                    break;
+                }
+            }
+            return fallbackChainId;
         }
 
         private static string PickScienceWindowRecordingId(
@@ -1193,30 +1280,10 @@ namespace Parsek
 
             Initialize();
 
-            var tagged = new List<GameStateEvent>();
-            var storeEvents = GameStateStore.Events;
-            for (int i = 0; i < storeEvents.Count; i++)
-            {
-                var e = storeEvents[i];
-                if (!string.Equals(e.recordingId ?? "", recordingId, StringComparison.Ordinal))
-                    continue;
-                e.recordingId = "";
-                tagged.Add(e);
-            }
+            var tagged = CollectRetiredProvisionalTaggedEvents(recordingId);
 
-            var subjects = new List<PendingScienceSubject>();
-            double minUT = double.MaxValue, maxUT = double.MinValue;
-            var pending = GameStateRecorder.PendingScienceSubjects;
-            for (int i = 0; i < pending.Count; i++)
-            {
-                var s = pending[i];
-                if (!string.Equals(s.recordingId ?? "", recordingId, StringComparison.Ordinal))
-                    continue;
-                s.recordingId = "";
-                subjects.Add(s);
-                if (s.captureUT < minUT) minUT = s.captureUT;
-                if (s.captureUT > maxUT) maxUT = s.captureUT;
-            }
+            double minUT, maxUT;
+            var subjects = CollectRetiredProvisionalScienceSubjects(recordingId, out minUT, out maxUT);
 
             if (tagged.Count == 0 && subjects.Count == 0)
             {
@@ -1226,22 +1293,11 @@ namespace Parsek
                 return 0;
             }
 
-            var actions = GameStateEventConverter.ConvertEvents(
-                tagged, null, double.NegativeInfinity, double.PositiveInfinity);
-            List<GameAction> scienceActions = null;
-            if (subjects.Count > 0)
-            {
-                scienceActions = GameStateEventConverter.ConvertScienceSubjects(
-                    subjects, null, minUT - 1.0, maxUT + 1.0);
-                actions.AddRange(scienceActions);
-            }
+            List<GameAction> scienceActions;
+            var actions = ConvertRetiredProvisionalRows(
+                tagged, subjects, minUT, maxUT, out scienceActions);
 
-            ReputationSeedOrigin origin = repSeedOrigin != ReputationSeedOrigin.NotYetCaptured
-                ? repSeedOrigin
-                : EnsureReputationSeedForCommit();
-            StampReputationRowsAgainstSeed(actions, origin, "retired-refly-provisional=" + recordingId);
-            StampRowsRecordedBeforeSeedCapture(
-                actions, recordingId, Ledger.Actions, "retired-refly-provisional=" + recordingId);
+            StampRetiredProvisionalRowsAgainstSeed(actions, recordingId, repSeedOrigin);
 
             int converted = actions.Count;
             actions = DeduplicateAgainstLedger(actions);
@@ -1250,14 +1306,7 @@ namespace Parsek
             Ledger.AddActions(actions, LedgerRowWriter.StockApplied);
 
             if (scienceActions != null)
-            {
-                var survivingScience = new List<GameAction>();
-                for (int i = 0; i < actions.Count; i++)
-                    if (actions[i].Type == GameActionType.ScienceEarning)
-                        survivingScience.Add(actions[i]);
-                if (survivingScience.Count > 0)
-                    GameStateStore.CommitScienceActions(survivingScience);
-            }
+                CommitSurvivingRetiredProvisionalScience(actions);
 
             int subjectsRemoved = RemovePendingScienceSubjectsForRecordings(
                 new[] { recordingId }, reason);
@@ -1274,6 +1323,107 @@ namespace Parsek
                 $"eventsUntagged={eventsUntagged.ToString(CultureInfo.InvariantCulture)} " +
                 "- the attempt was merged, so what it earned before its recorder bound stays");
             return actions.Count;
+        }
+
+        /// <summary>
+        /// <see cref="FileRetiredReFlyProvisionalRows"/>'s event collect: a copy of every
+        /// store event tagged to <paramref name="recordingId"/>, with the copy's tag cleared.
+        /// The store's own events are not touched here.
+        /// </summary>
+        internal static List<GameStateEvent> CollectRetiredProvisionalTaggedEvents(string recordingId)
+        {
+            var tagged = new List<GameStateEvent>();
+            var storeEvents = GameStateStore.Events;
+            for (int i = 0; i < storeEvents.Count; i++)
+            {
+                var e = storeEvents[i];
+                if (!string.Equals(e.recordingId ?? "", recordingId, StringComparison.Ordinal))
+                    continue;
+                e.recordingId = "";
+                tagged.Add(e);
+            }
+            return tagged;
+        }
+
+        /// <summary>
+        /// <see cref="FileRetiredReFlyProvisionalRows"/>'s science collect: a copy of every
+        /// pending science subject tagged to <paramref name="recordingId"/>, with the copy's
+        /// tag cleared, and the earliest and latest capture UT among them
+        /// (<see cref="double.MaxValue"/> / <see cref="double.MinValue"/> when none). The
+        /// pending list is not touched here.
+        /// </summary>
+        internal static List<PendingScienceSubject> CollectRetiredProvisionalScienceSubjects(
+            string recordingId, out double minUT, out double maxUT)
+        {
+            var subjects = new List<PendingScienceSubject>();
+            minUT = double.MaxValue; maxUT = double.MinValue;
+            var pending = GameStateRecorder.PendingScienceSubjects;
+            for (int i = 0; i < pending.Count; i++)
+            {
+                var s = pending[i];
+                if (!string.Equals(s.recordingId ?? "", recordingId, StringComparison.Ordinal))
+                    continue;
+                s.recordingId = "";
+                subjects.Add(s);
+                if (s.captureUT < minUT) minUT = s.captureUT;
+                if (s.captureUT > maxUT) maxUT = s.captureUT;
+            }
+            return subjects;
+        }
+
+        /// <summary>
+        /// <see cref="FileRetiredReFlyProvisionalRows"/>'s conversion: the collected events
+        /// as untagged rows over an unbounded window, then the collected subjects over the
+        /// capture span widened by one second each side. <paramref name="scienceActions"/> is
+        /// the science part, or null when no subject was collected.
+        /// </summary>
+        internal static List<GameAction> ConvertRetiredProvisionalRows(
+            List<GameStateEvent> tagged, List<PendingScienceSubject> subjects,
+            double minUT, double maxUT, out List<GameAction> scienceActions)
+        {
+            var actions = GameStateEventConverter.ConvertEvents(
+                tagged, null, double.NegativeInfinity, double.PositiveInfinity);
+            scienceActions = null;
+            if (subjects.Count > 0)
+            {
+                scienceActions = GameStateEventConverter.ConvertScienceSubjects(
+                    subjects, null, minUT - 1.0, maxUT + 1.0);
+                actions.AddRange(scienceActions);
+            }
+            return actions;
+        }
+
+        /// <summary>
+        /// <see cref="FileRetiredReFlyProvisionalRows"/>'s seed stamp: resolves the
+        /// reputation seed origin (ensuring the seed when the caller's origin is
+        /// <see cref="ReputationSeedOrigin.NotYetCaptured"/>), then stamps
+        /// <paramref name="actions"/> against it and against a live-pool seed's
+        /// recorded-before set.
+        /// </summary>
+        internal static void StampRetiredProvisionalRowsAgainstSeed(
+            List<GameAction> actions, string recordingId, ReputationSeedOrigin repSeedOrigin)
+        {
+            ReputationSeedOrigin origin = repSeedOrigin != ReputationSeedOrigin.NotYetCaptured
+                ? repSeedOrigin
+                : EnsureReputationSeedForCommit();
+            StampReputationRowsAgainstSeed(actions, origin, "retired-refly-provisional=" + recordingId);
+            StampRowsRecordedBeforeSeedCapture(
+                actions, recordingId, Ledger.Actions, "retired-refly-provisional=" + recordingId);
+        }
+
+        /// <summary>
+        /// <see cref="FileRetiredReFlyProvisionalRows"/>'s science commit: records every
+        /// <see cref="GameActionType.ScienceEarning"/> row that survived the dedup as
+        /// committed subject science.
+        /// </summary>
+        internal static void CommitSurvivingRetiredProvisionalScience(List<GameAction> actions)
+        {
+            var survivingScience = new List<GameAction>();
+            for (int i = 0; i < actions.Count; i++)
+                if (actions[i].Type == GameActionType.ScienceEarning)
+                    survivingScience.Add(actions[i]);
+            if (survivingScience.Count > 0)
+                GameStateStore.CommitScienceActions(survivingScience);
         }
     }
 }

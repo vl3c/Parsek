@@ -117,7 +117,7 @@ namespace Parsek.Tests
             Recording rec = Commit(CrashWithBoundaryPastLastSample());
             Assert.True(rec.EndUT - 347.92 >= 5.0); // the EndUT-based floor alone passes it
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.True(string.IsNullOrEmpty(rec.ChainId));
@@ -152,7 +152,7 @@ namespace Parsek.Tests
             Commit(rec);
             Assert.True(110.0 - rec.StartUT >= 5.0);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.True(string.IsNullOrEmpty(rec.ChainId));
@@ -172,7 +172,7 @@ namespace Parsek.Tests
             AddPoints(rec, 347.92, 356.92, 1.0, 80);
             Commit(rec);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
             Recording tail = RecordingStore.CommittedRecordings.Single(r => r.RecordingId != "crash");

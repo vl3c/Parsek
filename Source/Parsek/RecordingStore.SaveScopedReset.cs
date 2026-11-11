@@ -4,11 +4,13 @@ namespace Parsek
 {
     public static partial class RecordingStore
     {
-        /// <summary>The tree id of the live committed-tree restore attempt, or null.</summary>
-        internal static string CommittedTreeRestoreAttemptTreeId => committedTreeRestoreAttemptTreeId;
+        /// <summary>Forwarder to <see cref="CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId"/>.</summary>
+        internal static string CommittedTreeRestoreAttemptTreeId =>
+            CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId;
 
-        /// <summary>The arm reason of the live committed-tree restore attempt, or null.</summary>
-        internal static string CommittedTreeRestoreAttemptReason => committedTreeRestoreAttemptReason;
+        /// <summary>Forwarder to <see cref="CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptReason"/>.</summary>
+        internal static string CommittedTreeRestoreAttemptReason =>
+            CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptReason;
 
         /// <summary>
         /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>,
@@ -33,48 +35,30 @@ namespace Parsek
         internal static bool ResetSaveScopedStateForLoad(out string droppedPendingTreeSummary)
         {
             droppedPendingTreeSummary = null;
-            bool pendingDropped = pendingTree != null || savedPendingTreeDuringActiveRestore != null;
+            bool pendingDropped = PendingTreeSlot.PendingTree != null || PendingTreeSlot.SavedPendingTreeDuringActiveRestore != null;
             if (pendingDropped)
             {
                 droppedPendingTreeSummary =
-                    (pendingTree != null
-                        ? $"pending='{pendingTree.TreeName ?? "<unnamed>"}' id={pendingTree.Id ?? "<null>"} state={pendingTreeState}"
+                    (PendingTreeSlot.PendingTree != null
+                        ? $"pending='{PendingTreeSlot.PendingTree.TreeName ?? "<unnamed>"}' id={PendingTreeSlot.PendingTree.Id ?? "<null>"} state={PendingTreeSlot.PendingTreeStateValue}"
                         : "pending=<none>")
-                    + (savedPendingTreeDuringActiveRestore != null
-                        ? $" savedPending='{savedPendingTreeDuringActiveRestore.TreeName ?? "<unnamed>"}' id={savedPendingTreeDuringActiveRestore.Id ?? "<null>"}"
+                    + (PendingTreeSlot.SavedPendingTreeDuringActiveRestore != null
+                        ? $" savedPending='{PendingTreeSlot.SavedPendingTreeDuringActiveRestore.TreeName ?? "<unnamed>"}' id={PendingTreeSlot.SavedPendingTreeDuringActiveRestore.Id ?? "<null>"}"
                         : "");
             }
 
-            pendingTree = null;
-            pendingTreeState = PendingTreeState.Finalized;
-            pendingTreeSerializedForSave = false;
-            savedPendingTreeDuringActiveRestore = null;
-            savedPendingTreeDuringActiveRestoreSerializedForSave = false;
-            PendingStashedThisTransition = false;
+            PendingTreeSlot.ResetForLoad();
 
-            treesDiscardedThisSession.Clear();
-            committedTreeRestoreAttemptTreeId = null;
-            committedTreeRestoreAttemptReason = null;
-            committedTreeRestoreAttemptRecordingIds = null;
-            committedTreeRestoreAttemptEventCutoffs = null;
+            TreeDiscardService.ResetForLoad();
+            CommittedTreeRestoreAttempt.ResetForLoad();
             durableCommittedRecordingIdHint = null;
 
-            SceneEntryActiveVesselPid = 0;
-            SceneEntryActiveVesselGuid = null;
-            SceneEntryFreshRolloutVesselPid = 0;
-            ClearRewindReplayTargetScope();
-            rewindCarriedRewindPoints = null;
-            rewindCarriedStagedLists = null;
+            SceneEntryVesselScope.ResetForLoad();
+            RewindCarry.ResetForLoad();
             RewindUTAdjustmentPending = false;
             RewindUTAdjustmentTargetUT = double.NaN;
 
-            PendingCleanupPids = null;
-            PendingCleanupNames = null;
-            PendingRevertPreExistingPids = null;
-            suppressNextTreeSceneExitCommit = false;
-            suppressNextTreeSceneExitCommitReason = null;
-            suppressNextActiveTreeRestore = false;
-            suppressNextActiveTreeRestoreReason = null;
+            RewindLauncher.ResetForLoad();
             // The cold branch reloads committed trees from the save; inert ones come with them.
             InertRecordingTrees.ResetForLoad("save-scoped-reset");
             // Each recording carries its own auto-group key, which the cold load restores.

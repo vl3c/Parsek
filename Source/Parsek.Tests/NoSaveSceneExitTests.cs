@@ -33,7 +33,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.PendingScienceSubjects.Clear();
             ParsekScenario.ResetInstanceForTesting();
@@ -180,7 +180,7 @@ namespace Parsek.Tests
         {
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
             NoSaveSceneExit.NoteConfirmExit(frame);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.MAINMENU);
@@ -200,7 +200,7 @@ namespace Parsek.Tests
         [InlineData(GameScenes.TRACKSTATION)]
         public void SpaceCenterOrTrackingStation_QuitWithoutSaving_ArmsTheColdLoad(GameScenes destination)
         {
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
             NoSaveSceneExit.NoteConfirmExit(frame);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(destination);
@@ -220,7 +220,7 @@ namespace Parsek.Tests
             ParsekScenario.SetCachedAutoMergeForTesting(false);
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
             NoSaveSceneExit.NoteConfirmExit(frame);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.SPACECENTER);
@@ -233,7 +233,7 @@ namespace Parsek.Tests
         [Fact]
         public void MainMenu_SavedExit_StillCommitsAndSaves()
         {
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
             NoSaveSceneExit.NoteConfirmExit(frame);
             NoSaveSceneExit.NoteGameSaved(frame);
 
@@ -254,7 +254,7 @@ namespace Parsek.Tests
                 SessionId = "sess_nosave",
                 TreeId = "pend",
             };
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
             NoSaveSceneExit.NoteConfirmExit(frame);
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => { };
 
@@ -348,11 +348,11 @@ namespace Parsek.Tests
         public void SaveScopedReset_CapturesTheQuitWithoutSavingStashBeforeDroppingIt()
         {
             NoSaveSceneExit.SaveFolderForTesting = () => "career";
-            RecordingStore.StashPendingTree(TwoRecordingTree("qws"), PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(TwoRecordingTree("qws"), PendingTreeState.Limbo);
             NoSaveSceneExit.NoteStashedTree("qws", NoSaveSceneExit.CurrentSaveFolder());
 
             ParsekScenario.ResetSaveScopedSessionState("test");
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             NoSaveSceneExit.ReapDroppedFlightSidecars(false, false, false);
             Assert.Equal(2, deleted.Count);

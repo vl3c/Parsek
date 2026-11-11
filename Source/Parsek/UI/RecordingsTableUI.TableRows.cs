@@ -286,24 +286,12 @@ namespace Parsek
             IReadOnlyList<RecordingSupersedeRelation> supersedes = null, string treeConnector = null)
         {
             var rec = committed[ri];
-            if (IsInactiveForDisplay(
-                    rec,
-                    supersedes ?? CurrentRecordingSupersedesForDisplay(),
-                    CurrentRecordingRewindRetirementsForDisplay())) return false;
-            if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
+            if (ShouldSkipRecordingRow(rec, supersedes)) return false;
 
             RecordingVisualKind visualKind = RecordingVisualClassifier.Classify(rec, committed);
 
             // Cross-link: detect target row during draw pass
-            if (!string.IsNullOrEmpty(pendingScrollToRecordingId) &&
-                rec.RecordingId == pendingScrollToRecordingId)
-            {
-                pendingScrollRowIndex = renderedRowCounter;
-                ParsekLog.Verbose("UI",
-                    $"Cross-link: found \"{rec.VesselName}\" at rendered row {renderedRowCounter}");
-                pendingScrollToRecordingId = null;
-            }
-            renderedRowCounter++;
+            TrackCrossLinkRow(rec);
 
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             bool captureThisRow = alignmentDebugArmed && !alignmentDebugRowCaptured;
@@ -316,11 +304,7 @@ namespace Parsek
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowToggle");
             if (enabled != rec.PlaybackEnabled)
             {
-                // GUI-P1: the sole writer, shared with the select-all / group / chain-block
-                // toggles below so all four hide and restore identically.
-                RecordingStore.SetRecordingPlaybackEnabled(rec, enabled);
-                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' playback {(enabled ? "enabled" : "disabled")}" +
-                    (!string.IsNullOrEmpty(rec.SegmentPhase) ? $" (segment: {RecordingStore.GetSegmentPhaseLabel(rec)})" : ""));
+                ApplyRecordingPlaybackEnabledToggle(rec, enabled);
             }
 
             // #
@@ -337,7 +321,7 @@ namespace Parsek
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowName");
 
             // Phase label
-            string phaseLabel = RecordingStore.GetSegmentPhaseLabel(rec);
+            string phaseLabel = RecordingSegmentLabels.GetSegmentPhaseLabel(rec);
             if (!string.IsNullOrEmpty(phaseLabel))
             {
                 GUIStyle phaseStyle;
@@ -379,14 +363,8 @@ namespace Parsek
                 : statusOrder == 1 ? statusStyleActive
                 : statusStylePast;
 
-            string visualStatusText = FormatRecordingVisualStatusText(
-                visualKind, statusText, statusTextIsTerminalState);
-            if (visualStatusText != statusText)
-            {
-                statusText = visualStatusText;
-                if (!statusTextIsTerminalState)
-                    statusStyle = GetRecordingVisualStatusStyle(visualKind);
-            }
+            if (ApplyRecordingVisualStatusText(visualKind, ref statusText, statusTextIsTerminalState))
+                statusStyle = GetRecordingVisualStatusStyle(visualKind);
 
             // Phase 6d-3: Chain status tooltip — show ghost chain info on hover
             string chainStatusTooltip = "";
@@ -409,19 +387,11 @@ namespace Parsek
             var stats = GetOrComputeStats(rec);
             string statusStatsTooltip = BuildStatusStatsTooltip(
                 stats.maxAltitude, stats.maxSpeed, stats.pointCount);
-            string statusTooltip = CombineTooltipText(
-                CombineTooltipText(
-                    CombineTooltipText(statusPlaceTooltip, statusStatsTooltip),
-                    GetOrComputeManifestSummary(rec)),
-                CombineTooltipText(
-                    CombineTooltipText(
-                        GetRecordingVisualStatusTooltip(visualKind),
-                        chainStatusTooltip),
-                    ResolveDockPartnerTooltip(rec)));
-            // Fall back to the column's own explanation when this row composed nothing
-            // specific, so the cell is never a silent hover.
-            if (string.IsNullOrEmpty(statusTooltip))
-                statusTooltip = "How this flight is doing: counting down to launch, flying now, or how it ended.";
+            string manifestSummary = GetOrComputeManifestSummary(rec);
+            string visualStatusTooltip = GetRecordingVisualStatusTooltip(visualKind);
+            string dockPartnerTooltip = ResolveDockPartnerTooltip(rec);
+            string statusTooltip = ComposeRecordingStatusTooltip(statusPlaceTooltip, statusStatsTooltip,
+                manifestSummary, visualStatusTooltip, chainStatusTooltip, dockPartnerTooltip);
             var statusContent = new GUIContent(statusText, statusTooltip);
             GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowStatus");
@@ -474,20 +444,7 @@ namespace Parsek
                 GUILayout.EndHorizontal();
                 if (loop != rec.LoopPlayback)
                 {
-                    if (rowRouteBound)
-                    {
-                        ParsekLog.Info("RouteGuard",
-                            $"Recordings-tab per-recording Loop blocked for '{rec.VesselName}' " +
-                            $"(tree={rec.TreeId} bound by route); request={loop} ignored");
-                    }
-                    else
-                    {
-                        rec.LoopPlayback = loop;
-                        ApplyAutoLoopRange(rec, loop);
-                        if (!loop && loopPeriodFocusedRi == ri)
-                            loopPeriodFocusedRi = -1;
-                        ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
-                    }
+                    ApplyRecordingLoopToggle(rec, ri, loop, rowRouteBound);
                 }
             }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowLoop");
@@ -495,11 +452,12 @@ namespace Parsek
             // Period: wrapped with Space(BodyCellButtonLeftInset) on the left so
             // val+unit start 10 px into the cell, matching the shifted-right
             // treatment applied to single-button body cells (DrawBodyCenteredButton).
-            if (suppressRowLoop)
+            RowPeriodCell periodCell = ResolveRowPeriodCell(suppressRowLoop, rec.LoopPlayback);
+            if (periodCell == RowPeriodCell.Blank)
             {
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
             }
-            else if (!rec.LoopPlayback)
+            else if (periodCell == RowPeriodCell.BlankWithHover)
             {
                 // Loop off: the period means nothing yet, so the cell draws blank rather
                 // than a greyed value + unit pair. It still explains itself on hover (the
@@ -548,7 +506,7 @@ namespace Parsek
                 }
 
                 GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);
-                string watchLabel = isWatching ? "W*" : "W";
+                string watchLabel = RecordingWatchLabel(isWatching);
                 string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, rec.IsDebris, bodyReadingCurrent);
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
                 if (DrawBodyCenteredButton(watchContent, ColW_Watch))
@@ -584,51 +542,217 @@ namespace Parsek
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowArchive");
             if (hidden != rec.Hidden)
             {
-                // Phase 14 of Rewind-to-Staging (design §7.33 / §7.30): an
-                // Unfinished Flight is a diagnostic of an unresolved split
-                // sibling. Hiding would sweep the re-fly opportunity out of
-                // the player's view, so we refuse the toggle + toast a clear
-                // warning. The recording's Hidden flag stays unchanged.
-                // The gate is the classifier alone (no depth check) so normal-
-                // list RP-backed rows refuse hide just like the virtual group
-                // rows. IsUnfinishedFlight is cheap (single RewindPoints scan)
-                // so the accept-side branch tolerates this per-row call.
-                //
-                // The direction is now part of the gate (finding P17, mirror
-                // half): only HIDING is refused. Refusing the un-hide too - which
-                // the undirected check did - would keep a flight that is ALREADY
-                // buried buried, the exact opposite of "rewind access must remain
-                // visible", and it is the only way back for a row an older build's
-                // ungated group hide-all wrote Hidden over.
-                if (IsArchiveRefusedForUnfinishedFlight(
-                        hidden, EffectiveState.IsUnfinishedFlight(rec)))
-                {
-                    ParsekLog.Warn("UnfinishedFlights",
-                        $"Hide refused for Unfinished Flight rec={rec.RecordingId ?? "<no-id>"} " +
-                        $"vessel='{rec.VesselName}': rewind access must remain visible (design §7.33)");
-                    ParsekLog.ScreenMessage(
-                        $"Cannot hide '{rec.VesselName}' — it is an Unfinished Flight. " +
-                        "Re-fly the rewind point or merge as Immutable to clear it from the list.",
-                        4f);
-                }
-                else
-                {
-                    rec.Hidden = hidden;
-                    NotifyTimelineOfArchiveChange();
-                    ParsekLog.Info("UI", $"Recording '{rec.VesselName}' hidden={hidden}");
-                }
+                ApplyRecordingArchiveToggle(rec, hidden);
             }
 
             GUILayout.EndHorizontal();
 
             if (captureThisRow && Event.current.type == EventType.Repaint)
             {
-                alignmentDebugRowCaptured = true;
-                ParsekLog.Info("UI", "AlignDbg ROW: " + alignmentDebugRowLog.ToString());
-                if (alignmentDebugHeaderCaptured) alignmentDebugArmed = false;
+                FinishAlignmentDebugRowCapture();
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when a leaf row draws nothing: the recording is inactive for display
+        /// (superseded by the given relations, else the scenario's, or rewind-retired), or it
+        /// is archived while the Archive filter is on.
+        /// </summary>
+        internal static bool ShouldSkipRecordingRow(Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (IsInactiveForDisplay(
+                    rec,
+                    supersedes ?? CurrentRecordingSupersedesForDisplay(),
+                    CurrentRecordingRewindRetirementsForDisplay())) return true;
+            if (rec.Hidden && GroupHierarchyStore.HideActive) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Cross-link: when this row is the one a cross-link asked to scroll to, records its
+        /// rendered row index for the deferred scroll and clears the request; every drawn
+        /// row advances the rendered-row counter.
+        /// </summary>
+        internal void TrackCrossLinkRow(Recording rec)
+        {
+            if (!string.IsNullOrEmpty(pendingScrollToRecordingId) &&
+                rec.RecordingId == pendingScrollToRecordingId)
+            {
+                pendingScrollRowIndex = renderedRowCounter;
+                ParsekLog.Verbose("UI",
+                    $"Cross-link: found \"{rec.VesselName}\" at rendered row {renderedRowCounter}");
+                pendingScrollToRecordingId = null;
+            }
+            renderedRowCounter++;
+        }
+
+        /// <summary>
+        /// Writes a row Enable checkbox change through the shared playback writer and logs it,
+        /// naming the segment phase when the row has one.
+        /// </summary>
+        internal static void ApplyRecordingPlaybackEnabledToggle(Recording rec, bool enabled)
+        {
+            // GUI-P1: the sole writer, shared with the select-all / group / chain-block
+            // toggles below so all four hide and restore identically.
+            RecordingStore.SetRecordingPlaybackEnabled(rec, enabled);
+            ParsekLog.Info("UI", $"Recording '{rec.VesselName}' playback {(enabled ? "enabled" : "disabled")}" +
+                (!string.IsNullOrEmpty(rec.SegmentPhase) ? $" (segment: {RecordingSegmentLabels.GetSegmentPhaseLabel(rec)})" : ""));
+        }
+
+        /// <summary>
+        /// Applies the visual-kind wording to a row's Status text. Returns true when the cell
+        /// should also take the visual-kind style: the text changed and it is not an ending
+        /// word (an ending word keeps its own style with the suffix appended).
+        /// </summary>
+        internal static bool ApplyRecordingVisualStatusText(RecordingVisualKind visualKind,
+            ref string statusText, bool statusTextIsTerminalState)
+        {
+            string visualStatusText = FormatRecordingVisualStatusText(
+                visualKind, statusText, statusTextIsTerminalState);
+            if (visualStatusText != statusText)
+            {
+                statusText = visualStatusText;
+                if (!statusTextIsTerminalState)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The row Status cell's hover: where the flight started and ended, its stats, its
+        /// manifest, the visual-kind note, the ghost chain status and the dock partner, in
+        /// that order; the column's own explanation when the row composed nothing, so the
+        /// cell is never a silent hover.
+        /// </summary>
+        internal static string ComposeRecordingStatusTooltip(string statusPlaceTooltip,
+            string statusStatsTooltip, string manifestSummary, string visualStatusTooltip,
+            string chainStatusTooltip, string dockPartnerTooltip)
+        {
+            string statusTooltip = CombineTooltipText(
+                CombineTooltipText(
+                    CombineTooltipText(statusPlaceTooltip, statusStatsTooltip),
+                    manifestSummary),
+                CombineTooltipText(
+                    CombineTooltipText(
+                        visualStatusTooltip,
+                        chainStatusTooltip),
+                    dockPartnerTooltip));
+            // Fall back to the column's own explanation when this row composed nothing
+            // specific, so the cell is never a silent hover.
+            if (string.IsNullOrEmpty(statusTooltip))
+                statusTooltip = "How this flight is doing: counting down to launch, flying now, or how it ended.";
+            return statusTooltip;
+        }
+
+        /// <summary>
+        /// Writes a row Loop toggle change. A route-bound recording is refused and logged (the
+        /// toggle writes Recording.LoopPlayback directly, so this guard is the only thing
+        /// keeping a per-recording loop off a route tree); otherwise the flag and its auto loop
+        /// range are written and, when looping turns off, a period field focused on this row
+        /// is released.
+        /// </summary>
+        internal void ApplyRecordingLoopToggle(Recording rec, int ri, bool loop, bool rowRouteBound)
+        {
+            if (rowRouteBound)
+            {
+                ParsekLog.Info("RouteGuard",
+                    $"Recordings-tab per-recording Loop blocked for '{rec.VesselName}' " +
+                    $"(tree={rec.TreeId} bound by route); request={loop} ignored");
+            }
+            else
+            {
+                rec.LoopPlayback = loop;
+                ApplyAutoLoopRange(rec, loop);
+                if (!loop && loopPeriodFocusedRi == ri)
+                    loopPeriodFocusedRi = -1;
+                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
+            }
+        }
+
+        /// <summary>What a row's Period cell draws.</summary>
+        internal enum RowPeriodCell
+        {
+            /// <summary>A blank placeholder: the row has no Loop UI.</summary>
+            Blank,
+            /// <summary>A blank cell that explains itself on hover: Loop is off.</summary>
+            BlankWithHover,
+            /// <summary>The period value and unit.</summary>
+            Value,
+        }
+
+        /// <summary>
+        /// A row's Period cell: blank when the row's Loop UI is suppressed, a blank cell with a
+        /// hover while Loop is off (the period means nothing yet), else the value and unit.
+        /// </summary>
+        internal static RowPeriodCell ResolveRowPeriodCell(bool suppressRowLoop, bool loopPlayback)
+        {
+            if (suppressRowLoop)
+                return RowPeriodCell.Blank;
+            else if (!loopPlayback)
+                return RowPeriodCell.BlankWithHover;
+            else
+                return RowPeriodCell.Value;
+        }
+
+        /// <summary>The row Watch button's label: starred while this row is the one watched.</summary>
+        internal static string RecordingWatchLabel(bool isWatching)
+        {
+            return isWatching ? "W*" : "W";
+        }
+
+        /// <summary>
+        /// Ends the alignment-debug capture of the first drawn row: marks it captured, logs
+        /// its cell rects, and disarms the capture once the header was captured too.
+        /// </summary>
+        internal void FinishAlignmentDebugRowCapture()
+        {
+            alignmentDebugRowCaptured = true;
+            ParsekLog.Info("UI", "AlignDbg ROW: " + alignmentDebugRowLog.ToString());
+            if (alignmentDebugHeaderCaptured) alignmentDebugArmed = false;
+        }
+
+        /// <summary>
+        /// Writes a row Archive toggle change, or refuses a hide of an Unfinished Flight
+        /// (warning plus a screen message); the recording's Hidden flag then stays unchanged.
+        /// </summary>
+        internal void ApplyRecordingArchiveToggle(Recording rec, bool hidden)
+        {
+            // Phase 14 of Rewind-to-Staging (design §7.33 / §7.30): an
+            // Unfinished Flight is a diagnostic of an unresolved split
+            // sibling. Hiding would sweep the re-fly opportunity out of
+            // the player's view, so we refuse the toggle + toast a clear
+            // warning. The recording's Hidden flag stays unchanged.
+            // The gate is the classifier alone (no depth check) so normal-
+            // list RP-backed rows refuse hide just like the virtual group
+            // rows. IsUnfinishedFlight is cheap (single RewindPoints scan)
+            // so the accept-side branch tolerates this per-row call.
+            //
+            // The direction is now part of the gate (finding P17, mirror
+            // half): only HIDING is refused. Refusing the un-hide too - which
+            // the undirected check did - would keep a flight that is ALREADY
+            // buried buried, the exact opposite of "rewind access must remain
+            // visible", and it is the only way back for a row an older build's
+            // ungated group hide-all wrote Hidden over.
+            if (IsArchiveRefusedForUnfinishedFlight(
+                    hidden, EffectiveState.IsUnfinishedFlight(rec)))
+            {
+                ParsekLog.Warn("UnfinishedFlights",
+                    $"Hide refused for Unfinished Flight rec={rec.RecordingId ?? "<no-id>"} " +
+                    $"vessel='{rec.VesselName}': rewind access must remain visible (design §7.33)");
+                ParsekLog.ScreenMessage(
+                    $"Cannot hide '{rec.VesselName}' — it is an Unfinished Flight. " +
+                    "Re-fly the rewind point or merge as Immutable to clear it from the list.",
+                    4f);
+            }
+            else
+            {
+                rec.Hidden = hidden;
+                NotifyTimelineOfArchiveChange();
+                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' hidden={hidden}");
+            }
         }
 
         /// <summary>
@@ -960,7 +1084,7 @@ namespace Parsek
             {
                 var forwardRec = committed[forwardIdx];
                 string ffReason;
-                bool canFF = RecordingStore.CanFastForward(forwardRec, out ffReason, isRecording: isRecording);
+                bool canFF = RewindLauncher.CanFastForward(forwardRec, out ffReason, isRecording: isRecording);
                 GUI.enabled = canFF;
                 string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
                 if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
@@ -975,7 +1099,7 @@ namespace Parsek
                 int rewindIdx = blockRewindIdx;
                 var rewindRec = committed[rewindIdx];
                 string rewindReason;
-                bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
+                bool canRewind = RewindLauncher.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
                 GUI.enabled = canRewind;
                 string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
                     ? "this launch"
@@ -1119,7 +1243,7 @@ namespace Parsek
                 return new double[] { body.Radius, body.gravParameter };
             };
 
-            var stats = TrajectoryMath.ComputeStats(rec, bodyLookup);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, bodyLookup);
             rec.CachedStats = stats;
             rec.CachedStatsPointCount = rec.Points.Count;
             return stats;

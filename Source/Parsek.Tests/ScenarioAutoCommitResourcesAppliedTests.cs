@@ -30,7 +30,7 @@ namespace Parsek.Tests
     /// instance + KSP singletons and aren't unit-testable as a whole). NOTE
     /// (silent full-fidelity auto-commit): the scene-exit and outside-Flight sites
     /// now route qualifying trees through <see cref="MergeDialog.MergeCommit"/>
-    /// (which calls <see cref="RecordingStore.CommitPendingTree"/> +
+    /// (which calls <see cref="TreeCommitService.CommitPendingTree"/> +
     /// <see cref="RecordingStore.MarkTreeAsApplied"/> itself) and fall back to this
     /// seam only for the ghost-only cases (re-fly / Limbo / MAINMENU); the OnSave
     /// safety net still uses it directly. The mark-applied contract is identical on
@@ -152,8 +152,8 @@ namespace Parsek.Tests
             var rec2 = MakeRecording("rec-safety-2", "tree-safety", 150.0, 220.0);
             var tree = MakeTree("tree-safety", "rec-safety-1", rec1, rec2);
 
-            RecordingStore.StashPendingTree(tree);
-            Assert.True(RecordingStore.HasPendingTree);
+            PendingTreeSlot.StashPendingTree(tree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             foreach (var r in tree.Recordings.Values)
                 Assert.Equal(-1, r.LastAppliedResourceIndex);
 
@@ -161,7 +161,7 @@ namespace Parsek.Tests
 
             Assert.Equal(2, rec1.LastAppliedResourceIndex); // 3 points - 1
             Assert.Equal(2, rec2.LastAppliedResourceIndex);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree-safety");
         }
 
@@ -174,7 +174,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("rec-outside", "tree-outside", 100.0, 200.0);
             var tree = MakeTree("tree-outside", "rec-outside", rec);
 
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
             Assert.Equal(2, rec.LastAppliedResourceIndex);
@@ -200,7 +200,7 @@ namespace Parsek.Tests
 
             var rec = MakeRecording("rec-auto-mile", "tree-auto-mile", 200.0, 300.0);
             var tree = MakeTree("tree-auto-mile", "rec-auto-mile", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             var milestonesBefore = MilestoneStore.Milestones;
             var indexesBefore = new List<int>(milestonesBefore.Count);
@@ -225,7 +225,7 @@ namespace Parsek.Tests
             var fullRec = MakeRecording("rec-auto-full", "tree-auto-empty", 100.0, 200.0);
             var emptyRec = MakeRecording("rec-auto-empty", "tree-auto-empty", 0.0, 0.0, emptyPoints: true);
             var tree = MakeTree("tree-auto-empty", "rec-auto-full", fullRec, emptyRec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             Assert.Equal(-1, fullRec.LastAppliedResourceIndex);
             Assert.Equal(-1, emptyRec.LastAppliedResourceIndex);
@@ -255,7 +255,7 @@ namespace Parsek.Tests
             var rec = MakeRecording("rec-nopending", "tree-nopending", 100.0, 200.0);
             var tree = MakeTree("tree-nopending", "rec-nopending", rec);
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
@@ -278,11 +278,11 @@ namespace Parsek.Tests
 
             var rec = MakeRecording("rec-discard-helper", "tree-discard-helper", 100.0, 200.0);
             var tree = MakeTree("tree-discard-helper", "rec-discard-helper", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             ParsekScenario.DiscardPendingTreeAndRecalculate("test helper");
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(logLines, l =>
                 l.Contains("[KspStatePatcher]") && l.Contains("PatchAll complete"));
             Assert.DoesNotContain(logLines, l =>
@@ -317,17 +317,17 @@ namespace Parsek.Tests
             // the seam body - the only place the order is visible at all.
             var rec = MakeRecording("rec-order", "tree-order", 100.0, 200.0);
             var tree = MakeTree("tree-order", "rec-order", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Same(tree, RecordingStore.PendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Same(tree, PendingTreeSlot.PendingTree);
 
             ParsekScenario.CommitPendingTreeAsApplied(tree);
 
             // Post-condition: pending slot empty, tree in committed storage AND
             // the recording index advanced to the end. Both must hold so the
             // committed tree is immediately fully applied on save.
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree-order");
             Assert.Equal(2, rec.LastAppliedResourceIndex);
         }
@@ -346,7 +346,7 @@ namespace Parsek.Tests
             string path = LocateParsekScenarioSource();
             Assert.True(File.Exists(path), $"ParsekScenario.cs not found at {path}");
 
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
             const string signature = "void CommitPendingTreeAsApplied(RecordingTree tree)";
             int sigIdx = prepared.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(sigIdx >= 0, "CommitPendingTreeAsApplied(RecordingTree) no longer exists");
@@ -356,9 +356,9 @@ namespace Parsek.Tests
             Assert.True(bodyStart > 0, "the seam has no body");
             string body = SourceScanText.BraceMatchedBlock(prepared, bodyStart);
 
-            int commitIdx = body.IndexOf("RecordingStore.CommitPendingTree();", StringComparison.Ordinal);
+            int commitIdx = body.IndexOf("TreeCommitService.CommitPendingTree();", StringComparison.Ordinal);
             int markIdx = body.IndexOf("RecordingStore.MarkTreeAsApplied(tree);", StringComparison.Ordinal);
-            Assert.True(commitIdx >= 0, "the seam no longer calls RecordingStore.CommitPendingTree()");
+            Assert.True(commitIdx >= 0, "the seam no longer calls TreeCommitService.CommitPendingTree()");
             Assert.True(markIdx >= 0, "the seam no longer calls RecordingStore.MarkTreeAsApplied(tree)");
             Assert.True(commitIdx < markIdx,
                 "REGRESSION: CommitPendingTreeAsApplied must commit the pending tree BEFORE marking " +

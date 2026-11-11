@@ -247,15 +247,15 @@ namespace Parsek
         /// Live-state wrapper for an already-finalized pending tree. This is
         /// the post-destruction / flight-results path: the active recorder was
         /// stopped before stock asks where to go next, so the prefix must look
-        /// at <see cref="RecordingStore.PendingTree"/> instead of
+        /// at <see cref="PendingTreeSlot.PendingTree"/> instead of
         /// <see cref="ParsekFlight.HasActiveTree"/>.
         /// </summary>
         internal static DialogVariant ShouldShowPendingTreeDialogBeforeSceneChangeLive(
             GameScenes destination)
         {
             bool hasFinalizedPendingTree =
-                RecordingStore.HasPendingTree
-                && RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized;
+                PendingTreeSlot.HasPendingTree
+                && PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Finalized;
             var scenario = ParsekScenario.Instance;
             bool reFlyActive =
                 !object.ReferenceEquals(null, scenario)
@@ -296,7 +296,7 @@ namespace Parsek
         internal static bool IsAutoMergeForSceneExitLive(GameScenes destination, string site)
         {
             bool isAutoMerge = ParsekScenario.IsAutoMerge;
-            bool rewindSceneExit = IsRewindSceneExit(destination, RecordingStore.IsRewinding);
+            bool rewindSceneExit = IsRewindSceneExit(destination, RewindContext.IsRewinding);
             if (rewindSceneExit && !isAutoMerge)
             {
                 ParsekLog.Info("SceneExit",
@@ -391,7 +391,7 @@ namespace Parsek
             bool hasScenario = !object.ReferenceEquals(null, scenario);
             bool reFlyActive = hasScenario && scenario.ActiveReFlySessionMarker != null;
             bool journalActive = hasScenario && scenario.ActiveMergeJournal != null;
-            bool rewinding = RecordingStore.IsRewinding;
+            bool rewinding = RewindContext.IsRewinding;
             if (!NoSaveSceneExit.ShouldFollowTheSave(
                     destination, noSaveExit: true, rewinding, reFlyActive, journalActive))
             {
@@ -412,7 +412,7 @@ namespace Parsek
             ParsekLog.Info("SceneExit",
                 $"LoadScene prefix: quit without saving dest={destination} - following the save: the " +
                 $"flight since the last save is dropped with the world (liveTree={liveTree} " +
-                $"pendingTree={RecordingStore.HasPendingTree}); no merge dialog, no commit, no persistent write");
+                $"pendingTree={PendingTreeSlot.HasPendingTree}); no merge dialog, no commit, no persistent write");
             return true;
         }
 
@@ -585,7 +585,7 @@ namespace Parsek
             if (liveTree == null || InFlightRecoveryRequest.Armed == null) return false;
             return InFlightRecoveryRequest.KeepsCommittedRestoreClone(
                 liveTree,
-                RecordingStore.IsCommittedTreeRestoreAttemptTree(liveTree.Id),
+                CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(liveTree.Id),
                 destination,
                 fastPath);
         }
@@ -968,7 +968,7 @@ namespace Parsek
             //     out of the way without consuming the flag
             //     (FinalizeTreeOnSceneChange consumes it at
             //     ParsekFlight.cs:2734).
-            if (RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed)
+            if (PendingTreeSlot.IsNextTreeSceneExitCommitSuppressionArmed)
             {
                 ParsekLog.Info("SceneExit",
                     $"LoadScene prefix: bypassing - existing tree-scene-exit-commit " +
@@ -1027,13 +1027,13 @@ namespace Parsek
                 // (the recorder having been torn down by an
                 // OnVesselWillDestroy seam mid-segment). Route the dialog
                 // to the SESSION'S tree rather than blindly grabbing
-                // RecordingStore.PendingTree, which can be an unrelated
+                // PendingTreeSlot.PendingTree, which can be an unrelated
                 // orphan from a prior switch in the same FLIGHT scene
                 // (this was the wrong-tree symptom that surfaced as Bug A).
                 var scenarioForSession = ParsekScenario.Instance;
                 var session = scenarioForSession?.ActiveSwitchSegmentSession;
                 if (session != null
-                    && SceneExitInterceptor.IsRewindSceneExit(scene, RecordingStore.IsRewinding))
+                    && SceneExitInterceptor.IsRewindSceneExit(scene, RewindContext.IsRewinding))
                 {
                     // A rewind's own load never asks (owner ruling 2026-11-01). The
                     // session's segment lies in the future the rewind leaves, so the
@@ -1056,8 +1056,8 @@ namespace Parsek
                     // takes the pending-tree path below (committed at the destination, or here
                     // for the main menu; MergeCommit clears the session). A tree already
                     // committed has nothing left to decide, so the session is cleared.
-                    bool sessionTreeIsPending = RecordingStore.HasPendingTree
-                        && string.Equals(RecordingStore.PendingTree?.Id, session.TreeId, StringComparison.Ordinal);
+                    bool sessionTreeIsPending = PendingTreeSlot.HasPendingTree
+                        && string.Equals(PendingTreeSlot.PendingTree?.Id, session.TreeId, StringComparison.Ordinal);
                     if (sessionTreeIsPending)
                     {
                         ParsekLog.Info("SceneExit",
@@ -1129,10 +1129,10 @@ namespace Parsek
 
                 ParsekLog.Info("SceneExit",
                     $"LoadScene prefix: showing pre-transition dialog for finalized pending tree " +
-                    $"'{RecordingStore.PendingTree?.TreeName ?? "<null>"}' dest={scene}");
+                    $"'{PendingTreeSlot.PendingTree?.TreeName ?? "<null>"}' dest={scene}");
 
                 MergeDialog.ShowTreeDialog(
-                    RecordingStore.PendingTree,
+                    PendingTreeSlot.PendingTree,
                     labels: pendingLabels,
                     preCommitFinalize: () => { },
                     postChoice: SceneExitInterceptor.BuildPostChoice(scene));
@@ -1176,7 +1176,7 @@ namespace Parsek
             {
                 // The attempt above finalized the live tree and then refused or threw: ask
                 // about what it left in the pending slot, or persist and go when nothing is left.
-                if (!RecordingStore.HasPendingTree)
+                if (!PendingTreeSlot.HasPendingTree)
                 {
                     ParsekLog.Warn("SceneExit",
                         $"LoadScene prefix: main-menu exit left no live or pending tree dest={scene} - " +
@@ -1189,7 +1189,7 @@ namespace Parsek
                     return false;
                 }
                 MergeDialog.ShowTreeDialog(
-                    RecordingStore.PendingTree,
+                    PendingTreeSlot.PendingTree,
                     labels: MergeDialog.MergeDialogButtonLabels.Default,
                     preCommitFinalize: () => { },
                     postChoice: SceneExitInterceptor.BuildPostChoice(scene));

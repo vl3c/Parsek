@@ -13,7 +13,7 @@ namespace Parsek
     /// Manages the recordings list, sorting, group tree, rename, loop period editing, and all
     /// recordings-window-specific UI state.
     /// </summary>
-    internal partial class RecordingsTableUI
+    internal partial class RecordingsTableUI : IRecordingsTableWindow
     {
         private readonly ParsekUI parentUI;
 
@@ -165,6 +165,7 @@ namespace Parsek
 
         // Runtime-only empty groups (not persisted)
         internal List<string> KnownEmptyGroups = new List<string>();
+        List<string> IRecordingsTableWindow.KnownEmptyGroups => KnownEmptyGroups;
 
         // Cached phase label styles
         private GUIStyle phaseStyleAtmo;
@@ -315,7 +316,7 @@ namespace Parsek
         internal List<string> EnumerateGroupNamesForTesting()
         {
             GroupPickerTreeModel model = GroupPickerPresentation.BuildTreeModel(
-                RecordingStore.GetGroupNames(),
+                RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings),
                 GroupHierarchyStore.GroupParents,
                 parentUI.KnownEmptyGroups,
                 null);
@@ -384,7 +385,7 @@ namespace Parsek
         /// <c>ParsekUI.OnUiComplexityModeApplied</c>, so the clamp happens the moment the
         /// mode takes effect rather than waiting for the next draw.
         /// </summary>
-        internal void ClampTabForBasic()
+        public void ClampTabForBasic()
         {
             ApplyTabClamp(UiComplexityMode.Basic, "mode apply");
         }
@@ -399,7 +400,7 @@ namespace Parsek
         /// reachability rule rather than a lock rule.
         /// <para>This window itself is NOT closed - it survives as the Missions window.</para>
         /// </summary>
-        internal void CloseGroupPickerForModeChange()
+        public void CloseGroupPickerForModeChange()
         {
             if (groupPicker == null)
                 return;
@@ -408,7 +409,7 @@ namespace Parsek
         }
 
         /// <summary>Whether this window's group picker popup is currently open.</summary>
-        internal bool IsGroupPickerOpen => groupPicker != null && groupPicker.IsOpen;
+        public bool IsGroupPickerOpen => groupPicker != null && groupPicker.IsOpen;
 
         /// <summary>
         /// Test seam: the group picker instance, so the close-set tests can open it the
@@ -731,7 +732,7 @@ namespace Parsek
             this.groupPicker = new GroupPickerUI(parentUI);
         }
 
-        internal bool IsMouseOverOpenWindow(Vector2 mousePosition)
+        public bool IsMouseOverOpenWindow(Vector2 mousePosition)
         {
             return ParsekUI.IsPointerOverOpenWindow(
                 showRecordingsWindow,
@@ -761,7 +762,7 @@ namespace Parsek
                 selectedTab = TabMissions;
             }
 
-            parentUI.GetMissionsUI().RevealMissionForRecording(recordingId);
+            ParsekWindowSet.Of(parentUI).GetMissionsUI().RevealMissionForRecording(recordingId);
         }
 
         /// <summary>
@@ -780,7 +781,7 @@ namespace Parsek
         /// </summary>
         private void NotifyTimelineOfArchiveChange()
         {
-            parentUI?.GetTimelineUI()?.InvalidateCache();
+            ParsekWindowSet.Of(parentUI)?.GetTimelineUI()?.InvalidateCache();
         }
 
         /// <summary>
@@ -971,7 +972,7 @@ namespace Parsek
             }
         }
 
-        internal void ReleaseInputLock()
+        public void ReleaseInputLock()
         {
             if (!recordingsWindowHasInputLock) return;
             InputLockManager.RemoveControlLock(RecordingsInputLockId);
@@ -1072,7 +1073,7 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(newName) || newName == oldName) return;
 
-            if (RecordingStore.IsInvalidGroupName(newName))
+            if (RecordingGroupStore.IsInvalidGroupName(newName))
             {
                 ParsekLog.Warn("UI", $"Group rename rejected: '{newName}' contains invalid characters");
                 return;
@@ -1100,7 +1101,8 @@ namespace Parsek
             }
 
             // Plain group (user group, a subgroup renamed directly, or a chain block): no mission link.
-            if (!RecordingStore.RenameGroup(oldName, newName))
+            if (!RecordingGroupStore.RenameGroup(
+                oldName, newName, RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees))
             {
                 ParsekLog.Warn("UI", $"Group rename rejected: '{newName}' already exists");
                 return;
@@ -1126,7 +1128,7 @@ namespace Parsek
 
         private string GenerateUniqueGroupName()
         {
-            var existing = RecordingStore.GetGroupNames();
+            var existing = RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings);
             for (int i = 0; i < KnownEmptyGroups.Count; i++)
                 if (!existing.Contains(KnownEmptyGroups[i]))
                     existing.Add(KnownEmptyGroups[i]);
@@ -1142,7 +1144,7 @@ namespace Parsek
             HashSet<int> descendants,
             Dictionary<string, List<string>> grpChildren)
         {
-            if (RecordingStore.IsPermanentGroup(groupName))
+            if (RecordingGroupStore.IsPermanentGroup(groupName, RecordingStore.CommittedTrees))
             {
                 ParsekLog.Warn("UI", $"Disband blocked for permanent group '{groupName}'");
                 return;
@@ -1176,7 +1178,8 @@ namespace Parsek
                     "Confirm: Disband Group", HighLogic.UISkin,
                     new DialogGUIButton("Disband Group", () =>
                     {
-                        int updated = RecordingStore.ReplaceGroupOnAll(capturedName, capturedParent);
+                        int updated = RecordingGroupStore.ReplaceGroupOnAll(
+                            capturedName, capturedParent, RecordingStore.CommittedRecordings);
                         GroupHierarchyStore.RemoveGroupFromHierarchy(capturedName);
                         KnownEmptyGroups.Remove(capturedName);
                         expandedGroups.Remove(capturedName);

@@ -954,7 +954,7 @@ namespace Parsek
         /// Unity-coupled wrapper over <see cref="ResolveMarkerDrawDecision"/> (Phase 8c): resolves the
         /// three per-pid signals and returns whether the Parsek non-proto marker must draw for
         /// <paramref name="ghostPid"/> this frame (proto icon hidden). Both marker call sites
-        /// (<c>ParsekUI.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
+        /// (<c>ParsekFlightMapMarkers.DrawMapMarkers</c> flight-map, <c>ParsekTrackingStation
         /// .ClassifyAtmosphericMarkerSkip</c> TS) route through this single source so they cannot diverge.
         /// </summary>
         internal static bool ShouldDrawNonProtoMarkerForGhost(uint ghostPid)
@@ -1073,9 +1073,6 @@ namespace Parsek
             return vesselPidToRecordingId.TryGetValue(pid, out string recId)
                 && Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recId);
         }
-
-        internal const string GapGlidePairPointNotFound = "gap-pair-point-not-found";
-        internal const string GapGlidePairSingleSample = "gap-pair-single-sample";
 
         internal const string EnsureOrbitRenderersSkipApplicationQuitting = "application-quitting";
         internal const string EnsureOrbitRenderersSkipRemoveAllInProgress = "remove-all-ghosts-in-progress";

@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// Tests for the duplicate blocker recovery fix (bug #112):
     /// - <see cref="VesselSpawner.ShouldRecoverBlockerVessel"/> pure decision method
     /// - <see cref="Recording.DuplicateBlockerRecovered"/> flag behavior
-    /// - Reset of spawn fields in <see cref="RecordingStore.ResetAllPlaybackState"/>
+    /// - Reset of spawn fields in <see cref="RewindLauncher.ResetAllPlaybackState"/>
     /// </summary>
     [Collection("Sequential")]
     public class DuplicateBlockerRecoveryTests : IDisposable
@@ -235,7 +235,7 @@ namespace Parsek.Tests
             };
 
             RecordingStore.AddRecordingWithTreeForTesting(rec);
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             Assert.False(rec.DuplicateBlockerRecovered);
             Assert.Equal(0, rec.CollisionBlockCount);

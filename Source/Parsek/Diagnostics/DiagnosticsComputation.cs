@@ -153,7 +153,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Sidecar file types written by RecordingStore.SaveRecordingFiles.
+        /// Sidecar file types written by RecordingSidecarStore.SaveRecordingFiles.
         /// Used by ShouldExpectSidecarFile to gate "missing file" warnings.
         /// </summary>
         internal enum SidecarFileType
@@ -165,7 +165,7 @@ namespace Parsek
 
         /// <summary>
         /// Pure predicate: should this recording's sidecar file exist on disk?
-        /// Mirrors RecordingStore.SaveRecordingFiles' write conditions:
+        /// Mirrors RecordingSidecarStore.SaveRecordingFiles' write conditions:
         /// - .prec is always written
         /// - _vessel.craft only when rec.VesselSnapshot != null
         /// - _ghost.craft only when ghost snapshot mode resolves to Separate
@@ -180,7 +180,7 @@ namespace Parsek
                 case SidecarFileType.Trajectory:     return true;
                 case SidecarFileType.VesselSnapshot: return rec.VesselSnapshot != null;
                 case SidecarFileType.GhostSnapshot:
-                    return RecordingStore.GetExpectedGhostSnapshotMode(rec) == GhostSnapshotMode.Separate;
+                    return RecordingSidecarStore.GetExpectedGhostSnapshotMode(rec) == GhostSnapshotMode.Separate;
                 default: return false;
             }
         }

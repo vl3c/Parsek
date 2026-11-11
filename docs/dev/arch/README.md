@@ -63,11 +63,76 @@ declared in two different modules is dropped here too, because text alone
 cannot say which one a use means. Roles, levels and the entry-point attribute
 window are heuristics, not compiler facts (see "Reading the ladder").
 
-The checker is **report-only**: it always exits 0, and nothing in the build or
-the test suite gates on it. A gating version must derive edges from a real
-semantic model (Roslyn), because a text scan cannot see conditional
-compilation, partial classes across files, or references built through
-reflection.
+The checker is **report-only**: it always exits 0. What gates is the
+`scripts/arch` test suite CI runs (placement contract, knot canaries, the
+residue ratchet below). A text scan cannot see conditional compilation or
+references built through reflection, and it cannot tell a call through a
+forwarder from a dependency on the forwarder's type; the semantic graph below
+reads the compiler's output instead.
+
+## The semantic graph (compiled IL)
+
+`scripts/arch/ilgraph.py` reads the IL of the built `Parsek.dll` (an `ikdasm`
+dump, the disassembler `scripts/refactor/il_compare.py` already uses, from
+mono-devel) and returns, per source type, the in-assembly types its compiled
+code uses: the declaring type of every member an instruction names, types an
+instruction names as its operand, and the types in the type's own
+declarations (base list, fields, own signatures, locals, attributes). A
+called member's parameter and return types are not counted, and
+compiler-generated closures and state machines are credited to the source
+type that wrote them. Nodes are the text model's own (same names, same
+modules), so the two graphs differ only in edges.
+
+A **forwarder** is a method whose body is argument loads, at most a read of its
+own type's service field or getter, and exactly one call (or construction, or
+static field access) on another in-assembly type. A call to it is credited to
+the type the forward chain ends in, when every overload of that name and
+arity forwards to the same type. Deleting a forwarder and calling the service
+directly therefore leaves the graph unchanged, and adding one cannot hide an
+edge: the store's metric forwarders stop moving the residue. W4c (2026-11-08)
+deleted the 11 of them and pointed every caller at its service: the semantic
+residue stayed 150 and the text residue rose 179 -> 193.
+
+Why IL and not Roslyn: the DLL is already built by every CI run and every
+local test run, `ikdasm` is already a tooling dependency, the parser is
+stdlib Python that the tests drive with inline IL text, and the compiler has
+already resolved overloads, extension methods, `var` and inferred generics.
+Roslyn would need the Microsoft.CodeAnalysis packages and a second
+compilation of every file against the KSP references.
+
+Run it:
+
+```bash
+python3 scripts/arch/semantic.py --il Source/Parsek/bin/Debug/Parsek.dll [--edges]
+python3 scripts/arch/archview.py --check --il Source/Parsek/bin/Debug/Parsek.dll
+```
+
+The report prints the knot, greedy and replayed residue for the text graph,
+the raw IL graph and the semantic (forwarder-resolved) graph, then classifies
+every edge the text and IL graphs disagree on (`semantic.py`'s docstring lists
+the reasons: constants, enum members and `nameof` the compiler inlines, nested
+type qualifiers, text false positives such as object-initializer members or a
+stock type's nested name, and on the IL side members reached through a value
+the source never names, `var` locals, inferred generic arguments and base
+lists the text scan never reads). `--edges` lists every edge and, for each type
+in one residue and not the other, the disagreeing edges that touch it.
+
+CI runs `scripts/arch/test_semantic.py` after the build with `PARSEK_ARCH_IL`
+pointing at the built DLL (its real-tree cells, the residue ratchet among
+them, skip only when that is unset).
+On the refactor branch at 668a03255 (2026-11-08, after wave 2 W1c and W3b):
+text residue 179, semantic residue 150 (greedy and replayed with
+`SEMANTIC_CUT_ORDER`), knot 432 against 390; text-only edges 712, IL-only 637,
+every one classified. Two text false
+positives that held weight: the UI node `State` (StockUiReasonTooltip's private
+nested class) is matched by every `Contract.State` / `RDTech.State` token in
+GameActions and Patches (foreign-qualifier), and `Hold` (RewindVesselHold's
+nested class) by enum members such as `ChainBridgeAction.Hold`
+(qualified-member). The one compiled edge into `Hold` is RewindLauncher's
+`var` list of holds. W1b (#2464) moved the hold record out of ReFlyInvokeHold,
+deleting the text edge `ReFlyInvokeHold -> Hold` (only the qualifier of
+`ReFlyInvokeHold.Entry`): the text residue fell 272 -> 263 (knot 459 -> 450)
+and the semantic residue stayed 250, which never counted that edge.
 
 ## Regenerating
 
@@ -223,22 +288,36 @@ attribute itself.
 A **knot** is a strongly connected component of the type graph with more than
 one member: a group of types that reach one another in a cycle, directly or
 through other members. Longest-path levelling condenses a cycle to one level,
-so the kernel's 542-type knot collapses into level 7 and only the types above
-it (levels 8 to 11 here, mostly patches and entry points) rise above. A knot
+so the kernel's 469-type knot collapses into level 10 and only the types above
+it (levels 11 to 14 here, mostly patches and entry points) rise above. A knot
 is why that level is flat: the levelling cannot order types that depend on each
 other.
 
 `types.json` records this per type: `knot` is the 1-based index of the type's
 component in largest-first order, or null outside a knot, and `sublevel` is
 the type's level inside its knot after the cut edges are removed (again null
-outside). On the current tree the knots are one of 542, then of 4 and 3
-(re-derived 2026-11-04 on main's production code: placing 50 root files the map
-had skipped took the kernel to 584 on 2026-11-01 and merged the 7-type
-stock-screen decoration knot into it; teaching the scanner that a field,
-property or enum member spelled like a type is not a reference to it split off
-a 3-type stock-UI grey knot. Making `Recording` plain data again and moving
-`GameAction`'s two real knot calls out take it to 456; those re-cuts live on
-the refactor branch claude/project-thread-bkwmrr only).
+outside). On the current tree, the refactor branch claude/project-thread-bkwmrr,
+the knots are one of 469, then of 4 and 3 (re-derived 2026-11-06 on main's 1.0.0
+code plus the branch's re-cuts: placing 50 root files the map had skipped took
+the kernel to 584 on 2026-11-01 and merged the 7-type stock-screen decoration
+knot into it; teaching the scanner that a field, property or enum member
+spelled like a type is not a reference to it split off a 3-type stock-UI grey
+knot, leaving 542 on main's code. Making `Recording` plain data again and
+moving `GameAction`'s real `CaptureSequence` call to the leaf
+`CaptureSequenceCodec` take it to 457 here; those re-cuts are not on main. Moving the
+segment labels out of `RecordingStore` into `RecordingSegmentLabels`, which still reaches
+the knot through `RecordingOptimizer`, adds one: 458; moving the chain queries into
+`RecordingChainQueries` adds one more: 459; moving the rewind spawn scope into
+`RewindSpawnScope` adds one more: 460; the file janitor in `RecordingFileJanitor`
+one more: 461. File-placement PR 8's `LiveVesselSnapshot` adds none: the
+capture entry points that reach knot members stay on `FlightRecorder`, so it
+sits on no cycle; the optimization pass in `CommittedListOptimizer` one
+more: 462; the restore attempt in `CommittedTreeRestoreAttempt` one more: 463;
+the pending-tree slot in `PendingTreeSlot` one more: 464; the switch-segment
+attempts in `SwitchSegmentAttempts` one more: 465; the tree discard in
+`TreeDiscardService` one more: 466; the tree commit in `TreeCommitService`
+one more: 467; the rewind carry in `RewindCarry` one more: 468; the rewind launcher in
+`RewindLauncher` one more: 469).
 It was 301, 7, 4, 2 and 2 on 2026-09-25; 286, 4, 2 and 2 on 2026-09-22; and
 391, 4 and 2 before the 2026-09-14 pass made `ParsekLog` and `Recording` leaves.
 
@@ -247,18 +326,61 @@ their size and module breakdown, then for the largest knot it shows the hubs
 (the members other members reference most, with their in-knot references) and a
 **greedy cut sequence**: each step picks, among the highest-fan-in members, the
 sink whose outgoing references, when removed, break the knot the most, and
-reports the references that were dropped. `542 -> cut Recording -> 496`
+reports the references that were dropped. On main's code, `542 -> cut Recording -> 496`
 means removing `Recording`'s two references inside the knot
 (`LaunchSiteOnlyGhost`, `SidecarVersions`) splits off 46 members, and the
-second row, `GameAction` (`CaptureSequence`), 40 more. Some cuts are
+second row, `GameAction` (`CaptureSequence`), 40 more; this branch makes both
+cuts in code, so its sequence starts at `469 -> cut Route -> 451`, then
+`451 -> cut VesselLaunchIdentity -> 433` (its `RecordingSidecarStore` and `VesselNameStore`
+references; the flight controller was second until a 2026-11-07 pure move deleted
+one unrelated reference and reordered the greedy steps). Some cuts are
 cheap inversions like those - one or two references between hubs holding a
 whole region together, and those are the references a refactor should look at
 first - while the rest touch many small references at once (the `RecordingStore`
-cut, fifth on the current tree, drops 47), and the named
+cut drops 24 on the current tree), and the named
 sink there often needs a new abstraction (an interface, a data boundary) rather
 than moved edges. The table is a research list, not a verdict - the tool never says a
 reference is wrong, only that it holds a cycle together. Nothing in this phase
 changes any dependency; it reports them.
+
+The residue after the last cut is a ratchet. Since 2026-11-07 (W4a2) it reads
+the **semantic graph** (next section's "The semantic graph", read from the
+compiled IL), in `scripts/arch/test_semantic.py`
+(`test_the_semantic_residue_ratchet`, bound 150, the semantic residue on
+668a03255, a tree that still passed the text bound 179): refactor work must
+not loosen it, not even for a new type that only splits an existing residue
+member - keep such a type off the cycle or make it a partial of a type already
+in the knot. A call through a forwarder counts there as a call to the
+forwarded type, so adding or deleting a forwarder no longer moves it. The
+ratchet runs where `PARSEK_ARCH_IL` names a built DLL: in CI after the build,
+and locally with
+`PARSEK_ARCH_IL=Source/Parsek/bin/Debug/Parsek.dll python3 -m unittest discover -s scripts/arch -q`
+after a Debug build of the tree under test (a stale DLL measures old code).
+Measure the Debug DLL, the one CI builds: a Release DLL can read lower,
+because the optimizer drops typed locals the source names (on 5dc4ebd78 the
+Release build has 19 fewer semantic edges than Debug and 11 text edges no IL
+explains; the residue happened to be 250 in both), so a bound pinned from a
+Release build can red CI. Without `PARSEK_ARCH_IL` the ratchet cell skips, so
+`WorkflowRunsTheRatchetTests` reads `.github/workflows/tests.yml` and reds when
+no step after the build runs the semantic cells with `PARSEK_ARCH_IL` set to
+the built Debug DLL (step deleted, commented out, conditional,
+`continue-on-error`, re-pointed, or a discover pattern that skips the file).
+
+Because the greedy sequence is a heuristic, deleting a real reference can
+change which sink wins an early step and leave a larger residue after the same
+12 steps, so the ratchet measures the smaller of the greedy residue and the
+**replayed residue** (`replay_cut_residue`): the largest component left after
+removing the outgoing references of a fixed, pinned cut order
+(`SEMANTIC_CUT_ORDER` in `semantic.py`, the semantic greedy order on
+668a03255). For a fixed set of cut types, deleting a reference can only shrink
+the remaining components, so a pure move that removes a reference can never red
+the ratchet; adding a reference, or a new type that sits inside the residue,
+still can. The printed and documented sequence stays the greedy one.
+
+The text scan's own residue (`test_archview.py`'s
+`test_cut_sequence_halves_the_largest_knot`, replayed over
+`archview.RATCHET_CUT_ORDER`, 179 on 668a03255) is still measured and
+reported, no longer bounded: it moves when a forwarder is added or deleted.
 
 `ladder.html` shows the same information in place. The row of a knot level is
 split into sub-rows, top to bottom by descending sublevel (level 0 of the knot
@@ -276,7 +398,7 @@ not a claim about the code).
 `modules.toml` used to end with a catch-all rule (`Core`) that collected every
 root-level file no other rule claimed. That was a map maintenance queue, not a
 module, and the placement policy below emptied it. The kernel guard has since
-replaced the catch-all with an explicit list: `Core` now names the nine kernel
+replaced the catch-all with an explicit list: `Core` now names the eight kernel
 files, and an unplaced root file is reported and skipped rather than silently
 joining the kernel. `--place` still scores the files in the last rule's module
 and writes the phase's evidence to `core-placement.md`; for the historical
@@ -322,9 +444,9 @@ and revert machinery to Rewind, sidecar I/O and recorder policy to Recording,
 playback and spawn support to Ghost, scene-level control including the
 `WarpToTime` family to Controllers, dialogs and Unity-instantiated overlays to
 UI, and in-game test support to a new `Harness` module in `[tooling]`. R0
-rules sit above R1 and win on first match. The 9 files that stay in `Core`
+rules sit above R1 and win on first match. The 8 files that stay in `Core`
 are the kernel vocabulary (`BranchPoint`, `IPlaybackTrajectory`,
-`VesselLaunchIdentity`, `VesselSpawner`, `VesselSnapshotOps`, `MilestoneStore`,
+`VesselLaunchIdentity`, `VesselSnapshotOps`, `MilestoneStore`,
 `GroupHierarchyStore`, `InventoryManifest`, `PlaybackTrajectoryBoundsResolver`):
 used across many modules, so no owner has a majority, and that is the intended
 meaning of Core from here on.
@@ -332,12 +454,38 @@ meaning of Core from here on.
 `VesselSnapshotOps.cs` is the ninth and the newest: the 2026-09-14
 `VesselSpawner` split created it as the pure-over-ConfigNode subset the ledger,
 Logistics, the route proof and the UI all call, and named it in the `Core` rule
-in the same PR. Its R2 evidence reads `externalRefs=8 share=0.50
-top=Logistics(4) second=Recording(2)`, exactly on the R2 bar, so the placement
-report lists it under "Placement rules whose destination does not match the
-current map": the mechanical rule would send it to Logistics, the operator
-decision keeps it in the kernel. That line is the standing note about the
-disagreement, not a defect.
+in the same PR. The 2026-11-07 placement PR 6 moved the crew-in-snapshot and
+situation helpers into it as well (18 declarations; the two crew members that
+read the roster or `CrewReservationManager` stayed in `VesselSpawner`, which
+keeps it out of the type knot), and PR 7 the position-stamp, rotation-node,
+validation and canonical-orbit writers (28 declarations). Its R2 evidence then
+reads `externalRefs=11 share=0.45 top=Logistics(5) second=Controllers(2)`,
+which still passes R2 (the top module has at least twice the second's
+references), so the placement report lists it under "Placement rules whose destination does not
+match the current map": the mechanical rule would send it to Logistics, the
+operator decision keeps it in the kernel. That line is the standing note about
+the disagreement, not a defect.
+
+Placement PR 8 moved the live-capture half of `VesselSpawner` into a new
+`LiveVesselSnapshot.cs` (42 declarations: `TryBackupSnapshot`, `SnapshotVessel`,
+the snapshot normalizers, the body-name / body-index registry with its three
+test hooks, and the whole max-distance family). Its R0 rule places it in
+`Recording`, whose recorders, finalizers and Re-Fly invoker are its callers.
+As a new type on a cycle it added a knot node and loosened the residue ratchet
+by one, so a follow-up moved the four members that carry its knot edges
+(`TryBackupSnapshot`, `SnapshotVessel` and the two private helpers behind
+the first) onto `FlightRecorder` as the partial `FlightRecorder.LiveSnapshot.cs`;
+`LiveVesselSnapshot` keeps the rest and sits on no cycle.
+Placement PR 9 then took `VesselSpawner.cs` itself off the `Core` list: an R0
+rule places it in `Controllers`, whose scene controllers run the spawn,
+respawn and end-of-recording paths it keeps (it references 12 `Controllers`
+types). Upward edges went 83 / 812 -> 81 / 786: `Core -> Recording` 25 -> 12,
+`Core -> Controllers` 13 -> 1, and the `Core -> Crew` and `Core -> Ghost` edges
+gone, against `Ghost -> Controllers` 50 -> 58, `Recording -> Controllers`
+39 -> 43 and one more each from `Rewind` and `Crew`. PR 10 split the class
+into partial files (`VesselSpawner.cs` plus eight `VesselSpawner.<Area>.cs`,
+written by `scripts/refactor/split_vesselspawner.py`); the same R0 rule names
+them, and no edge moves.
 
 ## The atlas
 
@@ -385,16 +533,25 @@ prose by name:
   types"), or date the figure ("391 on 2026-09-14"). Re-read both against a
   fresh page and bump `reviewed` whenever they are touched.
 
-Numbers written inside a prose sentence (a count in a module summary, for
-example) are not checked; the generated numbers around them are. `--check`
+Numbers written inside prose are checked only where a pattern in
+`PROSE_NUMBER_CLAIMS` (archview.py) knows what they count: production
+modules, upward module edges, tooling files, the largest knot, the residue
+after the pinned cut order, production types, methods of 90 lines or more and
+production files of 1,000 lines or more. A prose string that carries a
+`YYYY-MM-DD` date is a dated snapshot, so a mismatch there is history and is
+only listed ("dated prose numbers the model has moved past"); a string with no
+date claims to describe the tree, so a mismatch there is listed as an
+undated prose number and fails `test_atlas_prose_matches_the_tree`. Other
+numbers are not checked; the generated numbers around them are. `--check`
 does not silently show stale prose: its ATLAS section (after KNOTS) lists
 production modules without a summary, glossary entries naming a type that is
 not in the model, glossary entries outside the live top 18 (informational),
 upward readings whose edge no longer exists, reading-order types not in
-the model, and opportunity `types` entries not in the model; it then prints
+the model, opportunity `types` entries not in the model, and the two prose
+number lists; it then prints
 the findings review date with its age in days, plus a line when that is older
 than 30 days (`FINDINGS_STALE_DAYS`). All of it is informational: none of it
-fails the check.
+fails the check (the real-tree tests gate on some of it).
 
 ## Change history
 

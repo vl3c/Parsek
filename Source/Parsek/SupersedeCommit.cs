@@ -182,7 +182,7 @@ namespace Parsek
         /// names additional recording ids whose closure entry must be filtered
         /// out as "self-links" — used by the in-place-continuation branch of
         /// <see cref="MergeDialog.TryCommitReFlySupersede"/> when
-        /// <see cref="RecordingStore.RunOptimizationPass"/> has split the
+        /// <see cref="CommittedListOptimizer.RunOptimizationPass"/> has split the
         /// in-place provisional into a chain HEAD + TIP. The caller passes the
         /// HEAD id here while passing the TIP as the <paramref name="provisional"/>
         /// parameter so <see cref="ValidateSupersedeTarget"/> sees the tip's

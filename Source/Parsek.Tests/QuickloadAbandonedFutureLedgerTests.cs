@@ -214,7 +214,7 @@ namespace Parsek.Tests
         private static RecordingTree RestoreQuicksaveNode(ConfigNode node)
         {
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
-            return RecordingStore.PopPendingTree();
+            return PendingTreeSlot.PopPendingTree();
         }
 
         private static ConfigNode CrewSnapshot(string kerbal)

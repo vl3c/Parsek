@@ -77,7 +77,7 @@ namespace Parsek.Tests
                 SidecarEpoch = 2
             };
 
-            bool skipped = RecordingStore.ShouldSkipStaleSidecar(rec, 2);
+            bool skipped = RecordingSidecarStore.ShouldSkipStaleSidecar(rec, 2);
 
             Assert.False(skipped);
         }
@@ -91,7 +91,7 @@ namespace Parsek.Tests
                 SidecarEpoch = 1
             };
 
-            bool skipped = RecordingStore.ShouldSkipStaleSidecar(rec, 3);
+            bool skipped = RecordingSidecarStore.ShouldSkipStaleSidecar(rec, 3);
 
             Assert.True(skipped);
             Assert.Contains(logLines, l =>
@@ -110,7 +110,7 @@ namespace Parsek.Tests
                 SidecarEpoch = 0
             };
 
-            bool skipped = RecordingStore.ShouldSkipStaleSidecar(rec, 5);
+            bool skipped = RecordingSidecarStore.ShouldSkipStaleSidecar(rec, 5);
 
             Assert.True(skipped);
         }
@@ -124,7 +124,7 @@ namespace Parsek.Tests
                 SidecarEpoch = 2
             };
 
-            bool skipped = RecordingStore.ShouldSkipStaleSidecar(rec, 0);
+            bool skipped = RecordingSidecarStore.ShouldSkipStaleSidecar(rec, 0);
 
             Assert.True(skipped);
         }
@@ -132,7 +132,7 @@ namespace Parsek.Tests
         // --- Epoch increment in the real SaveRecordingFiles path ---
         //
         // These drive RecordingSidecarStore's save body (through
-        // RecordingStore.SaveRecordingFilesToPathsForTesting) and read the epoch the .prec
+        // RecordingSidecarStore.SaveRecordingFilesToPathsForTesting) and read the epoch the .prec
         // actually carries, so the incrementEpoch contract decides the verdict rather than
         // a SidecarEpoch++ written in the test.
 
@@ -165,13 +165,13 @@ namespace Parsek.Tests
         private static int SaveAndProbeEpoch(Recording rec, string dir, bool incrementEpoch)
         {
             string prec = System.IO.Path.Combine(dir, rec.RecordingId + ".prec");
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, prec,
                 System.IO.Path.Combine(dir, rec.RecordingId + "_vessel.craft"),
                 System.IO.Path.Combine(dir, rec.RecordingId + "_ghost.craft"),
                 incrementEpoch));
             TrajectorySidecarProbe probe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(prec, out probe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(prec, out probe));
             return probe.SidecarEpoch;
         }
 
@@ -196,7 +196,7 @@ namespace Parsek.Tests
                 RecordingTree.LoadRecordingFrom(sfsNode, restored);
 
                 Assert.Equal(2, restored.SidecarEpoch);
-                Assert.False(RecordingStore.ShouldSkipStaleSidecar(restored, 2));
+                Assert.False(RecordingSidecarStore.ShouldSkipStaleSidecar(restored, 2));
             }
             finally
             {
@@ -228,7 +228,7 @@ namespace Parsek.Tests
                 var loaded = new Recording();
                 RecordingTree.LoadRecordingFrom(sfsNode, loaded);
                 Assert.Equal(1, loaded.SidecarEpoch);
-                Assert.False(RecordingStore.ShouldSkipStaleSidecar(loaded, precEpochAfterOob));
+                Assert.False(RecordingSidecarStore.ShouldSkipStaleSidecar(loaded, precEpochAfterOob));
             }
             finally
             {
@@ -266,7 +266,7 @@ namespace Parsek.Tests
             Assert.Equal(1, loaded.SidecarEpoch);
 
             // .prec on disk has T3 epoch
-            bool skipped = RecordingStore.ShouldSkipStaleSidecar(loaded, t3Epoch);
+            bool skipped = RecordingSidecarStore.ShouldSkipStaleSidecar(loaded, t3Epoch);
             Assert.True(skipped);
             Assert.Contains(logLines, l =>
                 l.Contains("Sidecar epoch mismatch") &&

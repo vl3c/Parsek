@@ -88,7 +88,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 100.0,
                 ExplicitEndUT = CutoffUT,
             });
-            RecordingStore.ArmCommittedTreeRestoreAttempt(clone, "test-arm");
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(clone, "test-arm");
             return clone;
         }
 
@@ -158,7 +158,7 @@ namespace Parsek.Tests
             // The tails are still purged after the re-home; the history event stays.
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "guid-tail");
             Assert.Contains(GameStateStore.Events, e => e.key == "RecordsSpeed");
-            Assert.False(RecordingStore.HasCommittedTreeRestoreAttempt);
+            Assert.False(CommittedTreeRestoreAttempt.HasCommittedTreeRestoreAttempt);
             Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]")
                 && l.Contains("PreserveIrreversibleRestoreAttemptTailsOnDiscard (test-live): re-homed 3 direct action(s)")
                 && l.Contains("contract=1") && l.Contains("milestone=1") && l.Contains("science=1"));
@@ -188,9 +188,9 @@ namespace Parsek.Tests
         {
             RecordingTree clone = ArmAttemptOnCommittedRecording();
             AddEvent(GameStateEventType.ContractCompleted, "guid-pending", 250.0);
-            RecordingStore.StashPendingTree(clone);
+            PendingTreeSlot.StashPendingTree(clone);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
             Assert.Contains(Ledger.Actions, a =>
                 a.Type == GameActionType.ContractComplete && a.ContractId == "guid-pending"
@@ -203,9 +203,9 @@ namespace Parsek.Tests
         {
             RecordingTree clone = ArmAttemptOnCommittedRecording();
             AddEvent(GameStateEventType.ContractCompleted, "guid-abandon", 250.0);
-            RecordingStore.StashPendingTree(clone);
+            PendingTreeSlot.StashPendingTree(clone);
 
-            RecordingStore.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
+            TreeDiscardService.DiscardPendingTree(preserveIrreversibleLiveGameplay: false);
 
             Assert.DoesNotContain(Ledger.Actions, a => a.ContractId == "guid-abandon");
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "guid-abandon");
@@ -215,15 +215,15 @@ namespace Parsek.Tests
         // flipped to a live discard, which would credit what KSP no longer has; and a live
         // drop site flipped to rollback, which would drop what KSP keeps.
         [Theory]
-        [InlineData("RewindInvoker.cs", "internal static bool DiscardRestoreAttemptOfAbandonedFlight(", "false")]
+        [InlineData(RewindInvokerSourceFiles.PostLoad, "internal static bool DiscardRestoreAttemptOfAbandonedFlight(", "false")]
         [InlineData("ParsekFlight.cs", "private void ResetFlightReadyState(", "false")]
-        [InlineData("ParsekFlight.cs", "private void DiscardActiveTreeForSuppressedSceneExit(", "false")]
-        [InlineData("ParsekFlight.cs", "internal void AutoDiscardNoOpNoSessionCommittedResume(", "true")]
+        [InlineData("ParsekFlight.cs", "internal void DiscardActiveTreeForSuppressedSceneExit(", "false")]
+        [InlineData("ParsekFlightSwitchContinuation.cs", "internal void AutoDiscardNoOpNoSessionCommittedResume(", "true")]
         [InlineData("Patches/MapFocusObjectOnSelectPatch.cs", "private static void DiscardActiveRecordingAndSwitchTo(", "true")]
         public void DropSites_PassTheirPreserveFlag(string file, string signature, string expected)
         {
             string body = ExtractMethodBody(
-                SourceScanText.StripCSharpComments(File.ReadAllText(LocateParsekSourceFile(file))),
+                SourceScanText.StripCSharpComments(ParsekFlightSourceFiles.ReadText(LocateParsekSourceFile(file))),
                 signature);
             Assert.Contains("preserveIrreversibleTails: " + expected, body);
             string other = expected == "true" ? "false" : "true";

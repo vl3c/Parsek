@@ -399,22 +399,7 @@ namespace Parsek
             double proximityInterval = ResolveDebrisAwareSampleInterval(rawProximityInterval, treeRec);
             bool highFidelityActive = IsBackgroundHighFidelitySamplingActive(state, ut, distance);
             // Log when sample rate changes for this vessel
-            if (proximityInterval != state.currentSampleInterval)
-            {
-                float newHz = (proximityInterval > 0 && proximityInterval < ProximityRateSelector.OutOfRangeInterval)
-                    ? (float)(1.0 / proximityInterval)
-                    : 0f;
-                string distStr = distance.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-                string hzStr = newHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
-                bool capApplied = proximityInterval != rawProximityInterval;
-                string capSuffix = capApplied
-                    ? $" debris-cap=applied (rawTier={FormatInterval(rawProximityInterval)})"
-                    : string.Empty;
-                ParsekLog.Info("BgRecorder",
-                    $"Sample rate changed: pid={pid} dist={distStr}m " +
-                    $"interval={FormatInterval(proximityInterval)} ({hzStr} Hz){capSuffix}");
-                state.currentSampleInterval = proximityInterval;
-            }
+            UpdateBackgroundSampleInterval(state, pid, distance, rawProximityInterval, proximityInterval);
 
             // Skip trajectory sampling if out of range
             if (ShouldSkipTrajectorySamplingForProximity(
@@ -437,12 +422,7 @@ namespace Parsek
                     PostPhysicsPoseCache.ReadStatsRunInUpdate(),
                     bgVessel.packed))
             {
-                fixedStepSampleSkipCount++;
-                ParsekLog.VerboseRateLimited("BgRecorder", "bg-fixed-step-skip",
-                    $"Fixed-step physics callback: background sample deferred to the Update step " +
-                    $"pid={pid} ut={ut.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"skippedCallbacks={fixedStepSampleSkipCount}",
-                    5.0);
+                NoteBackgroundFixedStepSampleSkip(pid, ut);
                 return;
             }
 
@@ -457,45 +437,33 @@ namespace Parsek
             float minSampleInterval = ParsekSettings.Current?.minSampleInterval ?? ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium);
             float velocityDirThreshold = ParsekSettings.Current?.velocityDirThreshold ?? ParsekSettings.GetVelocityDirThreshold(SamplingDensity.Medium);
             float speedChangeThreshold = (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
-            float effectiveMinSampleInterval = debrisTier != ProximitySamplingTier.None
-                ? FlightRecorder.ResolveEffectiveMinSampleInterval(
-                    ProximitySamplingTier.None,
-                    debrisTier,
-                    highFidelityActive,
-                    minSampleInterval,
-                    maxSampleInterval)
-                : highFidelityActive
-                    ? FlightRecorder.ResolveEffectiveMinSampleInterval(true, minSampleInterval)
-                    : (float)proximityInterval;
-            float effectiveMaxSampleInterval = FlightRecorder.ResolveEffectiveMaxSampleInterval(
-                ProximitySamplingTier.None,
+            float effectiveMinSampleInterval;
+            float effectiveMaxSampleInterval;
+            ResolveBackgroundEffectiveSampleIntervals(
                 debrisTier,
                 highFidelityActive,
+                proximityInterval,
+                minSampleInterval,
                 maxSampleInterval,
-                minSampleInterval);
-            if (debrisTier == ProximitySamplingTier.None)
-            {
-                effectiveMaxSampleInterval = ResolveDebrisAwareMaxSampleInterval(
-                    effectiveMaxSampleInterval,
-                    treeRec);
-            }
+                treeRec,
+                out effectiveMinSampleInterval,
+                out effectiveMaxSampleInterval);
 
-            bool motionTriggered = TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
-                ut, state.lastRecordedUT,
-                effectiveMinSampleInterval, effectiveMaxSampleInterval,
-                velocityDirThreshold, speedChangeThreshold);
-            float attitudeMinSampleInterval = ResolveBackgroundAttitudeMinSampleInterval(
+            bool motionTriggered;
+            bool attitudeTriggered;
+            ResolveBackgroundSampleTriggers(
+                state,
+                ut,
+                currentVelocity,
+                currentWorldRotation,
                 highFidelityActive,
                 effectiveMinSampleInterval,
-                minSampleInterval);
-            bool attitudeTriggered = FlightRecorder.ShouldRecordAttitudePoint(
-                currentWorldRotation,
-                state.lastWorldRotation,
-                ut,
-                state.lastRecordedUT,
-                state.hasLastWorldRotation,
-                attitudeMinSampleInterval,
-                backgroundAttitudeSampleThresholdDegrees);
+                effectiveMaxSampleInterval,
+                minSampleInterval,
+                velocityDirThreshold,
+                speedChangeThreshold,
+                out motionTriggered,
+                out attitudeTriggered);
 
             if (!motionTriggered && !attitudeTriggered && !state.physicsSoiSamplePending)
             {
@@ -508,10 +476,6 @@ namespace Parsek
                 ut,
                 currentVelocity,
                 preferRootPartSurfacePose: preferRootPartSurfacePose);
-            TryCanonicalizeBackgroundReFlyRecordingPoint(
-                state.recordingId,
-                ref point,
-                "physics-sample");
             // One section holds one body: a sample on a new body (an SOI change while this
             // vessel is in physics) closes the section here and becomes the next section's
             // first frame.
@@ -574,6 +538,129 @@ namespace Parsek
                 $"Background point sampled: pid={pid} pts={treeRec.Points.Count} " +
                 $"alt={bgVessel.altitude:F0} dist={distance:F0}m interval={FormatInterval(proximityInterval)} " +
                 $"highFidelity={highFidelityActive} reason={state.highFidelitySamplingReason ?? "(none)"}", 5.0);
+        }
+
+        /// <summary>
+        /// The per-tick proximity interval bookkeeping of
+        /// <see cref="OnBackgroundPhysicsFrame(Vessel)"/>: when the interval differs from the
+        /// one the state last used, logs the change (with the debris cap when it moved the raw
+        /// tier) and stores it. Allocates only on a change.
+        /// </summary>
+        private static void UpdateBackgroundSampleInterval(
+            BackgroundVesselState state,
+            uint pid,
+            double distance,
+            double rawProximityInterval,
+            double proximityInterval)
+        {
+            if (proximityInterval != state.currentSampleInterval)
+            {
+                float newHz = (proximityInterval > 0 && proximityInterval < ProximityRateSelector.OutOfRangeInterval)
+                    ? (float)(1.0 / proximityInterval)
+                    : 0f;
+                string distStr = distance.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+                string hzStr = newHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+                bool capApplied = proximityInterval != rawProximityInterval;
+                string capSuffix = capApplied
+                    ? $" debris-cap=applied (rawTier={FormatInterval(rawProximityInterval)})"
+                    : string.Empty;
+                ParsekLog.Info("BgRecorder",
+                    $"Sample rate changed: pid={pid} dist={distStr}m " +
+                    $"interval={FormatInterval(proximityInterval)} ({hzStr} Hz){capSuffix}");
+                state.currentSampleInterval = proximityInterval;
+            }
+        }
+
+        /// <summary>
+        /// Counts and rate-limit logs a fixed-step physics callback whose background sample is
+        /// deferred to the Update step (see PostPhysicsPoseCache).
+        /// </summary>
+        internal void NoteBackgroundFixedStepSampleSkip(uint pid, double ut)
+        {
+            fixedStepSampleSkipCount++;
+            ParsekLog.VerboseRateLimited("BgRecorder", "bg-fixed-step-skip",
+                $"Fixed-step physics callback: background sample deferred to the Update step " +
+                $"pid={pid} ut={ut.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"skippedCallbacks={fixedStepSampleSkipCount}",
+                5.0);
+        }
+
+        /// <summary>
+        /// The effective adaptive-sampling floor and ceiling of a loaded background tick: a
+        /// debris tier uses the debris cadence, high fidelity the configured foreground floor,
+        /// and otherwise the proximity interval is the floor; a non-debris tick also takes the
+        /// debris-aware ceiling cap.
+        /// </summary>
+        internal static void ResolveBackgroundEffectiveSampleIntervals(
+            ProximitySamplingTier debrisTier,
+            bool highFidelityActive,
+            double proximityInterval,
+            float minSampleInterval,
+            float maxSampleInterval,
+            Recording treeRec,
+            out float effectiveMinSampleInterval,
+            out float effectiveMaxSampleInterval)
+        {
+            effectiveMinSampleInterval = debrisTier != ProximitySamplingTier.None
+                ? FlightRecorder.ResolveEffectiveMinSampleInterval(
+                    ProximitySamplingTier.None,
+                    debrisTier,
+                    highFidelityActive,
+                    minSampleInterval,
+                    maxSampleInterval)
+                : highFidelityActive
+                    ? FlightRecorder.ResolveEffectiveMinSampleInterval(true, minSampleInterval)
+                    : (float)proximityInterval;
+            effectiveMaxSampleInterval = FlightRecorder.ResolveEffectiveMaxSampleInterval(
+                ProximitySamplingTier.None,
+                debrisTier,
+                highFidelityActive,
+                maxSampleInterval,
+                minSampleInterval);
+            if (debrisTier == ProximitySamplingTier.None)
+            {
+                effectiveMaxSampleInterval = ResolveDebrisAwareMaxSampleInterval(
+                    effectiveMaxSampleInterval,
+                    treeRec);
+            }
+        }
+
+        /// <summary>
+        /// The two sample triggers of a loaded background tick against the state's last
+        /// recorded sample: motion (velocity direction / speed change or the interval bounds)
+        /// and attitude (rotation past the background threshold, floored by the attitude
+        /// minimum interval).
+        /// </summary>
+        private static void ResolveBackgroundSampleTriggers(
+            BackgroundVesselState state,
+            double ut,
+            Vector3 currentVelocity,
+            Quaternion currentWorldRotation,
+            bool highFidelityActive,
+            float effectiveMinSampleInterval,
+            float effectiveMaxSampleInterval,
+            float minSampleInterval,
+            float velocityDirThreshold,
+            float speedChangeThreshold,
+            out bool motionTriggered,
+            out bool attitudeTriggered)
+        {
+            motionTriggered = TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
+                ut, state.lastRecordedUT,
+                effectiveMinSampleInterval, effectiveMaxSampleInterval,
+                velocityDirThreshold, speedChangeThreshold);
+            float attitudeMinSampleInterval = ResolveBackgroundAttitudeMinSampleInterval(
+                highFidelityActive,
+                effectiveMinSampleInterval,
+                minSampleInterval);
+            attitudeTriggered = FlightRecorder.ShouldRecordAttitudePoint(
+                currentWorldRotation,
+                state.lastWorldRotation,
+                ut,
+                state.lastRecordedUT,
+                state.hasLastWorldRotation,
+                attitudeMinSampleInterval,
+                backgroundAttitudeSampleThresholdDegrees);
         }
 
         /// <summary>
@@ -1107,11 +1194,10 @@ namespace Parsek
                 if (v.orbit != null)
                 {
                     state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
-                    TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
+                    LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
                         recordingId,
                         v,
                         ut,
-                        ref state.currentOrbitSegment,
                         "soi-change");
                     state.hasOpenOrbitSegment = true;
                 }
@@ -1412,11 +1498,10 @@ namespace Parsek
 
                 // Open a fresh orbit segment with current orbital elements
                 state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
-                TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
+                LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
                     state.recordingId,
                     v,
                     ut,
-                    ref state.currentOrbitSegment,
                     "checkpoint");
                 state.hasOpenOrbitSegment = true;
                 checkpointed++;

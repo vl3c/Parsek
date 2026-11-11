@@ -387,7 +387,7 @@ namespace Parsek.Tests
                 InitialFunds = 25000f
             });
 
-            RecordingStore.StashPendingTree(new RecordingTree
+            PendingTreeSlot.StashPendingTree(new RecordingTree
             {
                 Id = "tree-pending",
                 TreeName = "PendingTree",
@@ -444,7 +444,7 @@ namespace Parsek.Tests
         public void RecalculateAndPatch_WithUtCutoff_DoesNotDeferPatchForPendingTree()
         {
             LedgerOrchestrator.Initialize();
-            RecordingStore.StashPendingTree(new RecordingTree
+            PendingTreeSlot.StashPendingTree(new RecordingTree
             {
                 Id = "tree-cutoff",
                 TreeName = "CutoffTree",
@@ -464,7 +464,7 @@ namespace Parsek.Tests
         public void RecalculateAndPatchForPostRewindFlightLoad_WithPendingTree_StillDefersKspStatePatch()
         {
             LedgerOrchestrator.Initialize();
-            RecordingStore.StashPendingTree(new RecordingTree
+            PendingTreeSlot.StashPendingTree(new RecordingTree
             {
                 Id = "tree-scene-load",
                 TreeName = "SceneLoadTree",

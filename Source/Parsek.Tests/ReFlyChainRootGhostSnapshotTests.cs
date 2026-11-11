@@ -23,7 +23,7 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             IncompleteBallisticSceneExitFinalizer.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
@@ -42,7 +42,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             RecordingStore.ResetForTesting();
 
             if (Directory.Exists(tempDir))
@@ -116,7 +116,7 @@ namespace Parsek.Tests
 
             RecordingTree loadedTree = RecordingTree.Load(treeNode);
             Recording loadedParent = loadedTree.Recordings[ParentId];
-            Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+            Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                 loadedParent,
                 PrecPath(ParentId),
                 VesselPath(ParentId),
@@ -209,7 +209,7 @@ namespace Parsek.Tests
                 altitude = 900.0,
                 bodyName = "Kerbin"
             });
-            rec.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
+            rec.GhostSnapshotMode = RecordingSidecarStore.DetermineGhostSnapshotMode(rec);
             return rec;
         }
 
@@ -227,7 +227,7 @@ namespace Parsek.Tests
 
         private void SaveSidecars(Recording rec)
         {
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec,
                 PrecPath(rec.RecordingId),
                 VesselPath(rec.RecordingId),

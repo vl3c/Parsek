@@ -90,16 +90,16 @@ namespace Parsek.Tests
         [Fact]
         public void PureDecision_SameTreeId_MatchesTheArmedClone()
         {
-            Assert.True(RecordingStore.DroppedTreeMatchesArmedRestoreAttempt(
+            Assert.True(CommittedTreeRestoreAttempt.DroppedTreeMatchesArmedRestoreAttempt(
                 CloneTreeId, CloneTreeId));
         }
 
         [Fact]
         public void PureDecision_DifferentTreeIds_DoNotMatch()
         {
-            Assert.False(RecordingStore.DroppedTreeMatchesArmedRestoreAttempt(
+            Assert.False(CommittedTreeRestoreAttempt.DroppedTreeMatchesArmedRestoreAttempt(
                 CloneTreeId, OtherTreeId));
-            Assert.False(RecordingStore.DroppedTreeMatchesArmedRestoreAttempt(
+            Assert.False(CommittedTreeRestoreAttempt.DroppedTreeMatchesArmedRestoreAttempt(
                 OtherTreeId, CloneTreeId));
         }
 
@@ -111,7 +111,7 @@ namespace Parsek.Tests
         public void PureDecision_MissingIdOnEitherSide_NeverMatches(
             string armedAttemptTreeId, string droppedTreeId)
         {
-            Assert.False(RecordingStore.DroppedTreeMatchesArmedRestoreAttempt(
+            Assert.False(CommittedTreeRestoreAttempt.DroppedTreeMatchesArmedRestoreAttempt(
                 armedAttemptTreeId, droppedTreeId));
         }
 
@@ -123,13 +123,13 @@ namespace Parsek.Tests
         [Fact]
         public void DroppedCloneTree_ClearsTheAttempt_AndLogsTheDecisionAndTheClear()
         {
-            RecordingStore.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
 
-            bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+            bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 CloneTreeId, ResetReason, preserveIrreversibleTails: false);
 
             Assert.True(cleared);
-            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
+            Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]")
                 && l.Contains("ClearCommittedTreeRestoreAttemptForDroppedTree")
@@ -147,20 +147,20 @@ namespace Parsek.Tests
         [Fact]
         public void DroppedOtherTree_LeavesTheAttemptArmedAndLogsNothing()
         {
-            RecordingStore.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
 
-            bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+            bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 OtherTreeId, ResetReason, preserveIrreversibleTails: false);
 
             Assert.False(cleared);
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
             Assert.DoesNotContain(logLines, l => l.Contains("reason=" + ResetReason));
         }
 
         [Fact]
         public void DroppedTree_WithNoAttemptArmed_IsANoOp()
         {
-            bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+            bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 CloneTreeId, ResetReason, preserveIrreversibleTails: false);
 
             Assert.False(cleared);
@@ -172,13 +172,13 @@ namespace Parsek.Tests
         [Fact]
         public void DroppedTreeNull_WithAttemptArmed_IsANoOp()
         {
-            RecordingStore.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
 
-            bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+            bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 null, ResetReason, preserveIrreversibleTails: false);
 
             Assert.False(cleared);
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
             Assert.DoesNotContain(logLines, l => l.Contains("reason=" + ResetReason));
         }
 
@@ -194,7 +194,7 @@ namespace Parsek.Tests
         public void DroppedCloneTree_PurgesSameIdPostCutoffEventTails_ThenClears()
         {
             RecordingTree tree = TreeWithRecording(CloneTreeId, "rec-clone", endUT: 200.0);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
 
             GameStateEvent postCutoff = MakeGameStateEvent("tail-post", ut: 250.0,
                 recordingId: "rec-clone");
@@ -205,16 +205,16 @@ namespace Parsek.Tests
 
             // The precondition that makes the purge load-bearing: while armed, only the
             // post-cutoff tail is held off disk, so only it can leak after the clear.
-            Assert.True(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+            Assert.True(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
                 postCutoff));
-            Assert.False(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+            Assert.False(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
                 preCutoff));
 
-            bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+            bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 CloneTreeId, ResetReason, preserveIrreversibleTails: false);
 
             Assert.True(cleared);
-            Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
+            Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "tail-post");
             Assert.Contains(GameStateStore.Events, e => e.key == "tail-pre");
             // The purge must name THIS drop reason: a collected log then ties the tail
@@ -236,17 +236,17 @@ namespace Parsek.Tests
         public void DroppedOtherTree_PurgesNothing_AndKeepsTheAttemptArmed()
         {
             RecordingTree tree = TreeWithRecording(CloneTreeId, "rec-clone", endUT: 200.0);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, ArmReason);
 
             GameStateEvent postCutoff = MakeGameStateEvent("tail-post", ut: 250.0,
                 recordingId: "rec-clone");
             GameStateStore.AddEvent(ref postCutoff);
 
-            bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
+            bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 OtherTreeId, ResetReason, preserveIrreversibleTails: false);
 
             Assert.False(cleared);
-            Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
+            Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
             Assert.Contains(GameStateStore.Events, e => e.key == "tail-post");
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("PurgeEventsForRecordingAfterUT") && l.Contains("rec=rec-clone"));
@@ -267,7 +267,7 @@ namespace Parsek.Tests
             // this gate. StripCSharpComments is length- and line-preserving, and string
             // literals survive whole, so the exact-format assertion below still holds.
             string src = SourceScanText.StripCSharpComments(
-                File.ReadAllText(LocateParsekFlightSource()));
+                ParsekFlightSourceFiles.ReadText(LocateParsekFlightSource()));
             string body = ExtractMethodBody(src, "void ResetFlightReadyState()");
 
             int clearing = body.IndexOf(
@@ -316,7 +316,7 @@ namespace Parsek.Tests
         public void DiscardActiveTreeForSuppressedSceneExit_ClearsTheAttemptForTheDroppedTreeBeforeNulling()
         {
             AssertDropSiteClearsBeforeNulling(
-                "void DiscardActiveTreeForSuppressedSceneExit(",
+                "internal void DiscardActiveTreeForSuppressedSceneExit(",
                 "suppressed scene exit dropped the restore clone");
         }
 
@@ -342,7 +342,7 @@ namespace Parsek.Tests
             // Comments stripped, same as the cell above: the clear-callee and reason
             // needles must match code, not the comment that documents them.
             string src = SourceScanText.StripCSharpComments(
-                File.ReadAllText(LocateParsekFlightSource()));
+                ParsekFlightSourceFiles.ReadText(LocateParsekFlightSource()));
             string body = ExtractMethodBody(src, signature);
 
             const string clearCallee = "ClearCommittedTreeRestoreAttemptForDroppedTree(";

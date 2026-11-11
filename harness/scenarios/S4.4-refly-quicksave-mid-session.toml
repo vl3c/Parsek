@@ -88,7 +88,7 @@ tier = "operator"
 #
 # THE SAVE HALF IS INERT BY CONSTRUCTION, and run 1 confirmed it. `End reason=treeDiscarded`
 # has ONE emitter (`TreeDiscardPurge.ClearMarkerIfScopedToTree`, reached only through
-# `RecordingStore.DiscardPendingTree`), and every production caller of that is a LOAD path
+# `TreeDiscardService.DiscardPendingTree`), and every production caller of that is a LOAD path
 # (`DiscardStashedOnQuickload`, the revert cleanup, the initial-load stale-tree sweep) or
 # the merge dialog's own Discard; `SaveGameImpl` is `GamePersistence.SaveGame` and nothing
 # else. So the SaveGame step could never end the session, and it did not.
@@ -153,7 +153,7 @@ tier = "operator"
 #
 #   `End reason=treeDiscarded` stays FORBIDDEN. It is the quickload classifier's own
 #   emitter (`TreeDiscardPurge.ClearMarkerIfScopedToTree`, reached through
-#   `RecordingStore.DiscardPendingTree`), and `ShouldRunQuickloadDiscard` is supposed to be
+#   `TreeDiscardService.DiscardPendingTree`), and `ShouldRunQuickloadDiscard` is supposed to be
 #   gated OFF by `IsReFlySessionActiveForQuickloadDiscard`. If it fires on step 8 the gate
 #   does not hold and the entry becomes a product bug.
 #

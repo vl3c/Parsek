@@ -264,7 +264,7 @@ namespace Parsek.Tests
         [Fact]
         public void FormatMapMarkerSummary_CarriesThePlaybackDisabledBucket()
         {
-            var summary = new ParsekUI.MapMarkerSummary { IsMapView = true, PlaybackDisabled = 243 };
+            var summary = new ParsekFlightMapMarkers.MapMarkerSummary { IsMapView = true, PlaybackDisabled = 243 };
 
             // HasSignal is the whole point: the aggregate is suppressed when the pass has no
             // signal, and with EVERY recording hidden there is nothing else to count - so
@@ -272,7 +272,7 @@ namespace Parsek.Tests
             // that it drew nothing BECAUSE the player unticked them. Measured on harness run
             // 2026-09-14_2133, which red on exactly that unreachable claim.
             Assert.True(summary.HasSignal);
-            string line = ParsekUI.FormatMapMarkerSummary(summary);
+            string line = ParsekFlightMapMarkers.FormatMapMarkerSummary(summary);
             Assert.Contains("view=map", line);
             Assert.Contains("drawn=0", line);
             Assert.Contains("playbackDisabled=243", line);
@@ -281,10 +281,10 @@ namespace Parsek.Tests
         [Fact]
         public void FormatMapMarkerSummary_NoPlaybackDisabled_KeepsTheBucketAtZeroAndStaysSignalLess()
         {
-            var summary = new ParsekUI.MapMarkerSummary { IsMapView = true };
+            var summary = new ParsekFlightMapMarkers.MapMarkerSummary { IsMapView = true };
 
             Assert.False(summary.HasSignal);
-            Assert.Contains("playbackDisabled=0", ParsekUI.FormatMapMarkerSummary(summary));
+            Assert.Contains("playbackDisabled=0", ParsekFlightMapMarkers.FormatMapMarkerSummary(summary));
         }
 
         // --- Seam 4: the map trajectory polyline ---

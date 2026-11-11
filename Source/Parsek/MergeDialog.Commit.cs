@@ -59,14 +59,14 @@ namespace Parsek
                 return;
             }
 
-            // M1 (PR #876 round-5 review): RecordingStore.CommitPendingTree
+            // M1 (PR #876 round-5 review): TreeCommitService.CommitPendingTree
             // operates on the global pendingTree slot. If a caller routes a
             // session-resolved tree from CommittedTrees (Bug-C dialog path),
             // CommitPendingTree would no-op on null/mismatch and the dialog
             // would disappear with nothing committed. Refuse the commit when
             // the passed tree isn't the one CommitPendingTree will act on, so
             // we never silently misbehave.
-            var pendingForGuard = RecordingStore.PendingTree;
+            var pendingForGuard = PendingTreeSlot.PendingTree;
             if (pendingForGuard == null
                 || !object.ReferenceEquals(pendingForGuard, tree))
             {
@@ -114,11 +114,11 @@ namespace Parsek
             var retainedParentChainTipCandidates =
                 CollectRetainedParentChainTipAdoptionCandidates(
                     tree, decisions, activeReFlyTargetId);
-            RecordingStore.CommitPendingTree();
+            TreeCommitService.CommitPendingTree();
             // Phase C/F: mark recordings fully applied after the tree moves
             // from pending to committed state.
             RecordingStore.MarkTreeAsApplied(tree);
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
             AdoptExistingSourceVesselsForRetainedParentChainTips(
                 tree,
                 decisions,

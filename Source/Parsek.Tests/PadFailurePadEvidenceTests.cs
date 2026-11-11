@@ -164,7 +164,7 @@ namespace Parsek.Tests
             string body = ReadFallbackCommitSplitRecorderBody();
 
             // Pin the argument that matters: the decision reads THIS branch's recording.
-            Assert.Contains("string discardReason = DecideDestroyedSplitRecordingDiscard(rec);", body);
+            Assert.Contains("string discardReason = ParsekFlight.DecideDestroyedSplitRecordingDiscard(rec);", body);
             Assert.Contains("no pad evidence - committing", body);
         }
 
@@ -179,7 +179,7 @@ namespace Parsek.Tests
             // One Info line for every destroyed recording that is NOT discarded: the block
             // is gated on the decision alone, never on re-testing the evidence/thresholds.
             Assert.Contains("if (discardReason == null)\n", body);
-            Assert.Contains("bool hasPadEvidence = HasPadEvidence(rec);", body);
+            Assert.Contains("bool hasPadEvidence = ParsekFlight.HasPadEvidence(rec);", body);
             // Both outcomes are named on that line: the exact reason tokens and the
             // reason= key they are logged under, plus the no-evidence wording the spec
             // pins for its case.
@@ -231,7 +231,7 @@ namespace Parsek.Tests
             string projectRoot = Path.GetFullPath(
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
-            string source = SourceScanText.StripCSharpComments(File.ReadAllText(
+            string source = SourceScanText.StripCSharpComments(ParsekFlightSourceFiles.ReadText(
                     Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs")))
                 .Replace("\r\n", "\n");
 

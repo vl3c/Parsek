@@ -26,6 +26,32 @@ namespace Parsek
     internal static class VesselLaunchIdentity
     {
         /// <summary>
+        /// The vessel-name link-row test (live guid, recording guid): true when the live guid
+        /// continues the recording's guid through a link row. Installed by the store that holds
+        /// the rows (<c>VesselNameStore.EnsureLaunchIdentityLinkRuleInstalled</c>, run by that
+        /// store's type initialiser and by the committed store's) so this pure identity module
+        /// does not reference it. The rows live in that store's static fields, so the rule is
+        /// installed whenever a row exists; a null rule therefore means there are no rows, and
+        /// reads as "not linked", the answer the store gives with no rows.
+        /// </summary>
+        internal static Func<string, string, bool> GuidLinkRule;
+
+        /// <summary>
+        /// Re-hydrates a recording's dropped end snapshot from its <c>_vessel.craft</c> sidecar.
+        /// Installed by the sidecar store (<c>RecordingSidecarStore.EnsureLaunchIdentityHydrateRuleInstalled</c>,
+        /// run by that store's type initialiser and by the committed store's). A null rule
+        /// hydrates nothing, so the snapshot guid reads unknown and
+        /// <see cref="SpawnClaimStillHeldCore"/> keeps the claim (the safe direction).
+        /// </summary>
+        internal static Func<Recording, bool> SnapshotHydrateRule;
+
+        private static bool GuidContinuesThroughLink(string liveGuid, string recordedGuid)
+        {
+            Func<string, string, bool> rule = GuidLinkRule;
+            return rule != null && rule(liveGuid, recordedGuid);
+        }
+
+        /// <summary>
         /// Normalizes a vessel Guid string to canonical "N" form (32 lowercase hex, no dashes) for
         /// comparison. Returns null for null/empty; returns the trimmed input unchanged when it is
         /// not a parseable Guid (so a malformed value still compares equal to itself).
@@ -182,7 +208,7 @@ namespace Parsek
             if (SpawnStampHeldByCore(rec, candidatePid, candidateGuid, false)) return true;
             if (rec == null || candidatePid == 0 || rec.SpawnedVesselPersistentId != candidatePid) return false;
             return SpawnStampHeldByCore(rec, candidatePid, candidateGuid,
-                VesselNameStore.GuidContinuesIdentity(candidateGuid, rec.RecordedVesselGuid));
+                GuidContinuesThroughLink(candidateGuid, rec.RecordedVesselGuid));
         }
 
         /// <summary>
@@ -237,7 +263,11 @@ namespace Parsek
             try
             {
                 if (rec.VesselSnapshot == null)
-                    RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+                {
+                    Func<Recording, bool> hydrate = SnapshotHydrateRule;
+                    if (hydrate != null)
+                        hydrate(rec);
+                }
                 return TryReadVesselGuid(rec.VesselSnapshot);
             }
             catch (Exception ex)
@@ -255,7 +285,7 @@ namespace Parsek
         internal static bool LiveGuidIsRecordedLaunchOrLinked(string recordedGuid, string liveGuid)
         {
             if (!GuidsConclusivelyDiffer(recordedGuid, liveGuid)) return true;
-            return VesselNameStore.GuidContinuesIdentity(liveGuid, recordedGuid);
+            return GuidContinuesThroughLink(liveGuid, recordedGuid);
         }
 
         /// <summary>

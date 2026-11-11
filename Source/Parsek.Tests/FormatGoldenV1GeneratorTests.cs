@@ -89,7 +89,7 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             GameStateRecorder.ResetForTesting();
@@ -287,8 +287,8 @@ namespace Parsek.Tests
 
             RecordingTree lander = BuildLanderTree();
             RecordingTree rover = BuildRoverTree();
-            RecordingStore.CommitTree(lander);
-            RecordingStore.CommitTree(rover);
+            TreeCommitService.CommitTree(lander);
+            TreeCommitService.CommitTree(rover);
 
             // Missions: the default per tree, the lander's renamed, plus a clone with a selection.
             MissionStore.EnsureDefaultsForTrees(new[] { lander, rover });
@@ -582,7 +582,7 @@ namespace Parsek.Tests
             {
                 Recording rec = tree.Recordings[b.GetRecordingId()];
                 rec.TreeId = tree.Id;
-                RecordingStore.DeserializeTrajectoryFrom(b.BuildTrajectoryNode(), rec);
+                TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(b.BuildTrajectoryNode(), rec);
                 rec.MarkFilesDirty();
             }
         }

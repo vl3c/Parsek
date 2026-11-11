@@ -85,7 +85,7 @@ namespace Parsek.Tests
                 {
                     continue;
                 }
-                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 int count = callPattern.Matches(prepared).Count;
                 if (count > 0)
                     actual[rel] = count;
@@ -128,8 +128,8 @@ namespace Parsek.Tests
             int early = IndexOrFail(body, "LoadReconcilePolicy.ClassifyEarly(");
             int crew = IndexOrFail(body, "LoadCrewAndGroupState(node);");
             int staging = IndexOrFail(body, "LoadRewindStagingState(node);");
-            int rpCarry = IndexOrFail(body, "RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(");
-            int listCarry = IndexOrFail(body, "RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(");
+            int rpCarry = IndexOrFail(body, "RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(");
+            int listCarry = IndexOrFail(body, "RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(");
             int revert = IndexOrFail(body, "RevertDetector.Consume(");
             int isRevert = IndexOrFail(body, "ComputeIsRevertOnLoad(");
             int refined = IndexOrFail(body, "LoadReconcilePolicy.ClassifyRefined(");
@@ -253,7 +253,7 @@ namespace Parsek.Tests
             var consumers = new List<string>();
             foreach (string path in Directory.GetFiles(ParsekSourceRoot(), "*.cs", SearchOption.AllDirectories))
             {
-                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 if (Occurrences(prepared, "SaveFileLoadIntent.TryConsume(") > 0)
                     consumers.Add(Path.GetFileName(path));
             }
@@ -306,6 +306,28 @@ namespace Parsek.Tests
             int resolve = IndexOrFail(cold, "ResolveColdLoadClockUT(");
             int kspLoad = IndexOrFail(cold, "LedgerOrchestrator.OnKspLoad(");
             Assert.True(read < resolve && resolve < kspLoad);
+
+            // The OnLoadPhase* methods extracted from OnLoad sit outside its text, so the
+            // count above does not see them: none of them may read the live clock either
+            // (the cold-branch clock locals are passed in as parameters).
+            string prepared = ReadParsekSourcePrepared(ScenarioPath);
+            var declared = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Match decl in Regex.Matches(prepared, @"\bstatic\s+[\w<>\[\],.\s]+?\s(OnLoadPhase\w+)\s*\([^()]*\)\s*\{"))
+            {
+                string name = decl.Groups[1].Value;
+                Assert.True(declared.Add(name), "load-reconcile gate: " + name + " is declared twice");
+                string phaseBody = SourceScanText.BraceMatchedBlock(prepared, decl.Index + decl.Length - 1);
+                Assert.True(Occurrences(phaseBody, "Planetarium.GetUniversalTime()") == 0,
+                    "load-reconcile gate: " + name + " reads Planetarium.GetUniversalTime(); "
+                    + "an OnLoad phase takes the cold clock as a parameter");
+            }
+            foreach (Match call in Regex.Matches(body, @"\b(OnLoadPhase\w+)\s*\("))
+            {
+                Assert.True(declared.Contains(call.Groups[1].Value),
+                    "load-reconcile gate: OnLoad calls " + call.Groups[1].Value
+                    + " but its body was not scanned for a clock read");
+            }
+            Assert.NotEmpty(declared);
         }
 
         [Fact]
@@ -313,7 +335,7 @@ namespace Parsek.Tests
         {
             string core = PreparedMethodBody("ParsekFlight.cs", "private void FinalizeTreeOnSceneChangeCore(");
             string flat = Collapse(core);
-            Assert.Contains("else if (ShouldStashLiveTreeForSaveFileLoad( scene, "
+            Assert.Contains("else if (ParsekFlight.ShouldStashLiveTreeForSaveFileLoad( scene, "
                 + "SaveFileLoadIntent.IsArmed || NoSaveSceneExit.IsArmedFor(scene), "
                 + "RevertDetector.PendingKind != RevertKind.None))", flat);
             int flight = IndexOrFail(core, "if (scene == GameScenes.FLIGHT)");
@@ -509,7 +531,7 @@ namespace Parsek.Tests
             Assert.Equal(1, Occurrences(body, "CaptureQuicksaveTreeFacts("));
             int load = IndexOrFail(body, "RecordingTree.Load(");
             int capture = IndexOrFail(body, "CaptureQuicksaveTreeFacts(");
-            int hydrate = IndexOrFail(body, "RecordingStore.LoadRecordingFiles(");
+            int hydrate = IndexOrFail(body, "RecordingSidecarStore.LoadRecordingFiles(");
             int keep = IndexOrFail(body, "ShouldKeepPendingTreeAfterHydrationFailure(");
             int salvage = IndexOrFail(body, "RestoreHydrationFailedRecordingsFromPendingTree(");
             int splice = IndexOrFail(body, "SpliceMissingCommittedRecordingsIntoLoadedTree(");
@@ -544,9 +566,9 @@ namespace Parsek.Tests
         {
             string onLoad = Collapse(PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)"));
             Assert.Equal(2, Occurrences(onLoad, "ConfigurePendingQuickloadResumeContext("));
-            Assert.Contains("ConfigurePendingQuickloadResumeContext( RecordingStore.PendingTree, refinedLoadKind);",
+            Assert.Contains("ConfigurePendingQuickloadResumeContext( PendingTreeSlot.PendingTree, refinedLoadKind);",
                 onLoad);
-            Assert.Contains("ConfigurePendingQuickloadResumeContext(RecordingStore.PendingTree, LoadKind.Cold);", onLoad);
+            Assert.Contains("ConfigurePendingQuickloadResumeContext(PendingTreeSlot.PendingTree, LoadKind.Cold);", onLoad);
 
             string root = ParsekSourceRoot();
             var armFiles = new List<string>();
@@ -560,11 +582,13 @@ namespace Parsek.Tests
                 {
                     continue;
                 }
-                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 if (prepared.Contains("ConfigurePendingQuickloadResumeContext("))
                     armFiles.Add(rel);
             }
-            Assert.Equal(new[] { "ParsekScenario.cs" }, armFiles);
+            // OnLoad's two arm sites in the main file; the declaration in the tree-restore partial.
+            Assert.Equal(new[] { "ParsekScenario.TreeRestore.cs", "ParsekScenario.cs" },
+                armFiles.OrderBy(f => f, StringComparer.Ordinal).ToArray());
         }
 
         // ---- the Discard Re-fly intent ----
@@ -629,7 +653,7 @@ namespace Parsek.Tests
                 {
                     continue;
                 }
-                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 for (int i = 0; i < Occurrences(prepared, "DiscardReFlyLoadIntent.Arm("); i++)
                     armSites.Add(rel);
                 for (int i = 0; i < Occurrences(prepared, "DiscardReFlyLoadIntent.TryConsume("); i++)
@@ -924,7 +948,7 @@ namespace Parsek.Tests
                     if (rel.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
                         || rel.StartsWith("obj/", StringComparison.OrdinalIgnoreCase))
                         continue;
-                    if (File.ReadAllText(path).IndexOf(type.Name, StringComparison.Ordinal) < 0)
+                    if (ParsekFlightSourceFiles.ReadText(path).IndexOf(type.Name, StringComparison.Ordinal) < 0)
                         continue;
                     Source src = LoadSource(path);
                     if (declares.IsMatch(src.Masked))
@@ -937,7 +961,7 @@ namespace Parsek.Tests
             {
                 if (sources.TryGetValue(path, out Source cached))
                     return cached;
-                string stripped = SourceScanText.StripCSharpComments(File.ReadAllText(path));
+                string stripped = SourceScanText.StripCSharpComments(ParsekFlightSourceFiles.ReadText(path));
                 var src = new Source
                 {
                     Name = Path.GetFileName(path),
@@ -1110,7 +1134,7 @@ namespace Parsek.Tests
         {
             string path = Path.Combine(ParsekSourceRoot(), relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
+            return ParsekScenarioSourceFiles.ReadText(path);
         }
     }
 }

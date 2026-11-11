@@ -168,7 +168,7 @@ namespace Parsek.InGameTests
                     // The mirror is a faithful readable image: it decodes back to the same
                     // trajectory shape as the live recording.
                     var decoded = new Recording { RecordingId = rec.RecordingId };
-                    RecordingStore.DeserializeTrajectoryFrom(node, decoded);
+                    TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, decoded);
                     InGameAssert.AreEqual(rec.Points.Count, decoded.Points.Count,
                         "mirror point count differs for " + rec.RecordingId);
                     InGameAssert.AreEqual(rec.PartEvents.Count, decoded.PartEvents.Count,

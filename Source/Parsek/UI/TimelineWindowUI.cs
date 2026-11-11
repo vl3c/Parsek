@@ -11,7 +11,7 @@ namespace Parsek
     /// from recordings and game actions, with current-UT divider, tier filtering,
     /// resource budget, and rewind access.
     /// </summary>
-    internal class TimelineWindowUI
+    internal class TimelineWindowUI : ITimelineWindow
     {
         internal enum TimelineWatchButtonAction
         {
@@ -668,6 +668,22 @@ namespace Parsek
             warpResolveDirty = true;
             careerSlotSnapshotDirty = true;
             ParsekLog.Verbose("Timeline", "Cache invalidated");
+        }
+
+        /// <summary>
+        /// Hooks <see cref="InvalidateCache"/> to <c>LedgerOrchestrator.OnTimelineDataChanged</c>
+        /// (every ledger-side change). Called from both <see cref="ParsekUI"/> constructors,
+        /// before the Kerbals window's hook so a ledger change drops this cache first, and undone by <see cref="UnsubscribeTimelineDataChanged"/> from
+        /// <c>ParsekUI.Cleanup</c>, so the hook lives and dies with the scene's ParsekUI.
+        /// </summary>
+        public void SubscribeTimelineDataChanged()
+        {
+            LedgerOrchestrator.OnTimelineDataChanged += InvalidateCache;
+        }
+
+        public void UnsubscribeTimelineDataChanged()
+        {
+            LedgerOrchestrator.OnTimelineDataChanged -= InvalidateCache;
         }
 
         private void EnsureStyles()
@@ -1995,7 +2011,7 @@ namespace Parsek
                 var rec = FindRecordingById(entry.RecordingId);
                 if (rec != null)
                 {
-                    var tableUI = parentUI.GetRecordingsTableUI();
+                    var tableUI = ParsekWindowSet.Of(parentUI).GetRecordingsTableUI();
                     var flight = parentUI.Flight;
                     // Use the CommittedRecordings index here: every ghost-engine /
                     // watch-mode API below keys on that raw list, not on ERS. Same
@@ -2126,7 +2142,7 @@ namespace Parsek
                 var rec = FindRecordingById(entry.RecordingId);
                 if (rec != null)
                 {
-                    var tableUI = parentUI.GetRecordingsTableUI();
+                    var tableUI = ParsekWindowSet.Of(parentUI).GetRecordingsTableUI();
 
                     if (entry.Type == TimelineEntryType.UnfinishedFlightSeparation)
                     {
@@ -2575,7 +2591,7 @@ namespace Parsek
         private bool CanFastForwardAtCurrentUT(Recording rec, double currentUT, out string reason)
         {
             bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
-            return RecordingStore.CanFastForwardAtUT(rec, currentUT, out reason, isRecording: isRecording);
+            return RewindLauncher.CanFastForwardAtUT(rec, currentUT, out reason, isRecording: isRecording);
         }
 
         private bool CanRewindWithResolvedSaveState(Recording rec)
@@ -2589,7 +2605,7 @@ namespace Parsek
             bool isRecording = parentUI.InFlightMode && parentUI.Flight != null && parentUI.Flight.IsRecording;
             string resolvedSave = RecordingStore.GetRewindSaveFileName(rec);
             bool saveExists = DoesRewindSaveExist(rec, resolvedSave);
-            return RecordingStore.CanRewindWithResolvedSaveState(
+            return RewindLauncher.CanRewindWithResolvedSaveState(
                 resolvedSave, saveExists, out reason, isRecording: isRecording);
         }
 

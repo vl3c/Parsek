@@ -132,7 +132,7 @@ namespace Parsek.Tests
         }
 
         // ----- InvokeRewindToLaunch -----
-        // The OTHER rewind mechanism (RecordingStore.InitiateRewind, the Recordings-table
+        // The OTHER rewind mechanism (RewindLauncher.InitiateRewind, the Recordings-table
         // "R" button) shares InvokeRewind's guard triple exactly, so these rows are the
         // mirror of the six above. They exist because the guards live in a per-verb switch
         // case: a future edit that touched only the InvokeRewind case would silently leave

@@ -30,7 +30,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             // Default to the fault path (an incomplete cold load) so the guard fires; individual
             // tests flip this true to exercise the successful-load / intentional-wipe skip path.
             ParsekScenario.CommittedTreeStateLoadedForTesting = false;
@@ -39,7 +39,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             HighLogic.SaveFolder = originalSaveFolder;
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = null;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = null;
             ParsekScenario.PersistentSavePathOverrideForTesting = null;
             ParsekScenario.CommittedTreeStateLoadedForTesting = false;
             for (int i = 0; i < cleanupRoots.Count; i++)
@@ -234,7 +234,7 @@ namespace Parsek.Tests
             File.WriteAllText(Path.Combine(recordingsDir, "rec-b.prec"), "p");
             File.WriteAllText(Path.Combine(recordingsDir, "rec-b.pann"), "a");
 
-            var ids = RecordingStore.CollectSidecarIdsOnDisk();
+            var ids = RecordingFileJanitor.CollectSidecarIdsOnDisk();
 
             Assert.Equal(2, ids.Count);
             Assert.Contains("rec-a", ids);
@@ -251,7 +251,7 @@ namespace Parsek.Tests
             File.WriteAllText(Path.Combine(recordingsDir, "rec-tmp_ghost.craft.tmp"), "t");
             File.WriteAllText(Path.Combine(recordingsDir, "readme.txt"), "r");
 
-            var ids = RecordingStore.CollectSidecarIdsOnDisk();
+            var ids = RecordingFileJanitor.CollectSidecarIdsOnDisk();
 
             Assert.Single(ids);
             Assert.Contains("rec-real", ids);
@@ -265,9 +265,9 @@ namespace Parsek.Tests
             string saveFolder = "parsek-test-missing-" + Guid.NewGuid().ToString("N");
             HighLogic.SaveFolder = saveFolder;
             string root = Path.Combine(Path.GetTempPath(), saveFolder, "Parsek", "Recordings");
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = root;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = root;
 
-            var ids = RecordingStore.CollectSidecarIdsOnDisk();
+            var ids = RecordingFileJanitor.CollectSidecarIdsOnDisk();
 
             Assert.Empty(ids);
         }
@@ -551,7 +551,7 @@ namespace Parsek.Tests
             string root = Path.Combine(Path.GetTempPath(), saveFolder);
             string recordingsDir = Path.Combine(root, "Parsek", "Recordings");
             Directory.CreateDirectory(recordingsDir);
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
             cleanupRoots.Add(root);
             return recordingsDir;
         }

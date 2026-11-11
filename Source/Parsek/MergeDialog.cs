@@ -585,7 +585,7 @@ namespace Parsek
         ///     scene-exit), then arm the new intent and call
         ///     <c>FlightGlobals.SetActiveVessel(target)</c>.</item>
         /// <item><b>Discard</b>: scoped-discard the prior session via
-        ///     <see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>,
+        ///     <see cref="SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt"/>,
         ///     then arm the new intent and call
         ///     <c>FlightGlobals.SetActiveVessel(target)</c>.</item>
         /// </list>
@@ -965,7 +965,7 @@ namespace Parsek
                 return PreTransitionOutcome.FinalizeThrew;
             }
 
-            var pending = RecordingStore.PendingTree;
+            var pending = PendingTreeSlot.PendingTree;
             if (pending == null)
             {
                 ParsekLog.Warn("MergeDialog",
@@ -1011,8 +1011,8 @@ namespace Parsek
             {
                 MergeCommit(pending, decisions, spawnCount, playerRequestedSeal,
                     reShowDialogOnRefusal: reShowDialogOnRefusal);
-                // CommitPendingTree nulls RecordingStore.PendingTree on success.
-                actionCompleted = (RecordingStore.PendingTree == null);
+                // CommitPendingTree nulls PendingTreeSlot.PendingTree on success.
+                actionCompleted = (PendingTreeSlot.PendingTree == null);
             }
             else
             {

@@ -815,10 +815,10 @@ namespace Parsek.Tests
             Assert.True(link < IndexOrFail(take, "SpawnedVesselPersistentId = 0"),
                 "the Resume link is recorded before the spawn pid is cleared");
 
-            string couple = MethodBody("ParsekFlight.cs", "void OnPartCouple(GameEvents.FromToAction<Part, Part> data)");
+            string couple = MethodBody("ParsekFlightSplitBrancher.cs", "void OnPartCouple(GameEvents.FromToAction<Part, Part> data)");
             Assert.True(IndexOrFail(couple, "VesselNameLiveSync.OnDockCouple(data.from") < couple.IndexOf("return;", StringComparison.Ordinal),
                 "the dock-absorb row is recorded before any early return");
-            string undock = MethodBody("ParsekFlight.cs", "void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)");
+            string undock = MethodBody("ParsekFlightSplitBrancher.cs", "void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)");
             Assert.True(IndexOrFail(undock, "VesselNameLiveSync.OnUndockSplit(newVessel)") < undock.IndexOf("return;", StringComparison.Ordinal),
                 "the undock link is recorded before any early return");
         }
@@ -846,8 +846,11 @@ namespace Parsek.Tests
 
         private static string MethodBody(string relPath, string signature)
         {
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(
-                File.ReadAllText(Path.Combine(ParsekSourceRoot(), relPath)).Replace("\r\n", "\n"));
+            // VesselSpawner and ParsekScenario are partial classes; read every split file as one text.
+            string raw = relPath == "VesselSpawner.cs"
+                ? VesselSpawnerSourceFiles.ReadAll(ParsekSourceRoot())
+                : ParsekScenarioSourceFiles.ReadText(Path.Combine(ParsekSourceRoot(), relPath));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(raw.Replace("\r\n", "\n"));
             int sig = prepared.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(sig >= 0, "signature not found in " + relPath + ": " + signature);
             Assert.True(prepared.IndexOf(signature, sig + 1, StringComparison.Ordinal) < 0,

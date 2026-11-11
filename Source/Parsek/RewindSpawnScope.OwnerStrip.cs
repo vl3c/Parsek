@@ -1,0 +1,249 @@
+using System;
+using System.Collections.Generic;
+
+namespace Parsek
+{
+    internal static partial class RewindSpawnScope
+    {
+        /// <summary>
+        /// What the plain rewind's pre-load strip removes by owner identity: the rewind owner's
+        /// own vessel (the one the rewind quicksave was captured on) plus the EVA kerbals of the
+        /// owner's chain.
+        ///
+        /// <para>The owner's vessel is matched by name AND by its launch guid (the quicksave
+        /// VESSEL <c>pid</c> value against <see cref="Recording.RecordedVesselGuid"/>, both taken
+        /// from the same live vessel at the recording's start). A relaunch of the same craft
+        /// shares the craft name, so a name alone would also strip an EARLIER launch's vessel
+        /// that is still standing in the quicksave; nothing re-spawns that vessel after the
+        /// rewind (it is committed history), so it was lost.</para>
+        ///
+        /// <para>EVA child names stay name-only: a kerbal's EVA vessel is named after the
+        /// kerbal, and a kerbal is unique in the roster, so the name is the kerbal's identity. A
+        /// chain EVA kerbal present in the quicksave boards the owner's vessel later in the
+        /// flight (his EVA vessel then gets a new guid), and the replay re-produces him, so a
+        /// guid gate there would leave a duplicate kerbal.</para>
+        /// </summary>
+        internal sealed class RewindOwnerStrip
+        {
+            /// <summary>The owner's vessel name (null when the owner is unknown).</summary>
+            internal string OwnerName;
+
+            /// <summary>The owner's launch guid, normalized; null when unknown (name-only).</summary>
+            internal string OwnerGuid;
+
+            /// <summary>
+            /// Every launch guid of the owner's vessel identity (design-vessel-and-mission-names.md
+            /// 6.2 / 7.9): its recordings' guids plus the link rows' guids
+            /// (<see cref="VesselNameStore.IdentityGuidsFor"/>). A re-keyed owner copy in the
+            /// quicksave - a Parsek spawn, a resumed spawned vessel (the resume keeps the old guid
+            /// and clears the spawn pid), a ship that left a dock - carries one of the link guids
+            /// whatever it is named, so it is stripped by guid. <see cref="OwnerGuid"/> is always a
+            /// member; empty only for a guid-less legacy owner, the one case the name decides alone.
+            /// </summary>
+            internal readonly HashSet<string> OwnerIdentityGuids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            /// <summary>
+            /// The UNANCHORED fallback's alias pair, exactly as Phase 1 had it: the owner
+            /// recording's OWN captured name from before a vessel name decision applied (else its
+            /// current name) plus the decision name. It covers a copy resumed BEFORE link rows
+            /// existed (no Resume link, spawn pid cleared) that still carries the old name. Never
+            /// the identity's other leg names (a naming-part takeover at a dock, a debris half's
+            /// name): the strip is destructive and must match no more than it did before the rename.
+            /// </summary>
+            internal readonly HashSet<string> OwnerAliasNames = new HashSet<string>(StringComparer.Ordinal);
+
+            /// <summary>True when <paramref name="normalizedGuid"/> is a guid of the owner's identity.</summary>
+            internal bool IsOwnerIdentityGuid(string normalizedGuid)
+            {
+                if (normalizedGuid == null) return false;
+                if (OwnerGuid != null && string.Equals(normalizedGuid, OwnerGuid, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                return OwnerIdentityGuids.Contains(normalizedGuid);
+            }
+
+            /// <summary>True when any guid of the owner's identity is known.</summary>
+            internal bool HasOwnerIdentityGuid => OwnerGuid != null || OwnerIdentityGuids.Count > 0;
+
+            /// <summary>Names stripped by name alone (the chain's EVA kerbals; or every name for
+            /// a legacy caller that passes a plain name set).</summary>
+            internal readonly HashSet<string> NameOnly = new HashSet<string>(StringComparer.Ordinal);
+
+            /// <summary>Every name the strip considers, for the summary log.</summary>
+            internal IEnumerable<string> AllNames()
+            {
+                if (!string.IsNullOrEmpty(OwnerName) && !NameOnly.Contains(OwnerName))
+                    yield return OwnerName;
+                foreach (var n in NameOnly)
+                    yield return n;
+            }
+
+            /// <summary>A name-only strip over <paramref name="names"/> (the legacy contract).</summary>
+            internal static RewindOwnerStrip FromNames(IEnumerable<string> names)
+            {
+                var strip = new RewindOwnerStrip();
+                if (names != null)
+                {
+                    foreach (var n in names)
+                    {
+                        if (n != null)
+                            strip.NameOnly.Add(n);
+                    }
+                }
+                return strip;
+            }
+        }
+
+        /// <summary>Per-VESSEL answer of the owner strip.</summary>
+        internal enum RewindOwnerStripDecision
+        {
+            /// <summary>Not an owner-strip candidate (the PID strip may still apply).</summary>
+            NotMatched,
+
+            /// <summary>The owner's vessel, identified by its launch guid.</summary>
+            StripOwnerGuid,
+
+            /// <summary>Stripped by name (owner name with no conclusive guid disagreement, or an
+            /// EVA child name).</summary>
+            StripName,
+
+            /// <summary>Carries the owner's name but is a different launch of the same craft
+            /// (its guid conclusively differs from the owner's while the owner's own vessel is
+            /// identified in the same save): committed history, kept.</summary>
+            KeepOtherLaunch,
+        }
+
+        /// <summary>
+        /// Builds the owner strip for a plain rewind: the owner's name and launch guid, and the
+        /// EVA kerbal names of the owner's chain.
+        /// </summary>
+        internal static RewindOwnerStrip BuildRewindOwnerStrip(Recording owner)
+        {
+            var strip = new RewindOwnerStrip();
+            if (owner == null)
+                return strip;
+
+            strip.OwnerName = owner.VesselName;
+            strip.OwnerGuid = VesselLaunchIdentity.NormalizeGuid(owner.RecordedVesselGuid);
+            foreach (string g in VesselNameStore.IdentityGuidsFor(owner))
+                strip.OwnerIdentityGuids.Add(g);
+            if (strip.OwnerGuid != null) strip.OwnerIdentityGuids.Add(strip.OwnerGuid);
+            VesselNameDecision decision = VesselNameStore.FindByGuid(strip.OwnerGuid);
+            if (decision != null)
+                AddOwnerAliasNames(strip, owner, decision);
+            if (!string.IsNullOrEmpty(owner.ChainId))
+                AddChainEvaChildNames(strip, owner, RecordingStore.CommittedRecordings);
+
+            if (!RecordingStore.SuppressLogging)
+                ParsekLog.Verbose("Rewind",
+                    $"Rewind owner strip: owner='{strip.OwnerName}' guid={strip.OwnerGuid ?? "(none, name-only)"} " +
+                    $"evaChildNames={strip.NameOnly.Count} identityGuids={strip.OwnerIdentityGuids.Count} ownerAliases={strip.OwnerAliasNames.Count}");
+            return strip;
+        }
+
+        /// <summary>
+        /// The unanchored alias pair from the owner's vessel name decision: the decision name
+        /// and the owner recording's own captured name (else its current name), minus the
+        /// owner name itself.
+        /// </summary>
+        internal static void AddOwnerAliasNames(RewindOwnerStrip strip, Recording owner, VesselNameDecision decision)
+        {
+            if (!string.IsNullOrEmpty(decision.Name)) strip.OwnerAliasNames.Add(decision.Name);
+            string captured = owner.RecordingId != null
+                && decision.CapturedNames.TryGetValue(owner.RecordingId, out string c)
+                ? c : owner.VesselName;
+            if (!string.IsNullOrEmpty(captured)) strip.OwnerAliasNames.Add(captured);
+            strip.OwnerAliasNames.Remove(strip.OwnerName ?? "");
+        }
+
+        /// <summary>
+        /// Adds to the name-only set every EVA kerbal vessel name of the owner's chain (a
+        /// recording of the same chain with an EVA crew name, named, under another name than
+        /// the owner), and logs how many the set holds.
+        /// </summary>
+        internal static void AddChainEvaChildNames(
+            RewindOwnerStrip strip, Recording owner, IReadOnlyList<Recording> committedRecordings)
+        {
+            foreach (var committed in committedRecordings)
+            {
+                if (committed.ChainId == owner.ChainId &&
+                    !string.IsNullOrEmpty(committed.EvaCrewName) &&
+                    committed.VesselName != owner.VesselName &&
+                    committed.VesselName != null)
+                {
+                    strip.NameOnly.Add(committed.VesselName);
+                }
+            }
+            if (strip.NameOnly.Count > 0 && !RecordingStore.SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Rewind strip includes {strip.NameOnly.Count} EVA child vessel name(s) from chain '{owner.ChainId}'");
+        }
+
+        /// <summary>
+        /// Whether some VESSEL in the quicksave carries a guid of the owner's identity (its own
+        /// launch guid or a link guid). Only then does a conclusive guid mismatch mean "a
+        /// different launch": when no vessel carries one, the guids cannot anchor the owner in
+        /// this save and the owner's name decides, as before.
+        /// </summary>
+        internal static bool RewindOwnerStripIsAnchored(RewindOwnerStrip strip, IEnumerable<string> vesselGuids)
+        {
+            if (strip == null || !strip.HasOwnerIdentityGuid || vesselGuids == null)
+                return false;
+            foreach (var g in vesselGuids)
+            {
+                if (strip.IsOwnerIdentityGuid(VesselLaunchIdentity.NormalizeGuid(g)))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Pure per-VESSEL decision of the owner strip.
+        ///
+        /// <list type="number">
+        /// <item>An EVA child name is stripped by name (kerbal names are roster-unique).</item>
+        /// <item>The owner's name is stripped unless the owner is anchored in this save
+        /// (<paramref name="ownerAnchored"/>) and this vessel's guid conclusively differs: then it
+        /// is another launch of the same craft and is kept. An unknown guid on either side, or
+        /// an unanchored owner, falls back to the name (the pre-identity behavior).</item>
+        /// <item>A vessel under another name that carries a guid of the owner's identity (its
+        /// launch guid, or a Spawn / Resume / UndockReturn link guid of a re-keyed copy) is
+        /// still the owner's vessel (renamed after the flight, or re-keyed): stripped by guid.</item>
+        /// <item>With the owner unanchored, a vessel under the owner recording's own name from
+        /// before a vessel name decision, or under the decision name
+        /// (<see cref="RewindOwnerStrip.OwnerAliasNames"/>), is stripped by name, as the owner's
+        /// name would be: a copy resumed before link rows existed carries no link guid.</item>
+        /// </list>
+        /// </summary>
+        internal static RewindOwnerStripDecision ClassifyRewindOwnerStripVessel(
+            string vesselName, string vesselGuid, RewindOwnerStrip strip, bool ownerAnchored)
+        {
+            if (strip == null)
+                return RewindOwnerStripDecision.NotMatched;
+
+            string guid = VesselLaunchIdentity.NormalizeGuid(vesselGuid);
+            if (vesselName != null && strip.NameOnly.Contains(vesselName))
+                return RewindOwnerStripDecision.StripName;
+
+            bool identityGuid = strip.IsOwnerIdentityGuid(guid);
+            if (vesselName != null && !string.IsNullOrEmpty(strip.OwnerName)
+                && string.Equals(vesselName, strip.OwnerName, StringComparison.Ordinal))
+            {
+                // A known guid outside the owner's identity is a different launch once the owner
+                // is anchored in this save.
+                if (ownerAnchored && guid != null && strip.HasOwnerIdentityGuid && !identityGuid)
+                    return RewindOwnerStripDecision.KeepOtherLaunch;
+                return RewindOwnerStripDecision.StripName;
+            }
+
+            if (identityGuid)
+                return RewindOwnerStripDecision.StripOwnerGuid;
+
+            // Unanchored only, like the owner-name rule above: the Phase 1 alias pair, for a
+            // re-keyed owner copy no link reaches (resumed before link rows existed).
+            if (!ownerAnchored && vesselName != null && strip.OwnerAliasNames.Contains(vesselName))
+                return RewindOwnerStripDecision.StripName;
+
+            return RewindOwnerStripDecision.NotMatched;
+        }
+    }
+}

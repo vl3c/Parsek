@@ -131,11 +131,11 @@ namespace Parsek.Tests
         public void DiscardOfTheRecoveredTree_ClearsTheLabMark()
         {
             RecordingTree tree = RecoveredWithLabMark();
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.False(InFlightRecoveryRequest.LabScienceAwaitingRecovery.ContainsKey(RecId));
             Assert.Contains(logLines, l => l.Contains("[Recovery]")
                 && l.Contains("cleared 1 lab mark(s) context=discard:"));

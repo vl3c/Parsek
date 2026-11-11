@@ -30,7 +30,7 @@ namespace Parsek.Tests
         [InlineData(59.9, "59s")]
         public void FormatDuration_Seconds(double seconds, string expected)
         {
-            Assert.Equal(expected, ParsekUI.FormatDuration(seconds));
+            Assert.Equal(expected, RecordingsTableUI.FormatDuration(seconds));
         }
 
         [Theory]
@@ -40,7 +40,7 @@ namespace Parsek.Tests
         [InlineData(3599, "59m 59s")]
         public void FormatDuration_Minutes(double seconds, string expected)
         {
-            Assert.Equal(expected, ParsekUI.FormatDuration(seconds));
+            Assert.Equal(expected, RecordingsTableUI.FormatDuration(seconds));
         }
 
         [Theory]
@@ -50,7 +50,7 @@ namespace Parsek.Tests
         [InlineData(86400, "4d")]  // KSP calendar: 6h days → 86400s = 4 days
         public void FormatDuration_Hours(double seconds, string expected)
         {
-            Assert.Equal(expected, ParsekUI.FormatDuration(seconds));
+            Assert.Equal(expected, RecordingsTableUI.FormatDuration(seconds));
         }
     }
 
@@ -68,35 +68,35 @@ namespace Parsek.Tests
         public void GetStatusOrder_BeforeStart_ReturnsFuture()
         {
             var rec = MakeRecording(100, 200);
-            Assert.Equal(0, ParsekUI.GetStatusOrder(rec, 50));
+            Assert.Equal(0, RecordingsTableUI.GetStatusOrder(rec, 50));
         }
 
         [Fact]
         public void GetStatusOrder_AtStart_ReturnsActive()
         {
             var rec = MakeRecording(100, 200);
-            Assert.Equal(1, ParsekUI.GetStatusOrder(rec, 100));
+            Assert.Equal(1, RecordingsTableUI.GetStatusOrder(rec, 100));
         }
 
         [Fact]
         public void GetStatusOrder_DuringPlayback_ReturnsActive()
         {
             var rec = MakeRecording(100, 200);
-            Assert.Equal(1, ParsekUI.GetStatusOrder(rec, 150));
+            Assert.Equal(1, RecordingsTableUI.GetStatusOrder(rec, 150));
         }
 
         [Fact]
         public void GetStatusOrder_AtEnd_ReturnsActive()
         {
             var rec = MakeRecording(100, 200);
-            Assert.Equal(1, ParsekUI.GetStatusOrder(rec, 200));
+            Assert.Equal(1, RecordingsTableUI.GetStatusOrder(rec, 200));
         }
 
         [Fact]
         public void GetStatusOrder_AfterEnd_ReturnsPast()
         {
             var rec = MakeRecording(100, 200);
-            Assert.Equal(2, ParsekUI.GetStatusOrder(rec, 201));
+            Assert.Equal(2, RecordingsTableUI.GetStatusOrder(rec, 201));
         }
     }
 
@@ -124,8 +124,8 @@ namespace Parsek.Tests
             var a = MakeRec("Alpha", 100, 200);
             var b = MakeRec("Beta", 100, 200);
 
-            int cmp = ParsekUI.CompareRecordings(a, b,
-                ParsekUI.SortColumn.Name, ascending: true, now: 0);
+            int cmp = RecordingsTableUI.CompareRecordings(a, b,
+                RecordingsTableUI.SortColumn.Name, ascending: true, now: 0);
 
             Assert.True(cmp < 0, "Alpha should come before Beta");
         }
@@ -136,8 +136,8 @@ namespace Parsek.Tests
             var a = MakeRec("Alpha", 100, 200);
             var b = MakeRec("Beta", 100, 200);
 
-            int cmp = ParsekUI.CompareRecordings(a, b,
-                ParsekUI.SortColumn.Name, ascending: false, now: 0);
+            int cmp = RecordingsTableUI.CompareRecordings(a, b,
+                RecordingsTableUI.SortColumn.Name, ascending: false, now: 0);
 
             Assert.True(cmp > 0, "Alpha should come after Beta in descending");
         }
@@ -148,8 +148,8 @@ namespace Parsek.Tests
             var a = MakeRec("alpha", 100, 200);
             var b = MakeRec("Alpha", 100, 200);
 
-            int cmp = ParsekUI.CompareRecordings(a, b,
-                ParsekUI.SortColumn.Name, ascending: true, now: 0);
+            int cmp = RecordingsTableUI.CompareRecordings(a, b,
+                RecordingsTableUI.SortColumn.Name, ascending: true, now: 0);
 
             Assert.Equal(0, cmp);
         }
@@ -160,8 +160,8 @@ namespace Parsek.Tests
             var a = MakeRec("", 100, 200);
             var b = MakeRec("Untitled", 100, 200);
 
-            int cmp = ParsekUI.CompareRecordings(a, b,
-                ParsekUI.SortColumn.Name, ascending: true, now: 0);
+            int cmp = RecordingsTableUI.CompareRecordings(a, b,
+                RecordingsTableUI.SortColumn.Name, ascending: true, now: 0);
 
             Assert.Equal(0, cmp);
         }
@@ -172,8 +172,8 @@ namespace Parsek.Tests
             var a = MakeRec("A", 50, 100);
             var b = MakeRec("B", 100, 200);
 
-            int cmp = ParsekUI.CompareRecordings(a, b,
-                ParsekUI.SortColumn.LaunchTime, ascending: true, now: 0);
+            int cmp = RecordingsTableUI.CompareRecordings(a, b,
+                RecordingsTableUI.SortColumn.LaunchTime, ascending: true, now: 0);
 
             Assert.True(cmp < 0);
         }
@@ -184,8 +184,8 @@ namespace Parsek.Tests
             var a = MakeRec("A", 100, 200);
             var b = MakeRec("B", 100, 300);
 
-            int cmp = ParsekUI.CompareRecordings(a, b,
-                ParsekUI.SortColumn.LaunchTime, ascending: true, now: 0);
+            int cmp = RecordingsTableUI.CompareRecordings(a, b,
+                RecordingsTableUI.SortColumn.LaunchTime, ascending: true, now: 0);
 
             Assert.Equal(0, cmp);
         }
@@ -196,8 +196,8 @@ namespace Parsek.Tests
             var a = MakeRec("A", 100, 130);  // 30s
             var b = MakeRec("B", 100, 200);  // 100s
 
-            int cmp = ParsekUI.CompareRecordings(a, b,
-                ParsekUI.SortColumn.Duration, ascending: true, now: 0);
+            int cmp = RecordingsTableUI.CompareRecordings(a, b,
+                RecordingsTableUI.SortColumn.Duration, ascending: true, now: 0);
 
             Assert.True(cmp < 0);
         }
@@ -208,8 +208,8 @@ namespace Parsek.Tests
             var a = MakeRec("A", 100, 130);  // 30s
             var b = MakeRec("B", 100, 200);  // 100s
 
-            int cmp = ParsekUI.CompareRecordings(a, b,
-                ParsekUI.SortColumn.Duration, ascending: false, now: 0);
+            int cmp = RecordingsTableUI.CompareRecordings(a, b,
+                RecordingsTableUI.SortColumn.Duration, ascending: false, now: 0);
 
             Assert.True(cmp > 0);
         }
@@ -220,8 +220,8 @@ namespace Parsek.Tests
             var future = MakeRec("F", 200, 300);
             var active = MakeRec("A", 100, 200);
 
-            int cmp = ParsekUI.CompareRecordings(future, active,
-                ParsekUI.SortColumn.Status, ascending: true, now: 150);
+            int cmp = RecordingsTableUI.CompareRecordings(future, active,
+                RecordingsTableUI.SortColumn.Status, ascending: true, now: 150);
 
             Assert.True(cmp < 0);
         }
@@ -232,8 +232,8 @@ namespace Parsek.Tests
             var active = MakeRec("A", 100, 200);
             var past = MakeRec("P", 10, 50);
 
-            int cmp = ParsekUI.CompareRecordings(active, past,
-                ParsekUI.SortColumn.Status, ascending: true, now: 150);
+            int cmp = RecordingsTableUI.CompareRecordings(active, past,
+                RecordingsTableUI.SortColumn.Status, ascending: true, now: 150);
 
             Assert.True(cmp < 0);
         }
@@ -245,8 +245,8 @@ namespace Parsek.Tests
             var b = MakeRec("B", 200, 300);
 
             // Index sort doesn't compare recordings — it preserves original order
-            int cmp = ParsekUI.CompareRecordings(a, b,
-                ParsekUI.SortColumn.Index, ascending: true, now: 0);
+            int cmp = RecordingsTableUI.CompareRecordings(a, b,
+                RecordingsTableUI.SortColumn.Index, ascending: true, now: 0);
 
             Assert.Equal(0, cmp);
         }
@@ -280,8 +280,8 @@ namespace Parsek.Tests
                 MakeRec("B", 200, 300),
             };
 
-            var indices = ParsekUI.BuildSortedIndices(list,
-                ParsekUI.SortColumn.Index, ascending: true, now: 0);
+            var indices = RecordingsTableUI.BuildSortedIndices(list,
+                RecordingsTableUI.SortColumn.Index, ascending: true, now: 0);
 
             Assert.Equal(new[] { 0, 1, 2 }, indices);
         }
@@ -296,8 +296,8 @@ namespace Parsek.Tests
                 MakeRec("B", 200, 300),
             };
 
-            var indices = ParsekUI.BuildSortedIndices(list,
-                ParsekUI.SortColumn.Index, ascending: false, now: 0);
+            var indices = RecordingsTableUI.BuildSortedIndices(list,
+                RecordingsTableUI.SortColumn.Index, ascending: false, now: 0);
 
             Assert.Equal(new[] { 2, 1, 0 }, indices);
         }
@@ -312,8 +312,8 @@ namespace Parsek.Tests
                 MakeRec("Bravo", 100, 200),
             };
 
-            var indices = ParsekUI.BuildSortedIndices(list,
-                ParsekUI.SortColumn.Name, ascending: true, now: 0);
+            var indices = RecordingsTableUI.BuildSortedIndices(list,
+                RecordingsTableUI.SortColumn.Name, ascending: true, now: 0);
 
             // Alpha(1), Bravo(2), Charlie(0)
             Assert.Equal(new[] { 1, 2, 0 }, indices);
@@ -329,8 +329,8 @@ namespace Parsek.Tests
                 MakeRec("Mid", 200, 300),
             };
 
-            var indices = ParsekUI.BuildSortedIndices(list,
-                ParsekUI.SortColumn.LaunchTime, ascending: true, now: 0);
+            var indices = RecordingsTableUI.BuildSortedIndices(list,
+                RecordingsTableUI.SortColumn.LaunchTime, ascending: true, now: 0);
 
             // Early(1), Mid(2), Late(0)
             Assert.Equal(new[] { 1, 2, 0 }, indices);
@@ -346,8 +346,8 @@ namespace Parsek.Tests
                 MakeRec("Long", 100, 400),    // 300s
             };
 
-            var indices = ParsekUI.BuildSortedIndices(list,
-                ParsekUI.SortColumn.Duration, ascending: true, now: 0);
+            var indices = RecordingsTableUI.BuildSortedIndices(list,
+                RecordingsTableUI.SortColumn.Duration, ascending: true, now: 0);
 
             // Short(1), Medium(0), Long(2)
             Assert.Equal(new[] { 1, 0, 2 }, indices);
@@ -364,8 +364,8 @@ namespace Parsek.Tests
                 MakeRec("Future", 300, 400),     // future at now=250
             };
 
-            var indices = ParsekUI.BuildSortedIndices(list,
-                ParsekUI.SortColumn.Status, ascending: true, now: now);
+            var indices = RecordingsTableUI.BuildSortedIndices(list,
+                RecordingsTableUI.SortColumn.Status, ascending: true, now: now);
 
             // Future(2), Active(1), Past(0)
             Assert.Equal(new[] { 2, 1, 0 }, indices);
@@ -381,8 +381,8 @@ namespace Parsek.Tests
                 MakeRec("Bravo", 100, 200),
             };
 
-            var indices = ParsekUI.BuildSortedIndices(list,
-                ParsekUI.SortColumn.Name, ascending: false, now: 0);
+            var indices = RecordingsTableUI.BuildSortedIndices(list,
+                RecordingsTableUI.SortColumn.Name, ascending: false, now: 0);
 
             // Charlie(1), Bravo(2), Alpha(0)
             Assert.Equal(new[] { 1, 2, 0 }, indices);
@@ -393,8 +393,8 @@ namespace Parsek.Tests
         {
             var list = new List<Recording>();
 
-            var indices = ParsekUI.BuildSortedIndices(list,
-                ParsekUI.SortColumn.Name, ascending: true, now: 0);
+            var indices = RecordingsTableUI.BuildSortedIndices(list,
+                RecordingsTableUI.SortColumn.Name, ascending: true, now: 0);
 
             Assert.Empty(indices);
         }
@@ -407,8 +407,8 @@ namespace Parsek.Tests
                 MakeRec("Only", 100, 200),
             };
 
-            var indices = ParsekUI.BuildSortedIndices(list,
-                ParsekUI.SortColumn.Name, ascending: true, now: 0);
+            var indices = RecordingsTableUI.BuildSortedIndices(list,
+                RecordingsTableUI.SortColumn.Name, ascending: true, now: 0);
 
             Assert.Equal(new[] { 0 }, indices);
         }
@@ -451,7 +451,7 @@ namespace Parsek.Tests
                 rec.ChainIndex = chainIndex;
                 rec.ChainBranch = chainBranch;
             }
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
         }
 
         [Fact]
@@ -461,7 +461,7 @@ namespace Parsek.Tests
             CommitRecording("Second", 200);
             CommitRecording("Third", 300);
 
-            RecordingStore.RemoveRecordingAt(1);
+            TreeDiscardService.RemoveRecordingAt(1);
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
             Assert.Equal("First", RecordingStore.CommittedRecordings[0].VesselName);
@@ -474,7 +474,7 @@ namespace Parsek.Tests
             CommitRecording("First", 100);
             CommitRecording("Second", 200);
 
-            RecordingStore.RemoveRecordingAt(0);
+            TreeDiscardService.RemoveRecordingAt(0);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("Second", RecordingStore.CommittedRecordings[0].VesselName);
@@ -486,7 +486,7 @@ namespace Parsek.Tests
             CommitRecording("First", 100);
             CommitRecording("Second", 200);
 
-            RecordingStore.RemoveRecordingAt(1);
+            TreeDiscardService.RemoveRecordingAt(1);
 
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("First", RecordingStore.CommittedRecordings[0].VesselName);
@@ -497,7 +497,7 @@ namespace Parsek.Tests
         {
             CommitRecording("Only", 100);
 
-            RecordingStore.RemoveRecordingAt(0);
+            TreeDiscardService.RemoveRecordingAt(0);
 
             Assert.Empty(RecordingStore.CommittedRecordings);
         }
@@ -507,7 +507,7 @@ namespace Parsek.Tests
         {
             CommitRecording("A", 100);
 
-            RecordingStore.RemoveRecordingAt(-1);
+            TreeDiscardService.RemoveRecordingAt(-1);
 
             Assert.Single(RecordingStore.CommittedRecordings);
         }
@@ -517,7 +517,7 @@ namespace Parsek.Tests
         {
             CommitRecording("A", 100);
 
-            RecordingStore.RemoveRecordingAt(5);
+            TreeDiscardService.RemoveRecordingAt(5);
 
             Assert.Single(RecordingStore.CommittedRecordings);
         }
@@ -532,7 +532,7 @@ namespace Parsek.Tests
             CommitRecording("Standalone", 400); // not in chain
 
             // Remove middle segment
-            RecordingStore.RemoveRecordingAt(1);
+            TreeDiscardService.RemoveRecordingAt(1);
 
             // Remaining chain members should be degraded to standalone
             Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
@@ -561,7 +561,7 @@ namespace Parsek.Tests
             CommitRecording("Branch0", 100, chainId, 0, 1);
 
             // Remove primary
-            RecordingStore.RemoveRecordingAt(0);
+            TreeDiscardService.RemoveRecordingAt(0);
 
             // Branch member should be degraded
             Assert.Single(RecordingStore.CommittedRecordings);
@@ -580,7 +580,7 @@ namespace Parsek.Tests
             CommitRecording("Seg1", 200, chainId, 1);
 
             // Remove standalone (index 0)
-            RecordingStore.RemoveRecordingAt(0);
+            TreeDiscardService.RemoveRecordingAt(0);
 
             // Chain should be intact
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
@@ -599,7 +599,7 @@ namespace Parsek.Tests
             CommitRecording("B1", 400, "chain-b", 1);
 
             // Remove from chain-a
-            RecordingStore.RemoveRecordingAt(0);
+            TreeDiscardService.RemoveRecordingAt(0);
 
             // chain-a sibling degraded
             Assert.Null(RecordingStore.CommittedRecordings[0].ChainId);

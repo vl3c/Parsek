@@ -849,7 +849,7 @@ namespace Parsek.Tests
         public void PreserveLiveRuntimeFieldsOnReplace_DestroyedIncoming_DoesNotResurrectClearedUIStrings()
         {
             // Opus review round 3 [LOW]: MarkDestroyedAtTerminal clears VesselSituation
-            // (null) and SceneExitSituation (-1). RecordingStore.PreserveLiveRuntimeFieldsOnReplace
+            // (null) and SceneExitSituation (-1). TreeCommitService.PreserveLiveRuntimeFieldsOnReplace
             // treats null/-1 as "incoming hasn't set it" and would copy stale
             // pre-destruction values back from `existing`. Gate behind
             // !incoming.VesselDestroyed so the M1 hygiene is durable across
@@ -870,7 +870,7 @@ namespace Parsek.Tests
             Assert.Equal(-1, incoming.SceneExitSituation);
             Assert.Equal("Landed on Kerbin", existing.VesselSituation);
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out _);
 
             // Both UI-string fields must stay cleared after the merge — the
@@ -882,7 +882,7 @@ namespace Parsek.Tests
             // verifying the merge still copies them.
             existing.MaxDistanceFromLaunch = 1234.5;
             incoming.MaxDistanceFromLaunch = 0;
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out _);
             Assert.Equal(1234.5, incoming.MaxDistanceFromLaunch);
         }
@@ -907,7 +907,7 @@ namespace Parsek.Tests
                 SceneExitSituation = -1
             };
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out _);
 
             Assert.Equal("Orbiting Kerbin", incoming.VesselSituation);
@@ -944,7 +944,7 @@ namespace Parsek.Tests
             // Live set contains some OTHER vessel, not the dead capsule pid.
             var liveVesselPids = new HashSet<uint> { 3215646968u };
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out _, liveVesselPids);
 
             // Stale stamp must NOT be re-installed.
@@ -976,7 +976,7 @@ namespace Parsek.Tests
             // Live set DOES contain the spawned pid, so the stamp is legitimate.
             var liveVesselPids = new HashSet<uint> { livePid, 999u };
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out int otherPreserved, liveVesselPids);
 
             Assert.True(incoming.VesselSpawned);
@@ -1005,7 +1005,7 @@ namespace Parsek.Tests
                 VesselName = "Lander"
             };
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out _, null);
 
             Assert.True(incoming.VesselSpawned);
@@ -1039,7 +1039,7 @@ namespace Parsek.Tests
             // Neither pid is in the live set; deadPid would be stale.
             var liveVesselPids = new HashSet<uint> { 999u };
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out _, liveVesselPids);
 
             // Incoming keeps its own fresh stamp untouched.
@@ -1072,7 +1072,7 @@ namespace Parsek.Tests
                 VesselName = "Booster"
             };
 
-            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+            TreeCommitService.PreserveLiveRuntimeFieldsOnReplace(
                 existing, incoming, out _, out _, new HashSet<uint>());
 
             Assert.False(incoming.VesselSpawned);

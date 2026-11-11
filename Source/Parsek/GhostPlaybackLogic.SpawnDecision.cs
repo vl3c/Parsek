@@ -280,11 +280,42 @@ namespace Parsek
             RecordingTree treeContext,
             bool liveSameLaunchVesselPresent = true)
         {
+            string rejectReason;
+            if (TryRejectSpawnForRecordingState(rec, liveSameLaunchVesselPresent, out rejectReason))
+                return (false, rejectReason);
+            if (TryRejectSpawnForTreeShape(rec, isActiveChainMember, treeContext, out rejectReason))
+                return (false, rejectReason);
+            if (TryRejectSpawnForTerminalAndSituation(rec, out rejectReason))
+                return (false, rejectReason);
+
+            // PID dedup: if vessel was already spawned (PID recorded), never re-spawn.
+            // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
+            if (rec.SpawnedVesselPersistentId != 0)
+            {
+                return (false, $"already spawned (pid={rec.SpawnedVesselPersistentId})");
+            }
+
+            return (true, "");
+        }
+
+        /// <summary>
+        /// <see cref="ShouldSpawnAtRecordingEnd(Recording, bool, RecordingTree, bool)"/> gates on the
+        /// recording's own spawn state, in order: a superseding continuation owns the terminal spawn, the
+        /// #573 rewind block, already spawned, destroyed, and no (re-hydratable) vessel snapshot. True with
+        /// the rejection reason when a gate refuses; false (reason empty) when every gate passes.
+        /// </summary>
+        internal static bool TryRejectSpawnForRecordingState(
+            Recording rec,
+            bool liveSameLaunchVesselPresent,
+            out string reason)
+        {
+            reason = "";
             if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
             {
-                return (false,
+                reason =
                     "terminal spawn superseded by recording " +
-                    rec.TerminalSpawnSupersededByRecordingId);
+                    rec.TerminalSpawnSupersededByRecordingId;
+                return true;
             }
 
             // Plain Rewind-to-Launch source protection (#573). The same-recording
@@ -297,18 +328,21 @@ namespace Parsek
             if (ShouldBlockSpawnForRewindSuppression(
                     rec, liveSameLaunchVesselPresent, out string rewindSuppressionReason))
             {
-                return (false, rewindSuppressionReason);
+                reason = rewindSuppressionReason;
+                return true;
             }
 
             // Preserve the existing "already spawned" precedence, but make destroyed
             // recordings win over the generic missing-snapshot diagnostic.
             if (rec.VesselSpawned)
             {
-                return (false, "already spawned (VesselSpawned=true)");
+                reason = "already spawned (VesselSpawned=true)";
+                return true;
             }
             if (rec.VesselDestroyed)
             {
-                return (false, "vessel destroyed");
+                reason = "vessel destroyed";
+                return true;
             }
             // Base condition: must have a vessel snapshot to materialize a real
             // vessel. The in-memory copy is a transient cache that several sites
@@ -326,22 +360,41 @@ namespace Parsek
                     && rec.TerminalStateValue.HasValue
                     && IsSpawnableTerminal(rec.TerminalStateValue.Value);
                 if (!worthHydrating
-                    || !RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec))
+                    || !RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec))
                 {
-                    return (false, "no vessel snapshot");
+                    reason = "no vessel snapshot";
+                    return true;
                 }
             }
 
+            return false;
+        }
+
+        /// <summary>
+        /// <see cref="ShouldSpawnAtRecordingEnd(Recording, bool, RecordingTree, bool)"/> gates on where the
+        /// recording sits in its chain and tree, in order: branch &gt; 0, the chain being built, a non-leaf
+        /// tree recording (the #224 breakup-continuous effective leaf excepted), the #114 safety net, and
+        /// debris. True with the rejection reason when a gate refuses; false (reason empty) otherwise.
+        /// </summary>
+        internal static bool TryRejectSpawnForTreeShape(
+            Recording rec,
+            bool isActiveChainMember,
+            RecordingTree treeContext,
+            out string reason)
+        {
+            reason = "";
             // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
             if (rec.ChainBranch > 0)
             {
-                return (false, "branch > 0 (ghost-only)");
+                reason = "branch > 0 (ghost-only)";
+                return true;
             }
 
             // Suppress spawning for recordings belonging to a chain currently being built
             if (isActiveChainMember)
             {
-                return (false, "active chain being built");
+                reason = "active chain being built";
+                return true;
             }
 
             // Looping recordings: first playthrough spawns the vessel (so it exists in the world),
@@ -372,7 +425,8 @@ namespace Parsek
             // same-vessel continuation that carries the correct snapshot.
             if (rec.ChildBranchPointId != null && !effectiveLeaf)
             {
-                return (false, "non-leaf tree recording");
+                reason = "non-leaf tree recording";
+                return true;
             }
 
             // Safety net: even if ChildBranchPointId is null, check the resolved tree
@@ -382,21 +436,39 @@ namespace Parsek
             // is still the leaf for its vessel.
             if (!effectiveLeaf && IsNonLeafInTree(rec, treeContext))
             {
-                return (false, "non-leaf in tree (safety net)");
+                reason = "non-leaf in tree (safety net)";
+                return true;
             }
 
             // Debris recordings are visual-only (short TTL, no meaningful vessel to persist)
             if (rec.IsDebris)
             {
-                return (false, "debris recording (visual-only)");
+                reason = "debris recording (visual-only)";
+                return true;
             }
 
+            return false;
+        }
+
+        /// <summary>
+        /// <see cref="ShouldSpawnAtRecordingEnd(Recording, bool, RecordingTree, bool)"/> gates on how the
+        /// flight ended, in order: a non-spawnable terminal, a recovery ledger row after commit, an unsafe
+        /// snapshot situation, and an un-finalized snapshot situation that maps to a non-spawnable terminal.
+        /// Requires a non-null <see cref="Recording.VesselSnapshot"/> (the recording-state gates run first).
+        /// True with the rejection reason when a gate refuses; false (reason empty) otherwise.
+        /// </summary>
+        internal static bool TryRejectSpawnForTerminalAndSituation(
+            Recording rec,
+            out string reason)
+        {
+            reason = "";
             // Terminal states: destroyed/recovered/docked/boarded/suborbital should not spawn
             // SubOrbital includes FLYING and ESCAPING — vessel would materialize mid-air and crash (#45)
             if (rec.TerminalStateValue.HasValue
                 && !IsSpawnableTerminal(rec.TerminalStateValue.Value))
             {
-                return (false, $"terminal state {rec.TerminalStateValue.Value}");
+                reason = $"terminal state {rec.TerminalStateValue.Value}";
+                return true;
             }
 
             // Recovered after commit (operator ruling 2026-10-01): a recording whose
@@ -406,12 +478,13 @@ namespace Parsek
             // recovery of an older flight, or a save from before the in-flight Recover
             // committed Recovered). The recovery row credits the payout once at its UT;
             // spawning the vessel too would let the player recover it a second time.
-            if (RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive(rec))
+            if (EffectiveState.IsRecoveredByLedgerRowLive(rec))
             {
-                return (false,
+                reason =
                     "recovered after commit (recovery ledger row, terminal " +
                     (rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "<none>") +
-                    ")");
+                    ")";
+                return true;
             }
 
             // Snapshot situation check: if the snapshot's sit field is FLYING or SUB_ORBITAL,
@@ -427,7 +500,8 @@ namespace Parsek
                 && IsSpawnableTerminal(rec.TerminalStateValue.Value);
             if (!terminalOverridesUnsafe && IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
-                return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
+                reason = "snapshot situation unsafe (FLYING/SUB_ORBITAL)";
+                return true;
             }
 
             // COMPLETING the check above for un-finalized recordings. The
@@ -459,7 +533,7 @@ namespace Parsek
             // DELIBERATE SCOPE BOUNDARY: an ABSENT or unrecognised `sit` is left on
             // today's behaviour (allowed) rather than tightened to "reject on no
             // evidence". Every real snapshot carries the field — they are written by
-            // VesselSpawner.TryBackupSnapshot -> ProtoVessel.Save — so the population
+            // FlightRecorder.TryBackupSnapshot -> ProtoVessel.Save — so the population
             // without one is synthetic test fixtures, of which 16 cells across 5 files
             // pin the current answer, `MergeDialogVesselTests.CanPersistVessel_-
             // NullTerminalState_ReturnsTrue` by name. Tightening it is a separable
@@ -474,20 +548,14 @@ namespace Parsek
                         rec.VesselSnapshot.GetValue("sit"), out mirroredTerminal)
                     && !IsSpawnableTerminal(mirroredTerminal))
                 {
-                    return (false,
+                    reason =
                         "unfinalized recording, snapshot situation maps to " +
-                        $"terminal {mirroredTerminal}");
+                        $"terminal {mirroredTerminal}";
+                    return true;
                 }
             }
 
-            // PID dedup: if vessel was already spawned (PID recorded), never re-spawn.
-            // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
-            if (rec.SpawnedVesselPersistentId != 0)
-            {
-                return (false, $"already spawned (pid={rec.SpawnedVesselPersistentId})");
-            }
-
-            return (true, "");
+            return false;
         }
 
         internal const string LiveFlownRecordingSpawnReason =
@@ -582,7 +650,7 @@ namespace Parsek
                 return false;
             // A looped phase does not make the chain's tip non-final: the first run is
             // real (design 12.7), the same answer ShouldSpawnAtRecordingEnd gives.
-            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainMidSegment(rec))
+            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingChainQueries.IsChainMidSegment(rec))
                 return false;
 
             bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue
@@ -847,7 +915,7 @@ namespace Parsek
             // Intermediate chain segments should not spawn — only the chain tip spawns.
             // In Flight, ShouldSuppressSpawnForChain handles this via runtime GhostChain
             // state, but at KSC there are no GhostChain objects. Use the committed data.
-            if (RecordingStore.IsChainMidSegment(rec))
+            if (RecordingChainQueries.IsChainMidSegment(rec))
                 return (false, "intermediate chain segment (not tip)");
 
             // Scene-agnostic #573 rewind lift: a standalone Rewind-to-Launch target the

@@ -392,7 +392,7 @@ namespace Parsek.Tests
             Recording rec = tree.Recordings[FlightRecordingId];
             // The trajectory travels in the sidecar; load it so the tree record carries the
             // pointCount production writes.
-            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
             rec.CrewEndStates = new Dictionary<string, KerbalEndState>(StringComparer.Ordinal)
             {
                 { ReservedKerbal, KerbalEndState.Recovered }

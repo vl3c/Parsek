@@ -1101,10 +1101,6 @@ namespace Parsek
                     velocity,
                     preferRootPartSurfacePose);
                 point = FlightRecorder.ApplyStructuralEventFlag(point);
-                TryCanonicalizeBackgroundReFlyRecordingPoint(
-                    recordingId,
-                    ref point,
-                    "structural-event-" + (eventType ?? "unknown"));
                 TrajectoryPoint absolutePoint = point;
                 bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, v, eventUT);
                 ApplySurfaceClearanceToPoint(state, v, ref point);

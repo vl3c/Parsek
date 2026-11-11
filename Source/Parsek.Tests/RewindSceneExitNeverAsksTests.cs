@@ -116,7 +116,7 @@ namespace Parsek.Tests
         {
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinalizedPendingTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinalizedPendingTree("pend"), PendingTreeState.Finalized);
             HighLogic.LoadedScene = GameScenes.FLIGHT;
             BeginRewind();
 
@@ -132,7 +132,7 @@ namespace Parsek.Tests
             // Control: auto-merge off without a rewind keeps today's dialog.
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinalizedPendingTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinalizedPendingTree("pend"), PendingTreeState.Finalized);
             HighLogic.LoadedScene = GameScenes.FLIGHT;
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.SPACECENTER);
@@ -152,7 +152,7 @@ namespace Parsek.Tests
             };
             ParsekScenario.SetInstanceForTesting(scenario);
             var committed = FinalizedPendingTree("committed");
-            RecordingStore.CommitTree(committed);
+            TreeCommitService.CommitTree(committed);
             scenario.ArmSwitchSegmentSession(new SwitchSegmentSession
             {
                 SessionId = Guid.NewGuid(),
@@ -188,7 +188,7 @@ namespace Parsek.Tests
                 RewindPoints = new List<RewindPoint>(),
             };
             ParsekScenario.SetInstanceForTesting(scenario);
-            RecordingStore.CommitTree(FinalizedPendingTree("committed"));
+            TreeCommitService.CommitTree(FinalizedPendingTree("committed"));
             scenario.ArmSwitchSegmentSession(new SwitchSegmentSession
             {
                 SessionId = Guid.NewGuid(),
@@ -220,9 +220,9 @@ namespace Parsek.Tests
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "Source", "Parsek"));
             string interceptor = SourceScanText.StripCommentsAndMaskLiterals(
-                File.ReadAllText(Path.Combine(root, "SceneExitInterceptor.cs")));
+                ParsekFlightSourceFiles.ReadText(Path.Combine(root, "SceneExitInterceptor.cs")));
             string flight = SourceScanText.StripCommentsAndMaskLiterals(
-                File.ReadAllText(Path.Combine(root, "ParsekFlight.cs")));
+                ParsekFlightSourceFiles.ReadText(Path.Combine(root, "ParsekFlight.cs")));
 
             Assert.Equal(1, Regex.Matches(interceptor, @"ParsekScenario\.IsAutoMerge\b").Count);
             int helper = interceptor.IndexOf(

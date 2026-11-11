@@ -819,12 +819,12 @@ namespace Parsek.Tests.Generators
                     GhostVisualSnapshot = builder.GetGhostVisualSnapshot()?.CreateCopy(),
                     FilesDirty = true,
                 };
-                recording.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
-                RecordingStore.DeserializeTrajectoryFrom(sourceTrajNode, recording);
+                recording.GhostSnapshotMode = RecordingSidecarStore.DetermineGhostSnapshotMode(recording);
+                TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(sourceTrajNode, recording);
                 string precPath = Path.Combine(recordingsDir, $"{id}.prec");
                 string vesselPath = Path.Combine(recordingsDir, $"{id}_vessel.craft");
                 string ghostPath = Path.Combine(recordingsDir, $"{id}_ghost.craft");
-                if (!RecordingStore.SaveRecordingFilesToPathsForTesting(
+                if (!RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                         recording, precPath, vesselPath, ghostPath, incrementEpoch: false))
                     throw new InvalidOperationException($"Failed to write sidecar files for {id}");
             }
@@ -1392,7 +1392,7 @@ namespace Parsek.Tests.Generators
                 VesselSnapshot = builder.GetVesselSnapshot()?.CreateCopy(),
                 GhostVisualSnapshot = builder.GetGhostVisualSnapshot()?.CreateCopy(),
             };
-            rec.GhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
+            rec.GhostSnapshotMode = RecordingSidecarStore.DetermineGhostSnapshotMode(rec);
 
             int? ts = builder.GetTerminalState();
             if (ts.HasValue)

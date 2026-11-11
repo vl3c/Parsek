@@ -213,7 +213,7 @@ namespace Parsek
                 }
             }
 
-            var pendingTree = RecordingStore.PendingTree;
+            var pendingTree = PendingTreeSlot.PendingTree;
             if (pendingTree != null
                 && string.Equals(pendingTree.Id, treeId, StringComparison.Ordinal))
             {
@@ -240,7 +240,7 @@ namespace Parsek
                 }
             }
 
-            var pendingTree = RecordingStore.PendingTree;
+            var pendingTree = PendingTreeSlot.PendingTree;
             if (pendingTree != null
                 && string.Equals(pendingTree.Id, treeId, StringComparison.Ordinal)
                 && pendingTree.Recordings != null

@@ -166,7 +166,7 @@ namespace Parsek.Tests
         [Fact]
         public void CommitRecordingDirect_NullRecording_DoesNothing()
         {
-            RecordingStore.CommitRecordingDirect(null);
+            TreeCommitService.CommitRecordingDirect(null);
             Assert.Empty(RecordingStore.CommittedRecordings);
         }
 
@@ -175,7 +175,7 @@ namespace Parsek.Tests
         {
             var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Ship");
             Assert.NotNull(rec);
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("Ship", RecordingStore.CommittedRecordings[0].VesselName);
         }
@@ -193,10 +193,10 @@ namespace Parsek.Tests
                 Assert.NotNull(rec);
                 rec.ChainId = "chain-valid";
                 rec.ChainIndex = i;
-                RecordingStore.CommitRecordingDirect(rec);
+                TreeCommitService.CommitRecordingDirect(rec);
             }
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             var committed = RecordingStore.CommittedRecordings;
             Assert.Equal(3, committed.Count);
@@ -214,15 +214,15 @@ namespace Parsek.Tests
             Assert.NotNull(rec1);
             rec1.ChainId = "chain-gap";
             rec1.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg2");
             Assert.NotNull(rec2);
             rec2.ChainId = "chain-gap";
             rec2.ChainIndex = 2;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
@@ -240,10 +240,10 @@ namespace Parsek.Tests
                 Assert.NotNull(rec);
                 rec.ChainId = "chain-dup";
                 rec.ChainIndex = 0; // Both index 0
-                RecordingStore.CommitRecordingDirect(rec);
+                TreeCommitService.CommitRecordingDirect(rec);
             }
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
@@ -259,15 +259,15 @@ namespace Parsek.Tests
             Assert.NotNull(rec1);
             rec1.ChainId = "chain-ut";
             rec1.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg1");
             Assert.NotNull(rec2);
             rec2.ChainId = "chain-ut";
             rec2.ChainIndex = 1;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
@@ -286,7 +286,7 @@ namespace Parsek.Tests
                 Assert.NotNull(rec);
                 rec.ChainId = "chain-good";
                 rec.ChainIndex = i;
-                RecordingStore.CommitRecordingDirect(rec);
+                TreeCommitService.CommitRecordingDirect(rec);
             }
 
             // Invalid chain (gap)
@@ -294,15 +294,15 @@ namespace Parsek.Tests
             Assert.NotNull(bad1);
             bad1.ChainId = "chain-bad";
             bad1.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(bad1);
+            TreeCommitService.CommitRecordingDirect(bad1);
 
             var bad2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 400), "Bad2");
             Assert.NotNull(bad2);
             bad2.ChainId = "chain-bad";
             bad2.ChainIndex = 2;
-            RecordingStore.CommitRecordingDirect(bad2);
+            TreeCommitService.CommitRecordingDirect(bad2);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             Assert.Equal("chain-good", RecordingStore.CommittedRecordings[0].ChainId);
             Assert.Equal("chain-good", RecordingStore.CommittedRecordings[1].ChainId);
@@ -315,9 +315,9 @@ namespace Parsek.Tests
         {
             var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Standalone");
             Assert.NotNull(rec);
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             Assert.Null(RecordingStore.CommittedRecordings[0].ChainId);
             Assert.Equal(-1, RecordingStore.CommittedRecordings[0].ChainIndex);
@@ -330,9 +330,9 @@ namespace Parsek.Tests
             Assert.NotNull(rec);
             rec.ChainId = "chain-solo";
             rec.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             Assert.Equal("chain-solo", RecordingStore.CommittedRecordings[0].ChainId);
             Assert.Equal(0, RecordingStore.CommittedRecordings[0].ChainIndex);
@@ -346,15 +346,15 @@ namespace Parsek.Tests
             Assert.NotNull(rec1);
             rec1.ChainId = "chain-eq-ut";
             rec1.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg1");
             Assert.NotNull(rec2);
             rec2.ChainId = "chain-eq-ut";
             rec2.ChainIndex = 1;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             Assert.Equal("chain-eq-ut", RecordingStore.CommittedRecordings[0].ChainId);
             Assert.Equal("chain-eq-ut", RecordingStore.CommittedRecordings[1].ChainId);
@@ -368,15 +368,15 @@ namespace Parsek.Tests
             Assert.NotNull(rec1);
             rec1.ChainId = "chain-no-zero";
             rec1.ChainIndex = 1;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg2");
             Assert.NotNull(rec2);
             rec2.ChainId = "chain-no-zero";
             rec2.ChainIndex = 2;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
-            RecordingStore.ValidateChains();
+            RecordingChainQueries.ValidateChains();
 
             foreach (var rec in RecordingStore.CommittedRecordings)
             {
@@ -388,7 +388,7 @@ namespace Parsek.Tests
         [Fact]
         public void ValidateChains_NoCommittedRecordings_NoError()
         {
-            RecordingStore.ValidateChains(); // Should not throw
+            RecordingChainQueries.ValidateChains(); // Should not throw
         }
 
         #endregion
@@ -402,15 +402,15 @@ namespace Parsek.Tests
             Assert.NotNull(rec1);
             rec1.ChainId = "mid-test";
             rec1.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
             Assert.NotNull(rec2);
             rec2.ChainId = "mid-test";
             rec2.ChainIndex = 1;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
-            Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
+            Assert.True(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
 
         [Fact]
@@ -420,15 +420,15 @@ namespace Parsek.Tests
             Assert.NotNull(rec1);
             rec1.ChainId = "last-test";
             rec1.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
             Assert.NotNull(rec2);
             rec2.ChainId = "last-test";
             rec2.ChainIndex = 1;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
-            Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
         }
 
         [Fact]
@@ -436,9 +436,9 @@ namespace Parsek.Tests
         {
             var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Solo");
             Assert.NotNull(rec);
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
-            Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
 
         // The three degenerate cells below each commit a PEER whose ChainId
@@ -453,7 +453,7 @@ namespace Parsek.Tests
             peer.ChainId = chainId;
             peer.ChainIndex = chainIndex;
             peer.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(peer);
+            TreeCommitService.CommitRecordingDirect(peer);
             return peer;
         }
 
@@ -463,7 +463,7 @@ namespace Parsek.Tests
             CommitChainPeer(null, 1);
 
             var rec = new Recording { ChainId = null, ChainIndex = 0 };
-            Assert.False(RecordingStore.IsChainMidSegment(rec));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(rec));
         }
 
         [Fact]
@@ -472,7 +472,7 @@ namespace Parsek.Tests
             CommitChainPeer("", 1);
 
             var rec = new Recording { ChainId = "", ChainIndex = 0 };
-            Assert.False(RecordingStore.IsChainMidSegment(rec));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(rec));
         }
 
         [Fact]
@@ -481,7 +481,7 @@ namespace Parsek.Tests
             CommitChainPeer("some-chain", 1);
 
             var rec = new Recording { ChainId = "some-chain", ChainIndex = -1 };
-            Assert.False(RecordingStore.IsChainMidSegment(rec));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(rec));
         }
 
         [Fact]
@@ -491,9 +491,9 @@ namespace Parsek.Tests
             Assert.NotNull(rec);
             rec.ChainId = "chain-one";
             rec.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
-            Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
         }
 
         [Fact]
@@ -505,12 +505,12 @@ namespace Parsek.Tests
                 Assert.NotNull(rec);
                 rec.ChainId = "mid-three";
                 rec.ChainIndex = i;
-                RecordingStore.CommitRecordingDirect(rec);
+                TreeCommitService.CommitRecordingDirect(rec);
             }
 
-            Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
-            Assert.True(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
-            Assert.False(RecordingStore.IsChainMidSegment(RecordingStore.CommittedRecordings[2]));
+            Assert.True(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[0]));
+            Assert.True(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[1]));
+            Assert.False(RecordingChainQueries.IsChainMidSegment(RecordingStore.CommittedRecordings[2]));
         }
 
         #endregion
@@ -524,19 +524,19 @@ namespace Parsek.Tests
             Assert.NotNull(rec1);
             rec1.ChainId = "end-test";
             rec1.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
             Assert.NotNull(rec2);
             rec2.ChainId = "end-test";
             rec2.ChainIndex = 1;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var seg0 = RecordingStore.CommittedRecordings[0];
             var seg1 = RecordingStore.CommittedRecordings[1];
 
-            Assert.Equal(seg1.EndUT, RecordingStore.GetChainEndUT(seg0));
-            Assert.Equal(seg1.EndUT, RecordingStore.GetChainEndUT(seg1));
+            Assert.Equal(seg1.EndUT, RecordingChainQueries.GetChainEndUT(seg0));
+            Assert.Equal(seg1.EndUT, RecordingChainQueries.GetChainEndUT(seg1));
         }
 
         [Fact]
@@ -544,10 +544,10 @@ namespace Parsek.Tests
         {
             var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Solo");
             Assert.NotNull(rec);
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             var committed = RecordingStore.CommittedRecordings[0];
-            Assert.Equal(committed.EndUT, RecordingStore.GetChainEndUT(committed));
+            Assert.Equal(committed.EndUT, RecordingChainQueries.GetChainEndUT(committed));
         }
 
         [Fact]
@@ -562,8 +562,8 @@ namespace Parsek.Tests
 
             var rec = new Recording();
             rec.Points.AddRange(MakePoints(3, 100));
-            Assert.Equal(rec.EndUT, RecordingStore.GetChainEndUT(rec));
-            Assert.NotEqual(other.EndUT, RecordingStore.GetChainEndUT(rec));
+            Assert.Equal(rec.EndUT, RecordingChainQueries.GetChainEndUT(rec));
+            Assert.NotEqual(other.EndUT, RecordingChainQueries.GetChainEndUT(rec));
         }
 
         [Fact]
@@ -573,10 +573,10 @@ namespace Parsek.Tests
             Assert.NotNull(rec);
             rec.ChainId = "chain-one";
             rec.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             var committed = RecordingStore.CommittedRecordings[0];
-            Assert.Equal(committed.EndUT, RecordingStore.GetChainEndUT(committed));
+            Assert.Equal(committed.EndUT, RecordingChainQueries.GetChainEndUT(committed));
         }
 
         [Fact]
@@ -588,12 +588,12 @@ namespace Parsek.Tests
                 Assert.NotNull(rec);
                 rec.ChainId = "end-three";
                 rec.ChainIndex = i;
-                RecordingStore.CommitRecordingDirect(rec);
+                TreeCommitService.CommitRecordingDirect(rec);
             }
 
             double lastEndUT = RecordingStore.CommittedRecordings[2].EndUT;
             for (int i = 0; i < 3; i++)
-                Assert.Equal(lastEndUT, RecordingStore.GetChainEndUT(RecordingStore.CommittedRecordings[i]));
+                Assert.Equal(lastEndUT, RecordingChainQueries.GetChainEndUT(RecordingStore.CommittedRecordings[i]));
         }
 
         #endregion
@@ -607,15 +607,15 @@ namespace Parsek.Tests
             Assert.NotNull(rec0);
             rec0.ChainId = "pred-test";
             rec0.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec0);
+            TreeCommitService.CommitRecordingDirect(rec0);
 
             var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
             Assert.NotNull(rec1);
             rec1.ChainId = "pred-test";
             rec1.ChainIndex = 1;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
-            Assert.Equal(0, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+            Assert.Equal(0, RecordingChainQueries.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
         }
 
         [Fact]
@@ -625,9 +625,9 @@ namespace Parsek.Tests
             Assert.NotNull(rec0);
             rec0.ChainId = "head-test";
             rec0.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec0);
+            TreeCommitService.CommitRecordingDirect(rec0);
 
-            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[0]));
+            Assert.Equal(-1, RecordingChainQueries.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[0]));
         }
 
         [Fact]
@@ -639,7 +639,7 @@ namespace Parsek.Tests
             CommitChainPeer(null, -1);
 
             var rec = new Recording { ChainId = null, ChainIndex = 0 };
-            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(rec));
+            Assert.Equal(-1, RecordingChainQueries.GetChainPredecessorIndex(rec));
         }
 
         [Fact]
@@ -652,16 +652,16 @@ namespace Parsek.Tests
             rec0.ChainId = "branch-test";
             rec0.ChainIndex = 0;
             rec0.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec0);
+            TreeCommitService.CommitRecordingDirect(rec0);
 
             var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Branch1");
             Assert.NotNull(rec1);
             rec1.ChainId = "branch-test";
             rec1.ChainIndex = 1;
             rec1.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
-            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+            Assert.Equal(-1, RecordingChainQueries.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
         }
 
         [Fact]
@@ -673,15 +673,15 @@ namespace Parsek.Tests
             Assert.NotNull(rec0);
             rec0.ChainId = "gap-test";
             rec0.ChainIndex = 0;
-            RecordingStore.CommitRecordingDirect(rec0);
+            TreeCommitService.CommitRecordingDirect(rec0);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Seg2");
             Assert.NotNull(rec2);
             rec2.ChainId = "gap-test";
             rec2.ChainIndex = 2;
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
-            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+            Assert.Equal(-1, RecordingChainQueries.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
         }
 
         [Fact]
@@ -766,7 +766,7 @@ namespace Parsek.Tests
             rec1.ChainId = "crew-chain";
             rec1.ChainIndex = 0;
             rec1.RecordingId = "seg0";
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Jeb");
             Assert.NotNull(rec2);
@@ -774,14 +774,14 @@ namespace Parsek.Tests
             rec2.ChainIndex = 1;
             rec2.EvaCrewName = "Jebediah Kerman";
             rec2.RecordingId = "seg1";
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Vessel2");
             Assert.NotNull(rec3);
             rec3.ChainId = "crew-chain";
             rec3.ChainIndex = 2;
             rec3.RecordingId = "seg2";
-            RecordingStore.CommitRecordingDirect(rec3);
+            TreeCommitService.CommitRecordingDirect(rec3);
 
             var finalSeg = RecordingStore.CommittedRecordings[2];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(finalSeg);
@@ -800,7 +800,7 @@ namespace Parsek.Tests
             rec1.ChainId = "eva-exit";
             rec1.ChainIndex = 0;
             rec1.RecordingId = "seg0";
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Jeb");
             Assert.NotNull(rec2);
@@ -808,7 +808,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 1;
             rec2.EvaCrewName = "Jebediah Kerman";
             rec2.RecordingId = "seg1";
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var parentVessel = RecordingStore.CommittedRecordings[0];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(parentVessel);
@@ -824,13 +824,13 @@ namespace Parsek.Tests
             var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Parent");
             Assert.NotNull(rec1);
             rec1.RecordingId = "parent-id";
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Child");
             Assert.NotNull(rec2);
             rec2.ParentRecordingId = "parent-id";
             rec2.EvaCrewName = "Bill Kerman";
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var parent = RecordingStore.CommittedRecordings[0];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(parent);
@@ -849,7 +849,7 @@ namespace Parsek.Tests
             rec1.ChainId = "eva-self";
             rec1.ChainIndex = 0;
             rec1.RecordingId = "seg0";
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Jeb");
             Assert.NotNull(rec2);
@@ -857,7 +857,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 1;
             rec2.EvaCrewName = "Jebediah Kerman";
             rec2.RecordingId = "seg1";
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var evaSeg = RecordingStore.CommittedRecordings[1];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(evaSeg);
@@ -872,7 +872,7 @@ namespace Parsek.Tests
             var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Solo");
             Assert.NotNull(rec);
             rec.RecordingId = "solo-id";
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             var committed = RecordingStore.CommittedRecordings[0];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(committed);
@@ -892,7 +892,7 @@ namespace Parsek.Tests
             child.RecordingId = "eva-child";
             child.ParentRecordingId = "";
             child.EvaCrewName = "Jeb";
-            RecordingStore.CommitRecordingDirect(child);
+            TreeCommitService.CommitRecordingDirect(child);
 
             var rec = new Recording { RecordingId = "" };
             Assert.Null(VesselSpawner.BuildExcludeCrewSet(rec));
@@ -909,7 +909,7 @@ namespace Parsek.Tests
             rec1.ChainId = "multi-eva";
             rec1.ChainIndex = 0;
             rec1.RecordingId = "v0";
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Jeb");
             Assert.NotNull(rec2);
@@ -917,14 +917,14 @@ namespace Parsek.Tests
             rec2.ChainIndex = 1;
             rec2.EvaCrewName = "Jebediah Kerman";
             rec2.RecordingId = "e1";
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Vessel2");
             Assert.NotNull(rec3);
             rec3.ChainId = "multi-eva";
             rec3.ChainIndex = 2;
             rec3.RecordingId = "v2";
-            RecordingStore.CommitRecordingDirect(rec3);
+            TreeCommitService.CommitRecordingDirect(rec3);
 
             var rec4 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 250), "EVA Bill");
             Assert.NotNull(rec4);
@@ -932,7 +932,7 @@ namespace Parsek.Tests
             rec4.ChainIndex = 3;
             rec4.EvaCrewName = "Bill Kerman";
             rec4.RecordingId = "e3";
-            RecordingStore.CommitRecordingDirect(rec4);
+            TreeCommitService.CommitRecordingDirect(rec4);
 
             // Check vessel segment 0 -- Bill excluded (EVA index 3 > vessel index 2)
             var vessel0 = RecordingStore.CommittedRecordings[0];
@@ -951,14 +951,14 @@ namespace Parsek.Tests
             rec1.ChainId = "no-eva";
             rec1.ChainIndex = 0;
             rec1.RecordingId = "v0";
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Vessel2");
             Assert.NotNull(rec2);
             rec2.ChainId = "no-eva";
             rec2.ChainIndex = 1;
             rec2.RecordingId = "v1";
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(RecordingStore.CommittedRecordings[0]);
             Assert.Null(excludeSet);
@@ -970,19 +970,19 @@ namespace Parsek.Tests
             var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Parent");
             Assert.NotNull(rec1);
             rec1.RecordingId = "parent-multi";
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "EVA Jeb");
             Assert.NotNull(rec2);
             rec2.ParentRecordingId = "parent-multi";
             rec2.EvaCrewName = "Jebediah Kerman";
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "EVA Bill");
             Assert.NotNull(rec3);
             rec3.ParentRecordingId = "parent-multi";
             rec3.EvaCrewName = "Bill Kerman";
-            RecordingStore.CommitRecordingDirect(rec3);
+            TreeCommitService.CommitRecordingDirect(rec3);
 
             var parent = RecordingStore.CommittedRecordings[0];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(parent);
@@ -1235,7 +1235,7 @@ namespace Parsek.Tests
             // Appending trajectory points to a committed recording extends its EndUT
             var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, 100), "Test Vessel");
             Assert.NotNull(rec);
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             var committed = RecordingStore.CommittedRecordings[0];
             double originalEndUT = committed.EndUT; // 140 (100 + 4*10)
@@ -1255,7 +1255,7 @@ namespace Parsek.Tests
             // Chain EndUT also updates (it reads EndUT from the recording)
             committed.ChainId = "extend-test";
             committed.ChainIndex = 0;
-            Assert.Equal(200, RecordingStore.GetChainEndUT(committed));
+            Assert.Equal(200, RecordingChainQueries.GetChainEndUT(committed));
         }
 
         #endregion
@@ -1278,9 +1278,9 @@ namespace Parsek.Tests
             rec.ChainBranch = 0;
             rec.PlaybackEnabled = true;
             rec.LoopPlayback = true;
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
-            Assert.True(RecordingStore.IsChainLooping("chain1"));
+            Assert.True(RecordingChainQueries.IsChainLooping("chain1"));
         }
 
         [Fact]
@@ -1302,9 +1302,9 @@ namespace Parsek.Tests
             rec.ChainBranch = 0;
             rec.PlaybackEnabled = false;
             rec.LoopPlayback = true;
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
-            Assert.True(RecordingStore.IsChainLooping("chain-disabled-loop"));
+            Assert.True(RecordingChainQueries.IsChainLooping("chain-disabled-loop"));
         }
 
         [Fact]
@@ -1321,7 +1321,7 @@ namespace Parsek.Tests
             rec1.ChainIndex = 0;
             rec1.ChainBranch = 0;
             rec1.RecordingId = "seg0";
-            RecordingStore.CommitRecordingDirect(rec1);
+            TreeCommitService.CommitRecordingDirect(rec1);
 
             var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 150), "Vessel2");
             Assert.NotNull(rec2);
@@ -1329,7 +1329,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 1;
             rec2.ChainBranch = 0;
             rec2.RecordingId = "seg1";
-            RecordingStore.CommitRecordingDirect(rec2);
+            TreeCommitService.CommitRecordingDirect(rec2);
 
             var evaBranch1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "EVA Bill");
             Assert.NotNull(evaBranch1);
@@ -1338,7 +1338,7 @@ namespace Parsek.Tests
             evaBranch1.ChainBranch = 1;
             evaBranch1.EvaCrewName = "Bill Kerman";
             evaBranch1.RecordingId = "seg2-branch1";
-            RecordingStore.CommitRecordingDirect(evaBranch1);
+            TreeCommitService.CommitRecordingDirect(evaBranch1);
 
             var branch0Tip = RecordingStore.CommittedRecordings[1];
             var excludeSet = VesselSpawner.BuildExcludeCrewSet(branch0Tip);

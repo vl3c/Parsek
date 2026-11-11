@@ -6,7 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: <c>ParsekFlight.CommitTreeFlight</c> now runs
-    /// <c>RecordingStore.RunOptimizationPass</c> like <c>MergeDialog.MergeCommit</c>. These
+    /// <c>CommittedListOptimizer.RunOptimizationPass</c> like <c>MergeDialog.MergeCommit</c>. These
     /// cells pin the pure decisions it uses (skip guards, post-pass chain-tip resolution, the
     /// active vessel's spawn-stamp carry) and, source-gated, the call's position in the commit.
     /// </summary>
@@ -279,7 +279,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(activeRec);
             RecordingStore.CommittedTrees.Add(tree);
 
-            RecordingStore.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
 
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
             var tip = InFlightCommitOptimization.ResolveChainTip(
@@ -323,19 +323,21 @@ namespace Parsek.Tests
             string path = LocateParsekFlightSource();
             Assert.True(System.IO.File.Exists(path), $"ParsekFlight.cs not found at {path}");
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
-                System.IO.File.ReadAllText(path).Replace(CrLf, Lf));
+                ParsekFlightSourceFiles.ReadText(path).Replace(CrLf, Lf));
 
-            const string decl = "public void CommitTreeFlight()";
+            // The body lives on ParsekFlightMergeFlow; ParsekFlight keeps a one-line forwarder of the
+            // same signature, so the declaration is the one a line break follows.
+            const string decl = "public void CommitTreeFlight()\n";
             int declIdx = prepared.IndexOf(decl, StringComparison.Ordinal);
             Assert.True(declIdx >= 0, "CommitTreeFlight declaration not found");
             Assert.Equal(declIdx, prepared.LastIndexOf(decl, StringComparison.Ordinal));
             string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', declIdx));
 
-            int commitIdx = body.IndexOf("RecordingStore.CommitTree(activeTree);", StringComparison.Ordinal);
+            int commitIdx = body.IndexOf("TreeCommitService.CommitTree(host.activeTree);", StringComparison.Ordinal);
             int passIdx = body.IndexOf("RunInFlightCommitOptimizationPass(activeRec, activeRecId)", StringComparison.Ordinal);
-            int ledgerIdx = body.IndexOf("LedgerOrchestrator.NotifyLedgerTreeCommitted(activeTree);", StringComparison.Ordinal);
-            int spawnIdx = body.IndexOf("SpawnTreeLeaves(activeTree, activeTipId);", StringComparison.Ordinal);
-            Assert.True(commitIdx >= 0, "CommitTreeFlight no longer commits through RecordingStore.CommitTree");
+            int ledgerIdx = body.IndexOf("LedgerOrchestrator.NotifyLedgerTreeCommitted(host.activeTree);", StringComparison.Ordinal);
+            int spawnIdx = body.IndexOf("SpawnTreeLeaves(host.activeTree, activeTipId);", StringComparison.Ordinal);
+            Assert.True(commitIdx >= 0, "CommitTreeFlight no longer commits through TreeCommitService.CommitTree");
             Assert.True(passIdx > commitIdx, "CommitTreeFlight does not run the optimization pass after the commit");
             Assert.True(ledgerIdx > passIdx, "the optimization pass must run before the ledger notify (MergeCommit order)");
             Assert.True(spawnIdx > passIdx, "the leaves must spawn after the pass, with the resolved active tip id");
@@ -349,7 +351,7 @@ namespace Parsek.Tests
             // The pass runs only through the guarded runner, never as a bare call that could
             // throw out of the commit before the ledger notify and the leaf spawn.
             Assert.Contains("InFlightCommitOptimization.RunPassAndResolveActiveTip(", helper);
-            Assert.Contains("RecordingStore.RunOptimizationPass,", helper);
+            Assert.Contains("CommittedListOptimizer.RunOptimizationPass,", helper);
             Assert.DoesNotContain("RunOptimizationPass()", helper);
             Assert.DoesNotContain("RunOptimizationPass()", body);
         }

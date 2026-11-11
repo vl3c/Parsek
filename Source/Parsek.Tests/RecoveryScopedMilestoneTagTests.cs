@@ -139,7 +139,7 @@ namespace Parsek.Tests
             // waits for that commit): the event is tagged to it, nothing is written at once,
             // and the commit books exactly one tagged row.
             var pending = MakeFleaTree("pending", 353.8, TerminalState.Recovered);
-            RecordingStore.StashPendingTree(pending, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(pending, PendingTreeState.Finalized);
             string rootId = pending.RootRecordingId;
 
             RecoverWithMilestone(353.94, Milestone, funds: 800f);
@@ -167,7 +167,7 @@ namespace Parsek.Tests
             };
             SetPoints(twin, 110.0, 353.8);
             pending.AddOrReplaceRecording(twin);
-            RecordingStore.StashPendingTree(pending, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(pending, PendingTreeState.Finalized);
 
             RecoverWithMilestone(353.94, Milestone, funds: 800f);
 

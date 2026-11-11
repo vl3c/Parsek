@@ -82,7 +82,14 @@ namespace Parsek.Tests
             // DELETED the row itself, so from then until now the mod's entry-point window -
             // and the Timeline row below, deleted the same way - had no budget gate at all.
             // Neither deletion was intended; both rows are back with their stated floors.
-            yield return new object[] { "ParsekUI.cs", 250f, 7, TooltipEchoBox.DoubleLine };
+            // Floor 7 -> 5 (2026-11-08, W6): the Logistics launcher and the candidate
+            // banner's Dismiss moved, unchanged, into the Logistics window's main-window
+            // section; the next row budgets them at this same width and height.
+            yield return new object[] { "ParsekUI.cs", 250f, 5, TooltipEchoBox.DoubleLine };
+            // The Logistics window's section of the MAIN window (LogisticsWindowUI.
+            // MainWindowSection.cs): its tooltips echo in the main window's strip, so it is
+            // budgeted as the main window. Floor 2: the Logistics launcher and Dismiss.
+            yield return new object[] { "UI/LogisticsWindowUI.MainWindowSection.cs", 250f, 2, TooltipEchoBox.DoubleLine };
             // Settings: DrawIfOpen seeds new Rect(..., 280, 600) on first open. The floor
             // dropped 15 -> 10 with the 2026-08-27 settings simplification (the Recording,
             // Stock UI, auto-backup, landing-body-alignment and force-faithful controls
@@ -612,6 +619,21 @@ namespace Parsek.Tests
                 return;
             }
 
+            if (relPath == "UI/LogisticsWindowUI.MainWindowSection.cs")
+            {
+                // Hosted content too: the Logistics window's section of the MAIN window
+                // owns no strip, and its tooltips echo in the main window's. Cross-check the
+                // row against the strip the host (ParsekUI.cs) constructs.
+                Assert.True(constructed.Count == 0,
+                    relPath + " now constructs its own TooltipEchoBox - update its "
+                    + "StripWindows row to that strip's height instead of the host's.");
+                List<int> host = ExtractTooltipEchoBoxLineArgs(ReadStripWindowSource("ParsekUI.cs"));
+                Assert.True(host.Count == 1 && host[0] == stripLines,
+                    relPath + ": the row budgets " + stripLines + " line(s) but its host, the "
+                    + "main window, constructs " + string.Join(",", host) + ".");
+                return;
+            }
+
             Assert.True(constructed.Count == 1,
                 string.Format(
                     "{0} ({1}px, floor {2}): expected exactly one 'new TooltipEchoBox(' "
@@ -1025,19 +1047,37 @@ namespace Parsek.Tests
             return path;
         }
 
-        // RecordingsTableUI is one partial class split over RecordingsTableUI.cs and its
-        // RecordingsTableUI.<Area>.cs files. Its row reads the whole class as one text
-        // (RecordingsTableUISourceFiles.ReadAll), so the scans count exactly what the
-        // single file held and a const declared in the main file still resolves for a
-        // GUIContent in an area file. Every other row reads its one file.
+        // RecordingsTableUI, MissionsWindowUI and LogisticsWindowUI are each one partial
+        // class split over <Class>.cs and its <Class>.<Area>.cs files. Their rows read the
+        // whole class as one text (<Class>SourceFiles.ReadAll), so the scans count exactly
+        // what the single file held and a const declared in the main file still resolves for
+        // a GUIContent in an area file. Every other row reads its one file.
         private const string RecordingsTableRelPath = "UI/RecordingsTableUI.cs";
+        private const string MissionsWindowRelPath = "UI/MissionsWindowUI.cs";
+        private const string LogisticsWindowRelPath = "UI/LogisticsWindowUI.cs";
+
+        /// <summary>The files of a split class's row, in read order; null for a one-file row.</summary>
+        private static IReadOnlyList<string> SplitClassPaths(string relPath)
+        {
+            string dir = Path.GetDirectoryName(ParsekSourcePath(relPath));
+            if (relPath == RecordingsTableRelPath)
+                return RecordingsTableUISourceFiles.Paths(dir);
+            if (relPath == MissionsWindowRelPath)
+                return MissionsWindowUISourceFiles.Paths(dir);
+            if (relPath == LogisticsWindowRelPath)
+                return LogisticsWindowUISourceFiles.Paths(dir);
+            return null;
+        }
 
         private static string ReadStripWindowSource(string relPath)
         {
-            if (relPath != RecordingsTableRelPath)
+            IReadOnlyList<string> paths = SplitClassPaths(relPath);
+            if (paths == null)
                 return ReadParsekSource(relPath);
-            return RecordingsTableUISourceFiles.ReadAll(
-                Path.GetDirectoryName(ParsekSourcePath(relPath)));
+            var texts = new List<string>();
+            foreach (string path in paths)
+                texts.Add(File.ReadAllText(path));
+            return string.Join("\n", texts);
         }
 
         /// <summary>Maps a 1-based line of <see cref="ReadStripWindowSource"/>'s text back
@@ -1046,11 +1086,11 @@ namespace Parsek.Tests
         {
             file = relPath;
             fileLine = line;
-            if (relPath != RecordingsTableRelPath)
+            IReadOnlyList<string> paths = SplitClassPaths(relPath);
+            if (paths == null)
                 return;
             int start = 1;
-            foreach (string path in RecordingsTableUISourceFiles.Paths(
-                         Path.GetDirectoryName(ParsekSourcePath(relPath))))
+            foreach (string path in paths)
             {
                 int lines = File.ReadAllText(path).Split('\n').Length;
                 if (line < start + lines)

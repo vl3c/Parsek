@@ -403,7 +403,7 @@ namespace Parsek.Tests.Rendering
         [Fact]
         public void TailLift_ManualPreviewInterpolationPassesRecordingId()
         {
-            string source = File.ReadAllText(LocateParsekFlightSource());
+            string source = ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(LocateParsekFlightSource()));
             string methodBody = ExtractMethodBody(source, "void UpdatePlayback()");
 
             int surfaceSkipIndex = methodBody.IndexOf(
@@ -413,7 +413,7 @@ namespace Parsek.Tests.Rendering
                 "UpdatePlayback preview surface-skip block was not found.");
 
             int callIndex = methodBody.IndexOf(
-                "InterpolateAndPosition(ghostObject, recording, orbitSegments",
+                "InterpolateAndPosition(host.ghostObject, host.recording, host.orbitSegments",
                 surfaceSkipIndex,
                 StringComparison.Ordinal);
             Assert.True(callIndex >= 0,
@@ -496,7 +496,7 @@ namespace Parsek.Tests.Rendering
             // effective-altitude logic. The unit test covers the contract by
             // calling the inner compositor for the Phase 7 path and the
             // structural check verifies the call site itself.
-            string source = File.ReadAllText(LocateParsekFlightSource());
+            string source = ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(LocateParsekFlightSource()));
 
             // 1. PositionAtPoint records the authoritative bool when
             //    ApplyLandedGhostClearance ran.
@@ -512,7 +512,8 @@ namespace Parsek.Tests.Rendering
                 "void PositionGhostAt(GameObject ghost, TrajectoryPoint point, string recordingId = null,");
             Assert.Contains("altitudeAuthoritative", positionGhostAt);
             Assert.Contains("? point.altitude", positionGhostAt);
-            Assert.Contains(": ResolveEffectiveAltitudeWithTailLift(", positionGhostAt);
+            // The positioner reaches the host's static wrapper qualified (ParsekFlight. prefix).
+            Assert.Matches(@":\s*(ParsekFlight\.)?ResolveEffectiveAltitudeWithTailLift\(", positionGhostAt);
         }
 
         private static Recording CreateTailLiftRecording(

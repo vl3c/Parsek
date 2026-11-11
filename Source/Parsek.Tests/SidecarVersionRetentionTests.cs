@@ -26,7 +26,7 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             SidecarVersionResolution.ResetForTesting();
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
 
             saveRoot = Path.Combine(Path.GetTempPath(), "parsek-sidecar-versions-" + Guid.NewGuid().ToString("N"));
             recordingsDir = Path.Combine(saveRoot, "Parsek", "Recordings");
@@ -39,7 +39,7 @@ namespace Parsek.Tests
         {
             SidecarVersionResolution.ResetForTesting();
             RecordingPaths.SaveRootOverrideForTesting = null;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             Parsek.Rendering.SmoothingPipeline.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -89,7 +89,7 @@ namespace Parsek.Tests
 
         private void Save(Recording rec, bool incrementEpoch = true)
         {
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 rec, PrecPath(rec.RecordingId), VesselPath(rec.RecordingId), GhostPath(rec.RecordingId),
                 incrementEpoch));
         }
@@ -296,7 +296,7 @@ namespace Parsek.Tests
             string precHash = rec.PrecHash;
             string vesselHash = rec.VesselSnapshotHash;
 
-            Assert.True(RecordingStore.DeleteRecordingFiles(rec));
+            Assert.True(RecordingFileJanitor.DeleteRecordingFiles(rec));
 
             Assert.False(File.Exists(PrecPath("d1")));
             Assert.False(File.Exists(VesselPath("d1")));
@@ -348,7 +348,7 @@ namespace Parsek.Tests
             Recording saved = SavedCopy(rec);
 
             SidecarVersionResolution.BeginForTesting(Owners("c1", 1));
-            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
 
             Assert.Equal(5, saved.Points.Count);
@@ -373,7 +373,7 @@ namespace Parsek.Tests
             string newestHash = rec.PrecHash;
 
             SidecarVersionResolution.BeginForTesting(Owners("c2", 1));
-            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
 
             Assert.Equal(5, saved.Points.Count);
@@ -398,7 +398,7 @@ namespace Parsek.Tests
             string headHash = rec.PrecHash;
 
             SidecarVersionResolution.BeginForTesting(Owners("c3", 2));
-            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
 
             Assert.Equal(5, saved.Points.Count);
@@ -426,7 +426,7 @@ namespace Parsek.Tests
             File.Move(filed, incoming);
 
             SidecarVersionResolution.BeginForTesting(Owners("ci1", 1));
-            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
 
             Assert.Equal(5, saved.Points.Count);
@@ -471,7 +471,7 @@ namespace Parsek.Tests
             Directory.CreateDirectory(PrecPath("c4"));
 
             SidecarVersionResolution.BeginForTesting(Owners("c4", 1));
-            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
 
             Assert.Equal(5, saved.Points.Count);
@@ -573,7 +573,7 @@ namespace Parsek.Tests
             foreach (string f in VersionFiles()) File.Delete(f);
 
             SidecarVersionResolution.BeginForTesting(Owners("c5", 1));
-            Assert.False(RecordingStore.LoadRecordingFiles(saved));
+            Assert.False(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
 
             Assert.True(saved.SidecarLoadFailed);
@@ -594,7 +594,7 @@ namespace Parsek.Tests
             saved.PrecHash = "0123456789abcdef";
 
             SidecarVersionResolution.BeginForTesting(Owners("c6", 1));
-            Assert.False(RecordingStore.LoadRecordingFiles(saved));
+            Assert.False(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
 
             Assert.Equal("trajectory-missing", saved.SidecarLoadFailureReason);
@@ -610,7 +610,7 @@ namespace Parsek.Tests
             saved.PrecHash = null;
 
             SidecarVersionResolution.BeginForTesting(Owners("c7", 1));
-            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
             Assert.Equal(SidecarContentHash.ComputeFile(PrecPath("c7")), saved.PrecHash);
 
@@ -619,7 +619,7 @@ namespace Parsek.Tests
             stale.PrecHash = null;
             stale.SidecarEpoch = rec.SidecarEpoch + 5;
             SidecarVersionResolution.BeginForTesting(Owners("c7", 1));
-            Assert.False(RecordingStore.LoadRecordingFiles(stale));
+            Assert.False(RecordingSidecarStore.LoadRecordingFiles(stale));
             SidecarVersionResolution.End("test");
             Assert.Equal("stale-sidecar-epoch", stale.SidecarLoadFailureReason);
             Assert.Null(stale.PrecHash);
@@ -636,7 +636,7 @@ namespace Parsek.Tests
             Save(rec, incrementEpoch: false);
 
             Assert.False(SidecarVersionResolution.IsActive);
-            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(saved));
 
             Assert.Equal(6, saved.Points.Count);
             Assert.False(saved.SidecarVersionsResolved);
@@ -656,7 +656,7 @@ namespace Parsek.Tests
             Assert.Equal(saved.SidecarEpoch, rec.SidecarEpoch);
 
             SidecarVersionResolution.BeginForTesting(Owners("s7", 1));
-            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
 
             Assert.Equal(5, saved.Points.Count);
@@ -673,7 +673,7 @@ namespace Parsek.Tests
             File.WriteAllText(PannPath("p1"), "stale annotation bytes");
 
             SidecarVersionResolution.BeginForTesting(Owners("p1", 2));
-            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
 
             Assert.Contains(logLines, l => l.Contains("annotation cache dropped: rec=p1 reason=version-read"));
@@ -693,14 +693,14 @@ namespace Parsek.Tests
             Save(rec);
 
             SidecarVersionResolution.BeginForTesting(Owners("v1", 2));
-            Assert.True(RecordingStore.LoadRecordingFiles(saved));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(saved));
             SidecarVersionResolution.End("test");
             Assert.Equal("old", saved.VesselSnapshot.GetValue("name"));
             Assert.Equal(oldVesselHash, saved.VesselSnapshotHash);
 
             // The transient snapshot is dropped; the lazy hydration reads the same version.
             saved.VesselSnapshot = null;
-            Assert.True(RecordingStore.TryHydrateVesselSnapshotFromSidecar(saved));
+            Assert.True(RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(saved));
             Assert.Equal("old", saved.VesselSnapshot.GetValue("name"));
         }
 

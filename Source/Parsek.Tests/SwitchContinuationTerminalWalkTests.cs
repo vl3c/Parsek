@@ -373,7 +373,7 @@ namespace Parsek.Tests
             var rp = InstallGs3Scenario(sessionProvisional: false);
 
             logLines.Clear();
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.Equal(MergeState.CommittedProvisional,
                 tree.Recordings["rec_origin"].MergeState);

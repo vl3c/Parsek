@@ -154,7 +154,7 @@ namespace Parsek.Tests
                 dir = System.IO.Path.GetDirectoryName(dir);
             }
             Assert.True(path != null, "ParsekFlight.cs not found above " + AppDomain.CurrentDomain.BaseDirectory);
-            string src = System.IO.File.ReadAllText(path);
+            string src = ParsekFlightSourceFiles.ReadText(path);
             Assert.Contains("GameEvents.onEditorPartEvent.Add(OnEditorPartEventForConstructionDrop);", src);
             Assert.Contains("GameEvents.onEditorPartEvent.Remove(OnEditorPartEventForConstructionDrop);", src);
         }
@@ -348,7 +348,7 @@ namespace Parsek.Tests
                 ActiveSegmentRecordingId = kerbal.RecordingId
             };
 
-            HashSet<string> ids = RecordingStore.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
+            HashSet<string> ids = SwitchSegmentAttempts.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
 
             Assert.Equal(2, ids.Count);
             Assert.Contains(kerbal.RecordingId, ids);
@@ -597,7 +597,7 @@ namespace Parsek.Tests
                 RecordingId = "memberRec",
                 VesselSnapshot = part.GetVesselSnapshot()
             };
-            RecordingStore.DeserializePartEvents(part.BuildTrajectoryNode(), rec);
+            TrajectoryTextSidecarCodec.DeserializePartEvents(part.BuildTrajectoryNode(), rec);
 
             Assert.Equal(
                 new[] { PartEventType.InventoryPartPlaced, PartEventType.InventoryPartRemoved },

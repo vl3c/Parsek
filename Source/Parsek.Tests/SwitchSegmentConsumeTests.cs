@@ -394,7 +394,7 @@ namespace Parsek.Tests
             string flightPath = Path.Combine(projectRoot,
                 "Source", "Parsek", "ParsekFlight.cs");
             Assert.True(File.Exists(flightPath));
-            string source = File.ReadAllText(flightPath);
+            string source = ParsekFlightSourceFiles.ReadText(flightPath);
 
             // The on-surface situations are captured into a local that is then
             // threaded into the Evaluate call as targetIsOnSurface. Isolate the
@@ -559,7 +559,7 @@ namespace Parsek.Tests
                 "Source", "Parsek", "ParsekFlight.cs");
             Assert.True(File.Exists(flightPath),
                 $"ParsekFlight.cs not found at {flightPath}");
-            string source = File.ReadAllText(flightPath);
+            string source = ParsekFlightSourceFiles.ReadText(flightPath);
 
             // Gate 1: the helper itself must exist.
             Assert.Contains("BindLiveRecorderToSwitchSegment", source);
@@ -597,18 +597,16 @@ namespace Parsek.Tests
             // isPromotion:false - or dropping its PrepareSessionStateForRecorderStart
             // call - left every gate green.
             int helperStart = source.IndexOf(
-                "private bool BindLiveRecorderToSwitchSegment(", StringComparison.Ordinal);
+                "internal bool BindLiveRecorderToSwitchSegment(", StringComparison.Ordinal);
             Assert.True(helperStart > 0,
                 "BindLiveRecorderToSwitchSegment declaration not found in ParsekFlight.cs");
-            int helperEnd = source.IndexOf(
-                "// End Phase C: stock-action intent consume.", helperStart, StringComparison.Ordinal);
-            Assert.True(helperEnd > helperStart,
-                "End-of-Phase-C marker not found after BindLiveRecorderToSwitchSegment; "
-                + "re-anchor this gate before deleting that comment.");
+            // Bounded by the helper's own brace-matched body: ParsekFlight is split into
+            // partial files, so neither a trailing banner nor the next member is adjacent.
+            int helperEnd = MethodBlockEnd(source, helperStart);
             string helperBody = source.Substring(helperStart, helperEnd - helperStart);
 
             Assert.Matches(new Regex(
-                @"recorder = new FlightRecorder\(\);[\s\S]{0,200}?recorder\.ActiveTree = activeTree;[\s\S]{0,400}?recorder\.StartRecording\(isPromotion: true\);[\s\S]{0,1500}?PrepareSessionStateForRecorderStart\(",
+                @"host\.recorder = new FlightRecorder\(\);[\s\S]{0,200}?host\.recorder\.ActiveTree = host\.activeTree;[\s\S]{0,400}?host\.recorder\.StartRecording\(isPromotion: true\);[\s\S]{0,1500}?PrepareSessionStateForRecorderStart\(",
                 RegexOptions.Multiline),
                 helperBody);
 
@@ -645,18 +643,12 @@ namespace Parsek.Tests
             string flightPath = Path.Combine(projectRoot,
                 "Source", "Parsek", "ParsekFlight.cs");
             Assert.True(File.Exists(flightPath));
-            string source = File.ReadAllText(flightPath);
+            string source = ParsekFlightSourceFiles.ReadText(flightPath);
 
             // Locate the OnFlightReady method body.
             int methodStart = source.IndexOf("void OnFlightReady()");
             Assert.True(methodStart > 0, "OnFlightReady not found");
-            // Find a stable downstream sibling/method we know follows.
-            int methodEnd = source.IndexOf(
-                "private System.Collections.IEnumerator DeferredResumeScreenMessage",
-                methodStart);
-            // Fallback: just scan the next ~30k chars if the sibling moved.
-            if (methodEnd < 0)
-                methodEnd = Math.Min(methodStart + 30000, source.Length);
+            int methodEnd = MethodBlockEnd(source, methodStart);
             string body = source.Substring(methodStart, methodEnd - methodStart);
 
             // (a) The consume dispatch helper is called exactly once inside
@@ -734,7 +726,7 @@ namespace Parsek.Tests
             string flightPath = Path.Combine(projectRoot,
                 "Source", "Parsek", "ParsekFlight.cs");
             Assert.True(File.Exists(flightPath));
-            string source = File.ReadAllText(flightPath);
+            string source = ParsekFlightSourceFiles.ReadText(flightPath);
 
             // (a) DispatchConsumeIntentIfArmed body checks
             //     ScheduleActiveTreeRestoreOnFlightReady and returns when the
@@ -744,9 +736,7 @@ namespace Parsek.Tests
                 "private void DispatchConsumeIntentIfArmed()");
             Assert.True(helperStart > 0,
                 "DispatchConsumeIntentIfArmed helper definition not found");
-            int helperEnd = source.IndexOf("void OnFlightReady()", helperStart);
-            Assert.True(helperEnd > helperStart,
-                "OnFlightReady (next method) not found after helper");
+            int helperEnd = MethodBlockEnd(source, helperStart);
             string helperBody = source.Substring(helperStart, helperEnd - helperStart);
 
             Assert.Contains(
@@ -771,11 +761,7 @@ namespace Parsek.Tests
                 "IEnumerator RestoreActiveTreeFromPending()");
             Assert.True(quickloadStart > 0,
                 "RestoreActiveTreeFromPending coroutine not found");
-            int quickloadEnd = source.IndexOf(
-                "IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()",
-                quickloadStart);
-            Assert.True(quickloadEnd > quickloadStart,
-                "Next coroutine signature not found");
+            int quickloadEnd = MethodBlockEnd(source, quickloadStart);
             string quickloadBody = source.Substring(
                 quickloadStart, quickloadEnd - quickloadStart);
             Assert.Contains("DispatchConsumeIntentIfArmed()", quickloadBody);
@@ -784,14 +770,20 @@ namespace Parsek.Tests
                 "IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()");
             Assert.True(vsStart > 0,
                 "RestoreActiveTreeFromPendingForVesselSwitch coroutine not found");
-            // Bound the VS coroutine: scan forward for a sentinel that is
-            // definitely past the coroutine body — the FlightFlowStash region.
-            int vsEnd = source.IndexOf(
-                "Flight→Flight stash path", vsStart);
-            if (vsEnd < 0)
-                vsEnd = Math.Min(vsStart + 30000, source.Length);
+            int vsEnd = MethodBlockEnd(source, vsStart);
             string vsBody = source.Substring(vsStart, vsEnd - vsStart);
             Assert.Contains("DispatchConsumeIntentIfArmed()", vsBody);
+        }
+
+        // End offset (exclusive) of the brace-matched body of the member whose declaration
+        // starts at declStart, found on a comment-stripped, literal-masked copy (same length)
+        // so a brace in a comment or a string cannot unbalance it.
+        private static int MethodBlockEnd(string source, int declStart)
+        {
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(source);
+            int open = prepared.IndexOf('{', declStart);
+            Assert.True(open > declStart, "no body after the declaration at " + declStart);
+            return open + SourceScanText.BraceMatchedBlock(prepared, open).Length;
         }
     }
 }

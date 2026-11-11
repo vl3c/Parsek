@@ -163,7 +163,7 @@ namespace Parsek.Tests.Generators
                 QuicksaveFilename = RecordingPaths.BuildRewindPointRelativePath(RewindPointId),
                 FocusSlotIndex = UpperSlotIndex,
                 // A committed tree's staging point is persistent: the commit promoted it
-                // (RecordingStore.PromoteNormalStagingRewindPoints). LoadTimeSweep only ever
+                // (TreeCommitService.PromoteNormalStagingRewindPoints). LoadTimeSweep only ever
                 // discards SessionProvisional points, so it stays a durable split point; the
                 // reaper keeps it while the booster slot is open (CommittedProvisional).
                 SessionProvisional = false,

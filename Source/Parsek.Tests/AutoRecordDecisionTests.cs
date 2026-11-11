@@ -9,7 +9,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordLaunchDecision_RecordingInProgress_SkipsAlreadyRecording()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: true,
                 isActiveVessel: true,
                 fromSituation: Vessel.Situations.PRELAUNCH,
@@ -25,7 +25,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordLaunchDecision_NonActiveVessel_SkipsInactiveVessel()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
                 isActiveVessel: false,
                 fromSituation: Vessel.Situations.PRELAUNCH,
@@ -41,7 +41,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordLaunchDecision_PrelaunchAndEnabled_StartsFromPrelaunch()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
                 isActiveVessel: true,
                 fromSituation: Vessel.Situations.PRELAUNCH,
@@ -57,7 +57,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordLaunchDecision_PrelaunchButDisabled_SkipsDisabled()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
                 isActiveVessel: true,
                 fromSituation: Vessel.Situations.PRELAUNCH,
@@ -73,7 +73,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordLaunchDecision_LandedBelowSettleThreshold_SkipsBounce()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
                 isActiveVessel: true,
                 fromSituation: Vessel.Situations.LANDED,
@@ -89,7 +89,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordLaunchDecision_LandedWithoutSeededSettleTime_SkipsBounce()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
                 isActiveVessel: true,
                 fromSituation: Vessel.Situations.LANDED,
@@ -105,7 +105,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordLaunchDecision_SettledLandedAndEnabled_StartsFromSettledLanded()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
                 isActiveVessel: true,
                 fromSituation: Vessel.Situations.LANDED,
@@ -121,7 +121,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordLaunchDecision_SettledLandedButDisabled_SkipsDisabled()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
                 isActiveVessel: true,
                 fromSituation: Vessel.Situations.LANDED,
@@ -137,7 +137,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordLaunchDecision_OtherTransition_SkipsNotLaunchTransition()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
                 isActiveVessel: true,
                 fromSituation: Vessel.Situations.FLYING,
@@ -153,7 +153,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordLaunchDecision_TimeJumpTransient_SkipsAutoStart()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
                 isActiveVessel: true,
                 fromSituation: Vessel.Situations.PRELAUNCH,
@@ -174,7 +174,7 @@ namespace Parsek.Tests
             // OnVesselSituationChange even though they are not the focused vessel. Reporting them as
             // SkipInactiveVessel hides the time-jump origin and starves the in-game pad canaries of
             // the [INFO][Flight] "suppressing time-jump transient" log they assert on.
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: false,
                 isActiveVessel: false,
                 fromSituation: Vessel.Situations.PRELAUNCH,
@@ -193,7 +193,7 @@ namespace Parsek.Tests
             // Defence in depth: even when a jump-window flicker arrives for the active vessel, an
             // already-running recording must short-circuit before any other branch so we do not
             // double-emit StartRecording or log a misleading suppression line.
-            var decision = ParsekFlight.EvaluateAutoRecordLaunchDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordLaunchDecision(
                 isRecording: true,
                 isActiveVessel: true,
                 fromSituation: Vessel.Situations.PRELAUNCH,
@@ -209,7 +209,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordStagingDecision_RecordingInProgress_SkipsAlreadyRecording()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordStagingDecision(
                 isRecording: true,
                 hasActiveVessel: true,
                 activeVesselIsPrelaunch: true,
@@ -225,7 +225,7 @@ namespace Parsek.Tests
             // Mirror the launch path: the time-jump guard runs before the vessel/pad
             // checks so a synthetic spawn vessel staging during an FF / warp window
             // cannot spuriously start a recording.
-            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordStagingDecision(
                 isRecording: false,
                 hasActiveVessel: true,
                 activeVesselIsPrelaunch: true,
@@ -238,7 +238,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordStagingDecision_AlreadyRecording_TakesPrecedenceOverTimeJumpTransient()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordStagingDecision(
                 isRecording: true,
                 hasActiveVessel: true,
                 activeVesselIsPrelaunch: true,
@@ -251,7 +251,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordStagingDecision_NoActiveVessel_SkipsNoActiveVessel()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordStagingDecision(
                 isRecording: false,
                 hasActiveVessel: false,
                 activeVesselIsPrelaunch: false,
@@ -265,7 +265,7 @@ namespace Parsek.Tests
         public void EvaluateAutoRecordStagingDecision_NotPrelaunch_SkipsNotOnPad()
         {
             // In-flight staging is left to the already-running recorder / launch trigger.
-            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordStagingDecision(
                 isRecording: false,
                 hasActiveVessel: true,
                 activeVesselIsPrelaunch: false,
@@ -278,7 +278,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordStagingDecision_PrelaunchButDisabled_SkipsDisabled()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordStagingDecision(
                 isRecording: false,
                 hasActiveVessel: true,
                 activeVesselIsPrelaunch: true,
@@ -294,7 +294,7 @@ namespace Parsek.Tests
             // The bug fix: staging while still on the pad (e.g. igniting SRBs that then
             // decouple and fly off before the main lifts off) starts the recorder now so
             // the separated debris is captured as a branch of the recorded vessel.
-            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordStagingDecision(
                 isRecording: false,
                 hasActiveVessel: true,
                 activeVesselIsPrelaunch: true,
@@ -309,7 +309,7 @@ namespace Parsek.Tests
         {
             // The time-jump guard runs before the active-vessel / on-pad checks, so a
             // jump-window flicker is reported as the transient even with no active vessel.
-            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordStagingDecision(
                 isRecording: false,
                 hasActiveVessel: false,
                 activeVesselIsPrelaunch: false,
@@ -322,7 +322,7 @@ namespace Parsek.Tests
         [Fact]
         public void EvaluateAutoRecordStagingDecision_TimeJumpTransient_TakesPrecedenceOverNotOnPad()
         {
-            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+            var decision = ParsekFlightPostSwitchAutoRecord.EvaluateAutoRecordStagingDecision(
                 isRecording: false,
                 hasActiveVessel: true,
                 activeVesselIsPrelaunch: false,
@@ -342,7 +342,7 @@ namespace Parsek.Tests
             bool autoRecordOnEvaEnabled,
             bool expected)
         {
-            bool result = ParsekFlight.ShouldQueueAutoRecordOnEva(
+            bool result = ParsekFlightPostSwitchAutoRecord.ShouldQueueAutoRecordOnEva(
                 hasSourceVessel,
                 autoRecordOnEvaEnabled);
 
@@ -362,7 +362,7 @@ namespace Parsek.Tests
             bool activeVesselIsEva,
             bool expected)
         {
-            bool result = ParsekFlight.ShouldStartDeferredAutoRecordEva(
+            bool result = ParsekFlightPostSwitchAutoRecord.ShouldStartDeferredAutoRecordEva(
                 pendingAutoRecord,
                 isRecording,
                 hasActiveVessel,
@@ -391,7 +391,7 @@ namespace Parsek.Tests
         [Fact]
         public void LaunchAutoRecord_UsesCustomToastWithoutGenericStartToast()
         {
-            string source = File.ReadAllText(FindParsekFlightSource());
+            string source = ParsekFlightSourceFiles.ReadText(FindParsekFlightSource());
             string methodBody = ExtractMethodBody(source, "void OnVesselSituationChange");
 
             AssertCustomToastSuppressesGenericStart(
@@ -403,7 +403,7 @@ namespace Parsek.Tests
         [Fact]
         public void PostSwitchFreshAutoRecord_UsesCustomToastWithoutGenericStartToast()
         {
-            string source = File.ReadAllText(FindParsekFlightSource());
+            string source = ParsekFlightSourceFiles.ReadText(FindParsekFlightSource());
             string methodBody = ExtractMethodBody(source, "private bool TryStartPostSwitchAutoRecord");
 
             AssertCustomToastSuppressesGenericStart(
@@ -415,8 +415,8 @@ namespace Parsek.Tests
         [Fact]
         public void EvaFromPadAutoRecord_UsesCustomToastWithoutGenericStartToast()
         {
-            string source = File.ReadAllText(FindParsekFlightSource());
-            string methodBody = ExtractMethodBody(source, "private void HandleDeferredAutoRecordEva");
+            string source = ParsekFlightSourceFiles.ReadText(FindParsekFlightSource());
+            string methodBody = ExtractMethodBody(source, "internal void HandleDeferredAutoRecordEva");
 
             AssertCustomToastSuppressesGenericStart(
                 methodBody,
@@ -488,7 +488,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnFlightReady_ChecksTheStoppedTreeKeep_AfterTheLiveSkip_BeforeTheReset()
         {
-            string src = File.ReadAllText(FindParsekFlightSource());
+            string src = ParsekFlightSourceFiles.ReadText(FindParsekFlightSource());
             int method = src.IndexOf("void OnFlightReady()", StringComparison.Ordinal);
             int live = src.IndexOf("ShouldIgnoreFlightReadyReset(", method, StringComparison.Ordinal);
             int keep = src.IndexOf("ShouldKeepStoppedTreeAcrossFlightReadyReset(", method, StringComparison.Ordinal);

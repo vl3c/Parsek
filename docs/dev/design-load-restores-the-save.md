@@ -403,7 +403,7 @@ the backup after a successful batch (`CleanupCommittedBackups`). For the three h
    replace is still a rename, and a rollback restores from it exactly as today.
 2. After the batch commits, each backup is hashed from its own bytes (always; memory's idea of
    the head's hash is not trusted here, because a head can be rewritten under the same epoch,
-   RecordingStore.Optimization.cs:442) and renamed to `_versions/<id>.<hash><suffix>`.
+   `RecordingStore.ShouldAdvanceSidecarEpochOnFlush`) and renamed to `_versions/<id>.<hash><suffix>`.
 3. If that target already exists, it holds the same bytes (same id, same hash), so the incoming
    backup is deleted instead. If the hash equals the new head's hash (a byte-identical rewrite),
    the backup is deleted too.
@@ -412,7 +412,7 @@ the backup after a successful batch (`CleanupCommittedBackups`). For the three h
 
 A `DeleteExisting` change (a recording deleted by a discard, a merge-journal rollback, an
 optimizer merge) is a retention too: the deleted head goes through the same steps.
-`RecordingStore.DeleteRecordingFiles` therefore deletes only the non-hashed kinds (`.pann`,
+`RecordingFileJanitor.DeleteRecordingFiles` therefore deletes only the non-hashed kinds (`.pann`,
 `.txt` mirrors) and routes the three hashed kinds through a batch.
 
 **Loads resolve the version the save names, on Cold loads only.** Version resolution and promote
@@ -449,7 +449,7 @@ reading:
 
 When a hash is present it replaces the epoch comparison: a matching hash is the stronger proof,
 and it also catches the optimizer's same-epoch rewrite window that the epoch rule accepts
-(RecordingStore.Optimization.cs:442).
+(`RecordingStore.ShouldAdvanceSidecarEpochOnFlush`).
 
 **The `.pann` cache.** The `.pann` is keyed by `SourceSidecarEpoch`, which a retained version can
 share with the head (the same-epoch rewrite), so the epoch key cannot tell them apart. A recording
@@ -465,7 +465,7 @@ moves to the collector or stops deleting:
 | Site | Today | After |
 |---|---|---|
 | `RecordingStore.CleanOrphanFiles` (OrphanCleanup.cs:345) | quarantines heads of ids no loaded tree names | decision moves to the collector (reference set below) |
-| `RecordingStore.DeleteRecordingFiles` | deletes all kinds | non-hashed kinds only; hashed kinds retained (4.4) |
+| `RecordingFileJanitor.DeleteRecordingFiles` | deletes all kinds | non-hashed kinds only; hashed kinds retained (4.4) |
 | `SidecarFileCommitBatch.CleanupCommittedBackups` | deletes `.bak.<guid>` | hashed kinds filed into `_versions` (4.4); others as today |
 | `RewindPointReaper.TryDeleteQuicksaveFile` (:249) | deletes a sealed point's file | unlists only; the collector deletes |
 | `TreeDiscardPurge.TryDeleteQuicksaveFile` (TreeDiscardPurge.cs:381) | deletes a discarded tree's point files | unlists only; the collector deletes |

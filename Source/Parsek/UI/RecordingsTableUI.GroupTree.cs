@@ -104,26 +104,9 @@ namespace Parsek
             // folder the tree-root vessel's block is absorbed (its segments draw directly
             // under the mission row), and the header's Loop and G cells take over what that
             // block's header offered, so they need its members now.
-            List<int> directMembers;
-            grpToRecs.TryGetValue(groupName, out directMembers);
-            List<GroupDisplayBlock> displayBlocks = directMembers != null
-                ? BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs)
-                : null;
-            List<int> absorbedRootMembers = null;
-            if (displayBlocks != null)
-            {
-                RecordingTree missionTree = MissionGroupLink.FindTreeByRootGroup(groupName);
-                string rootBlockKey = missionTree != null
-                    ? ResolveRootVesselBlockKey(groupName, ResolveTreeRootRecording(missionTree))
-                    : null;
-                int absorbedIdx = FindRootVesselBlockIndex(displayBlocks, rootBlockKey);
-                if (absorbedIdx >= 0)
-                {
-                    absorbedRootMembers = displayBlocks[absorbedIdx].Members;
-                    displayBlocks = FlattenAbsorbedBlock(displayBlocks, absorbedIdx, groupName);
-                }
-                LogRootBlockAbsorptionTransition(groupName, rootBlockKey, absorbedRootMembers);
-            }
+            List<int> absorbedRootMembers;
+            List<GroupDisplayBlock> displayBlocks = ResolveFolderDisplayBlocks(
+                groupName, committed, grpToRecs, chainToRecs, out absorbedRootMembers);
 
             float indent = SelfConnectorIndent(depth);
 
@@ -131,19 +114,14 @@ namespace Parsek
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
 
             // Enable checkbox (always at column 0)
-            int enabledCount = 0;
-            foreach (int idx in descendants)
-                if (committed[idx].PlaybackEnabled) enabledCount++;
-            bool allEnabled = memberCount > 0 && enabledCount == memberCount;
+            bool allEnabled = AreAllGroupMembersPlaybackEnabled(descendants, committed, memberCount);
             bool newEnabled = GUILayout.Toggle(allEnabled,
                 new GUIContent("",
                     "Turn ghost playback on or off for every recording in this folder and its subfolders."),
                 GUILayout.Width(ColW_Enable));
             if (newEnabled != allEnabled)
             {
-                foreach (int idx in descendants)
-                    RecordingStore.SetRecordingPlaybackEnabled(committed[idx], newEnabled);
-                ParsekLog.Info("UI", $"Set playback enabled for group '{groupName}': enabled={newEnabled}");
+                ApplyGroupPlaybackEnabledToggle(groupName, descendants, committed, newEnabled);
             }
 
             // Spacer for # column (fixed-width label for alignment with recording rows)
@@ -155,7 +133,7 @@ namespace Parsek
             // Expand/collapse + name (indent inside Name column for sub-groups)
             if (indent > 0f) GUILayout.Space(indent);
             bool expanded = expandedGroups.Contains(groupName);
-            string arrow = expanded ? "\u25bc" : "\u25b6";
+            string arrow = GroupExpandArrow(expanded);
 
             if (renamingGroup == groupName)
             {
@@ -175,17 +153,8 @@ namespace Parsek
                     renamingGroupFocused = true;
                 }
 
-                if (submitGrp)
-                {
-                    CommitGroupRename(groupName);
+                if (HandleGroupRenameKeys(groupName, submitGrp, cancelGrp))
                     Event.current.Use();
-                }
-                else if (cancelGrp)
-                {
-                    renamingGroup = null;
-                    activeRenameRect = default;
-                    Event.current.Use();
-                }
             }
             else
             {
@@ -194,32 +163,12 @@ namespace Parsek
                 string groupLabel = GroupPickerPresentation.DisplayLabelUnderParent(
                     groupName, parentGroupName);
                 if (GUILayout.Button(
-                    new GUIContent($"{treeConnector ?? ""}{arrow} {groupLabel} ({memberCount})",
+                    new GUIContent(BuildGroupHeaderLabel(treeConnector, arrow, groupLabel, memberCount),
                         "Click to expand or collapse; double-click to rename (a name in use, or one with = { }, is refused)."),
                     GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     float t = Time.realtimeSinceStartup;
-                    if (lastClickedGroup == groupName && t - lastGroupClickTime < DoubleClickThreshold)
-                    {
-                        // Commit any active rename first
-                        if (renamingRecordingId != null)
-                            CommitRecordingRename(committed);
-                        if (renamingGroup != null)
-                            CommitGroupRename(renamingGroup);
-                        renamingGroup = groupName;
-                        renamingGroupText = groupName;
-                        renamingGroupFocused = false;
-                        lastClickedGroup = null;
-                    }
-                    else
-                    {
-                        if (expanded) expandedGroups.Remove(groupName);
-                        else expandedGroups.Add(groupName);
-                        expanded = !expanded;
-                        lastClickedGroup = groupName;
-                        lastGroupClickTime = t;
-                        ParsekLog.Verbose("UI", $"Group '{groupName}' {(expanded ? "expanded" : "collapsed")} ({memberCount} recordings)");
-                    }
+                    HandleGroupHeaderClick(groupName, committed, ref expanded, memberCount, t);
                 }
             }
 
@@ -252,7 +201,7 @@ namespace Parsek
                 : statusStylePast;
             GUILayout.Label(grpStatusText, grpStatusStyle, GUILayout.Width(ColW_Status));
 
-            bool canDisbandGroup = !RecordingStore.IsPermanentGroup(groupName);
+            bool canDisbandGroup = !RecordingGroupStore.IsPermanentGroup(groupName, RecordingStore.CommittedTrees);
 
             // Group management buttons: custom groups get G + X (wrapped to match the
             // single-G footprint of permanent groups); system-owned groups keep only
@@ -260,7 +209,8 @@ namespace Parsek
             bool grpGClicked;
             bool grpXClicked = false;
             bool grpSegmentsClicked = false;
-            if (absorbedRootMembers != null)
+            GroupManageCell manageCell = ResolveGroupManageCell(absorbedRootMembers != null, canDisbandGroup);
+            if (manageCell == GroupManageCell.GroupAndSegments)
             {
                 // A mission folder that absorbed its launched vessel's block keeps that
                 // block's "every segment to folders" picker as the second half of the cell.
@@ -270,7 +220,7 @@ namespace Parsek
                     new GUIContent("S", "Choose which folders every segment of the launched vessel belongs to."), true,
                     ColW_Group, out grpGClicked, out grpSegmentsClicked);
             }
-            else if (canDisbandGroup)
+            else if (manageCell == GroupManageCell.GroupAndDisband)
             {
                 DrawBodyCenteredTwoButtons(
                     new GUIContent("G", "Choose which folder this folder sits inside."), true,
@@ -315,13 +265,7 @@ namespace Parsek
             // block's Loop semantics for those members: they are written WITH the auto loop
             // range (what the block's own toggle did), every other loopable descendant WITHOUT
             // (the folder's own behaviour). The aggregate and the route gate read the union.
-            IEnumerable<int> grpLoopScope = descendants;
-            if (absorbedRootMembers != null)
-            {
-                var union = new HashSet<int>(descendants);
-                union.UnionWith(absorbedRootMembers);
-                grpLoopScope = union;
-            }
+            IEnumerable<int> grpLoopScope = ResolveGroupLoopScope(descendants, absorbedRootMembers);
             bool grpRouteBound = AnyRecordingRouteBound(committed, grpLoopScope);
             var grpLoopAgg = ComputeLoopAggregate(committed, grpLoopScope);
             if (grpLoopAgg.SuppressToggle)
@@ -348,30 +292,8 @@ namespace Parsek
                 GUILayout.EndHorizontal();
                 if (newLoop != grpLoopAgg.AllLoop)
                 {
-                    if (grpRouteBound)
-                    {
-                        ParsekLog.Info("RouteGuard",
-                            $"Recordings-tab group Loop blocked for '{groupName}' (a descendant is on a route-bound tree); request={newLoop} ignored");
-                    }
-                    else if (absorbedRootMembers != null)
-                    {
-                        SplitAbsorbedLoopWrite(grpLoopScope, absorbedRootMembers,
-                            out List<int> withAutoRange, out List<int> withoutAutoRange);
-                        int rootWritten = BulkSetLoopPlayback(
-                            committed, withAutoRange, newLoop, applyAutoRange: true);
-                        int otherWritten = BulkSetLoopPlayback(
-                            committed, withoutAutoRange, newLoop, applyAutoRange: false);
-                        ParsekLog.Info("UI",
-                            $"Group '{groupName}' loop set to {newLoop} "
-                            + $"(launched vessel {rootWritten.ToString(CultureInfo.InvariantCulture)} "
-                            + "recordings with auto loop range, other "
-                            + $"{otherWritten.ToString(CultureInfo.InvariantCulture)} without)");
-                    }
-                    else
-                    {
-                        int written = BulkSetLoopPlayback(committed, descendants, newLoop, applyAutoRange: false);
-                        ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({written} recordings)");
-                    }
+                    ApplyGroupLoopToggle(groupName, newLoop, grpRouteBound, committed,
+                        descendants, grpLoopScope, absorbedRootMembers);
                 }
             }
 
@@ -404,29 +326,19 @@ namespace Parsek
 
                 // W* indicator: any descendant currently under watch → W*.
                 int watchedIdx = flight.WatchedRecordingIndex;
-                bool anyDescendantWatched =
-                    watchedIdx >= 0
-                    && descendants.Contains(watchedIdx)
-                    && watchedIdx < committed.Count
-                    && committed[watchedIdx] != null;
+                bool anyDescendantWatched = IsAnyGroupDescendantWatched(watchedIdx, descendants, committed);
                 string watchedDescendantRecId = anyDescendantWatched ? committed[watchedIdx].RecordingId : null;
 
                 string cursorRecId;
                 groupWatchCursorByGroupName.TryGetValue(groupName, out cursorRecId);
-                GhostPlaybackLogic.GroupWatchAdvanceResult rotation = GhostPlaybackLogic.AdvanceGroupWatchCursor(
-                    descendants, committed, isEligibleForWatch, cursorRecId, watchedDescendantRecId);
+                int nextTargetIdx;
+                GhostPlaybackLogic.GroupWatchAdvanceResult rotation = ResolveGroupWatchRotation(
+                    descendants, committed, isEligibleForWatch, cursorRecId, watchedDescendantRecId,
+                    out nextTargetIdx);
 
-                int nextTargetIdx = rotation.NextRecordingId != null
-                    ? GhostPlaybackLogic.FindRecordingIndexById(committed, rotation.NextRecordingId)
-                    : -1;
-
-                // nextTargetIdx can legitimately be -1 even if rotation.NextRecordingId != null
-                // when the recording has been removed between draws — treat as empty rotation.
-                if (nextTargetIdx < 0)
-                    rotation = GhostPlaybackLogic.GroupWatchAdvanceResult.Empty;
-
-                bool canWatch = rotation.NextRecordingId != null && nextTargetIdx >= 0 && !rotation.IsToggleOff;
-                bool isToggleOffPress = rotation.IsToggleOff && anyDescendantWatched;
+                bool isToggleOffPress;
+                bool canWatch = ResolveGroupWatchPressModes(
+                    rotation, nextTargetIdx, anyDescendantWatched, out isToggleOffPress);
                 bool isWatching = anyDescendantWatched;
 
                 // Bug #279 transition logging. Key by groupName + mainRecId (unchanged).
@@ -443,15 +355,9 @@ namespace Parsek
                         string groupWatchKey = groupName + "/" + mainRecId;
                         string resolvedTargetId = BuildEligibleSetFingerprint(
                             descendants, committed, isEligibleForWatch);
-                        bool prevGroupCanWatch;
-                        string prevResolvedTargetId;
-                        if (!lastCanWatchByGroup.TryGetValue(groupWatchKey, out prevGroupCanWatch)
-                            || prevGroupCanWatch != canWatch
-                            || !lastResolvedWatchTargetByGroup.TryGetValue(groupWatchKey, out prevResolvedTargetId)
-                            || prevResolvedTargetId != resolvedTargetId)
+                        if (UpdateGroupWatchTransitionCache(lastCanWatchByGroup,
+                                lastResolvedWatchTargetByGroup, groupWatchKey, canWatch, resolvedTargetId))
                         {
-                            lastCanWatchByGroup[groupWatchKey] = canWatch;
-                            lastResolvedWatchTargetByGroup[groupWatchKey] = resolvedTargetId;
                             string reason = GetWatchButtonReason(canWatch,
                                 hasGhost: nextTargetIdx >= 0,
                                 sameBody: nextTargetIdx >= 0,
@@ -468,17 +374,8 @@ namespace Parsek
 
                 GUI.enabled = canWatch || isToggleOffPress;
                 string watchLabel = isWatching ? "W*" : "W";
-                string watchTooltip;
-                if (rotation.TotalEligible == 0)
-                    watchTooltip = "no watchable vessels in this group";
-                else if (isWatching && nextTargetIdx >= 0 && rotation.NextRecordingId != watchedDescendantRecId)
-                    watchTooltip = $"switch to {committed[nextTargetIdx].VesselName}";
-                else if (isWatching && rotation.IsToggleOff)
-                    watchTooltip = "exit watch (no other watchable vessels)";
-                else if (nextTargetIdx >= 0)
-                    watchTooltip = $"enter watch on {committed[nextTargetIdx].VesselName}";
-                else
-                    watchTooltip = GetWatchButtonTooltip(isWatching, false, false, false, false);
+                string watchTooltip = BuildGroupWatchTooltip(
+                    rotation, isWatching, nextTargetIdx, watchedDescendantRecId, committed);
 
                 if (DrawBodyCenteredButton(new GUIContent(watchLabel, watchTooltip), ColW_Watch))
                 {
@@ -495,9 +392,7 @@ namespace Parsek
                     {
                         flight.EnterWatchMode(nextTargetIdx);
                         groupWatchCursorByGroupName[groupName] = rotation.NextRecordingId;
-                        pressKind = string.IsNullOrEmpty(cursorRecId)
-                            ? "enter"
-                            : (rotation.IsWrap ? "wrap" : "advance");
+                        pressKind = GroupWatchAdvancePressKind(cursorRecId, rotation.IsWrap);
                     }
                     else
                     {
@@ -546,7 +441,7 @@ namespace Parsek
                 var mainRec = committed[forwardIdx];
 
                 string ffReason;
-                bool canFF = RecordingStore.CanFastForward(mainRec, out ffReason, isRecording: isRecording);
+                bool canFF = RewindLauncher.CanFastForward(mainRec, out ffReason, isRecording: isRecording);
                 GUI.enabled = canFF;
                 string tooltip = canFF ? "Fast-forward to this launch" : ffReason;
                 if (DrawRewindColumnButton(new GUIContent(FastForwardActionLabel, tooltip)))
@@ -561,7 +456,7 @@ namespace Parsek
                 int rewindIdx = grpRewindIdx;
                 var rewindRec = committed[rewindIdx];
                 string rewindReason;
-                bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
+                bool canRewind = RewindLauncher.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
                 GUI.enabled = canRewind;
                 string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
                     ? "this launch"
@@ -584,10 +479,7 @@ namespace Parsek
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
 
             // Hide group checkbox — toggles Hidden on all member recordings
-            int hiddenCount = 0;
-            foreach (int idx in descendants)
-                if (committed[idx].Hidden) hiddenCount++;
-            bool allHidden = memberCount > 0 && hiddenCount == memberCount;
+            bool allHidden = AreAllGroupMembersHidden(descendants, committed, memberCount);
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
             GUILayout.FlexibleSpace();
             bool newAllHidden = GUILayout.Toggle(allHidden,
@@ -597,47 +489,7 @@ namespace Parsek
             GUILayout.EndHorizontal();
             if (newAllHidden != allHidden)
             {
-                // The per-row Archive checkbox refuses to hide an Unfinished Flight
-                // (see DrawRecordingRow: rewind access must remain visible). This
-                // path wrote Hidden over every descendant with no such check, so
-                // archiving a FOLDER buried exactly the re-flyable flight the per-row
-                // control exists to protect (finding P17). Same guard, group
-                // granularity: refuse the whole toggle so the folder's Hidden flag and
-                // its members' can never disagree, and name the count so the player
-                // knows what to resolve. Only the HIDE direction is gated - un-hiding
-                // an Unfinished Flight is the recovery path, never a loss.
-                int unfinishedCount = 0;
-                if (newAllHidden)
-                {
-                    foreach (int idx in descendants)
-                        if (EffectiveState.IsUnfinishedFlight(committed[idx]))
-                            unfinishedCount++;
-                }
-
-                if (IsArchiveRefusedForUnfinishedFlight(newAllHidden, unfinishedCount > 0))
-                {
-                    ParsekLog.Warn("UnfinishedFlights",
-                        $"Group hide-all refused for group '{groupName}': "
-                        + $"{unfinishedCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} of "
-                        + $"{memberCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} "
-                        + "member(s) are Unfinished Flights; rewind access must remain "
-                        + "visible (design §7.33)");
-                    ParsekLog.ScreenMessage(
-                        BuildGroupArchiveRefusedMessage(groupName, unfinishedCount), 4f);
-                }
-                else
-                {
-                    foreach (int idx in descendants)
-                        committed[idx].Hidden = newAllHidden;
-                    // Also update group-level visibility
-                    if (newAllHidden)
-                        GroupHierarchyStore.AddHiddenGroup(groupName);
-                    else
-                        GroupHierarchyStore.RemoveHiddenGroup(groupName);
-                    NotifyTimelineOfArchiveChange();
-                    ParsekLog.Info("UI",
-                        $"Group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
-                }
+                ApplyGroupArchiveToggle(groupName, descendants, committed, memberCount, newAllHidden);
             }
 
             GUILayout.EndHorizontal();
@@ -662,6 +514,381 @@ namespace Parsek
             {
                 enclosingRewindTargetIdx = savedEnclosingRewind;
                 enclosingForwardTargetIdx = savedEnclosingForward;
+            }
+        }
+
+        /// <summary>
+        /// The folder Enable checkbox's state: true only when the folder has members and
+        /// every descendant plays back.
+        /// </summary>
+        internal static bool AreAllGroupMembersPlaybackEnabled(HashSet<int> descendants,
+            IReadOnlyList<Recording> committed, int memberCount)
+        {
+            int enabledCount = 0;
+            foreach (int idx in descendants)
+                if (committed[idx].PlaybackEnabled) enabledCount++;
+            return memberCount > 0 && enabledCount == memberCount;
+        }
+
+        /// <summary>
+        /// Writes a folder Enable checkbox change to every descendant through the shared
+        /// playback writer, then logs it once.
+        /// </summary>
+        internal static void ApplyGroupPlaybackEnabledToggle(string groupName, HashSet<int> descendants,
+            IReadOnlyList<Recording> committed, bool newEnabled)
+        {
+            foreach (int idx in descendants)
+                RecordingStore.SetRecordingPlaybackEnabled(committed[idx], newEnabled);
+            ParsekLog.Info("UI", $"Set playback enabled for group '{groupName}': enabled={newEnabled}");
+        }
+
+        /// <summary>The folder header's expand arrow: down when expanded, right when collapsed.</summary>
+        internal static string GroupExpandArrow(bool expanded)
+        {
+            return expanded ? "\u25bc" : "\u25b6";
+        }
+
+        /// <summary>
+        /// The folder rename editor's Enter (commit) and Escape (cancel) keys. True when a key
+        /// was handled, so the caller consumes the event.
+        /// </summary>
+        internal bool HandleGroupRenameKeys(string groupName, bool submitGrp, bool cancelGrp)
+        {
+            if (submitGrp)
+            {
+                CommitGroupRename(groupName);
+                return true;
+            }
+            else if (cancelGrp)
+            {
+                renamingGroup = null;
+                activeRenameRect = default;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The folder header button's text: tree connector, arrow, the display label and the
+        /// descendant count.
+        /// </summary>
+        internal static string BuildGroupHeaderLabel(string treeConnector, string arrow,
+            string groupLabel, int memberCount)
+        {
+            return $"{treeConnector ?? ""}{arrow} {groupLabel} ({memberCount})";
+        }
+
+        /// <summary>
+        /// A click on the folder header at time <paramref name="t"/>. A second click on the
+        /// same folder inside the double-click threshold arms the rename editor (committing
+        /// any live recording or folder rename first) and keeps the expansion; any other click
+        /// toggles <paramref name="expanded"/>.
+        /// </summary>
+        internal void HandleGroupHeaderClick(string groupName, IReadOnlyList<Recording> committed,
+            ref bool expanded, int memberCount, float t)
+        {
+            if (lastClickedGroup == groupName && t - lastGroupClickTime < DoubleClickThreshold)
+            {
+                // Commit any active rename first
+                if (renamingRecordingId != null)
+                    CommitRecordingRename(committed);
+                if (renamingGroup != null)
+                    CommitGroupRename(renamingGroup);
+                renamingGroup = groupName;
+                renamingGroupText = groupName;
+                renamingGroupFocused = false;
+                lastClickedGroup = null;
+            }
+            else
+            {
+                if (expanded) expandedGroups.Remove(groupName);
+                else expandedGroups.Add(groupName);
+                expanded = !expanded;
+                lastClickedGroup = groupName;
+                lastGroupClickTime = t;
+                ParsekLog.Verbose("UI", $"Group '{groupName}' {(expanded ? "expanded" : "collapsed")} ({memberCount} recordings)");
+            }
+        }
+
+        /// <summary>Which buttons a folder row's G cell draws.</summary>
+        internal enum GroupManageCell
+        {
+            /// <summary>G plus S: the folder absorbed its launched vessel's block.</summary>
+            GroupAndSegments,
+            /// <summary>G plus X: a custom folder the player may disband.</summary>
+            GroupAndDisband,
+            /// <summary>G alone: a permanent (system-owned) folder.</summary>
+            GroupOnly,
+        }
+
+        /// <summary>
+        /// The G cell of a folder row: a mission folder that absorbed its launched vessel's
+        /// block keeps that block's S picker (no X: a mission folder is permanent), a custom
+        /// folder gets X, a permanent one G alone.
+        /// </summary>
+        internal static GroupManageCell ResolveGroupManageCell(bool hasAbsorbedRootMembers, bool canDisbandGroup)
+        {
+            if (hasAbsorbedRootMembers)
+                return GroupManageCell.GroupAndSegments;
+            else if (canDisbandGroup)
+                return GroupManageCell.GroupAndDisband;
+            else
+                return GroupManageCell.GroupOnly;
+        }
+
+        /// <summary>
+        /// The recordings a folder's Loop toggle reads and writes: its descendants, plus the
+        /// absorbed launched vessel's members when there are any (a new set, the caller's
+        /// descendant set untouched).
+        /// </summary>
+        internal static IEnumerable<int> ResolveGroupLoopScope(HashSet<int> descendants, List<int> absorbedRootMembers)
+        {
+            IEnumerable<int> grpLoopScope = descendants;
+            if (absorbedRootMembers != null)
+            {
+                var union = new HashSet<int>(descendants);
+                union.UnionWith(absorbedRootMembers);
+                grpLoopScope = union;
+            }
+            return grpLoopScope;
+        }
+
+        /// <summary>
+        /// True when the watched recording index is one of the folder's descendants and names
+        /// a live committed row (the W* indicator).
+        /// </summary>
+        internal static bool IsAnyGroupDescendantWatched(int watchedIdx, HashSet<int> descendants,
+            IReadOnlyList<Recording> committed)
+        {
+            return watchedIdx >= 0
+                && descendants.Contains(watchedIdx)
+                && watchedIdx < committed.Count
+                && committed[watchedIdx] != null;
+        }
+
+        /// <summary>
+        /// Bug #382: the folder W button's next rotation step and its committed index. A step
+        /// whose recording is no longer in the list (removed between draws) reads as an empty
+        /// rotation.
+        /// </summary>
+        internal static GhostPlaybackLogic.GroupWatchAdvanceResult ResolveGroupWatchRotation(
+            HashSet<int> descendants, IReadOnlyList<Recording> committed,
+            Func<int, bool> isEligibleForWatch, string cursorRecId, string watchedDescendantRecId,
+            out int nextTargetIdx)
+        {
+            GhostPlaybackLogic.GroupWatchAdvanceResult rotation = GhostPlaybackLogic.AdvanceGroupWatchCursor(
+                descendants, committed, isEligibleForWatch, cursorRecId, watchedDescendantRecId);
+
+            nextTargetIdx = rotation.NextRecordingId != null
+                ? GhostPlaybackLogic.FindRecordingIndexById(committed, rotation.NextRecordingId)
+                : -1;
+
+            // nextTargetIdx can legitimately be -1 even if rotation.NextRecordingId != null
+            // when the recording has been removed between draws - treat as empty rotation.
+            if (nextTargetIdx < 0)
+                rotation = GhostPlaybackLogic.GroupWatchAdvanceResult.Empty;
+            return rotation;
+        }
+
+        /// <summary>
+        /// The folder W button's two press modes: true when it can enter or advance watch, and
+        /// in <paramref name="isToggleOffPress"/> whether a press exits watch (a single-entry
+        /// rotation that is already watched).
+        /// </summary>
+        internal static bool ResolveGroupWatchPressModes(GhostPlaybackLogic.GroupWatchAdvanceResult rotation,
+            int nextTargetIdx, bool anyDescendantWatched, out bool isToggleOffPress)
+        {
+            bool canWatch = rotation.NextRecordingId != null && nextTargetIdx >= 0 && !rotation.IsToggleOff;
+            isToggleOffPress = rotation.IsToggleOff && anyDescendantWatched;
+            return canWatch;
+        }
+
+        /// <summary>
+        /// Bug #279 transition gate for the folder W button: true (and both caches updated)
+        /// when the key is new, its enable state flipped, or its eligible-set fingerprint
+        /// changed; false while nothing moved, so a cursor rotation stays silent.
+        /// </summary>
+        internal static bool UpdateGroupWatchTransitionCache(Dictionary<string, bool> lastCanWatchByGroup,
+            Dictionary<string, string> lastResolvedWatchTargetByGroup, string groupWatchKey,
+            bool canWatch, string resolvedTargetId)
+        {
+            bool prevGroupCanWatch;
+            string prevResolvedTargetId;
+            if (!lastCanWatchByGroup.TryGetValue(groupWatchKey, out prevGroupCanWatch)
+                || prevGroupCanWatch != canWatch
+                || !lastResolvedWatchTargetByGroup.TryGetValue(groupWatchKey, out prevResolvedTargetId)
+                || prevResolvedTargetId != resolvedTargetId)
+            {
+                lastCanWatchByGroup[groupWatchKey] = canWatch;
+                lastResolvedWatchTargetByGroup[groupWatchKey] = resolvedTargetId;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The folder W button's hover: none watchable, switch to the next vessel, exit (the
+        /// only watchable one is watched), enter on the next vessel, else the row button's
+        /// own tooltip.
+        /// </summary>
+        internal static string BuildGroupWatchTooltip(GhostPlaybackLogic.GroupWatchAdvanceResult rotation,
+            bool isWatching, int nextTargetIdx, string watchedDescendantRecId,
+            IReadOnlyList<Recording> committed)
+        {
+            if (rotation.TotalEligible == 0)
+                return "no watchable vessels in this group";
+            else if (isWatching && nextTargetIdx >= 0 && rotation.NextRecordingId != watchedDescendantRecId)
+                return $"switch to {committed[nextTargetIdx].VesselName}";
+            else if (isWatching && rotation.IsToggleOff)
+                return "exit watch (no other watchable vessels)";
+            else if (nextTargetIdx >= 0)
+                return $"enter watch on {committed[nextTargetIdx].VesselName}";
+            else
+                return GetWatchButtonTooltip(isWatching, false, false, false, false);
+        }
+
+        /// <summary>
+        /// The press kind the folder W button logs when it moves watch to the next vessel:
+        /// "enter" with no cursor yet, else "wrap" or "advance".
+        /// </summary>
+        internal static string GroupWatchAdvancePressKind(string cursorRecId, bool isWrap)
+        {
+            return string.IsNullOrEmpty(cursorRecId)
+                ? "enter"
+                : (isWrap ? "wrap" : "advance");
+        }
+
+        /// <summary>
+        /// The folder Archive checkbox's state: true only when the folder has members and
+        /// every descendant is archived.
+        /// </summary>
+        internal static bool AreAllGroupMembersHidden(HashSet<int> descendants,
+            IReadOnlyList<Recording> committed, int memberCount)
+        {
+            int hiddenCount = 0;
+            foreach (int idx in descendants)
+                if (committed[idx].Hidden) hiddenCount++;
+            return memberCount > 0 && hiddenCount == memberCount;
+        }
+
+        /// <summary>
+        /// A folder's own display blocks, or null when it has no direct members. On a mission
+        /// folder the tree-root vessel's block is flattened into single rows and its members
+        /// come back in <paramref name="absorbedRootMembers"/> (null when nothing was
+        /// absorbed); a change of absorption is logged once.
+        /// </summary>
+        internal List<GroupDisplayBlock> ResolveFolderDisplayBlocks(string groupName,
+            IReadOnlyList<Recording> committed,
+            Dictionary<string, List<int>> grpToRecs,
+            Dictionary<string, List<int>> chainToRecs,
+            out List<int> absorbedRootMembers)
+        {
+            List<int> directMembers;
+            grpToRecs.TryGetValue(groupName, out directMembers);
+            List<GroupDisplayBlock> displayBlocks = directMembers != null
+                ? BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs)
+                : null;
+            absorbedRootMembers = null;
+            if (displayBlocks != null)
+            {
+                RecordingTree missionTree = MissionGroupLink.FindTreeByRootGroup(groupName);
+                string rootBlockKey = missionTree != null
+                    ? ResolveRootVesselBlockKey(groupName, ResolveTreeRootRecording(missionTree))
+                    : null;
+                int absorbedIdx = FindRootVesselBlockIndex(displayBlocks, rootBlockKey);
+                if (absorbedIdx >= 0)
+                {
+                    absorbedRootMembers = displayBlocks[absorbedIdx].Members;
+                    displayBlocks = FlattenAbsorbedBlock(displayBlocks, absorbedIdx, groupName);
+                }
+                LogRootBlockAbsorptionTransition(groupName, rootBlockKey, absorbedRootMembers);
+            }
+            return displayBlocks;
+        }
+
+        /// <summary>
+        /// Writes a folder Loop toggle change. A route-bound scope is refused and logged; on a
+        /// mission folder that absorbed its launched vessel's block those members are written
+        /// WITH the auto loop range and every other loopable descendant WITHOUT; otherwise
+        /// every descendant is written without it.
+        /// </summary>
+        internal static void ApplyGroupLoopToggle(string groupName, bool newLoop, bool grpRouteBound,
+            IReadOnlyList<Recording> committed, HashSet<int> descendants,
+            IEnumerable<int> grpLoopScope, List<int> absorbedRootMembers)
+        {
+            if (grpRouteBound)
+            {
+                ParsekLog.Info("RouteGuard",
+                    $"Recordings-tab group Loop blocked for '{groupName}' (a descendant is on a route-bound tree); request={newLoop} ignored");
+            }
+            else if (absorbedRootMembers != null)
+            {
+                SplitAbsorbedLoopWrite(grpLoopScope, absorbedRootMembers,
+                    out List<int> withAutoRange, out List<int> withoutAutoRange);
+                int rootWritten = BulkSetLoopPlayback(
+                    committed, withAutoRange, newLoop, applyAutoRange: true);
+                int otherWritten = BulkSetLoopPlayback(
+                    committed, withoutAutoRange, newLoop, applyAutoRange: false);
+                ParsekLog.Info("UI",
+                    $"Group '{groupName}' loop set to {newLoop} "
+                    + $"(launched vessel {rootWritten.ToString(CultureInfo.InvariantCulture)} "
+                    + "recordings with auto loop range, other "
+                    + $"{otherWritten.ToString(CultureInfo.InvariantCulture)} without)");
+            }
+            else
+            {
+                int written = BulkSetLoopPlayback(committed, descendants, newLoop, applyAutoRange: false);
+                ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({written} recordings)");
+            }
+        }
+
+        /// <summary>
+        /// Writes a folder Archive toggle change over every descendant, or refuses a hide that
+        /// would bury an Unfinished Flight (warning plus a screen message naming the count).
+        /// </summary>
+        internal void ApplyGroupArchiveToggle(string groupName, HashSet<int> descendants,
+            IReadOnlyList<Recording> committed, int memberCount, bool newAllHidden)
+        {
+            // The per-row Archive checkbox refuses to hide an Unfinished Flight
+            // (see DrawRecordingRow: rewind access must remain visible). This
+            // path wrote Hidden over every descendant with no such check, so
+            // archiving a FOLDER buried exactly the re-flyable flight the per-row
+            // control exists to protect (finding P17). Same guard, group
+            // granularity: refuse the whole toggle so the folder's Hidden flag and
+            // its members' can never disagree, and name the count so the player
+            // knows what to resolve. Only the HIDE direction is gated - un-hiding
+            // an Unfinished Flight is the recovery path, never a loss.
+            int unfinishedCount = 0;
+            if (newAllHidden)
+            {
+                foreach (int idx in descendants)
+                    if (EffectiveState.IsUnfinishedFlight(committed[idx]))
+                        unfinishedCount++;
+            }
+
+            if (IsArchiveRefusedForUnfinishedFlight(newAllHidden, unfinishedCount > 0))
+            {
+                ParsekLog.Warn("UnfinishedFlights",
+                    $"Group hide-all refused for group '{groupName}': "
+                    + $"{unfinishedCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} of "
+                    + $"{memberCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} "
+                    + "member(s) are Unfinished Flights; rewind access must remain "
+                    + "visible (design §7.33)");
+                ParsekLog.ScreenMessage(
+                    BuildGroupArchiveRefusedMessage(groupName, unfinishedCount), 4f);
+            }
+            else
+            {
+                foreach (int idx in descendants)
+                    committed[idx].Hidden = newAllHidden;
+                // Also update group-level visibility
+                if (newAllHidden)
+                    GroupHierarchyStore.AddHiddenGroup(groupName);
+                else
+                    GroupHierarchyStore.RemoveHiddenGroup(groupName);
+                NotifyTimelineOfArchiveChange();
+                ParsekLog.Info("UI",
+                    $"Group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
             }
         }
 

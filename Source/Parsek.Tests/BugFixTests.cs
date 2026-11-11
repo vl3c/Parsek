@@ -38,22 +38,22 @@ namespace Parsek.Tests
         public void HasPendingTree_WhenTreeStashed_ReturnsTrue()
         {
             var tree = new RecordingTree { Id = "test-tree-64" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
         }
 
         [Fact]
         public void DiscardPendingTree_ClearsPendingState()
         {
             var tree = new RecordingTree { Id = "test-tree-64-discard" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
-            RecordingStore.DiscardPendingTree();
+            TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
 
         [Fact]
@@ -78,15 +78,15 @@ namespace Parsek.Tests
         public void DiscardPendingTree_ClearsAllPendingState()
         {
             var tree = new RecordingTree { Id = "test-tree-64-both" };
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             // Simulate the revert guard from ParsekScenario.OnLoad
-            if (RecordingStore.HasPendingTree)
-                RecordingStore.DiscardPendingTree();
+            if (PendingTreeSlot.HasPendingTree)
+                TreeDiscardService.DiscardPendingTree();
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
     }
 
@@ -731,17 +731,17 @@ namespace Parsek.Tests
             // (ParsekScenario.ClassifyRevertPendingTreeDisposition), which the OnLoad revert branch
             // dispatches over.
             var tree = new RecordingTree { TreeName = "FreshTree" };
-            RecordingStore.StashPendingTree(tree);
-            Assert.True(RecordingStore.PendingStashedThisTransition);
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal("FreshTree", RecordingStore.PendingTree.TreeName);
+            PendingTreeSlot.StashPendingTree(tree);
+            Assert.True(PendingTreeSlot.PendingStashedThisTransition);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal("FreshTree", PendingTreeSlot.PendingTree.TreeName);
 
             Assert.Equal(
                 ParsekScenario.RevertPendingTreeDisposition.KeepFreshlyStashed,
                 ParsekScenario.ClassifyRevertPendingTreeDisposition(
-                    RecordingStore.PendingStashedThisTransition,
-                    RecordingStore.HasPendingTree,
-                    RecordingStore.PendingTreeStateValue));
+                    PendingTreeSlot.PendingStashedThisTransition,
+                    PendingTreeSlot.HasPendingTree,
+                    PendingTreeSlot.PendingTreeStateValue));
         }
 
         [Fact]
@@ -1916,7 +1916,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             var committed = RecordingStore.CommittedRecordings;
             var stage = committed.FirstOrDefault(r => r.RecordingId == "stage");
@@ -1953,7 +1953,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             var committed = RecordingStore.CommittedRecordings;
             // The count comes FIRST and unconditionally: every assertion below sits inside a
@@ -1993,7 +1993,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.NotNull(vessel.RecordingGroups);
             Assert.Single(vessel.RecordingGroups);
@@ -2025,7 +2025,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // Orphan should now have a group
             Assert.NotNull(orphan.RecordingGroups);
@@ -2050,7 +2050,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // Adopted debris should be in debris subgroup with parent set
             Assert.NotNull(orphanDebris.RecordingGroups);
@@ -2077,7 +2077,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.NotNull(orphanEva.RecordingGroups);
             Assert.Single(orphanEva.RecordingGroups);
@@ -2095,7 +2095,7 @@ namespace Parsek.Tests
             orphanEva.EvaCrewName = "Bob Kerman";
             orphanEva.RecordingGroups = new List<string> { "Bob Kerman" };
             RecordingStore.AddRecordingWithTreeForTesting(orphanEva);
-            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(orphanEva, "Bob Kerman");
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(orphanEva, "Bob Kerman");
 
             var tree = new RecordingTree
             {
@@ -2107,7 +2107,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.NotNull(orphanEva.RecordingGroups);
             Assert.Single(orphanEva.RecordingGroups);
@@ -2134,7 +2134,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.NotNull(orphanEva.RecordingGroups);
             Assert.Single(orphanEva.RecordingGroups);
@@ -2146,7 +2146,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRec("roundtrip", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
             rec.RecordingGroups = new List<string> { "Bob Kerman" };
-            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(rec, "Bob Kerman");
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(rec, "Bob Kerman");
 
             var node = new ConfigNode("RECORDING");
             RecordingTree.SaveRecordingResourceAndState(node, rec);
@@ -2163,17 +2163,17 @@ namespace Parsek.Tests
             var renameRec = MakeRec("rename", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
             renameRec.RecordingGroups = new List<string> { "Bob Kerman" };
             RecordingStore.AddRecordingWithTreeForTesting(renameRec);
-            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(renameRec, "Bob Kerman");
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(renameRec, "Bob Kerman");
 
-            Assert.True(RecordingStore.RenameGroup("Bob Kerman", "Crew A"));
+            Assert.True(RecordingGroupStore.RenameGroup("Bob Kerman", "Crew A", RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees));
             Assert.Null(renameRec.AutoAssignedStandaloneGroupName);
 
             var replaceRec = MakeRec("replace", "Bill Kerman", pid: 301, startUT: 120, endUT: 180);
             replaceRec.RecordingGroups = new List<string> { "Bill Kerman" };
             RecordingStore.AddRecordingWithTreeForTesting(replaceRec);
-            RecordingStore.MarkAutoAssignedStandaloneGroupForTesting(replaceRec, "Bill Kerman");
+            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(replaceRec, "Bill Kerman");
 
-            Assert.Equal(1, RecordingStore.ReplaceGroupOnAll("Bill Kerman", null));
+            Assert.Equal(1, RecordingGroupStore.ReplaceGroupOnAll("Bill Kerman", null, RecordingStore.CommittedRecordings));
             Assert.Null(replaceRec.AutoAssignedStandaloneGroupName);
         }
 
@@ -2193,7 +2193,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             // Should still be in the original group, not adopted
             Assert.Single(alreadyGrouped.RecordingGroups);

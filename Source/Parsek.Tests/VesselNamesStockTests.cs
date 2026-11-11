@@ -991,7 +991,7 @@ namespace Parsek.Tests
             Assert.True(future < undo && undo < invoke,
                 "Retry undoes after its last refusal and before it re-invokes the Re-Fly");
 
-            string strip = MethodBody("RewindInvoker.cs", "private static void RunStripActivateMarker(");
+            string strip = MethodBody(RewindInvokerSourceFiles.StripActivate, "private static void RunStripActivateMarker(");
             int marker = IndexOrFail(strip, "AtomicMarkerWrite(");
             int pass = IndexOrFail(strip, "VesselNameLiveSync.OnReFlyStripComplete(");
             Assert.True(marker < pass, "the post-strip pass follows the strip and the marker write");
@@ -1015,7 +1015,7 @@ namespace Parsek.Tests
             foreach (string path in Directory.GetFiles(ParsekSourceRoot(), "*.cs", SearchOption.AllDirectories))
             {
                 if (path.StartsWith(inGameTests, StringComparison.OrdinalIgnoreCase)) continue;
-                string text = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                string text = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 handlers += Occurrences(text, "onVesselRename.Add(");
             }
             Assert.Equal(0, handlers);
@@ -1024,7 +1024,7 @@ namespace Parsek.Tests
         private static string MethodBody(string relPath, string signature)
         {
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
-                File.ReadAllText(Path.Combine(ParsekSourceRoot(), relPath)).Replace("\r\n", "\n"));
+                ParsekScenarioSourceFiles.ReadText(Path.Combine(ParsekSourceRoot(), relPath)).Replace("\r\n", "\n"));
             int sig = prepared.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(sig >= 0, "signature not found in " + relPath + ": " + signature);
             Assert.True(prepared.IndexOf(signature, sig + 1, StringComparison.Ordinal) < 0,

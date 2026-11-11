@@ -65,87 +65,16 @@ namespace Parsek
             for (int i = 0; i < candidates.Count; i++)
             {
                 var c = candidates[i];
-                bool isDuplicate = false;
 
                 if (IsScienceCaptureIdentified(c))
                 {
-                    // One capture converts to one row. A second candidate with the same id
-                    // in this batch is the same capture presented twice, not an award.
-                    if (batchCaptureIds == null)
-                        batchCaptureIds = new HashSet<string>(StringComparer.Ordinal);
-                    if (!batchCaptureIds.Add(c.ActionId))
-                    {
-                        captureIdBatchRepeats++;
-                        continue;
-                    }
-
-                    for (int j = 0; j < existing.Count; j++)
-                    {
-                        if (string.Equals(existing[j].ActionId, c.ActionId, StringComparison.Ordinal))
-                        {
-                            isDuplicate = true;
-                            captureIdMatches++;
-                            break;
-                        }
-                    }
-
-                    if (!isDuplicate)
-                        result.Add(c);
+                    DedupScienceCaptureCandidate(existing, c, result,
+                        ref batchCaptureIds, ref captureIdMatches, ref captureIdBatchRepeats);
                     continue;
                 }
 
-                bool candidateHasEventCapture = IsEventCaptureIdentified(c);
-                GameAction keptAgainst = null;
-                for (int j = 0; j < existing.Count; j++)
-                {
-                    var e = existing[j];
-                    if (e.Type != c.Type) continue;
-                    // Design 3.15 step 3: a candidate converted from a captured event and a
-                    // row that names a capture are one row only when they name the SAME
-                    // capture (a re-commit, a re-home or a direct KSC row of that event).
-                    // Different captures with equal economic keys are two events - two
-                    // recordings of one tree crossing one record node inside 0.1 s, or a
-                    // committed future row and a new flight's at the same instant - and
-                    // both stay; the replay decides which one counts. A row without a
-                    // capture number (an older save) keeps the economic match below.
-                    if (candidateHasEventCapture && e.CaptureSequence > 0)
-                    {
-                        if (e.CaptureSequence == c.CaptureSequence
-                            && GetActionKey(e) == GetActionKey(c))
-                        {
-                            isDuplicate = true;
-                            eventCaptureMatches++;
-                            break;
-                        }
-                        if (keptAgainst == null
-                            && LegacyEconomicKeyMatches(e, c))
-                            keptAgainst = e;
-                        continue;
-                    }
-
-                    if (LegacyEconomicKeyMatches(e, c))
-                    {
-                        isDuplicate = true;
-                        legacyKeyMatches++;
-                        break;
-                    }
-                }
-
-                if (!isDuplicate)
-                {
-                    result.Add(c);
-                    if (keptAgainst != null)
-                    {
-                        eventDuplicatesKept++;
-                        ParsekLog.Verbose(Tag,
-                            $"DeduplicateAgainstLedger: kept {c.Type} key='{GetActionKey(c)}' " +
-                            $"ut={c.UT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"cseq={c.CaptureSequence.ToString(CultureInfo.InvariantCulture)} as a second event: " +
-                            $"row {keptAgainst.ActionId ?? "(none)"} " +
-                            $"ut={keptAgainst.UT.ToString("R", CultureInfo.InvariantCulture)} has the same key " +
-                            $"but capture cseq={keptAgainst.CaptureSequence.ToString(CultureInfo.InvariantCulture)}");
-                    }
-                }
+                DedupEventOrEconomicCandidate(existing, c, result,
+                    ref eventCaptureMatches, ref legacyKeyMatches, ref eventDuplicatesKept);
             }
 
             if (result.Count < candidates.Count || eventDuplicatesKept > 0)
@@ -161,6 +90,115 @@ namespace Parsek
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// The science-capture arm of <see cref="DeduplicateAgainst"/> for one candidate
+        /// whose ActionId is a capture identity: drop a repeat of an id already seen in
+        /// this batch, drop an id the existing rows already hold, else keep it.
+        /// </summary>
+        internal static void DedupScienceCaptureCandidate(
+            IReadOnlyList<GameAction> existing,
+            GameAction c,
+            List<GameAction> result,
+            ref HashSet<string> batchCaptureIds,
+            ref int captureIdMatches,
+            ref int captureIdBatchRepeats)
+        {
+            bool isDuplicate = false;
+
+            // One capture converts to one row. A second candidate with the same id
+            // in this batch is the same capture presented twice, not an award.
+            if (batchCaptureIds == null)
+                batchCaptureIds = new HashSet<string>(StringComparer.Ordinal);
+            if (!batchCaptureIds.Add(c.ActionId))
+            {
+                captureIdBatchRepeats++;
+                return;
+            }
+
+            for (int j = 0; j < existing.Count; j++)
+            {
+                if (string.Equals(existing[j].ActionId, c.ActionId, StringComparison.Ordinal))
+                {
+                    isDuplicate = true;
+                    captureIdMatches++;
+                    break;
+                }
+            }
+
+            if (!isDuplicate)
+                result.Add(c);
+        }
+
+        /// <summary>
+        /// The event-capture and economic arm of <see cref="DeduplicateAgainst"/> for one
+        /// candidate without a science capture identity: drop it when an existing row names
+        /// the same capture, or (where either side names no capture) matches it
+        /// economically; else keep it, logging a same-key row of another capture.
+        /// </summary>
+        internal static void DedupEventOrEconomicCandidate(
+            IReadOnlyList<GameAction> existing,
+            GameAction c,
+            List<GameAction> result,
+            ref int eventCaptureMatches,
+            ref int legacyKeyMatches,
+            ref int eventDuplicatesKept)
+        {
+            bool isDuplicate = false;
+
+            bool candidateHasEventCapture = IsEventCaptureIdentified(c);
+            GameAction keptAgainst = null;
+            for (int j = 0; j < existing.Count; j++)
+            {
+                var e = existing[j];
+                if (e.Type != c.Type) continue;
+                // Design 3.15 step 3: a candidate converted from a captured event and a
+                // row that names a capture are one row only when they name the SAME
+                // capture (a re-commit, a re-home or a direct KSC row of that event).
+                // Different captures with equal economic keys are two events - two
+                // recordings of one tree crossing one record node inside 0.1 s, or a
+                // committed future row and a new flight's at the same instant - and
+                // both stay; the replay decides which one counts. A row without a
+                // capture number (an older save) keeps the economic match below.
+                if (candidateHasEventCapture && e.CaptureSequence > 0)
+                {
+                    if (e.CaptureSequence == c.CaptureSequence
+                        && GetActionKey(e) == GetActionKey(c))
+                    {
+                        isDuplicate = true;
+                        eventCaptureMatches++;
+                        break;
+                    }
+                    if (keptAgainst == null
+                        && LegacyEconomicKeyMatches(e, c))
+                        keptAgainst = e;
+                    continue;
+                }
+
+                if (LegacyEconomicKeyMatches(e, c))
+                {
+                    isDuplicate = true;
+                    legacyKeyMatches++;
+                    break;
+                }
+            }
+
+            if (!isDuplicate)
+            {
+                result.Add(c);
+                if (keptAgainst != null)
+                {
+                    eventDuplicatesKept++;
+                    ParsekLog.Verbose(Tag,
+                        $"DeduplicateAgainstLedger: kept {c.Type} key='{GetActionKey(c)}' " +
+                        $"ut={c.UT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"cseq={c.CaptureSequence.ToString(CultureInfo.InvariantCulture)} as a second event: " +
+                        $"row {keptAgainst.ActionId ?? "(none)"} " +
+                        $"ut={keptAgainst.UT.ToString("R", CultureInfo.InvariantCulture)} has the same key " +
+                        $"but capture cseq={keptAgainst.CaptureSequence.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
         }
 
         /// <summary>
@@ -596,32 +634,8 @@ namespace Parsek
                         out GameStateEvent pairedRecoveryEvent,
                         out string pairedDedupKey))
                 {
-                    double pairedRecoveryAmount =
-                        pairedRecoveryEvent.valueAfter - pairedRecoveryEvent.valueBefore;
-                    if (pairedRecoveryAmount > 0)
-                    {
-                        result.Add(new GameAction
-                        {
-                            UT = pairedRecoveryEvent.ut,
-                            Type = GameActionType.FundsEarning,
-                            RecordingId = recordingId,
-                            FundsAwarded = (float)pairedRecoveryAmount,
-                            FundsSource = FundsEarningSource.Recovery,
-                            DedupKey = pairedDedupKey
-                        });
-
-                        ParsekLog.Verbose(Tag,
-                            $"CreateVesselCostActions: paired recovery funds={pairedRecoveryAmount:F0} " +
-                            $"(before={pairedRecoveryEvent.valueBefore:F0}, after={pairedRecoveryEvent.valueAfter:F0}) " +
-                            $"for '{recordingId}'");
-                    }
-                    else
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"CreateVesselCostActions: paired recovery event for '{recordingId}' " +
-                            $"at ut={pairedRecoveryEvent.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
-                            $"has non-positive delta {pairedRecoveryAmount.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
-                    }
+                    AddPairedRecoveryFundsAction(
+                        result, recordingId, pairedRecoveryEvent, pairedDedupKey);
                 }
                 else if (InFlightRecoveryRequest.IsAwaitingStockPayout(recordingId))
                 {
@@ -637,28 +651,78 @@ namespace Parsek
                 }
                 else if (rec.Points.Count >= 2)
                 {
-                    double lastFunds = rec.Points[rec.Points.Count - 1].funds;
-                    double penultimateFunds = rec.Points[rec.Points.Count - 2].funds;
-                    double recoveryAmount = lastFunds - penultimateFunds;
-
-                    if (recoveryAmount > 0)
-                    {
-                        result.Add(new GameAction
-                        {
-                            UT = endUT,
-                            Type = GameActionType.FundsEarning,
-                            RecordingId = recordingId,
-                            FundsAwarded = (float)recoveryAmount,
-                            FundsSource = FundsEarningSource.Recovery
-                        });
-
-                        ParsekLog.Verbose(Tag,
-                            $"CreateVesselCostActions: recovery funds={recoveryAmount:F0} " +
-                            $"(last={lastFunds:F0}, penultimate={penultimateFunds:F0}) for '{recordingId}'");
-                    }
+                    AddHeuristicRecoveryFundsAction(result, recordingId, endUT, rec);
                 }
             }
             return readsAwaitingPayout;
+        }
+
+        /// <summary>
+        /// <see cref="AddVesselRecoveryCostActions"/>'s paired-event branch: a positive
+        /// funds delta on the paired <c>FundsChanged(VesselRecovery)</c> event adds a
+        /// Recovery <see cref="GameActionType.FundsEarning"/> row at the event's UT, keyed
+        /// by its dedup key; a non-positive one is logged and skipped.
+        /// </summary>
+        internal static void AddPairedRecoveryFundsAction(
+            List<GameAction> result, string recordingId,
+            GameStateEvent pairedRecoveryEvent, string pairedDedupKey)
+        {
+            double pairedRecoveryAmount =
+                pairedRecoveryEvent.valueAfter - pairedRecoveryEvent.valueBefore;
+            if (pairedRecoveryAmount > 0)
+            {
+                result.Add(new GameAction
+                {
+                    UT = pairedRecoveryEvent.ut,
+                    Type = GameActionType.FundsEarning,
+                    RecordingId = recordingId,
+                    FundsAwarded = (float)pairedRecoveryAmount,
+                    FundsSource = FundsEarningSource.Recovery,
+                    DedupKey = pairedDedupKey
+                });
+
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: paired recovery funds={pairedRecoveryAmount:F0} " +
+                    $"(before={pairedRecoveryEvent.valueBefore:F0}, after={pairedRecoveryEvent.valueAfter:F0}) " +
+                    $"for '{recordingId}'");
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: paired recovery event for '{recordingId}' " +
+                    $"at ut={pairedRecoveryEvent.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"has non-positive delta {pairedRecoveryAmount.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
+            }
+        }
+
+        /// <summary>
+        /// <see cref="AddVesselRecoveryCostActions"/>'s fallback: with no paired event and
+        /// no in-flight payout pending, a positive change between the recording's last two
+        /// points' funds adds a Recovery <see cref="GameActionType.FundsEarning"/> row at
+        /// <paramref name="endUT"/>. The caller has checked there are at least two points.
+        /// </summary>
+        internal static void AddHeuristicRecoveryFundsAction(
+            List<GameAction> result, string recordingId, double endUT, Recording rec)
+        {
+            double lastFunds = rec.Points[rec.Points.Count - 1].funds;
+            double penultimateFunds = rec.Points[rec.Points.Count - 2].funds;
+            double recoveryAmount = lastFunds - penultimateFunds;
+
+            if (recoveryAmount > 0)
+            {
+                result.Add(new GameAction
+                {
+                    UT = endUT,
+                    Type = GameActionType.FundsEarning,
+                    RecordingId = recordingId,
+                    FundsAwarded = (float)recoveryAmount,
+                    FundsSource = FundsEarningSource.Recovery
+                });
+
+                ParsekLog.Verbose(Tag,
+                    $"CreateVesselCostActions: recovery funds={recoveryAmount:F0} " +
+                    $"(last={lastFunds:F0}, penultimate={penultimateFunds:F0}) for '{recordingId}'");
+            }
         }
 
         /// <summary>

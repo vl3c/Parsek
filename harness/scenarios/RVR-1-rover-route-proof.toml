@@ -223,7 +223,7 @@ kind = "seam"
 #
 # ONE EXTRA REASON IT MATTERS HERE, and it is the reason the builder re-points the active
 # vessel away from `rover fuel 0`. That vessel is PRELAUNCH, which is the fresh-rollout
-# shape `RecordingStore.SceneEntryFreshRolloutVesselPid` has a fast path for; booting
+# shape `SceneEntryVesselScope.SceneEntryFreshRolloutVesselPid` has a fast path for; booting
 # focused on it would put a rollout-shaped vessel under the very autoRecordOnLaunch gate
 # this triple closes, one step before the gate closes. Focusing the LANDED `B` removes the
 # race rather than racing it.

@@ -45,18 +45,18 @@ namespace Parsek.Tests
                 RecordingId = "rec1",
                 VesselName = "TestRocket"
             };
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
-            Assert.True(RecordingStore.PendingStashedThisTransition);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
+            Assert.True(PendingTreeSlot.PendingStashedThisTransition);
 
             // Quickload discard resets the flag (but preserves Limbo trees)
-            RecordingStore.PendingStashedThisTransition = false;
+            PendingTreeSlot.PendingStashedThisTransition = false;
 
             // The revert path should still preserve the Limbo tree
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
 
             // A Finalized tree would be discarded, but Limbo should survive
-            Assert.Equal("TestRocket", RecordingStore.PendingTree.TreeName);
+            Assert.Equal("TestRocket", PendingTreeSlot.PendingTree.TreeName);
         }
 
         [Fact]
@@ -72,15 +72,15 @@ namespace Parsek.Tests
                 RecordingId = "rec1",
                 VesselName = "TestRocket"
             };
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
-            RecordingStore.PendingStashedThisTransition = false;
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.PendingStashedThisTransition = false;
 
             // Finalized tree with cleared flag should be discardable
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal(PendingTreeState.Finalized, PendingTreeSlot.PendingTreeStateValue);
 
-            RecordingStore.DiscardPendingTree();
-            Assert.False(RecordingStore.HasPendingTree);
+            TreeDiscardService.DiscardPendingTree();
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
     }
 

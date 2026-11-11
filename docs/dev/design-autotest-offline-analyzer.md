@@ -211,9 +211,9 @@ rule does NOT bump it (rules are data inside `findings`).
   `AnalyzerModel`, `Finding`, the concrete rule classes), the loader
   (`SaveDirectoryLoader`), and the reporters. It lives in the Tests project
   because it consumes the `internal` headless seams that are already exposed to
-  tests: `RecordingStore.LoadTrajectorySidecarForTesting`,
-  `RecordingStore.LoadSnapshotSidecarForTesting`,
-  `RecordingStore.TryProbeTrajectorySidecar`,
+  tests: `RecordingSidecarStore.LoadTrajectorySidecarForTesting`,
+  `RecordingSidecarStore.LoadSnapshotSidecarForTesting`,
+  `RecordingSidecarStore.TryProbeTrajectorySidecar`,
   `RecordingStore.IsRecordingSchemaCompatible`, `RecordingTreeRecordCodec`,
   `RecordingManifestCodec`, `CareerSaveParser.Parse`, `EffectiveState.ComputeERS`
   / `ComputeELS`, and the `TrajectoryMath` `bodyResolver` seam with
@@ -289,10 +289,10 @@ target save; the harness passes its per-run results directory.
    (`BuildTrajectoryRelativePath`, `BuildVesselSnapshotRelativePath`,
    `BuildGhostSnapshotRelativePath`, `BuildAnnotationsRelativePath`), validating
    ids through `RecordingPaths.ValidateRecordingId`. Hydrate trajectory via
-   `RecordingStore.LoadTrajectorySidecarForTesting`, snapshots via
-   `RecordingStore.LoadSnapshotSidecarForTesting`. A `false` return or throw is
+   `RecordingSidecarStore.LoadTrajectorySidecarForTesting`, snapshots via
+   `RecordingSidecarStore.LoadSnapshotSidecarForTesting`. A `false` return or throw is
    a `LoadFault` with the probe's failure reason
-   (`RecordingStore.TryProbeTrajectorySidecar` supplies `probe.FailureReason`).
+   (`RecordingSidecarStore.TryProbeTrajectorySidecar` supplies `probe.FailureReason`).
 4. Parse the career save via `CareerSaveParser.Parse(gameNode)` when the save is
    career; a null / unparsable result leaves `CareerSave = null` and records a
    `LoadFault{ FileKind="career" }` only when the ledger rule needs it.
@@ -383,7 +383,7 @@ the LOADER-FAULT rule that turns loader parse failures into findings. Each is on
   CitedContract: `TrackSection.referenceFrame` / `anchorRecordingId` /
   `anchorVesselId` + the RELATIVE offset contract
   (`TrajectoryMath.ComputeRelativeLocalOffset` /
-  `ParsekFlight.TryResolveRelativeOffsetWorldPosition`).
+  `ParsekFlightGhostPositioner.TryResolveRelativeOffsetWorldPosition`).
 - **INV4 part-event PID resolution** (`RuleId INV4-PARTEVENT-PID`). Every part
   event's PID resolves against the paired snapshot's part-PID set. For synthetic
   ghosts the builder assigns `persistentId = 100000 + idx*1111`
@@ -544,7 +544,7 @@ lose the run-happened evidence; it only moves it out of the findings list.
      `InitiateRewind` never read `MergeState`), so the rule does not claim
      "provisional = rewindable, sealed = not". A missing rewind save on a sealed
      (`MergeState.Immutable`) recording is far likelier a dangling reference than
-     proven corruption: `RecordingStore.DeleteRecordingFiles` deletes a rewind save
+     proven corruption: `RecordingFileJanitor.DeleteRecordingFiles` deletes a rewind save
      with a discarded recording WITHOUT reference-counting siblings that share the
      same save via `ParsekFlight.CopyRewindSaveToRoot` ("first recorder wins"), and
      production treats a missing rewind hint as benign
@@ -605,7 +605,7 @@ lose the run-happened evidence; it only moves it out of the findings list.
   That pair is the on-disk residue of
   OPTIMIZER-SPLIT-DROPS-MERGESTATE-AND-CLOSES-AN-OPEN-REFLY-SLOT (fixed 2026-09-08,
   PR #1658): `MergeDialog.MergeCommit` promotes a re-flyable slot's tip to
-  `CommittedProvisional` and only THEN runs `RecordingStore.RunOptimizationPass()`;
+  `CommittedProvisional` and only THEN runs `CommittedListOptimizer.RunOptimizationPass()`;
   when the phase-change split cut the just-promoted recording,
   `RecordingOptimizer.TransferTerminalFieldsToSecondHalf` moved the terminal onto a
   brand-new chain TIP but not the `MergeState`, and `Recording.MergeState` defaults
@@ -624,7 +624,7 @@ lose the run-happened evidence; it only moves it out of the findings list.
   `REWIND_POINTS` node at all. The offline model does not load scenario RewindPoints
   in any case (see INV9). The chain HEAD/TIP pair is the surviving witness, and it is
   sufficient: `MergeState.CommittedProvisional` is MINTED for a slot origin only by
-  `RecordingStore.ApplyRewindProvisionalMergeStates` over RewindPoint slot tips (the
+  `TreeCommitService.ApplyRewindProvisionalMergeStates` over RewindPoint slot tips (the
   other writers - `RecordingOptimizer.MergeInto`, the split carry itself,
   `UnfinishedFlightStashHandler`, `ParsekScenario.HydrationRepair` - PROPAGATE an
   existing one rather than mint it), so a `CommittedProvisional` HEAD traces back to a
@@ -689,7 +689,7 @@ Each: scenario -> expected behavior -> v1 or deferred.
 2. **Text-format `.prec`**. Expected: `TryProbeTrajectorySidecar` returns
    `Supported=false, FailureReason="magic-mismatch"`; loader records a
    LoadFault; INV5 FAIL with that reason. Matches the production reject at
-   `RecordingStore.DeserializeTrajectorySidecar`. v1.
+   `RecordingSidecarStore.DeserializeTrajectorySidecar`. v1.
 3. **Any other non-`PSK0` magic**. Expected: the same `magic-mismatch` probe;
    LoadFault + INV5 FAIL. v1.
 4. **Recording metadata generation != sidecar generation**. Scenario: tree node

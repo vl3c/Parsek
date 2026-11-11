@@ -497,7 +497,7 @@ namespace Parsek.Tests
 
     /// <summary>
     /// Integration tests for the live-side resolver
-    /// <see cref="RecordingStore.TryClassifyActiveSwitchSegmentNoOp"/>: tree /
+    /// <see cref="SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp"/>: tree /
     /// segment resolution, disposition classification, and the no-op decision
     /// against an armed <see cref="SwitchSegmentSession"/>. (The ParsekFlight
     /// flush + Re-Fly / merge-journal guards and the scene-exit / re-switch hooks
@@ -587,7 +587,7 @@ namespace Parsek.Tests
         public void NoSession_KeepsWithReason()
         {
             ParsekScenario.SetInstanceForTesting(new ParsekScenario());
-            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+            bool noOp = SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(
                 out string reason, out SwitchSegmentDisposition disp);
             Assert.False(noOp);
             Assert.Equal("no-session", reason);
@@ -599,10 +599,10 @@ namespace Parsek.Tests
         {
             var seg = Segment("rec_seg", "tree_s", noOp: true);
             var tree = Tree("tree_s", "rec_seg", seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_s", "rec_seg");
 
-            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+            bool noOp = SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(
                 out string reason, out SwitchSegmentDisposition disp);
 
             Assert.True(noOp);
@@ -615,10 +615,10 @@ namespace Parsek.Tests
         {
             var seg = Segment("rec_seg", "tree_s", noOp: false); // ExoPropulsive
             var tree = Tree("tree_s", "rec_seg", seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_s", "rec_seg");
 
-            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+            bool noOp = SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(
                 out string reason, out SwitchSegmentDisposition disp);
 
             Assert.False(noOp);
@@ -632,10 +632,10 @@ namespace Parsek.Tests
             var parent = new Recording { RecordingId = "rec_parent", TreeId = "tree_c" };
             var seg = Segment("rec_seg", "tree_c", noOp: true);
             var tree = Tree("tree_c", "rec_seg", parent, seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_c", "rec_seg", parentId: "rec_parent");
 
-            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+            bool noOp = SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(
                 out string reason, out SwitchSegmentDisposition disp);
 
             // No-op decision still true; disposition flags it as deferred-at-scene-exit.
@@ -675,11 +675,11 @@ namespace Parsek.Tests
             var other = Member("rec_a", "tree_k", 160, 190, propulsive: true);
             var seg = Segment("rec_seg", "tree_k", noOp: true);
             var tree = Tree("tree_k", "rec_seg", parent, other, seg);
-            RecordingStore.StashPendingTree(tree);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test");
+            PendingTreeSlot.StashPendingTree(tree);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test");
             ArmSession("tree_k", "rec_seg", parentId: "rec_b", committedTreeId: "tree_k");
 
-            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+            bool noOp = SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(
                 out string reason, out SwitchSegmentDisposition disp);
 
             Assert.False(noOp);
@@ -698,11 +698,11 @@ namespace Parsek.Tests
             var other = Member("rec_a", "tree_h", 40, 90, propulsive: true);
             var seg = Segment("rec_seg", "tree_h", noOp: true);
             var tree = Tree("tree_h", "rec_seg", parent, other, seg);
-            RecordingStore.StashPendingTree(tree);
-            RecordingStore.ArmCommittedTreeRestoreAttempt(tree, "test");
+            PendingTreeSlot.StashPendingTree(tree);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(tree, "test");
             ArmSession("tree_h", "rec_seg", parentId: "rec_b", committedTreeId: "tree_h");
 
-            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+            bool noOp = SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(
                 out string reason, out SwitchSegmentDisposition disp);
 
             Assert.True(noOp);
@@ -718,10 +718,10 @@ namespace Parsek.Tests
                 Member("rec_a", "tree_p", 40, 90, propulsive: true));
             var subtree = new HashSet<string>(StringComparer.Ordinal) { "rec_seg" };
 
-            Assert.True(RecordingStore.CommittedCloneMembersOutsideSegmentUnchanged(
+            Assert.True(SwitchSegmentAttempts.CommittedCloneMembersOutsideSegmentUnchanged(
                 tree, subtree, 150.0, out string keep));
             Assert.Null(keep);
-            Assert.False(RecordingStore.CommittedCloneMembersOutsideSegmentUnchanged(
+            Assert.False(SwitchSegmentAttempts.CommittedCloneMembersOutsideSegmentUnchanged(
                 tree, new HashSet<string>(StringComparer.Ordinal), 150.0, out keep));
             Assert.StartsWith("member:rec_seg:", keep);
         }
@@ -733,10 +733,10 @@ namespace Parsek.Tests
             var seg = Segment("rec_seg", "tree_n", noOp: true);
             // Active recording is the PARENT, not the segment.
             var tree = Tree("tree_n", "rec_parent", parent, seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_n", "rec_seg", parentId: "rec_parent");
 
-            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+            bool noOp = SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(
                 out string reason, out _);
 
             Assert.False(noOp);
@@ -762,10 +762,10 @@ namespace Parsek.Tests
                 ParentRecordingIds = new List<string> { "rec_seg" },
                 ChildRecordingIds = new List<string> { "rec_child" },
             });
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_d", "rec_seg");
 
-            bool noOp = RecordingStore.TryClassifyActiveSwitchSegmentNoOp(
+            bool noOp = SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(
                 out string reason, out _);
 
             Assert.False(noOp);
@@ -777,10 +777,10 @@ namespace Parsek.Tests
         {
             var seg = Segment("rec_seg", "tree_s", noOp: true);
             var tree = Tree("tree_s", "rec_seg", seg);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             ArmSession("tree_s", "rec_seg");
 
-            RecordingStore.TryClassifyActiveSwitchSegmentNoOp(out _, out _);
+            SwitchSegmentAttempts.TryClassifyActiveSwitchSegmentNoOp(out _, out _);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[SwitchSegment]")

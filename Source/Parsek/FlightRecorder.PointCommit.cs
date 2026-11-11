@@ -909,7 +909,6 @@ namespace Parsek
                 v,
                 currentVelocity,
                 ut);
-            TryCanonicalizeActiveReFlyRecordingPoint(ref point, "boundary-sample");
             TrajectoryPoint absolutePoint = point;
             bool relativeApplied = ApplyRelativeOffset(ref point, v);
 
@@ -929,7 +928,6 @@ namespace Parsek
                 return;
 
             TrajectoryPoint seamPoint = BuildTrajectoryPoint(v, SampleCurrentVelocity(v), startUT);
-            TryCanonicalizeActiveReFlyRecordingPoint(ref seamPoint, "section-start-seam");
             AppendSectionStartSeamPoint(seamPoint, v, reason);
         }
 
@@ -1170,9 +1168,6 @@ namespace Parsek
                 // there's no sub-tick interpolation API to bracket against.
                 Vector3 velocity = SampleCurrentVelocity(v);
                 TrajectoryPoint point = BuildStructuralEventSnapshot(v, velocity, eventUT);
-                TryCanonicalizeActiveReFlyRecordingPoint(
-                    ref point,
-                    "structural-event-" + (eventType ?? "unknown"));
                 TrajectoryPoint absolutePoint = point;
                 bool relativeApplied = ApplyRelativeOffset(ref point, v);
 
@@ -1243,7 +1238,6 @@ namespace Parsek
                 return;
             }
 
-            TryCanonicalizeActiveReFlyRecordingPoint(ref point, "seed-" + (reason ?? "unknown"));
             CommitRecordedPoint(point, v);
             ParsekLog.Verbose("Recorder",
                 $"Seed point committed: reason={reason} UT={point.ut:F2}");

@@ -41,7 +41,7 @@ namespace Parsek.Tests
         public void IsSyntheticFixtureSidecarMarker_TrajectoryMissingWithZeroPoints_ReturnsTrue()
         {
             var rec = new Recording();
-            RecordingStore.MarkSidecarLoadFailure(rec, "trajectory-missing");
+            RecordingSidecarStore.MarkSidecarLoadFailure(rec, "trajectory-missing");
 
             Assert.True(ParsekScenario.IsSyntheticFixtureSidecarMarker(rec));
         }
@@ -53,7 +53,7 @@ namespace Parsek.Tests
             // deleted is a genuine degradation, not a synthetic-fixture marker.
             var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint());
-            RecordingStore.MarkSidecarLoadFailure(rec, "trajectory-missing");
+            RecordingSidecarStore.MarkSidecarLoadFailure(rec, "trajectory-missing");
 
             Assert.False(ParsekScenario.IsSyntheticFixtureSidecarMarker(rec));
         }
@@ -74,7 +74,7 @@ namespace Parsek.Tests
             foreach (var reason in genuineReasons)
             {
                 var rec = new Recording();
-                RecordingStore.MarkSidecarLoadFailure(rec, reason);
+                RecordingSidecarStore.MarkSidecarLoadFailure(rec, reason);
                 Assert.False(
                     ParsekScenario.IsSyntheticFixtureSidecarMarker(rec),
                     $"reason '{reason}' must not be treated as synthetic-fixture marker");

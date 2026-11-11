@@ -49,7 +49,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.PendingScienceSubjects.Clear();
             ParsekScenario.ResetInstanceForTesting();
@@ -167,8 +167,8 @@ namespace Parsek.Tests
             var tree = MakeTree("tree-merge-1", "rec-a", rec1, rec2, rec3);
 
             // Precondition: stash as pending and indexes start at -1.
-            RecordingStore.StashPendingTree(tree);
-            Assert.True(RecordingStore.HasPendingTree);
+            PendingTreeSlot.StashPendingTree(tree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             foreach (var r in tree.Recordings.Values)
                 Assert.Equal(-1, r.LastAppliedResourceIndex);
 
@@ -188,7 +188,7 @@ namespace Parsek.Tests
             Assert.Equal(2, rec3.LastAppliedResourceIndex);
 
             // Tree is now in committed storage and the pending slot is empty.
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree-merge-1");
         }
 
@@ -211,7 +211,7 @@ namespace Parsek.Tests
 
             var rec = MakeRecording("rec-mile", "tree-mile", 200.0, 300.0);
             var tree = MakeTree("tree-mile", "rec-mile", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             // Snapshot before.
             var milestonesBefore = MilestoneStore.Milestones;
@@ -241,7 +241,7 @@ namespace Parsek.Tests
             var fullRec = MakeRecording("rec-full", "tree-empty", 100.0, 200.0);
             var emptyRec = MakeRecording("rec-empty", "tree-empty", 0.0, 0.0, emptyPoints: true);
             var tree = MakeTree("tree-empty", "rec-full", fullRec, emptyRec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             // Precondition.
             Assert.Equal(-1, fullRec.LastAppliedResourceIndex);
@@ -274,14 +274,14 @@ namespace Parsek.Tests
             // branch (Discard instead of Merge), this assertion fails.
             Assert.Equal(-1, rec.LastAppliedResourceIndex);
 
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
             MergeDialog.MergeDiscard(tree);
 
             Assert.Equal(-1, rec.LastAppliedResourceIndex);
 
             // Tree should be wiped from the pending slot and never make it into
             // committed storage.
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.DoesNotContain(RecordingStore.CommittedTrees, t => t.Id == "tree-discard");
         }
 
@@ -291,11 +291,11 @@ namespace Parsek.Tests
             var rec = MakeRecording(
                 "rec-serialized-discard", "tree-serialized-discard", 100.0, 200.0);
             var tree = MakeTree("tree-serialized-discard", "rec-serialized-discard", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(scenarioNode);
-            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+            Assert.True(PendingTreeSlot.PendingTreeSerializedForSave);
             Assert.True(ParsekScenario.IsPendingTreeNode(
                 scenarioNode.GetNodes("RECORDING_TREE")[0]));
 
@@ -311,7 +311,7 @@ namespace Parsek.Tests
             bool result = MergeDialog.MergeDiscardRanToCompletion(tree);
 
             Assert.True(result);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Empty(RecordingStore.CommittedTrees);
             Assert.Empty(RecordingStore.CommittedRecordings);
             // design-load-restores-the-save.md 4.6: the game's current save is refreshed,
@@ -341,7 +341,7 @@ namespace Parsek.Tests
 
             var rec = MakeRecording("rec-discard-recalc", "tree-discard-recalc", 100.0, 200.0);
             var tree = MakeTree("tree-discard-recalc", "rec-discard-recalc", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             MergeDialog.MergeDiscard(tree);
 
@@ -356,7 +356,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("rec-mismatch-discard", "tree-dialog-discard", 100.0, 200.0);
             var tree = MakeTree("tree-dialog-discard", "rec-mismatch-discard", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             var marker = MakeMarker(
                 "sess-mismatch-discard",
@@ -376,7 +376,7 @@ namespace Parsek.Tests
             MergeDialog.MergeDiscard(tree);
 
             Assert.Equal(1, TreeDiscardPurge.PurgeTreeCountForTesting);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Same(marker, scenario.ActiveReFlySessionMarker);
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
@@ -415,7 +415,7 @@ namespace Parsek.Tests
             RecordingStore.AddProvisional(provisional);
 
             var pendingTree = MakeTree(treeId, provisional.RecordingId, origin, provisional);
-            RecordingStore.StashPendingTree(pendingTree);
+            PendingTreeSlot.StashPendingTree(pendingTree);
 
             var rp = new RewindPoint
             {
@@ -457,7 +457,7 @@ namespace Parsek.Tests
             MergeDialog.MergeDiscard(pendingTree);
 
             Assert.Equal(0, TreeDiscardPurge.PurgeTreeCountForTesting);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == treeId);
             Assert.Contains(RecordingStore.CommittedRecordings, r => r.RecordingId == origin.RecordingId);
             Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.RecordingId == provisional.RecordingId);
@@ -499,7 +499,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedInternal(origin);
             RecordingStore.AddProvisional(provisional);
             var pendingTree = MakeTree(treeId, provisional.RecordingId, origin, provisional);
-            RecordingStore.StashPendingTree(pendingTree);
+            PendingTreeSlot.StashPendingTree(pendingTree);
 
             Ledger.AddAction(new GameAction
             {
@@ -567,7 +567,7 @@ namespace Parsek.Tests
             });
             var rec = MakeRecording("rec-discard-plain", "tree-discard-plain", 100.0, 200.0);
             var tree = MakeTree("tree-discard-plain", "rec-discard-plain", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             MergeDialog.MergeDiscard(tree);
 
@@ -607,7 +607,7 @@ namespace Parsek.Tests
                     provisional.RecordingId,
                 },
             });
-            RecordingStore.StashPendingTree(pendingTree);
+            PendingTreeSlot.StashPendingTree(pendingTree);
 
             var rp = new RewindPoint
             {
@@ -644,7 +644,7 @@ namespace Parsek.Tests
             MergeDialog.MergeDiscard(pendingTree);
 
             Assert.Equal(0, TreeDiscardPurge.PurgeTreeCountForTesting);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == treeId);
             Assert.Contains(RecordingStore.CommittedRecordings, r => r.RecordingId == origin.RecordingId);
             Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.RecordingId == provisional.RecordingId);
@@ -668,7 +668,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("rec-log", "tree-log", 100.0, 200.0);
             var tree = MakeTree("tree-log", "rec-log", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             MergeDialog.MergeCommit(
                 tree,
@@ -691,7 +691,7 @@ namespace Parsek.Tests
             provisional.TerminalStateValue = TerminalState.Landed;
 
             var tree = MakeTree("tree-refly", provisional.RecordingId, origin, provisional);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             var scenario = new ParsekScenario
             {
@@ -742,7 +742,7 @@ namespace Parsek.Tests
             provisional.TerminalStateValue = TerminalState.Landed;
 
             var tree = MakeTree("tree-refly-int", provisional.RecordingId, origin, provisional);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             var scenario = new ParsekScenario
             {
@@ -893,7 +893,7 @@ namespace Parsek.Tests
             RecordingStore.AddProvisional(fork);
 
             var pendingTree = MakeTree(treeId, forkId, origin, fork);
-            RecordingStore.StashPendingTree(pendingTree);
+            PendingTreeSlot.StashPendingTree(pendingTree);
 
             var rp = new RewindPoint
             {
@@ -940,7 +940,7 @@ namespace Parsek.Tests
 
             // Marker, pending tree slot, scenario journal are cleared.
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("User chose: Re-Fly Attempt Discard"));
@@ -995,7 +995,7 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(committedTree);
             RecordingStore.AddCommittedInternal(origin);
             RecordingStore.AddProvisional(fork);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.True(committedTree.Recordings.ContainsKey(forkId));
 
             var rp = new RewindPoint
@@ -1174,7 +1174,7 @@ namespace Parsek.Tests
             // Intentionally do NOT AddProvisional(attemptDebris) - production
             // breakup children are not in the flat committed list during the
             // live session.
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             var rp = new RewindPoint
             {
@@ -1381,7 +1381,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("rec-journal-discard", "tree-journal-discard", 100.0, 200.0);
             var tree = MakeTree("tree-journal-discard", "rec-journal-discard", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             var scenario = new ParsekScenario
             {
@@ -1402,7 +1402,7 @@ namespace Parsek.Tests
             Assert.False(result);
             // Pending tree must remain stashed - the refusal is a no-op
             // for state.
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             // Journal stays armed - we did NOT clobber it.
             Assert.NotNull(scenario.ActiveMergeJournal);
             Assert.Equal("journal_test", scenario.ActiveMergeJournal.JournalId);
@@ -1457,17 +1457,17 @@ namespace Parsek.Tests
             // the pre-transition wrapper proceeds with postChoice.
             var rec = MakeRecording("rec-normal-discard", "tree-normal-discard", 100.0, 200.0);
             var tree = MakeTree("tree-normal-discard", "rec-normal-discard", rec);
-            RecordingStore.StashPendingTree(tree);
+            PendingTreeSlot.StashPendingTree(tree);
 
             bool result = MergeDialog.MergeDiscardRanToCompletion(tree);
 
             Assert.True(result);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
 
         // ================================================================
         // M1 (PR #876 round-5 review): MergeCommit / MergeDiscard refuse
-        // when the passed tree doesn't match RecordingStore.PendingTree.
+        // when the passed tree doesn't match PendingTreeSlot.PendingTree.
         // CommitPendingTree operates on the global pendingTree slot; if a
         // Bug-C path routes a session-resolved tree from CommittedTrees,
         // the commit would silently no-op and the player thinks Merge
@@ -1486,7 +1486,7 @@ namespace Parsek.Tests
                 "rec-mismatch-real", "tree-mismatch-real-pending", 100.0, 200.0);
             var realPending = MakeTree(
                 "tree-mismatch-real-pending", "rec-mismatch-real", realPendingRec);
-            RecordingStore.StashPendingTree(realPending);
+            PendingTreeSlot.StashPendingTree(realPending);
 
             // Build an unrelated tree the dialog might pass in (e.g.
             // committed-slot resolution from the Bug-C path).
@@ -1501,8 +1501,8 @@ namespace Parsek.Tests
                 spawnCount: 0);
 
             // The real pending tree must still be in storage (no commit).
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal("tree-mismatch-real-pending", RecordingStore.PendingTree.Id);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal("tree-mismatch-real-pending", PendingTreeSlot.PendingTree.Id);
             Assert.DoesNotContain(
                 RecordingStore.CommittedTrees,
                 t => t.Id == "tree-mismatch-passed" || t.Id == "tree-mismatch-real-pending");
@@ -1530,7 +1530,7 @@ namespace Parsek.Tests
                 new Dictionary<string, bool> { { "rec-no-pending", false } },
                 spawnCount: 0);
 
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Empty(RecordingStore.CommittedTrees);
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
@@ -1548,7 +1548,7 @@ namespace Parsek.Tests
                 "rec-d-mismatch-real", "tree-d-mismatch-real", 100.0, 200.0);
             var realPending = MakeTree(
                 "tree-d-mismatch-real", "rec-d-mismatch-real", realPendingRec);
-            RecordingStore.StashPendingTree(realPending);
+            PendingTreeSlot.StashPendingTree(realPending);
 
             var passedRec = MakeRecording(
                 "rec-d-mismatch-passed", "tree-d-mismatch-passed", 50.0, 80.0);
@@ -1559,8 +1559,8 @@ namespace Parsek.Tests
 
             Assert.False(ranToCompletion);
             // Real pending tree survives.
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal("tree-d-mismatch-real", RecordingStore.PendingTree.Id);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal("tree-d-mismatch-real", PendingTreeSlot.PendingTree.Id);
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeDialog]")
                 && l.Contains("merge-discard-tree-mismatch")

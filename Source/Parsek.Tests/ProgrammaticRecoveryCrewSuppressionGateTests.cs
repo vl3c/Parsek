@@ -170,7 +170,13 @@ namespace Parsek.Tests
             if (!File.Exists(path))
                 path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
+            // VesselSpawner, ParsekFlight and ParsekScenario are partial classes; each gate reads
+            // every split file as one text.
+            if (relPath == "VesselSpawner.cs")
+                return VesselSpawnerSourceFiles.ReadAll(Path.GetDirectoryName(path));
+            if (relPath == "ParsekFlight.cs")
+                return ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path));
+            return ParsekScenarioSourceFiles.ReadText(path);
         }
     }
 }

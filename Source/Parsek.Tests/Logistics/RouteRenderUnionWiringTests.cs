@@ -41,7 +41,10 @@ namespace Parsek.Tests.Logistics
                 path = Path.Combine(projectRoot, "Parsek", fileName);
 
             Assert.True(File.Exists(path), $"{fileName} not found at {path}");
-            return File.ReadAllText(path);
+            // ParsekFlight is split into partial files; read the text that was ParsekFlight.cs.
+            if (fileName == "ParsekFlight.cs")
+                return ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path));
+            return ParsekFlightSourceFiles.ReadText(path);
         }
 
         // The single block of source we care about in each seam: the BRACE-MATCHED body of the

@@ -121,16 +121,56 @@ namespace Parsek
         /// </summary>
         internal static OrbitSegment? FindOrbitSegment(List<OrbitSegment> segments, double ut)
         {
-            if (segments == null) return null;
+            int index = FindOrbitSegmentIndex(segments, ut);
+            if (index < 0) return null;
+            return segments[index];
+        }
+
+        /// <summary>
+        /// The index of the segment <see cref="FindOrbitSegment"/> returns: the first one whose
+        /// range covers <paramref name="ut"/> (half-open, except the last segment, which is
+        /// closed at its endUT), or -1 when none does or the list is null.
+        /// </summary>
+        internal static int FindOrbitSegmentIndex(List<OrbitSegment> segments, double ut)
+        {
+            if (segments == null) return -1;
             for (int i = 0; i < segments.Count; i++)
             {
                 bool inRange = (i == segments.Count - 1)
                     ? (ut >= segments[i].startUT && ut <= segments[i].endUT)
                     : (ut >= segments[i].startUT && ut < segments[i].endUT);
                 if (inRange)
-                    return segments[i];
+                    return i;
             }
-            return null;
+            return -1;
+        }
+
+        /// <summary>
+        /// The index <c>segments.IndexOf(segments[foundIndex])</c> returns, for a
+        /// <paramref name="foundIndex"/> from <see cref="FindOrbitSegmentIndex"/> at
+        /// <paramref name="ut"/>, without its per-element boxing on the common path
+        /// (<see cref="OrbitSegment"/> has no <c>Equals</c>, so <c>IndexOf</c> boxes every
+        /// element it compares and compares fields by reflection).
+        /// <para>
+        /// <c>IndexOf</c> can only return an earlier index j, for a segment equal to the found
+        /// one in every field. Equal fields mean equal startUT and endUT (neither NaN: a NaN
+        /// bound never covers a UT), so j covers <paramref name="ut"/> under the half-open test
+        /// whenever the found index does under the same test, and the forward scan would have
+        /// stopped at j first. The two tests differ only when the found index is the LAST
+        /// segment (closed at endUT) and <paramref name="ut"/> is not below its endUT; only that
+        /// edge calls <c>IndexOf</c>, so it keeps its exact result.
+        /// </para>
+        /// </summary>
+        internal static int ResolveOrbitSegmentIndexOfFound(
+            List<OrbitSegment> segments, int foundIndex, double ut)
+        {
+            if (foundIndex > 0
+                && foundIndex == segments.Count - 1
+                && !(ut < segments[foundIndex].endUT))
+            {
+                return segments.IndexOf(segments[foundIndex]);
+            }
+            return foundIndex;
         }
 
         /// <summary>

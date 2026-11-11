@@ -69,7 +69,7 @@ namespace Parsek
         /// recorder into the discarded ids. A missing file alone does not prove a discard (a
         /// copied save folder or deleted files look the same), so the tree id must also be one
         /// a discard deleted sidecars for in this process
-        /// (<see cref="RecordingStore.WasTreeDiscardedThisSession"/>).
+        /// (<see cref="TreeDiscardService.WasTreeDiscardedThisSession"/>).
         /// Anything else - a committed copy in memory, a member that hydrated, a member that
         /// failed for another reason (stale epoch, schema, snapshot, corrupt file) - restores
         /// as before, and so does a tree a same-id pending tree still holds (the restore salvages
@@ -140,10 +140,10 @@ namespace Parsek
         private static bool TryDeclineDiscardedActiveTree(RecordingTree tree, bool loadedSceneIsFlight)
         {
             bool committedCopy = FindCommittedTreeById(tree.Id, exclude: tree) != null;
-            bool pendingSameId = RecordingStore.HasPendingTree
-                && RecordingStore.PendingTree != null
-                && string.Equals(RecordingStore.PendingTree.Id, tree.Id, StringComparison.Ordinal);
-            bool discardedThisSession = RecordingStore.WasTreeDiscardedThisSession(tree.Id);
+            bool pendingSameId = PendingTreeSlot.HasPendingTree
+                && PendingTreeSlot.PendingTree != null
+                && string.Equals(PendingTreeSlot.PendingTree.Id, tree.Id, StringComparison.Ordinal);
+            bool discardedThisSession = TreeDiscardService.WasTreeDiscardedThisSession(tree.Id);
             DiscardedActiveTreeRestoreAction action = DecideDiscardedActiveTreeRestore(
                 tree, discardedThisSession, committedCopy, pendingSameId, out string reason);
             if (action == DiscardedActiveTreeRestoreAction.Restore)
@@ -166,12 +166,12 @@ namespace Parsek
             // committed-future row into KSP (a resume escapes that only because its Limbo stash
             // defers the patch).
             string poppedLimbo = "none";
-            if (RecordingStore.HasPendingTree
-                && (RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                    || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
+            if (PendingTreeSlot.HasPendingTree
+                && (PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Limbo
+                    || PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
             {
-                PendingTreeState poppedState = RecordingStore.PendingTreeStateValue;
-                RecordingTree popped = RecordingStore.PopPendingTree();
+                PendingTreeState poppedState = PendingTreeSlot.PendingTreeStateValue;
+                RecordingTree popped = PendingTreeSlot.PopPendingTree();
                 poppedLimbo = $"'{popped?.TreeName ?? "<null>"}' id={popped?.Id ?? "<none>"} state={poppedState}";
             }
 
@@ -210,10 +210,10 @@ namespace Parsek
         private static bool TryDeclineDiscardedPendingTree(RecordingTree tree)
         {
             bool committedCopy = FindCommittedTreeById(tree.Id, exclude: tree) != null;
-            bool pendingSameId = RecordingStore.HasPendingTree
-                && RecordingStore.PendingTree != null
-                && string.Equals(RecordingStore.PendingTree.Id, tree.Id, StringComparison.Ordinal);
-            bool discardedThisSession = RecordingStore.WasTreeDiscardedThisSession(tree.Id);
+            bool pendingSameId = PendingTreeSlot.HasPendingTree
+                && PendingTreeSlot.PendingTree != null
+                && string.Equals(PendingTreeSlot.PendingTree.Id, tree.Id, StringComparison.Ordinal);
+            bool discardedThisSession = TreeDiscardService.WasTreeDiscardedThisSession(tree.Id);
             DiscardedActiveTreeRestoreAction action = DecideDiscardedActiveTreeRestore(
                 tree, discardedThisSession, committedCopy, pendingSameId, out string reason);
             if (action == DiscardedActiveTreeRestoreAction.Restore)

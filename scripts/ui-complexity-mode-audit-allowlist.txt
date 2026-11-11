@@ -41,6 +41,9 @@ Source/Parsek/ParsekUI.cs
 # only, never whether the message fires, what is detected, or what spawning
 # does.
 Source/Parsek/ParsekFlight.cs
+# The proximity message moved verbatim with the spawning members into the flight
+# spawn host (ARCH-PARSEKFLIGHT-CHANGE-HUB PF5); same consumption as above.
+Source/Parsek/ParsekFlightSpawnHost.cs
 Source/Parsek/ParsekKSC.cs
 
 # --- Settings layer ---

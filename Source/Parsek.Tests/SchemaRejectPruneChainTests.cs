@@ -180,7 +180,7 @@ namespace Parsek.Tests
             foreach (Recording rec in loaded.Recordings.Values)
             {
                 Assert.True(
-                    RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                    RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
                         rec, PrecPath(rec.RecordingId), VesselPath(rec.RecordingId), GhostPath(rec.RecordingId)),
                     $"surviving recording '{rec.RecordingId}' failed to hydrate after the prune");
                 Assert.False(rec.SidecarLoadFailed);
@@ -242,7 +242,7 @@ namespace Parsek.Tests
             // The store now knows only the two survivors, exactly as it would after
             // ParsekScenario.LoadRecordingTrees.
             RecordingStore.AddCommittedTreeForTesting(loaded);
-            RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
 
             Assert.True(File.Exists(PrecPath(MidId)));
             logLines.Clear();
@@ -666,7 +666,7 @@ namespace Parsek.Tests
             foreach (Recording rec in tree.Recordings.Values)
             {
                 Assert.True(
-                    RecordingStore.SaveRecordingFilesToPathsForTesting(
+                    RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                         rec,
                         PrecPath(rec.RecordingId),
                         VesselPath(rec.RecordingId),

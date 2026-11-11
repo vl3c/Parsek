@@ -70,16 +70,7 @@ namespace Parsek
             // a Rewind-to-Launch lead window): never pruned as future. Only a ready clock is
             // raised; a clock that is not ready keeps every row anyway.
             if (currentUtReady)
-            {
-                double heldMaxUT = LedgerHeldWindow.ResolveLedgerNowUT(maxUT);
-                if (heldMaxUT != maxUT)
-                {
-                    ParsekLog.Info(Tag,
-                        "OnKspLoad: reconcile clock " + maxUT.ToString("R", CultureInfo.InvariantCulture) +
-                        " raised to the ledger held-through UT " + heldMaxUT.ToString("R", CultureInfo.InvariantCulture));
-                    maxUT = heldMaxUT;
-                }
-            }
+                maxUT = ResolveOnKspLoadReconcileUT(maxUT);
 
             // O3: a recording the save names but that did not load keeps its rows. Before the
             // reconcile, which prunes rows tagged to a recording missing from the loaded set.
@@ -124,15 +115,8 @@ namespace Parsek
             // ready, so a genuine future-timeline (post-rewind) cold load is still honored.
             // currentUtReady was computed above (it also gates row preservation in Reconcile).
 
-            bool hasFutureActions = HasActionsAfterUT(maxUT);
-            bool useCurrentUtCutoff =
-                useCurrentUtCutoffForFutureActions && currentUtReady && hasFutureActions;
-            ParsekLog.Info(Tag,
-                "OnKspLoad recalc decision: useCurrentUtCutoff=" + useCurrentUtCutoff +
-                " maxUT=" + maxUT.ToString("R", CultureInfo.InvariantCulture) +
-                " featureSupportsCutoff=" + useCurrentUtCutoffForFutureActions +
-                " currentUtReady=" + currentUtReady +
-                " hasFutureActions=" + hasFutureActions);
+            bool useCurrentUtCutoff = DecideOnKspLoadCurrentUtCutoff(
+                maxUT, useCurrentUtCutoffForFutureActions, currentUtReady);
             if (useCurrentUtCutoff)
             {
                 RecalculateAndPatchForCurrentTimelineUT(maxUT, "ksp-load");
@@ -143,6 +127,44 @@ namespace Parsek
             }
 
             KerbalLoadRepairDiagnostics.EmitAndReset();
+        }
+
+        /// <summary>
+        /// <see cref="OnKspLoad"/>'s reconcile clock on a ready clock: the ledger held-through
+        /// UT when it is later than <paramref name="maxUT"/> (logged), else
+        /// <paramref name="maxUT"/>.
+        /// </summary>
+        internal static double ResolveOnKspLoadReconcileUT(double maxUT)
+        {
+            double heldMaxUT = LedgerHeldWindow.ResolveLedgerNowUT(maxUT);
+            if (heldMaxUT != maxUT)
+            {
+                ParsekLog.Info(Tag,
+                    "OnKspLoad: reconcile clock " + maxUT.ToString("R", CultureInfo.InvariantCulture) +
+                    " raised to the ledger held-through UT " + heldMaxUT.ToString("R", CultureInfo.InvariantCulture));
+                maxUT = heldMaxUT;
+            }
+            return maxUT;
+        }
+
+        /// <summary>
+        /// <see cref="OnKspLoad"/>'s recalc decision: true when the load recalculates at the
+        /// current UT (the feature is on, the clock is ready and rows lie past it), else a
+        /// full replay. Logs the decision and its inputs.
+        /// </summary>
+        internal static bool DecideOnKspLoadCurrentUtCutoff(
+            double maxUT, bool useCurrentUtCutoffForFutureActions, bool currentUtReady)
+        {
+            bool hasFutureActions = HasActionsAfterUT(maxUT);
+            bool useCurrentUtCutoff =
+                useCurrentUtCutoffForFutureActions && currentUtReady && hasFutureActions;
+            ParsekLog.Info(Tag,
+                "OnKspLoad recalc decision: useCurrentUtCutoff=" + useCurrentUtCutoff +
+                " maxUT=" + maxUT.ToString("R", CultureInfo.InvariantCulture) +
+                " featureSupportsCutoff=" + useCurrentUtCutoffForFutureActions +
+                " currentUtReady=" + currentUtReady +
+                " hasFutureActions=" + hasFutureActions);
+            return useCurrentUtCutoff;
         }
 
         /// <summary>
@@ -193,24 +215,7 @@ namespace Parsek
             var recordings = RecordingStore.CommittedRecordings;
             if (recordings == null || recordings.Count == 0) return;
 
-            var existingByRecording = new Dictionary<string, List<GameAction>>();
-            var ledgerActions = Ledger.Actions;
-            for (int i = 0; i < ledgerActions.Count; i++)
-            {
-                var action = ledgerActions[i];
-                if (action.Type != GameActionType.KerbalAssignment
-                    || string.IsNullOrEmpty(action.RecordingId))
-                    continue;
-
-                List<GameAction> existing;
-                if (!existingByRecording.TryGetValue(action.RecordingId, out existing))
-                {
-                    existing = new List<GameAction>();
-                    existingByRecording[action.RecordingId] = existing;
-                }
-
-                existing.Add(action);
-            }
+            var existingByRecording = IndexKerbalAssignmentRowsByRecording();
 
             int repairedRecordings = 0;
             int oldRows = 0;
@@ -251,26 +256,7 @@ namespace Parsek
                 repairedRecordings++;
                 oldRows += existing != null ? existing.Count : 0;
                 newRows += kerbalActions.Count;
-                KerbalLoadRepairDiagnostics.RecordMigrationRepair(
-                    1,
-                    existing != null ? existing.Count : 0,
-                    kerbalActions.Count);
-                KerbalLoadRepairDiagnostics.RecordTouristRowsSkipped(
-                    rec.RecordingId, repairStats.TouristRowsSkipped);
-
-                for (int s = 0; s < repairStats.RemappedRows.Count; s++)
-                {
-                    var remap = repairStats.RemappedRows[s];
-                    KerbalLoadRepairDiagnostics.RecordRemappedRow(
-                        rec.RecordingId, remap.FromName, remap.ToName);
-                }
-
-                for (int s = 0; s < repairStats.EndStateRewrites.Count; s++)
-                {
-                    var rewrite = repairStats.EndStateRewrites[s];
-                    KerbalLoadRepairDiagnostics.RecordEndStateRewrite(
-                        rec.RecordingId, rewrite.KerbalName, rewrite.FromState, rewrite.ToState);
-                }
+                RecordKerbalAssignmentRepairDiagnostics(rec, existing, kerbalActions, repairStats);
             }
 
             if (repairedRecordings > 0)
@@ -278,6 +264,64 @@ namespace Parsek
                     $"MigrateKerbalAssignments: repaired {repairedRecordings} recording(s) " +
                     $"(oldRows={oldRows}, newRows={newRows}, " +
                     $"inheritedActionIds={inheritedRows}, freshActionIds={freshIdRows})");
+        }
+
+        /// <summary>
+        /// <see cref="MigrateKerbalAssignments"/>'s index of the stored KerbalAssignment rows,
+        /// grouped by their recording id in ledger order. Untagged rows are left out.
+        /// </summary>
+        internal static Dictionary<string, List<GameAction>> IndexKerbalAssignmentRowsByRecording()
+        {
+            var existingByRecording = new Dictionary<string, List<GameAction>>();
+            var ledgerActions = Ledger.Actions;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (action.Type != GameActionType.KerbalAssignment
+                    || string.IsNullOrEmpty(action.RecordingId))
+                    continue;
+
+                List<GameAction> existing;
+                if (!existingByRecording.TryGetValue(action.RecordingId, out existing))
+                {
+                    existing = new List<GameAction>();
+                    existingByRecording[action.RecordingId] = existing;
+                }
+
+                existing.Add(action);
+            }
+            return existingByRecording;
+        }
+
+        /// <summary>
+        /// <see cref="MigrateKerbalAssignments"/>'s report of one repaired recording to
+        /// <see cref="KerbalLoadRepairDiagnostics"/>: the row counts, the tourist rows the
+        /// classification skipped, and each remapped row and end-state rewrite.
+        /// </summary>
+        internal static void RecordKerbalAssignmentRepairDiagnostics(
+            Recording rec, List<GameAction> existing, List<GameAction> kerbalActions,
+            KerbalAssignmentRepairStats repairStats)
+        {
+            KerbalLoadRepairDiagnostics.RecordMigrationRepair(
+                1,
+                existing != null ? existing.Count : 0,
+                kerbalActions.Count);
+            KerbalLoadRepairDiagnostics.RecordTouristRowsSkipped(
+                rec.RecordingId, repairStats.TouristRowsSkipped);
+
+            for (int s = 0; s < repairStats.RemappedRows.Count; s++)
+            {
+                var remap = repairStats.RemappedRows[s];
+                KerbalLoadRepairDiagnostics.RecordRemappedRow(
+                    rec.RecordingId, remap.FromName, remap.ToName);
+            }
+
+            for (int s = 0; s < repairStats.EndStateRewrites.Count; s++)
+            {
+                var rewrite = repairStats.EndStateRewrites[s];
+                KerbalLoadRepairDiagnostics.RecordEndStateRewrite(
+                    rec.RecordingId, rewrite.KerbalName, rewrite.FromState, rewrite.ToState);
+            }
         }
 
         /// <summary>
@@ -413,13 +457,13 @@ namespace Parsek
         {
             return LedgerLoadMigration.IsResourceImpactingAction(t);
         }
-        private struct KerbalAssignmentRepairRename
+        internal struct KerbalAssignmentRepairRename
         {
             public string FromName;
             public string ToName;
         }
 
-        private struct KerbalAssignmentEndStateRewrite
+        internal struct KerbalAssignmentEndStateRewrite
         {
             public string KerbalName;
             public KerbalEndState FromState;
@@ -463,7 +507,7 @@ namespace Parsek
             return changed;
         }
 
-        private sealed class KerbalAssignmentRepairStats
+        internal sealed class KerbalAssignmentRepairStats
         {
             public readonly List<KerbalAssignmentRepairRename> RemappedRows
                 = new List<KerbalAssignmentRepairRename>();
@@ -480,6 +524,32 @@ namespace Parsek
             if (existing == null || existing.Count == 0)
                 return stats;
 
+            var filteredExisting = FilterKerbalRepairExistingRows(existing, stats);
+
+            if (desired == null || desired.Count == 0 || filteredExisting.Count == 0)
+                return stats;
+
+            var matchedExisting = new bool[filteredExisting.Count];
+            var matchedDesired = new bool[desired.Count];
+
+            // Reorder-only repairs should not log false remap samples. Match exact-name rows
+            // first, then classify the remaining unmatched rows as true remaps/rewrites.
+            MatchKerbalRepairRowsBySameName(
+                filteredExisting, desired, matchedExisting, matchedDesired, stats);
+            MatchKerbalRepairRowsAsRemaps(
+                filteredExisting, desired, matchedExisting, matchedDesired, stats);
+
+            return stats;
+        }
+
+        /// <summary>
+        /// The first step of <see cref="ClassifyKerbalAssignmentRepair"/>: the stored rows
+        /// it compares against, without null rows and tourist rows (counted in
+        /// <paramref name="stats"/>).
+        /// </summary>
+        internal static List<GameAction> FilterKerbalRepairExistingRows(
+            List<GameAction> existing, KerbalAssignmentRepairStats stats)
+        {
             var filteredExisting = new List<GameAction>();
             for (int i = 0; i < existing.Count; i++)
             {
@@ -497,14 +567,21 @@ namespace Parsek
                 filteredExisting.Add(existingAction);
             }
 
-            if (desired == null || desired.Count == 0 || filteredExisting.Count == 0)
-                return stats;
+            return filteredExisting;
+        }
 
-            var matchedExisting = new bool[filteredExisting.Count];
-            var matchedDesired = new bool[desired.Count];
-
-            // Reorder-only repairs should not log false remap samples. Match exact-name rows
-            // first, then classify the remaining unmatched rows as true remaps/rewrites.
+        /// <summary>
+        /// The exact-name pass of <see cref="ClassifyKerbalAssignmentRepair"/>: pair each
+        /// desired row with the first unconsumed stored row of the same name and timing, and
+        /// record an end-state rewrite where the pair's end states differ.
+        /// </summary>
+        internal static void MatchKerbalRepairRowsBySameName(
+            List<GameAction> filteredExisting,
+            List<GameAction> desired,
+            bool[] matchedExisting,
+            bool[] matchedDesired,
+            KerbalAssignmentRepairStats stats)
+        {
             for (int i = 0; i < desired.Count; i++)
             {
                 var desiredAction = desired[i];
@@ -527,7 +604,20 @@ namespace Parsek
                     });
                 }
             }
+        }
 
+        /// <summary>
+        /// The rename pass of <see cref="ClassifyKerbalAssignmentRepair"/>: pair each
+        /// desired row the exact-name pass left with the first unconsumed stored row of the
+        /// same timing, and record a remap and / or an end-state rewrite.
+        /// </summary>
+        internal static void MatchKerbalRepairRowsAsRemaps(
+            List<GameAction> filteredExisting,
+            List<GameAction> desired,
+            bool[] matchedExisting,
+            bool[] matchedDesired,
+            KerbalAssignmentRepairStats stats)
+        {
             for (int i = 0; i < desired.Count; i++)
             {
                 if (matchedDesired[i])
@@ -563,8 +653,6 @@ namespace Parsek
                     });
                 }
             }
-
-            return stats;
         }
 
         private static int FindRepairRowMatch(

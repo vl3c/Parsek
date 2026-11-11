@@ -774,7 +774,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
                 "Source", "Parsek", "ParsekScenario.cs"));
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
-                System.IO.File.ReadAllText(path).Replace("\r\n", "\n"));
+                ParsekScenarioSourceFiles.ReadText(path).Replace("\r\n", "\n"));
             const string decl = "private IEnumerator ApplyRewindResourceAdjustment()";
             int declAt = prepared.IndexOf(decl, StringComparison.Ordinal);
             Assert.True(declAt >= 0, "ApplyRewindResourceAdjustment declaration not found");

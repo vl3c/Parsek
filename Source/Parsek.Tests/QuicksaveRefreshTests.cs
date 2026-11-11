@@ -132,7 +132,7 @@ namespace Parsek.Tests
                 return "fake-ok";
             };
 
-            RecordingStore.RefreshSaveAndQuicksaveAfterDiscard("discard reason", 3);
+            TreeDiscardService.RefreshSaveAndQuicksaveAfterDiscard("discard reason", 3);
 
             Assert.Single(saveCalls);
             Assert.Equal("persistent", saveCalls[0].saveName);

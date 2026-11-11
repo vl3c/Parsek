@@ -97,7 +97,7 @@ namespace Parsek.Tests
         public void Decision_TipOfChainWithAnyLoopedPhase_Spawns(int loopedIndex)
         {
             var segs = CommitChain(loopedIndex);
-            Assert.True(RecordingStore.IsChainLooping(ChainId));
+            Assert.True(RecordingChainQueries.IsChainLooping(ChainId));
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 segs[2], isActiveChainMember: false);
@@ -125,7 +125,7 @@ namespace Parsek.Tests
         {
             // Mirror direction: looping a phase changes nothing about the tip's spawn answer.
             var segs = CommitChain(loopedIndex: -1);
-            Assert.False(RecordingStore.IsChainLooping(ChainId));
+            Assert.False(RecordingChainQueries.IsChainLooping(ChainId));
 
             Assert.True(GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(segs[2], false).needsSpawn);
         }
@@ -177,9 +177,9 @@ namespace Parsek.Tests
             return new TrajectoryPlaybackFlags
             {
                 needsSpawn = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(rec, false).needsSpawn,
-                isMidChain = RecordingStore.IsChainMidSegment(rec),
-                chainEndUT = RecordingStore.GetChainEndUT(rec),
-                isChainLooping = RecordingStore.IsChainLooping(rec.ChainId),
+                isMidChain = RecordingChainQueries.IsChainMidSegment(rec),
+                chainEndUT = RecordingChainQueries.GetChainEndUT(rec),
+                isChainLooping = RecordingChainQueries.IsChainLooping(rec.ChainId),
                 recordingId = rec.RecordingId,
             };
         }

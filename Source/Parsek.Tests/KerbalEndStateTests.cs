@@ -302,11 +302,11 @@ namespace Parsek.Tests
 
             // Serialize
             var parentNode = new ConfigNode("TEST");
-            RecordingStore.SerializeCrewEndStates(parentNode, rec);
+            RecordingManifestCodec.SerializeCrewEndStates(parentNode, rec);
 
             // Deserialize into a fresh recording
             var loaded = new Recording { RecordingId = "rt-001" };
-            RecordingStore.DeserializeCrewEndStates(parentNode, loaded);
+            RecordingManifestCodec.DeserializeCrewEndStates(parentNode, loaded);
 
             Assert.NotNull(loaded.CrewEndStates);
             Assert.Equal(4, loaded.CrewEndStates.Count);
@@ -329,7 +329,7 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "legacy-001" };
             var parentNode = new ConfigNode("TEST");
 
-            RecordingStore.DeserializeCrewEndStates(parentNode, rec);
+            RecordingManifestCodec.DeserializeCrewEndStates(parentNode, rec);
 
             Assert.Null(rec.CrewEndStates);
             Assert.False(rec.CrewEndStatesResolved);
@@ -345,7 +345,7 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "empty-001", CrewEndStates = null };
             var parentNode = new ConfigNode("TEST");
 
-            RecordingStore.SerializeCrewEndStates(parentNode, rec);
+            RecordingManifestCodec.SerializeCrewEndStates(parentNode, rec);
 
             Assert.Null(parentNode.GetNode("CREW_END_STATES"));
         }

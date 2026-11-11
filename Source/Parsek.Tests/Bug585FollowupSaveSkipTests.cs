@@ -15,7 +15,7 @@ namespace Parsek.Tests
     /// <c>logs/2026-04-25_2210_refly-bugs/</c> caught a sibling launch
     /// recording (22c28f04…) being overwritten with
     /// <c>points=0 orbitSegments=0 trackSections=0 wroteVessel=False</c> on
-    /// scene exit. <see cref="RecordingStore.ShouldSkipSaveToPreserveStaleSidecar"/>
+    /// scene exit. <see cref="RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar"/>
     /// guards the saver so the empty in-memory state cannot clobber the
     /// authoritative on-disk .prec.
     /// </summary>
@@ -29,7 +29,7 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -44,7 +44,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = null;
             RecordingStore.ResetForTesting();
 
             if (Directory.Exists(tempDir))
@@ -59,7 +59,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSkipSaveToPreserveStaleSidecar_NullRec_ReturnsFalse()
         {
-            Assert.False(RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(null));
+            Assert.False(RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(null));
         }
 
         [Fact]
@@ -68,7 +68,7 @@ namespace Parsek.Tests
             // No hydration failure -- normal save path applies.
             var rec = new Recording { RecordingId = "happy" };
 
-            Assert.False(RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
+            Assert.False(RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
         }
 
         [Fact]
@@ -86,7 +86,7 @@ namespace Parsek.Tests
             };
             rec.Points.Add(new TrajectoryPoint { ut = 1.0 });
 
-            Assert.False(RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
+            Assert.False(RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
         }
 
         [Fact]
@@ -100,7 +100,7 @@ namespace Parsek.Tests
             };
             rec.OrbitSegments.Add(new OrbitSegment());
 
-            Assert.False(RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
+            Assert.False(RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
         }
 
         [Fact]
@@ -114,7 +114,7 @@ namespace Parsek.Tests
             };
             rec.TrackSections.Add(new TrackSection());
 
-            Assert.False(RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
+            Assert.False(RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
         }
 
         [Fact]
@@ -128,7 +128,7 @@ namespace Parsek.Tests
                 VesselSnapshot = new ConfigNode("VESSEL"),
             };
 
-            Assert.False(RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
+            Assert.False(RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
         }
 
         [Fact]
@@ -142,7 +142,7 @@ namespace Parsek.Tests
                 GhostVisualSnapshot = new ConfigNode("VESSEL"),
             };
 
-            Assert.False(RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
+            Assert.False(RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
         }
 
         [Fact]
@@ -158,7 +158,7 @@ namespace Parsek.Tests
                 SidecarLoadFailureReason = "stale-sidecar-epoch",
             };
 
-            Assert.True(RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
+            Assert.True(RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
         }
 
         [Fact]
@@ -175,7 +175,7 @@ namespace Parsek.Tests
             };
             rec.PartEvents.Add(new PartEvent());
 
-            Assert.False(RecordingStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
+            Assert.False(RecordingSidecarStore.ShouldSkipSaveToPreserveStaleSidecar(rec));
         }
 
         // --- End-to-end save-skip behaviour ---
@@ -219,7 +219,7 @@ namespace Parsek.Tests
             string vesselPath = Path.Combine(tempDir, original.RecordingId + "_vessel.craft");
             string ghostPath = Path.Combine(tempDir, original.RecordingId + "_ghost.craft");
 
-            bool firstSave = RecordingStore.SaveRecordingFilesToPathsForTesting(
+            bool firstSave = RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 original, precPath, vesselPath, ghostPath, incrementEpoch: true);
             Assert.True(firstSave,
                 "Initial save of the 'original' recording must succeed; logLines=\n  " +
@@ -246,7 +246,7 @@ namespace Parsek.Tests
             System.Threading.Thread.Sleep(50);
 
             // STEP 3: SaveRecordingFiles must SKIP, not overwrite.
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 stale, precPath, vesselPath, ghostPath, incrementEpoch: true));
 
             // STEP 4: assert the on-disk .prec is byte-for-byte unchanged --
@@ -255,7 +255,7 @@ namespace Parsek.Tests
             Assert.Equal(originalPrecMtime, File.GetLastWriteTimeUtc(precPath));
 
             var restored = new Recording { RecordingId = original.RecordingId };
-            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+            Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, restored));
             Assert.Equal(2, restored.Points.Count);
             Assert.Equal(7.6, restored.Points[0].ut, 6);
             Assert.Equal(10.5, restored.Points[1].ut, 6);
@@ -264,7 +264,7 @@ namespace Parsek.Tests
             // file). The skipped save left it untouched -- the in-memory `stale`
             // recording's epoch=2 must not have been written to disk.
             TrajectorySidecarProbe diskProbe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out diskProbe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out diskProbe));
             Assert.Equal(originalEpoch, diskProbe.SidecarEpoch);
 
             // STEP 5: log assertion -- the skip emitted a structured WARN so
@@ -315,13 +315,13 @@ namespace Parsek.Tests
             string vesselPath = Path.Combine(tempDir, fresh.RecordingId + "_vessel.craft");
             string ghostPath = Path.Combine(tempDir, fresh.RecordingId + "_ghost.craft");
 
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 fresh, precPath, vesselPath, ghostPath, incrementEpoch: true));
 
             // The .prec must exist with the new data (recorder's repopulation).
             Assert.True(File.Exists(precPath));
             var restored = new Recording { RecordingId = fresh.RecordingId };
-            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+            Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, restored));
             Assert.Equal(2, restored.Points.Count);
             Assert.Equal(165.0, restored.Points[0].ut, 6);
             Assert.Equal(200.0, restored.Points[1].ut, 6);
@@ -358,8 +358,8 @@ namespace Parsek.Tests
             string vesselPath = Path.Combine(tempDir, original.RecordingId + "_vessel.craft");
             string ghostPath = Path.Combine(tempDir, original.RecordingId + "_ghost.craft");
 
-            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.False(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(original));
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 original, precPath, vesselPath, ghostPath, incrementEpoch: true));
 
             int originalEpoch = original.SidecarEpoch;
@@ -383,20 +383,20 @@ namespace Parsek.Tests
                 frames = new List<TrajectoryPoint> { onlyPoint },
                 checkpoints = new List<OrbitSegment>(),
             });
-            Assert.True(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(shrink));
+            Assert.True(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(shrink));
 
             logLines.Clear();
-            Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+            Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                 shrink, precPath, vesselPath, ghostPath, incrementEpoch: true));
             Assert.Equal(originalEpoch + 1, shrink.SidecarEpoch);
 
             var restored = new Recording { RecordingId = original.RecordingId };
-            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(precPath, restored));
+            Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(precPath, restored));
             Assert.Single(restored.Points);
             Assert.Equal(onlyPoint.ut, restored.Points[0].ut, 6);
 
             TrajectorySidecarProbe diskProbe;
-            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out diskProbe));
+            Assert.True(RecordingSidecarStore.TryProbeTrajectorySidecar(precPath, out diskProbe));
             Assert.Equal(originalEpoch + 1, diskProbe.SidecarEpoch);
 
             Assert.Contains(logLines, l =>

@@ -6741,7 +6741,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # `Logistics` test files plus the helper they share returns exactly ONE hit, and
     # it is a COMMENT about a RECORDED start situation
     # (`LogisticsRouteProducerRuntimeTests.cs:165`, quoting
-    # `VesselSpawner.HumanizeSituation(Vessel.Situations.PRELAUNCH)` to explain what a
+    # `LiveVesselSnapshot.HumanizeSituation(Vessel.Situations.PRELAUNCH)` to explain what a
     # committed recording's `startSituation` field holds). Not one Logistics cell
     # stages, and not one reads the LIVE situation. `UnloadedFuelVesselFixture`'s own
     # docstring says a "fueled PRELAUNCH pad rocket satisfies them after the unpack
@@ -6750,7 +6750,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     #
     # WHAT LOGISTICS ACTUALLY NEEDS is the capability that helper's own failure path
     # names. `EnsureUnloadedLiquidFuelVessel` snapshots the ACTIVE vessel with
-    # `VesselSpawner.TryBackupSnapshot`, rewrites the snapshot's FIRST LiquidFuel tank
+    # `FlightRecorder.TryBackupSnapshot`, rewrites the snapshot's FIRST LiquidFuel tank
     # to the required stored / free floors and re-spawns it as the unloaded depot - so
     # with no LiquidFuel RESOURCE node on the active vessel it returns
     # `reason = "no-liquidfuel-resource"` and every unloaded-depot cell skips. That is
@@ -7034,7 +7034,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                     "for the post-switch surface canary to move" % idx)
             return problems
         if requirement == "logistics":
-            # (a) A real craft to snapshot. `VesselSpawner.TryBackupSnapshot` has
+            # (a) A real craft to snapshot. `FlightRecorder.TryBackupSnapshot` has
             #     nothing to copy off a part-less VESSEL node - an asteroid /
             #     SpaceObject is the realistic way a fixture lands here, and
             #     `logi-cargo-pad` really does carry one as its OTHER vessel - and
@@ -24025,7 +24025,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
     EXTRA_DROPS = {"B4-reentry-splashdown.toml": 1}
 
     # Recordings the optimizer adds at the in-flight commit, not debris. Since #1931 the
-    # seam CommitTree runs RecordingStore.RunOptimizationPass, which splits the ascent
+    # seam CommitTree runs CommittedListOptimizer.RunOptimizationPass, which splits the ascent
     # core where it leaves the atmosphere (PersistedPhaseChange Atmospheric ->
     # ExoBallistic). B7's exact window took that +1 on 2026-10-01 (reading
     # 2026-10-01_1310 red on 9 > max 8 alone, re-flight 2026-10-01_1508 PASS at 9). B2,
@@ -24170,7 +24170,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # asserted because the five spec comment blocks and the reachability
         # cell below all cite it by name and level as the path NOT taken, and a
         # silent rename would leave that evidentiary record pointing at nothing.
-        fg = self._source("ParsekFlight.cs")
+        fg = self._source("ParsekFlightSplitBrancher.cs")
         self.assertRegex(
             fg, r'ParsekLog\.Info\(\s*"Coalescer",\s*\$"ProcessBreakupEvent: '
                 r'debris child created: pid=')
@@ -24255,7 +24255,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # to START the line catches a single-line `if (x) Call();`.
         call = "Recording.ApplyParentAnchorContract(childRec, parentRecordingId);"
         body = self._member_body(
-            self._source("ParsekFlight.cs"),
+            self._source("ParsekFlight.SplitBranching.cs"),
             "internal static Recording CreateBreakupChildRecording(")
         idx = body.index(call)
         line_start = body.rindex("\n", 0, idx) + 1
@@ -25625,7 +25625,7 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
 class CommittedFixtureQuarantineTests(unittest.TestCase):
     """No fixture may carry `Parsek/Recordings/_quarantine`, except the QR-1 host.
 
-    `RecordingStore.OrphanQuarantineDirName` is where `CleanOrphanFiles` PARKS a
+    `RecordingFileJanitor.OrphanQuarantineDirName` is where `CleanOrphanFiles` PARKS a
     sidecar whose recording the store could no longer resolve, instead of
     deleting it - non-destructive by design, so a save that has been played for a
     while accumulates every such file forever. It is unreachable by construction:

@@ -103,8 +103,8 @@ namespace Parsek.Tests
         public void ResetForTesting_ThrowsInPlayMode_WhenPendingTreeExists()
         {
             var tree = new RecordingTree { Id = "pendT", TreeName = "PendingShip" };
-            RecordingStore.StashPendingTree(tree);
-            Assert.True(RecordingStore.HasPendingTree);
+            PendingTreeSlot.StashPendingTree(tree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             RecordingStore.ApplicationIsPlayingForTesting = () => true;
 
@@ -112,7 +112,7 @@ namespace Parsek.Tests
                 () => RecordingStore.ResetForTesting());
 
             Assert.Contains("hasPendingTree=True", ex.Message);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             // Parity with the committed-recordings sibling test: the throw must reach
             // KSP.log so the failure is visible in production diagnostics.
@@ -129,11 +129,11 @@ namespace Parsek.Tests
             // pending-Limbo slot, so wiping it loses a whole tree's worth of recordings
             // that live on disk but in no other in-memory list.
             var tree = new RecordingTree { Id = "saved", TreeName = "Saved" };
-            RecordingStore.PreservePendingTreeFromSaveDuringActiveRestore(tree);
-            Assert.True(RecordingStore.HasSavedPendingTreeDuringActiveRestore);
+            PendingTreeSlot.PreservePendingTreeFromSaveDuringActiveRestore(tree);
+            Assert.True(PendingTreeSlot.HasSavedPendingTreeDuringActiveRestore);
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.Empty(RecordingStore.CommittedTrees);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             RecordingStore.ApplicationIsPlayingForTesting = () => true;
 
@@ -141,8 +141,8 @@ namespace Parsek.Tests
                 () => RecordingStore.ResetForTesting());
 
             Assert.Contains("hasSavedPendingDuringActiveRestore=True", ex.Message);
-            Assert.NotNull(RecordingStore.SavedPendingTreeDuringActiveRestore);
-            Assert.Same(tree, RecordingStore.SavedPendingTreeDuringActiveRestore);
+            Assert.NotNull(PendingTreeSlot.SavedPendingTreeDuringActiveRestore);
+            Assert.Same(tree, PendingTreeSlot.SavedPendingTreeDuringActiveRestore);
 
             Assert.Contains(logLines,
                 l => l.Contains("[ERROR][RecordingStore]") && l.Contains("ResetForTesting blocked"));
@@ -199,22 +199,22 @@ namespace Parsek.Tests
         public void Snapshot_RestoresPendingTreeAndState()
         {
             var pending = new RecordingTree { Id = "p1", TreeName = "Pending" };
-            RecordingStore.StashPendingTree(pending);
-            var preState = RecordingStore.PendingTreeStateValue;
-            Assert.True(RecordingStore.HasPendingTree);
+            PendingTreeSlot.StashPendingTree(pending);
+            var preState = PendingTreeSlot.PendingTreeStateValue;
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             var snapshot = RecordingStoreTestSnapshot.Capture();
 
             // Test mutates the pending slot (e.g. discards it as the in-game test
             // might if it were poorly designed, or replaces it with a synthetic one).
-            RecordingStore.DiscardPendingTree();
-            Assert.False(RecordingStore.HasPendingTree);
+            TreeDiscardService.DiscardPendingTree();
+            Assert.False(PendingTreeSlot.HasPendingTree);
 
             snapshot.Restore();
 
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Equal("Pending", RecordingStore.PendingTree.TreeName);
-            Assert.Equal(preState, RecordingStore.PendingTreeStateValue);
+            Assert.True(PendingTreeSlot.HasPendingTree);
+            Assert.Equal("Pending", PendingTreeSlot.PendingTree.TreeName);
+            Assert.Equal(preState, PendingTreeSlot.PendingTreeStateValue);
         }
 
         // ─────────── Bypass-guard variant tests ───────────
@@ -239,7 +239,7 @@ namespace Parsek.Tests
 
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.Empty(RecordingStore.CommittedTrees);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             // The bypass must NOT log the live-save-data error — that line
             // is the guard's signature and the bypass deliberately skips it.
             Assert.DoesNotContain(logLines,

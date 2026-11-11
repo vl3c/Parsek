@@ -7,12 +7,12 @@ id = "RR-1-relaunch-rewind-keeps-earlier-launch"
 # written (automation DLL built from origin/main `cb899a8f9`); see the status row.
 #
 # THE DEFECT. A plain rewind removes the rewind owner's own vessel from the parsek_rw_
-# quicksave before loading it (RecordingStore.PreProcessRewindSave). It matched by NAME.
+# quicksave before loading it (RewindLauncher.PreProcessRewindSave). It matched by NAME.
 # A relaunch of a craft carries the craft's name, so rewinding the SECOND flight also
 # removed the FIRST launch still standing in the quicksave. That vessel is committed
 # history (its recording never replays after the rewind), so nothing re-spawned it, and
 # the post-strip reconcile reset its recording's spawn state. The fix
-# (RecordingStore.RewindOwnerStrip.cs) also reads each quicksave VESSEL's `pid` guid
+# (RewindSpawnScope.OwnerStrip.cs) also reads each quicksave VESSEL's `pid` guid
 # against the owner's RecordedVesselGuid: a vessel with the owner's name whose guid
 # conclusively differs is KEPT, provided the owner's own vessel is identified by guid in
 # the same save.

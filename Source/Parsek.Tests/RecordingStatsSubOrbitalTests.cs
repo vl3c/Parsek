@@ -321,7 +321,7 @@ namespace Parsek.Tests
             rec.TrackSections.Add(rel);
             rec.TrackSections.Add(Section(ReferenceFrame.Absolute, 107, 110));
 
-            var stats = TrajectoryMath.ComputeStats(rec, KerbinLookup);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, KerbinLookup);
 
             // |(30, 40, 0)| = 50 m. Read as degrees the range was thousands of km.
             Assert.Equal(50.0, stats.distanceTravelled, 9);
@@ -347,7 +347,7 @@ namespace Parsek.Tests
             rec.TrackSections.Add(rel);
             rec.TrackSections.Add(abs);
 
-            var stats = TrajectoryMath.ComputeStats(rec, KerbinLookup);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, KerbinLookup);
 
             // Relative step: |(68.3, -530.0, 24.5)| ~ 535 m; Absolute step: 50 m altitude.
             Assert.InRange(stats.distanceTravelled, 580.0, 590.0);
@@ -386,7 +386,7 @@ namespace Parsek.Tests
             Assert.True(seg.semiMajorAxis * (1.0 - seg.eccentricity) < KerbinRadius,
                 "the fixture's impact segment no longer dips below the surface");
 
-            var stats = TrajectoryMath.ComputeStats(rec, KerbinLookup);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, KerbinLookup);
 
             Assert.InRange(stats.maxSpeed, 250.0, 400.0);
             Assert.InRange(stats.distanceTravelled, 1000.0, 3000.0);
@@ -407,7 +407,7 @@ namespace Parsek.Tests
             Assert.Equal(ReferenceFrame.Relative, rec.TrackSections[0].referenceFrame);
             Assert.Equal(ReferenceFrame.Absolute, rec.TrackSections[1].referenceFrame);
 
-            var stats = TrajectoryMath.ComputeStats(rec, KerbinLookup);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, KerbinLookup);
 
             Assert.InRange(stats.distanceTravelled, 500.0, 3000.0);
             Assert.InRange(stats.maxSpeed, 250.0, 300.0);

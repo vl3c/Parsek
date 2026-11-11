@@ -10,8 +10,8 @@ namespace Parsek.InGameTests
     ///
     /// xUnit twins under `RecordingOptimizerTests` cover the predicate exhaustively in
     /// isolation. This in-game variant runs the real-flight chain shape through the
-    /// production `RecordingStore.RunOptimizationPass()` path inside KSP — so that
-    /// future refactors of `RecordingOptimizer`, `RecordingStore.RunOptimizationSplitPass`,
+    /// production `CommittedListOptimizer.RunOptimizationPass()` path inside KSP — so that
+    /// future refactors of `RecordingOptimizer`, `CommittedListOptimizer.RunOptimizationSplitPass`,
     /// or any wiring between them must keep producing per-phase chain segments for the
     /// canonical ascent + reentry shape that the feature exists to serve.
     ///
@@ -38,7 +38,7 @@ namespace Parsek.InGameTests
     /// guard in <c>RecordingStore.ResetForTesting()</c> hard-fails any future regression
     /// of this pattern.</para>
     ///
-    /// <para><b>Live-data skip.</b> <see cref="RecordingStore.RunOptimizationPass"/>
+    /// <para><b>Live-data skip.</b> <see cref="CommittedListOptimizer.RunOptimizationPass"/>
     /// walks the GLOBAL <c>committedRecordings</c> list — every player recording plus the
     /// synthetic one this fixture injects. The split / merge / boring-tail-trim passes
     /// mutate <c>Recording</c> instances in place (<c>ChainId</c>,
@@ -134,7 +134,7 @@ namespace Parsek.InGameTests
                 RecordingStore.AddRecordingWithTreeForTesting(rec);
 
                 int initialCount = RecordingStore.CommittedRecordings.Count;
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
                 int finalCount = RecordingStore.CommittedRecordings.Count;
 
                 // Compute synthetic-id delta IMMEDIATELY after the optimizer pass so a
@@ -228,7 +228,7 @@ namespace Parsek.InGameTests
 
                 RecordingStore.AddRecordingWithTreeForTesting(rec);
                 int initialCount = RecordingStore.CommittedRecordings.Count;
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
                 int finalCount = RecordingStore.CommittedRecordings.Count;
 
                 // Compute synthetic-id delta IMMEDIATELY after the optimizer pass so a
@@ -275,7 +275,7 @@ namespace Parsek.InGameTests
         /// payload. The flush persists a one-frame SurfaceStationary boundary section flagged
         /// <c>isBoundarySeam</c> and logs `Persisted no-payload on-rails boundary section:
         /// ... (seam=1)`. The recording is then committed and the production
-        /// <c>RecordingStore.RunOptimizationPass</c> runs over it: the Atmospheric -> Surface
+        /// <c>CommittedListOptimizer.RunOptimizationPass</c> runs over it: the Atmospheric -> Surface
         /// boundary would split at step 5 (Surface short-circuit), but step 1 skips it, so
         /// the pass logs `Split summary: ... seamSkipped=1` and adds no segment.
         /// The witness line prints only after every assertion held. The loaded state and
@@ -357,7 +357,7 @@ namespace Parsek.InGameTests
 
                 RecordingStore.AddRecordingWithTreeForTesting(rec);
                 int initialCount = RecordingStore.CommittedRecordings.Count;
-                RecordingStore.RunOptimizationPass();
+                CommittedListOptimizer.RunOptimizationPass();
                 int finalCount = RecordingStore.CommittedRecordings.Count;
 
                 // Computed IMMEDIATELY after the pass so a failed assertion below still

@@ -65,7 +65,7 @@ namespace Parsek.Tests
             var rec = MakeFutureRecording();
             RewindContext.BeginRewind(0, default(BudgetSummary), 0, 0, 0);
             string reason;
-            Assert.False(RecordingStore.CanFastForward(rec, out reason, isRecording: false));
+            Assert.False(RewindLauncher.CanFastForward(rec, out reason, isRecording: false));
             Assert.Equal("Rewind already in progress", reason);
             // Bug #117: blocked-path VERBOSE logs removed (per-frame UI spam).
             // Reason is conveyed via the out parameter, not log output.
@@ -77,7 +77,7 @@ namespace Parsek.Tests
         public void CanFastForward_NullRecording_ReturnsFalse()
         {
             string reason;
-            Assert.False(RecordingStore.CanFastForward(null, out reason, isRecording: false));
+            Assert.False(RewindLauncher.CanFastForward(null, out reason, isRecording: false));
             Assert.Equal("Recording not available", reason);
         }
 
@@ -86,7 +86,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording { VesselName = "Empty" };
             string reason;
-            Assert.False(RecordingStore.CanFastForward(rec, out reason, isRecording: false));
+            Assert.False(RewindLauncher.CanFastForward(rec, out reason, isRecording: false));
             Assert.Equal("Recording not available", reason);
         }
 
@@ -98,7 +98,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 150.0 });
 
             string reason;
-            Assert.False(RecordingStore.CanFastForwardAtUT(rec, 100.0, out reason, isRecording: false));
+            Assert.False(RewindLauncher.CanFastForwardAtUT(rec, 100.0, out reason, isRecording: false));
             Assert.Equal("Recording is not in the future", reason);
         }
 
@@ -110,7 +110,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 150.0 });
 
             string reason;
-            Assert.False(RecordingStore.CanFastForwardAtUT(rec, 500.0, out reason, isRecording: false));
+            Assert.False(RewindLauncher.CanFastForwardAtUT(rec, 500.0, out reason, isRecording: false));
             Assert.Equal("Recording is not in the future", reason);
         }
 
@@ -122,7 +122,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 150.0 });
 
             string reason;
-            Assert.True(RecordingStore.CanFastForwardAtUT(rec, 50.0, out reason, isRecording: false));
+            Assert.True(RewindLauncher.CanFastForwardAtUT(rec, 50.0, out reason, isRecording: false));
             Assert.Equal(string.Empty, reason);
         }
 
@@ -131,7 +131,7 @@ namespace Parsek.Tests
         {
             var rec = MakeFutureRecording();
             string reason;
-            Assert.False(RecordingStore.CanFastForward(rec, out reason, isRecording: true));
+            Assert.False(RewindLauncher.CanFastForward(rec, out reason, isRecording: true));
             Assert.Equal("Stop recording before fast-forwarding", reason);
         }
 
@@ -139,11 +139,11 @@ namespace Parsek.Tests
         public void CanFastForward_HasPendingTree_ReturnsFalse()
         {
             var rec = MakeFutureRecording();
-            RecordingStore.StashPendingTree(new RecordingTree());
-            Assert.True(RecordingStore.HasPendingTree);
+            PendingTreeSlot.StashPendingTree(new RecordingTree());
+            Assert.True(PendingTreeSlot.HasPendingTree);
 
             string reason;
-            Assert.False(RecordingStore.CanFastForward(rec, out reason, isRecording: false));
+            Assert.False(RewindLauncher.CanFastForward(rec, out reason, isRecording: false));
             Assert.Equal("Merge or discard pending tree first", reason);
         }
 
@@ -157,13 +157,13 @@ namespace Parsek.Tests
             var rec = MakeFutureRecording();
             Assert.Null(rec.RewindSaveFileName);
             Assert.False(RewindContext.IsRewinding);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             // If we get past all testable guards, the next call would be
             // Planetarium.GetUniversalTime() which throws in unit tests.
             // The fact that it throws (not returns false) proves all prior guards passed.
             string reason;
             Assert.Throws<System.NullReferenceException>(() =>
-                RecordingStore.CanFastForward(rec, out reason, isRecording: false));
+                RewindLauncher.CanFastForward(rec, out reason, isRecording: false));
         }
     }
 }

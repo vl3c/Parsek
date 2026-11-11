@@ -65,7 +65,7 @@ namespace Parsek.Tests
 
             // Deserialize into a Recording and verify
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(trajNode, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(trajNode, rec);
 
             Assert.Single(rec.TrackSections);
             var section = rec.TrackSections[0];
@@ -91,7 +91,7 @@ namespace Parsek.Tests
 
             var trajNode = builder.BuildTrajectoryNode();
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(trajNode, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(trajNode, rec);
 
             Assert.Single(rec.TrackSections);
             Assert.Equal(TrackSectionSource.Background, rec.TrackSections[0].source);
@@ -113,7 +113,7 @@ namespace Parsek.Tests
 
             var trajNode = builder.BuildTrajectoryNode();
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(trajNode, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(trajNode, rec);
 
             Assert.Equal(3, rec.TrackSections.Count);
             Assert.Equal(SegmentEnvironment.SurfaceStationary, rec.TrackSections[0].environment);
@@ -155,7 +155,7 @@ namespace Parsek.Tests
 
             var trajNode = builder.BuildTrajectoryNode();
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(trajNode, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(trajNode, rec);
 
             Assert.Single(rec.TrackSections);
             Assert.Equal(SegmentEnvironment.Atmospheric, rec.TrackSections[0].environment);
@@ -209,7 +209,7 @@ namespace Parsek.Tests
 
             var trajNode = builder.BuildTrajectoryNode();
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(trajNode, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(trajNode, rec);
 
             Assert.Single(rec.TrackSections);
             var section = rec.TrackSections[0];
@@ -235,7 +235,7 @@ namespace Parsek.Tests
 
             var trajNode = builder.BuildTrajectoryNode();
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(trajNode, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(trajNode, rec);
 
             Assert.Equal(3, rec.SegmentEvents.Count);
 
@@ -286,7 +286,7 @@ namespace Parsek.Tests
 
             var trajNode = builder.BuildTrajectoryNode();
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(trajNode, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(trajNode, rec);
 
             Assert.Single(rec.SegmentEvents);
             Assert.Equal(SegmentEventType.PartDestroyed, rec.SegmentEvents[0].type);
@@ -590,7 +590,7 @@ namespace Parsek.Tests
 
             // Deserialize
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(trajNode, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(trajNode, rec);
 
             // Legacy points
             Assert.Equal(2, rec.Points.Count);

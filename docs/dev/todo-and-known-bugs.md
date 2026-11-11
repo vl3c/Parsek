@@ -20,6 +20,117 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~POSITIONER-BODY-LOOKUP-AND-SEGMENT-INDEX-PER-FRAME-COST: every ghost allocates closures for its body lookups, and orbit ghosts box their segment list, every frame~~ [FILED 2026-11-10 from the read of the positioner InterpolateAndPosition core (refactor branch `claude/project-thread-bkwmrr` at e29de7161), by reading the source and IL. FIXED 2026-11-10, branch `refactor-w0-bodylookup`; xUnit + il_compare; performance, low]
+
+**What is true.** `ParsekFlightGhostPositioner` looked every body up with
+`FlightGlobals.Bodies.Find(b => b.name == x)` (27 sites, plus 4 `b != null && b.bodyName == x`
+sites and the tail-lift terminal lookup). Each lambda captures a local or a parameter, so the
+compiler hoists it into a display class allocated when its scope starts (26 `newobj
+<>c__DisplayClass` in 25 methods), including the point-interpolation core that runs per frame
+for every ghost. Separately, the orbit-segment path of `InterpolateAndPosition` called
+`segments.IndexOf(seg.Value)` every frame for its orbit cache key; `OrbitSegment` has no
+`Equals`, so the default comparer boxes each element it compares and compares fields by
+reflection.
+
+**Fix.** Each lookup goes through `ParsekFlightGhostPositioner.FindFirstMatching<T>(IList<T>, name,
+matcher)`, a `List.Find` loop over a static, non-capturing matcher that keeps the replaced
+lambda's predicate with the name passed as an argument (`FindBodyByName` / `FindBodyByNameOrNull`
+/ `FindLiveBodyByBodyNameOrNull` keep the `.Find` versus `?.Find` null-list behavior). The orbit
+path takes the index from `TrajectoryMath.FindOrbitSegmentIndex` (which `FindOrbitSegment` now
+reads) and `TrajectoryMath.ResolveOrbitSegmentIndexOfFound`, which returns the found index except
+at the one point where `IndexOf` can differ: the last segment repeats an earlier one field for
+field and the UT is its endUT. That point still calls `IndexOf`, so the cache key is unchanged.
+
+**Fixed.** il_compare shows no display-class `newobj` left in the positioner (26 before) and no
+`IndexOf` on the per-frame path; the box-opcode count of every changed method is unchanged
+(all inside the once-per-key log interpolations). `PositionerNoAllocLookupTests` pins the lookup
+against `List.Find` for every matcher, name and null-entry layout, and the segment index against
+`IndexOf` over 400 random lists with repeated segments.
+
+## ~~B13-LANDER-NEVER-STATIONARY: the B13 Mun lander records Approach -> SurfaceMobile and never reaches SurfaceStationary~~ [SUPERSEDED 2026-11-10 by the fixed main entry of the same id below (#2535, merged from main). FILED 2026-11-08 from the wave-2 overnight flights (refactor branch `claude/project-thread-bkwmrr` at f28324df0, DLL sha256 bde5f2b3...), runs `2026-11-08_0139_B13-mun-landing` and re-fly `2026-11-08_0422`, both PARSEK-FAIL(expectations). OPEN; not yet placed (refactor or pre-existing), medium]
+
+**What is true.** Both flights were MISSION-OK and every verifier but expectations was PASS or
+REPORT. The one failing row is the required log contract
+`Environment transition: \w+ -> SurfaceStationary at UT=`. In both flights the lander logs
+`Approach -> SurfaceMobile` at about UT=23020-23024 and never a later `-> SurfaceStationary`.
+`EnvironmentDetector.Classify` reads a landed vessel as SurfaceMobile while `srfSpeed > 0.1`,
+so the recorder saw the lander above 0.1 m/s from touchdown to the commit. The mission's own
+LANDED-SETTLE gate uses its own speed thresholds, so it can pass while the recorder still reads
+Mobile. B13 last passed with `SurfaceStationary` on the 2026-11-06 full run on main.
+
+**Not the refactor, by code reading.** No wave-2 PR between the pre-wave tip 088feb067 and
+f28324df0 changed `EnvironmentDetector.cs`, the environment hysteresis or the recorder's
+classification call (`git diff --stat 088feb067 f28324df0`); every wave-2 change there is a MOVE or
+an EXTRACT with an il_compare proof. The wave-1 refactor and the main commits between 04acf05
+and 22d28a470 are not yet ruled out.
+
+**Next.** Read the two red KSP.logs (automation/results-archive/ on the PC) for the lander's
+srfSpeed after touchdown and its landing site, against the 2026-11-06 PASS run. Then re-fly B13
+once on main and once on 088feb067 in the next PC turn: red on both means a pre-existing
+landing-site or settle-gate problem (harness); green on main and red on the refactor bisects to
+the refactor.
+
+## ~~HC-2-CREW-REPORT-BIOME-EDGE: HC-2 reds when the pad science reads the Shores biome~~ [FILED 2026-11-10 from the wave-2b overnight flights (refactor branch `claude/project-thread-bkwmrr` at bad9258e7), run `2026-11-10_0016_HC-2-hard-career-earn-spend` PARSEK-FAIL(expectations); 174 of 175 lanes green. FIXED 2026-11-10, branch `refactor-hc2-biome` (spec only, not re-flown); harness (spec), low; the product end state is right]
+
+**What is true.** The launch pad sits on the Kerbin LaunchPad / Shores biome edge. In the red
+flight the crew report was captured as `crewReport@KerbinSrfLandedShores` instead of
+`...LaunchPad`, with the same amount, increment, total and gain multiplier. Every other required
+token in the run matched, including the final funds, science and reputation pools, so the ledger
+end state is exactly the one the spec predicts.
+
+**Fixed.** `harness/scenarios/HC-2-hard-career-earn-spend.toml` now accepts
+`KerbinSrfLanded(?:LaunchPad|Shores)` for both pad captures (crew report and goo), and still
+pins every value. Any other biome stays red. One re-fly confirms.
+
+## ~~FLG-1-SAME-FRAME-PLANT-AND-PICKUP: FLG-1 reds when the replayed plant and pick-up land in one frame~~ [FILED 2026-11-08 from the wave-2 overnight flights (refactor branch at f28324df0), run `2026-11-08_0248_FLG-1-pickup-rewind` PARSEK-FAIL(expectations); the re-fly `2026-11-08_0442` PASSED. FIXED 2026-11-10, branch `refactor-flg1-spec` (spec only, offline-proven, not re-flown); harness (spec), low; the product end state is right]
+
+**What is true.** The recorded plant is at ut=33.84 and the pick-up at ut=33.90, 0.06 s apart.
+`GhostPlaybackLogic.ApplyFlagEvents` applies recorded pick-ups BEFORE plants by design (its
+comment: a walk past both must not plant a flag only to take it down again). In the red flight
+one replay frame passed both UTs: the pick-up tombstoned the spot and took down 0 flags, then
+the plant was skipped with `Flag replay skipped ... removed by the player at ut=33.90`. No flag
+stood afterwards, which is the ruled end state (owner ruling 2026-11-04). In the green flight the
+frames split the two UTs, so the plant spawned and the pick-up took down 1 flag.
+
+**Fix (spec).** FLG-1 requires the plant-then-take-down chain and forbids every
+`Flag replay skipped` line, so it depends on frame timing. Accept either chain: the existing one,
+or a pick-up line naming the same flag followed by a skip whose `removed ... at ut=` equals the
+recorded pick-up UT, and keep forbidding a skip with an earlier removal UT and any second
+`Spawned flag vessel` after the take-down. A cheaper alternative is to space the plant and the
+pick-up further apart in the lane's act (a dwell of a few seconds before `PickUpFlag`).
+
+**Fixed.** `harness/scenarios/FLG-1-pickup-rewind.toml` now accepts either chain after the
+rewind mark: `Spawned flag vessel` then `took down 1 standing flag(s)`, or a replayed pick-up
+that `took down 0` followed by `Flag replay skipped: '<same flag>' ... at ut=<the pick-up's ut>`
+(regex back-references; both lines print the one double with "R", so equality is byte-equal).
+Three forbidden patterns replace the old one: a skip before any replayed pick-up (the live
+tombstone survived the rewind), a skip after one that names another flag, body or UT, and a
+replayed plant followed by `took down 0` (the take-down missed the flag, which stays standing).
+A plant after the take-down stays forbidden. Proof: 18 synthetic logs through
+`hlib.evaluate_expectations` (both chains green, every other shape red); one re-fly confirms.
+
+## ~~UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME: every loop-unit member allocates a closure object every frame~~ [FILED 2026-11-08 from the UpdateUnitMemberPlayback extraction (refactor branch `claude/project-thread-bkwmrr`, branch `refactor-w9a-unit-member`), by reading the IL. FIXED 2026-11-08, branch `refactor-w9a-handoff-closure`; xUnit + il_compare; performance, low]
+
+**What is true.** The descent-handoff log in `GhostPlaybackEngine.UpdateUnitMemberPlayback`
+passes a `() => ...` message lambda to `ParsekLog.VerboseRateLimited`, and that lambda captures
+the parameter `i` and the local `unitCycle`. The compiler hoists both into a display class that
+it allocates at method entry (`IL_0000: newobj <>c__DisplayClass_0::.ctor`), so every call
+allocates one object, for every unit member on every frame, even though the lambda runs only
+for a rendering non-descent member of a unit that has a descent trigger. The extraction kept
+the block inline so the allocation is unchanged.
+
+**Fix.** Move the descent-handoff block (from `bool hiddenForDescentHandoff = false;` through
+its closing brace) into its own method, called only under the existing gate, so the display
+class is allocated only when the lambda can run. The `UnitMember_DescentTrigger_HandoffAndLoiter`
+golden in `UnitMemberPlaybackCharacterizationTests` pins the block's output.
+
+**Fixed.** The block is now `GhostPlaybackEngine.ApplyDescentHandoffHide`, called only under the
+existing `!descentMember && decision == Render && unit.HasDescentTrigger` gate, with the log text,
+rate-limit key and order unchanged. `UpdateUnitMemberPlayback` no longer opens with the display
+class `newobj` (il_compare); the closure is allocated only inside the new method.
+`DescentHandoffHide_HidesTheTransferMemberWhileTheDescentPlays_AndPinsItsLogLine` pins both log
+lines and the key.
+
 ## ~~B13-LANDER-NEVER-STATIONARY: B13 reds because the lander is still sliding when the tree commits~~ [FILED 2026-11-10 from the 1.0.1 and refactor-branch B13 reds. FIXED 2026-11-10 (owner picked "accept landed and sliding"); harness only, no Parsek defect]
 
 - Symptom: `B13-mun-landing` MISSION-OK but PARSEK-FAIL(expectations) on `\w+ -> SurfaceStationary` (run `2026-11-09_2132`). The untargeted landing put the lander on a slope where it crept at 0.55-0.65 m/s horizontal for the whole LANDED-SETTLE window, so Parsek's `Approach -> SurfaceMobile` (srfSpeed > 0.1 m/s) was the correct reading; the 3 s Mobile/Stationary debounce never saw a still lander. Before #2391 shortened the park dwell the lander usually settled first, so the old token was a coin flip on the landing site.
@@ -41,6 +152,107 @@ When referencing prior item numbers from source comments or plans, consult the r
 - RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: lane owed, a formation flight through an SOI edge with a background wingman.
 - VB-1-KSP-HANG-AT-MAIN-MENU: a hang after the MAINMENU line is still caught only by the long timeout.
 - FAST-POLL-SETTLES-STILL-RACE: CI-6 still waits on a timer; a named-condition wait would replace it.
+
+## REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT: a replace commit can mark a surviving replacement destroyed and keep a stale situation [FILED 2026-11-07 from the review of the TreeCommitService unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2452), by code reading. OPEN; not reproduced in play, low]
+
+**What is true.**
+- `TreeCommitService.PreserveFinalStateDiagnosticsOnReplace` (the last cluster of
+  `PreserveLiveRuntimeFieldsOnReplace`) copies each field from the committed recording onto its
+  replacement when the replacement holds the default. `VesselDestroyed` defaults to false, so a
+  destroyed committed recording always hands `VesselDestroyed = true` to its replacement, even
+  when the replacement flew on and survived.
+- The guard on `SceneExitSituation` reads `!incoming.VesselDestroyed` BEFORE that copy and the
+  guard on `VesselSituation` reads it AFTER, so with existing `VesselDestroyed=true,
+  SceneExitSituation=2` and a default replacement the result is `VesselDestroyed=true`,
+  `SceneExitSituation=2`, `VesselSituation=null`: destroyed, with a live situation code.
+- `MarkDestroyedAtTerminal` clears both situation fields on the destroyed side, so the mixed
+  result needs a destroyed recording that still carries a situation code. Whether a Re-Fly
+  replace can hand a destroyed committed copy to a surviving replacement is not established.
+
+**Fix.** Decide whether `VesselDestroyed` should copy at all onto a replacement whose own
+terminal is not Destroyed (the spawn claim already refuses a vesselless terminal the same way),
+and read the destroyed state once before the cluster so both situation guards agree. The unit
+tests in `TreeCommitServiceUnitTests` cover each field alone and do not pin the mixed case.
+
+## TREE-START-UT-EMPTY-RECORDING-READS-ZERO: one empty recording pulls a continuation tree's start to UT 0 [FILED 2026-11-07 from the same review, by code reading. OPEN; not reproduced in play, low]
+
+**What is true.** `TreeCommitService.GetTreeStartUT` takes the minimum `Recording.StartUT` over
+the tree, and `StartUT` reads 0.0 for a recording with no trajectory and no explicit start. One
+such recording makes the tree start at 0, so the contiguity half of
+`ShouldMarkSupersededTerminalSpawn` (`continuationTreeStartUT > prior.EndUT + 1e-3`) never
+rejects and only the same-launch / same-name test and the prior-end-before-continuation-start
+test stand between an unrelated later tree and a terminal spawn supersede mark.
+
+**Fix.** Skip recordings without trajectory bounds or an explicit start in `GetTreeStartUT`
+(NaN when none is left), with a unit test beside the existing `GetTreeStartUT_*` cells.
+
+## TRACE-SEP-DEBRIS-ROW-MISREPORTS: the PositionDebris trace row can blame playback math or the recorder for a diagnostic artifact [FILED 2026-11-07 from the review of the ghost positioner unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2457), by code reading. OPEN; trace-only (`ghostRenderTracing`), low]
+
+**What is true.** `ParsekFlightGhostPositioner.TraceDebrisBodyFixedPrimaryPlayback` (the Trace-Sep
+`PositionDebris` row, moved verbatim out of `TryPositionFromBodyFixedPrimary`):
+- `predictedWorld` stays `Vector3d.zero` when the bracket is one-sided (playback past the last
+  body-fixed frame) or the body does not resolve, so `predictedVsActual` / `|predDelta|` log the
+  ghost's whole world position, which the row's own triage rule reads as a playback-math defect.
+- `recordedBodyFixedDist` subtracts the parent's last body-fixed sample at or before the playback
+  UT from the debris bracket's before-frame without matching their UTs (a 0.9 s skew at orbital
+  speed is about 1.8 km), resolves the parent sample on the debris sample's body, and
+  `FindLastBodyFixedFrameAtOrBefore` takes the qualifying sample of the LAST section in list order
+  rather than the latest by UT.
+
+**Fix.** Log `predictedWorld` / `predDelta` as unresolved when no two-sided bracket resolved, and
+compute the parent sample at the debris before-frame's UT on the parent's own body (or log the
+two UTs side by side). Flight behaviour is unaffected; only the trace row is misleading.
+
+## SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE: the scoped switch-segment Discard leaves three things the committed-tree prune repairs [FILED 2026-11-07 from the review of the discard-service unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2454), by code reading. OPEN; not reproduced in play, low]
+
+**What is true.** `SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt` (pending-tree-prune
+disposition) removes the segment subtree from the tree it lives in, but unlike
+`TreeDiscardService.PruneTaggedRecordingsFromTree` it:
+- never calls `RecordingTree.RebuildBackgroundMap`, so `BackgroundMap` / `RecordedVesselPids` can
+  keep a pid of a removed background-recorded child until something else rebuilds them;
+- repairs a stale `ActiveRecordingId` (to the session parent or null) but never a stale
+  `RootRecordingId`;
+- with a null `PreSessionBranchPointIds` baseline (unknown, treated as "authored nothing") keeps
+  the session's branch points after their child lists were scrubbed empty, and the parent's
+  `ChildBranchPointId` still names them (the committed prune drops a branch point with an empty
+  side).
+
+None is known to reach a player: the pending tree is usually committed or dropped next, and the
+background map is rebuilt on load. The unit tests in `DiscardServicesUnitTests` cover the
+helpers as they are and pin none of the three.
+
+**Fix.** After the removal, rebuild the background map, reset a stale root the way the active id
+is reset, and drop branch points left with an empty side (reuse
+`TreeDiscardService.ScrubBranchPointEndpointsAndDropEmpty` + `ClearRecordingBranchPointRefs`,
+keeping the switch-segment restore of an overwritten continuing link). Each needs a unit cell.
+
+## ~~LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED: two loop-seam trace dictionaries in ParsekFlight are keyed by committed index and never shift~~ [FILED 2026-11-07 from the ParsekFlight seam inventory (`plan-parsekflight-seams-2026-11-07.md`, refactor branch `claude/project-thread-bkwmrr` at f3400b90a), by code reading. FIXED 2026-11-07, branch `refactor-loopseam-index-shift` (base `claude/project-thread-bkwmrr`); xUnit; diagnostics only, low]
+
+**What is true.**
+- `ParsekFlight.reaimLastGhostFrame` and `ParsekFlight.loopSeamLastGhostFrame` are
+  `Dictionary<int, ...>` keyed by the loop member's committed-list index (written by the
+  re-aim seam trace and `TrackLoopSeamTeleport`, read on the next frame to log a seam jump).
+- `OnCommittedRecordingRemoved` / `OnCommittedRecordingInserted` shift or clear every other
+  index-keyed slot (engine, held ghosts, map presence, watch mode, orbit caches, the two
+  `loggedOrbit*` sets) but neither of these, and nothing clears them at a scene change other
+  than the MonoBehaviour going away.
+- Effect: after a mid-list insert or removal, a member's first seam check compares against the
+  previous frame of the recording that used to hold its index, so a `ReaimSeam` /
+  loop-seam teleport line can report a jump that never happened (or miss one). Both are gated
+  diagnostics (`ghostRenderTracing` for the loop-seam instrument, Verbose for `ReaimSeam`);
+  nothing a player sees and no positioning reads them.
+
+**Fix.** The dictionaries now live on `ParsekFlightGhostPositioner` and shift with the list
+instead of being cleared: `ShiftLoopSeamTracesAfterDelete` / `ShiftLoopSeamTracesAfterInsert`
+run both through `IndexShift.DictAfterDelete` / `DictAfterInsert` (delete drops the removed index
+and moves higher keys down; insert moves keys at or above the index up and leaves the slot
+empty), and log one Verbose `[Flight] Loop-seam traces reindexed after delete|insert at #N:` line
+with per-dictionary shifted / dropped / count values. `ParsekFlight.OnCommittedRecordingRemoved` /
+`OnCommittedRecordingInserted` call them right after `Positioner.ClearOrbitPlaybackCaches()`; no
+service subscribes to the seam. Tests: `LoopSeamTraceIndexShiftTests` (delete, insert, log line,
+empty no-op) and the call order pinned in
+`CommittedListNotificationTests.FlightHandlers_StayOnParsekFlight_InOrder_AndNoServiceListensOrWrites`.
+Not flown; the loop lanes that exercise the traces are listed in the PR.
 
 ## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
 
@@ -994,6 +1206,38 @@ missing capture row is not something load code should synthesize.
 **2026-11-01:** the 7-type knot no longer exists on its own: once the 50 unplaced root files
 were placed, it merged into the kernel knot (584). The fix direction below is unchanged.
 
+**2026-11-07 (refactor wave 2, stream W3; measured on the refactor branch at 67d28c248):**
+- A modules.toml rule cannot put the reservation vocabulary in a module below both
+  GameActions and UI, because every candidate file also declares a type that reaches up.
+  `ReservationExplanation.cs`: `ReservationExplanation` reads `CommittedFutureIndex`,
+  `ClickReservation`, `StockPool` (GameActions), `KerbalsWindowUI.FormatRowDate` (UI) and
+  `TimelineEntry` (Timeline). `StockUiDecorationQuery.cs`: the query, the predicates and
+  `AstronautComplexContext` read the index and its cache, `ContractSlotReservation`,
+  `FacilityRepairCapture`, `KerbalsModule` (Crew) and `StandInSeatCount` (Patches).
+  `StockUiLiveSnapshot.cs`: the snapshot reads `StockUiOverlayController` and `KerbalHirePatch`,
+  and `StockUiText` reads `StockUiRnDDecoration.ReasonColorHex`. `CommittedFutureIndex.cs`
+  reads the ledger engine, and its cache reads `LedgerOrchestrator`, `EffectiveState` and
+  `MissionStore`. A scratch rule placing the first three files (and then all four) in a new
+  module cuts GameActions -> UI from 23 to 13, but the new module is in a cycle with both
+  (-> GameActions 18, -> UI 4, plus Crew, Patches, Rewind, Timeline), so no rule was landed.
+  Module rules move no types: knots [477, 4, 3] and replayed residue 283 either way.
+- The pure leaves (`ReservationText`, `KerbalHold`, `StockUiScreen`, `StockUiDecorationKind`,
+  `StockUiItem`, `StockUiDecoration`, `StockUiReserveButtons`; `CommittedFutureKind`,
+  `CommittedFutureEntry`, `CommittedKerbalAssignment`) share their files with those types, so
+  placing them needs a file split first, as its own MOVE PR.
+- Sinks: 18 stock-screen types (the overlay controller, the RnD / facility / astronaut
+  decorations, the query, the live snapshot, `StockUiText`, the hire / dismissal / tech /
+  facility-menu patches, the Mission Control annotation) are in the ratchet residue only
+  through `StockUiText -> StockUiRnDDecoration` (the `ReasonColorHex` const) and
+  `StockUiPartPurchase -> StockUiRnDDecoration` (`AppendReason`). Moving that const and
+  `AppendReason` onto `StockUiText` (simulated on a scratch copy) gives knots [459, 9, 4, 3],
+  replayed residue 283 -> 265 and greedy residue 290 -> 238. As an extra cut,
+  `StrategyReservationPredicates` is worth 283 -> 282 only.
+- Done (W3b, MOVE, 2026-11-07): `ReasonColorHex` and `AppendReason` now live on `StockUiText`.
+  Measured after W1a / W1b / W1c (base bound 246, greedy 201, knot 450): knots
+  [432, 9, 4, 3, 2], greedy residue 179 (the greedy sequence now cuts `ParsekUI` at step 10).
+  The ratchet order is re-pinned to that sequence and the bound tightened to 179.
+
 **Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
 explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
 `LedgerOrchestrator` references the index cache and the strategy state patcher back (cache
@@ -1103,23 +1347,26 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
 - Atlas findings and opportunities re-read (`atlas.toml`, `reviewed = "2026-11-01"`). The
   regenerated page is published at https://claude.ai/artifact/6uSBEKzHEtBHaK5t7bFxjm; the
   link above keeps the 2026-09-22 page. Without graphviz `dot` on PATH the page has no map.
-- On the refactor branch claude/project-thread-bkwmrr only (not on main, they change
-  compiled code): `Recording` is plain data again (knot 584 -> 535; `GhostVisible` reads an
-  installed `Recording.GhostHiddenRule`, `DeepClone` copies the sidecar hashes inline), and
-  `GameAction`'s two real knot calls moved out (the `cseq` key and parse to a leaf
-  `CaptureSequenceCodec`, the per-load tallies from `Ledger` to a nested
-  `GameAction.LoadTally`). The golden `GAME_ACTION` codec test that pins the bytes
-  (`SaveRoundTrip/GameActionCodecGoldenTests.cs`) tests main's codec and is on main too.
+- On this branch (the refactor branch claude/project-thread-bkwmrr, which never merges to
+  main; this code is not on main): `Recording` is plain data again (knot 584 -> 535 on
+  2026-11-01; `GhostVisible` reads an installed `Recording.GhostHiddenRule`, `DeepClone`
+  copies the sidecar hashes inline), and `GameAction`'s real `CaptureSequence` call goes
+  through the leaf `CaptureSequenceCodec` (the `cseq` key and parse). The slice once also
+  moved the per-load legacy-id and deadline tallies from `Ledger` to a nested
+  `GameAction.LoadTally`; main's save-format freeze (#2380) deleted those migrations and
+  `GameAction`'s `Ledger` call, so that half no longer exists. The golden `GAME_ACTION` codec
+  test that pins the bytes (`SaveRoundTrip/GameActionCodecGoldenTests.cs`) is on main too.
 - The scanner now skips member names (ARCH-TOOLING-ROSLYN-AND-CI). The member rule leaves
   object-initializer lines and a property named like its own type (`Treatment Treatment
   { get; }`) as references (review fix). The new 3-type knot is the stock-UI grey trio
-  `ButtonEntry` / `GreyLedger` / `StockUiGreyedButton`. On main's production code the knots
-  are 542, 4 and 3, and the first greedy cuts are `Recording` (542 -> 494: `LaunchSiteOnlyGhost`,
-  `SidecarVersions`) and `GameAction` (455: `CaptureSequence`, `Ledger`); the cut residue is
-  301. On the refactor branch, with both re-cut, the knots were 454, 4 and 3, the first cuts
-  `Route` then `RecordingStore`, the residue 273. `GameAction`'s remaining knot edges there
-  (`CaptureSequence`, `ConversionCause`, `FundsEarningSource`, `ReputationSource`) were
-  scanner false positives: same-named fields, and the enum member `Milestone` read as a type.
+  `ButtonEntry` / `GreyLedger` / `StockUiGreyedButton`. On main's production code (1.0.0,
+  7eb3770e0) the knots are 542, 4 and 3, and the first greedy cuts are `Recording` (542 -> 496:
+  `LaunchSiteOnlyGhost`, `SidecarVersions`) and `GameAction` (456: `CaptureSequence`); the cut
+  residue is 306. On this branch, with both re-cut, the knots are 457, 4 and 3, the first cuts
+  `Route` (457 -> 439) then `ParsekFlight` (424), the residue 282. `GameAction`'s remaining
+  knot edges here (`CaptureSequence`, `ConversionCause`, `FundsEarningSource`,
+  `ReputationSource`) are scanner false positives: same-named fields, and the enum member
+  `Milestone` read as a type.
 - `KspStatePatcher` (6,939 lines, one file) is now a partial class over 11 files (S3, pure
   move by `scripts/refactor/split_kspstatepatcher.py`, which checks the line multiset): the
   main `KspStatePatcher.cs` (330: `PatchAll`, `PatchPools`, the resets and EVERY static field,
@@ -1188,18 +1435,20 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   checks red as expected). A name-based scan still finds 85 untested `internal` logic methods
   in those classes (338 counting `private`), most of them Unity-coupled (particle systems,
   audio, transforms) or reachable only through private helpers.
-- On the refactor branch claude/project-thread-bkwmrr only (not on main, it changes
-  compiled code): the dead Re-Fly frame-offset chain is removed (no behavior or log-text
-  change). Its offset resolver always refuses (`display-alignment-removed`), so
-  `TryCanonicalizeReFlyRecordingPoint` / `TryCanonicalizeReFlyRecordingOrbitSegment` never change a point or a segment and every
-  caller ignored the result. The 15 point call sites go; the 8 orbit-segment call sites keep
-  the one line the old path could write (`... skipped: ... reason=orbital-velocity-non-finite`)
+- On this branch only (not on main, it changes compiled code): the dead Re-Fly frame-offset
+  chain is removed (no behavior or log-text change). Its offset resolver always refused
+  (`display-alignment-removed`), so `TryCanonicalizeReFlyRecordingPoint` /
+  `TryCanonicalizeReFlyRecordingOrbitSegment` never changed a point or a segment and every
+  caller ignored the result. The 15 point call sites go, and so do the two closing-sample
+  sites main's physics SOI split added later (`SplitSectionIfPhysicsBodyChanged`,
+  `SplitBackgroundSectionIfPhysicsBodyChanged`); the 8 orbit-segment call sites keep the one
+  line the old path could write (`... skipped: ... reason=orbital-velocity-non-finite`)
   through `FlightRecorder.LogReFlyOrbitSegmentVelocityNonFinite`. The two characterization
-  cases of the removed `TryApplyReFlyRecordingFrameOffsetToWorld` go with it there (on main
+  cases of the removed `TryApplyReFlyRecordingFrameOffsetToWorld` go with it here (on main
   all 148 stay).
-- On the refactor branch only: `BackgroundRecorder.ShouldRunBackgroundStateDriftCheck`'s
-  time-went-backwards branch `nextLastCheckUT = double.MinValue` is a dead store (the
-  fall-through always overwrites it with `currentUT`); removed there, behavior identical.
+- On this branch only: `BackgroundRecorder.ShouldRunBackgroundStateDriftCheck`'s
+  time-went-backwards branch `nextLastCheckUT = double.MinValue` was a dead store (the
+  fall-through always overwrites it with `currentUT`); removed here, behavior identical.
 - Source-gate tightening (test-only): `ReFlyAnchorBypassWiringTests`'s background
   no-bypass gate now scans `UpdateBackgroundAnchorDetection` from its declaration in
   `BackgroundRecorder.RelativeAnchors.cs` (it scanned from the call site in
@@ -1233,6 +1482,188 @@ re-flown (reading, armed, control) in the same PR, plus the xUnit digest pins
   single files by the scripts), the test-only changes and the architecture tooling; there the
   knots are 542, 4 and 3 and the cut-residue ratchet is 306 (301 before main's save-format
   freeze #2380 removed `GameAction`'s `Ledger` call; the first two cuts now leave 496 and 456).
+- Re-landed on this branch 2026-11-06: the branch was reset to main 7eb3770e0 (1.0.0, which
+  carries the release branch above) and its revert be69be1f3 was reverted, so the tree is main
+  plus the four compiled-code changes above (the `Recording` and `GameAction` re-cuts, the
+  Re-Fly chain removal, the drift-check dead store). Where main had since deleted the code a
+  slice touched (the ActionId and contract-deadline migrations, `GameAction.LoadTally`), main's
+  deletion stands. The IL differs from main's only in those slices' types. Arch map: knots 457,
+  4 and 3 (one more than main's 542 with the three references cut, because the
+  `RecordingStore` type initialiser that installs `Recording.GhostHiddenRule` keeps
+  `LaunchSiteOnlyGhost` inside), first cuts `Route` (439) and `ParsekFlight` (424), cut-residue
+  ratchet 306 -> 282.
+- Wave 2 W1a (2026-11-07, this branch): `VesselLaunchIdentity` is a sink. Its two store calls
+  (the vessel-name link-row test and the sidecar snapshot hydration) are rules
+  `VesselNameStore` and `RecordingSidecarStore` install from their own type initialisers and
+  from `RecordingStore`'s, next to `Recording.GhostHiddenRule`. Knot 477 -> 459 (plus a 2-type
+  knot `OrbitReseed` / `RecordedTailVelocityResolver`), replayed residue 283 -> 272.
+- Wave 2 W1b (2026-11-07, this branch): the hold decision record `ReFlyInvokeHold.Entry` is the
+  top-level plain type `ReFlyHoldEntry` (same file, same fields), so `RewindVesselHold.Hold`
+  no longer references the classifier. Knot 459 -> 450, replayed residue 272 -> 263.
+- Wave 2 W1c (2026-11-07, this branch): `MissionPeriodicity.ExtractConstraints` takes the
+  trimmed member windows as an input; `MissionLoopUnitBuilder.ExtractPeriodicityConstraints`
+  computes them and is what the builder, the Missions window and the in-game real-save finder
+  call. The periodicity solver no longer reaches up into the builder. Knot 450 (unchanged),
+  replayed residue 263 -> 246; the greedy cuts reorder (GhostPlaybackLogic first) and the
+  greedy residue drops to 201.
+- Wave 2 W8c on this branch (S3, pure move, IL identical): `Logistics/RouteOrchestrator.cs`
+  (5,521 lines, a static class) is a partial class over 7 files
+  (`scripts/refactor/split_routeorchestrator.py`; every field and constant stays in the main
+  file): `RouteOrchestrator.cs` 1,144 lines (operator API, tick, per-route dispatch, shared
+  helpers), `.LoopCrossings` 1,126, `.Debits` 1,090, `.Delivery` 895, `.Holds` 579,
+  `.LoopClock` 389, `.Escrow` 358. `KerbalsModule.cs` (5,120 lines) is a partial class over 7
+  files (`scripts/refactor/split_kerbalsmodule.py`; every field, property, constant and the
+  constructor stay in the main file, with the nested data types): `KerbalsModule.cs` 754,
+  `.Roster` 1,244, `.Walk` 946, `.CrewEndStates` 900, `.Handoffs` 505, `.Queries` 427,
+  `.HoldClock` 404. The ERS / ELS allowlist adds the partial that now holds each raw read
+  (`RouteOrchestrator.LoopClock.cs`, `KerbalsModule.Walk.cs`).
+- Wave 2 W5a (2026-11-07, this branch, docs and tooling only): the `GhostMapPresence`
+  static-state map, `docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md`
+  (62 fields: writers, outside writers and readers, reset paths, scenes), read from IL by the
+  new `scripts/refactor/static_state_map.py` so a same-named field of another type is never
+  counted. It also records why a separate source-resolver type would raise the replayed
+  residue 263 -> 264 unless its five knot calls are passed in.
+- Wave 2 W7a (2026-11-08, this branch, docs only): the `LedgerOrchestrator` static-state map,
+  `docs/dev/research/ledgerorchestrator-static-state-map-2026-11-08.md` (35 fields, 30
+  reassignable of which 12 are test seams; writers, outside readers, reset paths, hosts), from
+  the same IL tool. Nothing outside the type writes a field except the `OnTimelineDataChanged`
+  event, and nine of the 17 methods of 90 lines or more touch no `LedgerOrchestrator` static.
+- Wave 2 W5c (2026-11-08, this branch, extract-method): `GhostMapPresence.ResolveMapPresenceGhostSource`
+  (603 lines) is a sequence of phase helpers in the same partial file (input, materialized and
+  terminal gates; covering segment; OrbitalCheckpoint SOI gap; state vector; terminal-orbit
+  fallback; the decision emission), the longest 89 lines. Pinned before the split by a golden
+  capture of every decision exit (`MapPresenceSourceResolveCharacterizationTests`).
+- Wave 2 W8c, second PR (S3, pure move, IL identical): `UI/MissionsWindowUI.cs` (5,039 lines)
+  and `UI/LogisticsWindowUI.cs` (4,782) are partial classes over 8 files each
+  (`scripts/refactor/split_missionswindowui.py`, `split_logisticswindowui.py`; every field,
+  property, constant and the constructor stay in the main file). Missions: main 1,538 (the
+  tab draw, reveal navigation, styles, sorting, column header, testing seams), `.ViewData`
+  626, `.VesselRows` 594, `.Periodicity` 594, `.Loop` 540, `.Interact` 463, `.MissionRows`
+  424, `.ForeignDocks` 330. Logistics: main 1,185 (window lifecycle and draw, styles, testing
+  seams), `.Legibility` 896, `.Detail` 778, `.Rows` 714, `.Actions` 496, `.Sections` 467,
+  `.LinkPicker` 169, `.Formatting` 168. The source gates that read either file now read the
+  whole class through `MissionsWindowUISourceFiles` / `LogisticsWindowUISourceFiles` (or the
+  one area file a single-method gate names); the ERS / ELS allowlist adds the four Missions
+  partials that hold its raw reads.
+- Wave 2 W2c (2026-11-08, this branch, docs only): the `ParsekScenario` static-state map,
+  `docs/dev/research/parsekscenario-static-state-map-2026-11-08.md`. It covers 31
+  reassignable fields and no readonly collections: writers, readers, outside entry points,
+  reset paths, and direct and reflection test writers. It uses the same IL tool. Outside
+  production code reads only `CrashReconcileInProgress` directly; all other access goes
+  through named methods. `OnLoad` writes 11 of the fields itself, and the extracted
+  `OnLoadPhase*` methods write none.
+- Wave 2 W7b1 (2026-11-08, #2480): `LedgerOrchestrator.PickRecoveryRecording` (304
+  lines) split into `ScanRecoveryCandidates`, `SelectRecoveryCandidatePath`,
+  `LogRecoveryGuidFilterOutcome` and `WalkRecoveryPickTiers`, behind a 15-scenario
+  characterization golden (`PickRecoveryRecordingCharacterizationTests`) written first.
+- Wave 2 W8c, RewindInvoker (S3, pure move, IL identical): `RewindInvoker.cs` (4,644 lines,
+  a static class) is a partial class over 10 files (`scripts/refactor/split_rewindinvoker.py`;
+  every field and constant stays in the main file): `RewindInvoker.cs` 399 (`StartInvoke`, the
+  temp quicksave delete, the error handlers), `.MarkerWrite` 694, `.InPlaceDebris` 673,
+  `.QuicksaveScrub` 605, `.StripActivate` 567, `.SlotStrip` 457, `.Gate` 446, `.PostLoad` 353,
+  `.Advisory` 335, `.ForkIdentity` 223. Source gates read the class through
+  `RewindInvokerSourceFiles` or the one area file a single-method gate names (the
+  `ConsumePostLoad` route gate now reads a brace-matched block instead of a slice to the next
+  declaration); `ledgeraudit.SRC_REWIND_INVOKER` names `.StripActivate`; the ERS / ELS
+  allowlist adds the five partials that hold raw reads; the delete pin stays on the main file.
+- Wave 2 W7b2 (2026-11-08, #2489): `LedgerOrchestrator.BuildStrategyConversionAction`
+  (201 lines) returns one named builder per currency arm (`BuildStrategyScienceConversionAction`,
+  `BuildStrategyFundsConversionAction`, `BuildStrategyReputationConversionAction`), behind a
+  characterization golden over every currency, delta sign, reason and tag
+  (`BuildStrategyConversionActionCharacterizationTests`) written first.
+- Wave 2 W6, first PR (2026-11-08, this branch, pure move, IL identical once folded): the
+  flight map-marker pass (`DrawMapMarkers`, its per-instance overlap and trajectory position
+  helpers, the summary struct and log, the frame-source dispatch, the waypoint and body
+  caches) moved out of `ParsekUI.cs` into `ParsekFlightMapMarkers.cs`, one instance owned by
+  `ParsekFlight` next to its `ParsekUI`, still drawn outside the UI-scale host scope. First
+  of four W6 steps that make `ParsekUI` reach no residue type; measured on the semantic
+  graph, all four take the residue 150 -> 140, this one alone moves nothing (knot 390 -> 391,
+  residue 150).
+- Wave 2 W7b3 (2026-11-08, #2495): `LedgerOrchestrator.NotifyLedgerTreeCommitted`
+  (195 lines) keeps its try / catch / finally and calls `FileTreeRecordingCommit` (one
+  recording), `WalkAfterFailedTreeCommit`, `LogTreeCommitPendingScienceOutcome` and
+  `WalkAndCompleteTreeCommit`, behind a ten-scenario golden with faults before and after the
+  science persists (`NotifyLedgerTreeCommittedCharacterizationTests`) written first.
+- Wave 2 W5b (2026-11-08): dropped. Moving the source resolver into its own type raises the
+  replayed residue by one (the W5a note above), so it needs a DECOUPLE of its knot calls first.
+- Wave 2 W5c2 (2026-11-08, this branch, extract-method): the flight map deferred-create pass
+  (204 -> 154 lines) and orbit-reseed pass (321 -> 161) call eight helpers in the same file:
+  loop synthesis and source resolve of a pending entry; loop-window teardown, gap-points glide,
+  the no-segment arm (future-segment scan, retention line) and the result apply. Pinned first by
+  `FlightMapPassCharacterizationTests`. Left in place, not reachable headless: the created-ghost
+  bookkeeping, the loiter-gap clamp and `UpdateGhostOrbitFromStateVectors` (needs a live vessel).
+- Wave 2 W5d1 (2026-11-10, this branch, extract-method): `RefreshTrackingStationGhosts` (484
+  -> 25 lines) loops over the index-keyed ghosts and calls `RefreshTrackingStationGhost` (one
+  ghost, returns the teardown reason or null), which calls nine units in the same file: the
+  teardown gates, the segment lookup UT, the covering segment, the checkpoint point, the
+  removal reason, the gap-points glide, the state-vector and segment arms with the endpoint tail
+  override; the removals apply last. Pinned first by `TrackingStationRefreshCharacterizationTests`
+  (37 cases). Not reachable headless: the active Re-Fly teardown (needs a live orbit driver).
+- Wave 2 W5d2 (2026-11-10, this branch, extract-method): `UpdateGhostOrbitFromStateVectors`
+  (410 -> 87 lines) calls ten units in the same file: the miss and skip lines, the active Re-Fly
+  suppression, the SOI-change check, the gap-glide inertial seed, the stale segment-drive clear,
+  the body-fixed reseed, the seam CoMD refresh, the renderer rebuild with the applied body, and
+  the update line with the last-known stash. Pinned first by
+  `StateVectorOrbitUpdateCharacterizationTests` (21 cases). Not reachable headless: everything
+  from `OrbitDriver.updateFromParameters` on and the seeded gap-glide arm; those units have
+  direct tests in `StateVectorOrbitUpdatePhaseTests`.
+- Wave 2 W9a (2026-11-08, this branch, extract-method; each PR characterized against the
+  original code first): #2467 splits `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` into gate
+  groups and `ComputeSpanLoopFrame` into pieces; #2475 splits out `UpdatePlayback`'s
+  per-trajectory body, its exits and frame tail, and `UpdateLoopingPlayback`'s overlap branch;
+  #2482 extracts five blocks of `UpdateUnitMemberPlayback`, and the follow-up moves its descent
+  handoff block into `ApplyDescentHandoffHide` (UNIT-MEMBER-PLAYBACK-CLOSURE-PER-FRAME). W9a-3
+  then took `UpdateLoopingPlayback`'s single-ghost path (321 -> 127 lines) into
+  `HideLoopGhostAtWarp`, `HandleLoopCycleBoundary`, `TrySpawnLoopFirstGhost`,
+  `TryRehydrateLoopGhostVisuals` and `RenderLoopPrimaryFrame`, pinned first by
+  `LoopingPlaybackCharacterizationTests` (the cycle boundary runs headless up to its transform
+  read, which is recorded as a refusal). Dropped: `GhostVisualBuilder.AddPartVisuals` and
+  `GhostPlaybackLogic.ApplyPartEvents`. AddPartVisuals is Unity work from top to bottom, so no
+  headless test can characterize it. ApplyPartEvents is already a flat dispatcher, and its one
+  worthwhile cut (the switch body) is where main adds the wheel break / repair cases.
+- Wave 2 W9a-3 (2026-11-10, this branch, extract-method): with the wheel break / repair cases
+  now on this branch, `GhostPlaybackLogic.ApplyPartEvents` (392 -> 73 lines) keeps its guards,
+  the cursor walk and the frame tail and calls `ApplyOnePartEvent` (the switch),
+  `FinishPartEventWalk` (cursor, audio cap, aggregate and per-family lines) and
+  `RefreshGhostAfterPartVisibilityChange`. Pinned first by `PartEventApplyCharacterizationTests`,
+  which runs the original past its ghost guard on a GameObject Unity's managed null check reads
+  as alive; the arms that reach a native call are recorded as refusals. Second PR:
+  `ComputeSpanLoopFrame` (410 -> 236 lines) calls `ResolveSpanLoopLaunchAdvances` (raw, capped
+  and boundary-overlap advance, once for cycle N and once for N+1), `ResolveSpanLoopHoldsAndSlack`
+  (cut, compressed span, per-loop hold, slack and hold clamp) and `LogSpanLoopLaunchAdvance` (the
+  launch-hold diagnostics, still behind the host's `launchHoldEngaged` gate). A new golden pins a
+  region-B flip with the boundary overlap engaged; the capped WARN is not reachable through the
+  frame (the boundary-overlap advance returns the raw delta whenever it is positive).
+- Wave 2 W9b (2026-11-08, this branch, S1 extract-method): the 200-line
+  `FlightRecorder.RestoreTrackSectionAfterFalseAlarm` calls four extracted units: the
+  resume-anchor validation, the Relative-to-Absolute boundary repair, the start-UT alignment
+  and the seam overhang clamp. 19 golden digests captured against the original method pin
+  it. The other W9b recorder targets (`OnPhysicsFrame`, `OnPartJointBreak`,
+  `OnBackgroundPhysicsFrame`, `InitializeLoadedState`, `HandleBackgroundVesselSplit`) stay
+  as they are, for one of two reasons: every block worth extracting sits behind a live
+  Vessel / FlightGlobals / Planetarium read, so no headless test reaches it through the
+  original method; or it reads private recorder state, so a verbatim test-side oracle
+  cannot compile. The pure blocks left are small log pairs.
+- Wave 2 W7b4 (2026-11-08, #2499): `LedgerOrchestrator.RecalculateAndPatchCore`
+  (180 lines) is a sequence of named steps in the same partial file: `PrepareRecalculationWalk`,
+  `WalkLedgerAndReconcile`, `ResolveRecalcPatchDeferralReason`, the two patch branches
+  `ApplyDeferredPatchMilestoneReach` / `PatchKspFromRecalculatedWalk`, and
+  `LogRecalculateAndPatchComplete`, behind a 13-scenario walk golden over every entry point
+  (`RecalculateAndPatchCoreCharacterizationTests`) written first.
+- Wave 2 W9b-4 (2026-11-10, this branch, S1 extract-method): `FlightRecorder.OnPhysicsFrame`
+  (190 lines) calls four extracted units for its sampling-cadence decision: the high-fidelity
+  proximity source, the active Re-Fly cadence note, the effective sample intervals and the
+  sample-skipped line. No headless test reaches that decision through the host (it reads
+  `v.transform.rotation` first), so the proof is a normalized-IL block equality (each unit's
+  body is the block removed from the old host, and the new host is the old one with each block
+  replaced by its call), direct tests of every unit, and the two reachable entry gates
+  characterized first (`OnPhysicsFrameCharacterizationTests`).
+  `FlightRecorder.OnPartJointBreak` (188 lines) followed the same way: seven units (the
+  Trace-Sep lines, the diagnostics line, the decouple bookkeeping, the part-origin seed
+  capture, the Decoupled event, the structural snapshot hand-off, the split-check arm). The
+  three that are live Unity reads throughout (Trace-Sep, diagnostics, seed capture) rest on
+  the IL block equality alone; the other four have direct tests, and the guard prologue is
+  characterized first (`OnPartJointBreakCharacterizationTests`).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
@@ -1242,7 +1673,7 @@ state map plus facade), the KNOTS greedy cuts and the upward-edge count; the rem
 items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
 ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
 
-## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines (30,126 on 2026-11-01; the type is 35,099 over 14 files) and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
+## ~~ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines (30,126 on 2026-11-01; the type is 35,099 over 14 files) and on one side of every top cross-module co-change pair~~ [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (plan PRs PF0-PF10: Phase A IL-identical, each Phase B PR IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 
 **What is true.**
 - Touched in 1,125 of the 5,127 commits since 2025-03-01 (22 percent of every commit to
@@ -1260,7 +1691,199 @@ hookup (`FlightRecorder` / `BackgroundRecorder`), playback hosting, spawning, th
 of the same shape. Do this AFTER ARCH-KNOT-CHEAP-CUTS and ARCH-RECORDINGSTORE-GOD-OBJECT, which
 make the types it touches easier to reason about.
 
-## ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type [FILED 2026-09-14 off the architecture program (item 4). OPEN; the first item with real design content, after the cheap cuts. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
+**Progress** (the PR-by-PR plan is `plan-parsekflight-seams-2026-11-07.md` in the project
+files, PF0-PF10; Phase A splits ParsekFlight.cs into partial files with identical IL, Phase B
+moves one seam per PR into a `ParsekFlight<Seam>` service. Each PR lands on the refactor branch
+`claude/project-thread-bkwmrr`. Phase B waits until the RecordingStore series is done.)
+- PF0 landed: the tooling. `scripts/refactor/split_parsekflight.py` (the split_* pattern;
+  drops the 16 region pairs because they do not survive a split) with the PF1a mapping,
+  `scripts/refactor/il_compare.py` (types, fields, properties and method bodies, ordinal
+  normalization, a `--fold OLD=NEW` mode for Phase B), their unit tests
+  (`python3 -m unittest discover -s scripts/refactor -p "test_*.py"`), and
+  `ParsekFlightSourceFiles` (the whole-class reader, no split files declared yet). No
+  Source/Parsek change. Filed LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED from the inventory.
+- PF1a landed: the playback side of ParsekFlight.cs is in five new partial files, written by
+  `split_parsekflight.py`: `.GhostPositioning.cs` (5,069 lines), `.GhostPositioner.cs` (1,807),
+  `.TimelinePlayback.cs` (3,282), `.Spawning.cs` (1,388), `.Accessors.cs` (187); 283
+  declarations of 274 names, every byte verbatim, the 16 region pairs dropped. ParsekFlight.cs
+  30,388 -> 18,668 lines. IL identical (`il_compare.py`: 3,908 types, 23,947 fields, 25,847
+  methods, 0 differences). Knot 462 and the cut residue unchanged (a file split does not move
+  the type graph). Gates re-pointed: the source readers whose text moved, two whole-file
+  negative scans and the recovery-crew count (still 2) read `ParsekFlightSourceFiles`; the
+  non-loop live-PID audit names every split file; the ERS / ELS and UI-complexity allowlists
+  list the partials that read what ParsekFlight.cs read.
+- PF1b landed: the recording side of ParsekFlight.cs is in nine new partial files, written by
+  the same script on the services tip: `.SplitBranching.cs` (4,283 lines), `.SplitEvents.cs`
+  (1,469), `.PostSwitchAutoRecord.cs` (1,213), `.Flags.cs` (242), `.RecorderSession.cs`
+  (1,128), `.MergeFlow.cs` (2,569), `.PadEvidence.cs` (653), `.TreeRestore.cs` (2,497),
+  `.SwitchContinuation.cs` (2,191); 370 declarations of 357 names, every byte verbatim.
+  ParsekFlight.cs 18,668 -> 2,557 lines. IL identical (3,920 types, 23,950 fields, 25,880
+  methods, 0 differences). Knot 469 and the cut residue 283 unchanged. Gates re-pointed: the
+  source readers of ParsekFlight.cs go through `ParsekFlightSourceFiles.ReadText` (the whole
+  class when the path is ParsekFlight.cs), four SwitchSegmentConsume ordering gates bound by
+  the brace-matched method body instead of the next method's text, the non-loop live-PID audit
+  and the ERS / ELS allowlist name the new files, two harness source anchors follow the moves.
+- PF2 landed (Phase B, the first service type): `ParsekFlightGhostPositioner` (6,017 lines) is the
+  flight scene's `IGhostPositioner`; ParsekFlight builds the engine with its lazy `Positioner`. It
+  holds 116 methods (68 instance, the 48 statics no other file names), 6 fields only it reads and
+  9 constants; the 40 positioning statics other files name stay on ParsekFlight
+  (`.GhostPositioning.cs` 5,069 -> 931 lines, `.GhostPositioner.cs` 1,807 -> 503, `.TailLift.cs`
+  375 -> 126, `.AttitudeTrace.cs` deleted). Bodies verbatim apart from `host.` / `ParsekFlight.`
+  re-homing; 62 declarations widened private -> internal (17 fields, 39 methods, 6 nested types).
+  IL: `il_compare.py --fold` reports 0 moved-body differences; the 7 left are the accessor (field,
+  property, getter), the service's host field and constructor, the host constructor minus the 5
+  moved initializers and the dropped interface. The tool gained the folds this needed (display
+  classes, accessor through a local, branch ordinals, widenings listed apart). Knot 469 -> 470,
+  replayed residue 283 unchanged (canaries re-pinned).
+- PF3 landed: `ParsekFlightPostSwitchAutoRecord` (1,438 lines, lazy `PostSwitchAutoRecorder`) is
+  the post-switch auto-record watch and the deferred EVA auto-record: all 53 methods of the seam
+  (12 instance, 41 statics; `.PostSwitchPredicates.cs` deleted, `.PostSwitchAutoRecord.cs` 1,213
+  -> 102 lines, its nested types only) and 10 constants. The watch state (`postSwitchAutoRecord`,
+  `pendingAutoRecord`) stays on ParsekFlight, which host members, `PhysicsFramePatch` (through
+  `HasArmedPostSwitchAutoRecordWatch`) and the in-game tests read;
+  `OnPostSwitchAutoRecordPhysicsFrame` stays as a forwarder so the patch is not edited. xUnit
+  callers of the moved statics re-pointed (64 references in 4 files); the in-game
+  `DisarmPostSwitchAutoRecord` reflection reflects on the service. 19 declarations widened private
+  -> internal (11 fields, 7 methods, 1 nested type). IL (`--fold`): 0 moved-body differences; the
+  6 left are the accessor (field, property, getter), the service's host field and constructor and
+  the forwarder. `il_compare.py` reads a short branch as its long form. Knot 470 -> 471, replayed
+  residue 283 unchanged (canaries re-pinned).
+- PF4 landed: `ParsekFlightPlaybackHost` (3,531 lines, lazy `PlaybackHost`) is the timeline
+  playback host: the engine drive (`UpdateTimelinePlaybackViaEngine`, `ComputePlaybackFlags`), the
+  ghost CommNet and mission loop-unit drive, re-aim substitution, chain ghosts, the claimed-vessel
+  and blocked chain-tip held ghosts, the LateUpdate / OnCameraPreCull position re-apply and terrain
+  clamp, the skip-reason and Re-Fly anchor-hold logging and the manual preview: 80 methods (50
+  instance, the 30 statics no other file names), 19 fields only it reads and 2 constants
+  (`.TimelinePlayback.cs` 3,282 -> 678 lines, `.ClaimedVesselHoldGhost.cs` 605 -> 40,
+  `.BlockedChainTipGhost.cs` 338 -> 48; ParsekFlight.cs 2,504). ParsekFlight keeps the Unity
+  callbacks (each moved call is the same call on `PlaybackHost`, same order), the three
+  committed-list handlers (the Removing handler's overlap teardown goes through `PlaybackHost`;
+  none of the moved state is index-keyed, so no handler gained a call), the `...FromPolicy`
+  callbacks, the engine / policy / watch-mode / chain fields and forwarders for the six entry
+  points other types call. New gate `FlightHandlers_StayOnParsekFlight_InOrder_AndNoServiceListensOrWrites`
+  pins the handlers' call order and that no service subscribes to the seam or writes the
+  committed list. 53 declarations widened private -> internal. IL (`--fold`): 0 moved-body
+  differences; the 12 left are the accessor (field, property, getter), the service's host field
+  and constructor, the six forwarders and the host constructor minus the 15 moved initializers.
+  `il_compare.py` merges the per-type delegate caches (`<>O`, `<>c`) host and service each
+  carry. Knot 471 -> 472, replayed residue 283 unchanged; the flight controller's cut now ties
+  the route cut and goes first (canaries re-pinned).
+- PF5 landed: `ParsekFlightSpawnHost` (1,384 lines, lazy `SpawnHost`) is the spawn host: leaf,
+  chain-tip and tree-leaf spawn, orphan cleanup, timeline-spawn recovery, ghost-chain evaluation and
+  the KSC chain retire, the nearby-spawn proximity scan, the warp / fast-forward / time-jump entry
+  points with the spawn-warp watch and placement jumps, and the ghost labels: 29 methods (25
+  instance, the 4 statics no other file names), 9 fields only it reads and 3 constants
+  (`.Spawning.cs` 1,388 -> 197 lines; `.PlacementJump.cs` and `.TimeJump.cs` deleted;
+  ParsekFlight.cs 2,492). ParsekFlight keeps the chain and proximity state other code reads, the
+  `DeferredActivateVessel` coroutine, the `...FromPolicy` callbacks, `IsAnyWarpActive` /
+  `ExitAllWarpForPlaybackStart` (the other services call them), the statics other files name and
+  forwarders for the six UI / test-command entry points. 11 declarations widened private ->
+  internal. IL (`--fold`): 0 moved-body differences; the 11 left are the accessor (field,
+  property, getter), the service's host field and constructor and the six forwarders.
+  `il_compare.py` reads `ldarg.0; ldfld host; dup` (a compound assignment through the host) as
+  `ldarg.0; ldarg.0` and merges the `<>c` cache's own instance field and constructors. Knot 472 ->
+  473, replayed residue 283 unchanged (canaries re-pinned).
+- PF6 landed: `ParsekFlightSurfaceCapture` (751 lines, lazy `SurfaceCapture`) is the surface
+  capture seam: flag plant and pick-up capture, ground-science part deploy / retrieve, EVA
+  construction attach / detach and drop, the foreign inventory slot readings and the foreign
+  construction pick-up adoption: 23 methods and the 4 fields only it reads (`.Flags.cs` 242 -> 107
+  lines, `.GroundPartPlacement.cs` 248 -> 55; `.ForeignInventoryTransfer.cs` deleted;
+  ParsekFlight.cs 2,512). ParsekFlight keeps the nine GameEvents handlers `Start` / `OnDestroy`
+  subscribe (each now one forwarding line, same subscription order), the
+  `DeferredGroundPartPlacement` coroutine and the flag statics other files name. 5 declarations
+  widened private -> internal. IL (`--fold`): 0 moved-body differences; the 15 left are the
+  accessor (field, property, getter), the service's host field and constructor, the nine
+  forwarders and the host constructor minus the 3 moved initializers. `il_compare.py` pairs a
+  body moved behind a same-named forwarder with its twin and reads `callvirt` on a non-virtual
+  Unity base member (`StartCoroutine`, `gameObject`) as `call`. Knot 473 -> 474, replayed residue
+  283 unchanged (canaries re-pinned).
+- PF7 landed: `ParsekFlightSplitBrancher` (3,420 lines, lazy `SplitBrancher`) is the split
+  brancher: split and merge branch creation (live and background parent), the split recorder's
+  fallback commit and resume, branch dedup, breakup processing and the crash coalescer tick, the
+  rewind-point authoring for splits and breakups, the dock / board / undock confirmations and
+  the bodies of the dock, undock, EVA, board and decouple GameEvents handlers: 51 methods (32
+  instance, the 19 statics no other file names) and `pendingUndockRootPartSeed`
+  (`.SplitBranching.cs` 4,283 -> 2,230 lines, `.SplitEvents.cs` 1,469 -> 140; ParsekFlight.cs
+  2,518). ParsekFlight keeps the six GameEvents handlers (one-line forwarders, so `Start` /
+  `OnDestroy` / the recorder session add and remove the same delegates), the five `Deferred*`
+  coroutines, `Update`'s calls in the same order, the pending-split, decouple and dock / board
+  confirmation fields other seams read and the 41 split statics other files name. 52 declarations
+  widened private -> internal (24 fields, 28 methods). IL (`--fold`): 0 moved-body differences;
+  the 11 left are the accessor (field, property, getter), the service's host field and
+  constructor and the six forwarders. Knot 474 -> 475, replayed residue 283 unchanged (canaries
+  re-pinned).
+- PF8 landed: `ParsekFlightMergeFlow` (1,773 lines, lazy `MergeFlow`) is the merge flow: the
+  scene-exit finalize (commit, stash or discard of the active tree), the in-flight, revert and
+  scene-exit tree commits with the in-flight optimizer pass and crew reservation, the auto-discard
+  of idle or no-op trees, idle-on-pad and the final segment phase and terminal-body resolution
+  the finalize reads: 44 methods (17 instance, the 27 statics no other file names)
+  (`.MergeFlow.cs` 2,569 -> 825 lines; ParsekFlight.cs 2,549). ParsekFlight keeps
+  `OnSceneChangeRequested` (the scene-exit order: it calls `MergeFlow.FinalizeTreeOnSceneChange`
+  where it called the method), the `ShowPostDestructionTreeMergeDialog` coroutine, the commit and
+  terminal-inference statics other files name with their test seams, and ten forwarders: the
+  `MergeDialog.OnTreeCommitted` handler (same delegate for `+=` / `-=`), the entry points
+  `MapFocusObjectOnSelectPatch`, `SceneExitInterceptor`, `ParsekScenario`, the test commands and
+  the split brancher call, and the two private members the in-game tests reflect on by name. 20
+  declarations widened private -> internal (19 methods, 1 nested type). IL (`--fold`): 0
+  moved-body differences; the 15 left are the accessor (field, property, getter), the service's
+  host field and constructor and the ten forwarders. `il_compare.py` now reads a non-private
+  member moved behind a same-named forwarder (both bodies under one key) as `method-forwarder`
+  when the before body is still there verbatim and exactly one body was added; re-run over PF5
+  and PF7 it reads their forwarders the same way. Knot 475 -> 476, replayed residue 283
+  unchanged (canaries re-pinned).
+- PF9 landed: `ParsekFlightSwitchContinuation` (1,572 lines, lazy `SwitchContinuation`) is the
+  switch continuation: the stock-action intent consume (`TryConsumeStockActionIntent` and its
+  three branches: committed-spawned clone, BG-member continuation, standalone), the segment
+  session arm and recorder bind, the no-op segment evaluation and auto-discard, the scoped
+  discard that reverts a live restore clone, and the missed-switch recovery with its retry
+  clock: 19 methods (17 instance, 2 statics), one const and one field
+  (`.SwitchContinuation.cs` 2,191 -> 652 lines; ParsekFlight.cs 2,568). ParsekFlight keeps the
+  `onVesselSwitchComplete` handler `OnVesselSwitchComplete` and `DispatchConsumeIntentIfArmed`
+  (the consume call sites, unchanged in order), both `IsInPlaceContinuationArrivalForMarker`
+  overloads, the statics other files name, and five forwarders for the no-op and scoped-discard
+  entry points `MapFocusObjectOnSelectPatch`, `SceneExitInterceptor` and the merge flow call.
+  10 declarations widened private -> internal (7 methods, 3 fields). IL (`--fold`): 0 moved-body
+  differences; the 10 left are the accessor (field, property, getter), the service's host field
+  and constructor and the five `method-forwarder`s. Knot 476 -> 477, replayed residue 283
+  unchanged (canaries re-pinned).
+- PF10 (finish) landed. Forwarders: of the 49 one-call forwarders on the partials, 16 are
+  GameEvents / `MergeDialog.OnTreeCommitted` handlers (kept, so every subscription target is
+  unchanged) and 32 have a caller outside the type (patches, UI, test commands, in-game and xUnit
+  tests, `WatchModeController`, the recorders, `ParsekScenario`; kept). The one with no caller
+  anywhere, `PositionGhostAtForWatch` (dead since 2026-04-12, when its watch-mode caller went;
+  PF2 only re-pointed it), is deleted. IL against the PF9 tip, no fold needed: 1 difference, that
+  method gone. RESTORE stays a partial, by the numbers: `.TreeRestore.cs` is 2,497 lines, of which
+  the 3 coroutines (686 lines) must stay on the MonoBehaviour and 26 of its 35 statics (928 lines)
+  are named by 12 production and 20 test files, so they stay by rule. What a type could take is 8
+  instance methods (586 lines) and 9 statics (247 lines), and those are reached from `OnFlightReady`,
+  from `SwitchContinuation` and `MergeFlow`, from `ParsekScenario` and the test commands (two
+  forwarders), and from the named statics that stay: a ninth service of about 830 lines that
+  every caller crosses into, knot +1, no co-change taken off the partial. SESSION
+  (`.RecorderSession.cs`) and the teardown stay partials as planned. Hunk scan: the only commits
+  after PF2 that touch `ParsekFlight*.cs` on the refactor branch are PF3-PF10 themselves, so no
+  feature commit lands after the moves yet and the co-change shift cannot be measured. On `main`,
+  three commits since the branch's merge base (2352bf778, c446efe9a, cdde4d9d0, 2026-11-06) touch
+  ParsekFlight.cs in 7 hunks: 4 land in services (`ParsekFlightMergeFlow` 2,
+  `ParsekFlightPlaybackHost` 2, one of them the `RealVesselRelays` flag code in
+  `ComputePlaybackFlags`) and 3 in partials (`ParsekFlight.cs`, `.MergeFlow.cs`,
+  `.TreeRestore.cs`). They are not on the refactor branch yet; merging `main` in re-applies the 4
+  service hunks by hand where the text moved.
+
+**End state** (plan section 8; baseline ParsekFlight.cs 30,388 lines, the type 35,565 over 14
+files; expected ParsekFlight.cs about 3,500, eight services about 19,600 lines, the type about
+16,000, knot +8, residue 287): ParsekFlight.cs 2,567 lines (fields the partials share, the Unity
+callbacks, `OnFlightReady`, the facade, the committed-list handlers, the lazy accessors and the
+forwarders); the type 16,166 lines over 23 partial files; eight services hold 415 moved methods in
+19,886 lines: `ParsekFlightGhostPositioner` 6,017 (116 methods), `ParsekFlightPlaybackHost` 3,531
+(80), `ParsekFlightSplitBrancher` 3,420 (51), `ParsekFlightMergeFlow` 1,773 (44),
+`ParsekFlightSwitchContinuation` 1,572 (19), `ParsekFlightPostSwitchAutoRecord` 1,438 (53),
+`ParsekFlightSpawnHost` 1,384 (29), `ParsekFlightSurfaceCapture` 751 (23). Every service is
+reached only through its host (fan-in 1-5). Knot 469 -> 477 (each service joins it through its
+host), the ParsekFlight cut still lands on 454, replayed residue 283 throughout (bound 283). What
+stays on the type is the plan's composition root: every coroutine, every subscription, the
+recorder session, tree restore and teardown, and the statics other files name.
+
+## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 
 **What is true.**
 - 6,970 lines plus partials, fan-in 91 files, touched in 408 commits (third most churned file);
@@ -1278,6 +1901,243 @@ make the types it touches easier to reason about.
 (optimizer, purge, sidecar commit, session merge) as services on top that the scenario module
 calls directly. One service per PR; the co-change with `ParsekScenario.cs` is the measure.
 
+**Progress** (the PR-by-PR plan is `plan-recordingstore-services-2026-11-06.md`, services A-O;
+each PR lands on the refactor branch, IL-proven a pure move).
+- PR1 (service A) landed: the segment phase / body-path labels left the store as
+  `RecordingSegmentLabels` (12 methods, pure, no statics, no forwarder; 6 production call
+  sites re-pointed). `RecordingStore` 10,008 -> 9,768 lines, 340 -> 328 methods; co-change
+  with `ParsekScenario.cs` still 163. Knot 457 -> 458 and cut residue 282 -> 284: the new type
+  keeps the `RecordingOptimizer` edge the `RecordingStore` cut used to drop.
+- PR2 (service B) landed: the 14 group forwarders are gone (13 group operations plus the
+  `MarkAutoAssignedStandaloneGroupForTesting` seam). Callers use `RecordingGroupStore`
+  directly and pass `RecordingStore.CommittedRecordings` / `.CommittedTrees`; its list
+  parameters widened from `List` to `IReadOnlyList` (they read the list and retag recordings,
+  never change the list). `AutoGroupTreeRecordings` / `AdoptOrphanedRecordingsIntoTreeGroup`
+  stay with tree commit (L). `MissionGroupLink.cs` joins the ERS / ELS allowlist (a group name
+  is a tag on every committed recording). `RecordingStore` 9,768 -> 9,663 lines, 328 -> 314
+  methods; cut residue 284 -> 285 (`GroupPickerPresentation` now reaches the uncut
+  `RecordingGroupStore`).
+- PR3 (service C, first half) landed: the 56 pure sidecar / codec forwarders are gone; about
+  480 call sites in 88 files call `RecordingSidecarStore`, `TrajectoryTextSidecarCodec`,
+  `RecordingManifestCodec`, `RouteProofCodec`, `SnapshotSidecarCodec` and
+  `OrbitSegmentCheckpointBridge` directly (`SafeWriteConfigNode` had no callers). The
+  `LoadReconcileWiringGateTests` hydrate pin now reads `RecordingSidecarStore.LoadRecordingFiles(`.
+  Still on the store, for the second half: the bodies with logic (`WriteTrajectorySidecar`,
+  `CountPredictedOrbitSegments`, the trajectory and snapshot probes, the `GhostSnapshotMode`
+  trio, `ConfigNodesEquivalent`, `EnsureCheckpointSectionsForTopLevelOrbitSegments`, the test
+  seams and their two statics) and `ReconcileReadableSidecarMirrorsForKnownRecordings`, which
+  reads the committed list and the pending slot. `RecordingStore` 9,663 -> 9,311 lines, 314 ->
+  258 methods; cut residue 285 -> 287 (`RecordingSidecarStore`, `RouteProofCodec`).
+- PR4 (service D) landed: `IsChainMidSegment`, `GetChainPredecessorIndex`, `GetChainEndUT`,
+  `ValidateChains` (the OnLoad chain degrade) and `IsChainLooping` left the store as
+  `RecordingChainQueries`, bodies verbatim apart from reading the committed list through
+  `RecordingStore.CommittedRecordings` and logging through `RecordingStore.Log` (tag kept).
+  No statics, no forwarder; the production call sites (9 files) and 4 test files moved.
+  The new file is on the ERS / ELS allowlist (raw committed indices, as inside the store).
+  `RecordingStore` 9,311 -> 9,120 lines, 258 -> 253 methods; knot 458 -> 459 (the new type
+  sits on a cycle), cut residue unchanged at 287.
+- PR3b (service C, second half) landed: the sidecar bodies with logic left the store for
+  `RecordingSidecarStore`: `WriteTrajectorySidecar`, `CountPredictedOrbitSegments`, both
+  `TryProbeTrajectorySidecar` overloads, `DeserializeTrajectorySidecar`,
+  `TryProbeSnapshotSidecar`, the `GhostSnapshotMode` trio, `ConfigNodesEquivalent`, the four
+  sidecar test seams and the `SnapshotSidecarLoadState` / `SnapshotSidecarLoadSummary` types
+  (the store's copy of `FormatPathForSidecarLog` was a duplicate and is gone). The two seam
+  statics moved with them; `RecordingSidecarStore.ResetForTesting` clears them, it is in
+  `SaveScopedSessionResetTests.InventoryTypes` and the allowlist names the new owner. No
+  forwarder; 9 production files (2 of them in-game tests) and 48 xUnit files call the new home.
+  Kept on the store: `ReconcileReadableSidecarMirrorsForKnownRecordings` (reads the committed
+  list and the pending slot) and `EnsureCheckpointSectionsForTopLevelOrbitSegments`: moving that
+  one reds the cut-residue ratchet 287 -> 295, because `TrajectoryTextSidecarCodec` calls it and
+  the new `RecordingSidecarStore -> OrbitSegmentCheckpointBridge -> RenderSessionState -> ... ->
+  RelativeAnchorResolver -> TrajectoryTextSidecarCodec` cycle survives the `RecordingStore` cut
+  (8 types). `RecordingStore` partials 9,249 -> 8,964 lines, 294 -> 279 IL methods; knot 459 and
+  cut residue 287 unchanged.
+- PR5 (service M, pure half) landed: the rewind spawn-scope predicates left the store as
+  `RewindSpawnScope` (`RewindSpawnScope.cs` + `RewindSpawnScope.OwnerStrip.cs`, the two former
+  `RecordingStore` partials moved whole, plus `IsStableState`): `WillReplayAfterRewind`, the
+  strip scope (`ResolveRewindSpawnStripScope`, `IsSpawnedVesselReproducedByRewindReplay`,
+  `FliesTransferAdoptedVessel`, `ResolveRewindStripSpawnedPids`,
+  `ResolveRewindClaimedVesselPids`, `CollectHeldBackVesselPids`), the owner strip
+  (`BuildRewindOwnerStrip`, `RewindOwnerStripIsAnchored`, `ClassifyRewindOwnerStripVessel`) and
+  the nested `RewindSpawnStripScope` / `RewindOwnerStrip` / `RewindOwnerStripDecision` types. No
+  statics, no forwarder; `PreProcessRewindSave` and `ParsekScenario.RewindVesselHold` call the
+  new type, as do 10 xUnit files. Both files are on the ERS / ELS allowlist (raw committed
+  reads, as inside the store). `CountFutureRecordings` stays on the store: the recordings table
+  calls it, and on the new type that edge pulls `RewindSpawnScope` into the cut residue (287 ->
+  288). `ResetAllPlaybackState`, `CollectSpawnedVesselInfo` and the `PendingCleanup*` sets wait
+  for PR13. `RecordingStore` partials 8,964 -> 8,400 lines, 279 -> 267 IL
+  methods; knot 459 -> 460 (the new type sits on a cycle with the store), cut residue 287.
+- PR6 (service E) landed: the orphan / file cleanup left the store as `RecordingFileJanitor`
+  (the former `RecordingStore.OrphanCleanup.cs`): `DeleteRecordingFiles` and its two head
+  helpers, `RecordingFileSuffixes`, `ExtractRecordingIdFromFileName`,
+  `IsTransientSidecarArtifactFile`, `BuildKnownRecordingsForCleanup`,
+  `ResolveRecordingsDirectoryForCurrentSave`, `CollectSidecarIdsOnDisk`,
+  `OrphanQuarantineDirName` and `ForEachRecordingKnownToMemory`, bodies verbatim apart from
+  reading the committed list, trees and pending slots through the store's accessors. The
+  `CleanOrphanFilesDirectoryOverrideForTesting` seam moved with them
+  (`RecordingFileJanitor.ResetForTesting`, `InventoryTypes`, allowlist renamed with
+  `RecordingFileSuffixes`). No forwarder; 14 production files (3 in-game) and 14 xUnit files
+  call the new type. `BuildKnownRecordingIds` (both overloads) and
+  `BuildKnownRecordingIdsForCleanup` stay on the store, in
+  `RecordingStore.KnownRecordingIds.cs`: they read `InertRecordingTrees`, and on the janitor
+  that edge closes a cycle through `GroupHierarchyStore` around the `RecordingStore` cut
+  (residue 287 -> 288). The janitor is on the ERS / ELS allowlist. `RecordingStore` partials
+  8,400 -> 8,095 lines, 267 -> 255 IL methods; knot 460 -> 461, cut residue 287.
+- PR7 (service F) landed: the scene-entry vessel scope left the store as
+  `SceneEntryVesselScope`: the five save-scoped statics `SceneEntryActiveVesselPid`,
+  `SceneEntryActiveVesselGuid`, `SceneEntryFreshRolloutVesselPid`, `RewindReplayTargetSourcePid`
+  and `RewindReplayTargetRecordingId`, plus `SetRewindReplayTargetScope` /
+  `ClearRewindReplayTargetScope`. It has `ResetForLoad` (called by
+  `RecordingStore.ResetSaveScopedStateForLoad`) and `ResetForTesting` (called by
+  `ResetForTestingInternal`), each at the point where the store used to clear the fields, so the
+  reset order is unchanged; the type is in `SaveScopedSessionResetTests.InventoryTypes`, which
+  proves all five fields reset on a cold load (none is allowlisted). No forwarder; 8 production
+  files outside the store and 11 xUnit files reference the new type, and `modules.toml` places it in Recording. It
+  references nothing in the knot. `RecordingStore` partials 8,095 -> 8,041 lines, 255 -> 253 IL
+  methods, 5 fewer statics; knot 461 and cut residue 287 unchanged.
+- PR8 (service G) landed: the optimization pass left the store as `CommittedListOptimizer` (the
+  former `RecordingStore.Optimization.cs`): `RunOptimizationPass` and its merge / split /
+  tail-trim passes, `ChooseSplitCandidateIndex`, `CopySplitIdentityFields`, the three
+  merge / split retags and `PopulateLoopSyncParentIndices`. The pass reads the committed list
+  read-only (`RecordingStore.CommittedRecordings`; `RecordingOptimizer.FindMergeCandidates`,
+  `FindSplitCandidatesForOptimizer`, `ReindexChain`, `TrimBoringTailInternal` and
+  `IsLeafRecording` widened to `IReadOnlyList`) and changes it only through two new store
+  primitives, `RemoveCommittedAt(index, absorbedInto)` and `InsertCommittedAt(index, rec)`;
+  `RemoveCommittedAtWithNotifications` and `InsertCommittedAfter` route through them too, and
+  `CommittedListNotificationTests` pins the pass's Removing / Removed(target) / Inserted order
+  with the bumps between. `RecordingStore.RunOptimizationPass` stays as a forwarder (3
+  production call sites plus 3 in-game files and 20 xUnit files). Kept on the store, in
+  `RecordingStore.OptimizerSupport.cs`: the dirty-file flush (`FlushDirtyFiles`, its epoch
+  rule, and `FlushDirtyCommittedFiles` for the pass), which the commit paths share, and
+  `ShouldMoveChildBranchPointToSplitSecondHalf`, which the Re-Fly tree splitter also calls (on
+  the new type that edge closes a cycle around the `RecordingStore` cut: residue 287 -> 289).
+  The optimizer is on the ERS / ELS allowlist. `RecordingStore` partials 8,041 -> 7,522
+  lines, 253 -> 247 IL methods; knot 461 -> 462, cut residue 287.
+- PR9 (service H) landed: the committed-tree restore attempt left the store as
+  `CommittedTreeRestoreAttempt`: its four save-scoped statics (tree id, reason, recording ids,
+  event cutoffs) and the 16 members that arm, clear, discard, match and purge it, bodies
+  verbatim apart from reading the pending slot through `RecordingStore.PendingTree` /
+  `SavedPendingTreeDuringActiveRestore`. It has `ResetForLoad` (called by
+  `RecordingStore.ResetSaveScopedStateForLoad`) and `ResetForTesting` (called by
+  `ResetForTestingInternal`) at the points where the store cleared the fields, so the reset
+  order is unchanged, and it is in `SaveScopedSessionResetTests.InventoryTypes` (no field
+  allowlisted). `ParsekFlight` calls the new type; the store keeps forwarders for `Has`, `Arm`,
+  `Clear`, `Discard`, `ClearForDroppedTree`, the two id predicates, the suppression predicate
+  and the tree-id / reason accessors, because the other callers (`GameStateStore`,
+  `RouteRunPrompt`, `MergeDialog.Commit`, `RewindInvoker`, `SceneExitInterceptor`,
+  `MapFocusObjectOnSelectPatch`, `ParsekScenario`) sit outside the cuts: calling the new type
+  directly closes cycles around the `RecordingStore` cut (residue 287 -> 288).
+  `IsMarkerOwnedSwitchSegmentRecordingId` and `FindRecordingByIdAcrossStores` stay on the
+  store (service J). `RecordingStore` partials 7,650 -> 7,339 lines, 247 -> 237 IL methods;
+  knot 463 -> 464, cut residue 288 unchanged.
+- PR10 (service I) landed: the pending-tree slot left the store as `PendingTreeSlot`: its ten
+  save-scoped statics (the pending tree, its state and serialized flag, the saved pending tree
+  and its flag, `PendingStashedThisTransition`, the two one-shot suppressions and their
+  reasons) and 26 members (seven accessors, stash / mark / restore / preserve / promote / pop /
+  unstash / convert / finalize, the six suppression members, `IsPendingRecordingId`,
+  `SetPendingTreeStateForTesting`), bodies verbatim. New: `ClearSlot` (the empty-slot triple
+  `CommitPendingTree`, `DiscardPendingTree` and the switch-segment discard wrote inline),
+  `ResetForLoad` / `ResetForTesting` and `RestoreFromSnapshotForTesting`. `PendingTree`,
+  `HasPendingTree` and `PendingTreeStateValue` stay on the store as forwarders; the other
+  callers (11 production files, 3 of them in-game tests, and 61 xUnit files) call the slot,
+  which reaches no knot type the cuts keep, so the cut residue holds. The type is in
+  `SaveScopedSessionResetTests.InventoryTypes` (no field allowlisted). The resets clear the
+  slot in one call at the point the store cleared the pending tree, so the four suppression
+  clears run a few writes earlier, ahead of resets that never read them.
+  `RecordingStore` partials 7,339 -> 6,911 lines, 237 -> 214 IL methods; knot 464 -> 465, cut
+  residue 288 unchanged.
+- PR11 (service J) landed: the switch-segment attempts left the store as
+  `SwitchSegmentAttempts`: the scoped Discard (`TryDiscardActiveSwitchSegmentAttempt`), the no-op
+  classification (`TryClassifyActiveSwitchSegmentNoOp`, `CommittedCloneMembersOutsideSegmentUnchanged`),
+  the segment-subtree walks (`CollectSwitchSegmentSubtreeRecordingIds`, its iteration cap,
+  `FindOverwrittenContinuingBranchPointId`, `EnqueueParentedBranchChildren` and five private tree
+  helpers), `FindSegmentTreeForSession`, and the marker-ownership predicate
+  (`IsMarkerOwnedSwitchSegmentRecordingId`, `FindRecordingByIdAcrossStores`), bodies verbatim. No
+  state. The `SwitchSegmentDiscardDisposition` enum stays nested in the store. `ParsekFlight` and
+  `ParsekScenario` call the new type; `MergeDialog`, the map-focus patch and
+  `CommittedTreeRestoreAttempt` stay on store forwarders (`TryDiscardActiveSwitchSegmentAttempt`,
+  `IsMarkerOwnedSwitchSegmentRecordingId`): the service reaches `GameStateStore`, `RouteEventLog` and
+  `LedgerOrchestrator`, and those callers calling it directly close cycles around the
+  `RecordingStore` cut (replayed residue +4 with them direct). Five source gates now read `SwitchSegmentAttempts.cs`
+  (two of them had kept passing on the forwarder's matching signature). `RecordingStore` partials
+  6,911 -> 6,195 lines, 214 -> 202 IL methods; knot 464 -> 465 (measured after the tip's
+  LiveVesselSnapshot follow-up), replayed cut residue 283 unchanged (bound 283 since #2427).
+- PR12 K (service K) landed: the tree discard left the store as `TreeDiscardService` (10 members:
+  `DiscardPendingTree`, `RemoveRecordingAt` with its tree prune and branch-point scrub, the
+  persistent.sfs refreshes after a discard, the committed-overlap predicate, and the per-process
+  discarded-tree set with its note / query; `ResetForLoad` / `ResetForTesting` clear the set where the
+  store did). `RemoveRecordingAt` now calls `RecordingStore.RemoveCommittedAt` itself (new
+  CommittedListNotificationTests cells). `SaveGameForTesting` stays on the store (shared with the
+  merge journal, the Re-Fly discard and `RefreshQuicksaveAfterMerge`). Every
+  `DiscardPendingTree` caller calls the service; the store keeps a `RefreshSaveAndQuicksaveAfterDiscard`
+  forwarder for `MergeDialog` (calling the service directly: replayed residue 283 -> 287). `RecordingStore` partials 6,195 -> 5,640
+  lines, 202 -> 193 IL methods; knot 465 -> 466, `RecordingStore` cut drops 36 -> 34 references,
+  replayed cut residue 283 unchanged (bound 283).
+- PR12 L (service L) landed: the tree commit left the store as `TreeCommitService` (27 members
+  from `RecordingStore.cs`, plus the `TreeReplaceDiff` and `SupersedeTerminalSpawn` partials renamed
+  to `TreeCommitService.*.cs`): `CommitTree` / `CommitPendingTree` / `CommitRecordingDirect`, the
+  session and rewind-provisional merge states, the staging RP promotion, `FinalizeTreeCommit` with the
+  same-id replace and `PreserveLiveRuntimeFieldsOnReplace`, the active Re-Fly union and the
+  terminal-spawn supersede marks. Its list writes go through new store primitives:
+  `ReplaceCommittedAt` (index-stable, raises nothing), `AppendCommittedUnbumped`,
+  `ReplaceCommittedTreeAt`, `AppendCommittedTreeUnbumped` (the commit still bumps once per batch) and
+  the existing `AddCommittedInternal` / `FlushDirtyCommittedFiles`; new CommittedListNotificationTests
+  cells. The store keeps `CommitPendingTree` / `UnionActiveReFlyTreeIntoCommittedForMerge` forwarders
+  for `MergeDialog` / `MergeJournalOrchestrator` (calling the service directly: replayed residue
+  283 -> 285), and the two group wrappers that hand `RecordingGroupStore` the list. The
+  `RecordingStore -> LedgerOrchestrator` edge is gone. `RecordingStore` partials 5,640 -> 3,812 lines,
+  193 -> 160 IL methods; knot 466 -> 467, `RecordingStore` cut drops 34 -> 29 references, replayed cut
+  residue 283 unchanged (bound 283).
+- PR13 N (service N) landed: the rewind carry left the store as `RewindCarry` (`RewindCarry.cs` with
+  the rewind-point carry: capture, clear, merge, reinstall after the load, the id formatter and the
+  kept-supersede log; the `RewindStagedListsCarry` and `RewindSupersedeAudit` partials renamed to
+  `RewindCarry.StagedLists.cs` / `RewindCarry.SupersedeAudit.cs` with their nested types). No
+  forwarder: `ParsekScenario`, its in-session handoff, `RecordingRewindRetirement` and the store's own
+  rewind launch call the new type, and both OnLoad wiring gates now pin `RewindCarry.Reinstall*`. New
+  `RewindCarry.ResetForLoad` / `ResetForTesting` drop both carries; the store's save-scoped reset calls
+  the first and `ResetForTestingInternal` the second, which fixes the plan's latent finding (the test
+  reset cleared the rewind-point carry but not the staged-list carry). `LoadReconcilePolicy`'s three
+  unlogged reason strings name `RewindCarry.*`. `RecordingStore` partials 3,812 -> 3,203 lines,
+  160 -> 144 IL methods; knot 467 -> 468, `RecordingStore` cut drops 29, replayed cut residue 283
+  unchanged (bound 283).
+- PR13 O (service O) landed: the plain rewind left the store as `RewindLauncher` (`RewindLauncher.cs`
+  plus the `RewindPersistentWrite` partial renamed to `RewindLauncher.PersistentWrite.cs`): the
+  can-rewind / can-fast-forward gates, `InitiateRewind` / `InitiateRewindToCareerStart` with
+  `BeginRewindForOwner`, `ExecuteRewindSaveLoad` and its temp-copy cleanup, `ResetRewindFlags`, the failed-load
+  undo, the five `PreProcessRewindSave` overloads, the persistent.sfs writes and their test seams,
+  `ResetAllPlaybackState`, `CollectSpawnedVesselInfo` and the one-shot cleanup sets (new
+  `ResetForLoad` / `ResetForTesting`). The eight `RewindContext` forwarders are gone; their callers read
+  `RewindContext`. Measured exceptions: the deferred UT-adjustment flags and the lead-time constant
+  stay on the store (the ghost map presence, the KSC / tracking-station hosts and the kerbal walk read
+  them; on the launcher those reads put it on their cycles: replayed residue 283 -> 293), and so do
+  six gate / entry-point forwarders for the recordings table, the timeline window and
+  `WarpToTimeController`. `LoadReconcilePolicy`'s LoadGame initiator row and the `parsek-file-deletes`
+  pin now name `RewindLauncher.cs`. `RecordingStore` partials 3,203 -> 2,172 lines, 144 -> 110 IL
+  methods; knot 468 -> 469, `RecordingStore` cut drops 29 -> 24, replayed cut residue 283 unchanged
+  (bound 283).
+- PR14 (finish) landed: production call sites left the store's forwarders, each measured against
+  the cut-residue ratchet caller by caller. Deleted, every caller on the service: `HasPendingTree` /
+  `PendingTree` / `PendingTreeStateValue` (`PendingTreeSlot`), `ArmCommittedTreeRestoreAttempt`,
+  `IsCommittedTreeRestoreAttemptTree`, `IsCommittedTreeRestoreAttemptRecordingId`,
+  `ClearCommittedTreeRestoreAttemptForDroppedTree` and `IsMarkerOwnedSwitchSegmentRecordingId`. Kept
+  for the callers that would add to the residue by calling the service (each named on its
+  forwarder): four restore-attempt forwarders (`MergeDialog`, `RouteRunPrompt`, `GameStateStore`,
+  `RewindInvoker`), `RunOptimizationPass` and `CommitPendingTree` (`MergeDialog`),
+  `TryDiscardActiveSwitchSegmentAttempt` and `RefreshSaveAndQuicksaveAfterDiscard` (`MergeDialog`),
+  `UnionActiveReFlyTreeIntoCommittedForMerge` (`MergeJournalOrchestrator`) and the six rewind gate /
+  entry-point forwarders (the recordings table, the timeline window, `WarpToTimeController`).
+  `RecordingStore` partials 2,172 -> 2,140 lines, 110 -> 102 IL methods; knot 469, cut residue 283.
+
+**End state** (plan section 7; baseline 163 co-changes / 10,000 lines / 42 statics / 53 knot-outs,
+expected about 1,500 lines, 9 statics, 8 knot-outs): `RecordingStore` is the committed list with its
+notifications and primitives, the schema gate, the committed-id queries, the UT-adjustment flags and
+the reset fan-out: 1,934 lines (archview), 13 mutable statics, 26 in-knot outgoing references,
+fan-in 135. The `ParsekScenario.cs <-> RecordingStore.cs` co-change count reads 174 (`ParsekFlight.cs`
+159); it is cumulative over history and rose with this program's own commits, so the measure is the
+hunk buckets of later commits, which now land on the service files. The gap to the expected end
+state is the measured forwarders above and the reset fan-out (the plan's optional `ResetRequested`
+event would remove the latter).
+
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
@@ -1290,12 +2150,109 @@ calls directly. One service per PR; the co-change with `ParsekScenario.cs` is th
 - `MissionRouteStructureList.cs` references `Logistics.Route` and `RouteStop`: the one declared
   boundary (`[forbidden]` in `scripts/arch/modules.toml`) the checker finds crossed. (Closed
   in #1685. On 2026-11-01 the crossed boundary is `Ghost -> GameActions`: one call,
-  `GhostPlaybackLogic` -> `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`.)
+  `GhostPlaybackLogic` -> `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`; closed on
+  the refactor branch by file-placement PR 5, which moves that index into `EffectiveState`.)
+- File-placement plan of 2026-11-06 (refactor branch claude/project-thread-bkwmrr; PRs 1-5
+  here, VesselSpawner PRs 6-10 separately). Measured on the branch tip 53b01b35f before PR 1:
+  upward edges 88 (weight 836), Core -> Recording 30, Trajectory -> Recording 10, Trajectory
+  -> Ghost 1, Ghost -> GameActions 17 (VIOLATION; 1 real call, 16 scan false positives).
+  - PR 1 (measurement): the two nested types the scanner misread renamed
+    (`CareerSettingsLock.LockDecision`, `ProducerSliceBook.HeldSlice`; see
+    ARCH-TOOLING-ROSLYN-AND-CI). Ghost -> GameActions 17 -> 1; upward edges 85 (weight 826).
+  - PR 2 (placement, `modules.toml` only): `TrackSection.cs` (TrackSection, ReferenceFrame,
+    SegmentEnvironment, TrackSectionSource; it references only TrajectoryPoint and
+    OrbitSegment) and `TerminalState.cs` (references nothing) move from Recording to
+    Trajectory by one R0 rule ("trajectory data vocabulary"); TerminalState's old R2 rule is
+    dropped. Trajectory -> Recording 10 -> 1 (only `TrajectoryMath.ComputeStats`, PR 3), Core
+    -> Recording 30 -> 23; Trajectory 16 -> 18 files, instability 0.063 -> 0.024; Recording
+    0.249 -> 0.322, just past GameActions (0.321) and Crew, so two pairs flip reading
+    (GameActions -> Recording 37 and Crew -> Recording 6 are now upward; Recording ->
+    GameActions 15 and Recording -> Crew 3 stop being). Ordering, not new coupling: upward
+    edges stay 85, weight 826 -> 835. Knots unchanged.
+  - PR 3 (pure move): `TrajectoryMath.ComputeStats(Recording, Func)` and its private
+    `ApplyTrackSectionAltitudeMetadata` -> new `RecordingStatsCalculator`
+    (`RecordingStatsCalculator.cs`, Recording by the `^Recording` prefix). `RecordingStats` and
+    the pair / frame / segment helpers stay on `TrajectoryMath`; the log tag stays
+    "TrajectoryMath". IL: 2 moved bodies identical, 1 re-pointed call site. Trajectory ->
+    Recording 1 -> 0; upward edges 85 -> 84 (weight 835 -> 834).
+  - PR 4 (pure move): `GhostMapPresence.TrySelectGapGlidePair` with its private
+    `FindGapGlideSection` / `IsGapGlidePartner` and the consts `GapGlidePairPointNotFound` /
+    `GapGlidePairSingleSample` -> `OrbitReseed` (Trajectory). IL: 3 moved bodies identical, 2
+    re-pointed call sites, field set identical. Trajectory -> Ghost 1 -> 0; upward edges 84 ->
+    83 (weight 813 -> 812). The knot stays 459, but the greedy second cut is now
+    `VesselLaunchIdentity` (441 -> 424) and the greedy residue rises 287 -> 291; the
+    replayed residue the ratchet also reads stays 287 (see ARCH-TOOLING-ROSLYN-AND-CI).
+    `scripts/refactor/split_ghostmappresence.py` still maps these members to
+    `.StateVectors`: a re-split from main's single file must re-apply this move.
+  - PR 5 (pure move): `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`, its ELS-keyed
+    index (`indexLock`, `indexedEls`, `recoveryRowRecordingIds`) and the index reset ->
+    `EffectiveState` (Rewind) as the partial `EffectiveState.RecoveredRecordingIndex.cs`; the
+    reset is renamed `ResetRecoveredIndexForTesting`. The pure row predicates stay in
+    GameActions. The plan named a new type (`RecoveredRecordingLiveIndex`), but a new type in
+    the cycle adds a knot node and loosens the ratchet by one (replayed residue
+    287 -> 288); the partial adds none. IL: 2 moved bodies identical (the reset under its new
+    name), 3 re-pointed call sites; `indexLock`'s initializer moves from
+    RecoveredRecordingEvidence's .cctor (removed) to the end of EffectiveState's. Ghost ->
+    GameActions 1 -> 0 (the `[forbidden]` VIOLATION is gone), Ghost -> Rewind 23 -> 24. Upward
+    edges stay 83 (weight 814 -> 813). Knot stays 461; second greedy cut 443 -> 426 becomes
+    443 -> 425; greedy residue 291 -> 290, replayed 287. The ledger read is still one hop away
+    through Rewind (the graph is one SCC anyway).
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
 move the route structure list into Logistics or read it through an interface Missions owns.
 Update `modules.toml` in the same commits so the placement report stays true.
+
+**Progress, VesselSpawner placement PRs 6-10** of the 2026-11-06 file-placement plan (one
+sub-branch each, merged into the refactor branch in order; each move proven by a per-method IL
+compare).
+- PR 6: the crew-in-snapshot and situation family (18 declarations, 391 lines) moved from
+  `VesselSpawner` to `VesselSnapshotOps`; `ApplySituationToNode` and `IsLandedLikeSnapshot`
+  widened private -> internal. `ExtractCrewManifest` (its default trait lookup reads the
+  roster) and `RemoveDuplicateCrewFromSnapshotCore` (reads crew through
+  `CrewReservationManager`) stay in `VesselSpawner`: moved, they pulled `VesselSnapshotOps`
+  into the type knot (457 -> 459). The one module-level change is Core -> Trajectory +1
+  (`TerminalState`, Trajectory since PR 2); upward edges and knots do not move.
+- PR 7: the position-stamp, rotation-node, validation and canonical-orbit family (28
+  declarations of 25 names, 523 lines: `DeliberatePositionOverrideKey`,
+  `OverrideSnapshotPosition`, the stamp has / strip pair, `StripEvaLadderState`, the
+  surface-relative spawn-rotation trio, `CountSnapshotParts`, the finite-metadata validators,
+  `IsFinite` x2, the canonical surface orbit predicates and writer, `DescribeBodyForLog`,
+  `EnsureSpawnReadiness`, `NormalizeOrbitalSpawnMetadata`) moved from `VesselSpawner` to
+  `VesselSnapshotOps`; 11 private members widened to internal (VesselSpawner still calls
+  them). Two consts move (compile-time, no static initializer). Core -> Trajectory +1
+  (`TrajectoryMath.SanitizeQuaternion`); upward edges and knots do not move.
+- PR 8: the live capture, body registry and max-distance family (42 declarations of 41 names,
+  about 1,110 lines: `TryBackupSnapshot`, `SnapshotVessel`, the snapshot normalizers,
+  `TryResolveBodyIndex` / `ByName` / `NameByIndex` with their 3 delegates and 3 `*ForTesting`
+  hooks, `HumanizeSituation`, `TryResolveBiome`, the snapshot-distance and max-distance family
+  kept whole) moved from `VesselSpawner` to a new `LiveVesselSnapshot.cs`, R0 rule -> Recording;
+  4 private members widened. The hooks have no initializer, so no static constructor moves.
+  The new type sits on a cycle (crew-name reverse map through `KerbalsModule`): knots 461 -> 462,
+  residue ratchet 287 -> 288, one node and no new reference; upward 813 -> 812 (Core -> Logistics).
+- PR 9: `modules.toml` only. `VesselSpawner.cs` leaves the Core kernel list (9 -> 8 files) for an
+  R0 rule -> Controllers (it references 12 Controllers types). Upward edges 83 / 812 -> 81 / 786:
+  Core -> Recording 25 -> 12, Core -> Controllers 13 -> 1, Core -> Crew and Core -> Ghost gone;
+  Ghost -> Controllers 50 -> 58, Recording -> Controllers 39 -> 43, Rewind and Crew -> Controllers
+  +1 each. Knots and residue unchanged. No Source file changes.
+- PR 10: S3 partial-file split of `VesselSpawner` inside Controllers by
+  `scripts/refactor/split_vesselspawner.py`: `VesselSpawner.cs` keeps every field, constant and
+  property plus the shared spawn core, and `.SourceIdentity` (the `MaterializedSourceVesselExists`
+  pid / guid pair stays together), `.Respawn`, `.EndOfRecording`, `.KscRetirement`, `.CrewRoster`,
+  `.TerminalOrbit`, `.SpawnRotation` and `.Validation` take the rest. The five source gates that
+  read `VesselSpawner.cs` read the split set through `VesselSpawnerSourceFiles`. IL identical;
+  arch unchanged. This closes the VesselSpawner placement (atlas opportunity 7).
+- PR 8 follow-up (ratchet restore): the residue ratchet is never loosened, so the four members
+  that carry `LiveVesselSnapshot`'s knot edges (`TryBackupSnapshot` with its two private helpers,
+  which read `KerbalsModule` / `CrewReservationManager` / `RecordingTree`, and `SnapshotVessel`,
+  which calls it) move to `FlightRecorder` as the partial `FlightRecorder.LiveSnapshot.cs`;
+  2 private members widened. `LiveVesselSnapshot` leaves the knot: knots 465 -> 464 (the
+  remaining +3 over 461 are services PR8's `CommittedListOptimizer`, PR9's
+  `CommittedTreeRestoreAttempt` and PR10's `PendingTreeSlot`), replayed residue 288 -> 283,
+  bound back to 287; upward edges unchanged (81 / 792). IL: 4 moved bodies
+  identical, 39 re-pointed call sites. Moving them back to `VesselSpawner` measured the same
+  knot and residue but +2 upward weight (Recording and Rewind -> Controllers).
+  The ratchet then tightened 287 -> 283, the measured replayed residue.
 
 ## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -1316,6 +2273,48 @@ Update `modules.toml` in the same commits so the placement report stays true.
   calls are moved out, that removed the false positives that still held it in the knot
   (535 -> 454); on main's code its real calls keep it in (knot 542). Still missed: object-initializer members of another type (`Held = ...`
   on `Ghost -> GameActions`), which only the Roslyn extractor below can tell apart.
+- 2026-11-06 (refactor branch, file-placement PR 1): the two worst such false positives are
+  gone at the source instead. `CareerSettingsLock.Action` (every `System.Action` delegate
+  read as it, 14 Ghost files) is now `CareerSettingsLock.LockDecision` (not `LockAction`,
+  which `ParsekUiScale` already declares in UI and would join the ambiguous-name list), and
+  `ProducerSliceBook`'s private struct `Held` (read from `Held = true` initializers in
+  `GhostCommNet`) is now `HeldSlice`. IL differs only in the two nested type names. Ghost ->
+  GameActions 17 -> 1 (the real call, still VIOLATION), Recording -> GameActions 20 -> 15,
+  Trajectory and Logistics -> GameActions 1 -> 0; upward edges 88 -> 85, weight 836 -> 826;
+  knots unchanged (457, 4, 3).
+- 2026-11-07 (refactor branch): the cut-residue ratchet
+  (`test_cut_sequence_halves_the_largest_knot`) now bounds min(greedy residue, replayed
+  residue). `archview.replay_cut_residue` removes the outgoing references of a pinned cut order
+  (`RATCHET_CUT_ORDER`, the greedy order on the branch that day) and returns the largest
+  component left; for a fixed cut set, deleting a reference can only shrink components, so a
+  pure move that removes a reference can no longer red the ratchet through a greedy reorder
+  (file-placement PR 4 deletes `OrbitReseed -> GhostMapPresence`: on the tree it was measured
+  on, greedy 285 -> 290, replayed 285). The bound is unchanged by this (287 after RecordingStore
+  PR3) and the greedy sequence stays the documented one.
+- 2026-11-07 (refactor branch, W4a): a semantic edge source, behind a flag. Not a Roslyn
+  extractor: `scripts/arch/ilgraph.py` parses the `ikdasm` dump of the built Parsek.dll (stdlib
+  Python, no new package; the DLL is built by every test run) and `semantic.py` measures the
+  same knot and residue over the text model's nodes, with a call to a forwarder credited to the
+  forwarded type. On 668a03255: text residue 179, semantic 150 (knot 432 vs 390); 712 text-only
+  and 637 IL-only edges, all classified (inlined constants, enum members and `nameof`, nested
+  qualifiers, text false positives on the text side; members reached through values, `var`,
+  inferred generics and base lists, which the text scan never reads, on the IL side). CI runs
+  its real-tree cells after the build (`PARSEK_ARCH_IL`). Also: `--check` and
+  `test_atlas_prose_matches_the_tree` now flag literal numbers in undated atlas prose that
+  disagree with the model (`PROSE_NUMBER_CLAIMS`). The ratchet still reads the text scan until
+  W4a2 switches it.
+- 2026-11-07 (refactor branch, W4a2): the residue ratchet reads the semantic graph:
+  `test_semantic.test_the_semantic_residue_ratchet`, bound 150 (min of greedy and replayed over
+  `SEMANTIC_CUT_ORDER` on 668a03255, a tree that still passed the text bound 179). The text
+  residue cell keeps measuring, unbounded, so deleting the RecordingStore metric forwarders (W4c)
+  no longer fights the ratchet. The ratchet runs only with `PARSEK_ARCH_IL` (CI after the build).
+  `WorkflowRunsTheRatchetTests` reds if the CI step that sets it stops running; measure the Debug
+  DLL (a Release build drops typed locals and can read lower).
+- 2026-11-08 (refactor branch, W4c, MOVE): the 11 RecordingStore metric-only forwarders are
+  deleted (the six RewindLauncher eligibility / launch calls, TreeCommitService x2,
+  TreeDiscardService, CommittedListOptimizer, SwitchSegmentAttempts) and their 20 call sites call
+  the service. il_compare: only those call targets change, plus the 11 removed methods. Semantic
+  residue 150 (unchanged), text residue 179 -> 193 (reported, unbounded).
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
@@ -4103,7 +5102,7 @@ fixture `InGameTests/Helpers/UnloadedFuelVesselFixture.cs`:
 `EnsureUnloadedLiquidFuelVessel(minStoredLf, minFreeCapacity, result)` (coroutine)
 (a) reuses any suitable pre-existing unloaded vessel (fast path, behavior-identical
 for saves that already have one); else (b) snapshots the ActiveVessel via
-`VesselSpawner.TryBackupSnapshot`, rewrites its LiquidFuel RESOURCE amounts via the
+`FlightRecorder.TryBackupSnapshot`, rewrites its LiquidFuel RESOURCE amounts via the
 pure `AdjustSnapshotLiquidFuel` (>= minStoredLf stored, >= minFreeCapacity free,
 flowState forced True) and spawns a FRESH-identity copy (preserveIdentity:false ->
 regenerated pid, no collision) into a high (~250 km) parking ORBIT far from the
@@ -4178,10 +5177,11 @@ Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-a
 - **Fix:** `ArrivalHoldPlanner.UsesMoonConfigurationHold` routes the lone-moon shape (one constrained moon, no landing rotation in force) into the existing M-MIS-6 configuration hold (`T = P_moon`; a tidally locked moon landing collapses for free; a non-locked moon landing declines with an amber when its spin and orbit do not recur within the slack). `MissionLoopUnitBuilder.ComputeArrivalHoldKeepingMoonLoiterWhole` tries any moon configuration hold (lone or multi-moon) with the destination parking loiter whole (launch-side cuts only), so the entry hold is not ambered by the destination cut; the cost is replaying the recorded destination parking in full. If the hold still declines (loop slack, no recurrence, no window) the original cuts come back with that amber, so a declined hold keeps the compressed loiter. Planet landing with alignment on keeps the shipped rotation hold. Tests: `LoneMoonArrivalHoldTests` (16), in-game `LoneMoonHoldInGameTest` (category `MoonArrivalHold`, every moon of every planet against the live bodies). Flight lanes: the moon flight-test program below.
 - **Live proof (2026-11-07, PR #2468 DLL sha256 deeb466b):** the three Group A loop lanes engaged the lone-moon hold on the moon's period: V31M Ike (`2026-11-07_2248`, `Talign=65517.86s moons=1 hold=2282.87s`), V32M Gilly (`_2252`, `Talign=388587.38s`, engaged, no decline), V33M Laythe (`_2254`, `Talign=52980.88s`); V31T (`_2258`) and V32T (`_2300`) put the Tracking Station ghost icon on Ike and Gilly after a jump past the replayed moon SOI entry. Every lane passed the `MoonArrivalHold` batch, no amber, zero ERROR lines. Rows in autotest-status.md.
 
-### MOON-TO-MOON-LOOP-NOT-RETIMED - a loop that starts at one moon and ends at another replays on a fixed cadence [OPEN, owner pick 2026-11-07: after the refactor branch merges]
+### ~~MOON-TO-MOON-LOOP-NOT-RETIMED - a loop that starts at one moon and ends at another replays on a fixed cadence~~ [DONE 2026-11-10 on the refactor branch, owner pick 2026-11-07]
 
 - **What the player sees:** loop a Laythe -> Vall (or Mun -> Minmus) recording. It repeats at the plain loop spacing while both moons move, so the ghost jumps when it leaves the first moon and again when it reaches the second. Measured by V17M / V21M (faithful, `PhaseLock SKIPPED ... support=UnsupportedCrossParent`, re-aim declined on the two-burn parent-relay profile).
 - **Fix plan (owner pick):** space the loops so both moons are back in place (a sibling-moon phase-lock): no new paths are drawn, the hop replays exactly as recorded. `MissionPeriodicity.ExtractConstraints` must treat the climb into the shared parent's SOI as no constraint and emit the launch moon's and target moon's orbital periods about the shared parent; the recurrence scan (`TryFindNextScheduleK`) does the rest. Laythe:Vall recurs every Vall period; Mun:Minmus at about 4 Minmus orbits (~200 Kerbin days); a pair that does not recur stays faithful with the reason shown. NOT per-leg Lambert re-aim (M-MIS-7 consumer (a), rejected by `same-parent-reaim-jool-system.md` section 6). Waits for the refactor branch because wave 2 W1c reorganizes `MissionPeriodicity`'s references.
+- **Fix (2026-11-10, built on `claude/project-thread-bkwmrr`):** rule 4a, the moon-rooted frame (`MissionPeriodicity.ResolveMoonRootedFrameParent`): when the launch body is a moon and every other included orbit body is its planet or a sibling moon, each sibling emits a Supported `Orbital(C)`, the planet emits nothing, and `Orbital(launch moon)` is added, pinned at the launch-moon SOI exit (not the parking-orbit entry, so a phasing loiter around the launch moon moves the check with the exit; `Schedule_MunParkThenMinmus_LaunchMoonPinnedAtSoiExit_UnderPhasingKnob`), once the mission leaves the launch moon (one Verbose `moon-rooted frame` line per extraction). The existing joint solve and zero-drift schedule do the spacing; no recurrence scan was needed. Covers moon -> moon, moon -> planet orbit and moon -> planet landing; a moon launch that leaves the planet's SOI keeps the cross-parent path. Unit tests in `MissionPeriodicityTests` (the Mun-launch Kerbin-return pin flipped from UnsupportedCrossParent to Supported). Known limits, unchanged playback: a moon launch that rendezvouses with a station orbiting the PLANET now reads UnsupportedRendezvous instead of UnsupportedCrossParent (both replay unaligned on the raw cadence); an untidally-locked launch moon with no on-rails orbit segment gets no pad rotation lock (same gap as a planet launch). Lanes V17M/V17T, V19M/V19T and V21M/V21T pin the old `PhaseLock SKIPPED ... UnsupportedCrossParent` clock and owe a re-pinned re-fly in the refactor test batch. Refactor batch 2026-11-11: V17T, V19M, V19T, V21M, V21T green on the predicted clock; V17M needed both Watch pins flipped to OK (#2559, the one ghost is now inside watch range) and its Vall anti-vacuity token moved from the segment-less-tail `segIdx=11 TracedPath` form (only an overlapping instance ever reached the tail: a non-overlapping loop ghost's map proto is removed there, `left-orbit-segments`) to the arrival-segment `segIdx=10 StockConic ... body=Vall` form measured in runs `2026-11-11_0642` / `_0650`. Not a refactor regression: the old token's matches all came from the old-clock overlap instances.
 
 ### MOON-FLIGHT-TEST-PROGRAM - flight lanes for every moon combination [OPEN, owner ask 2026-11-07]
 

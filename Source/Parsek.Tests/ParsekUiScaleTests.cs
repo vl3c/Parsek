@@ -301,7 +301,7 @@ namespace Parsek.Tests
         [InlineData("ParsekFlight.cs", "BeginHost(\"WatchOverlay\")")]
         public void EachDrawHostOpensAScaleScope(string file, string needle)
         {
-            string raw = File.ReadAllText(Path.Combine(SourceRoot(), file));
+            string raw = ParsekFlightSourceFiles.ReadText(Path.Combine(SourceRoot(), file));
             Assert.Contains("ParsekUiScale." + needle, raw);
         }
 
@@ -311,7 +311,7 @@ namespace Parsek.Tests
         public void WindowHostsSweepStaleScaledLocksBeforeTheirEarlyReturns(string file)
         {
             string src = SourceScanText.StripCommentsAndMaskLiterals(
-                File.ReadAllText(Path.Combine(SourceRoot(), file)));
+                ParsekFlightSourceFiles.ReadText(Path.Combine(SourceRoot(), file)));
             int onGui = src.IndexOf("void OnGUI()", StringComparison.Ordinal);
             Assert.True(onGui >= 0, file + ": no OnGUI");
             int sweep = src.IndexOf("ParsekUiScale.SweepStaleLocks()", onGui, StringComparison.Ordinal);
@@ -338,7 +338,7 @@ namespace Parsek.Tests
                 if (rel.StartsWith("obj/", StringComparison.Ordinal)
                     || rel.StartsWith("bin/", StringComparison.Ordinal))
                     continue;
-                string src = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                string src = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 if (rx.IsMatch(src)) hits.Add(rel);
             }
             Assert.True(Directory.Exists(root), "source root moved, this gate is vacuous: " + root);

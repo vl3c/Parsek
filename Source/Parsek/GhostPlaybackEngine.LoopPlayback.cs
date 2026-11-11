@@ -365,46 +365,9 @@ namespace Parsek
             // launches overlap — use multi-cycle path.
             if (GhostPlaybackLogic.IsOverlapLoop(intervalSeconds, duration))
             {
-                bool suppressOverlapGhosts = false;
-                if (suppressGhosts
-                    && (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
-                            ctx.currentUT,
-                            intervalSeconds,
-                            duration,
-                            playbackStartUT,
-                            scheduleStartUT,
-                            out double overlapLoopUT,
-                            out _)
-                        || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
-                            ctx.warpRate, traj, overlapLoopUT)))
-                {
-                    GhostRenderTrace.EmitGuardSkip(
-                        traj, index, ctx.currentUT, "overlap-loop-warp-hidden");
-                    if (ghostActive && state.ghost.activeSelf)
-                    {
-                        state.ghost.SetActive(false);
-                        ParsekLog.Info("Engine",
-                            $"Ghost #{index} \"{traj.VesselName}\" (loop) hidden: warp > {WarpThresholds.GhostHide}x");
-                        OnLoopCameraAction?.Invoke(new CameraActionEvent
-                        {
-                            Index = index, Action = CameraActionType.ExitWatch,
-                            Trajectory = traj, Flags = flags
-                        });
-                    }
-                    DestroyAllOverlapGhosts(index);
-                    CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
-                    return;
-                }
-                else if (suppressGhosts)
-                {
-                    // Keep the newest stationary primary mesh visible, but continue
-                    // culling overlap clones at high warp for the original perf reason.
-                    suppressOverlapGhosts = true;
-                }
-
-                UpdateOverlapPlayback(index, traj, flags, ctx, state,
-                    intervalSeconds, duration, playbackStartUT, scheduleStartUT,
-                    suppressVisualFx, suppressOverlapGhosts);
+                UpdateOverlapLoopDispatch(
+                    index, traj, flags, ctx, state, ghostActive, suppressGhosts, suppressVisualFx,
+                    intervalSeconds, duration, playbackStartUT, scheduleStartUT);
                 return;
             }
 
@@ -429,22 +392,7 @@ namespace Parsek
             if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
                     ctx.warpRate, traj, loopUT))
             {
-                GhostRenderTrace.EmitGuardSkip(
-                    traj, index, ctx.currentUT, "loop-warp-hidden");
-                if (ghostActive && state.ghost.activeSelf)
-                {
-                    state.ghost.SetActive(false);
-                    ParsekLog.Info("Engine",
-                        $"Ghost #{index} \"{traj.VesselName}\" (loop) hidden: warp > {WarpThresholds.GhostHide}x");
-                    // Fire camera event so host can exit watch mode
-                    OnLoopCameraAction?.Invoke(new CameraActionEvent
-                    {
-                        Index = index, Action = CameraActionType.ExitWatch,
-                        Trajectory = traj, Flags = flags
-                    });
-                }
-                DestroyAllOverlapGhosts(index);
-                CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                HideLoopGhostAtWarp(index, traj, flags, ctx, state, ghostActive);
                 return;
             }
 
@@ -452,105 +400,7 @@ namespace Parsek
             bool cycleChanged = HasLoopCycleChanged(state, cycleIndex);
             if (cycleChanged && state != null)
             {
-                if (!HasLoadedGhostVisuals(state))
-                {
-                    // Bug #450 B2: split first-spawn builds can survive across a loop
-                    // boundary before any ghost GameObject exists. Advance the cycle index
-                    // so the pending spawn eventually finalizes against the current cycle,
-                    // but do NOT emit restart / explosion-hold events for a ghost that
-                    // never actually spawned.
-                    ReusePrimaryGhostAcrossCycle(index, traj, flags, state, loopUT, cycleIndex);
-                }
-                else
-                {
-                // Position at the loop endpoint so explosion appears at the real loop end.
-                    // Bug #613 (PR #594 P1 round 2): clear retire signal so we
-                    // can detect a fresh retirement raised by the loop-endpoint
-                    // positioner (PositionGhostAtLoopEndpoint -> PositionLoop ->
-                    // relative-frame retire branch). Without this, the side
-                    // effects below (explosion FX, ExplosionHold camera event,
-                    // LoopRestarted with ExplosionPosition) all fire from a
-                    // stale (0,0,0) transform when the LoopAnchor pid is
-                    // unresolvable post-rewind.
-                    state.anchorRetiredThisFrame = false;
-                    PositionGhostAtLoopEndpoint(
-                        index, traj, flags, state, ctx.currentUT, ctx.warpRate);
-
-                    bool loopEndpointRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                        state.anchorRetiredThisFrame);
-
-                    bool needsExplosion = !loopEndpointRetired
-                    && !state.explosionFired
-                    && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
-                        traj, ResolveLoopPlaybackEndpointUT(traj));
-
-                    if (loopEndpointRetired)
-                    {
-                        ParsekLog.VerboseRateLimited("Engine", $"loop-endpoint-suppressed-{index}",
-                            $"loop endpoint side effects suppressed: anchor retired ghost #{index} \"{traj.VesselName}\" cycle={cycleIndex}");
-                    }
-
-                    if (needsExplosion)
-                        TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
-
-                    // Fire camera event for cycle change (host handles camera anchor/hold/retarget)
-                    if (!loopEndpointRetired)
-                    {
-                        OnLoopCameraAction?.Invoke(new CameraActionEvent
-                        {
-                            Index = index,
-                            Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
-                            AnchorPosition = state.ghost.transform.position,
-                            HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
-                            Trajectory = traj, Flags = flags
-                        });
-
-                        // Fire loop restarted event
-                        OnLoopRestarted?.Invoke(new LoopRestartedEvent
-                        {
-                            Index = index, Trajectory = traj, State = state, Flags = flags,
-                            PreviousCycleIndex = state.loopCycleIndex,
-                            NewCycleIndex = cycleIndex,
-                            ExplosionFired = needsExplosion,
-                            ExplosionPosition = state.ghost.transform.position
-                        });
-                    }
-
-                    GhostPlaybackLogic.ResetReentryFx(state, index);
-
-                    // #406 follow-up: reuse the ghost GameObject across the loop
-                    // cycle boundary instead of destroy+spawn. The reuse preserves
-                    // the ghost hierarchy, reentryFxInfo, reentryFxPendingBuild
-                    // (#450 B3), all info dictionaries, cameraPivot identity,
-                    // and horizonProxy; it resets playback iterators, explosionFired,
-                    // pauseHidden, rcsSuppressed, lightPlaybackStates, fakeCanopies,
-                    // logicalPartIds (re-materialised from snapshot), and part
-                    // visibility (previous-cycle decoupled parts get reactivated).
-                    // This path does NOT consume a #414 spawn slot and does NOT
-                    // increment frameLazyReentryBuildCount. See
-                    // docs/dev/plan-406-ghost-reuse-loop-cycles.md for the full
-                    // preservation table.
-                    //
-                    // Suppress the retarget camera event when an explosion was just
-                    // emitted: ExplosionHoldStart already set the watch handler into
-                    // hold (watchedOverlapCycleIndex == -2) and a follow-up
-                    // RetargetToNewGhost would be ignored anyway. The contract is
-                    // "one OnLoopCameraAction per cycle boundary" — see
-                    // RuntimeTests.ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold.
-                    // Non-destroyed boundaries (ExplosionHoldEnd) still need the
-                    // retarget so the watch handler swaps the bridge anchor for
-                    // the new cycle's pivot.
-                    ReusePrimaryGhostAcrossCycle(
-                        index, traj, flags, state, loopUT, cycleIndex,
-                        // #613 P1 round 2: also suppress retarget when retired —
-                        // the ghost was just hidden and there is no real
-                        // (post-positioning) world position to anchor a camera
-                        // retarget on this cycle boundary.
-                        emitRetargetEvent: !needsExplosion && !loopEndpointRetired);
-                    // state is the same object; loaded-ghost path keeps visuals live, and
-                    // pending-build path above just advances the cycle index without
-                    // emitting restart side effects.
-                }
+                HandleLoopCycleBoundary(index, traj, flags, ctx, state, loopUT, cycleIndex);
             }
 
             if (TryHandleParentAnchoredDebrisCoverageRetired(
@@ -569,34 +419,8 @@ namespace Parsek
 
             if (state == null)
             {
-                // True first-spawn path: no ghost has ever existed this session
-                // for this recording. Safe to throttle via the #414 spawn slot
-                // cap because nothing visible is being replaced. Post-#406 the
-                // cycle-rebuild branch above never falls through here — it
-                // always reuses the existing ghost — so the throttle is always
-                // safe on this line.
-                if (!TryReserveSpawnSlot(index, "loop-first-spawn"))
+                if (!TrySpawnLoopFirstGhost(index, traj, flags, loopUT, cycleIndex, ref state, ref ghostActive))
                     return;
-                state = CreatePendingSpawnState(
-                    traj, loopUT, PendingSpawnLifecycle.LoopEnter, flags);
-                state.loopCycleIndex = cycleIndex;
-                ghostStates[index] = state;
-                GhostVisualLoadStatus loopSpawnStatus = EnsureGhostVisualsLoaded(
-                    index, traj, state, loopUT, "loop first spawn",
-                    resetCompletedEventDedup: true);
-                if (loopSpawnStatus == GhostVisualLoadStatus.Failed)
-                {
-                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
-                    ghostStates.Remove(index);
-                    return;
-                }
-                QueueOrEmitGhostSpawnPending(index, traj, state, flags);
-                if (loopSpawnStatus == GhostVisualLoadStatus.Pending)
-                {
-                    ghostActive = false;
-                    return;
-                }
-                ghostActive = true;
             }
 
             if (state == null)
@@ -623,23 +447,7 @@ namespace Parsek
 
             if (!HasLoadedGhostVisuals(state))
             {
-                // Bug #414: throttle loop distance-tier rehydration.
-                string loopReloadSite = state.pendingSpawnLifecycle != PendingSpawnLifecycle.None
-                    ? "loop-first-spawn-continue"
-                    : "loop-distance-tier-rehydrate";
-                if (!TryReserveSpawnSlot(index, loopReloadSite))
-                    return;
-                GhostVisualLoadStatus loopLoadStatus = EnsureGhostVisualsLoaded(
-                    index, traj, state, loopUT,
-                    state.pendingSpawnLifecycle != PendingSpawnLifecycle.None
-                        ? "continuing loop first spawn"
-                        : "loop re-entered visible distance tier");
-                if (loopLoadStatus == GhostVisualLoadStatus.Failed)
-                {
-                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
-                    return;
-                }
-                if (loopLoadStatus == GhostVisualLoadStatus.Pending)
+                if (!TryRehydrateLoopGhostVisuals(index, traj, state, loopUT))
                     return;
             }
 
@@ -655,6 +463,222 @@ namespace Parsek
                 return;
             }
 
+            RenderLoopPrimaryFrame(index, traj, ctx, state, loopUT, skipLoopPartEvents, effectiveSuppressVisualFx);
+        }
+
+        /// <summary>
+        /// The warp hide of <see cref="UpdateLoopingPlayback"/>: at high warp a moving loop ghost is hidden (with
+        /// the watch-exit camera event when it was showing), its overlap clones are destroyed and the frame skip is
+        /// counted. The caller returns after it.
+        /// </summary>
+        internal void HideLoopGhostAtWarp(int index, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags, FrameContext ctx, GhostPlaybackState state, bool ghostActive)
+        {
+            GhostRenderTrace.EmitGuardSkip(
+                traj, index, ctx.currentUT, "loop-warp-hidden");
+            if (ghostActive && state.ghost.activeSelf)
+            {
+                state.ghost.SetActive(false);
+                ParsekLog.Info("Engine",
+                    $"Ghost #{index} \"{traj.VesselName}\" (loop) hidden: warp > {WarpThresholds.GhostHide}x");
+                // Fire camera event so host can exit watch mode
+                OnLoopCameraAction?.Invoke(new CameraActionEvent
+                {
+                    Index = index, Action = CameraActionType.ExitWatch,
+                    Trajectory = traj, Flags = flags
+                });
+            }
+            DestroyAllOverlapGhosts(index);
+            CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+        }
+
+        /// <summary>
+        /// The cycle boundary of <see cref="UpdateLoopingPlayback"/>, for a ghost state that exists: a pending
+        /// (never built) ghost only advances its cycle index; a loaded one is positioned at the loop endpoint,
+        /// fires the explosion and the camera / restart events unless the anchor retired there, and is reused
+        /// for the new cycle.
+        /// </summary>
+        internal void HandleLoopCycleBoundary(int index, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags, FrameContext ctx, GhostPlaybackState state,
+            double loopUT, long cycleIndex)
+        {
+            if (!HasLoadedGhostVisuals(state))
+            {
+                // Bug #450 B2: split first-spawn builds can survive across a loop
+                // boundary before any ghost GameObject exists. Advance the cycle index
+                // so the pending spawn eventually finalizes against the current cycle,
+                // but do NOT emit restart / explosion-hold events for a ghost that
+                // never actually spawned.
+                ReusePrimaryGhostAcrossCycle(index, traj, flags, state, loopUT, cycleIndex);
+            }
+            else
+            {
+            // Position at the loop endpoint so explosion appears at the real loop end.
+                // Bug #613 (PR #594 P1 round 2): clear retire signal so we
+                // can detect a fresh retirement raised by the loop-endpoint
+                // positioner (PositionGhostAtLoopEndpoint -> PositionLoop ->
+                // relative-frame retire branch). Without this, the side
+                // effects below (explosion FX, ExplosionHold camera event,
+                // LoopRestarted with ExplosionPosition) all fire from a
+                // stale (0,0,0) transform when the LoopAnchor pid is
+                // unresolvable post-rewind.
+                state.anchorRetiredThisFrame = false;
+                PositionGhostAtLoopEndpoint(
+                    index, traj, flags, state, ctx.currentUT, ctx.warpRate);
+
+                bool loopEndpointRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                    state.anchorRetiredThisFrame);
+
+                bool needsExplosion = !loopEndpointRetired
+                && !state.explosionFired
+                && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
+                    traj, ResolveLoopPlaybackEndpointUT(traj));
+
+                if (loopEndpointRetired)
+                {
+                    ParsekLog.VerboseRateLimited("Engine", $"loop-endpoint-suppressed-{index}",
+                        $"loop endpoint side effects suppressed: anchor retired ghost #{index} \"{traj.VesselName}\" cycle={cycleIndex}");
+                }
+
+                if (needsExplosion)
+                    TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
+
+                // Fire camera event for cycle change (host handles camera anchor/hold/retarget)
+                if (!loopEndpointRetired)
+                {
+                    OnLoopCameraAction?.Invoke(new CameraActionEvent
+                    {
+                        Index = index,
+                        Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
+                        AnchorPosition = state.ghost.transform.position,
+                        HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
+                        Trajectory = traj, Flags = flags
+                    });
+
+                    // Fire loop restarted event
+                    OnLoopRestarted?.Invoke(new LoopRestartedEvent
+                    {
+                        Index = index, Trajectory = traj, State = state, Flags = flags,
+                        PreviousCycleIndex = state.loopCycleIndex,
+                        NewCycleIndex = cycleIndex,
+                        ExplosionFired = needsExplosion,
+                        ExplosionPosition = state.ghost.transform.position
+                    });
+                }
+
+                GhostPlaybackLogic.ResetReentryFx(state, index);
+
+                // #406 follow-up: reuse the ghost GameObject across the loop
+                // cycle boundary instead of destroy+spawn. The reuse preserves
+                // the ghost hierarchy, reentryFxInfo, reentryFxPendingBuild
+                // (#450 B3), all info dictionaries, cameraPivot identity,
+                // and horizonProxy; it resets playback iterators, explosionFired,
+                // pauseHidden, rcsSuppressed, lightPlaybackStates, fakeCanopies,
+                // logicalPartIds (re-materialised from snapshot), and part
+                // visibility (previous-cycle decoupled parts get reactivated).
+                // This path does NOT consume a #414 spawn slot and does NOT
+                // increment frameLazyReentryBuildCount. See
+                // docs/dev/plan-406-ghost-reuse-loop-cycles.md for the full
+                // preservation table.
+                //
+                // Suppress the retarget camera event when an explosion was just
+                // emitted: ExplosionHoldStart already set the watch handler into
+                // hold (watchedOverlapCycleIndex == -2) and a follow-up
+                // RetargetToNewGhost would be ignored anyway. The contract is
+                // "one OnLoopCameraAction per cycle boundary" — see
+                // RuntimeTests.ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold.
+                // Non-destroyed boundaries (ExplosionHoldEnd) still need the
+                // retarget so the watch handler swaps the bridge anchor for
+                // the new cycle's pivot.
+                ReusePrimaryGhostAcrossCycle(
+                    index, traj, flags, state, loopUT, cycleIndex,
+                    // #613 P1 round 2: also suppress retarget when retired —
+                    // the ghost was just hidden and there is no real
+                    // (post-positioning) world position to anchor a camera
+                    // retarget on this cycle boundary.
+                    emitRetargetEvent: !needsExplosion && !loopEndpointRetired);
+                // state is the same object; loaded-ghost path keeps visuals live, and
+                // pending-build path above just advances the cycle index without
+                // emitting restart side effects.
+            }
+        }
+
+        /// <summary>
+        /// The first spawn of <see cref="UpdateLoopingPlayback"/> (no ghost state yet): reserve a spawn slot,
+        /// register the pending state and start its visual build. Returns false when the caller must return
+        /// this frame (throttled, build failed, or build still pending).
+        /// </summary>
+        internal bool TrySpawnLoopFirstGhost(int index, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags, double loopUT, long cycleIndex,
+            ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            // True first-spawn path: no ghost has ever existed this session
+            // for this recording. Safe to throttle via the #414 spawn slot
+            // cap because nothing visible is being replaced. Post-#406 the
+            // cycle-rebuild branch above never falls through here — it
+            // always reuses the existing ghost — so the throttle is always
+            // safe on this line.
+            if (!TryReserveSpawnSlot(index, "loop-first-spawn"))
+                return false;
+            state = CreatePendingSpawnState(
+                traj, loopUT, PendingSpawnLifecycle.LoopEnter, flags);
+            state.loopCycleIndex = cycleIndex;
+            ghostStates[index] = state;
+            GhostVisualLoadStatus loopSpawnStatus = EnsureGhostVisualsLoaded(
+                index, traj, state, loopUT, "loop first spawn",
+                resetCompletedEventDedup: true);
+            if (loopSpawnStatus == GhostVisualLoadStatus.Failed)
+            {
+                CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
+                ghostStates.Remove(index);
+                return false;
+            }
+            QueueOrEmitGhostSpawnPending(index, traj, state, flags);
+            if (loopSpawnStatus == GhostVisualLoadStatus.Pending)
+            {
+                ghostActive = false;
+                return false;
+            }
+            ghostActive = true;
+            return true;
+        }
+
+        /// <summary>
+        /// The visual rehydrate of <see cref="UpdateLoopingPlayback"/> for a visible state with no loaded
+        /// visuals (a first spawn still building, or a ghost back inside the visible distance tier). Returns
+        /// false when the caller must return this frame (throttled, build failed, or build still pending).
+        /// </summary>
+        internal bool TryRehydrateLoopGhostVisuals(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, double loopUT)
+        {
+            // Bug #414: throttle loop distance-tier rehydration.
+            string loopReloadSite = state.pendingSpawnLifecycle != PendingSpawnLifecycle.None
+                ? "loop-first-spawn-continue"
+                : "loop-distance-tier-rehydrate";
+            if (!TryReserveSpawnSlot(index, loopReloadSite))
+                return false;
+            GhostVisualLoadStatus loopLoadStatus = EnsureGhostVisualsLoaded(
+                index, traj, state, loopUT,
+                state.pendingSpawnLifecycle != PendingSpawnLifecycle.None
+                    ? "continuing loop first spawn"
+                    : "loop re-entered visible distance tier");
+            if (loopLoadStatus == GhostVisualLoadStatus.Failed)
+            {
+                CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
+                return false;
+            }
+            if (loopLoadStatus == GhostVisualLoadStatus.Pending)
+                return false;
+            return true;
+        }
+
+        /// <summary>
+        /// The primary frame of <see cref="UpdateLoopingPlayback"/> outside the pause window: position the loop
+        /// ghost, then apply its visuals, or stop its FX when the positioner retired the anchor.
+        /// </summary>
+        internal void RenderLoopPrimaryFrame(int index, IPlaybackTrajectory traj, FrameContext ctx,
+            GhostPlaybackState state, double loopUT, bool skipLoopPartEvents, bool effectiveSuppressVisualFx)
+        {
             // Bug #613 (PR #594 P1): clear the per-frame retire signal before
             // positioning. The relative loop positioner sets it back to true
             // if the recorded anchor is unresolvable.
@@ -695,6 +719,68 @@ namespace Parsek
                         effectiveSuppressVisualFx))
                     GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
             }
+        }
+
+        /// <summary>
+        /// The overlap branch of <see cref="UpdateLoopingPlayback"/> (#381: the period is shorter than the
+        /// recording, so launches overlap): at warp, either hide everything (the newest overlap instance cannot be
+        /// resolved or its mesh is warp-suppressed) or keep the newest primary and cull the clones; then run the
+        /// multi-cycle overlap playback. The caller returns after it.
+        /// </summary>
+        internal void UpdateOverlapLoopDispatch(
+            int index,
+            IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags,
+            FrameContext ctx,
+            GhostPlaybackState state,
+            bool ghostActive,
+            bool suppressGhosts,
+            bool suppressVisualFx,
+            double intervalSeconds,
+            double duration,
+            double playbackStartUT,
+            double scheduleStartUT)
+        {
+            bool suppressOverlapGhosts = false;
+            if (suppressGhosts
+                && (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                        ctx.currentUT,
+                        intervalSeconds,
+                        duration,
+                        playbackStartUT,
+                        scheduleStartUT,
+                        out double overlapLoopUT,
+                        out _)
+                    || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                        ctx.warpRate, traj, overlapLoopUT)))
+            {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, index, ctx.currentUT, "overlap-loop-warp-hidden");
+                if (ghostActive && state.ghost.activeSelf)
+                {
+                    state.ghost.SetActive(false);
+                    ParsekLog.Info("Engine",
+                        $"Ghost #{index} \"{traj.VesselName}\" (loop) hidden: warp > {WarpThresholds.GhostHide}x");
+                    OnLoopCameraAction?.Invoke(new CameraActionEvent
+                    {
+                        Index = index, Action = CameraActionType.ExitWatch,
+                        Trajectory = traj, Flags = flags
+                    });
+                }
+                DestroyAllOverlapGhosts(index);
+                CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                return;
+            }
+            else if (suppressGhosts)
+            {
+                // Keep the newest stationary primary mesh visible, but continue
+                // culling overlap clones at high warp for the original perf reason.
+                suppressOverlapGhosts = true;
+            }
+
+            UpdateOverlapPlayback(index, traj, flags, ctx, state,
+                intervalSeconds, duration, playbackStartUT, scheduleStartUT,
+                suppressVisualFx, suppressOverlapGhosts);
         }
 
         /// <summary>
@@ -1484,7 +1570,9 @@ namespace Parsek
             double phaseOffset;
             if (recIdx >= 0 && loopPhaseOffsets.TryGetValue(recIdx, out phaseOffset))
             {
-                ParsekLog.Verbose("Engine", $"TryComputeLoopPlaybackUT: applying phase offset {phaseOffset:F2}s for recIdx={recIdx}");
+                ParsekLog.Verbose("Engine", "TryComputeLoopPlaybackUT: applying phase offset " +
+                    phaseOffset.ToString("F2", CultureInfo.InvariantCulture) + "s for recIdx=" +
+                    recIdx.ToString(CultureInfo.InvariantCulture));
                 scheduleStartUT -= phaseOffset;
             }
 

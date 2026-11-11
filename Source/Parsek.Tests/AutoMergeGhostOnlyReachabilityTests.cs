@@ -18,7 +18,7 @@ namespace Parsek.Tests
     ///
     /// <list type="number">
     /// <item>The <c>isPending</c> on-disk marker really is structurally
-    /// re-finalized — <c>RecordingStore.RestorePendingTreeFromSave</c> hard-sets
+    /// re-finalized — <c>PendingTreeSlot.RestorePendingTreeFromSave</c> hard-sets
     /// <see cref="PendingTreeState.Finalized"/>, so a tree that round-trips through
     /// THAT marker can never reach the ghost-only branch.</item>
     /// <item>But it is not the only marker. A Limbo / LimboVesselSwitch pending tree
@@ -61,7 +61,7 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             RewindContext.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             // Every cell here asks its question at a NON-FLIGHT scene on purpose:
             // that is the precondition the auto-commit block itself gates on
             // (`HighLogic.LoadedScene != GameScenes.FLIGHT`).
@@ -102,12 +102,12 @@ namespace Parsek.Tests
             bool restored = ParsekScenario.TryRestorePendingTreeNode(node);
 
             Assert.True(restored);
-            Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+            Assert.Equal(PendingTreeState.Finalized, PendingTreeSlot.PendingTreeStateValue);
             // The whole point: at a non-FLIGHT scene, autoMerge ON, no re-fly, this
             // state takes the FULL-FIDELITY branch, not the ghost-only one.
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.SilentFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
         }
 
         // ---------------------------------------------------------------------
@@ -125,9 +125,9 @@ namespace Parsek.Tests
             bool restored = ParsekScenario.TryRestoreActiveTreeNode(node);
 
             Assert.True(restored);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             // A NON-Finalized pending tree, restored from disk, at SPACECENTER.
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
             // PRE-FIX this asserted the ghost-only route. The reachability claim the
             // cell was written to make is UNCHANGED and still what matters — this
             // state does come off disk outside FLIGHT — but what the site DOES with
@@ -138,7 +138,7 @@ namespace Parsek.Tests
             // could no longer distinguish what this cell is about.
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
         }
 
         [Fact]
@@ -153,10 +153,10 @@ namespace Parsek.Tests
             AddTreeNode(node, tree, marker: "isActive");
 
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(node));
-            Assert.Equal(PendingTreeState.LimboVesselSwitch, RecordingStore.PendingTreeStateValue);
+            Assert.Equal(PendingTreeState.LimboVesselSwitch, PendingTreeSlot.PendingTreeStateValue);
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
         }
 
         // ---------------------------------------------------------------------
@@ -171,7 +171,7 @@ namespace Parsek.Tests
             Assert.NotEqual(GameScenes.FLIGHT, HighLogic.LoadedScene);
 
             var tree = MakeTree("tree_limbo_roundtrip", "Limbo Roundtrip", "rec_limbo_roundtrip");
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             var saved = new ConfigNode("PARSEK_SCENARIO");
             ParsekScenario.SaveTreeRecordings(saved);
@@ -184,9 +184,9 @@ namespace Parsek.Tests
 
             // Now read the SAME node back on a fresh store, still outside FLIGHT.
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             Assert.True(ParsekScenario.TryRestoreActiveTreeNode(saved));
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.Equal(PendingTreeState.Limbo, PendingTreeSlot.PendingTreeStateValue);
         }
 
         // ---------------------------------------------------------------------
@@ -228,14 +228,14 @@ namespace Parsek.Tests
             var tree = MakeTree("tree_limbo_fidelity", "Limbo Fidelity", "rec_limbo_fidelity_a");
             tree.Recordings["rec_limbo_fidelity_a"].VesselSnapshot = MakeSnapshotNode("A");
             AddRecording(tree, "rec_limbo_fidelity_b", withSnapshot: true);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             // The route, and then EXACTLY what the site does with it: the dialog's
             // own decisions, applied by the dialog's own ApplyVesselDecisions —
             // which is what MergeDialog.MergeCommit runs first.
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
 
             var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
             int released;
@@ -271,11 +271,11 @@ namespace Parsek.Tests
             var tree = MakeTree("tree_limbo_unsafe", "Limbo Unsafe", "rec_limbo_unsafe");
             tree.Recordings["rec_limbo_unsafe"].VesselSnapshot =
                 MakeSnapshotNode("Unspawnable", sit);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
 
             var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
             int released;
@@ -341,11 +341,11 @@ namespace Parsek.Tests
             var tree = Generators.ScenarioWriter.MaterializeTree(
                 Generators.PendingLimboTreeFixture.BuildBuilders(baseUT: 1000.0),
                 activeRecordingId: Generators.PendingLimboTreeFixture.ChildRecordingId);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Limbo);
 
             AssertRoute(
                 ParsekScenario.AutoCommitFidelity.LimboPreservingFullFidelity,
-                RecordingStore.PendingTreeStateValue);
+                PendingTreeSlot.PendingTreeStateValue);
 
             var decisions = MergeDialog.BuildDefaultVesselDecisions(tree);
             int spawnable = 0;
@@ -395,7 +395,7 @@ namespace Parsek.Tests
 
         /// <summary>
         /// A snapshot node carrying a `sit`, because a real one always does — they are
-        /// written by <c>VesselSpawner.TryBackupSnapshot</c> -> <c>ProtoVessel.Save</c>.
+        /// written by <c>FlightRecorder.TryBackupSnapshot</c> -> <c>ProtoVessel.Save</c>.
         /// The default is ORBITING (stable and spawnable) so a cell that does not care
         /// about the situation still exercises a shape the product actually produces.
         /// The un-finalized spawn gate reads this field, so a sit-less node would

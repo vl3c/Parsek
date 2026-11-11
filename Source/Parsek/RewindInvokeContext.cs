@@ -19,7 +19,7 @@ namespace Parsek
     /// <para>
     /// Mirrors the prior-art pattern in <see cref="RewindContext"/>, which carries
     /// legacy rewind-to-launch state across the same kind of scene reload
-    /// (<see cref="RecordingStore.InitiateRewind"/>).
+    /// (<see cref="RewindLauncher.InitiateRewind"/>).
     /// </para>
     /// </summary>
     internal static class RewindInvokeContext

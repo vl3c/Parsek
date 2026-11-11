@@ -190,7 +190,7 @@ namespace Parsek
             ///     and returns NaN so the caller's outer guard falls back to
             ///     the legacy lerp.</item>
             /// </list>
-            /// Extracted from <c>ParsekFlight.InterpolateAndPosition</c> so
+            /// Extracted from <c>ParsekFlightGhostPositioner.InterpolateAndPosition</c> so
             /// the unknown-tag branch can be exercised in xUnit without Unity.
             /// </summary>
             internal static Vector3d DispatchSplineWorldByFrameTag(byte frameTag,

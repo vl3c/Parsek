@@ -119,12 +119,12 @@ namespace Parsek.Tests
         [Fact]
         public void PostSwitchSummaries_FormatDecisionAndManifestDeltas()
         {
-            string stateKey = ParsekFlight.BuildPostSwitchAutoRecordDecisionStateKey(
+            string stateKey = ParsekFlightPostSwitchAutoRecord.BuildPostSwitchAutoRecordDecisionStateKey(
                 ParsekFlight.PostSwitchAutoRecordSuppressionReason.WarpActive,
                 baselineCaptured: true,
                 waitingForSettle: false,
                 ParsekFlight.PostSwitchAutoRecordTrigger.None);
-            string manifestStateKey = ParsekFlight.BuildPostSwitchManifestDeltaStateKey(
+            string manifestStateKey = ParsekFlightPostSwitchAutoRecord.BuildPostSwitchManifestDeltaStateKey(
                 crewDeltaKeys: 1,
                 resourceDeltaKeys: 2,
                 inventoryDeltaKeys: 3,
@@ -132,7 +132,7 @@ namespace Parsek.Tests
                 crewChanged: true,
                 resourceChanged: true,
                 partStateChanged: true);
-            string decision = ParsekFlight.FormatPostSwitchAutoRecordDecisionSummary(
+            string decision = ParsekFlightPostSwitchAutoRecord.FormatPostSwitchAutoRecordDecisionSummary(
                 armedPid: 42,
                 activePid: 42,
                 baselineCaptured: true,
@@ -141,7 +141,7 @@ namespace Parsek.Tests
                 comparisonsReadyUt: 20.0,
                 currentUt: 21.5,
                 trigger: ParsekFlight.PostSwitchAutoRecordTrigger.None);
-            string manifest = ParsekFlight.FormatPostSwitchManifestDeltaSummary(
+            string manifest = ParsekFlightPostSwitchAutoRecord.FormatPostSwitchManifestDeltaSummary(
                 vesselPid: 42,
                 crewDeltaKeys: 1,
                 resourceDeltaKeys: 2,
@@ -169,20 +169,20 @@ namespace Parsek.Tests
         [Fact]
         public void PostSwitchManifestDeltaSummary_ReportsSkippedDiffs()
         {
-            string stateKey = ParsekFlight.BuildPostSwitchManifestDeltaStateKey(
+            string stateKey = ParsekFlightPostSwitchAutoRecord.BuildPostSwitchManifestDeltaStateKey(
                 crewDeltaKeys: 1,
-                resourceDeltaKeys: ParsekFlight.PostSwitchManifestDeltaSkipped,
-                inventoryDeltaKeys: ParsekFlight.PostSwitchManifestDeltaSkipped,
-                partStateTokenDelta: ParsekFlight.PostSwitchManifestDeltaSkipped,
+                resourceDeltaKeys: ParsekFlightPostSwitchAutoRecord.PostSwitchManifestDeltaSkipped,
+                inventoryDeltaKeys: ParsekFlightPostSwitchAutoRecord.PostSwitchManifestDeltaSkipped,
+                partStateTokenDelta: ParsekFlightPostSwitchAutoRecord.PostSwitchManifestDeltaSkipped,
                 crewChanged: true,
                 resourceChanged: false,
                 partStateChanged: false);
-            string manifest = ParsekFlight.FormatPostSwitchManifestDeltaSummary(
+            string manifest = ParsekFlightPostSwitchAutoRecord.FormatPostSwitchManifestDeltaSummary(
                 vesselPid: 42,
                 crewDeltaKeys: 1,
-                resourceDeltaKeys: ParsekFlight.PostSwitchManifestDeltaSkipped,
-                inventoryDeltaKeys: ParsekFlight.PostSwitchManifestDeltaSkipped,
-                partStateTokenDelta: ParsekFlight.PostSwitchManifestDeltaSkipped,
+                resourceDeltaKeys: ParsekFlightPostSwitchAutoRecord.PostSwitchManifestDeltaSkipped,
+                inventoryDeltaKeys: ParsekFlightPostSwitchAutoRecord.PostSwitchManifestDeltaSkipped,
+                partStateTokenDelta: ParsekFlightPostSwitchAutoRecord.PostSwitchManifestDeltaSkipped,
                 crewChanged: true,
                 resourceChanged: false,
                 partStateChanged: false,
@@ -197,7 +197,7 @@ namespace Parsek.Tests
         [Fact]
         public void SplitSkipSummary_IncludesSourceAndPids()
         {
-            string line = ParsekFlight.FormatSplitSkipSummary(
+            string line = ParsekFlightPostSwitchAutoRecord.FormatSplitSkipSummary(
                 "OnCrewOnEva",
                 "source-vessel-mismatch",
                 "rec-active",
@@ -215,7 +215,7 @@ namespace Parsek.Tests
         [Fact]
         public void MapMarkerSummary_IncludesPrioritySkipCounters()
         {
-            var summary = new ParsekUI.MapMarkerSummary
+            var summary = new ParsekFlightMapMarkers.MapMarkerSummary
             {
                 IsMapView = true,
                 Candidates = 5,
@@ -227,7 +227,7 @@ namespace Parsek.Tests
                 LoopHidden = 1
             };
 
-            string line = ParsekUI.FormatMapMarkerSummary(summary);
+            string line = ParsekFlightMapMarkers.FormatMapMarkerSummary(summary);
 
             Assert.Contains("view=map", line);
             Assert.Contains("candidates=5", line);
@@ -244,9 +244,9 @@ namespace Parsek.Tests
             // A looped member skipped because the shared span-clock had it outside its window must
             // still surface a summary line (HasSignal), so the diagnostic distinguishes a loop-clock
             // skip from a silent no-op frame.
-            var summary = new ParsekUI.MapMarkerSummary { IsMapView = true, LoopHidden = 1 };
+            var summary = new ParsekFlightMapMarkers.MapMarkerSummary { IsMapView = true, LoopHidden = 1 };
             Assert.True(summary.HasSignal);
-            Assert.Contains("loopHidden=1", ParsekUI.FormatMapMarkerSummary(summary));
+            Assert.Contains("loopHidden=1", ParsekFlightMapMarkers.FormatMapMarkerSummary(summary));
         }
 
         [Fact]

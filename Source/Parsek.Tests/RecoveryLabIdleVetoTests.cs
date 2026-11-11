@@ -174,17 +174,16 @@ namespace Parsek.Tests
         {
             string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string flight = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            string flight = ParsekFlightSourceFiles.ReadText(System.IO.Path.Combine(
                 root, "Source", "Parsek", "ParsekFlight.cs")).Replace("\r\n", "\n");
-            int start = flight.IndexOf("internal bool IsActiveTreeIdleOnPad()\n", StringComparison.Ordinal);
-            Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
-            int walk = flight.IndexOf("foreach (var rec in activeTree.Recordings.Values)", start, StringComparison.Ordinal);
-            Assert.True(walk > start, "IsActiveTreeIdleOnPad distance walk not found");
-            string head = flight.Substring(start, walk - start);
-            Assert.Contains("TreeHasLabPayoutsForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", head);
-            Assert.Contains("TreeHasPendingLabRecoveryForIdle(activeTree, \"IsActiveTreeIdleOnPad\")", head);
+            string idleBody = IsActiveTreeIdleOnPadBody(flight);
+            int walk = idleBody.IndexOf("AllRecordingsIdleOnPadAfterBackfill(host.activeTree, out bool anyHasPoints)", StringComparison.Ordinal);
+            Assert.True(walk >= 0, "distance walk must be called inside IsActiveTreeIdleOnPad");
+            string head = idleBody.Substring(0, walk);
+            Assert.Contains("TreeHasLabPayoutsForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", head);
+            Assert.Contains("TreeHasPendingLabRecoveryForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", head);
 
-            string scenario = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            string scenario = ParsekScenarioSourceFiles.ReadText(System.IO.Path.Combine(
                 root, "Source", "Parsek", "ParsekScenario.cs")).Replace("\r\n", "\n");
             int handler = scenario.IndexOf("private void OnVesselRecoveryRequested(Vessel v)", StringComparison.Ordinal);
             Assert.True(handler >= 0, "OnVesselRecoveryRequested not found");
@@ -214,6 +213,21 @@ namespace Parsek.Tests
             }
             Assert.Contains(logLines, l =>
                 l.Contains("IsTreeIdleOnPad: not idle - recovery pending with lab science 7.25 tree='Pad Lab'"));
+        }
+
+        // The IsActiveTreeIdleOnPad body, brace-matched (comments blanked, literals intact),
+        // so a needle can only match inside that method.
+        private static string IsActiveTreeIdleOnPadBody(string source)
+        {
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(source);
+            string code = SourceScanText.StripCSharpComments(source);
+            const string decl = "internal bool IsActiveTreeIdleOnPad()\n";
+            int start = prepared.IndexOf(decl, StringComparison.Ordinal);
+            Assert.True(start >= 0, "IsActiveTreeIdleOnPad declaration not found");
+            Assert.True(prepared.IndexOf(decl, start + 1, StringComparison.Ordinal) < 0,
+                "IsActiveTreeIdleOnPad declaration ambiguous");
+            int open = prepared.IndexOf('{', start);
+            return code.Substring(open, SourceScanText.BraceMatchedBlock(prepared, open).Length);
         }
     }
 }

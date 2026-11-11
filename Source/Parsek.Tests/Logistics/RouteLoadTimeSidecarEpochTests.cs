@@ -109,7 +109,7 @@ namespace Parsek.Tests.Logistics
 
         /// <summary>
         /// The PRODUCTION sidecar (`.prec`, binary PSK0) - what
-        /// <c>RecordingStore.DeserializeTrajectorySidecar</c> reads at load, and the only
+        /// <c>RecordingSidecarStore.DeserializeTrajectorySidecar</c> reads at load, and the only
         /// encoding supported since the v0 reset.
         /// </summary>
         private static string BinaryPrecPath(string fixture, string recordingId)
@@ -241,7 +241,7 @@ namespace Parsek.Tests.Logistics
                 ParsekLog.TestSinkForTesting = line => logLines.Add(line);
                 ParsekLog.VerboseOverrideForTesting = true;
                 RecordingStore.SuppressLogging = false;
-                Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(path, rec),
+                Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(path, rec),
                     "the committed .prec must probe as a supported binary sidecar - if " +
                     "this fails the cell is measuring nothing");
             }

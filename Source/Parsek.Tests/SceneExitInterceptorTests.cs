@@ -133,7 +133,7 @@ namespace Parsek.Tests
             // commits silently (full fidelity) instead of surfacing an approval
             // dialog. See docs/dev/done/plans/silent-full-fidelity-autocommit.md.
             ParsekScenario.SetCachedAutoMergeForTesting(true);
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakePendingTree("pending_landed", TerminalState.Landed),
                 PendingTreeState.Finalized);
 
@@ -153,7 +153,7 @@ namespace Parsek.Tests
                     SessionId = "sess_pending_limbo"
                 }
             });
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakePendingTree("pending_limbo", TerminalState.Destroyed),
                 PendingTreeState.Limbo);
 
@@ -174,7 +174,7 @@ namespace Parsek.Tests
                 capturedScene = scene;
                 capturedVariant = variant;
             };
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakePendingTree("pending_prefix", TerminalState.Destroyed),
                 PendingTreeState.Finalized);
 
@@ -259,11 +259,11 @@ namespace Parsek.Tests
         public void TryResolveSessionTreeForDialog_MatchesPendingTree_Returns()
         {
             // Fails if: the helper does not return the pending tree when
-            // the session's TreeId matches RecordingStore.PendingTree.
+            // the session's TreeId matches PendingTreeSlot.PendingTree.
             // This is the common case for a session whose live recorder
             // was torn down mid-segment.
             const string treeId = "session_tree_pending";
-            RecordingStore.StashPendingTree(
+            PendingTreeSlot.StashPendingTree(
                 MakePendingTree(treeId, TerminalState.Orbiting),
                 PendingTreeState.Finalized);
 
@@ -291,7 +291,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", ".."));
             string mergeDialogPath = System.IO.Path.Combine(
                 projectRoot, "Source", "Parsek", "MergeDialog.cs");
-            string source = System.IO.File.ReadAllText(mergeDialogPath);
+            string source = ParsekFlightSourceFiles.ReadText(mergeDialogPath);
 
             // The committed-slot guard must exist verbatim.
             Assert.Contains(
@@ -717,7 +717,7 @@ namespace Parsek.Tests
             parts.AddRange(relativeParts);
             string path = Path.Combine(parts.ToArray());
             Assert.True(File.Exists(path), $"source not found at {path}");
-            return File.ReadAllText(path);
+            return ParsekFlightSourceFiles.ReadText(path);
         }
 
         // Fails if: AutoDiscardActiveTreeCore stops clearing the armed
@@ -728,7 +728,7 @@ namespace Parsek.Tests
         {
             string source = ReadProjectSource("ParsekFlight.cs");
 
-            int coreStart = source.IndexOf("private void AutoDiscardActiveTreeCore(");
+            int coreStart = source.IndexOf("internal void AutoDiscardActiveTreeCore(");
             Assert.True(coreStart > 0, "AutoDiscardActiveTreeCore not found");
             int coreEnd = source.IndexOf("\n        private ", coreStart + 1);
             if (coreEnd < 0)
@@ -765,7 +765,7 @@ namespace Parsek.Tests
         public void BackfillMaxDistanceFromBodyFixedSurfaces_NullRecording_ReturnsCleanly()
         {
             // No exception expected.
-            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(null);
+            LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(null);
         }
 
         [Fact]
@@ -774,7 +774,7 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "rec-null-ts" };
             rec.TrackSections = null;
             // Should not throw, should not write MaxDistanceFromLaunch.
-            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
+            LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
             Assert.Equal(0.0, rec.MaxDistanceFromLaunch);
         }
 
@@ -783,7 +783,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording { RecordingId = "rec-empty-ts" };
             rec.MaxDistanceFromLaunch = 42.5;   // pre-existing value
-            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
+            LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
             // Empty TrackSections list -> no body-fixed sample found -> no
             // write to MaxDistanceFromLaunch (preserves prior value).
             Assert.Equal(42.5, rec.MaxDistanceFromLaunch);
@@ -805,7 +805,7 @@ namespace Parsek.Tests
                     },
                 },
             };
-            VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
+            LiveVesselSnapshot.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
             // Only RELATIVE sections, and their frames are anchor-local metres with
             // no bodyFixedFrames beside them -> no body-fixed sample -> no write.
             Assert.Equal(99.9, rec.MaxDistanceFromLaunch);

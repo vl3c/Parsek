@@ -90,7 +90,7 @@ namespace Parsek.Tests
         [Fact]
         public void FlagsCleared_NotAtSpaceCenter_WithinBudget_RewindFailed()
         {
-            // RecordingStore.ResetRewindFlags ran on a load-failure path inside
+            // RewindLauncher.ResetRewindFlags ran on a load-failure path inside
             // ExecuteRewindSaveLoad, which leaves the scene exactly where it was (FLIGHT).
             // The !isRewinding half ALONE would read this as a success - which is precisely
             // why CompleteOk is a conjunction.
@@ -368,7 +368,7 @@ namespace Parsek.Tests
         [Fact]
         public void GateRefusalMsg_SurfacesReasonVerbatimBehindPrefix()
         {
-            // The reasons are RecordingStore.CanRewind's own strings.
+            // The reasons are RewindLauncher.CanRewind's own strings.
             Assert.Equal("rewind-gate Rewind save file missing",
                 TestCommandRewindToLaunch.GateRefusalMsg("Rewind save file missing"));
             Assert.Equal("rewind-gate Merge or discard pending tree first",

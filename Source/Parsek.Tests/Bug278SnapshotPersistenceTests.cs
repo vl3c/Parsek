@@ -144,7 +144,7 @@ namespace Parsek.Tests
         ///   <item><description><c>FinalizeIndividualRecording</c> nulls
         ///     <c>rec.VesselSnapshot</c> in the vessel-gone branch at
         ///     <c>ParsekFlight.cs:~6137</c>.</description></item>
-        ///   <item><description>The dispatch flow then calls <c>RecordingStore.CommitPendingTree</c>
+        ///   <item><description>The dispatch flow then calls <c>TreeCommitService.CommitPendingTree</c>
         ///     → <c>CommitTree</c> → <c>FinalizeTreeCommit</c>.</description></item>
         ///   <item><description><c>FinalizeTreeCommit</c> at <c>RecordingStore.cs:~503</c>
         ///     sets <c>rec.FilesDirty = true</c> for every recording, then calls
@@ -180,9 +180,9 @@ namespace Parsek.Tests
             System.IO.Directory.CreateDirectory(tempDir);
 
             bool priorStoreSuppress = RecordingStore.SuppressLogging;
-            bool? priorMirrorOverride = RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting;
+            bool? priorMirrorOverride = RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting;
             RecordingStore.SuppressLogging = true;
-            RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
+            RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = false;
 
             try
             {
@@ -202,7 +202,7 @@ namespace Parsek.Tests
                 System.IO.File.WriteAllText(vesselPath, persisted);
                 long persistedLength = new System.IO.FileInfo(vesselPath).Length;
 
-                Assert.True(RecordingStore.SaveRecordingFilesToPathsForTesting(
+                Assert.True(RecordingSidecarStore.SaveRecordingFilesToPathsForTesting(
                     rec, precPath, vesselPath, ghostPath, incrementEpoch: true));
 
                 Assert.True(System.IO.File.Exists(vesselPath),
@@ -217,7 +217,7 @@ namespace Parsek.Tests
             finally
             {
                 RecordingStore.SuppressLogging = priorStoreSuppress;
-                RecordingStore.WriteReadableSidecarMirrorsOverrideForTesting = priorMirrorOverride;
+                RecordingSidecarStore.WriteReadableSidecarMirrorsOverrideForTesting = priorMirrorOverride;
                 try { System.IO.Directory.Delete(tempDir, true); }
                 catch { }
             }

@@ -44,9 +44,9 @@ namespace Parsek.Tests
         private Recording RoundTrip(Recording original, out ConfigNode node)
         {
             node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, original);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, original);
             var restored = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, restored);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, restored);
             return restored;
         }
 
@@ -298,7 +298,7 @@ namespace Parsek.Tests
             // No "body" key
 
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
             Assert.Single(rec.Points);
             Assert.Equal("Kerbin", rec.Points[0].bodyName);
@@ -412,7 +412,7 @@ namespace Parsek.Tests
             // by EnsureCheckpointSectionsForTopLevelOrbitSegments, so the ORBIT_SEGMENT
             // node now lives under TRACK_SECTION rather than at the top level.
             var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrajectoryInto(node, rec);
+            TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
             ConfigNode segNode = null;
             foreach (ConfigNode tsNode in node.GetNodes("TRACK_SECTION"))
             {
@@ -430,7 +430,7 @@ namespace Parsek.Tests
 
             // Roundtrip should give back zero angular velocity
             var restored = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, restored);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, restored);
             OrbitSegment restoredSeg = restored.OrbitSegments.Count > 0
                 ? restored.OrbitSegments[0]
                 : restored.TrackSections[0].checkpoints[0];
@@ -539,7 +539,7 @@ namespace Parsek.Tests
             for (int i = 0; i < 4; i++)
             {
                 var node = new ConfigNode("TEST");
-                RecordingStore.SerializeTrajectoryInto(node, rec);
+                TrajectoryTextSidecarCodec.SerializeTrajectoryInto(node, rec);
             }
 
             Assert.Single(rec.OrbitSegments);
@@ -593,7 +593,7 @@ namespace Parsek.Tests
             // No "body" key
 
             var rec = new Recording();
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
             Assert.Single(rec.OrbitSegments);
             Assert.Equal("Kerbin", rec.OrbitSegments[0].bodyName);

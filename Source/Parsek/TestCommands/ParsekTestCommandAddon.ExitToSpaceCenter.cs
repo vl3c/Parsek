@@ -74,7 +74,7 @@ namespace Parsek.TestCommands
 
             ParsekLog.Info(Tag,
                 $"exittospacecenter start scene={HighLogic.LoadedScene} autoMerge={Bool(ParsekScenario.IsAutoMerge)} " +
-                $"hasActiveTree={Bool(hasActiveTree)} hasPendingTree={Bool(RecordingStore.HasPendingTree)} " +
+                $"hasActiveTree={Bool(hasActiveTree)} hasPendingTree={Bool(PendingTreeSlot.HasPendingTree)} " +
                 $"switchSegmentSession={Bool(sessionArmed)} activeTreeVariant={activeTreeVariant} pendingTreeVariant={pendingTreeVariant}");
 
             bool sessionFollowsAutoMerge = SceneExitInterceptor.ShouldSessionExitFollowAutoMerge(
@@ -87,7 +87,7 @@ namespace Parsek.TestCommands
             {
                 bool followsTheSave = NoSaveSceneExit.ShouldFollowTheSave(
                     GameScenes.SPACECENTER, noSaveExit: true,
-                    rewinding: RecordingStore.IsRewinding,
+                    rewinding: RewindContext.IsRewinding,
                     reFlyActive: scenario != null && scenario.ActiveReFlySessionMarker != null,
                     mergeJournalActive: scenario != null && scenario.ActiveMergeJournal != null);
                 gate = TestCommandExitToSpaceCenter.DecideQuitWithoutSavingGate(followsTheSave, gate);

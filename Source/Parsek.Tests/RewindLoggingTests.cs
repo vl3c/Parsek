@@ -67,7 +67,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = 17000\n  VESSEL\n  {\n    name = MyRocket\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             // Verify file was modified
             ConfigNode root = ConfigNode.Load(sfs);
@@ -92,8 +92,8 @@ namespace Parsek.Tests
         {
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = 1600.52\n  VESSEL\n  {\n    name = MyRocket\n  }\n}\n");
-            double own = RecordingStore.PreProcessRewindSave(
-                sfs, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "MyRocket" }),
+            double own = RewindLauncher.PreProcessRewindSave(
+                sfs, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "MyRocket" }),
                 _ => null, RecordingStore.RewindToLaunchLeadTimeSeconds);
             Assert.Equal(1600.52, own);
             double fileUT = double.Parse(
@@ -101,18 +101,18 @@ namespace Parsek.Tests
             Assert.Equal(1600.52 - RecordingStore.RewindToLaunchLeadTimeSeconds, fileUT, 9);
 
             string clamped = WriteTempSave("FLIGHTSTATE\n{\n  UT = 5\n}\n");
-            Assert.Equal(5.0, RecordingStore.PreProcessRewindSave(
-                clamped, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
+            Assert.Equal(5.0, RewindLauncher.PreProcessRewindSave(
+                clamped, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
                 RecordingStore.RewindToLaunchLeadTimeSeconds));
 
             string noUT = WriteTempSave("FLIGHTSTATE\n{\n  VESSEL\n  {\n    name = X\n  }\n}\n");
-            Assert.True(double.IsNaN(RecordingStore.PreProcessRewindSave(
-                noUT, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
+            Assert.True(double.IsNaN(RewindLauncher.PreProcessRewindSave(
+                noUT, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
                 RecordingStore.RewindToLaunchLeadTimeSeconds)));
 
             string noFlightState = WriteTempSave("GAME\n{\n  Mode = CAREER\n}\n");
-            Assert.True(double.IsNaN(RecordingStore.PreProcessRewindSave(
-                noFlightState, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
+            Assert.True(double.IsNaN(RewindLauncher.PreProcessRewindSave(
+                noFlightState, RewindSpawnScope.RewindOwnerStrip.FromNames(new HashSet<string> { "X" }), _ => null,
                 RecordingStore.RewindToLaunchLeadTimeSeconds)));
         }
 
@@ -122,7 +122,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = 5\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "SomeVessel", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "SomeVessel", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -139,7 +139,7 @@ namespace Parsek.Tests
                 "  VESSEL\n  {\n    name = MyRocket\n  }\n" +
                 "  VESSEL\n  {\n    name = Station\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -162,7 +162,7 @@ namespace Parsek.Tests
                 "  VESSEL\n  {\n    name = Debris\n  }\n}\n");
 
             var names = new HashSet<string> { "MyRocket", "Valentina Kerman" };
-            RecordingStore.PreProcessRewindSave(sfs, names, RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, names, RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -181,7 +181,7 @@ namespace Parsek.Tests
                 "FLIGHTSTATE\n{\n  UT = 17000\n" +
                 "  VESSEL\n  {\n    name = Debris\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "NoSuchRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "NoSuchRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") && l.Contains("Stripped 0 vessel"));
@@ -193,7 +193,7 @@ namespace Parsek.Tests
             // Save file with no FLIGHTSTATE node
             string sfs = WriteTempSave("GAME\n{\n  version = 1.12.5\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[Rewind]") &&
@@ -207,7 +207,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  VESSEL\n  {\n    name = MyRocket\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "MyRocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[Rewind]") &&
@@ -220,7 +220,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = not_a_number\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "SomeVessel", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "SomeVessel", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("[Rewind]") &&
@@ -237,7 +237,7 @@ namespace Parsek.Tests
 
             var names = new HashSet<string> { "NoMatch" };
             var pids = new HashSet<uint> { 42 };
-            RecordingStore.PreProcessRewindSave(sfs, names, pids, RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, names, pids, RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -259,7 +259,7 @@ namespace Parsek.Tests
 
             var names = new HashSet<string> { "Original Name" };
             var pids = new HashSet<uint> { 55 };
-            RecordingStore.PreProcessRewindSave(sfs, names, pids, RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, names, pids, RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -277,7 +277,7 @@ namespace Parsek.Tests
 
             var names = new HashSet<string> { "NoMatch" };
             var pids = new HashSet<uint> { 42 };
-            RecordingStore.PreProcessRewindSave(sfs, names, pids, RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, names, pids, RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -292,7 +292,7 @@ namespace Parsek.Tests
                 "  VESSEL\n  {\n    name = Rocket\n    persistentId = 42\n  }\n}\n");
 
             var names = new HashSet<string> { "Rocket" };
-            RecordingStore.PreProcessRewindSave(sfs, names, new HashSet<uint>(), RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, names, new HashSet<uint>(), RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -310,7 +310,7 @@ namespace Parsek.Tests
                 "GAME\n{\n  FLIGHTSTATE\n  {\n    UT = 20000\n" +
                 "    VESSEL\n    {\n      name = Rocket\n    }\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "Rocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "Rocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             ConfigNode gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
@@ -327,7 +327,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = 17000.5\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "X", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "X", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");
@@ -385,7 +385,7 @@ namespace Parsek.Tests
             rec.RewindReservedScience = 25.0;
             rec.RewindReservedRep = 3.0f;
 
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             // Verify committed recording has the rewind fields
             var committed = RecordingStore.CommittedRecordings;
@@ -408,7 +408,7 @@ namespace Parsek.Tests
 
             var rec = RecordingStore.CreateRecordingFromFlightData(points, "NormalRocket");
             Assert.NotNull(rec);
-            RecordingStore.CommitRecordingDirect(rec);
+            TreeCommitService.CommitRecordingDirect(rec);
 
             var committed = RecordingStore.CommittedRecordings;
             Assert.Single(committed);
@@ -465,7 +465,7 @@ namespace Parsek.Tests
             string sfs = WriteTempSave(
                 "FLIGHTSTATE\n{\n  UT = 5000\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "V", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "V", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             var utLog = logLines.FirstOrDefault(l =>
                 l.Contains("[Rewind]") && l.Contains("UT adjusted"));
@@ -488,7 +488,7 @@ namespace Parsek.Tests
                 "  VESSEL\n  {\n    name = Target\n  }\n" +
                 "  VESSEL\n  {\n    name = Target\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "Target", 5.0);
+            RewindLauncher.PreProcessRewindSave(sfs, "Target", 5.0);
 
             var stripLog = logLines.FirstOrDefault(l =>
                 l.Contains("[Rewind]") && l.Contains("Stripped"));
@@ -611,7 +611,7 @@ namespace Parsek.Tests
             // setup it delegates to is headless-safe: drive the real helper so
             // the owner -> PreLaunch* argument wiring is under test rather than
             // re-issued inline by the fixture.
-            RecordingStore.BeginRewindForOwner(rec);
+            RewindLauncher.BeginRewindForOwner(rec);
 
             Assert.Equal(25000.0, RewindContext.RewindBaselineFunds);
             Assert.Equal(5.0, RewindContext.RewindBaselineScience);
@@ -623,8 +623,8 @@ namespace Parsek.Tests
             Assert.Equal(700.0, RewindContext.RewindReserved.reservedFunds);
             Assert.Equal(2.0, RewindContext.RewindReserved.reservedScience);
             Assert.Equal(0.25f, RewindContext.RewindReserved.reservedReputation);
-            Assert.Equal("rec_rewind_owner", RecordingStore.RewindReplayTargetRecordingId);
-            Assert.Equal(4711u, RecordingStore.RewindReplayTargetSourcePid);
+            Assert.Equal("rec_rewind_owner", SceneEntryVesselScope.RewindReplayTargetRecordingId);
+            Assert.Equal(4711u, SceneEntryVesselScope.RewindReplayTargetSourcePid);
         }
 
         [Fact]
@@ -655,7 +655,7 @@ namespace Parsek.Tests
             // Steps 2-4 happen in InitiateRewind + coroutine. This test verifies steps 1+3.
             double launchLeadTime = RecordingStore.RewindToLaunchLeadTimeSeconds;
             string sfs = WriteTempSave("FLIGHTSTATE\n{\n  UT = 17000.7\n}\n");
-            RecordingStore.PreProcessRewindSave(sfs, "V", launchLeadTime);
+            RewindLauncher.PreProcessRewindSave(sfs, "V", launchLeadTime);
 
             // Simulate step 2: parse the adjusted UT from the processed file
             ConfigNode root = ConfigNode.Load(sfs);
@@ -695,7 +695,7 @@ namespace Parsek.Tests
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
                 "Source", "Parsek", "ParsekScenario.cs"));
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
-                File.ReadAllText(path).Replace("\r\n", "\n"));
+                ParsekScenarioSourceFiles.ReadText(path).Replace("\r\n", "\n"));
             const string decl = "private IEnumerator ApplyRewindResourceAdjustment()";
             int declAt = prepared.IndexOf(decl, StringComparison.Ordinal);
             Assert.True(declAt >= 0, "ApplyRewindResourceAdjustment declaration not found");
@@ -730,7 +730,7 @@ namespace Parsek.Tests
                 "  VESSEL\n  {\n    name = Rocket\n  }\n" +
                 "  VESSEL\n  {\n    name = Rocket\n  }\n}\n");
 
-            RecordingStore.PreProcessRewindSave(sfs, "Rocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
+            RewindLauncher.PreProcessRewindSave(sfs, "Rocket", RecordingStore.RewindToLaunchLeadTimeSeconds);
 
             ConfigNode root = ConfigNode.Load(sfs);
             var fs = root.GetNode("FLIGHTSTATE");

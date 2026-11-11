@@ -29,7 +29,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             RecordingStore.ResetForTesting();
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = true;
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.PendingScienceSubjects.Clear();
             ParsekScenario.ResetInstanceForTesting();
@@ -152,13 +152,13 @@ namespace Parsek.Tests
         {
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.MAINMENU);
 
             Assert.True(allowStockLoad);
             Assert.Null(shown);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "pend");
             Assert.Equal(1, saves);
             Assert.Contains(logLines, l => l.Contains("[SceneExit]")
@@ -172,13 +172,13 @@ namespace Parsek.Tests
             ParsekScenario.SetCachedAutoMergeForTesting(false);
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.MAINMENU);
 
             Assert.False(allowStockLoad);
             Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, shown);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.Equal(0, saves);
         }
 
@@ -189,7 +189,7 @@ namespace Parsek.Tests
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
             SceneExitInterceptor.CommitWithoutDialogForTesting =
                 (finalize, branch) => MergeDialog.PreTransitionOutcome.Refused;
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.MAINMENU);
 
@@ -207,7 +207,7 @@ namespace Parsek.Tests
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => { };
             SceneExitInterceptor.PersistentSaveStepForTesting =
                 _ => throw new InvalidOperationException("disk full");
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.MAINMENU);
 
@@ -221,13 +221,13 @@ namespace Parsek.Tests
             // Control: other exits keep committing at the destination scene's load.
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
-            RecordingStore.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("pend"), PendingTreeState.Finalized);
 
             bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(GameScenes.SPACECENTER);
 
             Assert.True(allowStockLoad);
             Assert.Null(shown);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.Equal(0, saves);
         }
 
@@ -240,7 +240,7 @@ namespace Parsek.Tests
         public void Session_CommittedTree_ClearsTheSessionAndShowsNoDialog(GameScenes destination)
         {
             var scenario = InstallScenario();
-            RecordingStore.CommitTree(FinishedTree("committed"));
+            TreeCommitService.CommitTree(FinishedTree("committed"));
             ArmSession(scenario, "committed");
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
@@ -259,7 +259,7 @@ namespace Parsek.Tests
         public void Session_PendingTree_MainMenu_CommitsItAndTheCommitClearsTheSession()
         {
             var scenario = InstallScenario();
-            RecordingStore.StashPendingTree(FinishedTree("seg"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("seg"), PendingTreeState.Finalized);
             ArmSession(scenario, "seg");
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
@@ -279,7 +279,7 @@ namespace Parsek.Tests
         public void Session_PendingTree_SpaceCenter_LeavesTheTreeAndSessionToTheDestination()
         {
             var scenario = InstallScenario();
-            RecordingStore.StashPendingTree(FinishedTree("seg"), PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(FinishedTree("seg"), PendingTreeState.Finalized);
             ArmSession(scenario, "seg");
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;
@@ -288,7 +288,7 @@ namespace Parsek.Tests
 
             Assert.True(allowStockLoad);
             Assert.Null(shown);
-            Assert.True(RecordingStore.HasPendingTree);
+            Assert.True(PendingTreeSlot.HasPendingTree);
             Assert.NotNull(scenario.ActiveSwitchSegmentSession);
         }
 
@@ -297,7 +297,7 @@ namespace Parsek.Tests
         {
             ParsekScenario.SetCachedAutoMergeForTesting(false);
             var scenario = InstallScenario();
-            RecordingStore.CommitTree(FinishedTree("committed"));
+            TreeCommitService.CommitTree(FinishedTree("committed"));
             ArmSession(scenario, "committed");
             SceneExitInterceptor.DialogVariant? shown = null;
             SceneExitInterceptor.ShowDialogForTesting = (scene, variant) => shown = variant;

@@ -297,7 +297,7 @@ namespace Parsek.Tests
             };
             tree.AddOrReplaceRecording(root);
             tree.AddOrReplaceRecording(debris);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
 
             int removed = GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("test-pending");
 
@@ -324,7 +324,7 @@ namespace Parsek.Tests
             };
             tree.AddOrReplaceRecording(oldRec);
             tree.AddOrReplaceRecording(newRec);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Finalized);
+            PendingTreeSlot.StashPendingTree(tree, PendingTreeState.Finalized);
             ParsekScenario.SetInstanceForTesting(new ParsekScenario
             {
                 RecordingSupersedes = new List<RecordingSupersedeRelation>
@@ -482,7 +482,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("RenameGroupInHierarchy"));
         }
 
-        // ─── RecordingStore.AddRecordingToGroup / RemoveRecordingFromGroup ─
+        // ─── RecordingGroupStore.AddRecordingToGroup / RemoveRecordingFromGroup ─
 
         [Fact]
         public void AddRecordingToGroup_CreatesListIfNull()
@@ -493,7 +493,7 @@ namespace Parsek.Tests
                 RecordingGroups = null
             });
 
-            RecordingStore.AddRecordingToGroup(0, "MyGroup");
+            RecordingGroupStore.AddRecordingToGroup(0, "MyGroup", RecordingStore.CommittedRecordings);
 
             var rec = RecordingStore.CommittedRecordings[0];
             Assert.NotNull(rec.RecordingGroups);
@@ -510,8 +510,8 @@ namespace Parsek.Tests
                 RecordingGroups = null
             });
 
-            RecordingStore.AddRecordingToGroup(0, "MyGroup");
-            RecordingStore.AddRecordingToGroup(0, "MyGroup");
+            RecordingGroupStore.AddRecordingToGroup(0, "MyGroup", RecordingStore.CommittedRecordings);
+            RecordingGroupStore.AddRecordingToGroup(0, "MyGroup", RecordingStore.CommittedRecordings);
 
             var rec = RecordingStore.CommittedRecordings[0];
             Assert.True(rec.RecordingGroups.Count == 1);
@@ -526,7 +526,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "OnlyGroup" }
             });
 
-            RecordingStore.RemoveRecordingFromGroup(0, "OnlyGroup");
+            RecordingGroupStore.RemoveRecordingFromGroup(0, "OnlyGroup", RecordingStore.CommittedRecordings);
 
             var rec = RecordingStore.CommittedRecordings[0];
             Assert.Null(rec.RecordingGroups);
@@ -543,7 +543,7 @@ namespace Parsek.Tests
             });
 
             // Removing a group the recording doesn't belong to — should be a no-op
-            RecordingStore.RemoveRecordingFromGroup(0, "NonExistent");
+            RecordingGroupStore.RemoveRecordingFromGroup(0, "NonExistent", RecordingStore.CommittedRecordings);
 
             var rec = RecordingStore.CommittedRecordings[0];
             Assert.NotNull(rec.RecordingGroups);
@@ -561,12 +561,12 @@ namespace Parsek.Tests
             });
 
             // Should not throw
-            RecordingStore.RemoveRecordingFromGroup(0, "Anything");
+            RecordingGroupStore.RemoveRecordingFromGroup(0, "Anything", RecordingStore.CommittedRecordings);
 
             Assert.Null(RecordingStore.CommittedRecordings[0].RecordingGroups);
         }
 
-        // ─── RecordingStore.AddChainToGroup / RemoveChainFromGroup ─────────
+        // ─── RecordingGroupStore.AddChainToGroup / RemoveChainFromGroup ─────────
 
         [Fact]
         public void AddChainToGroup_AddsToAllChainMembers()
@@ -584,7 +584,7 @@ namespace Parsek.Tests
                 VesselName = "Other", ChainId = null, RecordingGroups = null
             });
 
-            RecordingStore.AddChainToGroup("chain-1", "Flights");
+            RecordingGroupStore.AddChainToGroup("chain-1", "Flights", RecordingStore.CommittedRecordings);
 
             Assert.Contains("Flights", RecordingStore.CommittedRecordings[0].RecordingGroups);
             Assert.Contains("Flights", RecordingStore.CommittedRecordings[1].RecordingGroups);
@@ -604,7 +604,7 @@ namespace Parsek.Tests
                 VesselName = "B0", ChainId = "chain-b", RecordingGroups = null
             });
 
-            RecordingStore.AddChainToGroup("chain-a", "GroupX");
+            RecordingGroupStore.AddChainToGroup("chain-a", "GroupX", RecordingStore.CommittedRecordings);
 
             Assert.Contains("GroupX", RecordingStore.CommittedRecordings[0].RecordingGroups);
             Assert.Null(RecordingStore.CommittedRecordings[1].RecordingGroups);
@@ -629,7 +629,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "Flights" }
             });
 
-            RecordingStore.RemoveChainFromGroup("chain-1", "Flights");
+            RecordingGroupStore.RemoveChainFromGroup("chain-1", "Flights", RecordingStore.CommittedRecordings);
 
             // Chain members should have group removed (and list set to null since empty)
             Assert.Null(RecordingStore.CommittedRecordings[0].RecordingGroups);
@@ -653,13 +653,13 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "SharedGroup" }
             });
 
-            RecordingStore.RemoveChainFromGroup("chain-a", "SharedGroup");
+            RecordingGroupStore.RemoveChainFromGroup("chain-a", "SharedGroup", RecordingStore.CommittedRecordings);
 
             Assert.Null(RecordingStore.CommittedRecordings[0].RecordingGroups);
             Assert.Contains("SharedGroup", RecordingStore.CommittedRecordings[1].RecordingGroups);
         }
 
-        // ─── RecordingStore.RenameGroup ────────────────────────────────────
+        // ─── RecordingGroupStore.RenameGroup ────────────────────────────────────
 
         [Fact]
         public void RenameGroup_RenamesInAllRecordingGroupLists()
@@ -675,7 +675,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "OldName" }
             });
 
-            bool result = RecordingStore.RenameGroup("OldName", "NewName");
+            bool result = RecordingGroupStore.RenameGroup("OldName", "NewName", RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
 
             Assert.True(result);
             Assert.Contains("NewName", RecordingStore.CommittedRecordings[0].RecordingGroups);
@@ -699,7 +699,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "GroupB" }
             });
 
-            bool result = RecordingStore.RenameGroup("GroupA", "GroupB");
+            bool result = RecordingGroupStore.RenameGroup("GroupA", "GroupB", RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
 
             Assert.False(result);
             // Original names should be unchanged
@@ -717,7 +717,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "Alpha", "Beta", "Gamma" }
             });
 
-            bool result = RecordingStore.RenameGroup("Beta", "BetaRenamed");
+            bool result = RecordingGroupStore.RenameGroup("Beta", "BetaRenamed", RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
 
             Assert.True(result);
             var groups = RecordingStore.CommittedRecordings[0].RecordingGroups;
@@ -730,7 +730,7 @@ namespace Parsek.Tests
         [Fact]
         public void RenameGroup_SameName_ReturnsFalse()
         {
-            bool result = RecordingStore.RenameGroup("Same", "Same");
+            bool result = RecordingGroupStore.RenameGroup("Same", "Same", RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
 
             Assert.False(result);
         }
@@ -754,21 +754,21 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             string rootGroup = root.RecordingGroups[0];
             string crewGroup = crew.RecordingGroups[0];
 
-            Assert.True(RecordingStore.RenameGroup(rootGroup, "Flight Alpha"));
+            Assert.True(RecordingGroupStore.RenameGroup(rootGroup, "Flight Alpha", RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees));
             GroupHierarchyStore.RenameGroupInHierarchy(rootGroup, "Flight Alpha");
 
-            Assert.True(RecordingStore.RenameGroup(crewGroup, "Crew Notes"));
+            Assert.True(RecordingGroupStore.RenameGroup(crewGroup, "Crew Notes", RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees));
             GroupHierarchyStore.RenameGroupInHierarchy(crewGroup, "Crew Notes");
 
-            Assert.True(RecordingStore.IsAutoGeneratedTreeGroup("Flight Alpha"));
-            Assert.True(RecordingStore.IsAutoGeneratedTreeGroup("Crew Notes"));
-            Assert.False(RecordingStore.IsAutoGeneratedTreeGroup(rootGroup));
-            Assert.False(RecordingStore.IsAutoGeneratedTreeGroup(crewGroup));
+            Assert.True(RecordingGroupStore.IsAutoGeneratedTreeGroup("Flight Alpha", RecordingStore.CommittedTrees));
+            Assert.True(RecordingGroupStore.IsAutoGeneratedTreeGroup("Crew Notes", RecordingStore.CommittedTrees));
+            Assert.False(RecordingGroupStore.IsAutoGeneratedTreeGroup(rootGroup, RecordingStore.CommittedTrees));
+            Assert.False(RecordingGroupStore.IsAutoGeneratedTreeGroup(crewGroup, RecordingStore.CommittedTrees));
         }
 
         [Fact]
@@ -1045,13 +1045,13 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             string rootGroup = root.RecordingGroups[0];
             Assert.True(GroupHierarchyStore.SetGroupParent(rootGroup, "Folder"));
 
-            Assert.True(RecordingStore.IsAutoGeneratedTreeGroup(rootGroup));
-            Assert.False(RecordingStore.IsAutoGeneratedTreeGroup("Folder"));
+            Assert.True(RecordingGroupStore.IsAutoGeneratedTreeGroup(rootGroup, RecordingStore.CommittedTrees));
+            Assert.False(RecordingGroupStore.IsAutoGeneratedTreeGroup("Folder", RecordingStore.CommittedTrees));
         }
 
         [Fact]
@@ -1072,14 +1072,14 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             string rootGroup = root.RecordingGroups[0];
             var committedRoot = RecordingStore.CommittedRecordings[0];
             committedRoot.RecordingGroups = new List<string> { "Manual Group" };
 
-            Assert.True(RecordingStore.IsAutoGeneratedTreeGroup(rootGroup));
-            Assert.False(RecordingStore.IsAutoGeneratedTreeGroup("Manual Group"));
+            Assert.True(RecordingGroupStore.IsAutoGeneratedTreeGroup(rootGroup, RecordingStore.CommittedTrees));
+            Assert.False(RecordingGroupStore.IsAutoGeneratedTreeGroup("Manual Group", RecordingStore.CommittedTrees));
         }
 
         [Fact]
@@ -1100,19 +1100,19 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             string rootGroup = root.RecordingGroups[0];
             string customCrewGroup = rootGroup + " / Crew";
             string customDebrisGroup = rootGroup + " / Debris";
 
-            RecordingStore.AddRecordingToGroup(0, customCrewGroup);
-            RecordingStore.AddRecordingToGroup(1, customDebrisGroup);
+            RecordingGroupStore.AddRecordingToGroup(0, customCrewGroup, RecordingStore.CommittedRecordings);
+            RecordingGroupStore.AddRecordingToGroup(1, customDebrisGroup, RecordingStore.CommittedRecordings);
             Assert.True(GroupHierarchyStore.SetGroupParent(customCrewGroup, rootGroup));
             Assert.True(GroupHierarchyStore.SetGroupParent(customDebrisGroup, rootGroup));
 
-            Assert.False(RecordingStore.IsAutoGeneratedTreeGroup(customCrewGroup));
-            Assert.False(RecordingStore.IsAutoGeneratedTreeGroup(customDebrisGroup));
+            Assert.False(RecordingGroupStore.IsAutoGeneratedTreeGroup(customCrewGroup, RecordingStore.CommittedTrees));
+            Assert.False(RecordingGroupStore.IsAutoGeneratedTreeGroup(customDebrisGroup, RecordingStore.CommittedTrees));
         }
 
         [Fact]
@@ -1134,14 +1134,14 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
-            Assert.True(RecordingStore.IsPermanentGroup(root.RecordingGroups[0]));
-            Assert.True(RecordingStore.IsPermanentGroup(crew.RecordingGroups[0]));
-            Assert.False(RecordingStore.IsPermanentGroup("Manual Group"));
+            Assert.True(RecordingGroupStore.IsPermanentGroup(root.RecordingGroups[0], RecordingStore.CommittedTrees));
+            Assert.True(RecordingGroupStore.IsPermanentGroup(crew.RecordingGroups[0], RecordingStore.CommittedTrees));
+            Assert.False(RecordingGroupStore.IsPermanentGroup("Manual Group", RecordingStore.CommittedTrees));
         }
 
-        // ─── RecordingStore.GetGroupNames ──────────────────────────────────
+        // ─── RecordingGroupStore.GetGroupNames ──────────────────────────────────
 
         [Fact]
         public void GetGroupNames_ReturnsDistinctSortedNames()
@@ -1157,7 +1157,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "Alpha", "Middle" }
             });
 
-            var names = RecordingStore.GetGroupNames();
+            var names = RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings);
 
             Assert.True(names.Count == 3);
             Assert.Equal("Alpha", names[0]);
@@ -1168,7 +1168,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetGroupNames_EmptyRecordings_ReturnsEmptyList()
         {
-            var names = RecordingStore.GetGroupNames();
+            var names = RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings);
 
             Assert.True(names.Count == 0);
         }
@@ -1187,12 +1187,12 @@ namespace Parsek.Tests
                 RecordingGroups = null
             });
 
-            var names = RecordingStore.GetGroupNames();
+            var names = RecordingGroupStore.GetGroupNames(RecordingStore.CommittedRecordings);
 
             Assert.True(names.Count == 0);
         }
 
-        // ─── RecordingStore.ReplaceGroupOnAll ───────────────────────────────
+        // ─── RecordingGroupStore.ReplaceGroupOnAll ───────────────────────────────
 
         [Fact]
         public void ReplaceGroupOnAll_ReplacesWithParentGroup()
@@ -1209,7 +1209,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "OldGroup" }
             });
 
-            int count = RecordingStore.ReplaceGroupOnAll("OldGroup", "ParentGroup");
+            int count = RecordingGroupStore.ReplaceGroupOnAll("OldGroup", "ParentGroup", RecordingStore.CommittedRecordings);
 
             Assert.Equal(2, count);
             Assert.Contains("ParentGroup", RecordingStore.CommittedRecordings[0].RecordingGroups);
@@ -1231,7 +1231,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "OldGroup", "ParentGroup" }
             });
 
-            int count = RecordingStore.ReplaceGroupOnAll("OldGroup", "ParentGroup");
+            int count = RecordingGroupStore.ReplaceGroupOnAll("OldGroup", "ParentGroup", RecordingStore.CommittedRecordings);
 
             Assert.Equal(1, count);
             var groups = RecordingStore.CommittedRecordings[0].RecordingGroups;
@@ -1249,7 +1249,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "Disband" }
             });
 
-            int count = RecordingStore.ReplaceGroupOnAll("Disband", null);
+            int count = RecordingGroupStore.ReplaceGroupOnAll("Disband", null, RecordingStore.CommittedRecordings);
 
             Assert.Equal(1, count);
             // List was emptied so should be nulled out
@@ -1268,7 +1268,7 @@ namespace Parsek.Tests
                 RecordingGroups = null
             });
 
-            int count = RecordingStore.ReplaceGroupOnAll("AnyGroup", "Parent");
+            int count = RecordingGroupStore.ReplaceGroupOnAll("AnyGroup", "Parent", RecordingStore.CommittedRecordings);
 
             Assert.Equal(0, count);
             Assert.Null(RecordingStore.CommittedRecordings[0].RecordingGroups);
@@ -1284,7 +1284,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "SomeOtherGroup" }
             });
 
-            int count = RecordingStore.ReplaceGroupOnAll("TargetGroup", "Parent");
+            int count = RecordingGroupStore.ReplaceGroupOnAll("TargetGroup", "Parent", RecordingStore.CommittedRecordings);
 
             Assert.Equal(0, count);
             Assert.Contains("SomeOtherGroup", RecordingStore.CommittedRecordings[0].RecordingGroups);
@@ -1311,7 +1311,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "Target", "Extra" }
             });
 
-            int count = RecordingStore.ReplaceGroupOnAll("Target", "Replacement");
+            int count = RecordingGroupStore.ReplaceGroupOnAll("Target", "Replacement", RecordingStore.CommittedRecordings);
 
             Assert.Equal(2, count);
         }
@@ -1326,7 +1326,7 @@ namespace Parsek.Tests
                 RecordingGroups = new List<string> { "Group" }
             });
 
-            int count = RecordingStore.ReplaceGroupOnAll("", "Parent");
+            int count = RecordingGroupStore.ReplaceGroupOnAll("", "Parent", RecordingStore.CommittedRecordings);
 
             Assert.Equal(0, count);
         }
@@ -1398,7 +1398,7 @@ namespace Parsek.Tests
                 }
             };
 
-            RecordingStore.CommitTree(tree);
+            TreeCommitService.CommitTree(tree);
 
             Assert.NotNull(root.RecordingGroups);
             Assert.Single(root.RecordingGroups);
@@ -1409,7 +1409,7 @@ namespace Parsek.Tests
         public void CommitTree_SecondSameNamedSingleRecordingLaunch_GetsDistinctFolder()
         {
             var first = MakeTreeRecording("first", "GDLV3", "tree-first");
-            RecordingStore.CommitTree(new RecordingTree
+            TreeCommitService.CommitTree(new RecordingTree
             {
                 Id = "tree-first",
                 TreeName = "GDLV3",
@@ -1418,7 +1418,7 @@ namespace Parsek.Tests
             });
 
             var second = MakeTreeRecording("second", "GDLV3", "tree-second");
-            RecordingStore.CommitTree(new RecordingTree
+            TreeCommitService.CommitTree(new RecordingTree
             {
                 Id = "tree-second",
                 TreeName = "GDLV3",

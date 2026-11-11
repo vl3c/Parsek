@@ -32,7 +32,7 @@ namespace Parsek
     /// switching marker identity (or null -> non-null) changes the
     /// <see cref="SessionSuppressedSubtree(ReFlySessionMarker)"/> closure.
     /// </summary>
-    public static class EffectiveState
+    public static partial class EffectiveState
     {
         private static readonly object syncRoot = new object();
 
@@ -199,7 +199,7 @@ namespace Parsek
         /// <summary>
         /// Tree-context overload. The switch-continuation hop added for
         /// REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE needs the OWNING TREE to read
-        /// branch points, and <see cref="RecordingStore.CommitTree"/> runs the
+        /// branch points, and <see cref="TreeCommitService.CommitTree"/> runs the
         /// promotion pass BEFORE the tree is in
         /// <see cref="RecordingStore.CommittedTrees"/> (the recordings are not in
         /// <see cref="RecordingStore.CommittedRecordings"/> yet either). Callers
@@ -1713,7 +1713,7 @@ namespace Parsek
         /// <paramref name="collectDetail"/> it also records how each kerbal's history
         /// ENDS (for the foreign-join rule) and the ground parts the kerbal placed
         /// (<see cref="BranchPointType.GroundPartPlaced"/> children, found by parent
-        /// id like <c>RecordingStore.EnqueueParentedBranchChildren</c>).
+        /// id like <c>SwitchSegmentAttempts.EnqueueParentedBranchChildren</c>).
         /// </summary>
         private static void AddOwnEvaKerbals(
             RecordingTree tree, BranchPoint evaBp, Recording vessel,
@@ -2511,7 +2511,7 @@ namespace Parsek
                 // vessels whose inventory he changed, hang off a kerbal side branch
                 // (GroundPartPlaced / InventoryTransfer) the still recording kerbal does
                 // NOT reference through ChildBranchPointId, so they are found by parent
-                // id (RecordingStore.EnqueueParentedBranchChildren's pattern).
+                // id (SwitchSegmentAttempts.EnqueueParentedBranchChildren's pattern).
                 EnqueueGroundPartPlacedChildrenForClosure(
                     currentRec, recById, queue, result, ref placedPartsAdded);
 

@@ -27,7 +27,7 @@ namespace Parsek.Tests
 
         public ReFlyGhostOnlyLeafRespawnTests()
         {
-            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.SuppressLogging = false;
             RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -113,7 +113,7 @@ namespace Parsek.Tests
             var tree = MakeTreeWithSpawnedLeaf(out leaf);
             if (sidecarWrittenBeforeMerge)
             {
-                Assert.True(RecordingStore.SaveRecordingFiles(leaf, incrementEpoch: true));
+                Assert.True(RecordingSidecarStore.SaveRecordingFiles(leaf, incrementEpoch: true));
                 Assert.True(File.Exists(VesselSidecarPath(LeafId)));
             }
 
@@ -137,7 +137,7 @@ namespace Parsek.Tests
             Assert.False(leaf.VesselSnapshotHydrationFailed);
 
             // OnSave after the merge, with the in-memory snapshot null.
-            Assert.True(RecordingStore.SaveRecordingFiles(leaf, incrementEpoch: true));
+            Assert.True(RecordingSidecarStore.SaveRecordingFiles(leaf, incrementEpoch: true));
             return tree;
         }
 
@@ -153,7 +153,7 @@ namespace Parsek.Tests
             // Rewind-to-Launch to before the leaf's start: the committed tree's spawn
             // tracking is reset (the leaf is not kept committed history).
             RecordingStore.AddCommittedTreeForTesting(tree);
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
             Assert.False(leaf.VesselSpawned);
             Assert.Equal(0u, leaf.SpawnedVesselPersistentId);
             Assert.Null(leaf.VesselSnapshot); // still null in memory across the in-session load
@@ -199,7 +199,7 @@ namespace Parsek.Tests
             RecordingTree.SaveRecordingInto(sfs, leaf);
             var reloaded = new Recording();
             RecordingTree.LoadRecordingFrom(sfs, reloaded);
-            Assert.True(RecordingStore.LoadRecordingFiles(reloaded));
+            Assert.True(RecordingSidecarStore.LoadRecordingFiles(reloaded));
 
             Assert.NotNull(reloaded.VesselSnapshot);
             Assert.Equal("Kerbal X", reloaded.VesselSnapshot.GetValue("name"));
@@ -216,7 +216,7 @@ namespace Parsek.Tests
             Assert.False(File.Exists(VesselSidecarPath(LeafId)));
 
             RecordingStore.AddCommittedTreeForTesting(tree);
-            RecordingStore.ResetAllPlaybackState();
+            RewindLauncher.ResetAllPlaybackState();
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(leaf, false, tree);
             Assert.False(needsSpawn);

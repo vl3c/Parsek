@@ -12,7 +12,7 @@ namespace Parsek.Tests
         public void EmptyRecording_AllStatsZero()
         {
             var rec = new Recording();
-            var stats = TrajectoryMath.ComputeStats(rec);
+            var stats = RecordingStatsCalculator.ComputeStats(rec);
 
             Assert.Equal(0, stats.maxAltitude);
             Assert.Equal(0, stats.maxSpeed);
@@ -44,7 +44,7 @@ namespace Parsek.Tests
                 velocity = new Vector3(100, 0, 0), bodyName = "Kerbin"
             });
 
-            var stats = TrajectoryMath.ComputeStats(rec);
+            var stats = RecordingStatsCalculator.ComputeStats(rec);
 
             Assert.Equal(500, stats.maxAltitude);
             Assert.Equal(200, stats.maxSpeed, 1);
@@ -76,7 +76,7 @@ namespace Parsek.Tests
                 return null;
             };
 
-            var stats = TrajectoryMath.ComputeStats(rec, bodyLookup);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, bodyLookup);
 
             // 0.01 degrees of longitude at equator with radius ~600100m
             // Expected: ~104.7m (pi/180 * 0.01 * 600100)
@@ -117,7 +117,7 @@ namespace Parsek.Tests
                 return null;
             };
 
-            var stats = TrajectoryMath.ComputeStats(rec, bodyLookup);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, bodyLookup);
 
             // Apoapsis altitude: 700000 * 1.01 - 600000 = 107000m
             Assert.True(stats.maxAltitude > 106000 && stats.maxAltitude < 108000,
@@ -157,7 +157,7 @@ namespace Parsek.Tests
                 bodyName = "Kerbin"
             });
 
-            var stats = TrajectoryMath.ComputeStats(rec, null);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, null);
 
             Assert.Equal(80000, stats.maxAltitude);
             Assert.Equal(0, stats.maxSpeed);
@@ -189,7 +189,7 @@ namespace Parsek.Tests
 
             Func<string, double[]> bodyLookup = name => null;
 
-            var stats = TrajectoryMath.ComputeStats(rec, bodyLookup);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, bodyLookup);
 
             Assert.Equal(100, stats.maxAltitude);
             Assert.Equal(0, stats.distanceTravelled);
@@ -205,9 +205,9 @@ namespace Parsek.Tests
             var rec = new Recording();
             RecordingStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
-            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+            TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec);
 
-            var stats = TrajectoryMath.ComputeStats(rec);
+            var stats = RecordingStatsCalculator.ComputeStats(rec);
 
             // Flea Flight peak altitude is 620m
             Assert.Equal(620, stats.maxAltitude);
@@ -225,7 +225,7 @@ namespace Parsek.Tests
             rec.PartEvents.Add(new PartEvent { ut = 120, eventType = PartEventType.ParachuteDeployed });
             rec.PartEvents.Add(new PartEvent { ut = 130, eventType = PartEventType.EngineIgnited });
 
-            var stats = TrajectoryMath.ComputeStats(rec);
+            var stats = RecordingStatsCalculator.ComputeStats(rec);
 
             Assert.Equal(3, stats.partEventCount);
         }
@@ -238,7 +238,7 @@ namespace Parsek.Tests
             rec.Points.Add(new TrajectoryPoint { ut = 200, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 300, bodyName = "Mun" });
 
-            var stats = TrajectoryMath.ComputeStats(rec);
+            var stats = RecordingStatsCalculator.ComputeStats(rec);
 
             Assert.Equal("Kerbin", stats.primaryBody);
         }
@@ -284,7 +284,7 @@ namespace Parsek.Tests
                 return null;
             };
 
-            var stats = TrajectoryMath.ComputeStats(rec, bodyLookup);
+            var stats = RecordingStatsCalculator.ComputeStats(rec, bodyLookup);
 
             Assert.Equal(734, stats.maxAltitude);
             Assert.Equal(15, stats.maxSpeed, 1);
@@ -307,7 +307,7 @@ namespace Parsek.Tests
         [InlineData(2500000, "2.5Mm")]
         public void FormatAltitude_CorrectOutput(double meters, string expected)
         {
-            Assert.Equal(expected, ParsekUI.FormatAltitude(meters));
+            Assert.Equal(expected, RecordingsTableUI.FormatAltitude(meters));
         }
     }
 
@@ -321,7 +321,7 @@ namespace Parsek.Tests
         [InlineData(2268, "2.3km/s")]
         public void FormatSpeed_CorrectOutput(double mps, string expected)
         {
-            Assert.Equal(expected, ParsekUI.FormatSpeed(mps));
+            Assert.Equal(expected, RecordingsTableUI.FormatSpeed(mps));
         }
     }
 
@@ -337,7 +337,7 @@ namespace Parsek.Tests
         [InlineData(18000000, "18.0Mm")]
         public void FormatDistance_CorrectOutput(double meters, string expected)
         {
-            Assert.Equal(expected, ParsekUI.FormatDistance(meters));
+            Assert.Equal(expected, RecordingsTableUI.FormatDistance(meters));
         }
     }
 }
