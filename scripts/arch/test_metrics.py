@@ -5,9 +5,11 @@ branch. Stdlib only; the git cells drive a temporary bare repository."""
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -475,15 +477,34 @@ def metrics_wiring_problems(text):
         name, keys, _env, run = steps[rows[0]]
         if build and rows[0] < build[0]:
             problems.append("%s: builds the row before the DLL is built" % name)
-        if "if" in keys or keys.get("continue-on-error", "false").lower() != "false":
-            problems.append("%s: is conditional or may fail silently" % name)
-        if "--dll" not in run:
-            problems.append("%s: measures no DLL" % name)
-    uploads = [i for i, (_n, keys, _e, _r) in enumerate(steps) if keys.get("uses", "").startswith("actions/upload-artifact@")]
+        # Main pushes only (a pull request keeps no row), and it may never
+        # turn the required check red: the history gates nothing.
+        if keys.get("if") != MAIN_PUSH:
+            problems.append("%s: runs on %r, not only on a push to main" % (name, keys.get("if")))
+        if keys.get("continue-on-error", "false").lower() != "true":
+            problems.append("%s: is not continue-on-error, so it can red the required tests job" % name)
+        if "--dll" not in run or "--tests-dll" not in run:
+            problems.append("%s: does not measure both DLLs" % name)
+    uploads = [i for i, (_n, keys, _e, _r) in enumerate(steps)
+               if keys.get("uses", "").startswith("actions/upload-artifact@")]
     if not uploads or ("name: %s" % ROW_ARTIFACT) not in jobs["tests"]:
         problems.append("the tests job does not upload the %s artifact" % ROW_ARTIFACT)
-    elif rows and uploads[-1] < rows[0]:
-        problems.append("the upload runs before the row is built")
+    else:
+        name, keys, _env, _run = steps[uploads[-1]]
+        if rows and uploads[-1] < rows[0]:
+            problems.append("the upload runs before the row is built")
+        row_id = steps[rows[0]][1].get("id") if rows else None
+        condition = keys.get("if", "")
+        if not condition.startswith(MAIN_PUSH) or not row_id or "steps.%s.outcome == 'success'" % row_id not in condition:
+            problems.append("%s: not limited to a main push whose row was built (if: %r)" % (name, condition))
+        if keys.get("continue-on-error", "false").lower() != "true":
+            problems.append("%s: is not continue-on-error, so it can red the required tests job" % name)
+    # A pull request's only metrics check: the compiled-IL step runs this
+    # file's real-row cells over the parse it already holds.
+    il_runs = [run for _n, _k, env, run in steps if IL_ENV in env and "scripts/arch" in run]
+    patterns = [m.group(1) for run in il_runs for m in [re.search(r"-p\s+['\"]?([^'\"\s]+)", run)] if m]
+    if not any(fnmatch.fnmatch("test_metrics.py", p) for p in patterns):
+        problems.append("the compiled-IL step does not discover test_metrics.py (patterns %r)" % patterns)
     if "metrics" not in jobs:
         problems.append("no metrics job")
         return problems
@@ -533,9 +554,19 @@ def yaml_problems(text):
         problems.append("metrics job permissions %r" % metrics_job.get("permissions"))
     if (metrics_job.get("concurrency") or {}).get("cancel-in-progress") is not False:
         problems.append("metrics job concurrency %r" % metrics_job.get("concurrency"))
-    uploads = [s for s in jobs["tests"]["steps"] if str(s.get("uses", "")).startswith("actions/upload-artifact@")]
-    if not any((s.get("with") or {}).get("name") == ROW_ARTIFACT for s in uploads):
-        problems.append("tests job uploads no %s" % ROW_ARTIFACT)
+    steps = jobs["tests"]["steps"]
+    rows = [s for s in steps if "scripts/arch/metrics.py" in str(s.get("run", ""))]
+    uploads = [s for s in steps if str(s.get("uses", "")).startswith("actions/upload-artifact@")
+               and (s.get("with") or {}).get("name") == ROW_ARTIFACT]
+    if not rows or not uploads:
+        problems.append("tests job builds or uploads no %s" % ROW_ARTIFACT)
+        return problems
+    row, upload = rows[0], uploads[0]
+    if row.get("if") != MAIN_PUSH or row.get("continue-on-error") is not True:
+        problems.append("row step if %r continue-on-error %r" % (row.get("if"), row.get("continue-on-error")))
+    expected_upload_if = "%s && steps.%s.outcome == 'success'" % (MAIN_PUSH, row.get("id"))
+    if upload.get("if") != expected_upload_if or upload.get("continue-on-error") is not True:
+        problems.append("upload step if %r continue-on-error %r" % (upload.get("if"), upload.get("continue-on-error")))
     return problems
 
 
@@ -561,6 +592,16 @@ class WorkflowTests(unittest.TestCase):
             "cancel a running append": good.replace("      cancel-in-progress: false", "      cancel-in-progress: true"),
             "no needs": good.replace("    needs: tests\n", ""),
             "no row step": good.replace("scripts/arch/metrics.py", "scripts/arch/other.py"),
+            "row on pull requests": good.replace(
+                "        id: metrics_row\n        if: " + MAIN_PUSH + "\n", "        id: metrics_row\n"),
+            "row can red tests": good.replace(
+                "        id: metrics_row\n        if: " + MAIN_PUSH + "\n        continue-on-error: true\n",
+                "        id: metrics_row\n        if: " + MAIN_PUSH + "\n"),
+            "upload can red tests": good.replace(
+                "steps.metrics_row.outcome == 'success'\n        continue-on-error: true\n",
+                "steps.metrics_row.outcome == 'success'\n"),
+            "upload with no row": good.replace(" && steps.metrics_row.outcome == 'success'", ""),
+            "no proof on pull requests": good.replace("-p 'test_[ims]*.py'", "-p 'test_[si]*.py'"),
             "third-party action": good.replace("uses: actions/download-artifact@", "uses: someone/download@", 1),
         }
         try:
@@ -570,7 +611,7 @@ class WorkflowTests(unittest.TestCase):
         for label, text in mutants.items():
             self.assertNotEqual(text, good, label)
             self.assertNotEqual(metrics_wiring_problems(text), [], label)
-            if yaml is not None and label != "no row step" and label != "third-party action":
+            if yaml is not None and label not in ("no row step", "third-party action", "no proof on pull requests"):
                 self.assertNotEqual(yaml_problems(text), [], label)
 
     def test_the_job_reader(self):
@@ -584,25 +625,31 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(job_keys(jobs["b"]), {"needs": "a", "if": "always()"})
         self.assertNotIn("if", job_keys(jobs["a"]))
 
-    def test_the_metrics_step_is_not_in_the_compiled_il_pattern(self):
-        # The row is built by its own CI step; this file must stay out of the
-        # compiled-IL step's discover pattern so that step does not pay for a
-        # second row.
-        import fnmatch  # noqa: PLC0415
-
-        self.assertFalse(fnmatch.fnmatch("test_metrics.py", "test_[si]*.py"))
-
 
 @unittest.skipUnless(os.environ.get(IL_ENV), "%s is not set (a real row needs the built DLL)" % IL_ENV)
 class RealTreeRowTests(unittest.TestCase):
-    """A full row over the built Debug DLL: every half present, every module in the map."""
+    """A full row over the built Debug DLL, from the text model, semantic
+    result and facts the compiled-IL step's other real-tree cells hold in the
+    same process (the per-process caches in test_semantic and test_ilfacts), so
+    this costs the size counts and the analysis report, not another parse. A
+    pull request's CI runs this; only a main push writes a row."""
 
     @classmethod
     def setUpClass(cls):
+        import ilanalysis  # noqa: PLC0415
+        import test_ilfacts  # noqa: PLC0415
+
         il_path = Path(os.environ[IL_ENV])
         if not il_path.is_file():
             raise AssertionError("%s=%s does not exist (build Parsek first)" % (IL_ENV, il_path))
-        cls.row = json.loads(metrics.dumps(metrics.measure(SHA, "2026-11-11T17:42:00Z", il_path)))
+        model, result = test_semantic.real_tree_semantic(il_path)
+        facts, tooling = test_ilfacts.real_tree_facts(il_path)
+        _rules, _tooling, forbidden, _allowed = metrics.archview.load_rules(metrics.archview.DEFAULT_MODULES)
+        report = ilanalysis.report(facts, tooling, ilanalysis.load_config())
+        row = metrics.row_from_tools(SHA, "2026-11-11T17:42:00Z", model, forbidden, result, report,
+                                     metrics.load_count_code().collect())
+        cls.line = metrics.dumps(row)
+        cls.row = json.loads(cls.line)
 
     def test_every_half_is_measured(self):
         row = self.row
@@ -618,9 +665,14 @@ class RealTreeRowTests(unittest.TestCase):
         self.assertEqual(row["semantic"]["text"]["replayedResidue"], row["text"]["replayedResidue"])
         self.assertEqual(set(row["text"]["byModule"]), set(row["facts"]["coupling"]["byModule"]))
         self.assertEqual(sum(m["files"] for m in row["text"]["byModule"].values()), row["text"]["productionFiles"])
+        self.assertGreater(row["text"]["productionLines"], 0)
         self.assertGreater(row["facts"]["ratchets"]["uncalledInAssembly"], 0)
         self.assertIn("Mod source (C#)", row["sizes"]["areas"])
-        self.assertTrue(metrics_append.append_text("", row)[1])
+
+    def test_the_row_appends(self):
+        text, appended = metrics_append.append_text("", self.row)
+        self.assertTrue(appended)
+        self.assertEqual(text, self.line)
 
 
 if __name__ == "__main__":

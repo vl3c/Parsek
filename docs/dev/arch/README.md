@@ -315,7 +315,7 @@ live methods (Harmony 310, `.cctor` 279, dispatch 272, strings 112, delegates
 ### The ratchets
 
 CI's compiled-IL step runs `test_ilanalysis.RealTreeRatchetTests` over the
-built Debug DLL (the step's `test_[si]*.py` pattern; `WorkflowTests` reds if
+built Debug DLL (the step's `test_[ims]*.py` pattern; `WorkflowTests` reds if
 it stops matching). The pins are `scripts/arch/facts_pins.toml`, the one place
 the bounds live. The ratchets bind static write sets, call sets and
 per-method decisions, never instruction counts or shares. A Debug and a
@@ -357,8 +357,8 @@ explains.
 ## Metrics history
 
 Every number above exists only for the commit it is run on. The history keeps
-one machine-readable row per commit on `main`, so trends can be drawn later.
-It gates nothing: no check reads it, and no row can fail a PR.
+one machine-readable row per commit pushed to `main`, so trends can be drawn
+later. It gates nothing: no check reads it, and no row can fail a PR.
 
 - **Where.** Branch `metrics` (an orphan branch: no source, only `README.md`
   and the history), file `metrics.jsonl`: one JSON object per line, in the
@@ -377,16 +377,26 @@ It gates nothing: no check reads it, and no row can fail a PR.
   row is those tools' own output, built in one process so `Parsek.dll` is
   disassembled and parsed once. Without a DLL the `semantic` and `facts`
   halves are null; without the test DLL `facts.testReach` is.
-- **How it gets there.** CI's `tests` job builds a row after the compiled-IL
-  step and uploads it as the `metrics-row` artifact (14 days). On a pull
-  request the row is informational (named for the PR head sha, measured on
-  the merge ref) and skips the test DLL. On a push to `main` the row also
-  measures test reach, and the `metrics` job (the workflow's only job with
-  write access, main pushes only) appends it with
+- **How it gets there.** Rows exist for pushes to `main` only. On such a
+  push CI's `tests` job builds the row (with test reach) after the
+  compiled-IL step and uploads it as the `metrics-row` artifact (14 days);
+  both steps are `continue-on-error`, so the history can never turn the
+  required check red. The `metrics` job (the workflow's only job with write
+  access, main pushes only) then appends it with
   `scripts/arch/metrics_append.py publish`: a worktree of the checkout on the
   branch (created as an orphan when missing), append, commit as
   `github-actions[bot]` (`metrics: <short sha>`), push, and on a rejected push
   re-fetch, re-append and retry. A sha already in the file changes nothing.
+  When the row step failed there is no artifact and the `metrics` job fails
+  at its download, which is where a broken tool shows.
+- **Pull requests** keep no row. Their compiled-IL step only proves that a
+  row can still be built: `test_metrics.RealTreeRowTests` assembles one (no
+  test reach) from the model, semantic result and facts the step's other
+  real-tree cells already hold, for about 10 s.
+- **Gaps.** A commit can have no row. GitHub keeps at most one pending run
+  per concurrency group, so when merges land back to back a queued `metrics`
+  job (or workflow run) can be cancelled, and a failed row step leaves none.
+  Read the history as a sample of `main`, not a complete list.
 - **Reading it.**
 
 ```bash

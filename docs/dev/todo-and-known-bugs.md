@@ -2447,11 +2447,14 @@ compare).
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s
-  counts, in one process over one parse. CI's `tests` job builds it after the compiled-IL step
-  and uploads it as `metrics-row`; a new `metrics` job, main pushes only and the only job with
-  `contents: write`, appends main's row to `metrics.jsonl` on the orphan branch `metrics`
-  (`scripts/arch/metrics_append.py publish`: idempotent by sha, retries a rejected push on the
-  new tip). Gates nothing (README "Metrics history"). Next: an Atlas section that draws the trends.
+  counts, in one process over one parse. Rows exist for main pushes only: the `tests` job builds
+  and uploads one there (`metrics-row`, both steps continue-on-error), and a new `metrics` job,
+  main pushes only and the only job with `contents: write`, appends it to `metrics.jsonl` on the
+  orphan branch `metrics` (`scripts/arch/metrics_append.py publish`: idempotent by sha, retries a
+  rejected push on the new tip). A PR only proves a row can be built, inside the compiled-IL step
+  over the parse it already holds (`test_metrics.RealTreeRowTests`). A row can be missing when
+  merges land back to back (a queued run is cancelled). Gates nothing (README "Metrics
+  history"). Next: an Atlas section that draws the trends.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

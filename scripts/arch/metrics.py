@@ -2,9 +2,11 @@
 """One metrics history row for one commit: every headline number the
 architecture tooling already measures, as a flat-ish JSON object.
 
-CI builds a row for every commit it tests and, on a push to main, appends it
-to `metrics.jsonl` on the `metrics` branch (scripts/arch/metrics_append.py),
-so a later reader can draw trends. The row gates nothing.
+On a push to main, CI builds a row for the commit and appends it to
+`metrics.jsonl` on the `metrics` branch (scripts/arch/metrics_append.py), so
+a later reader can draw trends. A pull request builds no row; its
+compiled-IL step only checks that one can be built (test_metrics.py, over the
+parse and facts that step already holds). The row gates nothing.
 
     python3 scripts/arch/metrics.py --sha <sha> --date <iso> \\
         [--dll Source/Parsek/bin/Debug/Parsek.dll] \\
@@ -312,15 +314,36 @@ def load_count_code(path=COUNT_CODE):
     return module
 
 
+def row_from_tools(sha, date, model, forbidden, semantic_result=None, report=None, counts=None,
+                   tests_dll=False):
+    """The row from the tools' own results: an archview model and its [forbidden]
+    specs, a semantic.build result, an ilanalysis.report result and a
+    count-code collect() payload (None leaves that half null).
+
+    The CLI builds the inputs itself (`measure`); CI's compiled-IL step hands in
+    the ones its other real-tree cells already built in the same process.
+    """
+    return build_row(
+        sha,
+        date,
+        text_section(model, forbidden),
+        semantic_section(semantic_result) if semantic_result is not None else None,
+        facts_section(report) if report is not None else None,
+        sizes_section(counts) if counts is not None else None,
+        tests_dll=tests_dll,
+    )
+
+
 def measure(sha, date, dll=None, tests_dll=None, source=archview.DEFAULT_SOURCE,
             modules=archview.DEFAULT_MODULES):
     """Run every tool and return the row. Raises when a given input cannot be measured."""
     build_row(sha, date)  # a bad sha or date fails before minutes of measuring
-    source =str(archview.REPO_ROOT / source) if not Path(source).is_absolute() else source
+    if tests_dll and not dll:
+        raise ValueError("--tests-dll needs --dll (test reach is measured against Parsek.dll)")
+    source = str(archview.REPO_ROOT / source) if not Path(source).is_absolute() else source
     rules, tooling, forbidden, _allowed = archview.load_rules(modules)
     model = archview.build_model(source, rules, tooling)
-    text = text_section(model, forbidden)
-    semantic_half = facts_half = None
+    semantic_result = report = None
     if dll:
         import ilanalysis  # noqa: PLC0415
         import ilfacts  # noqa: PLC0415
@@ -331,7 +354,7 @@ def measure(sha, date, dll=None, tests_dll=None, source=archview.DEFAULT_SOURCE,
         if not dll.is_file():
             raise FileNotFoundError("--dll %s does not exist (build Parsek first)" % dll)
         parsed = ilgraph.load_parsed(dll)
-        semantic_half = semantic_section(semantic.build(model, None, source, parsed=parsed))
+        semantic_result = semantic.build(model, None, source, parsed=parsed)
         facts = ilfacts.build(parsed, ilfacts.source_type_modules(source, rules))
         tests_facts = None
         if tests_dll:
@@ -339,11 +362,9 @@ def measure(sha, date, dll=None, tests_dll=None, source=archview.DEFAULT_SOURCE,
             if not tests_dll.is_file():
                 raise FileNotFoundError("--tests-dll %s does not exist" % tests_dll)
             tests_facts = ilanalysis.load_facts(tests_dll, None)[0]
-        facts_half = facts_section(ilanalysis.report(facts, tooling, ilanalysis.load_config(), tests_facts))
-    elif tests_dll:
-        raise ValueError("--tests-dll needs --dll (test reach is measured against Parsek.dll)")
-    sizes = sizes_section(load_count_code().collect())
-    return build_row(sha, date, text, semantic_half, facts_half, sizes, tests_dll=bool(tests_dll))
+        report = ilanalysis.report(facts, tooling, ilanalysis.load_config(), tests_facts)
+    return row_from_tools(sha, date, model, forbidden, semantic_result, report,
+                          load_count_code().collect(), tests_dll=bool(tests_dll))
 
 
 def main(argv=None):
