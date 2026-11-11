@@ -1,0 +1,33 @@
+{
+  "archivedUtc": "2026-11-11T22:40:56Z",
+  "files": [
+    {
+      "bytes": 30167,
+      "name": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures.json",
+      "sourceBytes": 30167
+    },
+    {
+      "bytes": 3430,
+      "name": "2026-11-11_223844_harness.log.gz",
+      "sourceBytes": 19578
+    },
+    {
+      "bytes": 259695,
+      "name": "KSP.log.gz",
+      "sourceBytes": 2626284
+    }
+  ],
+  "gitHead": "3fdcfc1b62255b9f56b8ff65cb322d34ec233924",
+  "harnessLog": "slice",
+  "missing": [
+    "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures_status.json",
+    "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures_mission.json",
+    "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures_mission.stdout.log"
+  ],
+  "origin": "run",
+  "parsekDllSha256": "ced24e5725a87bb86e8fe8cd00037b7600594d605471abbdc230ccad4efd65c5",
+  "runId": "2026-11-11_2238_TP-4-duna-reaim-landing-map-pictures",
+  "schema": 1,
+  "totalBytes": 293292,
+  "worktree": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\Parsek-tp-pictures"
+}
