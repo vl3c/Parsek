@@ -87,6 +87,52 @@ inputs produce byte-identical files.
 Like the GUI mirror, the page claims no path inside a shots directory: it writes
 where `--out` says. Do not commit generated pages.
 
+### How to get the pictures
+
+The picture lanes TP-1..TP-8 (`harness/scenarios/TP-*.toml`, tier `operator`)
+exist to feed this page. Each copies a model lane's committed fixture, loop setup
+and measured jump instants, and at each instant takes a few VIEWS:
+
+| Lane | Subject (model lane) | Scene | Instants | Views |
+| --- | --- | --- | --- | --- |
+| TP-1 | Mun loop (V6M) | flight map | c1 transfer, arrival, park; c2 arrival | 12 |
+| TP-2 | Mun loop (V6T) | Tracking Station | c1 transfer, arrival, park | 9 |
+| TP-3 | Minmus loop, inclined (V7M) | flight map | c1 transfer, arrival, park; c2 arrival | 12 |
+| TP-4 | Kerbin to Duna re-aim with landing (V25M) | flight map | transfer, arrival, descent, just before touchdown | 12 |
+| TP-5 | Laythe to Vall (V17M) | flight map | c1 transfer, arrival, park; c2 arrival | 12 |
+| TP-6 | Mun landing loop (V23M) | flight map | transfer, approach, descent, 60 s before touchdown; c2 the same | 14 |
+| TP-7 | Kerbin depot route, route lines on (V18T) | Tracking Station | c1 near dock; c2 mid-leg, near dock | 9 |
+| TP-8 | Inter-body routes (V26M) | flight map | the save clock (whole system and each route end) | 5 |
+
+A view is three seam steps under one label: `MapCamera focus=<body> pitch=
+heading= distance=` (the same frame on every run), `CaptureScreenshot label=L`
+and `DumpMapGeometry label=L`. Labels read `tp<N>-<instant>-<view>`, for example
+`tp1-c1-arrival-mun-top`. View kinds: `sys-top` (the Sun, straight down), a
+parent-centred top-down that holds both ends of a transfer (`kerbin-top`,
+`jool-top`, `duna-soi-top`), a close top-down on the ghost's body (`mun-top`,
+`mun-low-top`, ...), and edge-on (`-edge`, pitch 0). Distances are metres from
+the focus body's centre, about 2.2 times the radius the view must hold (the
+body, its SOI or the orbit). A flight-map lane opens the map with `EnterMapView`
+first. A Tracking Station lane reaches each instant in FLIGHT, saves it under its
+own name and boots that save into the Tracking Station, because the fixtures'
+new-game `intro_TS` lock lets only a 1x warp run there.
+
+To get the pictures (flights run only when the operator asks):
+
+```
+cd harness
+python run.py --id TP-1-mun-loop-map-pictures        # or --tag TP for all eight
+python tools/map_mirror.py --shots "results/*_TP-*_shots" \
+    --out ../../logs/map-mirror/<date>/map-mirror.html
+```
+
+Every run's PNGs and `.map.json` dumps land in `results/<runId>_shots/` through
+the ordinary harvest, paired by label. Write the page under the umbrella's
+`logs/`, never into the repository. To add a view, add the three steps to the
+lane and its two required lines (`capturescreenshot ok label=L bytes=`,
+`dumpmapgeometry ok label=L scene=<FLIGHT|TRACKSTATION> `); the label must be
+unique in the lane, filename-safe and must not end in `.` or `_`.
+
 ## 3. The page
 
 Left rail: one heading per lane, then the lane's captures in time order (run,

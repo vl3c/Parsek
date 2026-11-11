@@ -20,13 +20,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MAP-PICTURE-LANES-FIRST-FLIGHT: the eight map picture lanes TP-1..TP-8 have never flown [FILED 2026-11-11 with the lanes, branch `claude/project-thread-zfo2hk`. OPEN; harness, lanes only, no known defect]
+
+The first lanes wired to the `DumpMapGeometry` / `MapCamera` seam verbs: operator-tier picture
+lanes that copy a model lane's fixture, loop setup and measured jumps (TP-1 V6M, TP-2 V6T, TP-3
+V7M, TP-4 V25M, TP-5 V17M, TP-6 V23M, TP-7 V18T, TP-8 V26M) and take 85 views
+(`MapCamera` -> `CaptureScreenshot` -> `DumpMapGeometry`, one label per view) for the map mirror
+page (`docs/dev/design-map-mirror.md` -> "How to get the pictures"). Validated pre-launch only.
+
+Owed, in order:
+- Fly each once (`python harness/run.py --tag TP`) and build the page over the eight `_shots`
+  dirs. Neither verb has run in a live game, so a red here may be the verbs, not the lane.
+- Check the instants that are DERIVED rather than copied, from the dumps: TP-4's descent and
+  landing (`5,360,227,434` / `_534`, mapped through V25M's measured 7,993.44 s Duna loiter cut and
+  3,918.25 s arrival hold), the park instants of TP-1 / TP-2 (`301,792`) and TP-3 (`1,354,571`)
+  (the model lanes' "park" jumps sit on the inbound hyperbola), TP-6's transfer / approach /
+  descent and TP-7's `60,149`. Re-pin off the run's `missionconfig applied:` and
+  `startloopplayback initiated:` lines if a view shows the ghost somewhere else.
+- TP-2 and TP-7 boot the Tracking Station three times in one process (each instant saved under
+  its own name in FLIGHT, then `LoadGame scene=trackstation`); no other lane does a TS -> TS
+  load. If that refuses, fall back to one TS boot per lane.
+- Read `mapcamera ok` for `pitchClamped` / `distanceClamped` and widen or narrow a view whose
+  frame stock clamped, then run `tools/flight_efficiency.py` on each first green flight.
+
 ## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
 Merges the two lists the owner had: the moon flight-test matrix (MOON-FLIGHT-TEST-PROGRAM below,
 project file `missions/moon-flight-test-matrix-2026-11-07.md`) and the 2026-10-31 test gap audit
 (TEST-GAP-AUDIT-2026-10-31-RESIDUE below, project file `roadmap/test-gap-audit-2026-10-31.md`).
-No committed spec is still waiting for its first flight: every lane added since the 2026-11-06
-full run is live-proven, and the refactor batch (254 lanes, 2026-11-10 / 11, per the PR #2561
+No committed spec was still waiting for its first flight when this list was written (the map
+picture lanes TP-1..TP-8, committed later the same day, are the exception: see
+MAP-PICTURE-LANES-FIRST-FLIGHT): every lane added since the 2026-11-06 full run is live-proven, and the refactor batch (254 lanes, 2026-11-10 / 11, per the PR #2561
 body) re-flew the re-aim regression slice and the six moon-to-moon lanes on the new 1.1.0 clock
 (run ids in MOON-FLIGHT-TEST-PROGRAM and the six `autotest-status.md` rows). Not repeated here:
 fixes awaiting a re-flight of an existing lane (BDOCK-2), and the other programs in

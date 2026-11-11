@@ -1,0 +1,219 @@
+schema = 1
+id = "TP-3-minmus-loop-map-pictures"
+# =====================================================================================
+# TP-3: PICTURES OF THE LOOPED, INCLINED MINMUS MISSION ON THE FLIGHT MAP.
+#
+# V7M-minmus-player-loop's loop (and V7W's subject) with the flight map OPENED, which the
+# model lane never does: `EnterMapView` is added after the tracer settings. Minmus's orbit
+# is inclined 6 deg, so the edge-on views are the point of this lane: they show whether
+# the ghost's lines follow the tilted plane.
+#
+# MODEL LANE FACTS RELIED ON (V7M, `minmus-orbit-recorded`, tree aa435745...): ut0 34.44;
+# measured L1 = 1,077,505.699 / L2 = 2,154,976.958; window UT = L + (recordedUT - 34.44);
+# Minmus SOI seam offset 267,706.881; V7M's measured arrival jumps 1,345,355 (cycle 1)
+# and 2,422,825 (cycle 2).
+#
+# ONE INSTANT IS NOT V7M's AND SAYS WHY. V7M's 1,354,406 (offset 276,900) is on the
+# inbound Minmus hyperbola (every recorded Minmus OrbitSegment reads sma -32,531, ecc
+# 4.03); the capture burn is 277,007.1..277,024.8 recorded and the park run 277,024.8..
+# 277,204.4, so the park picture is taken at recorded 277,100 (UT 1,354,571).
+#
+# INSTANTS AND VIEWS (label tp3-<instant>-<view>):
+#   c1-transfer 1,227,506  L1 + 150,000: the post-burn coast to Minmus
+#                          sys-top (Sun, 90, 3.5e10), kerbin-top / kerbin-edge (Kerbin, 1.05e8)
+#   c1-arrival  1,345,355  V7M's: just inside the Minmus SOI
+#                          kerbin-top, minmus-top / minmus-edge (Minmus, 5e6)
+#   c1-park     1,354,571  the park (see above)
+#                          minmus-top, minmus-edge, kerbin-edge
+#   c2-arrival  2,422,825  V7M's cycle-2 arrival, after a second StartLoopPlayback
+#                          kerbin-top, minmus-top, minmus-edge
+#
+# THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
+# three steps under ONE label: `MapCamera` (focus / pitch / heading / distance, so the
+# frame is the same on every run), `CaptureScreenshot label=L` (the PNG) and
+# `DumpMapGeometry label=L` (the same frame as data, `Screenshots/L.map.json`). The harvest
+# copies both into `results/<runId>_shots/`, and `tools/map_mirror.py <shots-dir>` pairs
+# them by label into one page. Distances are metres from the focus body's centre, sized
+# off the body radius, SOI or the orbit the view must hold (about 2.2x the radius that
+# has to fit). Stock clamps pitch near +-86 deg and keeps the camera two radii out;
+# `mapcamera ok` reports any clamp, it is not a refusal.
+#
+# LIGHT EXPECTATIONS BY DESIGN. Each label's `capturescreenshot ok` and
+# `dumpmapgeometry ok` line is required, every refusal / error line of the three verbs
+# is forbidden, the model lane's anomaly allowance and recording-count window are
+# copied, and nothing else is asserted: no render-composition block, no gating block,
+# no routing tokens. The lane exists to produce pictures for a human and the mirror
+# page; the model lane keeps owning every behavioural claim about the same flight.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse a flight - NOT APPLIED: the request was a separate picture lane per subject
+#     with the model lane left byte-unchanged, and a model lane that also took pictures
+#     would change the frames its armed census reads (MapCamera moves the live camera).
+#   2 no idle waits - applied: every wait is an explicit-UT `WarpToUT maxRate=1` of 5 s
+#     (flight) or the model lane's own two `RecordingState` pacing ticks (TS); the
+#     clock moves by `TimeJump`, which costs no wall time.
+#   3 minimal dwells - applied: one 5 s 1x settle per instant, so the newly placed ghost
+#     and its lines have drawn before the first camera move.
+#   4 burns at 1x / 5 b5 coasts / 6 fail fast - not applicable: no mission is flown, the
+#     lane replays a committed fixture.
+#   7 tight count windows - the model lane's window, copied; tightened after the first
+#     flight only if it reads otherwise.
+#   8 tier by measured cost / 9 flight_efficiency.py - owed after the first flight; the
+#     tier is `operator` because the lane is run on request for pictures.
+# =====================================================================================
+tier = "operator"
+description = "PICTURE LANE, AUTHORED 2026-11-11, NOT YET FLOWN. V7M's looped Kerbin->Minmus mission (6 deg inclined target) on minmus-orbit-recorded, with the flight map opened: at cycle-1 transfer, cycle-1 Minmus arrival, cycle-1 Minmus park and cycle-2 arrival it frames the map camera top-down and edge-on, photographs each view and dumps the same frame's geometry under one label, 12 views in all. Expectations are only that every view was taken and none was refused."
+instanceProfile = "stock-minimal"
+tags = ["TP", "TP-3", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "pending-flight", "minmus", "moon", "phase-lock", "inclined"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/minmus-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "EnterMapView", expect = "OK", budget = 60 },
+  { cmd = "MissionConfig", args = { tree = "aa435745816e46b381cadb4fdcef7038", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "aa435745816e46b381cadb4fdcef7038" }, expect = "OK", budget = 300 },
+  # INSTANT c1-transfer at UT 1227506: cycle-1 Kerbin coast to Minmus, L1 + 150,000 s (recorded 150,034, inside the 74,195..267,706 post-burn coast)
+  { cmd = "TimeJump", args = { ut = "1227506" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "1227511", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp3-c1-transfer-sys-top: Sun pitch=90 heading=0 distance=35000000000 m
+  { cmd = "MapCamera", args = { focus = "Sun", pitch = "90", heading = "0", distance = "35000000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c1-transfer-sys-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c1-transfer-sys-top" }, expect = "OK" },
+  # view tp3-c1-transfer-kerbin-top: Kerbin pitch=90 heading=0 distance=105000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "105000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c1-transfer-kerbin-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c1-transfer-kerbin-top" }, expect = "OK" },
+  # view tp3-c1-transfer-kerbin-edge: Kerbin pitch=0 heading=0 distance=105000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "0", heading = "0", distance = "105000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c1-transfer-kerbin-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c1-transfer-kerbin-edge" }, expect = "OK" },
+  # INSTANT c1-arrival at UT 1345355: V7M's measured cycle-1 arrival jump, ~142 s inside the Minmus SOI
+  { cmd = "TimeJump", args = { ut = "1345355" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "1345360", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp3-c1-arrival-kerbin-top: Kerbin pitch=90 heading=0 distance=105000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "105000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c1-arrival-kerbin-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c1-arrival-kerbin-top" }, expect = "OK" },
+  # view tp3-c1-arrival-minmus-top: Minmus pitch=90 heading=0 distance=5000000 m
+  { cmd = "MapCamera", args = { focus = "Minmus", pitch = "90", heading = "0", distance = "5000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c1-arrival-minmus-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c1-arrival-minmus-top" }, expect = "OK" },
+  # view tp3-c1-arrival-minmus-edge: Minmus pitch=0 heading=0 distance=5000000 m
+  { cmd = "MapCamera", args = { focus = "Minmus", pitch = "0", heading = "0", distance = "5000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c1-arrival-minmus-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c1-arrival-minmus-edge" }, expect = "OK" },
+  # INSTANT c1-park at UT 1354571: cycle-1 Minmus park, L1 + 277,065.6 s (recorded 277,100, inside the park run 277,024.8..277,204.4 after the capture burn 277,007.1..277,024.8)
+  { cmd = "TimeJump", args = { ut = "1354571" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "1354576", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp3-c1-park-minmus-top: Minmus pitch=90 heading=0 distance=5000000 m
+  { cmd = "MapCamera", args = { focus = "Minmus", pitch = "90", heading = "0", distance = "5000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c1-park-minmus-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c1-park-minmus-top" }, expect = "OK" },
+  # view tp3-c1-park-minmus-edge: Minmus pitch=0 heading=0 distance=5000000 m
+  { cmd = "MapCamera", args = { focus = "Minmus", pitch = "0", heading = "0", distance = "5000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c1-park-minmus-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c1-park-minmus-edge" }, expect = "OK" },
+  # view tp3-c1-park-kerbin-edge: Kerbin pitch=0 heading=0 distance=105000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "0", heading = "0", distance = "105000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c1-park-kerbin-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c1-park-kerbin-edge" }, expect = "OK" },
+  # the next cycle: StartLoopPlayback warps to its departure, as the model lane does
+  { cmd = "StartLoopPlayback", args = { tree = "aa435745816e46b381cadb4fdcef7038" }, expect = "OK", budget = 300 },
+  # INSTANT c2-arrival at UT 2422825: V7M's measured cycle-2 arrival jump
+  { cmd = "TimeJump", args = { ut = "2422825" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "2422830", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp3-c2-arrival-kerbin-top: Kerbin pitch=90 heading=0 distance=105000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "105000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c2-arrival-kerbin-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c2-arrival-kerbin-top" }, expect = "OK" },
+  # view tp3-c2-arrival-minmus-top: Minmus pitch=90 heading=0 distance=5000000 m
+  { cmd = "MapCamera", args = { focus = "Minmus", pitch = "90", heading = "0", distance = "5000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c2-arrival-minmus-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c2-arrival-minmus-top" }, expect = "OK" },
+  # view tp3-c2-arrival-minmus-edge: Minmus pitch=0 heading=0 distance=5000000 m
+  { cmd = "MapCamera", args = { focus = "Minmus", pitch = "0", heading = "0", distance = "5000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp3-c2-arrival-minmus-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp3-c2-arrival-minmus-edge" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+# The scene cell is what the lane flies; the body cells are the bodies its views frame.
+# Nothing is armed, so no behavioural cell is claimed.
+[dimensionsCovered]
+D14 = ["minmus", "kerbin", "scene-map", "scene-flight", "sandbox"]
+
+[expectations]
+# Copied from V7M-minmus-player-loop, unchanged.
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+required  = [
+  "entermapview ok mapOpen=true",
+  "missionconfig applied:",
+  "startloopplayback initiated:",
+  "mapcamera ok focus=Sun pitch=",
+  "mapcamera ok focus=Kerbin pitch=",
+  "mapcamera ok focus=Minmus pitch=",
+  "capturescreenshot ok label=tp3-c1-transfer-sys-top bytes=",
+  "dumpmapgeometry ok label=tp3-c1-transfer-sys-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c1-transfer-kerbin-top bytes=",
+  "dumpmapgeometry ok label=tp3-c1-transfer-kerbin-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c1-transfer-kerbin-edge bytes=",
+  "dumpmapgeometry ok label=tp3-c1-transfer-kerbin-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c1-arrival-kerbin-top bytes=",
+  "dumpmapgeometry ok label=tp3-c1-arrival-kerbin-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c1-arrival-minmus-top bytes=",
+  "dumpmapgeometry ok label=tp3-c1-arrival-minmus-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c1-arrival-minmus-edge bytes=",
+  "dumpmapgeometry ok label=tp3-c1-arrival-minmus-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c1-park-minmus-top bytes=",
+  "dumpmapgeometry ok label=tp3-c1-park-minmus-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c1-park-minmus-edge bytes=",
+  "dumpmapgeometry ok label=tp3-c1-park-minmus-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c1-park-kerbin-edge bytes=",
+  "dumpmapgeometry ok label=tp3-c1-park-kerbin-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c2-arrival-kerbin-top bytes=",
+  "dumpmapgeometry ok label=tp3-c2-arrival-kerbin-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c2-arrival-minmus-top bytes=",
+  "dumpmapgeometry ok label=tp3-c2-arrival-minmus-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp3-c2-arrival-minmus-edge bytes=",
+  "dumpmapgeometry ok label=tp3-c2-arrival-minmus-edge scene=FLIGHT ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "dumpmapgeometry rejected reason=",
+  "dumpmapgeometry (failed|timed out|capture threw)",
+  "mapcamera rejected reason=",
+  "mapcamera (not settled|scene lost)",
+  "mapcamera: ",
+  "capturescreenshot rejected reason=",
+  "capturescreenshot (not written|threw|dir create failed|pre-delete threw)",
+  "map-geometry-(timeout|capture-failed)",
+]
+
+[runtime]
+# The model lane's budget; the views add a few seconds each (three short two-phase
+# verbs) and every TimeJump is an instantaneous clock set.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

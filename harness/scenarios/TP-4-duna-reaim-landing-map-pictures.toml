@@ -1,0 +1,229 @@
+schema = 1
+id = "TP-4-duna-reaim-landing-map-pictures"
+# =====================================================================================
+# TP-4: PICTURES OF THE RE-AIMED KERBIN -> DUNA LOOP, DOWN TO THE DUNA LANDING.
+#
+# MODEL CHOICE. The request named V24W-duna-one-warp-stair / V25M-duna-park-player-loop
+# and asked for the seam-driven one whose instants reuse without the kRPC mission. V24W
+# flies an autopilot mission (`m3_loop_arrival_dwell`) before it observes anything, so its
+# instants belong to a live flight; V25M is pure seam over the committed
+# `duna-park-recorded` fixture (tree ced78481... 'Kerbal X #2', re-aim engaged with a
+# heliocentric parking departure). TP-4 copies V25M and adds `EnterMapView` (V25M never
+# opens the map).
+#
+# MODEL LANE FACTS RELIED ON (V25M header sections 3 and the window map): phaseAnchorUT
+# 5,336,966,486.98; window UT = phaseAnchor + (recordedUT - 2,547,277,477.43) for every
+# recorded UT at or before the Duna capture; departure D0 5,350,759,909.58; recorded-map
+# Duna SOI entry 5,360,143,945.17; V25M's measured arrival jump 5,360,144,085; the
+# exported destination loiter cut (7,993.44 s starting at the recorded Duna capture
+# 2,570,492,255.34) and the measured arrival hold (`hold=3918.2542181015015s`, inserted at
+# the recorded SOI entry, `ArrivalHoldPlanner` / `DestinationLoiterTrim`: HoldAtUT =
+# recordedArrivalUT).
+#
+# THE TWO LANDING INSTANTS ARE DERIVED, NOT MEASURED, and the derivation is stated so a
+# first flight can correct it. After the capture, window UT = recordedUT +
+# 2,789,684,934.36 (= phaseAnchor - spanStart - 7,993.44 + 3,918.25). The recorded
+# descent is `acf1435a...` (Atmo, 49,991 m -> 4,534 m over 2,570,542,381.0..620.2), then
+# `c5d0148a...` (surface, 620.2..643.0), then the Landed leaf `5466feba...`:
+#   recorded 2,570,542,500 (mid-descent)  -> 5,360,227,434
+#   recorded 2,570,542,600 (~20 s up)     -> 5,360,227,534
+# If the hold or the cut is applied differently from this reading, both land in the Duna
+# loiter or past the landing instead; the dump's ghost lines say which, and the re-pin is
+# to read the arrival hold and cut off this run's log and re-map.
+#
+# INSTANTS AND VIEWS (label tp4-<instant>-<view>; one cycle, as V25M flies one):
+#   c1-transfer 5,355,451,927  midpoint of D0 and the SOI entry: the heliocentric transfer
+#                              sys-top / sys-edge (Sun, 5e10), duna-soi-top (Duna, 1.05e8)
+#   c1-arrival  5,360,144,085  V25M's measured arrival jump
+#                              sys-top, duna-soi-top / duna-soi-edge
+#   c1-descent  5,360,227,434  derived (above)
+#                              duna-low-top / duna-low-edge (Duna, 1.5e6), duna-top (7e6)
+#   c1-landing  5,360,227,534  derived (above)
+#                              duna-low-top, duna-low-edge, duna-low-oblique (30 deg, 1.2e6)
+#
+# THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
+# three steps under ONE label: `MapCamera` (focus / pitch / heading / distance, so the
+# frame is the same on every run), `CaptureScreenshot label=L` (the PNG) and
+# `DumpMapGeometry label=L` (the same frame as data, `Screenshots/L.map.json`). The harvest
+# copies both into `results/<runId>_shots/`, and `tools/map_mirror.py <shots-dir>` pairs
+# them by label into one page. Distances are metres from the focus body's centre, sized
+# off the body radius, SOI or the orbit the view must hold (about 2.2x the radius that
+# has to fit). Stock clamps pitch near +-86 deg and keeps the camera two radii out;
+# `mapcamera ok` reports any clamp, it is not a refusal.
+#
+# LIGHT EXPECTATIONS BY DESIGN. Each label's `capturescreenshot ok` and
+# `dumpmapgeometry ok` line is required, every refusal / error line of the three verbs
+# is forbidden, the model lane's anomaly allowance and recording-count window are
+# copied, and nothing else is asserted: no render-composition block, no gating block,
+# no routing tokens. The lane exists to produce pictures for a human and the mirror
+# page; the model lane keeps owning every behavioural claim about the same flight.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse a flight - NOT APPLIED: the request was a separate picture lane per subject
+#     with the model lane left byte-unchanged, and a model lane that also took pictures
+#     would change the frames its armed census reads (MapCamera moves the live camera).
+#   2 no idle waits - applied: every wait is an explicit-UT `WarpToUT maxRate=1` of 5 s
+#     (flight) or the model lane's own two `RecordingState` pacing ticks (TS); the
+#     clock moves by `TimeJump`, which costs no wall time.
+#   3 minimal dwells - applied: one 5 s 1x settle per instant, so the newly placed ghost
+#     and its lines have drawn before the first camera move.
+#   4 burns at 1x / 5 b5 coasts / 6 fail fast - not applicable: no mission is flown, the
+#     lane replays a committed fixture.
+#   7 tight count windows - the model lane's window, copied; tightened after the first
+#     flight only if it reads otherwise.
+#   8 tier by measured cost / 9 flight_efficiency.py - owed after the first flight; the
+#     tier is `operator` because the lane is run on request for pictures.
+# =====================================================================================
+tier = "operator"
+description = "PICTURE LANE, AUTHORED 2026-11-11, NOT YET FLOWN. V25M's re-aimed Kerbin->Duna loop (heliocentric parking departure) on duna-park-recorded, with the flight map opened (V25M never opens it): at the heliocentric transfer, the Duna arrival, the Duna atmospheric descent and just before touchdown it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 12 views in all. The two landing instants are derived through V25M's measured loiter cut and arrival hold, not measured. Expectations are only that every view was taken and none was refused."
+instanceProfile = "stock-minimal"
+tags = ["TP", "TP-4", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "pending-flight", "duna", "reaim", "landing", "cross-parent"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-park-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "EnterMapView", expect = "OK", budget = 60 },
+  { cmd = "MissionConfig", args = { tree = "ced7848157674b8ea19311377c0f6fbc", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "ced7848157674b8ea19311377c0f6fbc" }, expect = "OK", budget = 300 },
+  # INSTANT c1-transfer at UT 5355451927: mid heliocentric transfer, the midpoint of V25M's departure D0 5,350,759,909.58 and the recorded-map Duna SOI entry 5,360,143,945.17
+  { cmd = "TimeJump", args = { ut = "5355451927" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "5355451932", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp4-c1-transfer-sys-top: Sun pitch=90 heading=0 distance=50000000000 m
+  { cmd = "MapCamera", args = { focus = "Sun", pitch = "90", heading = "0", distance = "50000000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-transfer-sys-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-transfer-sys-top" }, expect = "OK" },
+  # view tp4-c1-transfer-sys-edge: Sun pitch=0 heading=0 distance=50000000000 m
+  { cmd = "MapCamera", args = { focus = "Sun", pitch = "0", heading = "0", distance = "50000000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-transfer-sys-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-transfer-sys-edge" }, expect = "OK" },
+  # view tp4-c1-transfer-duna-soi-top: Duna pitch=90 heading=0 distance=105000000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "105000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-transfer-duna-soi-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-transfer-duna-soi-top" }, expect = "OK" },
+  # INSTANT c1-arrival at UT 5360144085: V25M's measured +140 s jump past the recorded-map Duna SOI entry (the arrival hold of 3,918.25 s is inserted at the SOI entry, so this is on or before it)
+  { cmd = "TimeJump", args = { ut = "5360144085" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "5360144090", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp4-c1-arrival-sys-top: Sun pitch=90 heading=0 distance=50000000000 m
+  { cmd = "MapCamera", args = { focus = "Sun", pitch = "90", heading = "0", distance = "50000000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-arrival-sys-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-arrival-sys-top" }, expect = "OK" },
+  # view tp4-c1-arrival-duna-soi-top: Duna pitch=90 heading=0 distance=105000000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "105000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-arrival-duna-soi-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-arrival-duna-soi-top" }, expect = "OK" },
+  # view tp4-c1-arrival-duna-soi-edge: Duna pitch=0 heading=0 distance=105000000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "0", heading = "0", distance = "105000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-arrival-duna-soi-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-arrival-duna-soi-edge" }, expect = "OK" },
+  # INSTANT c1-descent at UT 5360227434: Duna atmospheric descent, recorded 2,570,542,500 (acf1435a, 49 km -> 4.5 km over 2,570,542,381..620) mapped through phaseAnchor 5,336,966,486.98, the Duna loiter cut -7,993.44 s and the arrival hold +3,918.25 s
+  { cmd = "TimeJump", args = { ut = "5360227434" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "5360227439", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp4-c1-descent-duna-low-top: Duna pitch=90 heading=0 distance=1500000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "1500000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-descent-duna-low-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-descent-duna-low-top" }, expect = "OK" },
+  # view tp4-c1-descent-duna-low-edge: Duna pitch=0 heading=0 distance=1500000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "0", heading = "0", distance = "1500000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-descent-duna-low-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-descent-duna-low-edge" }, expect = "OK" },
+  # view tp4-c1-descent-duna-top: Duna pitch=90 heading=0 distance=7000000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "7000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-descent-duna-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-descent-duna-top" }, expect = "OK" },
+  # INSTANT c1-landing at UT 5360227534: just before the Duna touchdown, recorded 2,570,542,600 (~20 s before the 2,570,542,620 surface section), same map
+  { cmd = "TimeJump", args = { ut = "5360227534" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "5360227539", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp4-c1-landing-duna-low-top: Duna pitch=90 heading=0 distance=1500000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "1500000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-landing-duna-low-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-landing-duna-low-top" }, expect = "OK" },
+  # view tp4-c1-landing-duna-low-edge: Duna pitch=0 heading=0 distance=1500000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "0", heading = "0", distance = "1500000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-landing-duna-low-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-landing-duna-low-edge" }, expect = "OK" },
+  # view tp4-c1-landing-duna-low-oblique: Duna pitch=30 heading=0 distance=1200000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "30", heading = "0", distance = "1200000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp4-c1-landing-duna-low-oblique" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp4-c1-landing-duna-low-oblique" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+# The scene cell is what the lane flies; the body cells are the bodies its views frame.
+# Nothing is armed, so no behavioural cell is claimed.
+[dimensionsCovered]
+D14 = ["duna", "kerbin", "scene-map", "scene-flight", "sandbox"]
+
+[expectations]
+# Copied from V25M-duna-park-player-loop, unchanged.
+allowedAnomalies = ["icon-teleport", "icon-off-orbit", "line-blink"]
+
+[expectations.recordings]
+count = { min = 12, max = 22 }
+
+[expectations.logContracts]
+required  = [
+  "entermapview ok mapOpen=true",
+  "missionconfig applied:",
+  "startloopplayback initiated:",
+  "mapcamera ok focus=Sun pitch=",
+  "mapcamera ok focus=Duna pitch=",
+  "capturescreenshot ok label=tp4-c1-transfer-sys-top bytes=",
+  "dumpmapgeometry ok label=tp4-c1-transfer-sys-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-transfer-sys-edge bytes=",
+  "dumpmapgeometry ok label=tp4-c1-transfer-sys-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-transfer-duna-soi-top bytes=",
+  "dumpmapgeometry ok label=tp4-c1-transfer-duna-soi-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-arrival-sys-top bytes=",
+  "dumpmapgeometry ok label=tp4-c1-arrival-sys-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-arrival-duna-soi-top bytes=",
+  "dumpmapgeometry ok label=tp4-c1-arrival-duna-soi-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-arrival-duna-soi-edge bytes=",
+  "dumpmapgeometry ok label=tp4-c1-arrival-duna-soi-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-descent-duna-low-top bytes=",
+  "dumpmapgeometry ok label=tp4-c1-descent-duna-low-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-descent-duna-low-edge bytes=",
+  "dumpmapgeometry ok label=tp4-c1-descent-duna-low-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-descent-duna-top bytes=",
+  "dumpmapgeometry ok label=tp4-c1-descent-duna-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-landing-duna-low-top bytes=",
+  "dumpmapgeometry ok label=tp4-c1-landing-duna-low-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-landing-duna-low-edge bytes=",
+  "dumpmapgeometry ok label=tp4-c1-landing-duna-low-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp4-c1-landing-duna-low-oblique bytes=",
+  "dumpmapgeometry ok label=tp4-c1-landing-duna-low-oblique scene=FLIGHT ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "dumpmapgeometry rejected reason=",
+  "dumpmapgeometry (failed|timed out|capture threw)",
+  "mapcamera rejected reason=",
+  "mapcamera (not settled|scene lost)",
+  "mapcamera: ",
+  "capturescreenshot rejected reason=",
+  "capturescreenshot (not written|threw|dir create failed|pre-delete threw)",
+  "map-geometry-(timeout|capture-failed)",
+]
+
+[runtime]
+# The model lane's budget; the views add a few seconds each (three short two-phase
+# verbs) and every TimeJump is an instantaneous clock set.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
