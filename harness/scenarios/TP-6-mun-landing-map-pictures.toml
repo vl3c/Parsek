@@ -1,0 +1,231 @@
+schema = 1
+id = "TP-6-mun-landing-map-pictures"
+# =====================================================================================
+# TP-6: PICTURES OF THE LOOPED MUN LANDING.
+#
+# V23M-mun-landing-player-loop's loop with the flight map opened (`EnterMapView` added;
+# V23M never opens it). The descent and the last minute before touchdown are the views
+# this lane is for.
+#
+# MODEL LANE FACTS RELIED ON (V23M, `mun-landing-recorded`, tree 0da22482...): ut0 34.52;
+# measured L1 = 1,249,901.181 / L2 = 1,530,043.708; window UT = L + (recordedUT - 34.52);
+# seam offset 16,390.649; measured touchdown offset 23,091.405; V23M's measured jumps
+# 1,272,933 (cycle 1) and 1,553,075 (cycle 2), each 60 s before touchdown. V23M's note
+# that a landed member gets no map ProtoVessel applies: the last views show the descent
+# polyline and the marker, not an orbit line.
+#
+# INSTANTS AND VIEWS (label tp6-<instant>-<view>):
+#   c1-transfer 1,258,901  L1 + 9,000: Kerbin coast to the Mun
+#                          kerbin-top / kerbin-edge (Kerbin, 2.8e7), mun-top (Mun, 5.4e6)
+#   c1-approach 1,268,401  L1 + 18,500: the inbound Mun hyperbola
+#                          kerbin-top, mun-top, mun-edge
+#   c1-descent  1,271,901  L1 + 22,000: after the deorbit burn (recorded 21,774..21,778)
+#                          mun-low-top / mun-low-edge (Mun, 7.5e5), mun-top
+#   c1-landing  1,272,933  V23M's: 60 s before touchdown
+#                          mun-low-top, mun-low-edge, mun-low-oblique (30 deg, 6e5)
+#   c2-landing  1,553,075  V23M's cycle-2 jump, after a second StartLoopPlayback
+#                          mun-low-top, mun-low-edge
+#
+# THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
+# three steps under ONE label: `MapCamera` (focus / pitch / heading / distance, so the
+# frame is the same on every run), `CaptureScreenshot label=L` (the PNG) and
+# `DumpMapGeometry label=L` (the same frame as data, `Screenshots/L.map.json`). The harvest
+# copies both into `results/<runId>_shots/`, and `tools/map_mirror.py <shots-dir>` pairs
+# them by label into one page. Distances are metres from the focus body's centre, sized
+# off the body radius, SOI or the orbit the view must hold (about 2.2x the radius that
+# has to fit). Stock clamps pitch near +-86 deg and keeps the camera two radii out;
+# `mapcamera ok` reports any clamp, it is not a refusal.
+#
+# LIGHT EXPECTATIONS BY DESIGN. Each label's `capturescreenshot ok` and
+# `dumpmapgeometry ok` line is required, every refusal / error line of the three verbs
+# is forbidden, the model lane's anomaly allowance and recording-count window are
+# copied, and nothing else is asserted: no render-composition block, no gating block,
+# no routing tokens. The lane exists to produce pictures for a human and the mirror
+# page; the model lane keeps owning every behavioural claim about the same flight.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse a flight - NOT APPLIED: the request was a separate picture lane per subject
+#     with the model lane left byte-unchanged, and a model lane that also took pictures
+#     would change the frames its armed census reads (MapCamera moves the live camera).
+#   2 no idle waits - applied: every wait is an explicit-UT `WarpToUT maxRate=1` of 5 s
+#     (flight) or the model lane's own two `RecordingState` pacing ticks (TS); the
+#     clock moves by `TimeJump`, which costs no wall time.
+#   3 minimal dwells - applied: one 5 s 1x settle per instant, so the newly placed ghost
+#     and its lines have drawn before the first camera move.
+#   4 burns at 1x / 5 b5 coasts / 6 fail fast - not applicable: no mission is flown, the
+#     lane replays a committed fixture.
+#   7 tight count windows - the model lane's window, copied; tightened after the first
+#     flight only if it reads otherwise.
+#   8 tier by measured cost / 9 flight_efficiency.py - owed after the first flight; the
+#     tier is `operator` because the lane is run on request for pictures.
+# =====================================================================================
+tier = "operator"
+description = "PICTURE LANE, AUTHORED 2026-11-11, NOT YET FLOWN. V23M's looped Kerbin->Mun landing on mun-landing-recorded, with the flight map opened: at the cycle-1 transfer, the inbound Mun hyperbola, the powered descent, 60 s before touchdown and the cycle-2 60 s mark it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 14 views in all. Expectations are only that every view was taken and none was refused."
+instanceProfile = "stock-minimal"
+tags = ["TP", "TP-6", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "pending-flight", "mun", "moon", "landing", "airless", "phase-lock"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/mun-landing-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "EnterMapView", expect = "OK", budget = 60 },
+  { cmd = "MissionConfig", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d" }, expect = "OK", budget = 300 },
+  # INSTANT c1-transfer at UT 1258901: cycle-1 Kerbin coast to the Mun, L1 + 9,000 s (recorded 9,034.5, inside the 7,963.9..16,393.2 Kerbin segment)
+  { cmd = "TimeJump", args = { ut = "1258901" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "1258906", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp6-c1-transfer-kerbin-top: Kerbin pitch=90 heading=0 distance=28000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-transfer-kerbin-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-transfer-kerbin-top" }, expect = "OK" },
+  # view tp6-c1-transfer-kerbin-edge: Kerbin pitch=0 heading=0 distance=28000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "0", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-transfer-kerbin-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-transfer-kerbin-edge" }, expect = "OK" },
+  # view tp6-c1-transfer-mun-top: Mun pitch=90 heading=0 distance=5400000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-transfer-mun-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-transfer-mun-top" }, expect = "OK" },
+  # INSTANT c1-approach at UT 1268401: cycle-1 inbound Mun hyperbola, L1 + 18,500 s (recorded 18,534.5, inside the 16,463.7..20,966.5 Mun segment)
+  { cmd = "TimeJump", args = { ut = "1268401" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "1268406", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp6-c1-approach-kerbin-top: Kerbin pitch=90 heading=0 distance=28000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-approach-kerbin-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-approach-kerbin-top" }, expect = "OK" },
+  # view tp6-c1-approach-mun-top: Mun pitch=90 heading=0 distance=5400000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-approach-mun-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-approach-mun-top" }, expect = "OK" },
+  # view tp6-c1-approach-mun-edge: Mun pitch=0 heading=0 distance=5400000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-approach-mun-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-approach-mun-edge" }, expect = "OK" },
+  # INSTANT c1-descent at UT 1271901: cycle-1 descent, L1 + 22,000 s (recorded 22,034.5, after the deorbit burn 21,774.2..21,778.2 and before the 23,143 touchdown)
+  { cmd = "TimeJump", args = { ut = "1271901" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "1271906", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp6-c1-descent-mun-low-top: Mun pitch=90 heading=0 distance=750000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-descent-mun-low-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-descent-mun-low-top" }, expect = "OK" },
+  # view tp6-c1-descent-mun-low-edge: Mun pitch=0 heading=0 distance=750000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-descent-mun-low-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-descent-mun-low-edge" }, expect = "OK" },
+  # view tp6-c1-descent-mun-top: Mun pitch=90 heading=0 distance=5400000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-descent-mun-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-descent-mun-top" }, expect = "OK" },
+  # INSTANT c1-landing at UT 1272933: V23M's measured cycle-1 jump, 60 s before the measured touchdown
+  { cmd = "TimeJump", args = { ut = "1272933" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "1272938", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp6-c1-landing-mun-low-top: Mun pitch=90 heading=0 distance=750000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-landing-mun-low-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-landing-mun-low-top" }, expect = "OK" },
+  # view tp6-c1-landing-mun-low-edge: Mun pitch=0 heading=0 distance=750000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-landing-mun-low-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-landing-mun-low-edge" }, expect = "OK" },
+  # view tp6-c1-landing-mun-low-oblique: Mun pitch=30 heading=0 distance=600000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "30", heading = "0", distance = "600000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c1-landing-mun-low-oblique" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c1-landing-mun-low-oblique" }, expect = "OK" },
+  # the next cycle: StartLoopPlayback warps to its departure, as the model lane does
+  { cmd = "StartLoopPlayback", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d" }, expect = "OK", budget = 300 },
+  # INSTANT c2-landing at UT 1553075: V23M's measured cycle-2 jump, 60 s before touchdown
+  { cmd = "TimeJump", args = { ut = "1553075" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "1553080", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp6-c2-landing-mun-low-top: Mun pitch=90 heading=0 distance=750000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c2-landing-mun-low-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c2-landing-mun-low-top" }, expect = "OK" },
+  # view tp6-c2-landing-mun-low-edge: Mun pitch=0 heading=0 distance=750000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp6-c2-landing-mun-low-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp6-c2-landing-mun-low-edge" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+# The scene cell is what the lane flies; the body cells are the bodies its views frame.
+# Nothing is armed, so no behavioural cell is claimed.
+[dimensionsCovered]
+D14 = ["mun", "kerbin", "scene-map", "scene-flight", "sandbox"]
+
+[expectations]
+# Copied from V23M-mun-landing-player-loop, unchanged.
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+required  = [
+  "entermapview ok mapOpen=true",
+  "missionconfig applied:",
+  "startloopplayback initiated:",
+  "mapcamera ok focus=Kerbin pitch=",
+  "mapcamera ok focus=Mun pitch=",
+  "capturescreenshot ok label=tp6-c1-transfer-kerbin-top bytes=",
+  "dumpmapgeometry ok label=tp6-c1-transfer-kerbin-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-transfer-kerbin-edge bytes=",
+  "dumpmapgeometry ok label=tp6-c1-transfer-kerbin-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-transfer-mun-top bytes=",
+  "dumpmapgeometry ok label=tp6-c1-transfer-mun-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-approach-kerbin-top bytes=",
+  "dumpmapgeometry ok label=tp6-c1-approach-kerbin-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-approach-mun-top bytes=",
+  "dumpmapgeometry ok label=tp6-c1-approach-mun-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-approach-mun-edge bytes=",
+  "dumpmapgeometry ok label=tp6-c1-approach-mun-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-descent-mun-low-top bytes=",
+  "dumpmapgeometry ok label=tp6-c1-descent-mun-low-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-descent-mun-low-edge bytes=",
+  "dumpmapgeometry ok label=tp6-c1-descent-mun-low-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-descent-mun-top bytes=",
+  "dumpmapgeometry ok label=tp6-c1-descent-mun-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-landing-mun-low-top bytes=",
+  "dumpmapgeometry ok label=tp6-c1-landing-mun-low-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-landing-mun-low-edge bytes=",
+  "dumpmapgeometry ok label=tp6-c1-landing-mun-low-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c1-landing-mun-low-oblique bytes=",
+  "dumpmapgeometry ok label=tp6-c1-landing-mun-low-oblique scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c2-landing-mun-low-top bytes=",
+  "dumpmapgeometry ok label=tp6-c2-landing-mun-low-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp6-c2-landing-mun-low-edge bytes=",
+  "dumpmapgeometry ok label=tp6-c2-landing-mun-low-edge scene=FLIGHT ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "dumpmapgeometry rejected reason=",
+  "dumpmapgeometry (failed|timed out|capture threw)",
+  "mapcamera rejected reason=",
+  "mapcamera (not settled|scene lost)",
+  "mapcamera: ",
+  "capturescreenshot rejected reason=",
+  "capturescreenshot (not written|threw|dir create failed|pre-delete threw)",
+  "map-geometry-(timeout|capture-failed)",
+]
+
+[runtime]
+# The model lane's budget; the views add a few seconds each (three short two-phase
+# verbs) and every TimeJump is an instantaneous clock set.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -143,6 +143,14 @@ placement = "R0"
 name = "Harness"
 prefix = "^LedgerGroundTruth[.]cs$|^LedgerGroundTruthDiff[.]cs$|^CareerSaveParser[.]cs$|^TestBatchMarker[.]cs$|^CareerStartSnapshot[.]cs$"
 placement = "R0"
+
+# the DumpMapGeometry seam verb's JSON writer and end-of-frame capture
+# (docs/dev/design-map-geometry-dump.md): automation-only, called only by the seam
+# applier, so they sit with the seam in its tooling module
+[[module]]
+name = "TestCommands"
+prefix = "^MapGeometryJson[.]cs$|^MapGeometryRecorder[.]cs$"
+placement = "R0"
 # --- R0 operator placements (2026-11-01 refresh) ---------------------------
 # Root files added since 2026-09-25 that no family rule matched (the checker
 # reported 50 unplaced and skipped them). Placed by hand from what each file

@@ -20,6 +20,9 @@ All notable changes to Parsek are documented here.
   back where they were, so the ghost no longer jumps as it leaves one moon or reaches the other.
   The trip replays exactly as recorded; only the wait between loops changes.
   (MOON-TO-MOON-LOOP-NOT-RETIMED)
+- **Dev: a page that draws the map's trajectory lines from the numbers.** Map geometry dumps
+  from an automated run become one page of to-scale views beside the screenshot, with the
+  gaps between line pieces and the line altitudes measured (`harness/tools/map_mirror.py`).
 
 ### Fixed
 

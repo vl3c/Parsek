@@ -808,6 +808,34 @@ namespace Parsek.Display
         /// recordings the ghost drew this frame. Reads the <c>showRouteLines</c> setting; when off,
         /// no route draws and the end-of-frame sweep hides any previously drawn line.
         /// </summary>
+        /// <summary>
+        /// Read-only visitor over the route-line cache for the automation-only map-geometry dump
+        /// (<c>MapGeometryRecorder</c>): hands every cached member leg that owns a
+        /// <c>VectorLine</c> to <paramref name="onLeg"/> as (routeId, memberRecordingId, legIndex,
+        /// leg). The leg is a COPY; nothing is written back, so nothing drawn changes. The caller
+        /// decides what counts as drawn (<c>vectorLine.active</c>, <c>lastDrawnFrame</c>).
+        /// </summary>
+        internal static void VisitCachedRouteLegs(
+            Action<string, string, int, GhostTrajectoryPolylineRenderer.LegPolyline> onLeg)
+        {
+            if (onLeg == null) return;
+            foreach (var kvp in routeCache)
+            {
+                RouteMemberLegs[] groups = kvp.Value.groups;
+                if (groups == null) continue;
+                for (int g = 0; g < groups.Length; g++)
+                {
+                    GhostTrajectoryPolylineRenderer.LegPolyline[] legs = groups[g].legs;
+                    if (legs == null) continue;
+                    for (int i = 0; i < legs.Length; i++)
+                    {
+                        if (legs[i].vectorLine == null) continue;
+                        onLeg(kvp.Key, groups[g].memberRecordingId, i, legs[i]);
+                    }
+                }
+            }
+        }
+
         internal static void DrawAll(int frame, int targetLayer, Func<string, CelestialBody> resolveBody)
         {
             if (resolveBody == null) return;

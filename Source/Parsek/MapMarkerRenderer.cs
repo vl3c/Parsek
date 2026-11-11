@@ -44,6 +44,55 @@ namespace Parsek
         private const int ToggleClickPadding = 24;
         private const float UnpinnedMarkerAlpha = 0.8f;
 
+        // Map-geometry dump tap (automation-only; the DumpMapGeometry seam verb arms it for
+        // one capture and disarms it after). Off by default, so the two draw funnels pay one
+        // bool read per marker. While armed, each funnel notes the WORLD position it projected
+        // and drew, keyed by marker key (recording id, "recordingId#cycle", or "preview"),
+        // last write per frame wins (OnGUI runs Layout and Repaint passes in one frame).
+        private static bool drawnMarkerTapArmed;
+        private static readonly Dictionary<string, DrawnMarkerTap> drawnMarkerTaps =
+            new Dictionary<string, DrawnMarkerTap>(System.StringComparer.Ordinal);
+
+        /// <summary>One noted marker draw: its world position and the frame it was drawn on.</summary>
+        internal struct DrawnMarkerTap
+        {
+            public Vector3d WorldPos;
+            public int Frame;
+        }
+
+        /// <summary>Arms or disarms the marker tap; disarming forgets every note.</summary>
+        internal static void SetDrawnMarkerTapArmed(bool armed)
+        {
+            drawnMarkerTapArmed = armed;
+            if (!armed)
+                drawnMarkerTaps.Clear();
+        }
+
+        internal static bool IsDrawnMarkerTapArmed => drawnMarkerTapArmed;
+
+        /// <summary>
+        /// Called by the two marker draw funnels (flight map <c>DrawMapMarkerAt</c>, Tracking
+        /// Station <see cref="DrawMarker"/>) right before the icon is drawn, after the
+        /// behind-camera skip, so a note means the marker was drawn. No-op unless armed.
+        /// </summary>
+        internal static void NoteDrawnMarker(string markerKey, Vector3d worldPos)
+        {
+            if (!drawnMarkerTapArmed || markerKey == null)
+                return;
+            drawnMarkerTaps[markerKey] = new DrawnMarkerTap { WorldPos = worldPos, Frame = Time.frameCount };
+        }
+
+        /// <summary>Copies the markers noted on <paramref name="frame"/> into
+        /// <paramref name="into"/> (cleared first).</summary>
+        internal static void CopyDrawnMarkers(int frame, Dictionary<string, Vector3d> into)
+        {
+            if (into == null) return;
+            into.Clear();
+            foreach (var kv in drawnMarkerTaps)
+                if (kv.Value.Frame == frame)
+                    into[kv.Key] = kv.Value.WorldPos;
+        }
+
         // Tint for the atlas icon, chosen to match the stock map icon the same
         // ghost shows once it has a ProtoVessel (orbital phase): KSP's
         // OrbitRenderer sets every vessel's nodeColor to (0.71,0.71,0.71,1) and
@@ -187,6 +236,9 @@ namespace Parsek
             Vector3d scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
             Vector3 screenPos = PlanetariumCamera.Camera.WorldToScreenPoint(scaledPos);
             if (screenPos.z < 0) return; // behind camera
+
+            if (drawnMarkerTapArmed)
+                NoteDrawnMarker(markerKey, worldPos);
 
             DrawMarkerAtScreen(
                 new Vector2(screenPos.x, screenPos.y),

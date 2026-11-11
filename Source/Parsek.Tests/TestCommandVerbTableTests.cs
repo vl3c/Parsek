@@ -73,6 +73,8 @@ namespace Parsek.Tests
         [InlineData("AlarmJump")]
         [InlineData("LaunchSiteProbe")]
         [InlineData("PickUpFlag")]
+        [InlineData("DumpMapGeometry")]
+        [InlineData("MapCamera")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -225,7 +227,9 @@ namespace Parsek.Tests
             // under the loaded save's name (the scripted campaign program's CS-0 host).
             // PickUpFlag is ADDITIVE (59 -> 60; reserved unchanged at 4): the active EVA kerbal
             // takes down the nearest real flag through stock's own FlagSite.PickUp.
-            Assert.Equal(60, TestCommandVerbs.ImplementedVerbNames.Count);
+            // The map-geometry pair DumpMapGeometry / MapCamera is ADDITIVE (60 -> 62; reserved
+            // unchanged at 4): the map's drawn geometry as JSON, and the map camera framed by value.
+            Assert.Equal(62, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

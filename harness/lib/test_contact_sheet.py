@@ -414,6 +414,26 @@ class SelectRunScreenshotsTests(unittest.TestCase):
                       "GuiTreeRecorder writes a different suffix from the one the "
                       "harvest collects, so no dump would ever reach a _shots dir")
 
+    def test_the_map_dump_suffix_is_the_one_the_recorder_writes(self):
+        """SOURCE-SYNC, reading outside harness/ on purpose, the GUI-tree pin's twin:
+        MapGeometryRecorder pins `OutputSuffix = ".map.json"`. If either end moves alone
+        the harvest silently stops collecting map dumps, with nothing failing anywhere."""
+        self.assertIn(".map.json", hlib.ARTIFACT_SHOTS_SUFFIXES)
+        repo_root = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))
+        path = os.path.join(repo_root, "Source", "Parsek", "MapGeometryRecorder.cs")
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            src = fh.read()
+        self.assertIn('OutputSuffix = ".map.json"', src,
+                      "MapGeometryRecorder writes a different suffix from the one the "
+                      "harvest collects, so no map dump would ever reach a _shots dir")
+
+    def test_a_map_dump_is_harvested_and_a_plain_json_is_not(self):
+        candidates = [("ts-a.png", 2000.0, 10), ("ts-a.map.json", 2000.5, 10),
+                      ("other.json", 2001.0, 10)]
+        selected, _, _ = hlib.select_run_screenshots(candidates, self.START)
+        self.assertEqual(["ts-a.png", "ts-a.map.json"], selected)
+
     def test_count_cap_keeps_chronological_order_and_counts_the_rest(self):
         candidates = [("s%03d.png" % i, 2000.0 + i, 1) for i in range(10)]
         selected, _, over = hlib.select_run_screenshots(candidates, self.START, max_count=4)

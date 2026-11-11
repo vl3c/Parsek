@@ -1,0 +1,207 @@
+schema = 1
+id = "TP-2-mun-loop-ts-pictures"
+# =====================================================================================
+# TP-2: PICTURES OF THE LOOPED MUN MISSION IN THE TRACKING STATION.
+#
+# V6T-mun-ts-arrival's subject (the same loop, observed in TRACKSTATION) at three cycle-1
+# instants instead of one.
+#
+# WHY THE STEP CHAIN IS SHAPED THIS WAY. MissionConfig, StartLoopPlayback and TimeJump are
+# FLIGHT-only, and in this fixture's Tracking Station stock's new-game tutorial lock
+# (`ScenarioNewGameIntro tsComplete = False` -> `intro_TS`) holds TIMEWARP, so only a 1x
+# `WarpToUT` would run there - far too slow to move between instants thousands of seconds
+# apart. So every instant is reached in FLIGHT (V6T's own arm + jump), saved under its own
+# name (`SaveGame name=tp2-<instant>`), and then each save is booted straight into the
+# Tracking Station (`LoadGame name=tp2-<instant> scene=trackstation`), which is V6T's
+# observation repeated. The loop arming persists in each save (V6T relies on the same).
+#
+# MODEL LANE FACTS RELIED ON: V6T's setup and its measured jump 296,690; the other two
+# instants are TP-1's (header there): 289,177 transfer and 301,792 park.
+#
+# INSTANTS AND VIEWS (label tp2-<instant>-<view>):
+#   c1-transfer 289,177   sys-top (Sun, 90, 3.5e10), kerbin-top / kerbin-edge (Kerbin, 2.8e7)
+#   c1-arrival  296,690   kerbin-top, mun-top / mun-edge (Mun, 5.4e6)
+#   c1-park     301,792   mun-low-top / mun-low-edge (Mun, 7.5e5), kerbin-top
+#
+# FIRST-FLIGHT RISK: three TS boots in one process. A TS -> TS LoadGame is the seam's
+# documented boot route (any scene), but no committed lane has booted the Tracking
+# Station twice in a row; a refusal or a ghost-less second TS reads here first.
+#
+# THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
+# three steps under ONE label: `MapCamera` (focus / pitch / heading / distance, so the
+# frame is the same on every run), `CaptureScreenshot label=L` (the PNG) and
+# `DumpMapGeometry label=L` (the same frame as data, `Screenshots/L.map.json`). The harvest
+# copies both into `results/<runId>_shots/`, and `tools/map_mirror.py <shots-dir>` pairs
+# them by label into one page. Distances are metres from the focus body's centre, sized
+# off the body radius, SOI or the orbit the view must hold (about 2.2x the radius that
+# has to fit). Stock clamps pitch near +-86 deg and keeps the camera two radii out;
+# `mapcamera ok` reports any clamp, it is not a refusal.
+#
+# LIGHT EXPECTATIONS BY DESIGN. Each label's `capturescreenshot ok` and
+# `dumpmapgeometry ok` line is required, every refusal / error line of the three verbs
+# is forbidden, the model lane's anomaly allowance and recording-count window are
+# copied, and nothing else is asserted: no render-composition block, no gating block,
+# no routing tokens. The lane exists to produce pictures for a human and the mirror
+# page; the model lane keeps owning every behavioural claim about the same flight.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse a flight - NOT APPLIED: the request was a separate picture lane per subject
+#     with the model lane left byte-unchanged, and a model lane that also took pictures
+#     would change the frames its armed census reads (MapCamera moves the live camera).
+#   2 no idle waits - applied: every wait is an explicit-UT `WarpToUT maxRate=1` of 5 s
+#     (flight) or the model lane's own two `RecordingState` pacing ticks (TS); the
+#     clock moves by `TimeJump`, which costs no wall time.
+#   3 minimal dwells - applied: one 5 s 1x settle per instant, so the newly placed ghost
+#     and its lines have drawn before the first camera move.
+#   4 burns at 1x / 5 b5 coasts / 6 fail fast - not applicable: no mission is flown, the
+#     lane replays a committed fixture.
+#   7 tight count windows - the model lane's window, copied; tightened after the first
+#     flight only if it reads otherwise.
+#   8 tier by measured cost / 9 flight_efficiency.py - owed after the first flight; the
+#     tier is `operator` because the lane is run on request for pictures.
+# =====================================================================================
+tier = "operator"
+description = "PICTURE LANE, AUTHORED 2026-11-11, NOT YET FLOWN. V6T's looped Kerbin->Mun mission on mun-orbit-recorded, seen in the Tracking Station at three cycle-1 instants (transfer, Mun arrival, Mun park): each instant is jumped and saved in FLIGHT under its own name, then booted into the Tracking Station, where the map camera is framed (MapCamera) and each view is photographed (CaptureScreenshot) and dumped (DumpMapGeometry) under one label, 9 views in all. Expectations are only that every view was taken and none was refused."
+instanceProfile = "stock-minimal"
+tags = ["TP", "TP-2", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "pending-flight", "mun", "moon", "phase-lock", "tracking-station"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/mun-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "d18969d6121444c1a30e4a55ae87a442", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "d18969d6121444c1a30e4a55ae87a442" }, expect = "OK", budget = 300 },
+  # FLIGHT half of c1-transfer at UT 289177: TP-1's cycle-1 transfer instant
+  { cmd = "TimeJump", args = { ut = "289177" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame", args = { name = "tp2-c1-transfer" }, expect = "OK" },
+  # FLIGHT half of c1-arrival at UT 296690: V6T's measured jump (= V6M's cycle-1 arrival)
+  { cmd = "TimeJump", args = { ut = "296690" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame", args = { name = "tp2-c1-arrival" }, expect = "OK" },
+  # FLIGHT half of c1-park at UT 301792: TP-1's cycle-1 park instant
+  { cmd = "TimeJump", args = { ut = "301792" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame", args = { name = "tp2-c1-park" }, expect = "OK" },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  # TRACKING STATION at c1-transfer (UT 289177), booted from its own save
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "tp2-c1-transfer", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # view tp2-c1-transfer-sys-top: Sun pitch=90 heading=0 distance=35000000000 m
+  { cmd = "MapCamera", args = { focus = "Sun", pitch = "90", heading = "0", distance = "35000000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp2-c1-transfer-sys-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp2-c1-transfer-sys-top" }, expect = "OK" },
+  # view tp2-c1-transfer-kerbin-top: Kerbin pitch=90 heading=0 distance=28000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp2-c1-transfer-kerbin-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp2-c1-transfer-kerbin-top" }, expect = "OK" },
+  # view tp2-c1-transfer-kerbin-edge: Kerbin pitch=0 heading=0 distance=28000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "0", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp2-c1-transfer-kerbin-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp2-c1-transfer-kerbin-edge" }, expect = "OK" },
+  # TRACKING STATION at c1-arrival (UT 296690), booted from its own save
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "tp2-c1-arrival", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # view tp2-c1-arrival-kerbin-top: Kerbin pitch=90 heading=0 distance=28000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp2-c1-arrival-kerbin-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp2-c1-arrival-kerbin-top" }, expect = "OK" },
+  # view tp2-c1-arrival-mun-top: Mun pitch=90 heading=0 distance=5400000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp2-c1-arrival-mun-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp2-c1-arrival-mun-top" }, expect = "OK" },
+  # view tp2-c1-arrival-mun-edge: Mun pitch=0 heading=0 distance=5400000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp2-c1-arrival-mun-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp2-c1-arrival-mun-edge" }, expect = "OK" },
+  # TRACKING STATION at c1-park (UT 301792), booted from its own save
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "tp2-c1-park", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # view tp2-c1-park-mun-low-top: Mun pitch=90 heading=0 distance=750000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp2-c1-park-mun-low-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp2-c1-park-mun-low-top" }, expect = "OK" },
+  # view tp2-c1-park-mun-low-edge: Mun pitch=0 heading=0 distance=750000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp2-c1-park-mun-low-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp2-c1-park-mun-low-edge" }, expect = "OK" },
+  # view tp2-c1-park-kerbin-top: Kerbin pitch=90 heading=0 distance=28000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp2-c1-park-kerbin-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp2-c1-park-kerbin-top" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+# The scene cell is what the lane flies; the body cells are the bodies its views frame.
+# Nothing is armed, so no behavioural cell is claimed.
+[dimensionsCovered]
+D14 = ["mun", "kerbin", "scene-ts", "sandbox"]
+
+[expectations]
+# Copied from V6T-mun-ts-arrival, unchanged.
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "missionconfig applied:",
+  "startloopplayback initiated:",
+  "mapcamera ok focus=Sun pitch=",
+  "mapcamera ok focus=Kerbin pitch=",
+  "mapcamera ok focus=Mun pitch=",
+  "capturescreenshot ok label=tp2-c1-transfer-sys-top bytes=",
+  "dumpmapgeometry ok label=tp2-c1-transfer-sys-top scene=TRACKSTATION ",
+  "capturescreenshot ok label=tp2-c1-transfer-kerbin-top bytes=",
+  "dumpmapgeometry ok label=tp2-c1-transfer-kerbin-top scene=TRACKSTATION ",
+  "capturescreenshot ok label=tp2-c1-transfer-kerbin-edge bytes=",
+  "dumpmapgeometry ok label=tp2-c1-transfer-kerbin-edge scene=TRACKSTATION ",
+  "capturescreenshot ok label=tp2-c1-arrival-kerbin-top bytes=",
+  "dumpmapgeometry ok label=tp2-c1-arrival-kerbin-top scene=TRACKSTATION ",
+  "capturescreenshot ok label=tp2-c1-arrival-mun-top bytes=",
+  "dumpmapgeometry ok label=tp2-c1-arrival-mun-top scene=TRACKSTATION ",
+  "capturescreenshot ok label=tp2-c1-arrival-mun-edge bytes=",
+  "dumpmapgeometry ok label=tp2-c1-arrival-mun-edge scene=TRACKSTATION ",
+  "capturescreenshot ok label=tp2-c1-park-mun-low-top bytes=",
+  "dumpmapgeometry ok label=tp2-c1-park-mun-low-top scene=TRACKSTATION ",
+  "capturescreenshot ok label=tp2-c1-park-mun-low-edge bytes=",
+  "dumpmapgeometry ok label=tp2-c1-park-mun-low-edge scene=TRACKSTATION ",
+  "capturescreenshot ok label=tp2-c1-park-kerbin-top bytes=",
+  "dumpmapgeometry ok label=tp2-c1-park-kerbin-top scene=TRACKSTATION ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "dumpmapgeometry rejected reason=",
+  "dumpmapgeometry (failed|timed out|capture threw)",
+  "mapcamera rejected reason=",
+  "mapcamera (not settled|scene lost)",
+  "mapcamera: ",
+  "capturescreenshot rejected reason=",
+  "capturescreenshot (not written|threw|dir create failed|pre-delete threw)",
+  "map-geometry-(timeout|capture-failed)",
+]
+
+[runtime]
+# The model lane's budget; the views add a few seconds each (three short two-phase
+# verbs) and every TimeJump is an instantaneous clock set.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -998,5 +998,30 @@ namespace Parsek
                 return inst.persistentId;
             return 0u;
         }
+
+        /// <summary>
+        /// Read-only reverse of <see cref="TryGetOverlapInstancePidForCycle"/>: the overlap
+        /// (recIdx, cycle) a live per-instance ProtoVessel pid belongs to, or false when the pid
+        /// is not an overlap instance (a primary ghost). A linear walk of the instance map,
+        /// which holds a handful of entries; read by the automation-only map-geometry dump for
+        /// a ghost's loop cycle, never on a per-frame path.
+        /// </summary>
+        internal static bool TryGetOverlapCycleForPid(uint pid, out int recIdx, out long cycle)
+        {
+            recIdx = -1;
+            cycle = 0;
+            if (pid == 0u)
+                return false;
+            foreach (var kv in overlapInstanceVessels)
+            {
+                if (kv.Value != null && kv.Value.persistentId == pid)
+                {
+                    recIdx = kv.Key.recIdx;
+                    cycle = kv.Key.cycle;
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 }

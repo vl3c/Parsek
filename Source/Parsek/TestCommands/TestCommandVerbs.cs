@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer + CycleVessel + the EvaSeatBoard / EvaSeatLeave pair + AlarmJump + LaunchSiteProbe + NewGame + PickUpFlag): 60 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer + CycleVessel + the EvaSeatBoard / EvaSeatLeave pair + AlarmJump + LaunchSiteProbe + NewGame + PickUpFlag + the map-geometry pair DumpMapGeometry / MapCamera): 62 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -410,6 +410,18 @@ namespace Parsek.TestCommands
             // not-eva defer PlantFlag / EvaBoard use), default budget. State-mutating (it
             // removes a flag vessel and gives the kerbal the flag back).
             "PickUpFlag",
+            // The map-geometry pair. ADDITIVE (60 -> 62 implemented, reserved unchanged at 4).
+            // DumpMapGeometry writes the geometry the map drew in one frame (bodies, ghost
+            // icons and lines, route lines) as <label>.map.json beside the screenshots;
+            // MapCamera frames the map camera by value (focus body, pitch, heading,
+            // distance) so a picture and its dump are reproducible. Contracts on
+            // TestCommandDumpMapGeometry / TestCommandMapCamera and
+            // docs/dev/design-map-geometry-dump.md; both TWO-PHASE, RequiresMapScene
+            // (FLIGHT with the map open, or the Tracking Station), default budget.
+            // DumpMapGeometry is non-mutating (NonMutatingVerbs); MapCamera moves the live
+            // map camera, so it is not.
+            "DumpMapGeometry",
+            "MapCamera",
         };
 
         // Reserved (recognized, not implemented in v1): 4 verbs.
@@ -476,6 +488,11 @@ namespace Parsek.TestCommands
             // a Parsek method at all.
             "DumpGuiTree",           // writes one json, nothing else (hlib: TAIL_ROLE_INERT)
             "ReadVesselResources",   // reads tanks, writes nothing (hlib: TAIL_ROLE_INERT)
+            // DumpMapGeometry writes ONE json in the KSP tree and touches no vessel, save,
+            // career or Parsek persisted state - DumpGuiTree's row exactly (hlib:
+            // TAIL_ROLE_INERT). The marker tap it arms only records positions the marker
+            // funnels already compute, and is disarmed after the capture.
+            "DumpMapGeometry",       // writes one json, nothing else (hlib: TAIL_ROLE_INERT)
             "FlushAndQuit",          // the reader of the latch, not a mutator of the world
         };
 

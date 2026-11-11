@@ -900,6 +900,32 @@ an inlined image payload.
 Numbers, what they found and what is still different:
 `docs/dev/design-gui-mirror.md` section 11.
 
+### The map mirror (`tools/map_mirror.py`)
+
+The map-view counterpart of the GUI mirror, for judging how looped missions and
+supply routes are drawn on the map and in the tracking station. A lane that runs
+`DumpMapGeometry label=<label>` (and `CaptureScreenshot` with the same label) leaves
+`<label>.map.json` (`parsek-map-geometry/1`: every Parsek trajectory line, orbit and
+icon drawn at that instant, plus the planets) and `<label>.png` in its shots dir. This
+turns any number of those into ONE self-contained page: a rail of lanes and captures,
+and per capture to-scale SVG drawings computed from the numbers (the camera's view
+beside the screenshot, a top-down and an edge-on close-up per body that carries a
+line, the whole system from above; pan, zoom, hover) plus a measured table per ghost
+(icon to its own lines, altitude range per line, the gap at every seam between
+consecutive lines, distance from a reference path). Facts only, no verdicts.
+
+```
+python tools/map_mirror.py --shots "results/*_shots" --out map-mirror.html --index map-mirror-index.json [--budget-mb 16] [--no-photos] [--stamp UTC]
+```
+
+Same contracts as the GUI mirror: stdlib only, no network, photos inlined under the
+budget (re-encoded down a ladder when the originals do not fit) and the page REFUSED
+rather than written over it, a malformed or wrong-schema dump listed as unreadable
+with the field named. It writes where `--out` says; do not commit the page. Tests:
+`lib/test_map_mirror.py` (two hand-built sample dumps in `lib/testdata/`). Design and
+what every number means: `docs/dev/design-map-mirror.md`; the dump format:
+`docs/dev/design-map-geometry-dump.md`.
+
 ### Running a GUI census end to end
 
 TEN FLOWN CENSUS LANES IN FOUR WAVES, PLUS A TEN-LANE FIFTH WAVE AUTHORED
